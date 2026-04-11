@@ -1,0 +1,135 @@
+use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount, Transfer, transfer};
+use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
+use crate::kamino;
+use crate::error::PremiumBondsError;
+
+#[derive(Accounts)]
+pub struct BuyBonds<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"prize_pool", pool.pool_id.to_le_bytes().as_ref()],
+        bump = pool.vault_authority_bump,
+        has_one = ticket_registry
+    )]
+    pub pool: Account<'info, PrizePool>,
+
+    #[account(mut)]
+    pub ticket_registry: AccountLoader<'info, TicketRegistry>,
+
+    // Draw cycle for locking validation (optional check if provided)
+    // In our plan: "Requires DrawCycle.status != AwaitingRandomness."
+    /// CHECK: validated manually in logic if present
+    pub current_draw_cycle: Option<Account<'info, DrawCycle>>,
+
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [b"pool_vault", pool.pool_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub pool_vault_account: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [b"pool_ktokens", pool.pool_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub pool_ktokens_vault: Account<'info, TokenAccount>,
+
+    // Kamino Accounts
+    /// CHECK: CPI Target
+    pub kamino_program: AccountInfo<'info>,
+    #[account(mut)]
+    /// CHECK: 
+    pub reserve: AccountInfo<'info>,
+    /// CHECK: 
+    pub lending_market: AccountInfo<'info>,
+    /// CHECK: 
+    pub lending_market_authority: AccountInfo<'info>,
+    #[account(mut)]
+    /// CHECK: 
+    pub reserve_liquidity_supply: AccountInfo<'info>,
+    #[account(mut)]
+    /// CHECK: 
+    pub reserve_collateral_mint: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
+    let pool = &mut ctx.accounts.pool;
+
+    require!(pool.status == PoolStatus::Active, PremiumBondsError::PoolNotActive);
+    
+    // Check freezing
+    if let Some(ref draw_cycle) = ctx.accounts.current_draw_cycle {
+        require!(
+            draw_cycle.status != DrawStatus::AwaitingRandomness,
+            PremiumBondsError::AwaitingRandomnessFreeze
+        );
+    }
+
+    require!(amount % pool.bond_price == 0, PremiumBondsError::InvalidBondAmount);
+    let tickets_to_buy = (amount / pool.bond_price) as u32;
+    require!(tickets_to_buy > 0, PremiumBondsError::InvalidBondAmount);
+
+    // 1. Transfer to Pool Vault
+    let cpi_accounts = Transfer {
+        from: ctx.accounts.user_token_account.to_account_info(),
+        to: ctx.accounts.pool_vault_account.to_account_info(),
+        authority: ctx.accounts.user.to_account_info(),
+    };
+    transfer(
+        CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+        amount,
+    )?;
+
+    // 2. CPI into Kamino
+    let pool_id_bytes = pool.pool_id.to_le_bytes();
+    let authority_bump = pool.vault_authority_bump;
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        b"prize_pool",
+        pool_id_bytes.as_ref(),
+        &[authority_bump],
+    ]];
+
+    kamino::deposit_reserve_liquidity(
+        ctx.accounts.kamino_program.clone(),
+        pool.to_account_info(), // Pool is the owner
+        ctx.accounts.reserve.clone(),
+        ctx.accounts.lending_market.clone(),
+        ctx.accounts.lending_market_authority.clone(),
+        ctx.accounts.reserve_liquidity_supply.clone(),
+        ctx.accounts.reserve_collateral_mint.clone(),
+        ctx.accounts.pool_vault_account.to_account_info(), // Pool's Source Liquidity
+        ctx.accounts.pool_ktokens_vault.to_account_info(), // Pool's Destination Collateral
+        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        amount,
+        signer_seeds,
+    )?;
+
+    // 3. Update State
+    pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
+
+    let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
+    
+    // Safety check size
+    let current_total = ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count;
+    require!((current_total + tickets_to_buy) <= 327_680, PremiumBondsError::RegistryFull);
+
+    for _ in 0..tickets_to_buy {
+        let insert_idx = (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count) as usize;
+        ticket_registry.tickets[insert_idx] = ctx.accounts.user.key();
+        ticket_registry.pending_tickets_count += 1;
+    }
+
+    Ok(())
+}
