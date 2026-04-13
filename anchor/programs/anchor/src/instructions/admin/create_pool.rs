@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::{GlobalConfig, PrizePool, PoolStatus, TicketRegistry};
 use anchor_spl::token::Mint;
+use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
 #[instruction(pool_id: u32)]
@@ -19,7 +20,7 @@ pub struct CreatePool<'info> {
     #[account(
         init,
         payer = admin,
-        space = PrizePool::INIT_SPACE,
+        space = DISCRIMINATOR + PrizePool::INIT_SPACE,
         seeds = [b"prize_pool", pool_id.to_le_bytes().as_ref()],
         bump
     )]

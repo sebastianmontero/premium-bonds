@@ -33,7 +33,7 @@ pub fn deposit_reserve_liquidity<'info>(
             AccountMeta::new(*user_destination_collateral.key, false),
             AccountMeta::new_readonly(*token_program.key, false),
             // Kamino technically takes multiple token programs for different extensions depending on reserved, keeping simple fallback
-            AccountMeta::new_readonly(spl_token::id(), false), 
+            AccountMeta::new_readonly(anchor_spl::token::ID, false), 
             AccountMeta::new_readonly(*system_program.key, false),
         ],
         data,
@@ -90,7 +90,7 @@ pub fn redeem_reserve_collateral<'info>(
             AccountMeta::new(*user_destination_liquidity.key, false),
             AccountMeta::new(*user_source_collateral.key, false),
             AccountMeta::new_readonly(*token_program.key, false),
-            AccountMeta::new_readonly(spl_token::id(), false), 
+            AccountMeta::new_readonly(anchor_spl::token::ID, false), 
             AccountMeta::new_readonly(*system_program.key, false),
         ],
         data,

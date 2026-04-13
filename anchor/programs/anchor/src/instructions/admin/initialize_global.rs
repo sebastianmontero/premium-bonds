@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 use crate::state::GlobalConfig;
+use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
 pub struct InitializeGlobal<'info> {
     #[account(
         init,
         payer = admin,
-        space = GlobalConfig::INIT_SPACE,
+        space = DISCRIMINATOR + GlobalConfig::INIT_SPACE,
         seeds = [b"global_config"],
         bump
     )]
@@ -16,10 +17,10 @@ pub struct InitializeGlobal<'info> {
     pub admin: Signer<'info>,
 
     /// CHECK: Public key for the designated cranking bot
-    pub jobs_account: AccountInfo<'info>,
+    pub jobs_account: UncheckedAccount<'info>,
 
     /// CHECK: Receives protocol commission fees
-    pub fee_wallet: AccountInfo<'info>,
+    pub fee_wallet: UncheckedAccount<'info>,
     
     pub system_program: Program<'info, System>,
 }

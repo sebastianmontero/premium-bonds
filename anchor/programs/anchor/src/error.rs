@@ -16,4 +16,12 @@ pub enum PremiumBondsError {
     MathOverflow,
     #[msg("Invalid indices ordering. Please provide deduplicated descending indices.")]
     InvalidIndices,
+    #[msg("Only the designated Switchboard Jobs Account can execute this crank.")]
+    UnauthorizedCrank,
+    #[msg("The number of winners must be between 1 and 10.")]
+    InvalidNumWinners,
+    #[msg("Draw cycle is not currently awaiting random execution.")]
+    InvalidDrawStatus,
+    #[msg("The draw cycle has an invalid locked count or prize pot.")]
+    InvalidDrawState,
 }

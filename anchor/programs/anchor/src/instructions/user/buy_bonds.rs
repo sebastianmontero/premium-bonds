@@ -44,20 +44,20 @@ pub struct BuyBonds<'info> {
 
     // Kamino Accounts
     /// CHECK: CPI Target
-    pub kamino_program: AccountInfo<'info>,
+    pub kamino_program: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve: AccountInfo<'info>,
+    pub reserve: UncheckedAccount<'info>,
     /// CHECK: 
-    pub lending_market: AccountInfo<'info>,
+    pub lending_market: UncheckedAccount<'info>,
     /// CHECK: 
-    pub lending_market_authority: AccountInfo<'info>,
+    pub lending_market_authority: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve_liquidity_supply: AccountInfo<'info>,
+    pub reserve_liquidity_supply: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve_collateral_mint: AccountInfo<'info>,
+    pub reserve_collateral_mint: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -87,7 +87,7 @@ pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
         authority: ctx.accounts.user.to_account_info(),
     };
     transfer(
-        CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+        CpiContext::new(ctx.accounts.token_program.key(), cpi_accounts),
         amount,
     )?;
 
@@ -101,13 +101,13 @@ pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
     ]];
 
     kamino::deposit_reserve_liquidity(
-        ctx.accounts.kamino_program.clone(),
+        ctx.accounts.kamino_program.to_account_info(),
         pool.to_account_info(), // Pool is the owner
-        ctx.accounts.reserve.clone(),
-        ctx.accounts.lending_market.clone(),
-        ctx.accounts.lending_market_authority.clone(),
-        ctx.accounts.reserve_liquidity_supply.clone(),
-        ctx.accounts.reserve_collateral_mint.clone(),
+        ctx.accounts.reserve.to_account_info(),
+        ctx.accounts.lending_market.to_account_info(),
+        ctx.accounts.lending_market_authority.to_account_info(),
+        ctx.accounts.reserve_liquidity_supply.to_account_info(),
+        ctx.accounts.reserve_collateral_mint.to_account_info(),
         ctx.accounts.pool_vault_account.to_account_info(), // Pool's Source Liquidity
         ctx.accounts.pool_ktokens_vault.to_account_info(), // Pool's Destination Collateral
         ctx.accounts.token_program.to_account_info(),

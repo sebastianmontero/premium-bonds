@@ -3,6 +3,7 @@ use anchor_spl::token::{Token, TokenAccount};
 use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry};
 use crate::kamino;
 use crate::error::PremiumBondsError;
+use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
 #[instruction(cycle_id: u32)]
@@ -18,7 +19,7 @@ pub struct HarvestYieldAndCommit<'info> {
     pub global_config: Account<'info, GlobalConfig>,
 
     /// CHECK: Validated by constraint above (crank == jobs_account)
-    pub jobs_account: AccountInfo<'info>,
+    pub jobs_account: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -33,7 +34,7 @@ pub struct HarvestYieldAndCommit<'info> {
     #[account(
         init,
         payer = crank,
-        space = DrawCycle::INIT_SPACE,
+        space = DISCRIMINATOR + DrawCycle::INIT_SPACE,
         seeds = [b"draw_cycle", pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
@@ -46,27 +47,27 @@ pub struct HarvestYieldAndCommit<'info> {
 
     // Kamino
     /// CHECK: CPI Target
-    pub kamino_program: AccountInfo<'info>,
+    pub kamino_program: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve: AccountInfo<'info>,
+    pub reserve: UncheckedAccount<'info>,
     /// CHECK: 
-    pub lending_market: AccountInfo<'info>,
+    pub lending_market: UncheckedAccount<'info>,
     /// CHECK: 
-    pub lending_market_authority: AccountInfo<'info>,
+    pub lending_market_authority: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve_liquidity_supply: AccountInfo<'info>,
+    pub reserve_liquidity_supply: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 
-    pub reserve_collateral_mint: AccountInfo<'info>,
+    pub reserve_collateral_mint: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
 pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_burn: u64) -> Result<()> {
-    require!(ctx.accounts.crank.key() == ctx.accounts.global_config.jobs_account, PremiumBondsError::UnauthorizedTicket);
+    require!(ctx.accounts.crank.key() == ctx.accounts.global_config.jobs_account, PremiumBondsError::UnauthorizedCrank);
     let pool = &mut ctx.accounts.pool;
 
     let balance_before = ctx.accounts.pool_vault_account.amount;
@@ -81,13 +82,13 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
 
     if ktokens_to_burn > 0 {
         kamino::redeem_reserve_collateral(
-            ctx.accounts.kamino_program.clone(),
+            ctx.accounts.kamino_program.to_account_info(),
             pool.to_account_info(), 
-            ctx.accounts.reserve.clone(),
-            ctx.accounts.lending_market.clone(),
-            ctx.accounts.lending_market_authority.clone(),
-            ctx.accounts.reserve_liquidity_supply.clone(),
-            ctx.accounts.reserve_collateral_mint.clone(),
+            ctx.accounts.reserve.to_account_info(),
+            ctx.accounts.lending_market.to_account_info(),
+            ctx.accounts.lending_market_authority.to_account_info(),
+            ctx.accounts.reserve_liquidity_supply.to_account_info(),
+            ctx.accounts.reserve_collateral_mint.to_account_info(),
             ctx.accounts.pool_vault_account.to_account_info(), 
             ctx.accounts.pool_ktokens_vault.to_account_info(), 
             ctx.accounts.token_program.to_account_info(),
@@ -102,15 +103,27 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
     
-    // O(1) Block merge! The massive compute saving architecture element.
+    // 1. Snapshot the perfectly mature active tickets BEFORE merging.
+    // This strictly prevents Pending (JIT) deposits from being eligible for the current prize draw!
+    let eligible_locked_count = ticket_registry.active_tickets_count;
+
+    // 2. O(1) Block merge! Advance Pending tickets into Active so they mature over the NEXT cycle.
     ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
     ticket_registry.pending_tickets_count = 0;
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = cycle_id;
-    draw_cycle.status = DrawStatus::AwaitingRandomness;
-    draw_cycle.locked_ticket_count = ticket_registry.active_tickets_count; 
+    
+    if yield_generated > 0 && eligible_locked_count > 0 {
+        draw_cycle.status = DrawStatus::AwaitingRandomness;
+    } else {
+        // Shortcut: If no yield was generated OR there are zero mature tickets eligible to win,
+        // instantly complete the cycle to merge Pending -> Active tickets without paying for a VRF oracle draw!
+        draw_cycle.status = DrawStatus::Complete;
+    }
+    
+    draw_cycle.locked_ticket_count = eligible_locked_count; 
     draw_cycle.prize_pot = yield_generated;
 
     Ok(())

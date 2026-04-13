@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
 pub enum DrawStatus { AwaitingYield, AwaitingRandomness, Complete }
 
 #[account]
+#[derive(InitSpace)]
 pub struct DrawCycle {
     pub pool_id: u32,
     pub cycle_id: u32,
@@ -13,27 +14,19 @@ pub struct DrawCycle {
     pub prize_pot: u64,
 }
 
-impl DrawCycle {
-    pub const INIT_SPACE: usize = 8 +  // discriminator
-        4 +                            // pool_id
-        4 +                            // cycle_id
-        1 +                            // status (enum)
-        4 +                            // locked_ticket_count
-        32 +                           // randomness_seed
-        8;                             // prize_pot
-}
-
 #[account]
+#[derive(InitSpace)]
 pub struct PayoutRegistry {
     pub pool_id: u32,
     pub cycle_id: u32,
     pub winners_count: u32,
     pub payouts_completed: u32,
     // Dynamic array for phase 1
+    #[max_len(10)]
     pub winners: Vec<Winner>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct Winner {
     pub winner_pubkey: Pubkey,
     pub amount_owed: u64,

@@ -45,11 +45,11 @@ pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Re
 
     require!(idx < payout_registry.winners.len(), PremiumBondsError::InvalidIndices);
     
-    let winner_record = &mut payout_registry.winners[idx];
-    require!(winner_record.winner_pubkey == ctx.accounts.user.key(), PremiumBondsError::UnauthorizedTicket);
-    require!(!winner_record.paid_out, PremiumBondsError::UnauthorizedTicket); 
+    let amount_owed = payout_registry.winners[idx].amount_owed;
+    require!(payout_registry.winners[idx].winner_pubkey == ctx.accounts.user.key(), PremiumBondsError::UnauthorizedTicket);
+    require!(!payout_registry.winners[idx].paid_out, PremiumBondsError::UnauthorizedTicket); 
 
-    winner_record.paid_out = true;
+    payout_registry.winners[idx].paid_out = true;
     payout_registry.payouts_completed += 1;
 
     let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
@@ -66,8 +66,8 @@ pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Re
         authority: ctx.accounts.pool.to_account_info(),
     };
     transfer(
-        CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds),
-        winner_record.amount_owed,
+        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+        amount_owed,
     )?;
 
     Ok(())
