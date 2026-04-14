@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount, Transfer, transfer};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
 use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
 use crate::kamino;
 use crate::error::PremiumBondsError;
+use crate::constants::{PRIZE_POOL_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
 
 #[derive(Accounts)]
 pub struct BuyBonds<'info> {
@@ -11,7 +12,7 @@ pub struct BuyBonds<'info> {
 
     #[account(
         mut,
-        seeds = [b"prize_pool", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
         has_one = ticket_registry
     )]
@@ -26,21 +27,24 @@ pub struct BuyBonds<'info> {
     pub current_draw_cycle: Option<Account<'info, DrawCycle>>,
 
     #[account(mut)]
-    pub user_token_account: Account<'info, TokenAccount>,
+    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+    
+    #[account(address = pool.token_mint)]
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
-        seeds = [b"pool_vault", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub pool_vault_account: Account<'info, TokenAccount>,
+    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
-        seeds = [b"pool_ktokens", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub pool_ktokens_vault: Account<'info, TokenAccount>,
+    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
     // Kamino Accounts
     /// CHECK: CPI Target
@@ -59,7 +63,7 @@ pub struct BuyBonds<'info> {
     /// CHECK: 
     pub reserve_collateral_mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -81,21 +85,23 @@ pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
     require!(tickets_to_buy > 0, PremiumBondsError::InvalidBondAmount);
 
     // 1. Transfer to Pool Vault
-    let cpi_accounts = Transfer {
+    let cpi_accounts = TransferChecked {
         from: ctx.accounts.user_token_account.to_account_info(),
+        mint: ctx.accounts.token_mint.to_account_info(),
         to: ctx.accounts.pool_vault_account.to_account_info(),
         authority: ctx.accounts.user.to_account_info(),
     };
-    transfer(
+    transfer_checked(
         CpiContext::new(ctx.accounts.token_program.key(), cpi_accounts),
         amount,
+        ctx.accounts.token_mint.decimals,
     )?;
 
     // 2. CPI into Kamino
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] = &[&[
-        b"prize_pool",
+        PRIZE_POOL_SEED,
         pool_id_bytes.as_ref(),
         &[authority_bump],
     ]];

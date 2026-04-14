@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount};
 use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry};
 use crate::kamino;
 use crate::error::PremiumBondsError;
+use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED};
 use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
@@ -12,7 +13,7 @@ pub struct HarvestYieldAndCommit<'info> {
     pub crank: Signer<'info>,
 
     #[account(
-        seeds = [b"global_config"],
+        seeds = [GLOBAL_CONFIG_SEED],
         bump,
         has_one = jobs_account 
     )]
@@ -23,7 +24,7 @@ pub struct HarvestYieldAndCommit<'info> {
 
     #[account(
         mut,
-        seeds = [b"prize_pool", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
     pub pool: Account<'info, PrizePool>,
@@ -35,15 +36,15 @@ pub struct HarvestYieldAndCommit<'info> {
         init,
         payer = crank,
         space = DISCRIMINATOR + DrawCycle::INIT_SPACE,
-        seeds = [b"draw_cycle", pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
     pub current_draw_cycle: Account<'info, DrawCycle>,
 
     #[account(mut)]
-    pub pool_vault_account: Account<'info, TokenAccount>,
+    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut)]
-    pub pool_ktokens_vault: Account<'info, TokenAccount>,
+    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
     // Kamino
     /// CHECK: CPI Target
@@ -62,7 +63,7 @@ pub struct HarvestYieldAndCommit<'info> {
     /// CHECK: 
     pub reserve_collateral_mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -75,7 +76,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] = &[&[
-        b"prize_pool",
+        PRIZE_POOL_SEED,
         pool_id_bytes.as_ref(),
         &[authority_bump],
     ]];

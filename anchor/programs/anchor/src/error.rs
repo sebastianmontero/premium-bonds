@@ -24,4 +24,10 @@ pub enum PremiumBondsError {
     InvalidDrawStatus,
     #[msg("The draw cycle has an invalid locked count or prize pot.")]
     InvalidDrawState,
+    #[msg("Unauthorized admin.")]
+    UnauthorizedAdmin,
+    #[msg("Bond price must be greater than 0.")]
+    InvalidBondPrice,
+    #[msg("Stake cycle duration must be greater than 0 hours.")]
+    InvalidStakeCycleDuration,
 }

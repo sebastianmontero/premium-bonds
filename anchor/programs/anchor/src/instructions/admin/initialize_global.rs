@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::GlobalConfig;
-use crate::constants::DISCRIMINATOR;
+use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED};
 
 #[derive(Accounts)]
 pub struct InitializeGlobal<'info> {
@@ -8,7 +8,7 @@ pub struct InitializeGlobal<'info> {
         init,
         payer = admin,
         space = DISCRIMINATOR + GlobalConfig::INIT_SPACE,
-        seeds = [b"global_config"],
+        seeds = [GLOBAL_CONFIG_SEED],
         bump
     )]
     pub global_config: Account<'info, GlobalConfig>,

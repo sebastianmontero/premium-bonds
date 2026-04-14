@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount, Transfer, transfer};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
 use crate::state::{PrizePool, PayoutRegistry};
 use crate::error::PremiumBondsError;
+use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED, POOL_VAULT_SEED};
 
 #[derive(Accounts)]
 #[instruction(cycle_id: u32)]
@@ -11,13 +12,13 @@ pub struct ClaimPrize<'info> {
 
     #[account(
         mut,
-        seeds = [b"payout", pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
+        seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
     pub payout_registry: Account<'info, PayoutRegistry>,
 
     #[account(
-        seeds = [b"prize_pool", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
     pub pool: Account<'info, PrizePool>,
@@ -27,16 +28,19 @@ pub struct ClaimPrize<'info> {
         associated_token::mint = pool.token_mint,
         associated_token::authority = user,
     )]
-    pub user_token_account: Account<'info, TokenAccount>,
+    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(address = pool.token_mint)]
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
-        seeds = [b"pool_vault", pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub pool_vault_account: Account<'info, TokenAccount>,
+    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Result<()> {
@@ -55,19 +59,21 @@ pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Re
     let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
     let authority_bump = ctx.accounts.pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] = &[&[
-        b"prize_pool",
+        PRIZE_POOL_SEED,
         pool_id_bytes.as_ref(),
         &[authority_bump],
     ]];
 
-    let cpi_accounts = Transfer {
+    let cpi_accounts = TransferChecked {
         from: ctx.accounts.pool_vault_account.to_account_info(),
+        mint: ctx.accounts.token_mint.to_account_info(),
         to: ctx.accounts.user_token_account.to_account_info(),
         authority: ctx.accounts.pool.to_account_info(),
     };
-    transfer(
+    transfer_checked(
         CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
         amount_owed,
+        ctx.accounts.token_mint.decimals,
     )?;
 
     Ok(())

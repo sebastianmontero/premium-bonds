@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, PayoutRegistry, TicketRegistry, Winner};
 use crate::error::PremiumBondsError;
-use crate::constants::DISCRIMINATOR;
+use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED, DRAW_CYCLE_SEED, PAYOUT_SEED};
 
 #[derive(Accounts)]
 pub struct RevealAndPickWinners<'info> {
@@ -9,7 +9,7 @@ pub struct RevealAndPickWinners<'info> {
     pub crank: Signer<'info>,
 
     #[account(
-        seeds = [b"global_config"],
+        seeds = [GLOBAL_CONFIG_SEED],
         bump,
         has_one = jobs_account 
     )]
@@ -20,7 +20,7 @@ pub struct RevealAndPickWinners<'info> {
 
     #[account(
         mut,
-        seeds = [b"draw_cycle", pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
     )]
     pub current_draw_cycle: Account<'info, DrawCycle>,
@@ -33,7 +33,7 @@ pub struct RevealAndPickWinners<'info> {
         init,
         payer = crank,
         space = DISCRIMINATOR + PayoutRegistry::INIT_SPACE,
-        seeds = [b"payout", pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump
     )]
     pub payout_registry: Account<'info, PayoutRegistry>,
