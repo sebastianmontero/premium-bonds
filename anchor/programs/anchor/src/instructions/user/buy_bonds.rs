@@ -1,14 +1,20 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
-use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
 use crate::kamino;
 use crate::error::PremiumBondsError;
-use crate::constants::{PRIZE_POOL_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
+use crate::constants::{PRIZE_POOL_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED, GLOBAL_CONFIG_SEED};
 
 #[derive(Accounts)]
 pub struct BuyBonds<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+
+    #[account(
+        seeds = [GLOBAL_CONFIG_SEED],
+        bump
+    )]
+    pub global_config: Account<'info, GlobalConfig>,
 
     #[account(
         mut,
@@ -21,10 +27,7 @@ pub struct BuyBonds<'info> {
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    // Draw cycle for locking validation (optional check if provided)
-    // In our plan: "Requires DrawCycle.status != AwaitingRandomness."
-    /// CHECK: validated manually in logic if present
-    pub current_draw_cycle: Option<Account<'info, DrawCycle>>,
+    // Draw cycle freezing is now validated securely on the pool state below
 
     #[account(
         mut,
@@ -44,6 +47,7 @@ pub struct BuyBonds<'info> {
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = token_mint,
         token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
@@ -52,6 +56,7 @@ pub struct BuyBonds<'info> {
         mut,
         seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
@@ -69,31 +74,34 @@ pub struct BuyBonds<'info> {
     #[account(mut)]
     /// CHECK: 
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: 
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        mint::token_program = ktokens_token_program
+    )]
+    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
+pub fn handle(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
     require!(pool.status == PoolStatus::Active, PremiumBondsError::PoolNotActive);
     
     // Check freezing
-    if let Some(ref draw_cycle) = ctx.accounts.current_draw_cycle {
-        require!(
-            draw_cycle.status != DrawStatus::AwaitingRandomness,
-            PremiumBondsError::AwaitingRandomnessFreeze
-        );
-    }
+    require!(
+        !pool.is_frozen_for_draw,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
 
-    require!(amount % pool.bond_price == 0, PremiumBondsError::InvalidBondAmount);
-    let tickets_to_buy = (amount / pool.bond_price) as u32;
     require!(tickets_to_buy > 0, PremiumBondsError::InvalidBondAmount);
+    require!(
+        tickets_to_buy <= ctx.accounts.global_config.max_tickets_per_buy,
+        PremiumBondsError::MaxTicketsPerBuyExceeded
+    );
+    let amount = (tickets_to_buy as u64).checked_mul(pool.bond_price).unwrap();
 
     // 1. Transfer to Pool Vault
     let cpi_accounts = TransferChecked {

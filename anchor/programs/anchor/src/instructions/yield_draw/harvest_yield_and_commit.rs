@@ -7,7 +7,6 @@ use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED, POO
 use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
-#[instruction(cycle_id: u32)]
 pub struct HarvestYieldAndCommit<'info> {
     #[account(mut)]
     pub crank: Signer<'info>,
@@ -36,7 +35,7 @@ pub struct HarvestYieldAndCommit<'info> {
         init,
         payer = crank,
         space = DISCRIMINATOR + DrawCycle::INIT_SPACE,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.current_draw_cycle_id.to_le_bytes().as_ref()],
         bump
     )]
     pub current_draw_cycle: Account<'info, DrawCycle>,
@@ -45,6 +44,7 @@ pub struct HarvestYieldAndCommit<'info> {
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = token_mint,
         token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
@@ -53,6 +53,7 @@ pub struct HarvestYieldAndCommit<'info> {
         mut,
         seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
@@ -84,18 +85,25 @@ pub struct HarvestYieldAndCommit<'info> {
     #[account(mut)]
     /// CHECK: 
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: 
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        mint::token_program = ktokens_token_program
+    )]
+    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_burn: u64) -> Result<()> {
+pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Result<()> {
     require!(ctx.accounts.crank.key() == ctx.accounts.global_config.jobs_account, PremiumBondsError::UnauthorizedCrank);
     let pool = &mut ctx.accounts.pool;
+
+    require!(
+        !pool.is_frozen_for_draw,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
 
     let balance_before = ctx.accounts.pool_vault_account.amount;
 
@@ -161,10 +169,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
-    draw_cycle.cycle_id = cycle_id;
+    draw_cycle.cycle_id = pool.current_draw_cycle_id;
     
     if yield_generated > 0 && eligible_locked_count > 0 {
         draw_cycle.status = DrawStatus::AwaitingRandomness;
+        pool.is_frozen_for_draw = true;
     } else {
         // Shortcut: If no yield was generated OR there are zero mature tickets eligible to win,
         // instantly complete the cycle to merge Pending -> Active tickets without paying for a VRF oracle draw!
@@ -174,6 +183,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
     draw_cycle.locked_ticket_count = eligible_locked_count; 
     draw_cycle.prize_pot = net_yield;
     draw_cycle.cycle_fee_collected = fee;
+
+    pool.current_draw_cycle_id = pool.current_draw_cycle_id.checked_add(1).unwrap();
 
     Ok(())
 }

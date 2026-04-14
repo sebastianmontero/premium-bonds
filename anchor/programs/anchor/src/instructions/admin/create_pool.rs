@@ -101,6 +101,8 @@ pub fn handle(
     pool.status = PoolStatus::Active;
     pool.total_deposited_principal = 0;
     pool.total_fees_collected = 0;
+    pool.is_frozen_for_draw = false;
+    pool.current_draw_cycle_id = 0;
 
     let clock = Clock::get()?;
     pool.current_cycle_end_at = clock.unix_timestamp + (stake_cycle_duration_hrs * 3600);

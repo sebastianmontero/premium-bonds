@@ -30,4 +30,6 @@ pub enum PremiumBondsError {
     InvalidBondPrice,
     #[msg("Stake cycle duration must be greater than 0 hours.")]
     InvalidStakeCycleDuration,
+    #[msg("The maximum number of tickets per transaction was exceeded.")]
+    MaxTicketsPerBuyExceeded,
 }

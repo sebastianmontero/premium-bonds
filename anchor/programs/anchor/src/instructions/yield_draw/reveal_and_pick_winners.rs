@@ -25,6 +25,7 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub current_draw_cycle: Account<'info, DrawCycle>,
 
+    #[account(mut)]
     pub pool: Account<'info, PrizePool>,
 
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -50,6 +51,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32], num_win
 
     draw_cycle.randomness_seed = random_seed;
     draw_cycle.status = DrawStatus::Complete;
+    ctx.accounts.pool.is_frozen_for_draw = false;
 
     let ticket_registry = ctx.accounts.ticket_registry.load()?;
 

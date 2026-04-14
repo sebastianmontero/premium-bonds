@@ -21,8 +21,7 @@ pub struct SellBonds<'info> {
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// CHECK: validated manually inside if provided
-    pub current_draw_cycle: Option<Account<'info, DrawCycle>>,
+    // Draw cycle freezing is now validated securely on the pool state below
 
     #[account(
         mut,
@@ -42,6 +41,7 @@ pub struct SellBonds<'info> {
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = token_mint,
         token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
@@ -50,6 +50,7 @@ pub struct SellBonds<'info> {
         mut,
         seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
@@ -67,9 +68,11 @@ pub struct SellBonds<'info> {
     #[account(mut)]
     /// CHECK: 
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: 
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        mint::token_program = ktokens_token_program
+    )]
+    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,
@@ -84,12 +87,10 @@ pub fn handle(
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
-    if let Some(ref draw_cycle) = ctx.accounts.current_draw_cycle {
-        require!(
-            draw_cycle.status != DrawStatus::AwaitingRandomness,
-            PremiumBondsError::AwaitingRandomnessFreeze
-        );
-    }
+    require!(
+        !pool.is_frozen_for_draw,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
 
     let bonds_to_sell = active_indices.len() as u32 + pending_indices.len() as u32;
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondAmount);

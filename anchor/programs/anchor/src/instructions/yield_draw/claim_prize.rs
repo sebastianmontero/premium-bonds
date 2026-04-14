@@ -41,6 +41,7 @@ pub struct ClaimPrize<'info> {
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = token_mint,
         token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,

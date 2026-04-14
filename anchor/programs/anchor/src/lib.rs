@@ -17,8 +17,22 @@ declare_id!("6pqRfnwjovBRjLcw2LmsRTM6ozKhiXDAa6iLc5eQKnbf");
 pub mod anchor {
     use super::*;
 
-    pub fn initialize_global(ctx: Context<InitializeGlobal>) -> Result<()> {
-        instructions::admin::initialize_global::handle(ctx)
+    pub fn initialize_global(ctx: Context<InitializeGlobal>, max_tickets_per_buy: u32) -> Result<()> {
+        instructions::admin::initialize_global::handle(ctx, max_tickets_per_buy)
+    }
+
+    pub fn update_global_config(
+        ctx: Context<UpdateGlobalConfig>,
+        new_admin: Option<Pubkey>,
+        new_jobs_account: Option<Pubkey>,
+        new_max_tickets_per_buy: Option<u32>,
+    ) -> Result<()> {
+        instructions::admin::update_global_config::handle(
+            ctx,
+            new_admin,
+            new_jobs_account,
+            new_max_tickets_per_buy,
+        )
     }
 
     pub fn create_pool(
@@ -37,8 +51,8 @@ pub mod anchor {
         )
     }
 
-    pub fn buy_bonds(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
-        instructions::user::buy_bonds::handle(ctx, amount)
+    pub fn buy_bonds(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
+        instructions::user::buy_bonds::handle(ctx, tickets_to_buy)
     }
 
     pub fn sell_bonds(
@@ -57,10 +71,9 @@ pub mod anchor {
 
     pub fn harvest_yield_and_commit(
         ctx: Context<HarvestYieldAndCommit>,
-        cycle_id: u32,
         ktokens_to_burn: u64,
     ) -> Result<()> {
-        instructions::yield_draw::harvest_yield_and_commit::handle(ctx, cycle_id, ktokens_to_burn)
+        instructions::yield_draw::harvest_yield_and_commit::handle(ctx, ktokens_to_burn)
     }
 
     pub fn reveal_and_pick_winners(

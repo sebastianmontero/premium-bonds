@@ -22,11 +22,12 @@ pub struct InitializeGlobal<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
+pub fn handle(ctx: Context<InitializeGlobal>, max_tickets_per_buy: u32) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
 
     global_config.admin = ctx.accounts.admin.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
+    global_config.max_tickets_per_buy = max_tickets_per_buy;
 
     Ok(())
 }
