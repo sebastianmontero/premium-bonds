@@ -1,8 +1,10 @@
-use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
+use crate::constants::{
+    DISCRIMINATOR, GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED,
+};
 use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::Mint;
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 #[derive(Accounts)]
 #[instruction(pool_id: u32)]
@@ -31,9 +33,47 @@ pub struct CreatePool<'info> {
     #[account(zero)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    #[account(
+        mint::token_program = token_program
+    )]
     pub token_mint: InterfaceAccount<'info, Mint>,
 
+    #[account(
+        mint::token_program = ktokens_token_program
+    )]
+    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [POOL_VAULT_SEED, pool_id.to_le_bytes().as_ref()],
+        bump,
+        token::mint = token_mint,
+        token::authority = pool,
+        token::token_program = token_program,
+    )]
+    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = admin,
+        seeds = [POOL_KTOKENS_SEED, pool_id.to_le_bytes().as_ref()],
+        bump,
+        token::mint = reserve_collateral_mint,
+        token::authority = pool,
+        token::token_program = ktokens_token_program,
+    )]
+    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        token::mint = token_mint,
+        token::token_program = token_program
+    )]
+    pub fee_wallet: InterfaceAccount<'info, TokenAccount>,
+
     pub system_program: Program<'info, System>,
+    pub token_program: Interface<'info, TokenInterface>,
+    pub ktokens_token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handle(
@@ -54,11 +94,13 @@ pub fn handle(
     pool.pool_id = pool_id;
     pool.token_mint = ctx.accounts.token_mint.key();
     pool.ticket_registry = ctx.accounts.ticket_registry.key();
+    pool.fee_wallet = ctx.accounts.fee_wallet.key();
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
     pool.status = PoolStatus::Active;
     pool.total_deposited_principal = 0;
+    pool.total_fees_collected = 0;
 
     let clock = Clock::get()?;
     pool.current_cycle_end_at = clock.unix_timestamp + (stake_cycle_duration_hrs * 3600);

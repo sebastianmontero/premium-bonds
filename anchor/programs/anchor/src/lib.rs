@@ -3,6 +3,7 @@ pub mod error;
 pub mod instructions;
 pub mod kamino;
 pub mod state;
+pub mod utils;
 
 use anchor_lang::prelude::*;
 

@@ -18,9 +18,6 @@ pub struct InitializeGlobal<'info> {
 
     /// CHECK: Public key for the designated cranking bot
     pub jobs_account: UncheckedAccount<'info>,
-
-    /// CHECK: Receives protocol commission fees
-    pub fee_wallet: UncheckedAccount<'info>,
     
     pub system_program: Program<'info, System>,
 }
@@ -30,7 +27,6 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
 
     global_config.admin = ctx.accounts.admin.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
-    global_config.fee_wallet = ctx.accounts.fee_wallet.key();
 
     Ok(())
 }

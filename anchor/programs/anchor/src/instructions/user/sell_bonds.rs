@@ -28,23 +28,29 @@ pub struct SellBonds<'info> {
         mut,
         associated_token::mint = pool.token_mint,
         associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
     
-    #[account(address = pool.token_mint)]
+    #[account(
+        address = pool.token_mint,
+        mint::token_program = token_program
+    )]
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::token_program = ktokens_token_program
     )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
@@ -66,6 +72,7 @@ pub struct SellBonds<'info> {
     pub reserve_collateral_mint: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -162,6 +169,7 @@ pub fn handle(
         ctx.accounts.pool_vault_account.to_account_info(), 
         ctx.accounts.pool_ktokens_vault.to_account_info(), 
         ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.ktokens_token_program.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
         ktokens_to_burn,
         signer_seeds,

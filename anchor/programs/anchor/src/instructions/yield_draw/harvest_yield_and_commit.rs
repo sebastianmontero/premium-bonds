@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount};
+use anchor_spl::token_interface::{TokenInterface, TokenAccount, Mint, transfer_checked, TransferChecked};
 use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry};
 use crate::kamino;
 use crate::error::PremiumBondsError;
-use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED};
+use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
 use crate::constants::DISCRIMINATOR;
 
 #[derive(Accounts)]
@@ -41,10 +41,35 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub current_draw_cycle: Account<'info, DrawCycle>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        bump,
+        token::token_program = token_program
+    )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
-    #[account(mut)]
+
+    #[account(
+        mut,
+        seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        bump,
+        token::token_program = ktokens_token_program
+    )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = token_mint,
+        token::token_program = token_program,
+        address = pool.fee_wallet
+    )]
+    pub fee_wallet: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        address = pool.token_mint,
+        mint::token_program = token_program
+    )]
+    pub token_mint: InterfaceAccount<'info, Mint>,
 
     // Kamino
     /// CHECK: CPI Target
@@ -64,6 +89,7 @@ pub struct HarvestYieldAndCommit<'info> {
     pub reserve_collateral_mint: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -93,6 +119,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
             ctx.accounts.pool_vault_account.to_account_info(), 
             ctx.accounts.pool_ktokens_vault.to_account_info(), 
             ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.ktokens_token_program.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             ktokens_to_burn,
             signer_seeds,
@@ -101,6 +128,26 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
 
     ctx.accounts.pool_vault_account.reload()?;
     let yield_generated = ctx.accounts.pool_vault_account.amount.checked_sub(balance_before).unwrap();
+
+    let fee = pool.calculate_fee(yield_generated);
+
+    let net_yield = yield_generated.checked_sub(fee).unwrap();
+
+    if fee > 0 {
+        let cpi_accounts = TransferChecked {
+            from: ctx.accounts.pool_vault_account.to_account_info(),
+            mint: ctx.accounts.token_mint.to_account_info(),
+            to: ctx.accounts.fee_wallet.to_account_info(),
+            authority: pool.to_account_info(),
+        };
+        transfer_checked(
+            CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+            fee,
+            ctx.accounts.token_mint.decimals,
+        )?;
+        
+        pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
+    }
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
     
@@ -125,7 +172,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, cycle_id: u32, ktokens_to_bur
     }
     
     draw_cycle.locked_ticket_count = eligible_locked_count; 
-    draw_cycle.prize_pot = yield_generated;
+    draw_cycle.prize_pot = net_yield;
+    draw_cycle.cycle_fee_collected = fee;
 
     Ok(())
 }

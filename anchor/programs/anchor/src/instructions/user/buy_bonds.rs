@@ -26,23 +26,33 @@ pub struct BuyBonds<'info> {
     /// CHECK: validated manually in logic if present
     pub current_draw_cycle: Option<Account<'info, DrawCycle>>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        token::mint = token_mint,
+        token::authority = user,
+        token::token_program = token_program
+    )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
     
-    #[account(address = pool.token_mint)]
+    #[account(
+        address = pool.token_mint,
+        mint::token_program = token_program
+    )]
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::token_program = ktokens_token_program
     )]
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
@@ -64,6 +74,7 @@ pub struct BuyBonds<'info> {
     pub reserve_collateral_mint: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
+    pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -117,6 +128,7 @@ pub fn handle(ctx: Context<BuyBonds>, amount: u64) -> Result<()> {
         ctx.accounts.pool_vault_account.to_account_info(), // Pool's Source Liquidity
         ctx.accounts.pool_ktokens_vault.to_account_info(), // Pool's Destination Collateral
         ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.ktokens_token_program.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
         amount,
         signer_seeds,

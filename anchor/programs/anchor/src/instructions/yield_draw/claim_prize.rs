@@ -27,16 +27,21 @@ pub struct ClaimPrize<'info> {
         mut,
         associated_token::mint = pool.token_mint,
         associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(address = pool.token_mint)]
+    #[account(
+        address = pool.token_mint,
+        mint::token_program = token_program
+    )]
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump
+        bump,
+        token::token_program = token_program
     )]
     pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
 

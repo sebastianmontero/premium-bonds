@@ -12,6 +12,7 @@ pub struct DrawCycle {
     pub locked_ticket_count: u32, 
     pub randomness_seed: [u8; 32],
     pub prize_pot: u64,
+    pub cycle_fee_collected: u64,
 }
 
 #[account]
