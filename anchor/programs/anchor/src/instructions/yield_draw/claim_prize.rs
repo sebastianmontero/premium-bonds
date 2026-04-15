@@ -1,8 +1,10 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
-use crate::state::{PrizePool, PayoutRegistry};
+use crate::constants::{PAYOUT_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED, POOL_VAULT_SEED};
+use crate::state::{PayoutRegistry, PrizePool};
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{
+    transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
+};
 
 #[derive(Accounts)]
 #[instruction(cycle_id: u32)]
@@ -53,22 +55,28 @@ pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Re
     let payout_registry = &mut ctx.accounts.payout_registry;
     let idx = winner_index as usize;
 
-    require!(idx < payout_registry.winners.len(), PremiumBondsError::InvalidIndices);
-    
+    require!(
+        idx < payout_registry.winners.len(),
+        PremiumBondsError::InvalidIndices
+    );
+
     let amount_owed = payout_registry.winners[idx].amount_owed;
-    require!(payout_registry.winners[idx].winner_pubkey == ctx.accounts.user.key(), PremiumBondsError::UnauthorizedTicket);
-    require!(!payout_registry.winners[idx].paid_out, PremiumBondsError::UnauthorizedTicket); 
+    require!(
+        payout_registry.winners[idx].winner_pubkey == ctx.accounts.user.key(),
+        PremiumBondsError::UnauthorizedTicket
+    );
+    require!(
+        !payout_registry.winners[idx].paid_out,
+        PremiumBondsError::AlreadyClaimed
+    );
 
     payout_registry.winners[idx].paid_out = true;
     payout_registry.payouts_completed += 1;
 
     let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
     let authority_bump = ctx.accounts.pool.vault_authority_bump;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        PRIZE_POOL_SEED,
-        pool_id_bytes.as_ref(),
-        &[authority_bump],
-    ]];
+    let signer_seeds: &[&[&[u8]]] =
+        &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.pool_vault_account.to_account_info(),

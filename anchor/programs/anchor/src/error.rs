@@ -16,6 +16,8 @@ pub enum PremiumBondsError {
     AwaitingRandomnessFreeze,
     #[msg("Trying to sell a ticket that does not belong to the signer.")]
     UnauthorizedTicket,
+    #[msg("Trying to claim a prize that has already been claimed.")]
+    AlreadyClaimed,
     #[msg("Calculation overflow occurred natively.")]
     MathOverflow,
     #[msg("Invalid indices ordering. Please provide deduplicated descending indices.")]
