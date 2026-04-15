@@ -107,7 +107,7 @@ pub fn handle(
     pool.max_withdrawal_slippage_dust = max_withdrawal_slippage_dust;
 
     let clock = Clock::get()?;
-    pool.current_cycle_end_at = clock.unix_timestamp + (stake_cycle_duration_hrs * 3600);
+    pool.advance_cycle_end_at(clock.unix_timestamp);
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_init()?;
     ticket_registry.pool_id = pool_id;

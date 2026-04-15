@@ -4,6 +4,8 @@ use anchor_lang::error_code;
 pub enum PremiumBondsError {
     #[msg("The prize pool is not currently active.")]
     PoolNotActive,
+    #[msg("The current stake cycle has not yet ended.")]
+    CycleNotEnded,
     #[msg("Invalid bond quanitity.")]
     InvalidBondQuantity,
     #[msg("Invalid collateral amount.")]

@@ -33,4 +33,10 @@ impl PrizePool {
     pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
         calculate_percentage_fee(yield_amount, self.fee_basis_points)
     }
+
+    pub fn advance_cycle_end_at(&mut self, current_time: i64) {
+        self.current_cycle_end_at = current_time
+            .checked_add(self.stake_cycle_duration_hrs.checked_mul(3600).unwrap())
+            .unwrap();
+    }
 }

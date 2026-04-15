@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{TokenInterface, TokenAccount, Mint, transfer_checked, TransferChecked};
-use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry};
+use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry, PoolStatus};
 use crate::kamino;
 use crate::error::PremiumBondsError;
 use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
@@ -14,12 +14,9 @@ pub struct HarvestYieldAndCommit<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
-        has_one = jobs_account 
+        constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
     )]
     pub global_config: Account<'info, GlobalConfig>,
-
-    /// CHECK: Validated by constraint above (crank == jobs_account)
-    pub jobs_account: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -98,12 +95,22 @@ pub struct HarvestYieldAndCommit<'info> {
 }
 
 pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Result<()> {
-    require!(ctx.accounts.crank.key() == ctx.accounts.global_config.jobs_account, PremiumBondsError::UnauthorizedCrank);
     let pool = &mut ctx.accounts.pool;
+
+    require!(
+        pool.status == PoolStatus::Active,
+        PremiumBondsError::PoolNotActive
+    );
 
     require!(
         !pool.is_frozen_for_draw,
         PremiumBondsError::AwaitingRandomnessFreeze
+    );
+
+    let current_time = Clock::get()?.unix_timestamp;
+    require!(
+        current_time >= pool.current_cycle_end_at,
+        PremiumBondsError::CycleNotEnded
     );
 
     let balance_before = ctx.accounts.pool_vault_account.amount;
@@ -115,6 +122,10 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
         pool_id_bytes.as_ref(),
         &[authority_bump],
     ]];
+
+    let mut yield_generated: u64 = 0;
+    let mut fee: u64 = 0;
+    let mut net_yield: u64 = 0;
 
     if ktokens_to_burn > 0 {
         kamino::redeem_reserve_collateral(
@@ -133,29 +144,27 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
             ktokens_to_burn,
             signer_seeds,
         )?;
-    }
+        ctx.accounts.pool_vault_account.reload()?;
 
-    ctx.accounts.pool_vault_account.reload()?;
-    let yield_generated = ctx.accounts.pool_vault_account.amount.checked_sub(balance_before).unwrap();
+        yield_generated = ctx.accounts.pool_vault_account.amount.checked_sub(balance_before).unwrap();
+        fee = pool.calculate_fee(yield_generated);
+        net_yield = yield_generated.checked_sub(fee).unwrap();
 
-    let fee = pool.calculate_fee(yield_generated);
-
-    let net_yield = yield_generated.checked_sub(fee).unwrap();
-
-    if fee > 0 {
-        let cpi_accounts = TransferChecked {
-            from: ctx.accounts.pool_vault_account.to_account_info(),
-            mint: ctx.accounts.token_mint.to_account_info(),
-            to: ctx.accounts.fee_wallet.to_account_info(),
-            authority: pool.to_account_info(),
-        };
-        transfer_checked(
-            CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-            fee,
-            ctx.accounts.token_mint.decimals,
-        )?;
-        
-        pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
+        if fee > 0 {
+            let cpi_accounts = TransferChecked {
+                from: ctx.accounts.pool_vault_account.to_account_info(),
+                mint: ctx.accounts.token_mint.to_account_info(),
+                to: ctx.accounts.fee_wallet.to_account_info(),
+                authority: pool.to_account_info(),
+            };
+            transfer_checked(
+                CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+                fee,
+                ctx.accounts.token_mint.decimals,
+            )?;
+            
+            pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
+        }
     }
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
@@ -186,6 +195,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
     draw_cycle.cycle_fee_collected = fee;
 
     pool.current_draw_cycle_id = pool.current_draw_cycle_id.checked_add(1).unwrap();
+    pool.advance_cycle_end_at(current_time);
 
     Ok(())
 }
