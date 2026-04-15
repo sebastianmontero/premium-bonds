@@ -1,9 +1,11 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
-use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
-use crate::kamino;
+use crate::constants::{POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::constants::{PRIZE_POOL_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
+use crate::kamino;
+use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{
+    transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
+};
 
 #[derive(Accounts)]
 pub struct SellBonds<'info> {
@@ -22,7 +24,6 @@ pub struct SellBonds<'info> {
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
     // Draw cycle freezing is now validated securely on the pool state below
-
     #[account(
         mut,
         associated_token::mint = pool.token_mint,
@@ -30,7 +31,7 @@ pub struct SellBonds<'info> {
         associated_token::token_program = token_program,
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    
+
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
@@ -56,17 +57,18 @@ pub struct SellBonds<'info> {
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
     // Kamino CPI Accounts
-    /// CHECK: CPI Target
+    /// CHECK: Validated by address constraint
+    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
     pub kamino_program: UncheckedAccount<'info>,
     #[account(mut)]
-    /// CHECK: 
+    /// CHECK:
     pub reserve: UncheckedAccount<'info>,
-    /// CHECK: 
+    /// CHECK:
     pub lending_market: UncheckedAccount<'info>,
-    /// CHECK: 
+    /// CHECK:
     pub lending_market_authority: UncheckedAccount<'info>,
     #[account(mut)]
-    /// CHECK: 
+    /// CHECK:
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -80,10 +82,10 @@ pub struct SellBonds<'info> {
 }
 
 pub fn handle(
-    ctx: Context<SellBonds>, 
-    active_indices: Vec<u32>, 
-    pending_indices: Vec<u32>, 
-    ktokens_to_burn: u64
+    ctx: Context<SellBonds>,
+    active_indices: Vec<u32>,
+    pending_indices: Vec<u32>,
+    ktokens_to_burn: u64,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
@@ -93,39 +95,57 @@ pub fn handle(
     );
 
     let bonds_to_sell = active_indices.len() as u32 + pending_indices.len() as u32;
-    require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondAmount);
-    
-    let expected_principal = (bonds_to_sell as u64).checked_mul(pool.bond_price).ok_or(PremiumBondsError::MathOverflow)?;
+    require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
+
+    // Note: A strict "max_tickets_per_sell" limit is not required for security here because
+    // the Solana transaction size limit (~1232 bytes) naturally restricts the number of
+    // indices that can be passed in a single Vec<u32>, preventing CU exhaustion.
+    let expected_principal = (bonds_to_sell as u64)
+        .checked_mul(pool.bond_price)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
 
     // O(1) Swap and Pop for Pending Region - STRICT DESCENDING INDICES REQUIRED
     let mut last_pending_idx = ticket_registry.pending_tickets_count;
     for &idx_raw in pending_indices.iter() {
-        require!(idx_raw < last_pending_idx, PremiumBondsError::InvalidIndices); 
+        require!(
+            idx_raw < last_pending_idx,
+            PremiumBondsError::InvalidIndices
+        );
         let real_idx = (ticket_registry.active_tickets_count + idx_raw) as usize;
-        require!(ticket_registry.tickets[real_idx] == ctx.accounts.user.key(), PremiumBondsError::UnauthorizedTicket);
-        
-        let absolute_last_idx = (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count - 1) as usize;
-        
+        require!(
+            ticket_registry.tickets[real_idx] == ctx.accounts.user.key(),
+            PremiumBondsError::UnauthorizedTicket
+        );
+
+        let absolute_last_idx = (ticket_registry.active_tickets_count
+            + ticket_registry.pending_tickets_count
+            - 1) as usize;
+
         if real_idx != absolute_last_idx {
             ticket_registry.tickets[real_idx] = ticket_registry.tickets[absolute_last_idx];
         }
         ticket_registry.tickets[absolute_last_idx] = Pubkey::default();
-        
+
         ticket_registry.pending_tickets_count -= 1;
-        last_pending_idx = idx_raw; 
+        last_pending_idx = idx_raw;
     }
 
     // O(1) Swap and Pop for Active Region - STRICT DESCENDING INDICES REQUIRED
     let mut last_active_idx = ticket_registry.active_tickets_count;
     for &idx in active_indices.iter() {
-        require!(idx < last_active_idx, PremiumBondsError::InvalidIndices); 
+        require!(idx < last_active_idx, PremiumBondsError::InvalidIndices);
         let real_idx = idx as usize;
-        require!(ticket_registry.tickets[real_idx] == ctx.accounts.user.key(), PremiumBondsError::UnauthorizedTicket);
+        require!(
+            ticket_registry.tickets[real_idx] == ctx.accounts.user.key(),
+            PremiumBondsError::UnauthorizedTicket
+        );
 
         let tail_active_idx = (ticket_registry.active_tickets_count - 1) as usize;
-        let absolute_last_idx = (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count - 1) as usize;
+        let absolute_last_idx = (ticket_registry.active_tickets_count
+            + ticket_registry.pending_tickets_count
+            - 1) as usize;
 
         // Move tail Active ticket into deleted spot
         if real_idx != tail_active_idx {
@@ -136,39 +156,39 @@ pub fn handle(
         if ticket_registry.pending_tickets_count > 0 {
             ticket_registry.tickets[tail_active_idx] = ticket_registry.tickets[absolute_last_idx];
         }
-        
+
         ticket_registry.tickets[absolute_last_idx] = Pubkey::default();
 
         ticket_registry.active_tickets_count -= 1;
-        last_active_idx = idx; 
+        last_active_idx = idx;
     }
-    
+
     // Release the Ticket Registry mapping early to avoid borrow limits over CPI
     drop(ticket_registry);
 
     // Update pool state
-    pool.total_deposited_principal = pool.total_deposited_principal.checked_sub(expected_principal).unwrap();
+    pool.total_deposited_principal = pool
+        .total_deposited_principal
+        .checked_sub(expected_principal)
+        .unwrap();
 
     let balance_before = ctx.accounts.pool_vault_account.amount;
 
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        PRIZE_POOL_SEED,
-        pool_id_bytes.as_ref(),
-        &[authority_bump],
-    ]];
+    let signer_seeds: &[&[&[u8]]] =
+        &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     kamino::redeem_reserve_collateral(
         ctx.accounts.kamino_program.to_account_info(),
-        pool.to_account_info(), 
+        pool.to_account_info(),
         ctx.accounts.reserve.to_account_info(),
         ctx.accounts.lending_market.to_account_info(),
         ctx.accounts.lending_market_authority.to_account_info(),
         ctx.accounts.reserve_liquidity_supply.to_account_info(),
         ctx.accounts.reserve_collateral_mint.to_account_info(),
-        ctx.accounts.pool_vault_account.to_account_info(), 
-        ctx.accounts.pool_ktokens_vault.to_account_info(), 
+        ctx.accounts.pool_vault_account.to_account_info(),
+        ctx.accounts.pool_ktokens_vault.to_account_info(),
         ctx.accounts.token_program.to_account_info(),
         ctx.accounts.ktokens_token_program.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
@@ -179,12 +199,23 @@ pub fn handle(
     // Anchor updates loaded accounts on the next cycle, so we force a manual token reload from DB
     ctx.accounts.pool_vault_account.reload()?;
     let balance_after = ctx.accounts.pool_vault_account.amount;
-    
+
     let received_liquidity = balance_after.checked_sub(balance_before).unwrap();
 
-    // The client calculated enough kTokens to exactly cover principal (plus Kamino trunc/dust slip). 
-    // If it produced slightly less than target principal, we fail fast. 
-    require!(received_liquidity >= expected_principal, PremiumBondsError::InvalidBondAmount);
+    // The client calculated enough kTokens to exactly cover principal (plus Kamino trunc/dust slip).
+    // If it produced slightly less than target principal, we fail fast.
+    require!(
+        received_liquidity >= expected_principal,
+        PremiumBondsError::InvalidCollateralAmount
+    );
+
+    let max_allowed_liquidity = expected_principal
+        .checked_add(pool.max_withdrawal_slippage_dust)
+        .unwrap();
+    require!(
+        received_liquidity <= max_allowed_liquidity,
+        PremiumBondsError::ExcessiveKtokensBurned
+    );
 
     // Transfer ONLY the base principal back to User!
     // The excess purely acts as harvested yield.

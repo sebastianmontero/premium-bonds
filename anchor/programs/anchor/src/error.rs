@@ -4,8 +4,10 @@ use anchor_lang::error_code;
 pub enum PremiumBondsError {
     #[msg("The prize pool is not currently active.")]
     PoolNotActive,
-    #[msg("The bond purchase amount must be a clean multiple of the bond price.")]
-    InvalidBondAmount,
+    #[msg("Invalid bond quanitity.")]
+    InvalidBondQuantity,
+    #[msg("Invalid collateral amount.")]
+    InvalidCollateralAmount,
     #[msg("The prize pool registration capability has hit absolute capacity constraints.")]
     RegistryFull,
     #[msg("The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.")]
@@ -32,4 +34,6 @@ pub enum PremiumBondsError {
     InvalidStakeCycleDuration,
     #[msg("The maximum number of tickets per transaction was exceeded.")]
     MaxTicketsPerBuyExceeded,
+    #[msg("Burned more Kamino kTokens than mathematically permitted for this withdrawal.")]
+    ExcessiveKtokensBurned,
 }

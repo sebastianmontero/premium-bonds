@@ -73,7 +73,8 @@ pub struct HarvestYieldAndCommit<'info> {
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     // Kamino
-    /// CHECK: CPI Target
+    /// CHECK: Validated by address constraint
+    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
     pub kamino_program: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: 

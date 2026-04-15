@@ -24,6 +24,7 @@ pub struct PrizePool {
     pub current_cycle_end_at: i64,
     pub is_frozen_for_draw: bool,
     pub current_draw_cycle_id: u32,
+    pub max_withdrawal_slippage_dust: u64,
 }
 
 use crate::utils::calculate_percentage_fee;

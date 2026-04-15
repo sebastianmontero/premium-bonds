@@ -82,6 +82,7 @@ pub fn handle(
     bond_price: u64,
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
+    max_withdrawal_slippage_dust: u64,
 ) -> Result<()> {
     require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
     require!(
@@ -103,6 +104,7 @@ pub fn handle(
     pool.total_fees_collected = 0;
     pool.is_frozen_for_draw = false;
     pool.current_draw_cycle_id = 0;
+    pool.max_withdrawal_slippage_dust = max_withdrawal_slippage_dust;
 
     let clock = Clock::get()?;
     pool.current_cycle_end_at = clock.unix_timestamp + (stake_cycle_duration_hrs * 3600);

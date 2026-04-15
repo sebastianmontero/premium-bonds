@@ -41,6 +41,7 @@ pub mod anchor {
         bond_price: u64,
         stake_cycle_duration_hrs: i64,
         fee_basis_points: u16,
+        max_withdrawal_slippage_dust: u64,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -48,6 +49,7 @@ pub mod anchor {
             bond_price,
             stake_cycle_duration_hrs,
             fee_basis_points,
+            max_withdrawal_slippage_dust,
         )
     }
 

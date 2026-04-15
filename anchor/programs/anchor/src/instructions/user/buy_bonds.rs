@@ -1,9 +1,11 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, TransferChecked, transfer_checked, Mint};
-use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
-use crate::kamino;
+use crate::constants::{GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::constants::{PRIZE_POOL_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED, GLOBAL_CONFIG_SEED};
+use crate::kamino;
+use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{
+    transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
+};
 
 #[derive(Accounts)]
 pub struct BuyBonds<'info> {
@@ -28,7 +30,6 @@ pub struct BuyBonds<'info> {
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
     // Draw cycle freezing is now validated securely on the pool state below
-
     #[account(
         mut,
         token::mint = token_mint,
@@ -36,7 +37,7 @@ pub struct BuyBonds<'info> {
         token::token_program = token_program
     )]
     pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    
+
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
@@ -62,17 +63,18 @@ pub struct BuyBonds<'info> {
     pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
 
     // Kamino Accounts
-    /// CHECK: CPI Target
+    /// CHECK: Validated by address constraint
+    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
     pub kamino_program: UncheckedAccount<'info>,
     #[account(mut)]
-    /// CHECK: 
+    /// CHECK:
     pub reserve: UncheckedAccount<'info>,
-    /// CHECK: 
+    /// CHECK:
     pub lending_market: UncheckedAccount<'info>,
-    /// CHECK: 
+    /// CHECK:
     pub lending_market_authority: UncheckedAccount<'info>,
     #[account(mut)]
-    /// CHECK: 
+    /// CHECK:
     pub reserve_liquidity_supply: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -85,23 +87,26 @@ pub struct BuyBonds<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
+pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
-    require!(pool.status == PoolStatus::Active, PremiumBondsError::PoolNotActive);
-    
+    require!(
+        pool.status == PoolStatus::Active,
+        PremiumBondsError::PoolNotActive
+    );
+
     // Check freezing
     require!(
         !pool.is_frozen_for_draw,
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
-    require!(tickets_to_buy > 0, PremiumBondsError::InvalidBondAmount);
+    require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
     require!(
-        tickets_to_buy <= ctx.accounts.global_config.max_tickets_per_buy,
+        bonds_to_buy <= ctx.accounts.global_config.max_tickets_per_buy,
         PremiumBondsError::MaxTicketsPerBuyExceeded
     );
-    let amount = (tickets_to_buy as u64).checked_mul(pool.bond_price).unwrap();
+    let amount = (bonds_to_buy as u64).checked_mul(pool.bond_price).unwrap();
 
     // 1. Transfer to Pool Vault
     let cpi_accounts = TransferChecked {
@@ -119,11 +124,8 @@ pub fn handle(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
     // 2. CPI into Kamino
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        PRIZE_POOL_SEED,
-        pool_id_bytes.as_ref(),
-        &[authority_bump],
-    ]];
+    let signer_seeds: &[&[&[u8]]] =
+        &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     kamino::deposit_reserve_liquidity(
         ctx.accounts.kamino_program.to_account_info(),
@@ -146,13 +148,18 @@ pub fn handle(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
     pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
-    
-    // Safety check size
-    let current_total = ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count;
-    require!((current_total + tickets_to_buy) <= 327_680, PremiumBondsError::RegistryFull);
 
-    for _ in 0..tickets_to_buy {
-        let insert_idx = (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count) as usize;
+    // Safety check size
+    let current_total =
+        ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count;
+    require!(
+        (current_total + bonds_to_buy) <= 327_680,
+        PremiumBondsError::RegistryFull
+    );
+
+    for _ in 0..bonds_to_buy {
+        let insert_idx =
+            (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count) as usize;
         ticket_registry.tickets[insert_idx] = ctx.accounts.user.key();
         ticket_registry.pending_tickets_count += 1;
     }
