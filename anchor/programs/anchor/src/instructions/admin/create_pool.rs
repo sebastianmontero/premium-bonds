@@ -105,6 +105,7 @@ pub fn handle(
     pool.is_frozen_for_draw = false;
     pool.current_draw_cycle_id = 0;
     pool.max_withdrawal_slippage_dust = max_withdrawal_slippage_dust;
+    pool.prize_tiers = vec![];
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);

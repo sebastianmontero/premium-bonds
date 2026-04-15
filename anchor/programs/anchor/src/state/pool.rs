@@ -7,6 +7,22 @@ pub enum PoolStatus {
     Closed,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+pub struct PrizeTier {
+    pub basis_points: u16, // share of yield each winner in this tier receives
+    pub num_winners: u32,  // number of winners in this tier
+}
+
+impl PrizeTier {
+    pub fn calculate_prize(&self, prize_pot: u64) -> u64 {
+        (prize_pot as u128)
+            .checked_mul(self.basis_points as u128)
+            .unwrap()
+            .checked_div(10_000)
+            .unwrap() as u64
+    }
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct PrizePool {
@@ -18,13 +34,15 @@ pub struct PrizePool {
     pub bond_price: u64,
     pub stake_cycle_duration_hrs: i64,
     pub fee_basis_points: u16,
-    pub status: PoolStatus,           
-    pub total_deposited_principal: u64, 
+    pub status: PoolStatus,
+    pub total_deposited_principal: u64,
     pub total_fees_collected: u64,
     pub current_cycle_end_at: i64,
     pub is_frozen_for_draw: bool,
     pub current_draw_cycle_id: u32,
     pub max_withdrawal_slippage_dust: u64,
+    #[max_len(10)]
+    pub prize_tiers: Vec<PrizeTier>,
 }
 
 use crate::utils::calculate_percentage_fee;

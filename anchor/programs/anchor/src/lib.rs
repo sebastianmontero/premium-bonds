@@ -71,6 +71,13 @@ pub mod anchor {
         )
     }
 
+    pub fn set_prize_tiers(
+        ctx: Context<SetPrizeTiers>,
+        tiers: Vec<PrizeTier>,
+    ) -> Result<()> {
+        instructions::admin::set_prize_tiers::handle(ctx, tiers)
+    }
+
     pub fn harvest_yield_and_commit(
         ctx: Context<HarvestYieldAndCommit>,
         ktokens_to_burn: u64,
@@ -81,9 +88,8 @@ pub mod anchor {
     pub fn reveal_and_pick_winners(
         ctx: Context<RevealAndPickWinners>,
         random_seed: [u8; 32],
-        num_winners: u32,
     ) -> Result<()> {
-        instructions::yield_draw::reveal_and_pick_winners::handle(ctx, random_seed, num_winners)
+        instructions::yield_draw::reveal_and_pick_winners::handle(ctx, random_seed)
     }
 
     pub fn claim_prize(ctx: Context<ClaimPrize>, cycle_id: u32, winner_index: u32) -> Result<()> {

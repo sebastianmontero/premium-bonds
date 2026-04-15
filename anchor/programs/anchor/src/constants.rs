@@ -12,6 +12,9 @@ pub const POOL_KTOKENS_SEED: &[u8] = b"pool_ktokens";
 pub const DRAW_CYCLE_SEED: &[u8] = b"draw_cycle";
 pub const PAYOUT_SEED: &[u8] = b"payout";
 
+pub const MAX_PRIZE_TIERS: usize = 10;
+pub const MAX_TOTAL_WINNERS: usize = 50;
+
 #[cfg(feature = "mainnet")]
 pub const KAMINO_PROGRAM_ID: Pubkey = solana_program::pubkey!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
 

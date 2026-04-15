@@ -24,8 +24,12 @@ pub enum PremiumBondsError {
     InvalidIndices,
     #[msg("Only the designated Switchboard Jobs Account can execute this crank.")]
     UnauthorizedCrank,
-    #[msg("The number of winners must be between 1 and 10.")]
-    InvalidNumWinners,
+    #[msg("Invalid prize tier configuration.")]
+    InvalidPrizeTierConfig,
+    #[msg("Prize tiers have not been configured for this pool.")]
+    PrizeTiersNotConfigured,
+    #[msg("Total basis points across all tiers must equal exactly 10,000 (100%).")]
+    BasisPointsMustEqual10000,
     #[msg("Draw cycle is not currently awaiting random execution.")]
     InvalidDrawStatus,
     #[msg("The draw cycle has an invalid locked count or prize pot.")]

@@ -182,6 +182,10 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
     
     if yield_generated > 0 && eligible_locked_count > 0 {
+        require!(
+            !pool.prize_tiers.is_empty(),
+            PremiumBondsError::PrizeTiersNotConfigured
+        );
         draw_cycle.status = DrawStatus::AwaitingRandomness;
         pool.is_frozen_for_draw = true;
     } else {

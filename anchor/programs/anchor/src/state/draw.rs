@@ -22,8 +22,7 @@ pub struct PayoutRegistry {
     pub cycle_id: u32,
     pub winners_count: u32,
     pub payouts_completed: u32,
-    // Dynamic array for phase 1
-    #[max_len(10)]
+    #[max_len(50)]
     pub winners: Vec<Winner>,
 }
 
@@ -32,4 +31,5 @@ pub struct Winner {
     pub winner_pubkey: Pubkey,
     pub amount_owed: u64,
     pub paid_out: bool,
+    pub tier_index: u8,
 }
