@@ -1,7 +1,8 @@
 use crate::constants::{POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::kamino;
-use crate::state::{DrawCycle, DrawStatus, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{PrizePool, TicketRegistry};
+use crate::utils::{swap_and_pop_active, swap_and_pop_pending};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
@@ -104,67 +105,47 @@ pub fn handle(
         .checked_mul(pool.bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
+    // Phase 1: load counts via zero-copy (read-only borrow)
+    let (active_count, pending_count);
+    {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        active_count = registry.active_tickets_count;
+        pending_count = registry.pending_tickets_count;
+    } // Ref released
 
-    // O(1) Swap and Pop for Pending Region - STRICT DESCENDING INDICES REQUIRED
-    let mut last_pending_idx = ticket_registry.pending_tickets_count;
-    for &idx_raw in pending_indices.iter() {
-        require!(
-            idx_raw < last_pending_idx,
-            PremiumBondsError::InvalidIndices
-        );
-        let real_idx = (ticket_registry.active_tickets_count + idx_raw) as usize;
-        require!(
-            ticket_registry.tickets[real_idx] == ctx.accounts.user.key(),
-            PremiumBondsError::UnauthorizedTicket
-        );
+    // Phase 2: swap-and-pop via raw bytes using utils helpers
+    let new_pending;
+    let new_active;
+    {
+        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        let user_key = ctx.accounts.user.key();
 
-        let absolute_last_idx = (ticket_registry.active_tickets_count
-            + ticket_registry.pending_tickets_count
-            - 1) as usize;
+        // Pending removals first; returns updated pending count
+        new_pending = swap_and_pop_pending(
+            &mut data,
+            active_count,
+            pending_count,
+            &pending_indices,
+            &user_key,
+        )?;
 
-        if real_idx != absolute_last_idx {
-            ticket_registry.tickets[real_idx] = ticket_registry.tickets[absolute_last_idx];
-        }
-        ticket_registry.tickets[absolute_last_idx] = Pubkey::default();
+        // Active removals using the already-updated pending count
+        (new_active, _) = swap_and_pop_active(
+            &mut data,
+            active_count,
+            new_pending,
+            &active_indices,
+            &user_key,
+        )?;
+    } // data borrow released
 
-        ticket_registry.pending_tickets_count -= 1;
-        last_pending_idx = idx_raw;
+    // Phase 3: commit updated counts only after successful byte operations
+    {
+        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
+        registry.active_tickets_count = new_active;
+        registry.pending_tickets_count = new_pending;
     }
-
-    // O(1) Swap and Pop for Active Region - STRICT DESCENDING INDICES REQUIRED
-    let mut last_active_idx = ticket_registry.active_tickets_count;
-    for &idx in active_indices.iter() {
-        require!(idx < last_active_idx, PremiumBondsError::InvalidIndices);
-        let real_idx = idx as usize;
-        require!(
-            ticket_registry.tickets[real_idx] == ctx.accounts.user.key(),
-            PremiumBondsError::UnauthorizedTicket
-        );
-
-        let tail_active_idx = (ticket_registry.active_tickets_count - 1) as usize;
-        let absolute_last_idx = (ticket_registry.active_tickets_count
-            + ticket_registry.pending_tickets_count
-            - 1) as usize;
-
-        // Move tail Active ticket into deleted spot
-        if real_idx != tail_active_idx {
-            ticket_registry.tickets[real_idx] = ticket_registry.tickets[tail_active_idx];
-        }
-
-        // Shift last Pending ticket into the former tail_active_idx to keep logic tight
-        if ticket_registry.pending_tickets_count > 0 {
-            ticket_registry.tickets[tail_active_idx] = ticket_registry.tickets[absolute_last_idx];
-        }
-
-        ticket_registry.tickets[absolute_last_idx] = Pubkey::default();
-
-        ticket_registry.active_tickets_count -= 1;
-        last_active_idx = idx;
-    }
-
-    // Release the Ticket Registry mapping early to avoid borrow limits over CPI
-    drop(ticket_registry);
 
     // Update pool state
     pool.total_deposited_principal = pool

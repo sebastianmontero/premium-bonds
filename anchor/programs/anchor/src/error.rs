@@ -12,6 +12,10 @@ pub enum PremiumBondsError {
     InvalidCollateralAmount,
     #[msg("The prize pool registration capability has hit absolute capacity constraints.")]
     RegistryFull,
+    #[msg("The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.")]
+    RegistryTooSmall,
+    #[msg("The registry account has reached Solana's 10 MB maximum size.")]
+    RegistryAtMaxSize,
     #[msg("The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.")]
     AwaitingRandomnessFreeze,
     #[msg("Trying to sell a ticket that does not belong to the signer.")]

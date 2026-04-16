@@ -57,6 +57,10 @@ pub mod anchor {
         instructions::user::buy_bonds::handle(ctx, tickets_to_buy)
     }
 
+    pub fn resize_registry(ctx: Context<ResizeRegistry>) -> Result<()> {
+        instructions::admin::resize_registry::handle(ctx)
+    }
+
     pub fn sell_bonds(
         ctx: Context<SellBonds>,
         active_indices: Vec<u32>,

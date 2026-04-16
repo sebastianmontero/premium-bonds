@@ -167,15 +167,18 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
         }
     }
 
-    let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
-    
-    // 1. Snapshot the perfectly mature active tickets BEFORE merging.
-    // This strictly prevents Pending (JIT) deposits from being eligible for the current prize draw!
-    let eligible_locked_count = ticket_registry.active_tickets_count;
+    let eligible_locked_count;
+    {
+        let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
 
-    // 2. O(1) Block merge! Advance Pending tickets into Active so they mature over the NEXT cycle.
-    ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
-    ticket_registry.pending_tickets_count = 0;
+        // 1. Snapshot the perfectly mature active tickets BEFORE merging.
+        // This strictly prevents Pending (JIT) deposits from being eligible for the current prize draw!
+        eligible_locked_count = ticket_registry.active_tickets_count;
+
+        // 2. O(1) Block merge! Advance Pending tickets into Active so they mature over the NEXT cycle.
+        ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
+        ticket_registry.pending_tickets_count = 0;
+    } // borrow released before draw_cycle writes below
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;

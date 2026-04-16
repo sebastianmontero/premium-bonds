@@ -1,7 +1,8 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::kamino;
-use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::utils::registry_set_ticket;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
@@ -147,21 +148,34 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     // 3. Update State
     pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
 
-    let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
+    // Phase 1: validate capacity (read-only zero-copy borrow)
+    let insert_start;
+    {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        let current_total =
+            registry.active_tickets_count + registry.pending_tickets_count;
+        require!(
+            current_total + bonds_to_buy <= registry.capacity,
+            PremiumBondsError::RegistryFull
+        );
+        insert_start =
+            (registry.active_tickets_count + registry.pending_tickets_count) as usize;
+    } // Ref released
 
-    // Safety check size
-    let current_total =
-        ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count;
-    require!(
-        (current_total + bonds_to_buy) <= 327_680,
-        PremiumBondsError::RegistryFull
-    );
+    {
+        // Phase 2: write ticket bytes FIRST into raw account data
+        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        let user_key = ctx.accounts.user.key();
+        for i in 0..bonds_to_buy as usize {
+            registry_set_ticket(&mut data, insert_start + i, &user_key);
+        }
+    } // data borrow released
 
-    for _ in 0..bonds_to_buy {
-        let insert_idx =
-            (ticket_registry.active_tickets_count + ticket_registry.pending_tickets_count) as usize;
-        ticket_registry.tickets[insert_idx] = ctx.accounts.user.key();
-        ticket_registry.pending_tickets_count += 1;
+    {
+        // Phase 3: commit the count only after successful byte writes
+        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
+        registry.pending_tickets_count += bonds_to_buy;
     }
 
     Ok(())

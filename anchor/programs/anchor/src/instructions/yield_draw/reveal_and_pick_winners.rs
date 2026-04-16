@@ -4,7 +4,7 @@ use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
     Winner,
 };
-use crate::utils::derive_random_index;
+use crate::utils::{derive_random_index, registry_get_ticket};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -65,7 +65,13 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
     draw_cycle.status = DrawStatus::Complete;
     pool.is_frozen_for_draw = false;
 
-    let ticket_registry = ctx.accounts.ticket_registry.load()?;
+    // Step 1: call load() to validate discriminator + program ownership, then drop immediately.
+    // This preserves Anchor's account validation without holding the RefMut during raw byte access.
+    { ctx.accounts.ticket_registry.load()?; }
+
+    // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
+    let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+    let data = registry_ai.try_borrow_data()?;
 
     require!(
         draw_cycle.locked_ticket_count > 0 && draw_cycle.prize_pot > 0,
@@ -85,7 +91,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
                 draw_cycle.cycle_id,
                 draw_cycle.locked_ticket_count,
             );
-            let winner_pubkey = ticket_registry.tickets[winning_index as usize];
+            let winner_pubkey = registry_get_ticket(&data, winning_index as usize);
 
             winners_vec.push(Winner {
                 winner_pubkey,

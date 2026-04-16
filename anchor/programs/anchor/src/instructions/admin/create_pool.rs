@@ -1,8 +1,10 @@
 use crate::constants::{
     DISCRIMINATOR, GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED,
+    REGISTRY_INITIAL_SIZE,
 };
 use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -28,8 +30,6 @@ pub struct CreatePool<'info> {
     )]
     pub pool: Account<'info, PrizePool>,
 
-    /// Client MUST create this massive 10.4MB account upfront via SystemProgram.
-    /// It avoids the 10KB CPI limit for initializing PDAs. We just bind it here.
     #[account(zero)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
@@ -110,8 +110,15 @@ pub fn handle(
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);
 
+    let initial_len = ctx.accounts.ticket_registry.to_account_info().data_len();
+    require!(
+        initial_len >= REGISTRY_INITIAL_SIZE,
+        PremiumBondsError::RegistryTooSmall
+    );
+
     let mut ticket_registry = ctx.accounts.ticket_registry.load_init()?;
     ticket_registry.pool_id = pool_id;
+    ticket_registry.capacity = registry_capacity_from_len(initial_len);
     ticket_registry.active_tickets_count = 0;
     ticket_registry.pending_tickets_count = 0;
 
