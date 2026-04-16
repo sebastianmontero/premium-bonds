@@ -29,3 +29,8 @@ pub const KAMINO_PROGRAM_ID: Pubkey = solana_program::pubkey!("KLend2g3cP87fffoy
 #[cfg(not(feature = "mainnet"))]
 // Standard localnet testing ID (update if you deploy Kamino to a different local ID)
 pub const KAMINO_PROGRAM_ID: Pubkey = solana_program::pubkey!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
+
+/// Solana instructions sysvar — required by Kamino as a flash-loan guard.
+/// Fixed well-known address: Sysvar1nstructions1111111111111111111111111
+pub const INSTRUCTIONS_SYSVAR_ID: Pubkey =
+    solana_program::pubkey!("Sysvar1nstructions1111111111111111111111111");

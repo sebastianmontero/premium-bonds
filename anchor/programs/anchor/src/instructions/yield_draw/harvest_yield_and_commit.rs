@@ -92,6 +92,10 @@ pub struct HarvestYieldAndCommit<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Solana instructions sysvar required by Kamino as a flash-loan guard.
+    #[account(address = crate::constants::INSTRUCTIONS_SYSVAR_ID)]
+    pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
 
 pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Result<()> {
@@ -130,17 +134,18 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
     if ktokens_to_burn > 0 {
         kamino::redeem_reserve_collateral(
             ctx.accounts.kamino_program.to_account_info(),
-            pool.to_account_info(), 
+            pool.to_account_info(),                                      // owner (pool PDA)
+            ctx.accounts.lending_market.to_account_info(),               // lending_market comes BEFORE reserve for redeem
             ctx.accounts.reserve.to_account_info(),
-            ctx.accounts.lending_market.to_account_info(),
             ctx.accounts.lending_market_authority.to_account_info(),
-            ctx.accounts.reserve_liquidity_supply.to_account_info(),
+            ctx.accounts.token_mint.to_account_info(),                   // reserve_liquidity_mint
             ctx.accounts.reserve_collateral_mint.to_account_info(),
-            ctx.accounts.pool_vault_account.to_account_info(), 
-            ctx.accounts.pool_ktokens_vault.to_account_info(), 
-            ctx.accounts.token_program.to_account_info(),
-            ctx.accounts.ktokens_token_program.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.reserve_liquidity_supply.to_account_info(),
+            ctx.accounts.pool_ktokens_vault.to_account_info(),           // user_source_collateral (cTokens burned)
+            ctx.accounts.pool_vault_account.to_account_info(),           // user_destination_liquidity (underlying received)
+            ctx.accounts.ktokens_token_program.to_account_info(),        // collateral_token_program (cToken = SPL Token)
+            ctx.accounts.token_program.to_account_info(),                // liquidity_token_program (underlying, may be Token-2022)
+            ctx.accounts.instruction_sysvar_account.to_account_info(),
             ktokens_to_burn,
             signer_seeds,
         )?;
