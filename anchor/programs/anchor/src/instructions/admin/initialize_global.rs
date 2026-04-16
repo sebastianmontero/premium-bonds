@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
 use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED};
+use crate::state::GlobalConfig;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct InitializeGlobal<'info> {
@@ -18,7 +18,7 @@ pub struct InitializeGlobal<'info> {
 
     /// CHECK: Public key for the designated cranking bot
     pub jobs_account: UncheckedAccount<'info>,
-    
+
     pub system_program: Program<'info, System>,
 }
 
