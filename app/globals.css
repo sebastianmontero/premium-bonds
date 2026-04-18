@@ -1,61 +1,258 @@
 @import "tailwindcss";
 
+/* ============================================================
+   YieldBonds — "Luminous Ether" Design System
+   Dark-mode-only tokens derived from the Stitch design system.
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0); /* deep neutral */
-  --border-strong: oklch(0.839 0.0187 78.23);
-  --border-low: oklch(0.927 0.0122 96.43);
-  --accent: oklch(0 0 0);
-  --muted: #3a3a3a; /* darker for better light-mode contrast */
-  --cream: oklch(0.9553 0.0029 84.56);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --radius: 0.625rem;
-  --font-sans: var(--font-inter), system-ui, sans-serif;
+  /* ---- Surface Hierarchy ---- */
+  --surface: #0c0d18;
+  --surface-dim: #0c0d18;
+  --surface-bright: #292b3c;
+  --surface-container-lowest: #060710;
+  --surface-container-low: #11121e;
+  --surface-container: #171926;
+  --surface-container-high: #1d1f2d;
+  --surface-container-highest: #232534;
+  --surface-variant: #232534;
+
+  /* ---- Primary ---- */
+  --primary: #87adff;
+  --primary-container: #779ff4;
+  --primary-dim: #749df1;
+  --on-primary: #002c68;
+  --on-primary-container: #002151;
+
+  /* ---- Secondary ---- */
+  --secondary: #c1a0fe;
+  --secondary-container: #54358a;
+  --secondary-dim: #b393ef;
+  --on-secondary: #3d1b72;
+  --on-secondary-container: #dcc7ff;
+
+  /* ---- Tertiary ---- */
+  --tertiary: #9dd9ff;
+  --tertiary-container: #7bcdfd;
+  --tertiary-dim: #6cbfee;
+  --on-tertiary: #004d6b;
+  --on-tertiary-container: #00435e;
+
+  /* ---- Text ---- */
+  --on-surface: #eeecfc;
+  --on-surface-variant: #aaaab8;
+  --on-background: #eeecfc;
+
+  /* ---- Outline / Border ---- */
+  --outline: #747482;
+  --outline-variant: #464753;
+
+  /* ---- Error ---- */
+  --error: #ff716c;
+  --error-container: #9f0519;
+  --on-error: #490006;
+  --on-error-container: #ffa8a3;
+
+  /* ---- Inverse ---- */
+  --inverse-surface: #fbf8ff;
+  --inverse-on-surface: #545461;
+  --inverse-primary: #315dad;
+
+  /* ---- Misc ---- */
+  --surface-tint: #87adff;
+  --background: #0c0d18;
+
+  /* ---- Radius ---- */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  /* ---- Fonts ---- */
+  --font-display: var(--font-space-grotesk), system-ui, sans-serif;
+  --font-body: var(--font-inter), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --border-strong: oklch(1 0 0 / 0.12);
-    --border-low: oklch(1 0 0 / 0.08);
-    --accent: oklch(0.922 0 0);
-    --muted: oklch(0.75 0.01 260); /* brighten muted text in dark mode */
-    --cream: oklch(0.22 0.009 70.82);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-  }
-}
-
+/* ---- Tailwind v4 Theme Tokens ---- */
 @theme inline {
+  /* Surfaces */
+  --color-surface: var(--surface);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-bright: var(--surface-bright);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-surface-variant: var(--surface-variant);
+
+  /* Primary */
+  --color-primary: var(--primary);
+  --color-primary-container: var(--primary-container);
+  --color-primary-dim: var(--primary-dim);
+  --color-on-primary: var(--on-primary);
+
+  /* Secondary */
+  --color-secondary: var(--secondary);
+  --color-secondary-container: var(--secondary-container);
+  --color-secondary-dim: var(--secondary-dim);
+  --color-on-secondary: var(--on-secondary);
+
+  /* Tertiary */
+  --color-tertiary: var(--tertiary);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-on-tertiary: var(--on-tertiary);
+
+  /* Text */
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+
+  /* Outline */
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+
+  /* Error */
+  --color-error: var(--error);
+  --color-on-error: var(--on-error);
+
+  /* Inverse */
+  --color-inverse-surface: var(--inverse-surface);
+
+  /* Background shorthand */
   --color-background: var(--background);
-  --color-bg1: var(--background);
-  --color-foreground: var(--foreground);
-  --color-cream: var(--cream);
-  --color-border: var(--border-strong);
-  --color-border-strong: var(--border-strong);
-  --color-border-low: var(--border-low);
-  --color-primary: var(--accent);
-  --color-muted: var(--muted);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --font-sans: var(--font-sans);
+
+  /* Fonts */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
   --font-mono: var(--font-mono);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Radii */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
+/* ---- Base Layer ---- */
 @layer base {
   * {
-    @apply border-border outline-transparent;
+    border-color: color-mix(in srgb, var(--outline-variant) 20%, transparent);
   }
 
   body {
-    @apply bg-bg1 text-foreground antialiased;
-    font-family: var(--font-sans);
-    color-scheme: light dark;
+    background-color: var(--surface);
+    color: var(--on-surface);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ---- Utility Classes ---- */
+@layer utilities {
+  /* Glassmorphism panels */
+  .glass {
+    background: color-mix(in srgb, var(--surface-container-high) 70%, transparent);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid color-mix(in srgb, var(--outline-variant) 20%, transparent);
+  }
+
+  .glass-strong {
+    background: color-mix(in srgb, var(--surface-container-highest) 80%, transparent);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    border-bottom-color: transparent;
+    border-left-color: transparent;
+    border-right-color: transparent;
+  }
+
+  /* Ghost border (input fields, subtle separators) */
+  .ghost-border {
+    border: 1px solid color-mix(in srgb, var(--outline-variant) 20%, transparent);
+  }
+
+  .ghost-border-focus:focus {
+    border-color: color-mix(in srgb, var(--outline-variant) 50%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent);
+  }
+
+  /* Gradient CTA buttons */
+  .btn-gradient {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    font-weight: 600;
+    border: none;
+    transition: all 0.25s ease;
+  }
+
+  .btn-gradient:hover {
+    filter: brightness(1.12);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+
+  .btn-gradient:active {
+    transform: translateY(0);
+  }
+
+  /* Ghost / outlined buttons */
+  .btn-ghost {
+    background: color-mix(in srgb, var(--surface-container-high) 60%, transparent);
+    border: 1px solid color-mix(in srgb, var(--outline-variant) 25%, transparent);
+    color: var(--on-surface);
+    font-weight: 500;
+    transition: all 0.25s ease;
+  }
+
+  .btn-ghost:hover {
+    background: color-mix(in srgb, var(--surface-container-highest) 80%, transparent);
+    border-color: color-mix(in srgb, var(--outline-variant) 45%, transparent);
+    transform: translateY(-1px);
+  }
+
+  /* Ambient shadow for floating elements */
+  .shadow-ambient {
+    box-shadow: 0 0 60px color-mix(in srgb, var(--on-surface) 5%, transparent);
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Yield Pulse animation */
+  @keyframes yield-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .animate-yield-pulse {
+    animation: yield-pulse 2.5s ease-in-out infinite;
+  }
+
+  /* Subtle float animation for hero elements */
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  /* Glow ring for connected state */
+  @keyframes glow-ring {
+    0%, 100% { box-shadow: 0 0 8px color-mix(in srgb, var(--tertiary) 40%, transparent); }
+    50% { box-shadow: 0 0 16px color-mix(in srgb, var(--tertiary) 60%, transparent); }
+  }
+
+  .animate-glow {
+    animation: glow-ring 3s ease-in-out infinite;
   }
 }
