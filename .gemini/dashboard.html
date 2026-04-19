@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#464753",
+                    "inverse-primary": "#315dad",
+                    "on-primary-container": "#002151",
+                    "background": "#0c0d18",
+                    "on-secondary": "#3d1b72",
+                    "primary-dim": "#749df1",
+                    "on-primary-fixed-variant": "#003070",
+                    "surface-container-high": "#1d1f2d",
+                    "secondary-dim": "#b393ef",
+                    "primary-container": "#779ff4",
+                    "on-primary-fixed": "#000b24",
+                    "surface-bright": "#292b3c",
+                    "surface-variant": "#232534",
+                    "inverse-on-surface": "#545461",
+                    "on-tertiary-fixed-variant": "#004d6b",
+                    "error-container": "#9f0519",
+                    "on-tertiary": "#004d6b",
+                    "on-error": "#490006",
+                    "tertiary-fixed": "#7bcdfd",
+                    "surface-container-highest": "#232534",
+                    "inverse-surface": "#fbf8ff",
+                    "on-tertiary-container": "#00435e",
+                    "tertiary-container": "#7bcdfd",
+                    "primary-fixed": "#7fa7fd",
+                    "error-dim": "#d7383b",
+                    "outline": "#747482",
+                    "on-surface": "#eeecfc",
+                    "error": "#ff716c",
+                    "on-secondary-container": "#dcc7ff",
+                    "surface-container": "#171926",
+                    "surface": "#0c0d18",
+                    "tertiary-fixed-dim": "#6cbfee",
+                    "on-error-container": "#ffa8a3",
+                    "on-secondary-fixed": "#412076",
+                    "surface-container-low": "#11121e",
+                    "secondary-container": "#54358a",
+                    "primary-fixed-dim": "#729aee",
+                    "on-surface-variant": "#aaaab8",
+                    "secondary-fixed-dim": "#d2b8ff",
+                    "primary": "#87adff",
+                    "surface-dim": "#0c0d18",
+                    "on-primary": "#002c68",
+                    "on-background": "#eeecfc",
+                    "tertiary-dim": "#6cbfee",
+                    "secondary": "#c1a0fe",
+                    "surface-container-lowest": "#000000",
+                    "secondary-fixed": "#ddc8ff",
+                    "on-tertiary-fixed": "#002e41",
+                    "tertiary": "#9dd9ff",
+                    "on-secondary-fixed-variant": "#5e3f95",
+                    "surface-tint": "#87adff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Space Grotesk"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #0c0d18;
+            color: #eeecfc;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .celestial-glow {
+            box-shadow: 0 0 60px rgba(135, 173, 255, 0.05);
+        }
+        .glass-panel {
+            background: rgba(29, 31, 45, 0.6);
+            backdrop-filter: blur(24px);
+            border-top: 1px solid rgba(135, 173, 255, 0.2);
+        }
+        .neon-button {
+            background: linear-gradient(135deg, #87adff 0%, #c1a0fe 100%);
+        }
+        .yield-pulse {
+            animation: pulse-opacity 3s ease-in-out infinite;
+        }
+        @keyframes pulse-opacity {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface">
+<!-- TopAppBar -->
+<nav class="fixed top-0 w-full z-50 bg-[#0c0d18]/80 backdrop-blur-xl border-b border-[#464753]/20 shadow-[0_0_40px_rgba(122,162,247,0.05)] flex justify-between items-center px-8 h-20 w-full">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-[#7AA2F7]" data-icon="account_balance_wallet">account_balance_wallet</span>
+<span class="text-2xl font-bold bg-gradient-to-r from-[#87adff] to-[#c1a0fe] bg-clip-text text-transparent font-space-grotesk tracking-tight">YieldBonds</span>
+</div>
+<div class="hidden md:flex items-center gap-8 font-inter text-sm font-medium">
+<a class="text-[#87adff] border-b-2 border-[#87adff] pb-1" href="#">Dashboard</a>
+<a class="text-[#464753] hover:text-[#7AA2F7] transition-colors" href="#">Portfolio</a>
+<a class="text-[#464753] hover:text-[#7AA2F7] transition-colors" href="#">Prize Pool</a>
+<a class="text-[#464753] hover:text-[#7AA2F7] transition-colors" href="#">Governance</a>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-high border border-outline-variant/20 overflow-hidden">
+<img alt="User Profile Avatar" class="w-full h-full object-cover" data-alt="Close-up portrait of a professional man in soft tech-focused office lighting with subtle bokeh background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQ4-MUhcJDlQ5KngYwl46-qAofFMeDu6Ftrtp1_WzdJHKqre_dFDJ0_qAXFVQjunML-2tWY-64eNXQxhUCwUzTq-D4A3e1iXTQgumE8KapvQICJqtW7Cw2CyWLwks8jihNJw7KZZsXAEf9gOpGqaJBjDRjc53YyvQcpIcdCwL-5eduRVh6rTsIPMtoayJzZi5yLXJkcOxLonwn42BCjnnA8cIMB8RX5GJbl44rzFpb1wwmqwkbvWcmYz9zubawN73R5ElRtbjMvr40"/>
+</div>
+</div>
+</nav>
+<!-- NavigationDrawer (Sidebar) -->
+<aside class="hidden md:flex h-screen w-64 fixed left-0 top-20 border-r border-[#464753]/20 bg-[#0c0d18] flex-col py-6">
+<div class="px-6 mb-8">
+<h3 class="text-[#87adff] font-space-grotesk uppercase tracking-widest text-xs font-bold">Protocol</h3>
+</div>
+<nav class="flex flex-col space-y-1">
+<a class="bg-gradient-to-r from-[#87adff]/10 to-transparent text-[#87adff] border-l-4 border-[#87adff] py-4 px-6 flex items-center gap-4 font-inter text-sm font-medium transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                Dashboard
+            </a>
+<a class="text-slate-400 py-4 px-6 flex items-center gap-4 hover:bg-[#464753]/5 font-inter text-sm font-medium transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+                Portfolio
+            </a>
+<a class="text-slate-400 py-4 px-6 flex items-center gap-4 hover:bg-[#464753]/5 font-inter text-sm font-medium transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="Military_tech">military_tech</span>
+                Prize Pool
+            </a>
+<a class="text-slate-400 py-4 px-6 flex items-center gap-4 hover:bg-[#464753]/5 font-inter text-sm font-medium transition-all ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="gavel">gavel</span>
+                Governance
+            </a>
+</nav>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 pt-28 pb-32 px-6 md:px-12 max-w-7xl mx-auto">
+<!-- Hero Section: Total Balance & Charts -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
+<!-- Main Balance Card -->
+<div class="lg:col-span-8 glass-panel rounded-3xl p-8 relative overflow-hidden flex flex-col justify-between min-h-[400px]">
+<div class="relative z-10">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-on-surface-variant text-sm font-label uppercase tracking-widest mb-1">Total Assets Locked</p>
+<h1 class="text-5xl font-headline font-bold text-on-surface tracking-tight">
+                                $1,250 <span class="text-primary text-2xl">USDC</span>
+</h1>
+</div>
+<div class="yield-pulse bg-secondary-container/30 px-4 py-2 rounded-full border border-secondary/20 flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_#c1a0fe]"></span>
+<span class="text-secondary text-sm font-bold font-label">12.4% APY</span>
+</div>
+</div>
+</div>
+<!-- Stylized Chart Placeholder -->
+<div class="absolute bottom-0 left-0 w-full h-48 opacity-40">
+<svg class="w-full h-full preserve-3d" preserveaspectratio="none" viewbox="0 0 400 100">
+<defs>
+<lineargradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#87adff" stop-opacity="0.8"></stop>
+<stop offset="100%" stop-color="#87adff" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+<path d="M0,80 Q50,60 100,70 T200,40 T300,50 T400,20 L400,100 L0,100 Z" fill="url(#chartGradient)"></path>
+<path d="M0,80 Q50,60 100,70 T200,40 T300,50 T400,20" fill="none" stroke="#87adff" stroke-width="2"></path>
+</svg>
+</div>
+<div class="relative z-10 flex flex-wrap gap-4 mt-8">
+<button class="neon-button text-on-primary font-bold px-8 py-4 rounded-xl text-lg flex items-center gap-2 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="add_circle">add_circle</span>
+                        Buy Bonds
+                    </button>
+<button class="bg-surface-container-high/40 border border-outline-variant/30 text-on-surface font-bold px-8 py-4 rounded-xl text-lg flex items-center gap-2 hover:bg-surface-container-high/60 transition-all active:scale-95">
+<span class="material-symbols-outlined" data-icon="remove_circle">remove_circle</span>
+                        Sell Bonds
+                    </button>
+</div>
+</div>
+<!-- Side Stats Panel -->
+<div class="lg:col-span-4 flex flex-col gap-6">
+<!-- Prize Pool Card -->
+<div class="glass-panel rounded-3xl p-6 border-t-2 border-primary/30 flex-1">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-tertiary" data-icon="stars">stars</span>
+<h2 class="text-lg font-headline font-semibold">Grand Prize Pool</h2>
+</div>
+<div class="mb-6">
+<p class="text-4xl font-headline font-bold text-tertiary mb-2">$50,000</p>
+<p class="text-on-surface-variant text-xs font-label uppercase tracking-widest">Est. Distribution</p>
+</div>
+<!-- Countdown Timer -->
+<div class="grid grid-cols-4 gap-2">
+<div class="bg-surface-container-low p-3 rounded-xl text-center border border-outline-variant/10">
+<span class="block text-xl font-headline font-bold">02</span>
+<span class="text-[10px] text-on-surface-variant uppercase">Days</span>
+</div>
+<div class="bg-surface-container-low p-3 rounded-xl text-center border border-outline-variant/10">
+<span class="block text-xl font-headline font-bold">14</span>
+<span class="text-[10px] text-on-surface-variant uppercase">Hrs</span>
+</div>
+<div class="bg-surface-container-low p-3 rounded-xl text-center border border-outline-variant/10">
+<span class="block text-xl font-headline font-bold">35</span>
+<span class="text-[10px] text-on-surface-variant uppercase">Min</span>
+</div>
+<div class="bg-surface-container-low p-3 rounded-xl text-center border border-outline-variant/10">
+<span class="block text-xl font-headline font-bold">44</span>
+<span class="text-[10px] text-on-surface-variant uppercase">Sec</span>
+</div>
+</div>
+</div>
+<!-- Secondary Metric -->
+<div class="bg-surface-container-low rounded-3xl p-6 border border-outline-variant/10">
+<div class="flex justify-between items-center mb-4">
+<p class="text-on-surface-variant text-sm">Bond Multiplier</p>
+<span class="text-primary font-bold">x2.4</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 65%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Secondary Content: Portfolio Breakdown (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="glass-panel rounded-3xl p-6 flex flex-col gap-4 group cursor-pointer hover:bg-surface-container-high/80 transition-colors">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary" data-icon="bolt">bolt</span>
+</div>
+<span class="text-on-surface-variant material-symbols-outlined group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+<div>
+<h3 class="font-headline font-semibold text-lg">Instant Yield</h3>
+<p class="text-on-surface-variant text-sm">Automated compounding for high-liquidity bonds.</p>
+</div>
+</div>
+<div class="glass-panel rounded-3xl p-6 flex flex-col gap-4 group cursor-pointer hover:bg-surface-container-high/80 transition-colors">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-2xl bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary" data-icon="shield">shield</span>
+</div>
+<span class="text-on-surface-variant material-symbols-outlined group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+<div>
+<h3 class="font-headline font-semibold text-lg">Safe Haven</h3>
+<p class="text-on-surface-variant text-sm">Low-volatility exposure with insurance backing.</p>
+</div>
+</div>
+<div class="glass-panel rounded-3xl p-6 flex flex-col gap-4 group cursor-pointer hover:bg-surface-container-high/80 transition-colors">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-2xl bg-tertiary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary" data-icon="rocket_launch">rocket_launch</span>
+</div>
+<span class="text-on-surface-variant material-symbols-outlined group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+<div>
+<h3 class="font-headline font-semibold text-lg">Alpha Pool</h3>
+<p class="text-on-surface-variant text-sm">Experimental protocols for maximized returns.</p>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="fixed bottom-0 w-full z-50 bg-[#0c0d18]/90 backdrop-blur-2xl rounded-t-3xl border-t border-[#464753]/20 md:hidden flex justify-around items-center px-4 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+<a class="flex flex-col items-center justify-center bg-[#87adff]/20 text-[#87adff] rounded-xl p-2 scale-90 active:scale-100 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-inter text-[10px] uppercase tracking-widest mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#464753] p-2 active:bg-[#7AA2F7]/10 scale-90 active:scale-100 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="swap_vert">swap_vert</span>
+<span class="font-inter text-[10px] uppercase tracking-widest mt-1">Trade</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#464753] p-2 active:bg-[#7AA2F7]/10 scale-90 active:scale-100 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="stars">stars</span>
+<span class="font-inter text-[10px] uppercase tracking-widest mt-1">Prizes</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#464753] p-2 active:bg-[#7AA2F7]/10 scale-90 active:scale-100 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-inter text-[10px] uppercase tracking-widest mt-1">Settings</span>
+</a>
+</nav>
+<!-- FAB Suppression Applied: No FAB rendered on Dashboard as per guidelines -->
+</body></html>

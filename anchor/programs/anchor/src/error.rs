@@ -48,4 +48,6 @@ pub enum PremiumBondsError {
     MaxTicketsPerBuyExceeded,
     #[msg("Burned more Kamino kTokens than mathematically permitted for this withdrawal.")]
     ExcessiveKtokensBurned,
+    #[msg("Auto-reinvestment is not enabled for this winner.")]
+    AutoReinvestNotEnabled,
 }

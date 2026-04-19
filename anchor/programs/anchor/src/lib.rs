@@ -42,6 +42,7 @@ pub mod anchor {
         stake_cycle_duration_hrs: i64,
         fee_basis_points: u16,
         max_withdrawal_slippage_dust: u64,
+        auto_reinvest_default: bool,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -50,6 +51,7 @@ pub mod anchor {
             stake_cycle_duration_hrs,
             fee_basis_points,
             max_withdrawal_slippage_dust,
+            auto_reinvest_default,
         )
     }
 
@@ -98,5 +100,35 @@ pub mod anchor {
 
     pub fn claim_prize(ctx: Context<ClaimPrize>, cycle_id: u32, winner_index: u32) -> Result<()> {
         instructions::yield_draw::claim_prize::handle(ctx, cycle_id, winner_index)
+    }
+
+    pub fn set_auto_reinvest(ctx: Context<SetAutoReinvest>, enabled: bool) -> Result<()> {
+        instructions::user::set_auto_reinvest::handle(ctx, enabled)
+    }
+
+    pub fn update_pool_config(
+        ctx: Context<UpdatePoolConfig>,
+        new_auto_reinvest_default: Option<bool>,
+        new_fee_basis_points: Option<u16>,
+        new_bond_price: Option<u64>,
+        new_max_withdrawal_slippage_dust: Option<u64>,
+        new_fee_wallet: Option<Pubkey>,
+    ) -> Result<()> {
+        instructions::admin::update_pool_config::handle(
+            ctx,
+            new_auto_reinvest_default,
+            new_fee_basis_points,
+            new_bond_price,
+            new_max_withdrawal_slippage_dust,
+            new_fee_wallet,
+        )
+    }
+
+    pub fn reinvest_winnings(
+        ctx: Context<ReinvestWinnings>,
+        cycle_id: u32,
+        winner_index: u32,
+    ) -> Result<()> {
+        instructions::yield_draw::reinvest_winnings::handle(ctx, cycle_id, winner_index)
     }
 }

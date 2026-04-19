@@ -43,6 +43,7 @@ pub struct PrizePool {
     pub max_withdrawal_slippage_dust: u64,
     #[max_len(10)]
     pub prize_tiers: Vec<PrizeTier>,
+    pub auto_reinvest_default: bool,
 }
 
 use crate::utils::calculate_percentage_fee;
@@ -89,6 +90,7 @@ mod tests {
             current_draw_cycle_id: 0,
             max_withdrawal_slippage_dust: 0,
             prize_tiers: vec![],
+            auto_reinvest_default: false,
         }
     }
 

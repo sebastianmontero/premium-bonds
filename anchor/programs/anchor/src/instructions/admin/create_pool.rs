@@ -83,6 +83,7 @@ pub fn handle(
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
     max_withdrawal_slippage_dust: u64,
+    auto_reinvest_default: bool,
 ) -> Result<()> {
     require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
     require!(
@@ -106,6 +107,7 @@ pub fn handle(
     pool.current_draw_cycle_id = 0;
     pool.max_withdrawal_slippage_dust = max_withdrawal_slippage_dust;
     pool.prize_tiers = vec![];
+    pool.auto_reinvest_default = auto_reinvest_default;
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);
