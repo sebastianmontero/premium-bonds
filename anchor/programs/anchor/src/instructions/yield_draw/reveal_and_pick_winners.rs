@@ -98,6 +98,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
                 amount_owed: prize_per_winner,
                 paid_out: false,
                 tier_index: tier_idx as u8,
+                amount_reinvested: 0,
             });
         }
     }

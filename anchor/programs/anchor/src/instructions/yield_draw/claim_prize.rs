@@ -53,42 +53,31 @@ pub struct ClaimPrize<'info> {
 
 pub fn handle(ctx: Context<ClaimPrize>, _cycle_id: u32, winner_index: u32) -> Result<()> {
     let payout_registry = &mut ctx.accounts.payout_registry;
-    let idx = winner_index as usize;
+    let winner = payout_registry.validate_winner(winner_index, &ctx.accounts.user.key())?;
 
-    require!(
-        idx < payout_registry.winners.len(),
-        PremiumBondsError::InvalidIndices
-    );
+    let claimable = winner.claimable_amount();
+    let _ = winner;
 
-    let amount_owed = payout_registry.winners[idx].amount_owed;
-    require!(
-        payout_registry.winners[idx].winner_pubkey == ctx.accounts.user.key(),
-        PremiumBondsError::UnauthorizedTicket
-    );
-    require!(
-        !payout_registry.winners[idx].paid_out,
-        PremiumBondsError::AlreadyClaimed
-    );
+    payout_registry.mark_paid(winner_index);
 
-    payout_registry.winners[idx].paid_out = true;
-    payout_registry.payouts_completed += 1;
+    if claimable > 0 {
+        let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
+        let authority_bump = ctx.accounts.pool.vault_authority_bump;
+        let signer_seeds: &[&[&[u8]]] =
+            &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
-    let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
-    let authority_bump = ctx.accounts.pool.vault_authority_bump;
-    let signer_seeds: &[&[&[u8]]] =
-        &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
-
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.pool_vault_account.to_account_info(),
-        mint: ctx.accounts.token_mint.to_account_info(),
-        to: ctx.accounts.user_token_account.to_account_info(),
-        authority: ctx.accounts.pool.to_account_info(),
-    };
-    transfer_checked(
-        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-        amount_owed,
-        ctx.accounts.token_mint.decimals,
-    )?;
+        let cpi_accounts = TransferChecked {
+            from: ctx.accounts.pool_vault_account.to_account_info(),
+            mint: ctx.accounts.token_mint.to_account_info(),
+            to: ctx.accounts.user_token_account.to_account_info(),
+            authority: ctx.accounts.pool.to_account_info(),
+        };
+        transfer_checked(
+            CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+            claimable,
+            ctx.accounts.token_mint.decimals,
+        )?;
+    }
 
     Ok(())
 }

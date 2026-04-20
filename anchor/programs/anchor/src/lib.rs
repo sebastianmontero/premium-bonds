@@ -128,7 +128,8 @@ pub mod anchor {
         ctx: Context<ReinvestWinnings>,
         cycle_id: u32,
         winner_index: u32,
+        max_bonds: u32,
     ) -> Result<()> {
-        instructions::yield_draw::reinvest_winnings::handle(ctx, cycle_id, winner_index)
+        instructions::yield_draw::reinvest_winnings::handle(ctx, cycle_id, winner_index, max_bonds)
     }
 }

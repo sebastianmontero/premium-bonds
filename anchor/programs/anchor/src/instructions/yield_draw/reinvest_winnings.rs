@@ -109,7 +109,14 @@ pub struct ReinvestWinnings<'info> {
     pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
 
-pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32) -> Result<()> {
+pub fn handle(
+    ctx: Context<ReinvestWinnings>,
+    _cycle_id: u32,
+    winner_index: u32,
+    max_bonds: u32,
+) -> Result<()> {
+    require!(max_bonds > 0, PremiumBondsError::InvalidBondQuantity);
+
     // ── 1. Resolve auto-reinvest flag ────────────────────────────────────────
     let auto_reinvest = match &ctx.accounts.user_preference {
         Some(pref) => pref.auto_reinvest,
@@ -117,35 +124,36 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
     };
     require!(auto_reinvest, PremiumBondsError::AutoReinvestNotEnabled);
 
-    // ── 2. Validate & mark winner as paid ────────────────────────────────────
+    // ── 2. Validate winner entry ─────────────────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry;
-    let idx = winner_index as usize;
+    let winner = payout_registry.validate_winner(winner_index, &ctx.accounts.winner.key())?;
 
-    require!(
-        idx < payout_registry.winners.len(),
-        PremiumBondsError::InvalidIndices
-    );
-    require!(
-        payout_registry.winners[idx].winner_pubkey == ctx.accounts.winner.key(),
-        PremiumBondsError::UnauthorizedTicket
-    );
-    require!(
-        !payout_registry.winners[idx].paid_out,
-        PremiumBondsError::AlreadyClaimed
-    );
+    // ── 3. Calculate remaining amount and bonds for this batch ────────────────
+    let remaining = winner.claimable_amount();
+    let already_reinvested = winner.amount_reinvested;
+    let _ = winner;
 
-    let amount_owed = payout_registry.winners[idx].amount_owed;
-    payout_registry.winners[idx].paid_out = true;
-    payout_registry.payouts_completed += 1;
-
-    // ── 3. Calculate bonds and dust ──────────────────────────────────────────
     let pool = &mut ctx.accounts.pool;
-    let bonds_to_buy = (amount_owed / pool.bond_price) as u32;
-    let reinvest_amount = (bonds_to_buy as u64).checked_mul(pool.bond_price).unwrap();
-    let dust = amount_owed.checked_sub(reinvest_amount).unwrap();
+
+    // How many total bonds can be bought with the remaining amount?
+    let total_remaining_bonds = (remaining / pool.bond_price) as u32;
+    // Cap this batch at max_bonds
+    let bonds_this_batch = total_remaining_bonds.min(max_bonds);
+    let reinvest_amount = (bonds_this_batch as u64).checked_mul(pool.bond_price).unwrap();
+
+    // After this batch, determine if we're done
+    let new_amount_reinvested = already_reinvested.checked_add(reinvest_amount).unwrap();
+    let is_final_batch = bonds_this_batch == total_remaining_bonds;
+
+    // Dust only matters on the final batch (leftover that can't buy a whole bond)
+    let dust = if is_final_batch {
+        remaining.checked_sub(reinvest_amount).unwrap()
+    } else {
+        0
+    };
 
     // ── 4. Reinvest: deposit into Kamino + register tickets ──────────────────
-    if bonds_to_buy > 0 {
+    if bonds_this_batch > 0 {
         require!(
             pool.status == PoolStatus::Active,
             PremiumBondsError::PoolNotActive
@@ -186,14 +194,13 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
             .unwrap();
 
         // Register new tickets (same 3-phase logic as buy_bonds)
-        // Phase 1: validate capacity
         let insert_start;
         {
             let registry = ctx.accounts.ticket_registry.load()?;
             let current_total =
                 registry.active_tickets_count + registry.pending_tickets_count;
             require!(
-                current_total + bonds_to_buy <= registry.capacity,
+                current_total + bonds_this_batch <= registry.capacity,
                 PremiumBondsError::RegistryFull
             );
             insert_start =
@@ -201,53 +208,60 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
         }
 
         {
-            // Phase 2: write ticket bytes into raw account data
             let registry_ai = ctx.accounts.ticket_registry.to_account_info();
             let mut data = registry_ai.try_borrow_mut_data()?;
             let winner_key = ctx.accounts.winner.key();
-            for i in 0..bonds_to_buy as usize {
+            for i in 0..bonds_this_batch as usize {
                 registry_set_ticket(&mut data, insert_start + i, &winner_key);
             }
         }
 
         {
-            // Phase 3: commit the count
             let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-            registry.pending_tickets_count += bonds_to_buy;
+            registry.pending_tickets_count += bonds_this_batch;
         }
     }
 
-    // ── 5. Transfer dust remainder to user ───────────────────────────────────
-    if dust > 0 {
-        let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
-        let authority_bump = ctx.accounts.pool.vault_authority_bump;
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
+    // ── 5. Update reinvestment progress ──────────────────────────────────────
+    payout_registry.winners[winner_index as usize].amount_reinvested = new_amount_reinvested;
 
-        let cpi_accounts = TransferChecked {
-            from: ctx.accounts.pool_vault_account.to_account_info(),
-            mint: ctx.accounts.token_mint.to_account_info(),
-            to: ctx.accounts.user_token_account.to_account_info(),
-            authority: ctx.accounts.pool.to_account_info(),
-        };
-        transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.key(),
-                cpi_accounts,
-                signer_seeds,
-            ),
-            dust,
-            ctx.accounts.token_mint.decimals,
-        )?;
+    if is_final_batch {
+        payout_registry.mark_paid(winner_index);
+
+        // Transfer dust remainder to winner's ATA
+        if dust > 0 {
+            let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
+            let authority_bump = ctx.accounts.pool.vault_authority_bump;
+            let signer_seeds: &[&[&[u8]]] =
+                &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
+
+            let cpi_accounts = TransferChecked {
+                from: ctx.accounts.pool_vault_account.to_account_info(),
+                mint: ctx.accounts.token_mint.to_account_info(),
+                to: ctx.accounts.user_token_account.to_account_info(),
+                authority: ctx.accounts.pool.to_account_info(),
+            };
+            transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    cpi_accounts,
+                    signer_seeds,
+                ),
+                dust,
+                ctx.accounts.token_mint.decimals,
+            )?;
+        }
     }
 
     // ── 6. Log for off-chain indexing ─────────────────────────────────────────
     msg!(
-        "ReinvestWinnings: winner={}, bonds={}, reinvested={}, dust={}",
+        "ReinvestWinnings: winner={}, bonds={}, reinvested_this_batch={}, total_reinvested={}, dust={}, final={}",
         ctx.accounts.winner.key(),
-        bonds_to_buy,
+        bonds_this_batch,
         reinvest_amount,
-        dust
+        new_amount_reinvested,
+        dust,
+        is_final_batch,
     );
 
     Ok(())
