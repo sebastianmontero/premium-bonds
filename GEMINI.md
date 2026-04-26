@@ -29,3 +29,9 @@
 - **Format/Lint**: `npm run format`, `npm run lint`.
 - **Anchor Building/Testing**: When testing Solana programs, rely heavily on in-process `LiteSVM` tests. You can run them via `cargo test` inside the `/anchor` directory.
 - **CLI Invocations**: Prefix Solana and Anchor CLI commands with `NO_DNA=1` (e.g., `NO_DNA=1 anchor test`) to suppress interactive prompts and guarantee structured outputs.
+
+
+
+## 🤖 AI Agent Guidelines
+- **Command Execution:** When using `run_command` for any `git` operations (like `git status`, `git commit`, `git diff`) or commands that might invoke user prompts, ALWAYS set `SafeToAutoRun: false`. Setting this to `true` bypasses standard permission workflows and frequently causes `unexpected user interaction type: not permission` or `context canceled` errors.
+- **Solution Design:** Do not default to the first or easiest solution that comes to mind. Always take a moment to evaluate different possible approaches and trade-offs, and intentionally pick the best, most robust solution before writing code.
