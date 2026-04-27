@@ -66,3 +66,26 @@ export interface RecentWinner {
   cycleId: number;
   tokenSymbol: string;
 }
+
+export type PrizeStatus = "unclaimed" | "claimed" | "auto-reinvested";
+
+/** A single entry in the Prize History Ledger */
+export interface PrizeHistoryEntry {
+  drawCycleId: number;
+  date: string; // ISO date string
+  tierIndex: number; // 0 = Grand Prize, 1 = Runner-up, 2 = Consolation
+  amount: number; // base units
+  status: PrizeStatus;
+  reinvestedTickets?: number; // present when status is "auto-reinvested"
+}
+
+export type ActivityType = "deposit" | "withdraw" | "win" | "auto-reinvest";
+
+/** A single entry in the Activity Feed */
+export interface ActivityEntry {
+  id: string;
+  date: string; // ISO date string
+  type: ActivityType;
+  description: string; // human-readable summary
+  amount?: number; // base units, optional
+}

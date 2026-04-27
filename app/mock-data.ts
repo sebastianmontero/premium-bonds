@@ -4,6 +4,8 @@ import type {
   PayoutInfo,
   UserPreferenceInfo,
   RecentWinner,
+  PrizeHistoryEntry,
+  ActivityEntry,
 } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -132,3 +134,81 @@ export function tierColor(tierIndex: number): string {
       return "text-tertiary";
   }
 }
+
+/** Map tier index to a badge background class. */
+export function tierBadgeClass(tierIndex: number): string {
+  switch (tierIndex) {
+    case 0:
+      return "pill pill-warning"; // amber/gold
+    case 1:
+      return "pill pill-info"; // purple/primary
+    default:
+      return "pill pill-amber"; // teal-ish consolation
+  }
+}
+
+// ─── Portfolio: Aggregate stats ──────────────────────────────────────────────
+
+export const MOCK_LIFETIME_WINNINGS = usdc(170);
+export const MOCK_AUTO_REINVESTED_TOTAL = usdc(85);
+
+// ─── Portfolio: Prize History Ledger ─────────────────────────────────────────
+
+export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
+  {
+    drawCycleId: 41,
+    date: "2024-04-18",
+    tierIndex: 2,
+    amount: usdc(85),
+    status: "unclaimed",
+  },
+  {
+    drawCycleId: 38,
+    date: "2024-04-11",
+    tierIndex: 1,
+    amount: usdc(85),
+    status: "auto-reinvested",
+    reinvestedTickets: 17,
+  },
+  {
+    drawCycleId: 35,
+    date: "2024-04-04",
+    tierIndex: 2,
+    amount: usdc(42),
+    status: "claimed",
+  },
+];
+
+// ─── Portfolio: Activity Feed ────────────────────────────────────────────────
+
+export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
+  {
+    id: "act-1",
+    date: "2024-04-20",
+    type: "deposit",
+    description: "Deposited 500 USDC → 100 tickets",
+    amount: usdc(500),
+  },
+  {
+    id: "act-2",
+    date: "2024-04-18",
+    type: "win",
+    description: "Won $85.00 USDC · Consolation · Draw #41",
+    amount: usdc(85),
+  },
+  {
+    id: "act-3",
+    date: "2024-04-15",
+    type: "auto-reinvest",
+    description: "Auto-reinvested $85.00 → +17 tickets, $0.00 dust",
+    amount: usdc(85),
+  },
+  {
+    id: "act-4",
+    date: "2024-04-10",
+    type: "deposit",
+    description: "Deposited 750 USDC → 150 tickets",
+    amount: usdc(750),
+  },
+];
+

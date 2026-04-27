@@ -358,4 +358,62 @@
     background: color-mix(in srgb, var(--primary) 12%, transparent);
     color: var(--primary);
   }
+
+  /* ── Portfolio: neutral & amber pills ───────────────────────────────── */
+  .pill-neutral {
+    background: color-mix(in srgb, var(--on-surface-variant) 14%, transparent);
+    color: var(--on-surface-variant);
+  }
+
+  .pill-amber {
+    background: color-mix(in srgb, #f59e0b 18%, transparent);
+    color: #fbbf24;
+  }
+
+  /* ── Portfolio: Claim CTA ───────────────────────────────────────────── */
+  .btn-claim {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #1a1b26;
+    font-weight: 700;
+    border: none;
+    border-radius: var(--radius-md);
+    transition: all 0.25s ease;
+  }
+
+  .btn-claim:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px color-mix(in srgb, #f59e0b 30%, transparent);
+  }
+
+  /* ── Portfolio: Activity Timeline ───────────────────────────────────── */
+  .timeline-item {
+    position: relative;
+    padding-left: 1.75rem;
+  }
+
+  .timeline-item::before {
+    content: "";
+    position: absolute;
+    left: 0.4375rem;
+    top: 1.25rem;
+    bottom: -1rem;
+    width: 1px;
+    background: color-mix(in srgb, var(--outline-variant) 30%, transparent);
+  }
+
+  .timeline-item:last-child::before {
+    display: none;
+  }
+
+  .timeline-dot {
+    position: absolute;
+    left: 0;
+    top: 0.375rem;
+    width: 0.9375rem;
+    height: 0.9375rem;
+    border-radius: 9999px;
+    border: 2px solid;
+    background: var(--surface);
+  }
 }
