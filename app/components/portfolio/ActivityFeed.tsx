@@ -57,11 +57,7 @@ function formatFeedDate(isoDate: string): string {
 
 export function ActivityFeed({ entries }: ActivityFeedProps) {
   return (
-    <div className="glass-strong rounded-2xl p-6 space-y-4">
-      <h2 className="font-display text-lg font-bold text-on-surface">
-        Activity Feed
-      </h2>
-
+    <div className="glass-strong rounded-2xl p-6 h-full">
       <div className="space-y-0">
         {entries.map((entry) => (
           <div key={entry.id} className="timeline-item py-3">

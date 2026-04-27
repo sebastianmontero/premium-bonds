@@ -67,8 +67,8 @@ export default function DashboardPage() {
       {/* ── Bond Holdings + Activity Feed (two-column) ─────────────── */}
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Pool Card — takes 3 of 5 columns */}
-        <div className="lg:col-span-3">
-          <div className="flex items-center gap-2 mb-4 px-1">
+        <div className="lg:col-span-3 flex flex-col">
+          <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
             <svg
               width="18"
               height="18"
@@ -87,17 +87,39 @@ export default function DashboardPage() {
               Active Pool
             </h2>
           </div>
-          <PoolCard
-            pool={MOCK_POOL}
-            userTickets={MOCK_USER_TICKETS}
-            onDeposit={() => setShowDeposit(true)}
-            onWithdraw={() => setShowWithdraw(true)}
-          />
+          <div className="flex-1 min-h-0">
+            <PoolCard
+              pool={MOCK_POOL}
+              userTickets={MOCK_USER_TICKETS}
+              onDeposit={() => setShowDeposit(true)}
+              onWithdraw={() => setShowWithdraw(true)}
+            />
+          </div>
         </div>
 
         {/* Activity Feed — takes 2 of 5 columns */}
-        <div className="lg:col-span-2">
-          <ActivityFeed entries={MOCK_ACTIVITY_FEED} />
+        <div className="lg:col-span-2 flex flex-col">
+          <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-secondary"
+            >
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+            <h2 className="font-display text-lg font-bold text-on-surface">
+              Activity Feed
+            </h2>
+          </div>
+          <div className="flex-1 min-h-0">
+            <ActivityFeed entries={MOCK_ACTIVITY_FEED} />
+          </div>
         </div>
       </div>
 
