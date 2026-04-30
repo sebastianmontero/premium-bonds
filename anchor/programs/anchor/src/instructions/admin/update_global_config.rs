@@ -1,7 +1,7 @@
-use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
 use crate::constants::GLOBAL_CONFIG_SEED;
 use crate::error::PremiumBondsError;
+use crate::state::GlobalConfig;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct UpdateGlobalConfig<'info> {

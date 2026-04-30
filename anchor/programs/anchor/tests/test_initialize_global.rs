@@ -12,6 +12,7 @@
 //!   cargo +nightly test --package anchor --test test_initialize_global -- --nocapture
 
 use {
+    anchor_lang::prelude::Pubkey,
     anchor_lang::{InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
     solana_keypair::Keypair,
@@ -19,7 +20,6 @@ use {
     solana_program::instruction::Instruction,
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
-    anchor_lang::prelude::Pubkey,
 };
 
 // ─── Constants mirrored from the program ────────────────────────────────────
@@ -72,7 +72,10 @@ fn send_initialize_global(
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal { max_tickets_per_buy }.data(),
+        data: anchor::instruction::InitializeGlobal {
+            max_tickets_per_buy,
+        }
+        .data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -113,14 +116,18 @@ fn send_initialize_global_ok(
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal { max_tickets_per_buy }.data(),
+        data: anchor::instruction::InitializeGlobal {
+            max_tickets_per_buy,
+        }
+        .data(),
     };
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
 
-    svm.send_transaction(tx).expect("initialize_global should succeed")
+    svm.send_transaction(tx)
+        .expect("initialize_global should succeed")
 }
 
 /// Deserialize the `GlobalConfig` account from raw LiteSVM account data.
@@ -131,10 +138,8 @@ fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
         .expect("global_config account must exist after init");
 
     // Skip the 8-byte Anchor discriminator before deserializing.
-    anchor_lang::AccountDeserialize::try_deserialize(
-        &mut account.data.as_slice(),
-    )
-    .expect("account data should deserialize as GlobalConfig")
+    anchor_lang::AccountDeserialize::try_deserialize(&mut account.data.as_slice())
+        .expect("account data should deserialize as GlobalConfig")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -330,13 +335,21 @@ fn test_initialize_global_requires_admin_signature() {
     let jobs = Keypair::new().pubkey();
 
     // Build accounts using unsigned_admin as the admin (but sign with `admin`)
-    let accounts = anchor::accounts::InitializeGlobal {
+    let mut accounts = anchor::accounts::InitializeGlobal {
         global_config,
         admin: unsigned_admin.pubkey(), // mismatched
         jobs_account: jobs,
         system_program: anchor_lang::system_program::ID,
     }
     .to_account_metas(None);
+
+    // Manually remove the signer flag so the client builder doesn't panic.
+    // The program itself should reject this instruction.
+    for meta in accounts.iter_mut() {
+        if meta.pubkey == unsigned_admin.pubkey() {
+            meta.is_signer = false;
+        }
+    }
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -371,8 +384,7 @@ fn test_initialize_global_rejects_wrong_pda() {
     let jobs = Keypair::new().pubkey();
 
     // Derive a PDA with a different seed prefix.
-    let (wrong_pda, _) =
-        Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
+    let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
 
     let accounts = anchor::accounts::InitializeGlobal {
         global_config: wrong_pda, // intentionally wrong
