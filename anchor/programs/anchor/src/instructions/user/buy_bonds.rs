@@ -1,7 +1,6 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
-use crate::error::PremiumBondsError;
 use crate::kamino;
-use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
 use crate::utils::registry_set_ticket;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
@@ -95,23 +94,10 @@ pub struct BuyBonds<'info> {
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
-    require!(
-        pool.status == PoolStatus::Active,
-        PremiumBondsError::PoolNotActive
-    );
-
-    // Check freezing
-    require!(
-        !pool.is_frozen_for_draw,
-        PremiumBondsError::AwaitingRandomnessFreeze
-    );
-
-    require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
-    require!(
-        bonds_to_buy <= ctx.accounts.global_config.max_tickets_per_buy,
-        PremiumBondsError::MaxTicketsPerBuyExceeded
-    );
-    let amount = (bonds_to_buy as u64).checked_mul(pool.bond_price).unwrap();
+    let amount = pool.validate_buy_bonds(
+        bonds_to_buy,
+        ctx.accounts.global_config.max_tickets_per_buy,
+    )?;
 
     // 1. Transfer to Pool Vault
     let cpi_accounts = TransferChecked {
@@ -157,12 +143,12 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let insert_start;
     {
         let registry = ctx.accounts.ticket_registry.load()?;
-        let current_total =
-            registry.active_tickets_count + registry.pending_tickets_count;
-        require!(
-            current_total + bonds_to_buy <= registry.capacity,
-            PremiumBondsError::RegistryFull
-        );
+        PrizePool::validate_registry_capacity(
+            bonds_to_buy,
+            registry.active_tickets_count,
+            registry.pending_tickets_count,
+            registry.capacity,
+        )?;
         insert_start =
             (registry.active_tickets_count + registry.pending_tickets_count) as usize;
     } // Ref released

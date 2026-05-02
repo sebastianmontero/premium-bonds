@@ -47,6 +47,7 @@ pub struct PrizePool {
 }
 
 use crate::utils::calculate_percentage_fee;
+use crate::error::PremiumBondsError;
 
 impl PrizePool {
     pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
@@ -57,6 +58,51 @@ impl PrizePool {
         self.current_cycle_end_at = current_time
             .checked_add(self.stake_cycle_duration_hrs.checked_mul(3600).unwrap())
             .unwrap();
+    }
+
+    /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
+    ///
+    /// These checks run before any token transfers or Kamino CPI calls.
+    /// Extracted here so they can be unit-tested without a full Anchor context.
+    pub fn validate_buy_bonds(
+        &self,
+        bonds_to_buy: u32,
+        max_tickets_per_buy: u32,
+    ) -> Result<u64> {
+        require!(
+            self.status == PoolStatus::Active,
+            PremiumBondsError::PoolNotActive
+        );
+        require!(
+            !self.is_frozen_for_draw,
+            PremiumBondsError::AwaitingRandomnessFreeze
+        );
+        require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
+        require!(
+            bonds_to_buy <= max_tickets_per_buy,
+            PremiumBondsError::MaxTicketsPerBuyExceeded
+        );
+        let amount = (bonds_to_buy as u64)
+            .checked_mul(self.bond_price)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(amount)
+    }
+
+    /// Validates that the registry has enough capacity for `bonds_to_buy` new tickets.
+    ///
+    /// This check runs after the CPI calls succeed, before writing ticket data.
+    pub fn validate_registry_capacity(
+        bonds_to_buy: u32,
+        active_count: u32,
+        pending_count: u32,
+        capacity: u32,
+    ) -> Result<()> {
+        let current_total = active_count + pending_count;
+        require!(
+            current_total + bonds_to_buy <= capacity,
+            PremiumBondsError::RegistryFull
+        );
+        Ok(())
     }
 }
 
@@ -315,5 +361,207 @@ mod tests {
         assert_eq!(pool.fee_basis_points, 250);
         assert_eq!(pool.stake_cycle_duration_hrs, 24);
         assert_eq!(pool.pool_id, 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PrizePool::validate_buy_bonds
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn buy_bonds_happy_path() {
+        let pool = default_pool(500, 24);
+        let amount = pool.validate_buy_bonds(5, 10).unwrap();
+        assert_eq!(amount, 5 * 1_000_000);
+    }
+
+    #[test]
+    fn buy_bonds_single_ticket() {
+        let pool = default_pool(500, 24);
+        let amount = pool.validate_buy_bonds(1, 10).unwrap();
+        assert_eq!(amount, 1_000_000);
+    }
+
+    #[test]
+    fn buy_bonds_at_max_boundary() {
+        let pool = default_pool(500, 24);
+        let amount = pool.validate_buy_bonds(10, 10).unwrap();
+        assert_eq!(amount, 10 * 1_000_000);
+    }
+
+    // ── Pool status guards ──────────────────────────────────────────────────
+
+    #[test]
+    fn buy_bonds_fails_pool_paused() {
+        let mut pool = default_pool(500, 24);
+        pool.status = PoolStatus::Paused;
+        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::PoolNotActive.into(),
+        );
+    }
+
+    #[test]
+    fn buy_bonds_fails_pool_closed() {
+        let mut pool = default_pool(500, 24);
+        pool.status = PoolStatus::Closed;
+        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::PoolNotActive.into(),
+        );
+    }
+
+    // ── Freeze guard ────────────────────────────────────────────────────────
+
+    #[test]
+    fn buy_bonds_fails_frozen_for_draw() {
+        let mut pool = default_pool(500, 24);
+        pool.is_frozen_for_draw = true;
+        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::AwaitingRandomnessFreeze.into(),
+        );
+    }
+
+    #[test]
+    fn buy_bonds_ok_not_frozen() {
+        let mut pool = default_pool(500, 24);
+        pool.is_frozen_for_draw = false;
+        assert!(pool.validate_buy_bonds(1, 10).is_ok());
+    }
+
+    // ── Quantity guards ─────────────────────────────────────────────────────
+
+    #[test]
+    fn buy_bonds_fails_zero_quantity() {
+        let pool = default_pool(500, 24);
+        let err = pool.validate_buy_bonds(0, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::InvalidBondQuantity.into(),
+        );
+    }
+
+    #[test]
+    fn buy_bonds_fails_exceeds_max_tickets() {
+        let pool = default_pool(500, 24);
+        let err = pool.validate_buy_bonds(11, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::MaxTicketsPerBuyExceeded.into(),
+        );
+    }
+
+    #[test]
+    fn buy_bonds_fails_way_over_max_tickets() {
+        let pool = default_pool(500, 24);
+        let err = pool.validate_buy_bonds(100, 5).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::MaxTicketsPerBuyExceeded.into(),
+        );
+    }
+
+    // ── Amount calculation ───────────────────────────────────────────────────
+
+    #[test]
+    fn buy_bonds_amount_matches_price_times_quantity() {
+        let mut pool = default_pool(500, 24);
+        pool.bond_price = 2_500_000; // 2.5 USDC
+        let amount = pool.validate_buy_bonds(3, 10).unwrap();
+        assert_eq!(amount, 3 * 2_500_000);
+    }
+
+    #[test]
+    fn buy_bonds_amount_large_price() {
+        let mut pool = default_pool(500, 24);
+        pool.bond_price = 1_000_000_000; // 1000 USDC
+        let amount = pool.validate_buy_bonds(10, 10).unwrap();
+        assert_eq!(amount, 10_000_000_000);
+    }
+
+    // ── Guard priority: status checked before freeze ─────────────────────────
+
+    #[test]
+    fn buy_bonds_paused_and_frozen_yields_pool_not_active() {
+        let mut pool = default_pool(500, 24);
+        pool.status = PoolStatus::Paused;
+        pool.is_frozen_for_draw = true;
+        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        // PoolNotActive is checked first, so that's the error we get
+        assert_eq!(
+            err,
+            PremiumBondsError::PoolNotActive.into(),
+        );
+    }
+
+    #[test]
+    fn buy_bonds_active_but_frozen_yields_freeze_error() {
+        let mut pool = default_pool(500, 24);
+        pool.status = PoolStatus::Active;
+        pool.is_frozen_for_draw = true;
+        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        assert_eq!(
+            err,
+            PremiumBondsError::AwaitingRandomnessFreeze.into(),
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PrizePool::validate_registry_capacity
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn registry_capacity_happy_path() {
+        assert!(PrizePool::validate_registry_capacity(5, 0, 0, 100).is_ok());
+    }
+
+    #[test]
+    fn registry_capacity_exact_fit() {
+        // 8 active + 0 pending + 2 new = 10 capacity → exact fit
+        assert!(PrizePool::validate_registry_capacity(2, 8, 0, 10).is_ok());
+    }
+
+    #[test]
+    fn registry_capacity_with_pending() {
+        // 3 active + 4 pending + 3 new = 10 capacity → exact fit
+        assert!(PrizePool::validate_registry_capacity(3, 3, 4, 10).is_ok());
+    }
+
+    #[test]
+    fn registry_capacity_fails_completely_full() {
+        let err = PrizePool::validate_registry_capacity(1, 10, 0, 10).unwrap_err();
+        assert_eq!(err, PremiumBondsError::RegistryFull.into());
+    }
+
+    #[test]
+    fn registry_capacity_fails_insufficient_slots() {
+        // 8 active + 0 pending → 2 free, but requesting 3
+        let err = PrizePool::validate_registry_capacity(3, 8, 0, 10).unwrap_err();
+        assert_eq!(err, PremiumBondsError::RegistryFull.into());
+    }
+
+    #[test]
+    fn registry_capacity_fails_pending_fills_remaining() {
+        // 5 active + 5 pending → 0 free
+        let err = PrizePool::validate_registry_capacity(1, 5, 5, 10).unwrap_err();
+        assert_eq!(err, PremiumBondsError::RegistryFull.into());
+    }
+
+    #[test]
+    fn registry_capacity_zero_bonds_always_ok() {
+        // Edge case: buying 0 bonds should always pass capacity check
+        // (the quantity guard catches this separately)
+        assert!(PrizePool::validate_registry_capacity(0, 10, 0, 10).is_ok());
+    }
+
+    #[test]
+    fn registry_capacity_large_values() {
+        // Realistic large pool: 100k capacity, 90k used
+        assert!(PrizePool::validate_registry_capacity(100, 50_000, 40_000, 100_000).is_ok());
+        let err = PrizePool::validate_registry_capacity(10_001, 50_000, 40_000, 100_000).unwrap_err();
+        assert_eq!(err, PremiumBondsError::RegistryFull.into());
     }
 }
