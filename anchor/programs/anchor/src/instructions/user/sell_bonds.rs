@@ -19,7 +19,7 @@ pub struct SellBonds<'info> {
         bump = pool.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -31,13 +31,13 @@ pub struct SellBonds<'info> {
         associated_token::authority = user,
         associated_token::token_program = token_program,
     )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -46,7 +46,7 @@ pub struct SellBonds<'info> {
         token::mint = token_mint,
         token::token_program = token_program
     )]
-    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -55,7 +55,7 @@ pub struct SellBonds<'info> {
         token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
-    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // Kamino CPI Accounts
     /// CHECK: Validated by address constraint
@@ -75,7 +75,7 @@ pub struct SellBonds<'info> {
         mut,
         mint::token_program = ktokens_token_program
     )]
-    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
+    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,
