@@ -11,7 +11,7 @@ pub struct UpdateGlobalConfig<'info> {
         bump,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     pub admin: Signer<'info>,
 }

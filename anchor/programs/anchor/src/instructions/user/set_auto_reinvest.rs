@@ -11,7 +11,7 @@ pub struct SetAutoReinvest<'info> {
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(
         init_if_needed,
@@ -20,7 +20,7 @@ pub struct SetAutoReinvest<'info> {
         seeds = [USER_PREF_SEED, pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump
     )]
-    pub user_preference: Account<'info, UserPreference>,
+    pub user_preference: Box<Account<'info, UserPreference>>,
 
     pub system_program: Program<'info, System>,
 }

@@ -10,7 +10,7 @@ pub struct SetPrizeTiers<'info> {
         bump,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -20,7 +20,7 @@ pub struct SetPrizeTiers<'info> {
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 }
 
 pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> {

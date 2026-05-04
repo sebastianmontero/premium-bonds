@@ -16,14 +16,14 @@ pub struct HarvestYieldAndCommit<'info> {
         bump,
         constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -35,7 +35,7 @@ pub struct HarvestYieldAndCommit<'info> {
         seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.current_draw_cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub current_draw_cycle: Account<'info, DrawCycle>,
+    pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
     #[account(
         mut,
@@ -44,7 +44,7 @@ pub struct HarvestYieldAndCommit<'info> {
         token::mint = token_mint,
         token::token_program = token_program
     )]
-    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -53,7 +53,7 @@ pub struct HarvestYieldAndCommit<'info> {
         token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
-    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -61,13 +61,13 @@ pub struct HarvestYieldAndCommit<'info> {
         token::token_program = token_program,
         address = pool.fee_wallet
     )]
-    pub fee_wallet: InterfaceAccount<'info, TokenAccount>,
+    pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     // Kamino
     /// CHECK: Validated by address constraint
@@ -87,7 +87,7 @@ pub struct HarvestYieldAndCommit<'info> {
         mut,
         mint::token_program = ktokens_token_program
     )]
-    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
+    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,

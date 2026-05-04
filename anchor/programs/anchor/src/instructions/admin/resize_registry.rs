@@ -20,7 +20,7 @@ pub struct ResizeRegistry<'info> {
         bump,
         constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     /// Pool validates ticket_registry ownership and freeze state.
     #[account(
@@ -29,7 +29,7 @@ pub struct ResizeRegistry<'info> {
         has_one = ticket_registry @ PremiumBondsError::UnauthorizedTicket,
         constraint = !pool.is_frozen_for_draw @ PremiumBondsError::AwaitingRandomnessFreeze
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(
         mut,

@@ -25,14 +25,14 @@ pub struct ReinvestWinnings<'info> {
         seeds = [USER_PREF_SEED, pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
         bump,
     )]
-    pub user_preference: Option<Account<'info, UserPreference>>,
+    pub user_preference: Option<Box<Account<'info, UserPreference>>>,
 
     #[account(
         mut,
         seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub payout_registry: Account<'info, PayoutRegistry>,
+    pub payout_registry: Box<Account<'info, PayoutRegistry>>,
 
     #[account(
         mut,
@@ -40,7 +40,7 @@ pub struct ReinvestWinnings<'info> {
         bump = pool.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -53,13 +53,13 @@ pub struct ReinvestWinnings<'info> {
         associated_token::authority = winner,
         associated_token::token_program = token_program,
     )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -68,7 +68,7 @@ pub struct ReinvestWinnings<'info> {
         token::mint = token_mint,
         token::token_program = token_program
     )]
-    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -77,7 +77,7 @@ pub struct ReinvestWinnings<'info> {
         token::mint = reserve_collateral_mint,
         token::token_program = ktokens_token_program
     )]
-    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // Kamino Accounts
     /// CHECK: Validated by address constraint
@@ -97,7 +97,7 @@ pub struct ReinvestWinnings<'info> {
         mut,
         mint::token_program = ktokens_token_program
     )]
-    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
+    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub ktokens_token_program: Interface<'info, TokenInterface>,

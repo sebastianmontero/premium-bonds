@@ -17,17 +17,17 @@ pub struct RevealAndPickWinners<'info> {
         bump,
         constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
     )]
-    pub current_draw_cycle: Account<'info, DrawCycle>,
+    pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
     #[account(mut)]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
@@ -38,7 +38,7 @@ pub struct RevealAndPickWinners<'info> {
         seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub payout_registry: Account<'info, PayoutRegistry>,
+    pub payout_registry: Box<Account<'info, PayoutRegistry>>,
 
     pub system_program: Program<'info, System>,
 }

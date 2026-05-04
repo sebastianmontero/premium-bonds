@@ -17,13 +17,13 @@ pub struct ClaimPrize<'info> {
         seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub payout_registry: Account<'info, PayoutRegistry>,
+    pub payout_registry: Box<Account<'info, PayoutRegistry>>,
 
     #[account(
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(
         mut,
@@ -31,13 +31,13 @@ pub struct ClaimPrize<'info> {
         associated_token::authority = user,
         associated_token::token_program = token_program,
     )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -46,7 +46,7 @@ pub struct ClaimPrize<'info> {
         token::mint = token_mint,
         token::token_program = token_program
     )]
-    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Interface<'info, TokenInterface>,
 }

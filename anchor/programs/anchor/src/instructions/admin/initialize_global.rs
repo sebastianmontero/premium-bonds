@@ -11,7 +11,7 @@ pub struct InitializeGlobal<'info> {
         seeds = [GLOBAL_CONFIG_SEED],
         bump
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(mut)]
     pub admin: Signer<'info>,

@@ -16,7 +16,7 @@ pub struct CreatePool<'info> {
         bump,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -28,7 +28,7 @@ pub struct CreatePool<'info> {
         seeds = [PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub pool: Account<'info, PrizePool>,
+    pub pool: Box<Account<'info, PrizePool>>,
 
     #[account(zero)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -36,12 +36,12 @@ pub struct CreatePool<'info> {
     #[account(
         mint::token_program = token_program
     )]
-    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mint::token_program = ktokens_token_program
     )]
-    pub reserve_collateral_mint: InterfaceAccount<'info, Mint>,
+    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         init,
@@ -52,7 +52,7 @@ pub struct CreatePool<'info> {
         token::authority = pool,
         token::token_program = token_program,
     )]
-    pub pool_vault_account: InterfaceAccount<'info, TokenAccount>,
+    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         init,
@@ -63,13 +63,13 @@ pub struct CreatePool<'info> {
         token::authority = pool,
         token::token_program = ktokens_token_program,
     )]
-    pub pool_ktokens_vault: InterfaceAccount<'info, TokenAccount>,
+    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         token::mint = token_mint,
         token::token_program = token_program
     )]
-    pub fee_wallet: InterfaceAccount<'info, TokenAccount>,
+    pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Interface<'info, TokenInterface>,
