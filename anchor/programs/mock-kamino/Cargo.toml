@@ -1,41 +1,25 @@
 [package]
-name = "anchor"
+name = "mock-kamino"
 version = "0.1.0"
-description = "Created with Anchor"
+description = "Test-only mock of Kamino Lending (KLend) for CPI integration tests"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "anchor"
+name = "mock_kamino"
 
 [features]
 default = []
-mainnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
-anchor-debug = []
-custom-heap = []
-custom-panic = []
-
 
 [dependencies]
-anchor-lang = { version = "1.0.0", features = ["init-if-needed"] }
+anchor-lang = "1.0.0"
 anchor-spl = "1.0.0"
 solana-program = "^3"
-
-[dev-dependencies]
-litesvm = "0.10.0"
-blake3 = "=1.5.5"
-solana-message = "3.0.1"
-solana-transaction = "3.0.2"
-solana-signer = "3.0.0"
-solana-keypair = "3.0.1"
-solana-sdk = "3.0.0"
-sha2 = "0.10"
-
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

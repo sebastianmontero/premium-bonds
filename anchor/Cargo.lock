@@ -142,6 +142,7 @@ dependencies = [
  "anchor-spl",
  "blake3",
  "litesvm",
+ "sha2 0.10.9",
  "solana-keypair",
  "solana-message",
  "solana-program",
@@ -1677,6 +1678,15 @@ dependencies = [
  "keccak",
  "rand_core 0.6.4",
  "zeroize",
+]
+
+[[package]]
+name = "mock-kamino"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "solana-program",
 ]
 
 [[package]]

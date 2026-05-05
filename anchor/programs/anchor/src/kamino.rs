@@ -33,8 +33,8 @@ pub fn deposit_reserve_liquidity<'info>(
     liquidity_amount: u64,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
-    // Anchor discriminator for "global:deposit_reserve_liquidity"
-    let mut data = vec![147, 107, 12, 102, 172, 114, 25, 237];
+    // Anchor discriminator: sha256("global:deposit_reserve_liquidity")[0..8]
+    let mut data = vec![169, 201, 30, 126, 6, 205, 102, 68];
     data.extend_from_slice(&liquidity_amount.to_le_bytes());
 
     let ix = Instruction {
@@ -111,8 +111,8 @@ pub fn redeem_reserve_collateral<'info>(
     collateral_amount: u64,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
-    // Anchor discriminator for "global:redeem_reserve_collateral"
-    let mut data = vec![236, 171, 71, 236, 175, 29, 219, 142];
+    // Anchor discriminator: sha256("global:redeem_reserve_collateral")[0..8]
+    let mut data = vec![234, 117, 181, 125, 185, 142, 220, 29];
     data.extend_from_slice(&collateral_amount.to_le_bytes());
 
     let ix = Instruction {

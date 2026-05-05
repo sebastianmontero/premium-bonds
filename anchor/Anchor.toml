@@ -7,6 +7,7 @@ skip-lint = false
 
 [programs.localnet]
 anchor = "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
+mock_kamino = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 
 [provider]
 cluster = "localnet"
