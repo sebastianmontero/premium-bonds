@@ -22,6 +22,7 @@ pub struct HarvestYieldAndCommit<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
+        has_one = ticket_registry
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 

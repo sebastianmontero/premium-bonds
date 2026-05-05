@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::error::PremiumBondsError;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
 pub enum DrawStatus { AwaitingYield, AwaitingRandomness, Complete }
 
 #[account]
