@@ -1,4 +1,4 @@
-use crate::constants::{DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED};
+use crate::constants::{DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
@@ -26,7 +26,12 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        bump,
+        has_one = ticket_registry,
+    )]
     pub pool: Box<Account<'info, PrizePool>>,
 
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
