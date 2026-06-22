@@ -14,13 +14,13 @@ import {
   SelectedWalletAccountContextProvider,
   useSelectedWalletAccount,
   useSignAndSendTransaction,
-} from '@solana/react';
+} from "@solana/react";
 ```
 
 ## Provider
 
 ```tsx
-const STORAGE_KEY = 'wallet-account';
+const STORAGE_KEY = "wallet-account";
 
 function App() {
   return (
@@ -88,14 +88,14 @@ const handleSignIn = async () => {
 const signMessage = useSignMessage(account);
 
 const { signature, signedMessage } = await signMessage({
-  message: new TextEncoder().encode('Hello'),
+  message: new TextEncoder().encode("Hello"),
 });
 ```
 
 ## Sign Transaction
 
 ```tsx
-const signTx = useSignTransaction(account, 'solana:devnet');
+const signTx = useSignTransaction(account, "solana:devnet");
 
 const { signedTransaction } = await signTx({
   transaction: txBytes,
@@ -106,7 +106,7 @@ const { signedTransaction } = await signTx({
 ## Sign & Send
 
 ```tsx
-const signAndSend = useSignAndSendTransaction(account, 'solana:devnet');
+const signAndSend = useSignAndSendTransaction(account, "solana:devnet");
 
 const { signature } = await signAndSend({ transaction: txBytes });
 const base58Sig = getBase58Decoder().decode(signature);
@@ -115,13 +115,16 @@ const base58Sig = getBase58Decoder().decode(signature);
 ## Transaction Signer Hook
 
 ```tsx
-const signer = useWalletAccountTransactionSendingSigner(account, 'solana:devnet');
+const signer = useWalletAccountTransactionSendingSigner(
+  account,
+  "solana:devnet"
+);
 
 const message = pipe(
   createTransactionMessage({ version: 0 }),
-  m => setTransactionMessageFeePayerSigner(signer, m),
-  m => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
-  m => appendTransactionMessageInstruction(instruction, m),
+  (m) => setTransactionMessageFeePayerSigner(signer, m),
+  (m) => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
+  (m) => appendTransactionMessageInstruction(instruction, m)
 );
 
 const sig = await signAndSendTransactionMessageWithSigners(message);
@@ -130,19 +133,19 @@ const sig = await signAndSendTransactionMessageWithSigners(message);
 ## Chain Identifiers
 
 ```ts
-'solana:mainnet'
-'solana:devnet'
-'solana:testnet'
-'solana:localnet'
+"solana:mainnet";
+"solana:devnet";
+"solana:testnet";
+"solana:localnet";
 ```
 
 ## Signer Types
 
-| Hook | Returns |
-|------|---------|
-| `useWalletAccountMessageSigner` | `MessageModifyingSigner` |
-| `useWalletAccountTransactionSigner` | `TransactionModifyingSigner` |
-| `useWalletAccountTransactionSendingSigner` | `TransactionSendingSigner` |
+| Hook                                       | Returns                      |
+| ------------------------------------------ | ---------------------------- |
+| `useWalletAccountMessageSigner`            | `MessageModifyingSigner`     |
+| `useWalletAccountTransactionSigner`        | `TransactionModifyingSigner` |
+| `useWalletAccountTransactionSendingSigner` | `TransactionSendingSigner`   |
 
 All return modifying signers (wallets may modify before signing).
 
@@ -154,9 +157,9 @@ function App() {
     <SelectedWalletAccountContextProvider
       filterWallet={(w) => w.accounts.length > 0}
       stateSync={{
-        getSelectedWallet: () => localStorage.getItem('wallet'),
-        storeSelectedWallet: (k) => localStorage.setItem('wallet', k),
-        deleteSelectedWallet: () => localStorage.removeItem('wallet'),
+        getSelectedWallet: () => localStorage.getItem("wallet"),
+        storeSelectedWallet: (k) => localStorage.setItem("wallet", k),
+        deleteSelectedWallet: () => localStorage.removeItem("wallet"),
       }}
     >
       <WalletApp />
@@ -166,7 +169,7 @@ function App() {
 
 function WalletApp() {
   const [account, setAccount, wallets] = useSelectedWalletAccount();
-  const signAndSend = useSignAndSendTransaction(account, 'solana:devnet');
+  const signAndSend = useSignAndSendTransaction(account, "solana:devnet");
 
   if (!account) {
     return wallets.map((w) =>
