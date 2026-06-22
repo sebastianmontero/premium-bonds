@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 pub mod admin;
 pub mod user;
 pub mod yield_draw;

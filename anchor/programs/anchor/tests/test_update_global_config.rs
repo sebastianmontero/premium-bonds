@@ -62,7 +62,8 @@ fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey, u32) {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    svm.send_transaction(tx).expect("initialize_global should succeed");
+    svm.send_transaction(tx)
+        .expect("initialize_global should succeed");
 
     (svm, admin, initial_jobs_account, initial_max_tickets)
 }
@@ -118,7 +119,7 @@ fn send_update_global_config(
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    
+
     // Sign the tx. Only the keys provided here will sign. If `override_is_signer` is false,
     // the client won't panic, but SVM program verification will fail it.
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
@@ -274,7 +275,7 @@ fn test_update_global_config_unauthorized_admin() {
         &mut svm,
         &attacker, // Attacker signs the tx
         global_config,
-        None,      // The admin account passed in the IX defaults to `attacker.pubkey()`
+        None, // The admin account passed in the IX defaults to `attacker.pubkey()`
         None,
         Some(new_admin),
         None,
@@ -285,13 +286,16 @@ fn test_update_global_config_unauthorized_admin() {
         result.is_err(),
         "Update should fail with an unauthorized admin"
     );
-    
+
     // We expect a ConstraintHasOne error because `attacker.pubkey() != global_config.admin`.
     let err = result.unwrap_err();
     let err_str = format!("{:?}", err);
     assert!(
-        err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne") || err_str.contains("custom program error"),
-        "Expected constraint error but got: {}", err_str
+        err_str.contains("UnauthorizedAdmin")
+            || err_str.contains("ConstraintHasOne")
+            || err_str.contains("custom program error"),
+        "Expected constraint error but got: {}",
+        err_str
     );
 }
 

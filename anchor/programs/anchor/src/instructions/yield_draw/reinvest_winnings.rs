@@ -1,14 +1,18 @@
-use crate::constants::{PAYOUT_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED, USER_PREF_SEED};
+use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::kamino;
-use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserPreference};
+use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry};
 use crate::utils::registry_set_ticket;
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token_interface::{
-    transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
-};
 
+/// Synchronous, accounting-only reinvest.
+///
+/// Since yield is tracked on-chain via $PST price (not materialized USDC),
+/// reinvesting simply means "buying more bonds" by increasing the principal
+/// book value and registering new tickets. No token movement or CPI needed —
+/// the $PST already represent the full pool value.
+///
+/// Dust (< 1 bond) remains as `claimable_amount` on the payout entry,
+/// claimable via the async `claim_prize` flow.
 #[derive(Accounts)]
 #[instruction(cycle_id: u32, winner_index: u32)]
 pub struct ReinvestWinnings<'info> {
@@ -18,14 +22,6 @@ pub struct ReinvestWinnings<'info> {
 
     /// CHECK: The winner's pubkey. Validated against the payout registry entry in the handler.
     pub winner: UncheckedAccount<'info>,
-
-    /// Optional user preference account. When present, its `auto_reinvest` flag takes priority
-    /// over the pool's `auto_reinvest_default`. When absent, the pool default is used.
-    #[account(
-        seeds = [USER_PREF_SEED, pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
-        bump,
-    )]
-    pub user_preference: Option<Box<Account<'info, UserPreference>>>,
 
     #[account(
         mut,
@@ -45,68 +41,7 @@ pub struct ReinvestWinnings<'info> {
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// The winner's token account (ATA) for receiving dust remainder.
-    #[account(
-        init_if_needed,
-        payer = crank,
-        associated_token::mint = token_mint,
-        associated_token::authority = winner,
-        associated_token::token_program = token_program,
-    )]
-    pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(
-        address = pool.token_mint,
-        mint::token_program = token_program
-    )]
-    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    #[account(
-        mut,
-        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump,
-        token::mint = token_mint,
-        token::token_program = token_program
-    )]
-    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(
-        mut,
-        seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump,
-        token::mint = reserve_collateral_mint,
-        token::token_program = ktokens_token_program
-    )]
-    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    // Kamino Accounts
-    /// CHECK: Validated by address constraint
-    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
-    pub kamino_program: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: Validated by Kamino CPI
-    pub reserve: UncheckedAccount<'info>,
-    /// CHECK: Validated by Kamino CPI
-    pub lending_market: UncheckedAccount<'info>,
-    /// CHECK: Validated by Kamino CPI
-    pub lending_market_authority: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: Validated by Kamino CPI
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        mint::token_program = ktokens_token_program
-    )]
-    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    pub token_program: Interface<'info, TokenInterface>,
-    pub ktokens_token_program: Interface<'info, TokenInterface>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
-
-    /// CHECK: Solana instructions sysvar required by Kamino as a flash-loan guard.
-    #[account(address = crate::constants::INSTRUCTIONS_SYSVAR_ID)]
-    pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
 
 pub fn handle(
@@ -117,18 +52,11 @@ pub fn handle(
 ) -> Result<()> {
     require!(max_bonds > 0, PremiumBondsError::InvalidBondQuantity);
 
-    // ── 1. Resolve auto-reinvest flag ────────────────────────────────────────
-    let auto_reinvest = match &ctx.accounts.user_preference {
-        Some(pref) => pref.auto_reinvest,
-        None => ctx.accounts.pool.auto_reinvest_default,
-    };
-    require!(auto_reinvest, PremiumBondsError::AutoReinvestNotEnabled);
-
-    // ── 2. Validate winner entry ─────────────────────────────────────────────
+    // ── 1. Validate winner entry ─────────────────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry;
     let winner = payout_registry.validate_winner(winner_index, &ctx.accounts.winner.key())?;
 
-    // ── 3. Calculate remaining amount and bonds for this batch ────────────────
+    // ── 2. Calculate remaining amount and bonds for this batch ────────────────
     let remaining = winner.claimable_amount();
     let already_reinvested = winner.amount_reinvested;
     let _ = winner;
@@ -139,7 +67,9 @@ pub fn handle(
     let total_remaining_bonds = (remaining / pool.bond_price) as u32;
     // Cap this batch at max_bonds
     let bonds_this_batch = total_remaining_bonds.min(max_bonds);
-    let reinvest_amount = (bonds_this_batch as u64).checked_mul(pool.bond_price).unwrap();
+    let reinvest_amount = (bonds_this_batch as u64)
+        .checked_mul(pool.bond_price)
+        .unwrap();
 
     // After this batch, determine if we're done
     let new_amount_reinvested = already_reinvested.checked_add(reinvest_amount).unwrap();
@@ -152,7 +82,11 @@ pub fn handle(
         0
     };
 
-    // ── 4. Reinvest: deposit into Kamino + register tickets ──────────────────
+    // ── 3. Reinvest: accounting-only bond registration ──────────────────────
+    //
+    // No token movement needed. The $PST in pool_pst_vault already represent
+    // the entire pool value including unrealized yield. We simply "re-book"
+    // the winnings as principal and register new tickets.
     if bonds_this_batch > 0 {
         require!(
             pool.status == PoolStatus::Active,
@@ -163,31 +97,7 @@ pub fn handle(
             PremiumBondsError::AwaitingRandomnessFreeze
         );
 
-        let pool_id_bytes = pool.pool_id.to_le_bytes();
-        let authority_bump = pool.vault_authority_bump;
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
-
-        // CPI into Kamino to deposit the reinvested amount
-        kamino::deposit_reserve_liquidity(
-            ctx.accounts.kamino_program.to_account_info(),
-            pool.to_account_info(),
-            ctx.accounts.reserve.to_account_info(),
-            ctx.accounts.lending_market.to_account_info(),
-            ctx.accounts.lending_market_authority.to_account_info(),
-            ctx.accounts.token_mint.to_account_info(),
-            ctx.accounts.reserve_liquidity_supply.to_account_info(),
-            ctx.accounts.reserve_collateral_mint.to_account_info(),
-            ctx.accounts.pool_vault_account.to_account_info(),
-            ctx.accounts.pool_ktokens_vault.to_account_info(),
-            ctx.accounts.ktokens_token_program.to_account_info(),
-            ctx.accounts.token_program.to_account_info(),
-            ctx.accounts.instruction_sysvar_account.to_account_info(),
-            reinvest_amount,
-            signer_seeds,
-        )?;
-
-        // Update principal
+        // Update principal (accounting)
         pool.total_deposited_principal = pool
             .total_deposited_principal
             .checked_add(reinvest_amount)
@@ -197,8 +107,7 @@ pub fn handle(
         let insert_start;
         {
             let registry = ctx.accounts.ticket_registry.load()?;
-            let current_total =
-                registry.active_tickets_count + registry.pending_tickets_count;
+            let current_total = registry.active_tickets_count + registry.pending_tickets_count;
             require!(
                 current_total + bonds_this_batch <= registry.capacity,
                 PremiumBondsError::RegistryFull
@@ -222,38 +131,18 @@ pub fn handle(
         }
     }
 
-    // ── 5. Update reinvestment progress ──────────────────────────────────────
+    // ── 4. Update reinvestment progress ──────────────────────────────────────
     payout_registry.winners[winner_index as usize].amount_reinvested = new_amount_reinvested;
 
     if is_final_batch {
-        payout_registry.mark_paid(winner_index);
-
-        // Transfer dust remainder to winner's ATA
-        if dust > 0 {
-            let pool_id_bytes = ctx.accounts.pool.pool_id.to_le_bytes();
-            let authority_bump = ctx.accounts.pool.vault_authority_bump;
-            let signer_seeds: &[&[&[u8]]] =
-                &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
-
-            let cpi_accounts = TransferChecked {
-                from: ctx.accounts.pool_vault_account.to_account_info(),
-                mint: ctx.accounts.token_mint.to_account_info(),
-                to: ctx.accounts.user_token_account.to_account_info(),
-                authority: ctx.accounts.pool.to_account_info(),
-            };
-            transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.key(),
-                    cpi_accounts,
-                    signer_seeds,
-                ),
-                dust,
-                ctx.accounts.token_mint.decimals,
-            )?;
+        // If no dust, mark fully paid. If dust exists, leave claimable for async claim_prize.
+        if dust == 0 {
+            payout_registry.mark_paid(winner_index);
         }
+        // Dust remains as claimable_amount — user claims via claim_prize → claim_redemption
     }
 
-    // ── 6. Log for off-chain indexing ─────────────────────────────────────────
+    // ── 5. Log for off-chain indexing ─────────────────────────────────────────
     msg!(
         "ReinvestWinnings: winner={}, bonds={}, reinvested_this_batch={}, total_reinvested={}, dust={}, final={}",
         ctx.accounts.winner.key(),

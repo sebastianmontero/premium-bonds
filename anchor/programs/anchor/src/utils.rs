@@ -1,6 +1,6 @@
-use std::convert::TryInto;
-use anchor_lang::prelude::*;
 use crate::error::PremiumBondsError;
+use anchor_lang::prelude::*;
+use std::convert::TryInto;
 
 /// Calculate a percentage fee from an amount based on basis points (1 basis point = 0.01%).
 /// 10,000 basis points equals 100%.
@@ -85,7 +85,10 @@ pub fn swap_and_pop_pending(
     let mut new_pending = pending_count;
     let mut last_pending_idx = pending_count;
     for &idx_raw in pending_indices {
-        require!(idx_raw < last_pending_idx, PremiumBondsError::InvalidIndices);
+        require!(
+            idx_raw < last_pending_idx,
+            PremiumBondsError::InvalidIndices
+        );
         let real_idx = (active_count + idx_raw) as usize;
         require!(
             registry_get_ticket(data, real_idx) == *owner,
@@ -300,7 +303,10 @@ mod tests {
 
     #[test]
     fn capacity_from_one_slot() {
-        assert_eq!(registry_capacity_from_len(REGISTRY_HEADER_SIZE + PUBKEY_SIZE), 1);
+        assert_eq!(
+            registry_capacity_from_len(REGISTRY_HEADER_SIZE + PUBKEY_SIZE),
+            1
+        );
     }
 
     #[test]
@@ -487,8 +493,7 @@ mod tests {
         let owner = pk(0x01);
         let mut data = build_registry(&[owner], &[]);
 
-        let (new_active, new_pending) =
-            swap_and_pop_active(&mut data, 1, 0, &[0], &owner).unwrap();
+        let (new_active, new_pending) = swap_and_pop_active(&mut data, 1, 0, &[0], &owner).unwrap();
         assert_eq!(new_active, 0);
         assert_eq!(new_pending, 0);
         assert_eq!(registry_get_ticket(&data, 0), Pubkey::default());
@@ -501,8 +506,7 @@ mod tests {
         let a1 = pk(0x01); // owner
         let mut data = build_registry(&[a0, a1], &[]);
 
-        let (new_active, new_pending) =
-            swap_and_pop_active(&mut data, 2, 0, &[1], &a1).unwrap();
+        let (new_active, new_pending) = swap_and_pop_active(&mut data, 2, 0, &[1], &a1).unwrap();
         assert_eq!(new_active, 1);
         assert_eq!(new_pending, 0);
         assert_eq!(registry_get_ticket(&data, 0), a0);
@@ -515,8 +519,7 @@ mod tests {
         let tail_active = pk(0x99);
         let mut data = build_registry(&[owner, tail_active], &[]);
 
-        let (new_active, new_pending) =
-            swap_and_pop_active(&mut data, 2, 0, &[0], &owner).unwrap();
+        let (new_active, new_pending) = swap_and_pop_active(&mut data, 2, 0, &[0], &owner).unwrap();
         assert_eq!(new_active, 1);
         assert_eq!(new_pending, 0);
         // tail_active moves into slot 0
@@ -534,8 +537,7 @@ mod tests {
         let pending_last = pk(0x03);
         let mut data = build_registry(&[owner, active_other], &[pending_last]);
 
-        let (new_active, new_pending) =
-            swap_and_pop_active(&mut data, 2, 1, &[0], &owner).unwrap();
+        let (new_active, new_pending) = swap_and_pop_active(&mut data, 2, 1, &[0], &owner).unwrap();
         assert_eq!(new_active, 1);
         assert_eq!(new_pending, 1);
         // active_other moved to slot 0

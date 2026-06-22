@@ -1,4 +1,6 @@
-use crate::constants::{DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED};
+use crate::constants::{
+    DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED,
+};
 use crate::error::PremiumBondsError;
 use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
@@ -72,7 +74,9 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
 
     // Step 1: call load() to validate discriminator + program ownership, then drop immediately.
     // This preserves Anchor's account validation without holding the RefMut during raw byte access.
-    { ctx.accounts.ticket_registry.load()?; }
+    {
+        ctx.accounts.ticket_registry.load()?;
+    }
 
     // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
     let registry_ai = ctx.accounts.ticket_registry.to_account_info();

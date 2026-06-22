@@ -1,11 +1,24 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenInterface, TokenAccount, Mint, transfer_checked, TransferChecked};
-use crate::state::{GlobalConfig, PrizePool, DrawCycle, DrawStatus, TicketRegistry, PoolStatus};
-use crate::kamino;
-use crate::error::PremiumBondsError;
-use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, DRAW_CYCLE_SEED, POOL_VAULT_SEED, POOL_KTOKENS_SEED};
 use crate::constants::DISCRIMINATOR;
+use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
+use crate::error::PremiumBondsError;
+use crate::huma;
+use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
+/// Accounting-only yield harvest — no token movements.
+///
+/// Reads the $PST price from Huma's PoolState on-chain to calculate
+/// the yield accrued since last harvest, without redeeming any $PST.
+///
+/// Flow:
+/// 1. Read total_assets from Huma PoolState + $PST supply from mode mint.
+/// 2. Calculate: current_value = pool_pst_balance × (total_assets / pst_supply)
+/// 3. yield = current_value − total_deposited_principal − total_fees_accrued
+/// 4. fee = yield × fee_basis_points / 10000
+/// 5. prize_pot = yield − fee
+/// 6. Accrue fee to pool.total_fees_accrued (no transfer)
+/// 7. Create draw cycle with prize_pot
 #[derive(Accounts)]
 pub struct HarvestYieldAndCommit<'info> {
     #[account(mut)]
@@ -38,68 +51,31 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
+    /// Pool's $PST vault — read balance to calculate current value.
     #[account(
-        mut,
-        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
-        token::mint = token_mint,
-        token::token_program = token_program
+        token::token_program = pst_token_program
     )]
-    pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// Huma $PST mint — read supply for price calculation.
     #[account(
-        mut,
-        seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump,
-        token::mint = reserve_collateral_mint,
-        token::token_program = ktokens_token_program
+        mint::token_program = pst_token_program
     )]
-    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    #[account(
-        mut,
-        token::mint = token_mint,
-        token::token_program = token_program,
-        address = pool.fee_wallet
-    )]
-    pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
+    // ── Huma Finance read-only account ──────────────────────────────────────
+    /// CHECK: Huma PoolState — deserialized manually to read ModeState.assets.
+    /// Validated by the Huma program ID ownership check.
+    #[account(owner = crate::constants::HUMA_PROGRAM_ID)]
+    pub huma_pool_state: UncheckedAccount<'info>,
 
-    #[account(
-        address = pool.token_mint,
-        mint::token_program = token_program
-    )]
-    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    // Kamino
-    /// CHECK: Validated by address constraint
-    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
-    pub kamino_program: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: 
-    pub reserve: UncheckedAccount<'info>,
-    /// CHECK: 
-    pub lending_market: UncheckedAccount<'info>,
-    /// CHECK: 
-    pub lending_market_authority: UncheckedAccount<'info>,
-    #[account(mut)]
-    /// CHECK: 
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        mint::token_program = ktokens_token_program
-    )]
-    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    pub token_program: Interface<'info, TokenInterface>,
-    pub ktokens_token_program: Interface<'info, TokenInterface>,
+    pub pst_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
-
-    /// CHECK: Solana instructions sysvar required by Kamino as a flash-loan guard.
-    #[account(address = crate::constants::INSTRUCTIONS_SYSVAR_ID)]
-    pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
 
-pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Result<()> {
+pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
     require!(
@@ -118,78 +94,57 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
         PremiumBondsError::CycleNotEnded
     );
 
-    let balance_before = ctx.accounts.pool_vault_account.amount;
+    // ── Accounting-only yield calculation ────────────────────────────────────
+    //
+    // Read $PST price from Huma PoolState to determine the USDC value of our
+    // $PST holdings without moving any tokens.
 
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        PRIZE_POOL_SEED,
-        pool_id_bytes.as_ref(),
-        &[authority_bump],
-    ]];
+    let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let pst_supply = ctx.accounts.pst_mint.supply;
+    let pool_pst_balance = ctx.accounts.pool_pst_vault.amount;
 
-    let mut yield_generated: u64 = 0;
-    let mut fee: u64 = 0;
-    let mut net_yield: u64 = 0;
+    // current_value = pool_pst_balance × total_assets / pst_supply
+    let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets);
 
-    if ktokens_to_burn > 0 {
-        kamino::redeem_reserve_collateral(
-            ctx.accounts.kamino_program.to_account_info(),
-            pool.to_account_info(),                                      // owner (pool PDA)
-            ctx.accounts.lending_market.to_account_info(),               // lending_market comes BEFORE reserve for redeem
-            ctx.accounts.reserve.to_account_info(),
-            ctx.accounts.lending_market_authority.to_account_info(),
-            ctx.accounts.token_mint.to_account_info(),                   // reserve_liquidity_mint
-            ctx.accounts.reserve_collateral_mint.to_account_info(),
-            ctx.accounts.reserve_liquidity_supply.to_account_info(),
-            ctx.accounts.pool_ktokens_vault.to_account_info(),           // user_source_collateral (cTokens burned)
-            ctx.accounts.pool_vault_account.to_account_info(),           // user_destination_liquidity (underlying received)
-            ctx.accounts.ktokens_token_program.to_account_info(),        // collateral_token_program (cToken = SPL Token)
-            ctx.accounts.token_program.to_account_info(),                // liquidity_token_program (underlying, may be Token-2022)
-            ctx.accounts.instruction_sysvar_account.to_account_info(),
-            ktokens_to_burn,
-            signer_seeds,
-        )?;
-        ctx.accounts.pool_vault_account.reload()?;
+    // The "book value" is everything we've already accounted for:
+    //   principal still deposited + fees already accrued + fees already withdrawn
+    let book_value = pool
+        .total_deposited_principal
+        .checked_add(pool.total_fees_accrued)
+        .unwrap()
+        .checked_add(pool.total_fees_withdrawn)
+        .unwrap();
 
-        yield_generated = ctx.accounts.pool_vault_account.amount.checked_sub(balance_before).unwrap();
-        fee = pool.calculate_fee(yield_generated);
-        net_yield = yield_generated.checked_sub(fee).unwrap();
+    // Yield = current market value − book value (saturate to 0 if negative due to rounding)
+    let yield_generated = current_value.saturating_sub(book_value);
 
-        if fee > 0 {
-            let cpi_accounts = TransferChecked {
-                from: ctx.accounts.pool_vault_account.to_account_info(),
-                mint: ctx.accounts.token_mint.to_account_info(),
-                to: ctx.accounts.fee_wallet.to_account_info(),
-                authority: pool.to_account_info(),
-            };
-            transfer_checked(
-                CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-                fee,
-                ctx.accounts.token_mint.decimals,
-            )?;
-            
-            pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
-        }
+    let fee = pool.calculate_fee(yield_generated);
+    let net_yield = yield_generated.checked_sub(fee).unwrap();
+
+    // Accrue fee (accounting only — no token transfer)
+    if fee > 0 {
+        pool.total_fees_accrued = pool.total_fees_accrued.checked_add(fee).unwrap();
+        pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
     }
 
+    // ── Registry merge: Pending → Active ────────────────────────────────────
     let eligible_locked_count;
     {
         let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
 
-        // 1. Snapshot the perfectly mature active tickets BEFORE merging.
-        // This strictly prevents Pending (JIT) deposits from being eligible for the current prize draw!
+        // Snapshot mature active tickets BEFORE merging.
         eligible_locked_count = ticket_registry.active_tickets_count;
 
-        // 2. O(1) Block merge! Advance Pending tickets into Active so they mature over the NEXT cycle.
+        // O(1) block merge: Pending → Active for NEXT cycle eligibility.
         ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
         ticket_registry.pending_tickets_count = 0;
-    } // borrow released before draw_cycle writes below
+    }
 
+    // ── Draw Cycle creation ─────────────────────────────────────────────────
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
-    
+
     if yield_generated > 0 && eligible_locked_count > 0 {
         require!(
             !pool.prize_tiers.is_empty(),
@@ -198,17 +153,25 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>, ktokens_to_burn: u64) -> Resu
         draw_cycle.status = DrawStatus::AwaitingRandomness;
         pool.is_frozen_for_draw = true;
     } else {
-        // Shortcut: If no yield was generated OR there are zero mature tickets eligible to win,
-        // instantly complete the cycle to merge Pending -> Active tickets without paying for a VRF oracle draw!
         draw_cycle.status = DrawStatus::Complete;
     }
-    
-    draw_cycle.locked_ticket_count = eligible_locked_count; 
+
+    draw_cycle.locked_ticket_count = eligible_locked_count;
     draw_cycle.prize_pot = net_yield;
     draw_cycle.cycle_fee_collected = fee;
 
     pool.current_draw_cycle_id = pool.current_draw_cycle_id.checked_add(1).unwrap();
     pool.advance_cycle_end_at(current_time);
+
+    msg!(
+        "HarvestYieldAndCommit: cycle={}, pst_balance={}, current_value={}, yield={}, fee={}, prize_pot={}",
+        draw_cycle.cycle_id,
+        pool_pst_balance,
+        current_value,
+        yield_generated,
+        fee,
+        net_yield,
+    );
 
     Ok(())
 }

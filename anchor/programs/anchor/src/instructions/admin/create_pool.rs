@@ -1,5 +1,5 @@
 use crate::constants::{
-    DISCRIMINATOR, GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED,
+    DISCRIMINATOR, GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED,
     REGISTRY_INITIAL_SIZE,
 };
 use crate::error::PremiumBondsError;
@@ -38,10 +38,11 @@ pub struct CreatePool<'info> {
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
+    /// The Huma $PST mint for Classic mode.
     #[account(
-        mint::token_program = ktokens_token_program
+        mint::token_program = pst_token_program
     )]
-    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         init,
@@ -54,16 +55,17 @@ pub struct CreatePool<'info> {
     )]
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// Pool's $PST vault — holds all yield-bearing tokens from Huma deposits.
     #[account(
         init,
         payer = admin,
-        seeds = [POOL_KTOKENS_SEED, pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool_id.to_le_bytes().as_ref()],
         bump,
-        token::mint = reserve_collateral_mint,
+        token::mint = pst_mint,
         token::authority = pool,
-        token::token_program = ktokens_token_program,
+        token::token_program = pst_token_program,
     )]
-    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         token::mint = token_mint,
@@ -73,7 +75,7 @@ pub struct CreatePool<'info> {
 
     pub system_program: Program<'info, System>,
     pub token_program: Interface<'info, TokenInterface>,
-    pub ktokens_token_program: Interface<'info, TokenInterface>,
+    pub pst_token_program: Interface<'info, TokenInterface>,
 }
 
 pub fn handle(
@@ -82,8 +84,6 @@ pub fn handle(
     bond_price: u64,
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
-    max_withdrawal_slippage_dust: u64,
-    auto_reinvest_default: bool,
 ) -> Result<()> {
     require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
     require!(
@@ -92,7 +92,7 @@ pub fn handle(
     );
 
     let pool = &mut ctx.accounts.pool;
-    pool.vault_authority_bump = ctx.bumps.pool; // Since PDA is seeds, we use its bump as a generic vault authority
+    pool.vault_authority_bump = ctx.bumps.pool;
     pool.pool_id = pool_id;
     pool.token_mint = ctx.accounts.token_mint.key();
     pool.ticket_registry = ctx.accounts.ticket_registry.key();
@@ -105,9 +105,10 @@ pub fn handle(
     pool.total_fees_collected = 0;
     pool.is_frozen_for_draw = false;
     pool.current_draw_cycle_id = 0;
-    pool.max_withdrawal_slippage_dust = max_withdrawal_slippage_dust;
     pool.prize_tiers = vec![];
-    pool.auto_reinvest_default = auto_reinvest_default;
+    pool.next_redemption_id = 0;
+    pool.total_fees_accrued = 0;
+    pool.total_fees_withdrawn = 0;
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);

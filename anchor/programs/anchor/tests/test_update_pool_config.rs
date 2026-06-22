@@ -1,5 +1,5 @@
 use anchor::error::PremiumBondsError;
-use anchor_lang::{AccountSerialize, AccountDeserialize, InstructionData, ToAccountMetas, Space};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -57,7 +57,8 @@ fn setup_global_config() -> (LiteSVM, Keypair) {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    svm.send_transaction(tx).expect("initialize_global should succeed");
+    svm.send_transaction(tx)
+        .expect("initialize_global should succeed");
 
     (svm, admin)
 }
@@ -77,12 +78,13 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         status: anchor::PoolStatus::Active,
         total_deposited_principal: 0,
         total_fees_collected: 0,
+        total_fees_accrued: 0,
+        total_fees_withdrawn: 0,
+        next_redemption_id: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: false,
         current_draw_cycle_id: 0,
-        max_withdrawal_slippage_dust: 0,
         prize_tiers: vec![],
-        auto_reinvest_default: false,
     };
 
     let mut data = vec![];
@@ -100,7 +102,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     pda
 }
@@ -108,10 +111,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
 fn build_update_pool_config_ix(
     admin: Pubkey,
     pool_id: u32,
-    new_auto_reinvest_default: Option<bool>,
     new_fee_basis_points: Option<u16>,
     new_bond_price: Option<u64>,
-    new_max_withdrawal_slippage_dust: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
@@ -128,10 +129,8 @@ fn build_update_pool_config_ix(
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::UpdatePoolConfig {
-            new_auto_reinvest_default,
             new_fee_basis_points,
             new_bond_price,
-            new_max_withdrawal_slippage_dust,
             new_fee_wallet,
         }
         .data(),
@@ -143,14 +142,17 @@ fn test_update_pool_config_succeeds_empty() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_ok(), "update_pool_config should succeed with all None");
+    assert!(
+        res.is_ok(),
+        "update_pool_config should succeed with all None"
+    );
 }
 
 #[test]
@@ -158,24 +160,24 @@ fn test_update_pool_config_succeeds_one_field() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(200), None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_ok(), "update_pool_config should succeed updating one field");
+    assert!(
+        res.is_ok(),
+        "update_pool_config should succeed updating one field"
+    );
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
-    
-    // Check that the updated field changed
+
     assert_eq!(pool_state.fee_basis_points, 200);
-    // Check that others remained the default values
     assert_eq!(pool_state.bond_price, 1_000_000);
-    assert_eq!(pool_state.auto_reinvest_default, false);
 }
 
 #[test]
@@ -186,13 +188,11 @@ fn test_update_pool_config_succeeds_all_fields() {
     let new_fee_wallet = Keypair::new().pubkey();
 
     let ix = build_update_pool_config_ix(
-        admin.pubkey(), 
-        1, 
-        Some(true), 
-        Some(50), 
-        Some(2_000_000), 
-        Some(500), 
-        Some(new_fee_wallet)
+        admin.pubkey(),
+        1,
+        Some(50),
+        Some(2_000_000),
+        Some(new_fee_wallet),
     );
 
     let blockhash = svm.latest_blockhash();
@@ -200,16 +200,17 @@ fn test_update_pool_config_succeeds_all_fields() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_ok(), "update_pool_config should succeed updating all fields");
+    assert!(
+        res.is_ok(),
+        "update_pool_config should succeed updating all fields"
+    );
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
-    
-    assert_eq!(pool_state.auto_reinvest_default, true);
+
     assert_eq!(pool_state.fee_basis_points, 50);
     assert_eq!(pool_state.bond_price, 2_000_000);
-    assert_eq!(pool_state.max_withdrawal_slippage_dust, 500);
     assert_eq!(pool_state.fee_wallet, new_fee_wallet);
 }
 
@@ -218,7 +219,7 @@ fn test_update_pool_config_fails_invalid_bond_price() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, Some(0), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(0), None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -238,7 +239,7 @@ fn test_update_pool_config_unauthorized_admin() {
     let hacker = Keypair::new();
     svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
-    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, None, Some(0), None, None, None);
+    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, Some(0), None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&hacker.pubkey()), &blockhash);

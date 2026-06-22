@@ -13,7 +13,7 @@ use solana_transaction::versioned::VersionedTransaction;
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 const POOL_VAULT_SEED: &[u8] = b"pool_vault";
-const POOL_KTOKENS_SEED: &[u8] = b"pool_ktokens";
+const POOL_PST_SEED: &[u8] = b"pool_pst";
 
 fn global_config_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[GLOBAL_CONFIG_SEED], &anchor::id())
@@ -33,9 +33,9 @@ fn pool_vault_pda(pool_id: u32) -> (Pubkey, u8) {
     )
 }
 
-fn pool_ktokens_vault_pda(pool_id: u32) -> (Pubkey, u8) {
+fn pool_pst_vault_pda(pool_id: u32) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[POOL_KTOKENS_SEED, pool_id.to_le_bytes().as_ref()],
+        &[POOL_PST_SEED, pool_id.to_le_bytes().as_ref()],
         &anchor::id(),
     )
 }
@@ -73,7 +73,8 @@ fn setup_global_config() -> (LiteSVM, Keypair) {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    svm.send_transaction(tx).expect("initialize_global should succeed");
+    svm.send_transaction(tx)
+        .expect("initialize_global should succeed");
 
     (svm, admin)
 }
@@ -90,7 +91,8 @@ fn inject_mint(svm: &mut LiteSVM, address: Pubkey) {
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 fn inject_token_account(svm: &mut LiteSVM, address: Pubkey, mint: Pubkey) {
@@ -106,7 +108,8 @@ fn inject_token_account(svm: &mut LiteSVM, address: Pubkey, mint: Pubkey) {
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 fn inject_zero_account(svm: &mut LiteSVM, address: Pubkey, size: usize) {
@@ -119,14 +122,15 @@ fn inject_zero_account(svm: &mut LiteSVM, address: Pubkey, size: usize) {
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 struct TestContext {
     svm: LiteSVM,
     admin: Keypair,
     token_mint: Pubkey,
-    reserve_collateral_mint: Pubkey,
+    pst_mint: Pubkey,
     fee_wallet: Pubkey,
     ticket_registry: Pubkey,
 }
@@ -135,22 +139,26 @@ fn setup_create_pool_context() -> TestContext {
     let (mut svm, admin) = setup_global_config();
 
     let token_mint = Keypair::new().pubkey();
-    let reserve_collateral_mint = Keypair::new().pubkey();
+    let pst_mint = Keypair::new().pubkey();
     let fee_wallet = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
 
     inject_mint(&mut svm, token_mint);
-    inject_mint(&mut svm, reserve_collateral_mint);
+    inject_mint(&mut svm, pst_mint);
     inject_token_account(&mut svm, fee_wallet, token_mint);
-    
+
     // Inject the ticket registry with the minimum initial size
-    inject_zero_account(&mut svm, ticket_registry, anchor::constants::REGISTRY_INITIAL_SIZE);
+    inject_zero_account(
+        &mut svm,
+        ticket_registry,
+        anchor::constants::REGISTRY_INITIAL_SIZE,
+    );
 
     TestContext {
         svm,
         admin,
         token_mint,
-        reserve_collateral_mint,
+        pst_mint,
         fee_wallet,
         ticket_registry,
     }
@@ -162,13 +170,11 @@ fn build_create_pool_ix(
     bond_price: u64,
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
-    max_withdrawal_slippage_dust: u64,
-    auto_reinvest_default: bool,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (pool_vault_account, _) = pool_vault_pda(pool_id);
-    let (pool_ktokens_vault, _) = pool_ktokens_vault_pda(pool_id);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
 
     let accounts = anchor::accounts::CreatePool {
         global_config,
@@ -176,13 +182,13 @@ fn build_create_pool_ix(
         pool,
         ticket_registry: ctx.ticket_registry,
         token_mint: ctx.token_mint,
-        reserve_collateral_mint: ctx.reserve_collateral_mint,
+        pst_mint: ctx.pst_mint,
         pool_vault_account,
-        pool_ktokens_vault,
+        pool_pst_vault,
         fee_wallet: ctx.fee_wallet,
         system_program: anchor_lang::system_program::ID,
         token_program: anchor_spl::token::ID,
-        ktokens_token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
     }
     .to_account_metas(None);
 
@@ -194,8 +200,6 @@ fn build_create_pool_ix(
             bond_price,
             stake_cycle_duration_hrs,
             fee_basis_points,
-            max_withdrawal_slippage_dust,
-            auto_reinvest_default,
         }
         .data(),
     }
@@ -204,7 +208,7 @@ fn build_create_pool_ix(
 #[test]
 fn test_create_pool_succeeds() {
     let mut ctx = setup_create_pool_context();
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 10, true);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -218,7 +222,7 @@ fn test_create_pool_succeeds() {
 fn test_create_pool_fails_on_invalid_bond_price() {
     let mut ctx = setup_create_pool_context();
     // bond_price = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100, 10, true);
+    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -234,7 +238,7 @@ fn test_create_pool_fails_on_invalid_bond_price() {
 fn test_create_pool_fails_on_invalid_stake_duration() {
     let mut ctx = setup_create_pool_context();
     // stake_cycle_duration_hrs = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100, 10, true);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -249,13 +253,17 @@ fn test_create_pool_fails_on_invalid_stake_duration() {
 #[test]
 fn test_create_pool_fails_on_registry_too_small() {
     let mut ctx = setup_create_pool_context();
-    
+
     // Inject a ticket registry that is too small
     let too_small_registry = Keypair::new().pubkey();
-    inject_zero_account(&mut ctx.svm, too_small_registry, anchor::constants::REGISTRY_INITIAL_SIZE - 1);
+    inject_zero_account(
+        &mut ctx.svm,
+        too_small_registry,
+        anchor::constants::REGISTRY_INITIAL_SIZE - 1,
+    );
     ctx.ticket_registry = too_small_registry;
 
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 10, true);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -276,7 +284,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(1);
     let (pool_vault_account, _) = pool_vault_pda(1);
-    let (pool_ktokens_vault, _) = pool_ktokens_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
 
     // Try to call create_pool with hacker as admin
     let accounts = anchor::accounts::CreatePool {
@@ -285,13 +293,13 @@ fn test_create_pool_fails_on_unauthorized_admin() {
         pool,
         ticket_registry: ctx.ticket_registry,
         token_mint: ctx.token_mint,
-        reserve_collateral_mint: ctx.reserve_collateral_mint,
+        pst_mint: ctx.pst_mint,
         pool_vault_account,
-        pool_ktokens_vault,
+        pool_pst_vault,
         fee_wallet: ctx.fee_wallet,
         system_program: anchor_lang::system_program::ID,
         token_program: anchor_spl::token::ID,
-        ktokens_token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
     }
     .to_account_metas(None);
 
@@ -303,8 +311,6 @@ fn test_create_pool_fails_on_unauthorized_admin() {
             bond_price: 1_000_000,
             stake_cycle_duration_hrs: 24,
             fee_basis_points: 100,
-            max_withdrawal_slippage_dust: 10,
-            auto_reinvest_default: true,
         }
         .data(),
     };

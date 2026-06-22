@@ -3,7 +3,11 @@ use anchor_lang::prelude::*;
 use crate::error::PremiumBondsError;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
-pub enum DrawStatus { AwaitingYield, AwaitingRandomness, Complete }
+pub enum DrawStatus {
+    AwaitingYield,
+    AwaitingRandomness,
+    Complete,
+}
 
 #[account]
 #[derive(InitSpace)]
@@ -11,7 +15,7 @@ pub struct DrawCycle {
     pub pool_id: u32,
     pub cycle_id: u32,
     pub status: DrawStatus,
-    pub locked_ticket_count: u32, 
+    pub locked_ticket_count: u32,
     pub randomness_seed: [u8; 32],
     pub prize_pot: u64,
     pub cycle_fee_collected: u64,
@@ -41,10 +45,7 @@ impl PayoutRegistry {
         expected_pubkey: &Pubkey,
     ) -> Result<&mut Winner> {
         let idx = winner_index as usize;
-        require!(
-            idx < self.winners.len(),
-            PremiumBondsError::InvalidIndices
-        );
+        require!(idx < self.winners.len(), PremiumBondsError::InvalidIndices);
         require!(
             self.winners[idx].winner_pubkey == *expected_pubkey,
             PremiumBondsError::UnauthorizedTicket
@@ -77,7 +78,8 @@ pub struct Winner {
 impl Winner {
     /// Returns the un-reinvested remainder of the prize.
     pub fn claimable_amount(&self) -> u64 {
-        self.amount_owed.checked_sub(self.amount_reinvested).unwrap()
+        self.amount_owed
+            .checked_sub(self.amount_reinvested)
+            .unwrap()
     }
 }
-

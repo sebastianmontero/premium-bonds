@@ -1,7 +1,10 @@
+#![allow(clippy::diverging_sub_expression)]
+#![allow(unexpected_cfgs)]
+
 pub mod constants;
 pub mod error;
+pub mod huma;
 pub mod instructions;
-pub mod kamino;
 pub mod state;
 pub mod utils;
 
@@ -17,7 +20,10 @@ declare_id!("CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx");
 pub mod anchor {
     use super::*;
 
-    pub fn initialize_global(ctx: Context<InitializeGlobal>, max_tickets_per_buy: u32) -> Result<()> {
+    pub fn initialize_global(
+        ctx: Context<InitializeGlobal>,
+        max_tickets_per_buy: u32,
+    ) -> Result<()> {
         instructions::admin::initialize_global::handle(ctx, max_tickets_per_buy)
     }
 
@@ -41,8 +47,6 @@ pub mod anchor {
         bond_price: u64,
         stake_cycle_duration_hrs: i64,
         fee_basis_points: u16,
-        max_withdrawal_slippage_dust: u64,
-        auto_reinvest_default: bool,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -50,9 +54,11 @@ pub mod anchor {
             bond_price,
             stake_cycle_duration_hrs,
             fee_basis_points,
-            max_withdrawal_slippage_dust,
-            auto_reinvest_default,
         )
+    }
+
+    pub fn initialize_huma_lender(ctx: Context<InitializeHumaLender>) -> Result<()> {
+        instructions::admin::initialize_huma_lender::handle(ctx)
     }
 
     pub fn buy_bonds(ctx: Context<BuyBonds>, tickets_to_buy: u32) -> Result<()> {
@@ -67,28 +73,20 @@ pub mod anchor {
         ctx: Context<SellBonds>,
         active_indices: Vec<u32>,
         pending_indices: Vec<u32>,
-        ktokens_to_burn: u64,
     ) -> Result<()> {
-        instructions::user::sell_bonds::handle(
-            ctx,
-            active_indices,
-            pending_indices,
-            ktokens_to_burn,
-        )
+        instructions::user::sell_bonds::handle(ctx, active_indices, pending_indices)
     }
 
-    pub fn set_prize_tiers(
-        ctx: Context<SetPrizeTiers>,
-        tiers: Vec<PrizeTier>,
-    ) -> Result<()> {
+    pub fn claim_redemption(ctx: Context<ClaimRedemption>) -> Result<()> {
+        instructions::user::claim_redemption::handle(ctx)
+    }
+
+    pub fn set_prize_tiers(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> {
         instructions::admin::set_prize_tiers::handle(ctx, tiers)
     }
 
-    pub fn harvest_yield_and_commit(
-        ctx: Context<HarvestYieldAndCommit>,
-        ktokens_to_burn: u64,
-    ) -> Result<()> {
-        instructions::yield_draw::harvest_yield_and_commit::handle(ctx, ktokens_to_burn)
+    pub fn harvest_yield_and_commit(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
+        instructions::yield_draw::harvest_yield_and_commit::handle(ctx)
     }
 
     pub fn reveal_and_pick_winners(
@@ -102,24 +100,16 @@ pub mod anchor {
         instructions::yield_draw::claim_prize::handle(ctx, cycle_id, winner_index)
     }
 
-    pub fn set_auto_reinvest(ctx: Context<SetAutoReinvest>, enabled: bool) -> Result<()> {
-        instructions::user::set_auto_reinvest::handle(ctx, enabled)
-    }
-
     pub fn update_pool_config(
         ctx: Context<UpdatePoolConfig>,
-        new_auto_reinvest_default: Option<bool>,
         new_fee_basis_points: Option<u16>,
         new_bond_price: Option<u64>,
-        new_max_withdrawal_slippage_dust: Option<u64>,
         new_fee_wallet: Option<Pubkey>,
     ) -> Result<()> {
         instructions::admin::update_pool_config::handle(
             ctx,
-            new_auto_reinvest_default,
             new_fee_basis_points,
             new_bond_price,
-            new_max_withdrawal_slippage_dust,
             new_fee_wallet,
         )
     }
@@ -131,5 +121,9 @@ pub mod anchor {
         max_bonds: u32,
     ) -> Result<()> {
         instructions::yield_draw::reinvest_winnings::handle(ctx, cycle_id, winner_index, max_bonds)
+    }
+
+    pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
+        instructions::admin::withdraw_fees::handle(ctx, amount)
     }
 }

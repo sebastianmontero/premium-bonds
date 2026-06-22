@@ -5,15 +5,15 @@
 
 use {
     anchor_lang::prelude::Pubkey,
+    anchor_lang::{AccountSerialize, Space},
     anchor_lang::{InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
     solana_program::instruction::Instruction,
+    solana_sdk::account::Account,
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
-    solana_sdk::account::Account,
-    anchor_lang::{AccountSerialize, Space},
 };
 
 // ─── Constants mirrored from the program ────────────────────────────────────
@@ -68,7 +68,8 @@ fn setup_global_config() -> (LiteSVM, Keypair) {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    svm.send_transaction(tx).expect("initialize_global should succeed");
+    svm.send_transaction(tx)
+        .expect("initialize_global should succeed");
 
     (svm, admin)
 }
@@ -92,9 +93,10 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         current_cycle_end_at: 0,
         is_frozen_for_draw,
         current_draw_cycle_id: 0,
-        max_withdrawal_slippage_dust: 0,
+        total_fees_accrued: 0,
+        total_fees_withdrawn: 0,
+        next_redemption_id: 0,
         prize_tiers: vec![],
-        auto_reinvest_default: false,
     };
 
     let mut data = vec![];
@@ -113,7 +115,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     pda
 }
@@ -180,8 +183,14 @@ fn test_set_prize_tiers_succeeds() {
     inject_pool(&mut svm, pool_id, false);
 
     let tiers = vec![
-        anchor::PrizeTier { basis_points: 5000, num_winners: 1 }, // 50% for 1 winner
-        anchor::PrizeTier { basis_points: 1000, num_winners: 5 }, // 50% split among 5 winners (10% each)
+        anchor::PrizeTier {
+            basis_points: 5000,
+            num_winners: 1,
+        }, // 50% for 1 winner
+        anchor::PrizeTier {
+            basis_points: 1000,
+            num_winners: 5,
+        }, // 50% split among 5 winners (10% each)
     ];
 
     send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone(), None, None)
@@ -206,13 +215,14 @@ fn test_set_prize_tiers_fails_if_frozen() {
     // Inject pool WITH is_frozen_for_draw = true
     inject_pool(&mut svm, pool_id, true);
 
-    let tiers = vec![
-        anchor::PrizeTier { basis_points: 10000, num_winners: 1 },
-    ];
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 1,
+    }];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
     assert!(result.is_err(), "Must fail if pool is frozen");
-    
+
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(err_str.contains("AwaitingRandomnessFreeze"));
 }
@@ -227,7 +237,7 @@ fn test_set_prize_tiers_fails_on_empty_tiers() {
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
     assert!(result.is_err(), "Must fail if tiers is empty");
-    
+
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(err_str.contains("InvalidPrizeTierConfig"));
 }
@@ -242,12 +252,15 @@ fn test_set_prize_tiers_fails_on_exceeding_max_tiers() {
     let mut tiers = vec![];
     for _ in 0..11 {
         // Technically invalid basis points but array length is checked first
-        tiers.push(anchor::PrizeTier { basis_points: 100, num_winners: 1 });
+        tiers.push(anchor::PrizeTier {
+            basis_points: 100,
+            num_winners: 1,
+        });
     }
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
     assert!(result.is_err(), "Must fail if exceeding max tiers");
-    
+
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(err_str.contains("InvalidPrizeTierConfig"));
 }
@@ -259,12 +272,18 @@ fn test_set_prize_tiers_fails_on_invalid_basis_points_or_winners() {
     inject_pool(&mut svm, pool_id, false);
 
     // Zero basis points
-    let tiers1 = vec![anchor::PrizeTier { basis_points: 0, num_winners: 1 }];
+    let tiers1 = vec![anchor::PrizeTier {
+        basis_points: 0,
+        num_winners: 1,
+    }];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
     assert!(format!("{:?}", res1.unwrap_err()).contains("InvalidPrizeTierConfig"));
 
     // Zero winners
-    let tiers2 = vec![anchor::PrizeTier { basis_points: 10000, num_winners: 0 }];
+    let tiers2 = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 0,
+    }];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
     assert!(format!("{:?}", res2.unwrap_err()).contains("InvalidPrizeTierConfig"));
 }
@@ -276,13 +295,17 @@ fn test_set_prize_tiers_fails_on_exceeding_total_winners() {
     inject_pool(&mut svm, pool_id, false);
 
     // MAX_TOTAL_WINNERS is 50. Let's send 51 winners.
-    let tiers = vec![
-        anchor::PrizeTier { basis_points: 10000, num_winners: 51 },
-    ];
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 51,
+    }];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert!(result.is_err(), "Must fail if total winners > MAX_TOTAL_WINNERS");
-    
+    assert!(
+        result.is_err(),
+        "Must fail if total winners > MAX_TOTAL_WINNERS"
+    );
+
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(err_str.contains("InvalidPrizeTierConfig"));
 }
@@ -294,14 +317,23 @@ fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
     inject_pool(&mut svm, pool_id, false);
 
     // Total = 9,999 (not 10,000)
-    let tiers1 = vec![anchor::PrizeTier { basis_points: 9999, num_winners: 1 }];
+    let tiers1 = vec![anchor::PrizeTier {
+        basis_points: 9999,
+        num_winners: 1,
+    }];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
     assert!(format!("{:?}", res1.unwrap_err()).contains("BasisPointsMustEqual10000"));
 
     // Total = 10,001
     let tiers2 = vec![
-        anchor::PrizeTier { basis_points: 5000, num_winners: 1 },
-        anchor::PrizeTier { basis_points: 5001, num_winners: 1 },
+        anchor::PrizeTier {
+            basis_points: 5000,
+            num_winners: 1,
+        },
+        anchor::PrizeTier {
+            basis_points: 5001,
+            num_winners: 1,
+        },
     ];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
     assert!(format!("{:?}", res2.unwrap_err()).contains("BasisPointsMustEqual10000"));
@@ -320,23 +352,27 @@ fn test_set_prize_tiers_unauthorized_admin() {
     let attacker = Keypair::new();
     svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
-    let tiers = vec![anchor::PrizeTier { basis_points: 10000, num_winners: 1 }];
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 1,
+    }];
 
     let result = send_set_prize_tiers(
-        &mut svm,
-        &attacker, // Attacker signs the tx
-        pool_id,
-        tiers,
-        None,      // The admin account passed in the IX defaults to `attacker.pubkey()`
+        &mut svm, &attacker, // Attacker signs the tx
+        pool_id, tiers,
+        None, // The admin account passed in the IX defaults to `attacker.pubkey()`
         None,
     );
 
     assert!(result.is_err(), "Must fail with an unauthorized admin");
-    
+
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne") || err_str.contains("custom program error"),
-        "Expected constraint error but got: {}", err_str
+        err_str.contains("UnauthorizedAdmin")
+            || err_str.contains("ConstraintHasOne")
+            || err_str.contains("custom program error"),
+        "Expected constraint error but got: {}",
+        err_str
     );
 }
 
@@ -349,7 +385,10 @@ fn test_set_prize_tiers_requires_admin_signature() {
     let random_payer = Keypair::new();
     svm.airdrop(&random_payer.pubkey(), 1_000_000_000).unwrap();
 
-    let tiers = vec![anchor::PrizeTier { basis_points: 10000, num_winners: 1 }];
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 1,
+    }];
 
     // We pass `admin.pubkey()` as the admin account in the instruction,
     // BUT we override `is_signer` to `false`. Then we sign with a random payer.
@@ -362,5 +401,8 @@ fn test_set_prize_tiers_requires_admin_signature() {
         Some(false),          // But clear the signer flag
     );
 
-    assert!(result.is_err(), "Must fail if the admin account is not a signer");
+    assert!(
+        result.is_err(),
+        "Must fail if the admin account is not a signer"
+    );
 }

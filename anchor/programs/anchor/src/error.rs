@@ -46,8 +46,10 @@ pub enum PremiumBondsError {
     InvalidStakeCycleDuration,
     #[msg("The maximum number of tickets per transaction was exceeded.")]
     MaxTicketsPerBuyExceeded,
-    #[msg("Burned more Kamino kTokens than mathematically permitted for this withdrawal.")]
-    ExcessiveKtokensBurned,
-    #[msg("Auto-reinvestment is not enabled for this winner.")]
-    AutoReinvestNotEnabled,
+    #[msg("Huma redemption has not been settled yet.")]
+    HumaRedemptionNotSettled,
+    #[msg("This pending redemption does not belong to the signer.")]
+    InvalidRedemptionOwner,
+    #[msg("Insufficient accrued fee balance for withdrawal.")]
+    InsufficientFeeBalance,
 }

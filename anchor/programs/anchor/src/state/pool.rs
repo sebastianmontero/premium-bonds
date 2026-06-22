@@ -40,14 +40,18 @@ pub struct PrizePool {
     pub current_cycle_end_at: i64,
     pub is_frozen_for_draw: bool,
     pub current_draw_cycle_id: u32,
-    pub max_withdrawal_slippage_dust: u64,
     #[max_len(10)]
     pub prize_tiers: Vec<PrizeTier>,
-    pub auto_reinvest_default: bool,
+    /// Auto-incrementing counter for PendingRedemption PDA derivation.
+    pub next_redemption_id: u64,
+    /// Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn).
+    pub total_fees_accrued: u64,
+    /// Fees already withdrawn by admin via withdraw_fees instruction.
+    pub total_fees_withdrawn: u64,
 }
 
-use crate::utils::calculate_percentage_fee;
 use crate::error::PremiumBondsError;
+use crate::utils::calculate_percentage_fee;
 
 impl PrizePool {
     pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
@@ -64,11 +68,7 @@ impl PrizePool {
     ///
     /// These checks run before any token transfers or Kamino CPI calls.
     /// Extracted here so they can be unit-tested without a full Anchor context.
-    pub fn validate_buy_bonds(
-        &self,
-        bonds_to_buy: u32,
-        max_tickets_per_buy: u32,
-    ) -> Result<u64> {
+    pub fn validate_buy_bonds(&self, bonds_to_buy: u32, max_tickets_per_buy: u32) -> Result<u64> {
         require!(
             self.status == PoolStatus::Active,
             PremiumBondsError::PoolNotActive
@@ -115,7 +115,10 @@ mod tests {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     fn tier(basis_points: u16, num_winners: u32) -> PrizeTier {
-        PrizeTier { basis_points, num_winners }
+        PrizeTier {
+            basis_points,
+            num_winners,
+        }
     }
 
     fn default_pool(fee_basis_points: u16, stake_cycle_duration_hrs: i64) -> PrizePool {
@@ -134,9 +137,10 @@ mod tests {
             current_cycle_end_at: 0,
             is_frozen_for_draw: false,
             current_draw_cycle_id: 0,
-            max_withdrawal_slippage_dust: 0,
             prize_tiers: vec![],
-            auto_reinvest_default: false,
+            next_redemption_id: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
         }
     }
 
@@ -339,7 +343,7 @@ mod tests {
         let t1 = 1_000_000_000i64;
         pool.advance_cycle_end_at(t1);
         let t2 = pool.current_cycle_end_at; // t1 + 86 400
-        pool.advance_cycle_end_at(t2);       // supplies t2 as current; adds another 86 400
+        pool.advance_cycle_end_at(t2); // supplies t2 as current; adds another 86 400
         assert_eq!(pool.current_cycle_end_at, t1 + 2 * 86_400);
     }
 
@@ -395,10 +399,7 @@ mod tests {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Paused;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::PoolNotActive.into(),
-        );
+        assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
 
     #[test]
@@ -406,10 +407,7 @@ mod tests {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Closed;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::PoolNotActive.into(),
-        );
+        assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
 
     // ── Freeze guard ────────────────────────────────────────────────────────
@@ -419,10 +417,7 @@ mod tests {
         let mut pool = default_pool(500, 24);
         pool.is_frozen_for_draw = true;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::AwaitingRandomnessFreeze.into(),
-        );
+        assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
 
     #[test]
@@ -438,30 +433,21 @@ mod tests {
     fn buy_bonds_fails_zero_quantity() {
         let pool = default_pool(500, 24);
         let err = pool.validate_buy_bonds(0, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::InvalidBondQuantity.into(),
-        );
+        assert_eq!(err, PremiumBondsError::InvalidBondQuantity.into(),);
     }
 
     #[test]
     fn buy_bonds_fails_exceeds_max_tickets() {
         let pool = default_pool(500, 24);
         let err = pool.validate_buy_bonds(11, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::MaxTicketsPerBuyExceeded.into(),
-        );
+        assert_eq!(err, PremiumBondsError::MaxTicketsPerBuyExceeded.into(),);
     }
 
     #[test]
     fn buy_bonds_fails_way_over_max_tickets() {
         let pool = default_pool(500, 24);
         let err = pool.validate_buy_bonds(100, 5).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::MaxTicketsPerBuyExceeded.into(),
-        );
+        assert_eq!(err, PremiumBondsError::MaxTicketsPerBuyExceeded.into(),);
     }
 
     // ── Amount calculation ───────────────────────────────────────────────────
@@ -491,10 +477,7 @@ mod tests {
         pool.is_frozen_for_draw = true;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         // PoolNotActive is checked first, so that's the error we get
-        assert_eq!(
-            err,
-            PremiumBondsError::PoolNotActive.into(),
-        );
+        assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
 
     #[test]
@@ -503,10 +486,7 @@ mod tests {
         pool.status = PoolStatus::Active;
         pool.is_frozen_for_draw = true;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
-        assert_eq!(
-            err,
-            PremiumBondsError::AwaitingRandomnessFreeze.into(),
-        );
+        assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -561,7 +541,8 @@ mod tests {
     fn registry_capacity_large_values() {
         // Realistic large pool: 100k capacity, 90k used
         assert!(PrizePool::validate_registry_capacity(100, 50_000, 40_000, 100_000).is_ok());
-        let err = PrizePool::validate_registry_capacity(10_001, 50_000, 40_000, 100_000).unwrap_err();
+        let err =
+            PrizePool::validate_registry_capacity(10_001, 50_000, 40_000, 100_000).unwrap_err();
         assert_eq!(err, PremiumBondsError::RegistryFull.into());
     }
 }

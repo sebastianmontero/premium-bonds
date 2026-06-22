@@ -26,12 +26,15 @@
 //! Test setup must create the cToken mint with this PDA as `mint_authority`,
 //! and the reserve supply vault with this PDA as its owner.
 
+#![allow(clippy::diverging_sub_expression)]
+#![allow(unexpected_cfgs)]
+
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     self, Burn, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked,
 };
 
-declare_id!("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
+declare_id!("6KZkzJ8iYBHsTg2JynFt6WfT1scUReR3FTyjoE5WVwBj");
 
 /// Seed used to derive the lending market authority PDA (matches real Kamino convention).
 pub const LMA_SEED: &[u8] = b"lma";
@@ -80,22 +83,16 @@ pub mod mock_kamino {
         // ── Mint cTokens 1:1 into pool kTokens vault ────────────────────
         // The lending_market_authority PDA signs via invoke_signed.
         let lending_market_key = ctx.accounts.lending_market.key();
-        let (_, bump) = Pubkey::find_program_address(
-            &[LMA_SEED, lending_market_key.as_ref()],
-            ctx.program_id,
-        );
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[LMA_SEED, lending_market_key.as_ref(), &[bump]]];
+        let (_, bump) =
+            Pubkey::find_program_address(&[LMA_SEED, lending_market_key.as_ref()], ctx.program_id);
+        let signer_seeds: &[&[&[u8]]] = &[&[LMA_SEED, lending_market_key.as_ref(), &[bump]]];
 
         token_interface::mint_to(
             CpiContext::new_with_signer(
                 ctx.accounts.collateral_token_program.key(),
                 MintTo {
                     mint: ctx.accounts.reserve_collateral_mint.to_account_info(),
-                    to: ctx
-                        .accounts
-                        .user_destination_collateral
-                        .to_account_info(),
+                    to: ctx.accounts.user_destination_collateral.to_account_info(),
                     authority: ctx.accounts.lending_market_authority.to_account_info(),
                 },
                 signer_seeds,
@@ -147,12 +144,9 @@ pub mod mock_kamino {
         // The lending_market_authority PDA owns the reserve supply vault
         // and signs via invoke_signed.
         let lending_market_key = ctx.accounts.lending_market.key();
-        let (_, bump) = Pubkey::find_program_address(
-            &[LMA_SEED, lending_market_key.as_ref()],
-            ctx.program_id,
-        );
-        let signer_seeds: &[&[&[u8]]] =
-            &[&[LMA_SEED, lending_market_key.as_ref(), &[bump]]];
+        let (_, bump) =
+            Pubkey::find_program_address(&[LMA_SEED, lending_market_key.as_ref()], ctx.program_id);
+        let signer_seeds: &[&[&[u8]]] = &[&[LMA_SEED, lending_market_key.as_ref(), &[bump]]];
 
         token_interface::transfer_checked(
             CpiContext::new_with_signer(
@@ -190,16 +184,19 @@ pub struct DepositReserveLiquidity<'info> {
 
     /// 2. reserve — In real Kamino this is `AccountLoader<Reserve>`.
     ///    Mock reads `data[0]` for fail-mode signal only.
+    ///
     /// CHECK: Mock does not validate reserve layout.
     #[account(mut)]
     pub reserve: UncheckedAccount<'info>,
 
     /// 3. lending_market — Used to derive the lending_market_authority PDA.
+    ///
     /// CHECK: Mock uses key only for PDA derivation.
     pub lending_market: UncheckedAccount<'info>,
 
     /// 4. lending_market_authority — PDA = `[b"lma", lending_market.key()]`.
     ///    Serves as mint authority for the cToken mint.
+    ///
     /// CHECK: Validated implicitly by mint_to CPI (will fail if wrong PDA).
     pub lending_market_authority: UncheckedAccount<'info>,
 
@@ -229,6 +226,7 @@ pub struct DepositReserveLiquidity<'info> {
     pub liquidity_token_program: Interface<'info, TokenInterface>,
 
     /// 12. instruction_sysvar_account — Kamino's flash-loan guard sysvar.
+    ///
     /// CHECK: Mock accepts but does not validate.
     pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
@@ -242,15 +240,18 @@ pub struct RedeemReserveCollateral<'info> {
     pub owner: Signer<'info>,
 
     /// 2. lending_market — Used to derive the lending_market_authority PDA.
+    ///
     /// CHECK: Mock uses key only for PDA derivation.
     pub lending_market: UncheckedAccount<'info>,
 
     /// 3. reserve — fail-mode trigger (data[0] == 0xFF).
+    ///
     /// CHECK: Mock does not validate reserve layout.
     #[account(mut)]
     pub reserve: UncheckedAccount<'info>,
 
     /// 4. lending_market_authority — PDA that owns the reserve supply vault.
+    ///
     /// CHECK: Validated implicitly by transfer_checked CPI.
     pub lending_market_authority: UncheckedAccount<'info>,
 
@@ -280,6 +281,7 @@ pub struct RedeemReserveCollateral<'info> {
     pub liquidity_token_program: Interface<'info, TokenInterface>,
 
     /// 12. instruction_sysvar_account — Kamino's flash-loan guard sysvar.
+    ///
     /// CHECK: Mock accepts but does not validate.
     pub instruction_sysvar_account: UncheckedAccount<'info>,
 }

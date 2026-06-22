@@ -148,6 +148,7 @@ dependencies = [
  "solana-program",
  "solana-sdk",
  "solana-signer",
+ "solana-system-interface 3.2.0",
  "solana-transaction",
 ]
 
@@ -1678,6 +1679,15 @@ dependencies = [
  "keccak",
  "rand_core 0.6.4",
  "zeroize",
+]
+
+[[package]]
+name = "mock-huma"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "solana-program",
 ]
 
 [[package]]

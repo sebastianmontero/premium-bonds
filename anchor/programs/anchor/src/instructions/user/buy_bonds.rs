@@ -1,5 +1,5 @@
-use crate::constants::{GLOBAL_CONFIG_SEED, POOL_KTOKENS_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
-use crate::kamino;
+use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
+use crate::huma;
 use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
 use crate::utils::registry_set_ticket;
 use anchor_lang::prelude::*;
@@ -29,7 +29,6 @@ pub struct BuyBonds<'info> {
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    // Draw cycle freezing is now validated securely on the pool state below
     #[account(
         mut,
         token::mint = token_mint,
@@ -53,53 +52,49 @@ pub struct BuyBonds<'info> {
     )]
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// Pool's $PST vault — receives minted $PST from Huma deposit.
     #[account(
         mut,
-        seeds = [POOL_KTOKENS_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
-        token::mint = reserve_collateral_mint,
-        token::token_program = ktokens_token_program
+        token::token_program = pst_token_program
     )]
-    pub pool_ktokens_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    // Kamino Accounts
+    // ── Huma Finance accounts ───────────────────────────────────────────────
     /// CHECK: Validated by address constraint
-    #[account(address = crate::constants::KAMINO_PROGRAM_ID)]
-    pub kamino_program: UncheckedAccount<'info>,
+    #[account(address = crate::constants::HUMA_PROGRAM_ID)]
+    pub huma_program: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
+    pub huma_config: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
+    pub huma_pool_config: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
     #[account(mut)]
-    /// CHECK:
-    pub reserve: UncheckedAccount<'info>,
-    /// CHECK:
-    pub lending_market: UncheckedAccount<'info>,
-    /// CHECK:
-    pub lending_market_authority: UncheckedAccount<'info>,
+    pub huma_pool_state: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
+    pub huma_mode_config: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
     #[account(mut)]
-    /// CHECK:
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        mint::token_program = ktokens_token_program
-    )]
-    pub reserve_collateral_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub huma_mode_mint: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
+    pub huma_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: Validated by Huma CPI
+    #[account(mut)]
+    pub huma_pool_underlying_token: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
-    pub ktokens_token_program: Interface<'info, TokenInterface>,
+    pub pst_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
-
-    /// CHECK: Solana instructions sysvar required by Kamino as a flash-loan guard.
-    #[account(address = crate::constants::INSTRUCTIONS_SYSVAR_ID)]
-    pub instruction_sysvar_account: UncheckedAccount<'info>,
 }
 
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
-    let amount = pool.validate_buy_bonds(
-        bonds_to_buy,
-        ctx.accounts.global_config.max_tickets_per_buy,
-    )?;
+    let amount =
+        pool.validate_buy_bonds(bonds_to_buy, ctx.accounts.global_config.max_tickets_per_buy)?;
 
-    // 1. Transfer to Pool Vault
+    // 1. Transfer USDC from user → pool vault
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.user_token_account.to_account_info(),
         mint: ctx.accounts.token_mint.to_account_info(),
@@ -112,26 +107,27 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         ctx.accounts.token_mint.decimals,
     )?;
 
-    // 2. CPI into Kamino
+    // 2. CPI into Huma: deposit USDC → receive $PST
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
-    kamino::deposit_reserve_liquidity(
-        ctx.accounts.kamino_program.to_account_info(),
-        pool.to_account_info(),                                      // owner (pool PDA)
-        ctx.accounts.reserve.to_account_info(),
-        ctx.accounts.lending_market.to_account_info(),
-        ctx.accounts.lending_market_authority.to_account_info(),
-        ctx.accounts.token_mint.to_account_info(),                   // reserve_liquidity_mint
-        ctx.accounts.reserve_liquidity_supply.to_account_info(),
-        ctx.accounts.reserve_collateral_mint.to_account_info(),
-        ctx.accounts.pool_vault_account.to_account_info(),           // user_source_liquidity
-        ctx.accounts.pool_ktokens_vault.to_account_info(),           // user_destination_collateral
-        ctx.accounts.ktokens_token_program.to_account_info(),        // collateral_token_program (cToken = SPL Token)
-        ctx.accounts.token_program.to_account_info(),                // liquidity_token_program (underlying, may be Token-2022)
-        ctx.accounts.instruction_sysvar_account.to_account_info(),
+    huma::deposit(
+        ctx.accounts.huma_program.to_account_info(),
+        pool.to_account_info(), // depositor (pool PDA)
+        ctx.accounts.huma_config.to_account_info(),
+        ctx.accounts.huma_pool_config.to_account_info(),
+        ctx.accounts.huma_pool_state.to_account_info(),
+        ctx.accounts.huma_mode_config.to_account_info(),
+        ctx.accounts.huma_mode_mint.to_account_info(),
+        ctx.accounts.huma_pool_authority.to_account_info(),
+        ctx.accounts.token_mint.to_account_info(), // underlying_mint
+        ctx.accounts.huma_pool_underlying_token.to_account_info(),
+        ctx.accounts.pool_vault_account.to_account_info(), // depositor_underlying_token
+        ctx.accounts.pool_pst_vault.to_account_info(),     // depositor_mode_token
+        ctx.accounts.token_program.to_account_info(),      // underlying_token_program
+        ctx.accounts.pst_token_program.to_account_info(),  // mode_token_program
         amount,
         signer_seeds,
     )?;
@@ -149,8 +145,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             registry.pending_tickets_count,
             registry.capacity,
         )?;
-        insert_start =
-            (registry.active_tickets_count + registry.pending_tickets_count) as usize;
+        insert_start = (registry.active_tickets_count + registry.pending_tickets_count) as usize;
     } // Ref released
 
     {

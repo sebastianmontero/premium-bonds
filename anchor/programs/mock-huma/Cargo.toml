@@ -1,12 +1,12 @@
 [package]
-name = "mock-kamino"
+name = "mock-huma"
 version = "0.1.0"
-description = "Test-only mock of Kamino Lending (KLend) for CPI integration tests"
+description = "Test-only mock of Huma Finance for CPI integration tests"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "mock_kamino"
+name = "mock_huma"
 
 [features]
 default = []

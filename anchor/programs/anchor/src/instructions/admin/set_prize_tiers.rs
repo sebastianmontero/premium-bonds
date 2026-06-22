@@ -1,6 +1,6 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, MAX_PRIZE_TIERS, MAX_TOTAL_WINNERS, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::state::{GlobalConfig, PrizeTier, PrizePool};
+use crate::state::{GlobalConfig, PrizePool, PrizeTier};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -50,7 +50,11 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
             .ok_or(PremiumBondsError::MathOverflow)?;
 
         total_basis_points = total_basis_points
-            .checked_add((tier.basis_points as u32).checked_mul(tier.num_winners).ok_or(PremiumBondsError::MathOverflow)?)
+            .checked_add(
+                (tier.basis_points as u32)
+                    .checked_mul(tier.num_winners)
+                    .ok_or(PremiumBondsError::MathOverflow)?,
+            )
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 

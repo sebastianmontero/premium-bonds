@@ -1,34 +1,36 @@
-use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
+use crate::constants::{
+    DISCRIMINATOR, GLOBAL_CONFIG_SEED, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED,
+};
 use crate::error::PremiumBondsError;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, TicketRegistry};
-use crate::utils::{swap_and_pop_active, swap_and_pop_pending};
+use crate::state::{GlobalConfig, PendingRedemption, PrizePool};
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 
+/// Admin instruction to withdraw accrued protocol fees via Huma async redemption.
+///
+/// Creates a PendingRedemption PDA for the fee amount, which the fee wallet
+/// owner later claims via `claim_redemption`.
 #[derive(Accounts)]
-pub struct SellBonds<'info> {
+pub struct WithdrawFees<'info> {
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [GLOBAL_CONFIG_SEED],
+        bump,
+        has_one = admin @ PremiumBondsError::UnauthorizedAdmin
+    )]
+    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump = pool.vault_authority_bump,
-        has_one = ticket_registry
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
-    #[account(mut)]
-    pub ticket_registry: AccountLoader<'info, TicketRegistry>,
-
-    #[account(
-        address = pool.token_mint,
-        mint::token_program = token_program
-    )]
-    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    /// Pool's $PST vault — $PST shares are redeemed from here.
+    /// Pool's $PST vault — shares are redeemed from here.
     #[account(
         mut,
         seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -37,10 +39,10 @@ pub struct SellBonds<'info> {
     )]
     pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// The PendingRedemption PDA created for this async withdrawal.
+    /// PendingRedemption PDA created for this fee withdrawal.
     #[account(
         init,
-        payer = user,
+        payer = admin,
         space = DISCRIMINATOR + PendingRedemption::INIT_SPACE,
         seeds = [
             PENDING_REDEMPTION_SEED,
@@ -83,82 +85,27 @@ pub struct SellBonds<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(
-    ctx: Context<SellBonds>,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
-) -> Result<()> {
+pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
+    // Validate there are enough accrued fees to withdraw
+    let available_fees = pool
+        .total_fees_accrued
+        .saturating_sub(pool.total_fees_withdrawn);
     require!(
-        !pool.is_frozen_for_draw,
-        PremiumBondsError::AwaitingRandomnessFreeze
+        amount > 0 && amount <= available_fees,
+        PremiumBondsError::InsufficientFeeBalance
     );
 
-    let bonds_to_sell = active_indices.len() as u32 + pending_indices.len() as u32;
-    require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
-
-    let expected_principal = (bonds_to_sell as u64)
-        .checked_mul(pool.bond_price)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    // Phase 1: load counts via zero-copy (read-only borrow)
-    let (active_count, pending_count);
-    {
-        let registry = ctx.accounts.ticket_registry.load()?;
-        active_count = registry.active_tickets_count;
-        pending_count = registry.pending_tickets_count;
-    }
-
-    // Phase 2: swap-and-pop via raw bytes
-    let new_pending;
-    let new_active;
-    {
-        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
-        let mut data = registry_ai.try_borrow_mut_data()?;
-        let user_key = ctx.accounts.user.key();
-
-        new_pending = swap_and_pop_pending(
-            &mut data,
-            active_count,
-            pending_count,
-            &pending_indices,
-            &user_key,
-        )?;
-
-        (new_active, _) = swap_and_pop_active(
-            &mut data,
-            active_count,
-            new_pending,
-            &active_indices,
-            &user_key,
-        )?;
-    }
-
-    // Phase 3: commit updated counts
-    {
-        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-        registry.active_tickets_count = new_active;
-        registry.pending_tickets_count = new_pending;
-    }
-
-    // Update pool principal
-    pool.total_deposited_principal = pool
-        .total_deposited_principal
-        .checked_sub(expected_principal)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    // Calculate $PST shares to redeem for the principal amount
+    // Calculate $PST shares for the fee amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = {
-        // Read supply from the huma_mode_mint (SPL Mint)
         let mint_info = ctx.accounts.huma_mode_mint.to_account_info();
-        let mint_data_borrowed = mint_info.try_borrow_data()?;
-        // SPL Mint supply is at offset 36 (after mint_authority option (36 bytes))
-        let supply_bytes: [u8; 8] = mint_data_borrowed[36..44].try_into().unwrap();
+        let mint_data = mint_info.try_borrow_data()?;
+        let supply_bytes: [u8; 8] = mint_data[36..44].try_into().unwrap();
         u64::from_le_bytes(supply_bytes)
     };
-    let pst_shares = huma::usdc_to_pst_shares(expected_principal, pst_supply, total_assets);
+    let pst_shares = huma::usdc_to_pst_shares(amount, pst_supply, total_assets);
 
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
@@ -168,8 +115,8 @@ pub fn handle(
 
     huma::add_redemption_request(
         ctx.accounts.huma_program.to_account_info(),
-        ctx.accounts.user.to_account_info(), // payer
-        pool.to_account_info(),              // lender (pool PDA)
+        ctx.accounts.admin.to_account_info(), // payer
+        pool.to_account_info(),               // lender (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -186,28 +133,26 @@ pub fn handle(
         signer_seeds,
     )?;
 
-    // Create PendingRedemption receipt
+    // Create PendingRedemption receipt — fee_wallet is the beneficiary
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool.pool_id;
     pending.redemption_id = pool.next_redemption_id;
-    pending.user = ctx.accounts.user.key();
-    pending.amount = expected_principal;
+    pending.user = pool.fee_wallet; // Fee wallet receives the USDC on disburse
+    pending.amount = amount;
     pending.pst_shares_locked = pst_shares;
     pending.requested_at = Clock::get()?.unix_timestamp;
     pending.bump = ctx.bumps.pending_redemption;
 
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    // Update accounting
+    pool.total_fees_withdrawn = pool.total_fees_withdrawn.checked_add(amount).unwrap();
+    pool.next_redemption_id = pool.next_redemption_id.checked_add(1).unwrap();
 
     msg!(
-        "SellBonds: user={}, bonds={}, principal={}, pst_shares={}, redemption_id={}",
-        ctx.accounts.user.key(),
-        bonds_to_sell,
-        expected_principal,
+        "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",
+        amount,
         pst_shares,
         pending.redemption_id,
+        pool.fee_wallet,
     );
 
     Ok(())
