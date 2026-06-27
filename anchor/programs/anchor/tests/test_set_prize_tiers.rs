@@ -406,3 +406,22 @@ fn test_set_prize_tiers_requires_admin_signature() {
         "Must fail if the admin account is not a signer"
     );
 }
+
+#[test]
+fn test_set_prize_tiers_fails_on_math_overflow() {
+    let (mut svm, admin) = setup_global_config();
+    let pool_id = 1;
+    inject_pool(&mut svm, pool_id, false);
+
+    // This will cause a math overflow because 2 * u32::MAX overflows u32 checked_mul
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 2,
+        num_winners: u32::MAX,
+    }];
+
+    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
+    assert!(result.is_err(), "Must fail on math overflow");
+
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(err_str.contains("MathOverflow"), "Expected MathOverflow error, got: {}", err_str);
+}

@@ -386,3 +386,17 @@ fn test_reinvest_fails_registry_full() {
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("RegistryFull"), "got: {err}");
 }
+
+#[test]
+fn test_reinvest_fails_pool_not_active() {
+    let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000, 0);
+    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
+    assert!(err.contains("PoolNotActive"), "got: {err}");
+}
+
+#[test]
+fn test_reinvest_fails_pool_frozen() {
+    let mut ctx = setup(anchor::PoolStatus::Active, true, 1_000_000, 3_000_000, 0);
+    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
+    assert!(err.contains("AwaitingRandomnessFreeze"), "got: {err}");
+}

@@ -431,6 +431,26 @@ fn test_sell_bonds_fails_invalid_active_indices_not_descending() {
     );
 }
 
+#[test]
+fn test_sell_bonds_fails_math_overflow() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    {
+        let pk = ctx.user.pubkey();
+        let acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+        let mut data = acct.data.clone();
+        let s = 24;
+        data[s..s + 32].copy_from_slice(pk.as_ref());
+        ctx.svm
+            .set_account(ctx.ticket_registry, Account { data, ..acct })
+            .unwrap();
+    }
+    let err = send_sell_guard(&mut ctx, vec![0], vec![]).unwrap_err();
+    assert!(
+        err.contains("MathOverflow"),
+        "Expected MathOverflow, got: {err}"
+    );
+}
+
 // ─── E2E happy-path and integration tests (with mock-huma program) ───────────
 
 #[test]
