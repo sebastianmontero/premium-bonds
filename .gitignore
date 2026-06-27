@@ -43,3 +43,9 @@ next-env.d.ts
 # rust profiling
 **/*.profraw
 
+# anchor-specific ignores
+anchor/coverage.profdata
+anchor/scratch/
+anchor/timestamp_before
+
+

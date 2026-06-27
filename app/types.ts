@@ -24,7 +24,6 @@ export interface PoolInfo {
   isFrozenForDraw: boolean;
   currentDrawCycleId: number;
   prizeTiers: PrizeTier[];
-  autoReinvestDefault: boolean;
   /** Estimated prize pot for the current cycle (off-chain calc) */
   estimatedPrizePot: number;
 }
@@ -51,12 +50,6 @@ export interface PayoutInfo {
   winners: WinnerEntry[];
 }
 
-export interface UserPreferenceInfo {
-  poolId: number;
-  user: string;
-  autoReinvest: boolean;
-}
-
 // ─── UI-only composite types ─────────────────────────────────────────────────
 
 export interface RecentWinner {
@@ -67,7 +60,11 @@ export interface RecentWinner {
   tokenSymbol: string;
 }
 
-export type PrizeStatus = "unclaimed" | "claimed" | "auto-reinvested";
+export type PrizeStatus =
+  | "unclaimed"
+  | "claiming"
+  | "claimed"
+  | "auto-reinvested";
 
 /** A single entry in the Prize History Ledger */
 export interface PrizeHistoryEntry {
@@ -79,7 +76,12 @@ export interface PrizeHistoryEntry {
   reinvestedTickets?: number; // present when status is "auto-reinvested"
 }
 
-export type ActivityType = "deposit" | "withdraw" | "win" | "auto-reinvest";
+export type ActivityType =
+  | "deposit"
+  | "withdraw"
+  | "win"
+  | "auto-reinvest"
+  | "claim-redemption";
 
 /** A single entry in the Activity Feed */
 export interface ActivityEntry {
@@ -88,4 +90,12 @@ export interface ActivityEntry {
   type: ActivityType;
   description: string; // human-readable summary
   amount?: number; // base units, optional
+}
+
+export interface PendingRedemption {
+  redemptionId: string;
+  amount: number;
+  status: "settling" | "ready";
+  requestedAt: string; // ISO date string
+  type: "bond_sale" | "prize_claim";
 }

@@ -9,6 +9,7 @@ interface PrizeHistoryLedgerProps {
   tokenSymbol: string;
   unclaimedTotal: number;
   onClaim: () => void;
+  onClaimSinglePrize: (drawCycleId: number) => void;
 }
 
 function statusPill(status: PrizeHistoryEntry["status"]) {
@@ -18,6 +19,13 @@ function statusPill(status: PrizeHistoryEntry["status"]) {
         <span className="pill pill-warning">
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
           Unclaimed
+        </span>
+      );
+    case "claiming":
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+          Claiming
         </span>
       );
     case "auto-reinvested":
@@ -39,7 +47,11 @@ function statusPill(status: PrizeHistoryEntry["status"]) {
 
 function formatDate(isoDate: string): string {
   const date = new Date(isoDate + "T00:00:00");
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function PrizeHistoryLedger({
@@ -48,6 +60,7 @@ export function PrizeHistoryLedger({
   tokenSymbol,
   unclaimedTotal,
   onClaim,
+  onClaimSinglePrize,
 }: PrizeHistoryLedgerProps) {
   return (
     <div className="glass-strong rounded-2xl p-6 space-y-5">
@@ -64,10 +77,10 @@ export function PrizeHistoryLedger({
         {unclaimedTotal > 0 && (
           <button
             onClick={onClaim}
-            className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer"
+            className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
           >
-            Claim ${formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
-            {tokenSymbol}
+            Claim All ({formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
+            {tokenSymbol})
           </button>
         )}
       </div>
@@ -112,7 +125,7 @@ export function PrizeHistoryLedger({
                   </span>
                 </td>
                 <td className="py-4 text-right font-mono text-sm font-semibold text-on-surface">
-                  ${formatTokenAmount(entry.amount, tokenDecimals)}
+                  {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
                 </td>
                 <td className="py-4">
                   <div className="flex items-center gap-2">
@@ -125,9 +138,25 @@ export function PrizeHistoryLedger({
                   </div>
                 </td>
                 <td className="py-4 text-right">
-                  <button className="text-xs font-semibold text-primary hover:underline cursor-pointer">
-                    Details
-                  </button>
+                  <div className="flex items-center justify-end gap-3">
+                    {entry.status === "unclaimed" && (
+                      <button
+                        onClick={() => onClaimSinglePrize(entry.drawCycleId)}
+                        className="rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-white px-2.5 py-1 text-xs font-semibold transition cursor-pointer border border-emerald-500/30 shadow-sm"
+                      >
+                        Claim
+                      </button>
+                    )}
+                    {entry.status === "claiming" && (
+                      <span className="inline-flex items-center text-xs text-on-surface-variant font-medium">
+                        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Claiming...
+                      </span>
+                    )}
+                    <button className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer">
+                      Details
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

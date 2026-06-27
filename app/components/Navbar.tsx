@@ -2,6 +2,7 @@
 
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 const NAV_LINKS = [
   { label: "Features", href: "#features" },
@@ -21,14 +22,12 @@ export function Navbar() {
   return (
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "glass shadow-ambient"
-          : "bg-transparent"
+        scrolled ? "glass shadow-ambient" : "bg-transparent"
       }`}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         {/* Logo */}
-        <a href="/" className="flex items-center gap-2.5 group">
+        <Link href="/" className="flex items-center gap-2.5 group">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
             <svg
               width="20"
@@ -48,7 +47,7 @@ export function Navbar() {
           <span className="font-display text-lg font-bold tracking-tight text-on-surface">
             YieldBonds
           </span>
-        </a>
+        </Link>
 
         {/* Links */}
         <div className="hidden items-center gap-8 md:flex">

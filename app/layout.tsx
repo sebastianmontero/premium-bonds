@@ -23,7 +23,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "YieldBonds — Save Securely. Win Massively.",
   description:
-    "YieldBonds is a prize-linked savings protocol on Solana. Deposit USDC, earn yield through Kamino Lending, and win weekly prizes — all without risking your principal.",
+    "YieldBonds is a prize-linked savings protocol on Solana. Deposit USDC, earn yield through Huma Finance, and win weekly prizes — all without risking your principal.",
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",

@@ -2,10 +2,10 @@ import type {
   PoolInfo,
   UserTicketInfo,
   PayoutInfo,
-  UserPreferenceInfo,
   RecentWinner,
   PrizeHistoryEntry,
   ActivityEntry,
+  PendingRedemption,
 } from "./types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -43,14 +43,12 @@ export const MOCK_POOL: PoolInfo = {
     { basisPoints: 3000, numWinners: 3 }, // 30% — Runner-up (10% each)
     { basisPoints: 2000, numWinners: 10 }, // 20% — Consolation (2% each)
   ],
-  autoReinvestDefault: true,
   estimatedPrizePot: usdc(4_520),
 };
 
 // ─── Mock User ───────────────────────────────────────────────────────────────
 
-export const MOCK_USER_ADDRESS =
-  "7xKX...q3Fp"; // truncated for display
+export const MOCK_USER_ADDRESS = "7xKX...q3Fp"; // truncated for display
 
 export const MOCK_WALLET_BALANCE = usdc(500); // 500 USDC available
 
@@ -60,11 +58,22 @@ export const MOCK_USER_TICKETS: UserTicketInfo = {
   pendingTicketsCount: 0,
 };
 
-export const MOCK_USER_PREFERENCE: UserPreferenceInfo = {
-  poolId: 1,
-  user: MOCK_USER_ADDRESS,
-  autoReinvest: true,
-};
+export const INITIAL_PENDING_REDEMPTIONS: PendingRedemption[] = [
+  {
+    redemptionId: "red-mock-1",
+    amount: usdc(50),
+    status: "settling",
+    requestedAt: new Date(Date.now() - 3600 * 1000).toISOString(), // 1 hr ago
+    type: "bond_sale",
+  },
+  {
+    redemptionId: "red-mock-2",
+    amount: usdc(85),
+    status: "ready",
+    requestedAt: new Date(Date.now() - 600 * 1000).toISOString(), // 10 mins ago
+    type: "prize_claim",
+  },
+];
 
 // ─── Mock Payout (unclaimed) ─────────────────────────────────────────────────
 
@@ -87,14 +96,62 @@ export const MOCK_PAYOUT: PayoutInfo = {
 // ─── Recent Winners (for ticker) ─────────────────────────────────────────────
 
 export const MOCK_RECENT_WINNERS: RecentWinner[] = [
-  { address: "9fBk...mN2x", amount: usdc(2_260), tierIndex: 0, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "3vPq...hR7z", amount: usdc(452), tierIndex: 1, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "Dp8L...wK4a", amount: usdc(452), tierIndex: 1, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "7xKX...q3Fp", amount: usdc(85), tierIndex: 2, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "Ym3J...cV9e", amount: usdc(85), tierIndex: 2, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "Qw2N...pL5d", amount: usdc(85), tierIndex: 2, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "Bk7R...zX1m", amount: usdc(85), tierIndex: 2, cycleId: 41, tokenSymbol: "USDC" },
-  { address: "Hn4T...sW8f", amount: usdc(85), tierIndex: 2, cycleId: 41, tokenSymbol: "USDC" },
+  {
+    address: "9fBk...mN2x",
+    amount: usdc(2_260),
+    tierIndex: 0,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "3vPq...hR7z",
+    amount: usdc(452),
+    tierIndex: 1,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "Dp8L...wK4a",
+    amount: usdc(452),
+    tierIndex: 1,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "7xKX...q3Fp",
+    amount: usdc(85),
+    tierIndex: 2,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "Ym3J...cV9e",
+    amount: usdc(85),
+    tierIndex: 2,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "Qw2N...pL5d",
+    amount: usdc(85),
+    tierIndex: 2,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "Bk7R...zX1m",
+    amount: usdc(85),
+    tierIndex: 2,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
+  {
+    address: "Hn4T...sW8f",
+    amount: usdc(85),
+    tierIndex: 2,
+    cycleId: 41,
+    tokenSymbol: "USDC",
+  },
 ];
 
 // ─── Format helpers ──────────────────────────────────────────────────────────
@@ -103,7 +160,7 @@ export const MOCK_RECENT_WINNERS: RecentWinner[] = [
 export function formatTokenAmount(
   amount: number,
   decimals: number = USDC_DECIMALS,
-  fractionDigits: number = 2,
+  fractionDigits: number = 2
 ): string {
   return (amount / 10 ** decimals).toLocaleString("en-US", {
     minimumFractionDigits: fractionDigits,
@@ -211,4 +268,3 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     amount: usdc(750),
   },
 ];
-

@@ -2,10 +2,7 @@ export function HeroSection() {
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 pt-24 pb-16 text-center">
       {/* Atmospheric background glows */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-      >
+      <div aria-hidden className="pointer-events-none absolute inset-0">
         {/* Primary glow — top-left */}
         <div className="absolute -top-32 -left-32 h-[500px] w-[500px] rounded-full bg-primary/8 blur-[120px]" />
         {/* Secondary glow — bottom-right */}
@@ -24,13 +21,12 @@ export function HeroSection() {
 
         {/* Headline */}
         <h1 className="font-display text-5xl font-bold leading-[1.1] tracking-tight text-on-surface sm:text-6xl lg:text-7xl">
-          Save Securely.{" "}
-          <span className="text-gradient">Win Massively.</span>
+          Save Securely. <span className="text-gradient">Win Massively.</span>
         </h1>
 
         {/* Subheadline */}
         <p className="mx-auto max-w-xl text-lg leading-relaxed text-on-surface-variant">
-          Deposit your USDC, earn yield through Kamino Lending, and get a chance
+          Deposit your USDC, earn yield through Huma Finance, and get a chance
           to win the weekly grand prize — all without risking your principal.
         </p>
 
@@ -53,25 +49,55 @@ export function HeroSection() {
         {/* Social proof / protocol stats teaser */}
         <div className="flex items-center justify-center gap-8 pt-6 text-sm text-on-surface-variant">
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-tertiary">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-tertiary"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
             Zero-Loss Protocol
           </div>
           <div className="h-4 w-px bg-outline-variant/30" />
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v6l4 2"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-primary"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
             </svg>
             Weekly Draws
           </div>
           <div className="h-4 w-px bg-outline-variant/30" />
           <div className="flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-secondary">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-secondary"
+            >
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
-            Powered by Kamino
+            Powered by Huma
           </div>
         </div>
       </div>

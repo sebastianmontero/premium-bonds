@@ -8,17 +8,17 @@ interface DepositModalProps {
   pool: PoolInfo;
   walletBalance: number; // base units
   onClose: () => void;
-  autoReinvestDefault: boolean;
+  onDepositSuccess: (tickets: number, cost: number) => void;
 }
 
 export function DepositModal({
   pool,
   walletBalance,
   onClose,
+  onDepositSuccess,
 }: DepositModalProps) {
   const [inputValue, setInputValue] = useState("");
   const [activeInput, setActiveInput] = useState<"token" | "ticket">("token");
-  const [optOutReinvest, setOptOutReinvest] = useState(false);
 
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
 
@@ -51,10 +51,10 @@ export function DepositModal({
     console.log("Deposit", {
       tickets: parsedTickets,
       cost: totalCostBase,
-      autoReinvest: !optOutReinvest,
     });
+    onDepositSuccess(parsedTickets, totalCostBase);
     onClose();
-  }, [parsedTickets, totalCostBase, optOutReinvest, onClose]);
+  }, [parsedTickets, totalCostBase, onDepositSuccess, onClose]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -83,7 +83,16 @@ export function DepositModal({
             onClick={onClose}
             className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container-highest transition cursor-pointer"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -112,7 +121,11 @@ export function DepositModal({
                 onClick={() => {
                   const maxTokens = walletBalance / 10 ** pool.tokenDecimals;
                   setActiveInput("token");
-                  setInputValue(String(Math.floor(maxTokens / bondPriceHuman) * bondPriceHuman));
+                  setInputValue(
+                    String(
+                      Math.floor(maxTokens / bondPriceHuman) * bondPriceHuman
+                    )
+                  );
                 }}
                 className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
               >
@@ -136,7 +149,17 @@ export function DepositModal({
           {/* Swap indicator */}
           <div className="flex items-center justify-center">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-container-highest border border-outline-variant/20">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-on-surface-variant">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-on-surface-variant"
+              >
                 <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
               </svg>
             </div>
@@ -162,41 +185,28 @@ export function DepositModal({
           </div>
         </div>
 
-        {/* ── Auto-Reinvest Opt-out ──────────────────────────────────── */}
-        <label className="flex items-start gap-3 rounded-xl bg-surface-container/60 px-4 py-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={optOutReinvest}
-            onChange={(e) => setOptOutReinvest(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-outline-variant accent-primary cursor-pointer"
-          />
-          <div>
-            <p className="text-sm font-medium text-on-surface group-hover:text-primary transition">
-              Opt-out of auto-reinvest
-            </p>
-            <p className="text-xs text-on-surface-variant mt-0.5">
-              If unchecked, your winnings will automatically compound into new tickets.
-            </p>
-          </div>
-        </label>
-
         {/* ── Summary ────────────────────────────────────────────────── */}
         {parsedTickets > 0 && (
           <div className="space-y-2 rounded-xl bg-surface-container/40 px-4 py-3 text-xs">
             <div className="flex justify-between text-on-surface-variant">
               <span>Tickets received</span>
-              <span className="font-semibold text-on-surface">{parsedTickets}</span>
+              <span className="font-semibold text-on-surface">
+                {parsedTickets}
+              </span>
             </div>
             <div className="flex justify-between text-on-surface-variant">
               <span>Bond price</span>
               <span className="font-mono text-on-surface">
-                1 ticket = {formatTokenAmount(pool.bondPrice, pool.tokenDecimals)} {pool.tokenSymbol}
+                1 ticket ={" "}
+                {formatTokenAmount(pool.bondPrice, pool.tokenDecimals)}{" "}
+                {pool.tokenSymbol}
               </span>
             </div>
             <div className="flex justify-between text-on-surface-variant">
               <span>Total cost</span>
               <span className="font-mono font-semibold text-on-surface">
-                {formatTokenAmount(totalCostBase, pool.tokenDecimals)} {pool.tokenSymbol}
+                {formatTokenAmount(totalCostBase, pool.tokenDecimals)}{" "}
+                {pool.tokenSymbol}
               </span>
             </div>
             <div className="flex justify-between text-on-surface-variant">

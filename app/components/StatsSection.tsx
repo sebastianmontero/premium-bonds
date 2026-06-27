@@ -3,11 +3,24 @@ export function StatsSection() {
     <section id="prizes" className="relative px-6 py-24">
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2">
         {/* Total Value Locked */}
-        <div className="glass-strong rounded-2xl p-8 space-y-3 animate-float" style={{ animationDelay: "0s" }}>
+        <div
+          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
+          style={{ animationDelay: "0s" }}
+        >
           <div className="flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0110 0v4"/>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-primary"
+            >
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0110 0v4" />
             </svg>
             <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
               Total Value Locked
@@ -22,11 +35,24 @@ export function StatsSection() {
         </div>
 
         {/* Current Prize Pool */}
-        <div className="glass-strong rounded-2xl p-8 space-y-3 animate-float" style={{ animationDelay: "1s" }}>
+        <div
+          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
+          style={{ animationDelay: "1s" }}
+        >
           <div className="flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-secondary">
-              <circle cx="12" cy="8" r="7"/>
-              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-secondary"
+            >
+              <circle cx="12" cy="8" r="7" />
+              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
             </svg>
             <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
               Current Prize Pool
@@ -41,7 +67,8 @@ export function StatsSection() {
               Live
             </span>
             <span className="text-sm text-on-surface-variant">
-              Next draw in <span className="font-semibold text-on-surface">2d 14h 36m</span>
+              Next draw in{" "}
+              <span className="font-semibold text-on-surface">2d 14h 36m</span>
             </span>
           </div>
         </div>

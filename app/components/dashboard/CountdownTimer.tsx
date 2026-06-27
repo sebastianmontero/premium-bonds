@@ -27,7 +27,9 @@ function calcTimeLeft(target: number): TimeLeft {
 }
 
 export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
-  const [timeLeft, setTimeLeft] = useState<TimeLeft>(calcTimeLeft(targetTimestamp));
+  const [timeLeft, setTimeLeft] = useState<TimeLeft>(
+    calcTimeLeft(targetTimestamp)
+  );
 
   useEffect(() => {
     const id = setInterval(() => {

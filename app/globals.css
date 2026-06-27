@@ -153,14 +153,23 @@
 @layer utilities {
   /* Glassmorphism panels */
   .glass {
-    background: color-mix(in srgb, var(--surface-container-high) 70%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--surface-container-high) 70%,
+      transparent
+    );
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid color-mix(in srgb, var(--outline-variant) 20%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--outline-variant) 20%, transparent);
   }
 
   .glass-strong {
-    background: color-mix(in srgb, var(--surface-container-highest) 80%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--surface-container-highest) 80%,
+      transparent
+    );
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
     border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
@@ -171,7 +180,8 @@
 
   /* Ghost border (input fields, subtle separators) */
   .ghost-border {
-    border: 1px solid color-mix(in srgb, var(--outline-variant) 20%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--outline-variant) 20%, transparent);
   }
 
   .ghost-border-focus:focus {
@@ -200,15 +210,24 @@
 
   /* Ghost / outlined buttons */
   .btn-ghost {
-    background: color-mix(in srgb, var(--surface-container-high) 60%, transparent);
-    border: 1px solid color-mix(in srgb, var(--outline-variant) 25%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--surface-container-high) 60%,
+      transparent
+    );
+    border: 1px solid
+      color-mix(in srgb, var(--outline-variant) 25%, transparent);
     color: var(--on-surface);
     font-weight: 500;
     transition: all 0.25s ease;
   }
 
   .btn-ghost:hover {
-    background: color-mix(in srgb, var(--surface-container-highest) 80%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--surface-container-highest) 80%,
+      transparent
+    );
     border-color: color-mix(in srgb, var(--outline-variant) 45%, transparent);
     transform: translateY(-1px);
   }
@@ -228,8 +247,13 @@
 
   /* Yield Pulse animation */
   @keyframes yield-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
   }
 
   .animate-yield-pulse {
@@ -238,8 +262,13 @@
 
   /* Subtle float animation for hero elements */
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-6px); }
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
   }
 
   .animate-float {
@@ -248,8 +277,13 @@
 
   /* Glow ring for connected state */
   @keyframes glow-ring {
-    0%, 100% { box-shadow: 0 0 8px color-mix(in srgb, var(--tertiary) 40%, transparent); }
-    50% { box-shadow: 0 0 16px color-mix(in srgb, var(--tertiary) 60%, transparent); }
+    0%,
+    100% {
+      box-shadow: 0 0 8px color-mix(in srgb, var(--tertiary) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 16px color-mix(in srgb, var(--tertiary) 60%, transparent);
+    }
   }
 
   .animate-glow {
@@ -295,8 +329,12 @@
 
   /* ── Marquee ticker ──────────────────────────────────────────────────── */
   @keyframes marquee {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
   }
 
   .animate-marquee {
@@ -350,7 +388,11 @@
   }
 
   .nav-item:hover {
-    background: color-mix(in srgb, var(--surface-container-highest) 60%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--surface-container-highest) 60%,
+      transparent
+    );
     color: var(--on-surface);
   }
 
