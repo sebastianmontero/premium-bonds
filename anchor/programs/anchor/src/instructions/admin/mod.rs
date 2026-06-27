@@ -17,5 +17,3 @@ pub use set_prize_tiers::*;
 pub use update_global_config::*;
 pub use update_pool_config::*;
 pub use withdraw_fees::*;
-
-

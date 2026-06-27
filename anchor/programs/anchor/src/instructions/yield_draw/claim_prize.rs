@@ -6,8 +6,6 @@ use crate::state::{PayoutRegistry, PendingRedemption, PrizePool};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 
-
-
 /// Async claim_prize: instead of instant USDC transfer, creates a PendingRedemption
 /// and submits a Huma redemption request. The user calls `claim_redemption` after settlement.
 #[derive(Accounts)]

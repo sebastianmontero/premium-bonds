@@ -48,6 +48,7 @@ pub const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 pub const FAIL_DEPOSIT_PUBKEY: Pubkey = Pubkey::new_from_array([1; 32]);
 pub const FAIL_REDEMPTION_PUBKEY: Pubkey = Pubkey::new_from_array([2; 32]);
 pub const FAIL_DISBURSE_PUBKEY: Pubkey = Pubkey::new_from_array([3; 32]);
+pub const FAIL_CREATE_LENDER_PUBKEY: Pubkey = Pubkey::new_from_array([4; 32]);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Instruction Handlers
@@ -187,7 +188,11 @@ pub mod mock_huma {
     }
 
     /// Mock `create_lender_accounts_v2`: no-op, just returns Ok.
-    pub fn create_lender_accounts_v2(_ctx: Context<MockCreateLenderAccounts>) -> Result<()> {
+    pub fn create_lender_accounts_v2(ctx: Context<MockCreateLenderAccounts>) -> Result<()> {
+        if ctx.accounts.huma_config.key() == FAIL_CREATE_LENDER_PUBKEY {
+            msg!("MockHuma: simulated create lender failure triggered");
+            return err!(MockHumaError::SimulatedCreateLenderFailure);
+        }
         msg!("MockHuma: create_lender_accounts_v2 (no-op)");
         Ok(())
     }
@@ -323,4 +328,6 @@ pub enum MockHumaError {
     SimulatedRedemptionFailure,
     #[msg("MockHuma: simulated disburse failure")]
     SimulatedDisburseFailure,
+    #[msg("MockHuma: simulated create lender failure")]
+    SimulatedCreateLenderFailure,
 }
