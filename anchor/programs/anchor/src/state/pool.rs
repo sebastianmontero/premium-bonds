@@ -106,6 +106,17 @@ impl PrizePool {
     }
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct UserWinnings {
+    pub pool_id: u32,
+    pub user: Pubkey,
+    pub unclaimed_non_reinvested_winnings: u64,
+    pub total_claimed: u64,
+    pub total_reinvested: u64,
+    pub bump: u8,
+}
+
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]

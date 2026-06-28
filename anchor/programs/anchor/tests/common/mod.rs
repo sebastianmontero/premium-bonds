@@ -50,6 +50,13 @@ pub fn pool_pst_vault_pda(pool_id: u32) -> (Pubkey, u8) {
     )
 }
 
+pub fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"user_winnings", pool_id.to_le_bytes().as_ref(), user.as_ref()],
+        &anchor::id(),
+    )
+}
+
 pub fn huma_program_id() -> Pubkey {
     anchor::constants::HUMA_PROGRAM_ID
 }
@@ -349,6 +356,13 @@ pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     anchor::PrizePool::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
+pub fn read_user_winnings_state(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
+    use anchor_lang::AccountDeserialize;
+    let (pda, _) = user_winnings_pda(pool_id, user);
+    let acct = svm.get_account(&pda).expect("user winnings account should exist");
+    anchor::state::UserWinnings::try_deserialize(&mut &acct.data[..]).unwrap()
+}
+
 pub fn read_registry_pending(svm: &LiteSVM, address: Pubkey) -> u32 {
     let acct = svm.get_account(&address).expect("registry should exist");
     u32::from_le_bytes(acct.data[20..24].try_into().unwrap())
@@ -571,9 +585,11 @@ pub fn send_e2e_buy_bonds_for_user(
     let (pool, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
 
     let accounts = anchor::accounts::BuyBonds {
         user: user.pubkey(),
+        user_winnings,
         global_config,
         pool,
         ticket_registry: ctx.ticket_registry,

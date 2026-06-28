@@ -468,7 +468,7 @@ fn test_reveal_single_tier_single_winner() {
     assert_eq!(pr.winners_count, 1);
     assert_eq!(pr.winners.len(), 1);
     assert_eq!(pr.winners[0].amount_owed, 1_000_000); // 10000bps of 1M
-    assert!(!pr.winners[0].paid_out);
+    assert!(!pr.winners[0].processed);
     assert_eq!(pr.winners[0].tier_index, 0);
 }
 
@@ -556,7 +556,7 @@ fn test_reveal_payout_registry_fields() {
     assert_eq!(pr.payouts_completed, 0);
 
     for w in &pr.winners {
-        assert!(!w.paid_out);
+        assert!(!w.processed);
         assert_eq!(w.amount_reinvested, 0);
     }
 }

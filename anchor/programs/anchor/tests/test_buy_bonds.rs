@@ -31,10 +31,12 @@ fn build_buy_bonds_ix(
     let (pool, _) = pool_pda(pool_id);
     let (pool_vault_account, _) = pool_vault_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user);
     let dummy = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::BuyBonds {
         user,
+        user_winnings,
         global_config,
         pool,
         ticket_registry,
@@ -559,11 +561,13 @@ fn test_buy_bonds_fails_invalid_huma_program() {
     let (pool, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
     let dummy = Keypair::new().pubkey();
     let fake_huma = Keypair::new().pubkey(); // Random key instead of Huma program ID
 
     let accounts = anchor::accounts::BuyBonds {
         user: ctx.user.pubkey(),
+        user_winnings,
         global_config,
         pool,
         ticket_registry: ctx.ticket_registry,
@@ -657,4 +661,24 @@ fn test_buy_bonds_fails_huma_deposit_error() {
         err.contains("SimulatedDepositFailure") || err.contains("6000") || err.contains("0x1770"),
         "Expected SimulatedDepositFailure (6000 or 0x1770), got: {err}"
     );
+}
+
+/// E2E test verifying that buying bonds initializes the `UserWinnings` account correctly.
+#[test]
+fn test_buy_bonds_initializes_user_winnings() {
+    let mut ctx = setup_e2e(10);
+    
+    // Before: user_winnings account should not exist
+    let (user_winnings_pda, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    assert!(ctx.svm.get_account(&user_winnings_pda).is_none());
+
+    send_e2e_buy_bonds(&mut ctx, 1).expect("buy 1 bond should succeed");
+
+    // After: user_winnings account should exist and be initialized
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    assert_eq!(winnings.pool_id, 1);
+    assert_eq!(winnings.user, ctx.user.pubkey());
+    assert_eq!(winnings.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(winnings.total_claimed, 0);
+    assert_eq!(winnings.total_reinvested, 0);
 }

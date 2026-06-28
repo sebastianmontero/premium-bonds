@@ -52,4 +52,6 @@ pub enum PremiumBondsError {
     InvalidRedemptionOwner,
     #[msg("Insufficient accrued fee balance for withdrawal.")]
     InsufficientFeeBalance,
+    #[msg("No unclaimed non-reinvested winnings to claim.")]
+    NoWinningsToClaim,
 }

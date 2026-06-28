@@ -13,6 +13,15 @@ pub struct BuyBonds<'info> {
     pub user: Signer<'info>,
 
     #[account(
+        init_if_needed,
+        payer = user,
+        space = 8 + crate::state::UserWinnings::INIT_SPACE,
+        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        bump
+    )]
+    pub user_winnings: Box<Account<'info, crate::state::UserWinnings>>,
+
+    #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump
     )]
@@ -134,6 +143,13 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
 
     // 3. Update State
     pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
+
+    let user_winnings = &mut ctx.accounts.user_winnings;
+    if user_winnings.user == Pubkey::default() {
+        user_winnings.pool_id = pool.pool_id;
+        user_winnings.user = ctx.accounts.user.key();
+        user_winnings.bump = ctx.bumps.user_winnings;
+    }
 
     // Phase 1: validate capacity (read-only zero-copy borrow)
     let insert_start;

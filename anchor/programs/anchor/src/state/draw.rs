@@ -51,16 +51,16 @@ impl PayoutRegistry {
             PremiumBondsError::UnauthorizedTicket
         );
         require!(
-            !self.winners[idx].paid_out,
+            !self.winners[idx].processed,
             PremiumBondsError::AlreadyClaimed
         );
         Ok(&mut self.winners[idx])
     }
 
-    /// Marks a winner as fully paid and increments the completed counter.
-    pub fn mark_paid(&mut self, winner_index: u32) {
+    /// Marks a winner as fully processed and increments the completed counter.
+    pub fn mark_processed(&mut self, winner_index: u32) {
         let idx = winner_index as usize;
-        self.winners[idx].paid_out = true;
+        self.winners[idx].processed = true;
         self.payouts_completed += 1;
     }
 }
@@ -69,7 +69,7 @@ impl PayoutRegistry {
 pub struct Winner {
     pub winner_pubkey: Pubkey,
     pub amount_owed: u64,
-    pub paid_out: bool,
+    pub processed: bool,
     pub tier_index: u8,
     /// Tracks partial reinvestment progress across batched crank calls.
     pub amount_reinvested: u64,

@@ -105,7 +105,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
             winners_vec.push(Winner {
                 winner_pubkey,
                 amount_owed: prize_per_winner,
-                paid_out: false,
+                processed: false,
                 tier_index: tier_idx as u8,
                 amount_reinvested: 0,
             });

@@ -1,6 +1,6 @@
 use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
-use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserWinnings};
 use crate::utils::registry_set_ticket;
 use anchor_lang::prelude::*;
 
@@ -11,8 +11,7 @@ use anchor_lang::prelude::*;
 /// book value and registering new tickets. No token movement or CPI needed —
 /// the $PST already represent the full pool value.
 ///
-/// Dust (< 1 bond) remains as `claimable_amount` on the payout entry,
-/// claimable via the async `claim_prize` flow.
+/// Dust (< 1 bond) is accumulated into the user's UserWinnings PDA.
 #[derive(Accounts)]
 #[instruction(cycle_id: u32, winner_index: u32)]
 pub struct ReinvestWinnings<'info> {
@@ -38,6 +37,13 @@ pub struct ReinvestWinnings<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    #[account(
+        mut,
+        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
+        bump = user_winnings.bump,
+    )]
+    pub user_winnings: Box<Account<'info, UserWinnings>>,
+
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
@@ -57,37 +63,75 @@ pub fn handle(
     let winner = payout_registry.validate_winner(winner_index, &ctx.accounts.winner.key())?;
 
     // ── 2. Calculate remaining amount and bonds for this batch ────────────────
-    let remaining = winner.claimable_amount();
+    let remaining_current = winner.claimable_amount();
     let already_reinvested = winner.amount_reinvested;
-    let _ = winner;
+
+    let user_winnings = &mut ctx.accounts.user_winnings;
+    let accumulated = user_winnings.unclaimed_non_reinvested_winnings;
+
+    let total_available = remaining_current
+        .checked_add(accumulated)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     let pool = &mut ctx.accounts.pool;
 
-    // How many total bonds can be bought with the remaining amount?
-    let total_remaining_bonds = (remaining / pool.bond_price) as u32;
+    // How many total bonds can be bought with the total available?
+    let total_bonds_available = (total_available / pool.bond_price) as u32;
     // Cap this batch at max_bonds
-    let bonds_this_batch = total_remaining_bonds.min(max_bonds);
-    let reinvest_amount = (bonds_this_batch as u64)
+    let bonds_to_buy = total_bonds_available.min(max_bonds);
+    let cost = (bonds_to_buy as u64)
         .checked_mul(pool.bond_price)
-        .unwrap();
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // After this batch, determine if we're done
-    let new_amount_reinvested = already_reinvested.checked_add(reinvest_amount).unwrap();
-    let is_final_batch = bonds_this_batch == total_remaining_bonds;
+    // Determine if we're done (is this the final batch for current winnings?)
+    // If total_bonds_available <= bonds_to_buy, then after this batch, the remaining total_available
+    // will be less than pool.bond_price, which means we can't buy any more bonds.
+    // So this is the final batch!
+    let is_final_batch = total_bonds_available <= bonds_to_buy;
 
-    // Dust only matters on the final batch (leftover that can't buy a whole bond)
-    let dust = if is_final_batch {
-        remaining.checked_sub(reinvest_amount).unwrap()
-    } else {
-        0
-    };
+    // How much of the cost is paid from the current winnings vs accumulated?
+    let from_current = cost.min(remaining_current);
+    let from_accumulated = cost
+        .checked_sub(from_current)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    // Update winner and user_winnings accounting
+    let new_amount_reinvested = already_reinvested
+        .checked_add(from_current)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    payout_registry.winners[winner_index as usize].amount_reinvested = new_amount_reinvested;
+
+    user_winnings.unclaimed_non_reinvested_winnings = accumulated
+        .checked_sub(from_accumulated)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    if bonds_to_buy > 0 {
+        user_winnings.total_reinvested = user_winnings
+            .total_reinvested
+            .checked_add(cost)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
+
+    // If final batch, mark winner as processed, and transfer any remaining dust from current winnings
+    if is_final_batch {
+        let dust = remaining_current
+            .checked_sub(from_current)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        if dust > 0 {
+            user_winnings.unclaimed_non_reinvested_winnings = user_winnings
+                .unclaimed_non_reinvested_winnings
+                .checked_add(dust)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+        }
+        payout_registry.mark_processed(winner_index);
+    }
 
     // ── 3. Reinvest: accounting-only bond registration ──────────────────────
     //
     // No token movement needed. The $PST in pool_pst_vault already represent
     // the entire pool value including unrealized yield. We simply "re-book"
     // the winnings as principal and register new tickets.
-    if bonds_this_batch > 0 {
+    if bonds_to_buy > 0 {
         require!(
             pool.status == PoolStatus::Active,
             PremiumBondsError::PoolNotActive
@@ -100,8 +144,8 @@ pub fn handle(
         // Update principal (accounting)
         pool.total_deposited_principal = pool
             .total_deposited_principal
-            .checked_add(reinvest_amount)
-            .unwrap();
+            .checked_add(cost)
+            .ok_or(PremiumBondsError::MathOverflow)?;
 
         // Register new tickets (same 3-phase logic as buy_bonds)
         let insert_start;
@@ -109,7 +153,7 @@ pub fn handle(
             let registry = ctx.accounts.ticket_registry.load()?;
             let current_total = registry.active_tickets_count + registry.pending_tickets_count;
             require!(
-                current_total + bonds_this_batch <= registry.capacity,
+                current_total + bonds_to_buy <= registry.capacity,
                 PremiumBondsError::RegistryFull
             );
             insert_start =
@@ -120,36 +164,25 @@ pub fn handle(
             let registry_ai = ctx.accounts.ticket_registry.to_account_info();
             let mut data = registry_ai.try_borrow_mut_data()?;
             let winner_key = ctx.accounts.winner.key();
-            for i in 0..bonds_this_batch as usize {
+            for i in 0..bonds_to_buy as usize {
                 registry_set_ticket(&mut data, insert_start + i, &winner_key);
             }
         }
 
         {
             let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-            registry.pending_tickets_count += bonds_this_batch;
+            registry.pending_tickets_count += bonds_to_buy;
         }
-    }
-
-    // ── 4. Update reinvestment progress ──────────────────────────────────────
-    payout_registry.winners[winner_index as usize].amount_reinvested = new_amount_reinvested;
-
-    if is_final_batch {
-        // If no dust, mark fully paid. If dust exists, leave claimable for async claim_prize.
-        if dust == 0 {
-            payout_registry.mark_paid(winner_index);
-        }
-        // Dust remains as claimable_amount — user claims via claim_prize → claim_redemption
     }
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────
     msg!(
         "ReinvestWinnings: winner={}, bonds={}, reinvested_this_batch={}, total_reinvested={}, dust={}, final={}",
         ctx.accounts.winner.key(),
-        bonds_this_batch,
-        reinvest_amount,
+        bonds_to_buy,
+        cost,
         new_amount_reinvested,
-        dust,
+        if is_final_batch { remaining_current.checked_sub(from_current).unwrap_or(0) } else { 0 },
         is_final_batch,
     );
 

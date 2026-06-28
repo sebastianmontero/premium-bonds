@@ -96,8 +96,8 @@ pub mod anchor {
         instructions::yield_draw::reveal_and_pick_winners::handle(ctx, random_seed)
     }
 
-    pub fn claim_prize(ctx: Context<ClaimPrize>, cycle_id: u32, winner_index: u32) -> Result<()> {
-        instructions::yield_draw::claim_prize::handle(ctx, cycle_id, winner_index)
+    pub fn claim_non_reinvested_winnings(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
+        instructions::yield_draw::claim_non_reinvested_winnings::handle(ctx)
     }
 
     pub fn update_pool_config(

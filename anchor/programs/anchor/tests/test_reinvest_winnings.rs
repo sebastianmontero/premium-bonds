@@ -30,6 +30,12 @@ fn payout_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
         &anchor::id(),
     )
 }
+fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"user_winnings", pool_id.to_le_bytes().as_ref(), user.as_ref()],
+        &anchor::id(),
+    )
+}
 
 // ─── Account injection helpers ───────────────────────────────────────────────
 
@@ -132,11 +138,44 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
     .unwrap();
 }
 
-fn w(pk: Pubkey, owed: u64, tier: u8, reinvested: u64, paid: bool) -> anchor::Winner {
+fn inject_user_winnings(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    user: Pubkey,
+    unclaimed: u64,
+    total_claimed: u64,
+    total_reinvested: u64,
+) {
+    let (pda, bump) = user_winnings_pda(pool_id, &user);
+    let uw = anchor::state::UserWinnings {
+        pool_id,
+        user,
+        unclaimed_non_reinvested_winnings: unclaimed,
+        total_claimed,
+        total_reinvested,
+        bump,
+    };
+    let mut d = vec![];
+    uw.try_serialize(&mut d).unwrap();
+    d.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 10_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+fn w(pk: Pubkey, owed: u64, tier: u8, reinvested: u64, processed: bool) -> anchor::Winner {
     anchor::Winner {
         winner_pubkey: pk,
         amount_owed: owed,
-        paid_out: paid,
+        processed,
         tier_index: tier,
         amount_reinvested: reinvested,
     }
@@ -154,12 +193,14 @@ struct Ctx {
 fn build_ix(ctx: &Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Instruction {
     let (pool, _) = pool_pda(1);
     let (payout, _) = payout_pda(1, cycle_id);
+    let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
 
     let accounts = anchor::accounts::ReinvestWinnings {
         crank: ctx.crank.pubkey(),
         winner: ctx.winner,
         payout_registry: payout,
         pool,
+        user_winnings,
         ticket_registry: ctx.registry,
         system_program: anchor_lang::system_program::ID,
     }
@@ -200,6 +241,11 @@ fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
     let (p, _) = payout_pda(1, cid);
     anchor::PayoutRegistry::try_deserialize(&mut svm.get_account(&p).unwrap().data.as_slice())
         .unwrap()
+}
+
+fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnings {
+    let (pda, _) = user_winnings_pda(1, user);
+    anchor::state::UserWinnings::try_deserialize(&mut svm.get_account(&pda).unwrap().data.as_slice()).unwrap()
 }
 
 fn read_reg_pending(svm: &LiteSVM, reg: Pubkey) -> u32 {
@@ -245,6 +291,7 @@ fn setup(
         0,
         vec![w(winner, amount_owed, 0, reinvested, false)],
     );
+    inject_user_winnings(&mut svm, 1, winner, 0, 0, 0);
 
     Ctx {
         svm,
@@ -269,6 +316,7 @@ fn test_reinvest_fails_max_bonds_zero() {
 fn test_reinvest_fails_wrong_winner() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
+    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 0, 0, 0);
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("UnauthorizedTicket"), "got: {err}");
 }
@@ -276,7 +324,7 @@ fn test_reinvest_fails_wrong_winner() {
 #[test]
 fn test_reinvest_fails_already_paid() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
-    // Re-inject with paid_out=true
+    // Re-inject with processed=true
     inject_payout(
         &mut ctx.svm,
         1,
@@ -297,12 +345,16 @@ fn test_reinvest_single_batch_full() {
     send(&mut ctx, 0, 0, 10).expect("reinvest");
 
     let pr = read_payout(&ctx.svm, 0);
-    assert!(pr.winners[0].paid_out);
+    assert!(pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 3_000_000);
     assert_eq!(pr.payouts_completed, 1);
 
     let pool = read_pool(&ctx.svm);
     assert_eq!(pool.total_deposited_principal, 3_000_000);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(uw.total_reinvested, 3_000_000);
 }
 
 #[test]
@@ -312,9 +364,13 @@ fn test_reinvest_single_batch_with_dust() {
     send(&mut ctx, 0, 0, 10).expect("reinvest");
 
     let pr = read_payout(&ctx.svm, 0);
-    // Dust stays as claimable via claim_prize, so paid_out is false
-    assert!(!pr.winners[0].paid_out);
+    // Dust stays, but winner is processed on final crank, remaining dust goes to UserWinnings PDA
+    assert!(pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 3_000_000);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 500_000);
+    assert_eq!(uw.total_reinvested, 3_000_000);
 }
 
 #[test]
@@ -324,20 +380,24 @@ fn test_reinvest_multi_batch() {
     // Batch 1: max_bonds=2
     send(&mut ctx, 0, 0, 2).expect("batch 1");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(!pr.winners[0].paid_out);
+    assert!(!pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 2_000_000);
 
     // Batch 2: max_bonds=2
     send(&mut ctx, 0, 0, 2).expect("batch 2");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(!pr.winners[0].paid_out);
+    assert!(!pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 4_000_000);
 
     // Batch 3: final (1 bond remaining)
     send(&mut ctx, 0, 0, 2).expect("batch 3");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(pr.winners[0].paid_out);
+    assert!(pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 5_000_000);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(uw.total_reinvested, 5_000_000);
 }
 
 #[test]
@@ -370,12 +430,15 @@ fn test_reinvest_dust_only_no_bonds() {
     send(&mut ctx, 0, 0, 10).expect("dust only");
 
     let pr = read_payout(&ctx.svm, 0);
-    // Dust remains claimable via claim_prize, paid_out stays false
-    assert!(!pr.winners[0].paid_out);
+    // Dust stays, processed is true
+    assert!(pr.winners[0].processed);
     assert_eq!(pr.winners[0].amount_reinvested, 0);
 
     let pool = read_pool(&ctx.svm);
     assert_eq!(pool.total_deposited_principal, 0);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 500_000);
 }
 
 #[test]
@@ -399,4 +462,29 @@ fn test_reinvest_fails_pool_frozen() {
     let mut ctx = setup(anchor::PoolStatus::Active, true, 1_000_000, 3_000_000, 0);
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("AwaitingRandomnessFreeze"), "got: {err}");
+}
+
+/// Test that a user can reinvest using both their current draw winnings and their accumulated dust.
+#[test]
+fn test_reinvest_using_accumulated_dust() {
+    // Setup pool with 1M bond price, winner owes 500K (from current draw).
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
+    
+    // Inject 600K accumulated dust in UserWinnings PDA first
+    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 600_000, 0, 0);
+
+    // Reinvest: total available = 500K (current) + 600K (accumulated) = 1.1M.
+    // This allows buying 1 bond (1M), leaving 100K dust.
+    send(&mut ctx, 0, 0, 10).expect("reinvest");
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].amount_reinvested, 500_000); // the current winnings were fully used/reinvested
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 100_000); // 1.1M - 1M bond = 100K remaining
+    assert_eq!(uw.total_reinvested, 1_000_000);
+
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_deposited_principal, 1_000_000);
 }
