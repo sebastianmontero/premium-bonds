@@ -10,38 +10,31 @@ interface CompleteLedgerModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
-  onClaimSinglePrize: (drawCycleId: number) => void;
+  onSimulateCrank: (drawCycleId: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
 }
 
 function statusPill(status: PrizeHistoryEntry["status"]) {
   switch (status) {
-    case "unclaimed":
+    case "processing":
       return (
         <span className="pill pill-warning">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Unclaimed
+          <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+          Processing
         </span>
       );
-    case "claiming":
+    case "partial":
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          Claiming
+          Reinvesting
         </span>
       );
-    case "auto-reinvested":
+    case "reinvested":
       return (
         <span className="pill pill-success">
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Auto-Reinvested
-        </span>
-      );
-    case "claimed":
-      return (
-        <span className="pill pill-neutral">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Claimed
+          Reinvested
         </span>
       );
   }
@@ -62,7 +55,7 @@ export default function CompleteLedgerModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
-  onClaimSinglePrize,
+  onSimulateCrank,
   onViewDetails,
 }: CompleteLedgerModalProps) {
   // Stateful Filtering
@@ -232,10 +225,9 @@ export default function CompleteLedgerModal({
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
             >
               <option value="all">All Statuses</option>
-              <option value="unclaimed">Unclaimed</option>
-              <option value="claiming">Claiming</option>
-              <option value="claimed">Claimed</option>
-              <option value="auto-reinvested">Auto-Reinvested</option>
+              <option value="processing">Processing</option>
+              <option value="partial">Reinvesting</option>
+              <option value="reinvested">Reinvested</option>
             </select>
           </div>
 
@@ -392,35 +384,44 @@ export default function CompleteLedgerModal({
                   <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
                     Status
                   </p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                     {statusPill(entry.status)}
-                    {entry.reinvestedTickets && (
-                      <span className="text-[10px] text-tertiary font-medium">
-                        (+{entry.reinvestedTickets})
-                      </span>
-                    )}
+                    {entry.reinvestedTickets !== undefined &&
+                      entry.reinvestedTickets > 0 && (
+                        <span className="text-[10px] text-tertiary font-medium">
+                          (+{entry.reinvestedTickets})
+                        </span>
+                      )}
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-start md:justify-end gap-3 md:border-l md:border-surface-bright/5 md:pl-6 w-full">
-                  {entry.status === "unclaimed" && (
+                <div className="flex items-center justify-start md:justify-end gap-3 md:border-l md:border-surface-bright/5 md:pl-6 w-full font-sans">
+                  {(entry.status === "processing" ||
+                    entry.status === "partial") && (
                     <button
-                      onClick={() => onClaimSinglePrize(entry.drawCycleId)}
-                      className="rounded-lg bg-emerald-500 hover:bg-emerald-400 text-surface-container px-3 py-1 text-[11px] font-bold transition cursor-pointer shadow-[0_2px_8px_rgba(16,185,129,0.2)]"
+                      onClick={() => onSimulateCrank(entry.drawCycleId)}
+                      className="rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black px-2.5 py-1.5 text-[11px] font-bold transition cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)] flex items-center gap-1 shrink-0"
                     >
-                      Claim
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="animate-spin duration-3000"
+                      >
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                      </svg>
+                      Crank
                     </button>
-                  )}
-                  {entry.status === "claiming" && (
-                    <span className="inline-flex items-center text-xs text-on-surface-variant font-medium py-1">
-                      <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                      Claiming...
-                    </span>
                   )}
                   <button
                     onClick={() => onViewDetails(entry)}
-                    className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer px-2 py-1"
+                    className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer px-2 py-1.5"
                   >
                     Details
                   </button>

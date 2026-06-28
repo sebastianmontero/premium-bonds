@@ -53,13 +53,13 @@ export function UnclaimedBanner({
 
           <div>
             <p className="text-sm font-semibold text-amber-200">
-              You have unclaimed winnings!
+              You have accumulated leftover winnings!
             </p>
             <p className="mt-0.5 text-xs text-amber-200/70">
               <span className="font-mono font-semibold text-amber-300">
                 {formatTokenAmount(totalUnclaimed, tokenDecimals)} {tokenSymbol}
               </span>{" "}
-              ready to claim from recent draws.
+              of accumulated leftover dust ready to claim.
             </p>
           </div>
         </div>

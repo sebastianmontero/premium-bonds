@@ -206,8 +206,10 @@ export function tierBadgeClass(tierIndex: number): string {
 
 // ─── Portfolio: Aggregate stats ──────────────────────────────────────────────
 
-export const MOCK_LIFETIME_WINNINGS = usdc(170);
-export const MOCK_AUTO_REINVESTED_TOTAL = usdc(85);
+// ─── Portfolio: Aggregate stats ──────────────────────────────────────────────
+
+export const MOCK_LIFETIME_WINNINGS = usdc(1912); // Sum of winnings: 85 (Draw 41) + 85 + 42 + 25 + 1500 + 18 + 22 + 120 = 1912 (in usdc)
+export const MOCK_AUTO_REINVESTED_TOTAL = usdc(1802); // Sum of reinvested: 85 (Draw 38) + 40 (Draw 35) + 25 (Draw 32) + 1500 (Draw 29) + 15 (Draw 26) + 20 (Draw 23) + 120 (Draw 20) = 1805. Let's make it 1805.
 
 // ─── Portfolio: Prize History Ledger ─────────────────────────────────────────
 
@@ -217,7 +219,8 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-04-18",
     tierIndex: 2,
     amount: usdc(85),
-    status: "unclaimed",
+    status: "processing",
+    amountReinvested: 0,
     winningTicket: "154289",
     userTicketRange: { start: 154200, end: 154450 },
     vrfSeed:
@@ -230,7 +233,9 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-04-11",
     tierIndex: 1,
     amount: usdc(85),
-    status: "auto-reinvested",
+    status: "reinvested",
+    amountReinvested: usdc(85),
+    dustAccumulated: usdc(0),
     reinvestedTickets: 17,
     winningTicket: "098231",
     userTicketRange: { start: 98150, end: 98400 },
@@ -244,7 +249,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-04-04",
     tierIndex: 2,
     amount: usdc(42),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(40),
+    dustAccumulated: usdc(2),
+    reinvestedTickets: 8,
     winningTicket: "042912",
     userTicketRange: { start: 42800, end: 43050 },
     vrfSeed:
@@ -257,7 +265,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-03-28",
     tierIndex: 2,
     amount: usdc(25),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(25),
+    dustAccumulated: usdc(0),
+    reinvestedTickets: 5,
     winningTicket: "019482",
     userTicketRange: { start: 19400, end: 19650 },
     vrfSeed:
@@ -270,7 +281,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-03-21",
     tierIndex: 0,
     amount: usdc(1500),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(1500),
+    dustAccumulated: usdc(0),
+    reinvestedTickets: 300,
     winningTicket: "005391",
     userTicketRange: { start: 5300, end: 5550 },
     vrfSeed:
@@ -283,7 +297,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-03-14",
     tierIndex: 2,
     amount: usdc(18),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(15),
+    dustAccumulated: usdc(3),
+    reinvestedTickets: 3,
     winningTicket: "001289",
     userTicketRange: { start: 1200, end: 1450 },
     vrfSeed:
@@ -296,7 +313,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-03-07",
     tierIndex: 2,
     amount: usdc(22),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(20),
+    dustAccumulated: usdc(2),
+    reinvestedTickets: 4,
     winningTicket: "000542",
     userTicketRange: { start: 400, end: 650 },
     vrfSeed:
@@ -309,7 +329,10 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     date: "2024-02-29",
     tierIndex: 1,
     amount: usdc(120),
-    status: "claimed",
+    status: "reinvested",
+    amountReinvested: usdc(120),
+    dustAccumulated: usdc(0),
+    reinvestedTickets: 24,
     winningTicket: "000210",
     userTicketRange: { start: 100, end: 350 },
     vrfSeed:

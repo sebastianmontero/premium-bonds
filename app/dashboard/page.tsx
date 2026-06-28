@@ -22,11 +22,13 @@ import {
   MOCK_PRIZE_HISTORY,
   MOCK_ACTIVITY_FEED,
   INITIAL_PENDING_REDEMPTIONS,
+  formatTokenAmount,
 } from "@/app/mock-data";
 import type {
   ActivityEntry,
   PendingRedemption,
   PrizeHistoryEntry,
+  PrizeStatus,
 } from "@/app/types";
 
 export default function DashboardPage() {
@@ -46,10 +48,12 @@ export default function DashboardPage() {
   const [activityFeed, setActivityFeed] =
     useState<ActivityEntry[]>(MOCK_ACTIVITY_FEED);
 
-  // Sum unclaimed amount from the prize history ledger
-  const unclaimedAmount = prizeHistory
-    .filter((w) => w.status === "unclaimed")
-    .reduce((sum, w) => sum + w.amount, 0);
+  const [unclaimedWinningsBalance, setUnclaimedWinningsBalance] =
+    useState(7_000_000); // 7.00 USDC in base units representing historical dust
+  const [lifetimeWinnings] = useState(MOCK_LIFETIME_WINNINGS);
+  const [autoReinvestedTotal, setAutoReinvestedTotal] = useState(
+    MOCK_AUTO_REINVESTED_TOTAL
+  );
 
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
   const pendingRedemptionsTotal = pendingRedemptions.reduce(
@@ -58,7 +62,8 @@ export default function DashboardPage() {
   );
   const netWorth =
     userTickets.activeTicketsCount * MOCK_POOL.bondPrice +
-    pendingRedemptionsTotal;
+    pendingRedemptionsTotal +
+    unclaimedWinningsBalance;
 
   // Handlers for Deposit/Withdraw Success
   const handleDepositSuccess = (tickets: number, value: number) => {
@@ -102,89 +107,131 @@ export default function DashboardPage() {
     setActivityFeed((prev) => [newActivity, ...prev]);
   };
 
-  // Handlers for Prize Claiming (Asynchronous Huma Flow)
-  const handleClaimSinglePrize = (drawCycleId: number) => {
-    const prize = prizeHistory.find((p) => p.drawCycleId === drawCycleId);
-    if (!prize) return;
+  // Handlers for Prize Crank Reinvestment & Dust Claiming
+  const handleSimulateCrank = (drawCycleId: number) => {
+    const entry = prizeHistory.find((p) => p.drawCycleId === drawCycleId);
+    if (!entry) return;
+    if (entry.status === "reinvested") return;
 
-    // Transition row to claiming state in ledger
+    const BOND_PRICE = MOCK_POOL.bondPrice; // 5 USDC in base units = 5_000_000
+    const MAX_BONDS = 5;
+
+    // Current amount already reinvested
+    const currentReinvested = entry.amountReinvested || 0;
+    // Winnings amount remaining to be processed
+    const remainingWinnings = entry.amount - currentReinvested;
+
+    if (remainingWinnings <= 0) return;
+
+    // How many bonds can we purchase in this batch?
+    // Capped by MAX_BONDS and by remainingWinnings / BOND_PRICE
+    const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
+    const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
+
+    const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
+    const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
+    const newTicketsCount = (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
+
+    // Remaining after this batch
+    const postBatchRemaining = entry.amount - newReinvestedAmount;
+
+    // Is this the final batch?
+    const isFinalBatch = postBatchRemaining < BOND_PRICE;
+
+    let finalStatus: PrizeStatus = "partial";
+    let dustAmount = 0;
+    const finalReinvestedAmount = newReinvestedAmount;
+
+    if (isFinalBatch) {
+      finalStatus = "reinvested";
+      dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
+    }
+
+    // Update Prize History
     setPrizeHistory((prev) =>
       prev.map((p) =>
-        p.drawCycleId === drawCycleId ? { ...p, status: "claiming" } : p
+        p.drawCycleId === drawCycleId
+          ? {
+              ...p,
+              status: finalStatus,
+              amountReinvested: finalReinvestedAmount,
+              reinvestedTickets: newTicketsCount,
+              dustAccumulated: dustAmount,
+            }
+          : p
       )
     );
 
-    // Simulate Anchor instruction execution & CPI to Huma
-    setTimeout(() => {
-      setPrizeHistory((prev) =>
-        prev.map((p) =>
-          p.drawCycleId === drawCycleId ? { ...p, status: "claimed" } : p
-        )
+    // If modal is open and showing this entry, update the modal's selected entry state too
+    if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
+      setSelectedPrizeDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: finalStatus,
+              amountReinvested: finalReinvestedAmount,
+              reinvestedTickets: newTicketsCount,
+              dustAccumulated: dustAmount,
+            }
+          : null
       );
+    }
 
-      const newRedemption: PendingRedemption = {
-        redemptionId: `red-p-${drawCycleId}-${Date.now()}`,
-        amount: prize.amount,
-        status: "settling",
-        requestedAt: new Date().toISOString(),
-        type: "prize_claim",
-      };
-      setPendingRedemptions((prev) => [newRedemption, ...prev]);
+    // Update user tickets (active)
+    if (bondsToBuyInBatch > 0) {
+      setUserTickets((prev) => ({
+        ...prev,
+        activeTicketsCount: prev.activeTicketsCount + bondsToBuyInBatch,
+      }));
+    }
 
-      const newActivity: ActivityEntry = {
-        id: `act-claim-${drawCycleId}-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
-        type: "win",
-        description: `Claimed Draw #${drawCycleId} prize of $${prize.amount / 1_000_000} USDC · Pending Huma settle`,
-        amount: prize.amount,
-      };
-      setActivityFeed((prev) => [newActivity, ...prev]);
-    }, 1000);
+    // Update stateful autoReinvestedTotal
+    setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
+
+    // If final batch, credit any dust to unclaimedWinningsBalance
+    if (isFinalBatch && dustAmount > 0) {
+      setUnclaimedWinningsBalance((prev) => prev + dustAmount);
+    }
+
+    // Add Activity Feed Entry
+    const newActivity: ActivityEntry = {
+      id: `act-crank-${drawCycleId}-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      type: "auto-reinvest",
+      description: isFinalBatch
+        ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
+        : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
+      amount: batchReinvestedAmount,
+    };
+    setActivityFeed((prev) => [newActivity, ...prev]);
   };
 
-  const handleClaimAllPrizes = () => {
-    const unclaimedPrizes = prizeHistory.filter(
-      (p) => p.status === "unclaimed"
-    );
-    if (unclaimedPrizes.length === 0) return;
+  const handleClaimNonReinvestedWinnings = () => {
+    if (unclaimedWinningsBalance === 0) return;
 
-    setPrizeHistory((prev) =>
-      prev.map((p) =>
-        p.status === "unclaimed" ? { ...p, status: "claiming" } : p
-      )
-    );
+    const claimAmount = unclaimedWinningsBalance;
 
-    setTimeout(() => {
-      setPrizeHistory((prev) =>
-        prev.map((p) =>
-          p.status === "claiming" ? { ...p, status: "claimed" } : p
-        )
-      );
+    // Reset the unclaimed dust balance
+    setUnclaimedWinningsBalance(0);
 
-      const newRedemptions: PendingRedemption[] = unclaimedPrizes.map(
-        (prize, idx) => ({
-          redemptionId: `red-p-all-${prize.drawCycleId}-${idx}-${Date.now()}`,
-          amount: prize.amount,
-          status: "settling",
-          requestedAt: new Date().toISOString(),
-          type: "prize_claim",
-        })
-      );
-      setPendingRedemptions((prev) => [...newRedemptions, ...prev]);
+    // Add to pending redemptions as a prize claim settling
+    const newRedemption: PendingRedemption = {
+      redemptionId: `red-dust-claim-${Date.now()}`,
+      amount: claimAmount,
+      status: "settling",
+      requestedAt: new Date().toISOString(),
+      type: "prize_claim",
+    };
+    setPendingRedemptions((prev) => [newRedemption, ...prev]);
 
-      const totalClaimed = unclaimedPrizes.reduce(
-        (sum, p) => sum + p.amount,
-        0
-      );
-      const newActivity: ActivityEntry = {
-        id: `act-claim-all-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
-        type: "win",
-        description: `Claimed ${unclaimedPrizes.length} prizes totaling $${totalClaimed / 1_000_000} USDC · Pending Huma settle`,
-        amount: totalClaimed,
-      };
-      setActivityFeed((prev) => [newActivity, ...prev]);
-    }, 1000);
+    const newActivity: ActivityEntry = {
+      id: `act-claim-dust-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      type: "win",
+      description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, MOCK_POOL.tokenDecimals)} USDC · Pending Huma settle`,
+      amount: claimAmount,
+    };
+    setActivityFeed((prev) => [newActivity, ...prev]);
   };
 
   // Handlers for Pending Redemptions (Claims & Simulator)
@@ -215,12 +262,12 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}
-      {unclaimedAmount > 0 && (
+      {unclaimedWinningsBalance > 0 && (
         <UnclaimedBanner
-          totalUnclaimed={unclaimedAmount}
+          totalUnclaimed={unclaimedWinningsBalance}
           tokenSymbol={MOCK_POOL.tokenSymbol}
           tokenDecimals={MOCK_POOL.tokenDecimals}
-          onClaim={handleClaimAllPrizes}
+          onClaim={handleClaimNonReinvestedWinnings}
         />
       )}
 
@@ -229,8 +276,8 @@ export default function DashboardPage() {
         netWorth={netWorth}
         activeTickets={userTickets.activeTicketsCount}
         pendingTickets={userTickets.pendingTicketsCount}
-        lifetimeWinnings={MOCK_LIFETIME_WINNINGS}
-        autoReinvestedTotal={MOCK_AUTO_REINVESTED_TOTAL}
+        lifetimeWinnings={lifetimeWinnings}
+        autoReinvestedTotal={autoReinvestedTotal}
         tokenSymbol={MOCK_POOL.tokenSymbol}
         tokenDecimals={MOCK_POOL.tokenDecimals}
       />
@@ -309,9 +356,9 @@ export default function DashboardPage() {
         entries={prizeHistory}
         tokenDecimals={MOCK_POOL.tokenDecimals}
         tokenSymbol={MOCK_POOL.tokenSymbol}
-        unclaimedTotal={unclaimedAmount}
-        onClaim={handleClaimAllPrizes}
-        onClaimSinglePrize={handleClaimSinglePrize}
+        unclaimedTotal={unclaimedWinningsBalance}
+        onClaim={handleClaimNonReinvestedWinnings}
+        onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         onViewCompleteLedger={() => setShowCompleteLedger(true)}
       />
@@ -352,7 +399,7 @@ export default function DashboardPage() {
         onClose={() => setSelectedPrizeDetails(null)}
         tokenDecimals={MOCK_POOL.tokenDecimals}
         tokenSymbol={MOCK_POOL.tokenSymbol}
-        onClaimSinglePrize={handleClaimSinglePrize}
+        onSimulateCrank={handleSimulateCrank}
       />
 
       <CompleteLedgerModal
@@ -361,7 +408,7 @@ export default function DashboardPage() {
         onClose={() => setShowCompleteLedger(false)}
         tokenDecimals={MOCK_POOL.tokenDecimals}
         tokenSymbol={MOCK_POOL.tokenSymbol}
-        onClaimSinglePrize={handleClaimSinglePrize}
+        onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
       />
     </div>

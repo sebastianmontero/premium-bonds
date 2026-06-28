@@ -42,10 +42,10 @@ next-env.d.ts
 
 # rust profiling
 **/*.profraw
+anchor/test.profdata
 
 # anchor-specific ignores
 anchor/coverage.profdata
 anchor/scratch/
 anchor/timestamp_before
-
-
+anchor/cargo_test_output.txt

@@ -10,7 +10,7 @@ interface PrizeDetailsModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
-  onClaimSinglePrize: (drawCycleId: number) => void;
+  onSimulateCrank: (drawCycleId: number) => void;
 }
 
 export default function PrizeDetailsModal({
@@ -19,7 +19,7 @@ export default function PrizeDetailsModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
-  onClaimSinglePrize,
+  onSimulateCrank,
 }: PrizeDetailsModalProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
@@ -148,28 +148,22 @@ export default function PrizeDetailsModal({
                 Verification Status
               </p>
               <div className="mt-1">
-                {entry.status === "unclaimed" && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    Unclaimed
-                  </span>
-                )}
-                {entry.status === "claiming" && (
+                {entry.status === "processing" && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Claiming...
+                    Processing
                   </span>
                 )}
-                {entry.status === "auto-reinvested" && (
+                {entry.status === "partial" && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Reinvesting (Partial)
+                  </span>
+                )}
+                {entry.status === "reinvested" && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    Auto-Reinvested
-                  </span>
-                )}
-                {entry.status === "claimed" && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-surface-bright/20 bg-surface-bright/5 px-2.5 py-1 text-xs font-semibold text-on-surface-variant">
-                    <span className="h-1.5 w-1.5 rounded-full bg-on-surface-variant" />
-                    Claimed
+                    Reinvested
                   </span>
                 )}
               </div>
@@ -269,7 +263,7 @@ export default function PrizeDetailsModal({
           )}
 
           {/* Auto-Reinvestment Detail Section */}
-          {entry.status === "auto-reinvested" && entry.reinvestedTickets && (
+          {(entry.status === "reinvested" || entry.status === "partial") && (
             <div className="p-5 rounded-xl border border-emerald-500/10 bg-emerald-500/[0.02] space-y-3">
               <h4 className="text-sm font-semibold text-emerald-300 flex items-center gap-1.5">
                 <svg
@@ -293,7 +287,7 @@ export default function PrizeDetailsModal({
                     Reinvested Tickets
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    +{entry.reinvestedTickets} Tickets
+                    +{entry.reinvestedTickets || 0} Tickets
                   </p>
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
@@ -313,39 +307,37 @@ export default function PrizeDetailsModal({
                   </p>
                 </div>
               </div>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
-                Your reward was automatically compound-reinvested into new
-                active tickets for subsequent draws. Reinvestment transaction
-                verified by on-chain smart contract instructions.
-              </p>
-            </div>
-          )}
-
-          {/* Claim Success Notification */}
-          {entry.status === "claimed" && (
-            <div className="p-4 rounded-xl border border-emerald-500/10 bg-emerald-500/[0.02] text-xs text-emerald-400 flex items-start gap-2.5">
-              <svg
-                className="w-5 h-5 shrink-0 mt-0.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <div>
-                <p className="font-semibold text-emerald-300">
-                  Prize Claim Completed
-                </p>
-                <p className="text-emerald-400/80 mt-0.5">
-                  This reward has been successfully transferred directly to your
-                  connected Solana wallet address.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mt-2">
+                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                  <p className="text-on-surface-variant font-medium">
+                    Amount Reinvested
+                  </p>
+                  <p className="font-mono text-sm font-bold text-primary mt-1">
+                    {formatTokenAmount(
+                      entry.amountReinvested || 0,
+                      tokenDecimals
+                    )}{" "}
+                    {tokenSymbol}
+                  </p>
+                </div>
+                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                  <p className="text-on-surface-variant font-medium">
+                    Leftover Dust Remainder
+                  </p>
+                  <p className="font-mono text-sm font-bold text-primary mt-1">
+                    {formatTokenAmount(
+                      entry.dustAccumulated || 0,
+                      tokenDecimals
+                    )}{" "}
+                    {tokenSymbol}
+                  </p>
+                </div>
               </div>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                {entry.status === "partial"
+                  ? "This win draw is currently being reinvested in batches via permissionless crank on-chain. Progress can be monitored above."
+                  : "Your reward was compound-reinvested into new active tickets. Reinvestment transaction verified by on-chain smart contract instructions, leaving a small dust balance."}
+              </p>
             </div>
           )}
 
@@ -549,47 +541,25 @@ export default function PrizeDetailsModal({
               Close
             </button>
 
-            {entry.status === "unclaimed" && (
+            {(entry.status === "processing" || entry.status === "partial") && (
               <button
-                onClick={() => onClaimSinglePrize(entry.drawCycleId)}
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-surface-container font-semibold text-xs px-5 py-2.5 transition cursor-pointer shadow-[0_4px_14px_rgba(16,185,129,0.3)]"
+                onClick={() => onSimulateCrank(entry.drawCycleId)}
+                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold text-xs px-5 py-2.5 transition cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
               >
                 <svg
-                  className="w-4 h-4"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  viewBox="0 0 24 24"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="animate-spin duration-3000"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                 </svg>
-                Claim Rewards
-              </button>
-            )}
-
-            {entry.status === "claiming" && (
-              <button
-                disabled
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-500/50 text-surface-container/60 font-semibold text-xs px-5 py-2.5 cursor-not-allowed"
-              >
-                <svg
-                  className="w-4 h-4 animate-spin"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"
-                  />
-                </svg>
-                Claiming...
+                Run Crank {entry.status === "partial" && "(Batch)"}
               </button>
             )}
           </div>
