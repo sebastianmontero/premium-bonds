@@ -65,6 +65,52 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
     ((data_len.saturating_sub(REGISTRY_HEADER_SIZE)) / PUBKEY_SIZE) as u32
 }
 
+/// Adds new tickets to the pending region of a TicketRegistry account.
+///
+/// Due to Rust borrow checker and Anchor zero-copy constraints:
+/// - We cannot borrow the parsed struct and the raw account data simultaneously.
+/// - We must split the operation into phase 1 (read/validate), phase 2 (write raw data),
+///   and phase 3 (update header counts).
+pub fn registry_add_tickets<'info>(
+    ticket_registry_loader: &AccountLoader<'info, crate::state::TicketRegistry>,
+    owner: &Pubkey,
+    bonds_to_buy: u32,
+) -> Result<()> {
+    if bonds_to_buy == 0 {
+        return Ok(());
+    }
+
+    let insert_start;
+    // Phase 1: validate capacity (read-only zero-copy borrow)
+    {
+        let registry = ticket_registry_loader.load()?;
+        crate::state::PrizePool::validate_registry_capacity(
+            bonds_to_buy,
+            registry.active_tickets_count,
+            registry.pending_tickets_count,
+            registry.capacity,
+        )?;
+        insert_start = (registry.active_tickets_count + registry.pending_tickets_count) as usize;
+    } // Ref released
+
+    // Phase 2: write ticket bytes FIRST into raw account data
+    {
+        let registry_ai = ticket_registry_loader.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        for i in 0..bonds_to_buy as usize {
+            registry_set_ticket(&mut data, insert_start + i, owner);
+        }
+    } // data borrow released
+
+    // Phase 3: commit the count only after successful byte writes
+    {
+        let mut registry = ticket_registry_loader.load_mut()?;
+        registry.pending_tickets_count += bonds_to_buy;
+    }
+
+    Ok(())
+}
+
 // ─── Swap-and-pop helpers ─────────────────────────────────────────────────────
 //
 // These implement the O(1) registry removal algorithm used by `sell_bonds`.

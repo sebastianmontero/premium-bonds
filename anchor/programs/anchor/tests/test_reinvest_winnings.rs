@@ -488,3 +488,17 @@ fn test_reinvest_using_accumulated_dust() {
     let pool = read_pool(&ctx.svm);
     assert_eq!(pool.total_deposited_principal, 1_000_000);
 }
+
+#[test]
+fn test_reinvest_fails_total_reinvested_overflow() {
+    // Setup pool with 1M bond price, winner owes 1M (from current draw).
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 1_000_000, 0);
+    
+    // Inject u64::MAX total_reinvested in UserWinnings PDA
+    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 0, 0, u64::MAX);
+
+    // Reinvest: total available = 1M (current winnings).
+    // This allows buying 1 bond costing 1M, but updating total_reinvested will overflow (u64::MAX + 1M)
+    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}

@@ -92,6 +92,16 @@ fn inject_pool(
     token_mint: Pubkey,
     status: anchor::PoolStatus,
 ) -> Pubkey {
+    inject_pool_with_next_redemption_id(svm, pool_id, token_mint, status, 0)
+}
+
+fn inject_pool_with_next_redemption_id(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    token_mint: Pubkey,
+    status: anchor::PoolStatus,
+    next_redemption_id: u64,
+) -> Pubkey {
     let (pda, bump) = pool_pda(pool_id);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
@@ -107,7 +117,7 @@ fn inject_pool(
         total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
-        next_redemption_id: 0,
+        next_redemption_id,
         current_cycle_end_at: 0,
         is_frozen_for_draw: false,
         current_draw_cycle_id: 0,
@@ -170,10 +180,19 @@ fn build_claim_ix(
     pool_id: u32,
     pst_mint: Pubkey,
 ) -> Instruction {
+    build_claim_ix_with_redemption_id(user, pool_id, pst_mint, 0)
+}
+
+fn build_claim_ix_with_redemption_id(
+    user: Pubkey,
+    pool_id: u32,
+    pst_mint: Pubkey,
+    redemption_id: u64,
+) -> Instruction {
     let (pool, _) = pool_pda(pool_id);
     let (user_winnings, _) = user_winnings_pda(pool_id, &user);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0); // next_redemption_id=0
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
     let dummy = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
@@ -250,10 +269,19 @@ fn send_claim(
     ctx: &mut ClaimCtx,
     pool_id: u32,
 ) -> Result<(), String> {
-    let ix = build_claim_ix(
+    send_claim_with_redemption_id(ctx, pool_id, 0)
+}
+
+fn send_claim_with_redemption_id(
+    ctx: &mut ClaimCtx,
+    pool_id: u32,
+    redemption_id: u64,
+) -> Result<(), String> {
+    let ix = build_claim_ix_with_redemption_id(
         ctx.user.pubkey(),
         pool_id,
         ctx.pst_mint,
+        redemption_id,
     );
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
@@ -281,4 +309,22 @@ fn test_claim_fails_pool_not_active() {
     let err = send_claim(&mut ctx, 1).unwrap_err();
     // Pool status check: `seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` doesn't enforce active status itself unless explicitly validated or during CPI.
     // Wait, let's see if ClaimNonReinvestedWinnings validates pool status. No, ClaimNonReinvestedWinnings doesn't have an explicit require!(pool.status == PoolStatus::Active) check, but Huma redemption itself might depend on pool state or just require it. Let's see if there is any other error check we can perform.
+}
+
+#[test]
+fn test_claim_fails_total_claimed_overflow() {
+    let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
+    // Reinject user winnings with total_claimed = u64::MAX
+    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 100, u64::MAX, 0);
+    let err = send_claim(&mut ctx, 1).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_claim_fails_next_redemption_id_overflow() {
+    let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
+    // Reinject pool with next_redemption_id = u64::MAX
+    inject_pool_with_next_redemption_id(&mut ctx.svm, 1, ctx.token_mint, anchor::PoolStatus::Active, u64::MAX);
+    let err = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
 }

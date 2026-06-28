@@ -1,7 +1,7 @@
 use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserWinnings};
-use crate::utils::registry_set_ticket;
+
 use anchor_lang::prelude::*;
 
 /// Synchronous, accounting-only reinvest.
@@ -147,32 +147,12 @@ pub fn handle(
             .checked_add(cost)
             .ok_or(PremiumBondsError::MathOverflow)?;
 
-        // Register new tickets (same 3-phase logic as buy_bonds)
-        let insert_start;
-        {
-            let registry = ctx.accounts.ticket_registry.load()?;
-            let current_total = registry.active_tickets_count + registry.pending_tickets_count;
-            require!(
-                current_total + bonds_to_buy <= registry.capacity,
-                PremiumBondsError::RegistryFull
-            );
-            insert_start =
-                (registry.active_tickets_count + registry.pending_tickets_count) as usize;
-        }
-
-        {
-            let registry_ai = ctx.accounts.ticket_registry.to_account_info();
-            let mut data = registry_ai.try_borrow_mut_data()?;
-            let winner_key = ctx.accounts.winner.key();
-            for i in 0..bonds_to_buy as usize {
-                registry_set_ticket(&mut data, insert_start + i, &winner_key);
-            }
-        }
-
-        {
-            let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-            registry.pending_tickets_count += bonds_to_buy;
-        }
+        // Register new tickets
+        crate::utils::registry_add_tickets(
+            &ctx.accounts.ticket_registry,
+            &ctx.accounts.winner.key(),
+            bonds_to_buy,
+        )?;
     }
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────

@@ -1,7 +1,7 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::huma;
 use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
-use crate::utils::registry_set_ticket;
+
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
@@ -151,34 +151,12 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         user_winnings.bump = ctx.bumps.user_winnings;
     }
 
-    // Phase 1: validate capacity (read-only zero-copy borrow)
-    let insert_start;
-    {
-        let registry = ctx.accounts.ticket_registry.load()?;
-        PrizePool::validate_registry_capacity(
-            bonds_to_buy,
-            registry.active_tickets_count,
-            registry.pending_tickets_count,
-            registry.capacity,
-        )?;
-        insert_start = (registry.active_tickets_count + registry.pending_tickets_count) as usize;
-    } // Ref released
-
-    {
-        // Phase 2: write ticket bytes FIRST into raw account data
-        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
-        let mut data = registry_ai.try_borrow_mut_data()?;
-        let user_key = ctx.accounts.user.key();
-        for i in 0..bonds_to_buy as usize {
-            registry_set_ticket(&mut data, insert_start + i, &user_key);
-        }
-    } // data borrow released
-
-    {
-        // Phase 3: commit the count only after successful byte writes
-        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-        registry.pending_tickets_count += bonds_to_buy;
-    }
+    // Register new tickets
+    crate::utils::registry_add_tickets(
+        &ctx.accounts.ticket_registry,
+        &ctx.accounts.user.key(),
+        bonds_to_buy,
+    )?;
 
     Ok(())
 }
