@@ -37,6 +37,9 @@ export default function DashboardPage() {
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
+  const [crankingCycles, setCrankingCycles] = useState<Record<number, boolean>>(
+    {}
+  );
 
   // Stateful tracking for user holdings and activity
   const [userTickets, setUserTickets] = useState(MOCK_USER_TICKETS);
@@ -108,102 +111,115 @@ export default function DashboardPage() {
   };
 
   // Handlers for Prize Crank Reinvestment & Dust Claiming
-  const handleSimulateCrank = (drawCycleId: number) => {
+  const handleSimulateCrank = async (drawCycleId: number) => {
     const entry = prizeHistory.find((p) => p.drawCycleId === drawCycleId);
     if (!entry) return;
     if (entry.status === "reinvested") return;
+    if (crankingCycles[drawCycleId]) return;
 
-    const BOND_PRICE = MOCK_POOL.bondPrice; // 5 USDC in base units = 5_000_000
-    const MAX_BONDS = 5;
+    // Set status to cranking
+    setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: true }));
 
-    // Current amount already reinvested
-    const currentReinvested = entry.amountReinvested || 0;
-    // Winnings amount remaining to be processed
-    const remainingWinnings = entry.amount - currentReinvested;
+    // Simulate a realistic 1.5-second transaction processing delay
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    if (remainingWinnings <= 0) return;
+    try {
+      const BOND_PRICE = MOCK_POOL.bondPrice; // 5 USDC in base units = 5_000_000
+      const MAX_BONDS = 5;
 
-    // How many bonds can we purchase in this batch?
-    // Capped by MAX_BONDS and by remainingWinnings / BOND_PRICE
-    const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
-    const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
+      // Current amount already reinvested
+      const currentReinvested = entry.amountReinvested || 0;
+      // Winnings amount remaining to be processed
+      const remainingWinnings = entry.amount - currentReinvested;
 
-    const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
-    const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
-    const newTicketsCount = (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
+      if (remainingWinnings <= 0) return;
 
-    // Remaining after this batch
-    const postBatchRemaining = entry.amount - newReinvestedAmount;
+      // How many bonds can we purchase in this batch?
+      // Capped by MAX_BONDS and by remainingWinnings / BOND_PRICE
+      const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
+      const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
 
-    // Is this the final batch?
-    const isFinalBatch = postBatchRemaining < BOND_PRICE;
+      const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
+      const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
+      const newTicketsCount =
+        (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
 
-    let finalStatus: PrizeStatus = "partial";
-    let dustAmount = 0;
-    const finalReinvestedAmount = newReinvestedAmount;
+      // Remaining after this batch
+      const postBatchRemaining = entry.amount - newReinvestedAmount;
 
-    if (isFinalBatch) {
-      finalStatus = "reinvested";
-      dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
-    }
+      // Is this the final batch?
+      const isFinalBatch = postBatchRemaining < BOND_PRICE;
 
-    // Update Prize History
-    setPrizeHistory((prev) =>
-      prev.map((p) =>
-        p.drawCycleId === drawCycleId
-          ? {
-              ...p,
-              status: finalStatus,
-              amountReinvested: finalReinvestedAmount,
-              reinvestedTickets: newTicketsCount,
-              dustAccumulated: dustAmount,
-            }
-          : p
-      )
-    );
+      let finalStatus: PrizeStatus = "partial";
+      let dustAmount = 0;
+      const finalReinvestedAmount = newReinvestedAmount;
 
-    // If modal is open and showing this entry, update the modal's selected entry state too
-    if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
-      setSelectedPrizeDetails((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: finalStatus,
-              amountReinvested: finalReinvestedAmount,
-              reinvestedTickets: newTicketsCount,
-              dustAccumulated: dustAmount,
-            }
-          : null
+      if (isFinalBatch) {
+        finalStatus = "reinvested";
+        dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
+      }
+
+      // Update Prize History
+      setPrizeHistory((prev) =>
+        prev.map((p) =>
+          p.drawCycleId === drawCycleId
+            ? {
+                ...p,
+                status: finalStatus,
+                amountReinvested: finalReinvestedAmount,
+                reinvestedTickets: newTicketsCount,
+                dustAccumulated: dustAmount,
+              }
+            : p
+        )
       );
+
+      // If modal is open and showing this entry, update the modal's selected entry state too
+      if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
+        setSelectedPrizeDetails((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: finalStatus,
+                amountReinvested: finalReinvestedAmount,
+                reinvestedTickets: newTicketsCount,
+                dustAccumulated: dustAmount,
+              }
+            : null
+        );
+      }
+
+      // Update user tickets (active)
+      if (bondsToBuyInBatch > 0) {
+        setUserTickets((prev) => ({
+          ...prev,
+          activeTicketsCount: prev.activeTicketsCount + bondsToBuyInBatch,
+        }));
+      }
+
+      // Update stateful autoReinvestedTotal
+      setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
+
+      // If final batch, credit any dust to unclaimedWinningsBalance
+      if (isFinalBatch && dustAmount > 0) {
+        setUnclaimedWinningsBalance((prev) => prev + dustAmount);
+      }
+
+      // Add Activity Feed Entry
+      const newActivity: ActivityEntry = {
+        id: `act-crank-${drawCycleId}-${Date.now()}`,
+        date: new Date().toISOString().split("T")[0],
+        type: "auto-reinvest",
+        description: isFinalBatch
+          ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
+          : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
+        amount: batchReinvestedAmount,
+      };
+      setActivityFeed((prev) => [newActivity, ...prev]);
+    } finally {
+      // Clear cranking status
+      setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: false }));
     }
-
-    // Update user tickets (active)
-    if (bondsToBuyInBatch > 0) {
-      setUserTickets((prev) => ({
-        ...prev,
-        activeTicketsCount: prev.activeTicketsCount + bondsToBuyInBatch,
-      }));
-    }
-
-    // Update stateful autoReinvestedTotal
-    setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
-
-    // If final batch, credit any dust to unclaimedWinningsBalance
-    if (isFinalBatch && dustAmount > 0) {
-      setUnclaimedWinningsBalance((prev) => prev + dustAmount);
-    }
-
-    // Add Activity Feed Entry
-    const newActivity: ActivityEntry = {
-      id: `act-crank-${drawCycleId}-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      type: "auto-reinvest",
-      description: isFinalBatch
-        ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
-        : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
-      amount: batchReinvestedAmount,
-    };
-    setActivityFeed((prev) => [newActivity, ...prev]);
   };
 
   const handleClaimNonReinvestedWinnings = () => {
@@ -361,6 +377,7 @@ export default function DashboardPage() {
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         onViewCompleteLedger={() => setShowCompleteLedger(true)}
+        crankingCycles={crankingCycles}
       />
 
       {/* ── Recent Winners ─────────────────────────────────────────── */}
@@ -400,6 +417,7 @@ export default function DashboardPage() {
         tokenDecimals={MOCK_POOL.tokenDecimals}
         tokenSymbol={MOCK_POOL.tokenSymbol}
         onSimulateCrank={handleSimulateCrank}
+        crankingCycles={crankingCycles}
       />
 
       <CompleteLedgerModal
@@ -410,6 +428,7 @@ export default function DashboardPage() {
         tokenSymbol={MOCK_POOL.tokenSymbol}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
+        crankingCycles={crankingCycles}
       />
     </div>
   );

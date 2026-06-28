@@ -196,11 +196,11 @@ export function tierColor(tierIndex: number): string {
 export function tierBadgeClass(tierIndex: number): string {
   switch (tierIndex) {
     case 0:
-      return "pill pill-warning"; // amber/gold
+      return "inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-300 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.15)]";
     case 1:
-      return "pill pill-info"; // purple/primary
+      return "inline-flex items-center gap-1 border border-secondary/30 bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary rounded-full";
     default:
-      return "pill pill-amber"; // teal-ish consolation
+      return "inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant px-2.5 py-0.5 text-xs font-medium text-on-surface-variant rounded-full";
   }
 }
 

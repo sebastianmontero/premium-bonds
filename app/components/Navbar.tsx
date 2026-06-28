@@ -3,6 +3,7 @@
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useWalletConnection } from "@solana/react-hooks";
 
 const NAV_LINKS = [
   { label: "Features", href: "#features" },
@@ -11,6 +12,7 @@ const NAV_LINKS = [
 ];
 
 export function Navbar() {
+  const { status } = useWalletConnection();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -63,7 +65,17 @@ export function Navbar() {
         </div>
 
         {/* CTA */}
-        <ConnectWalletButton />
+        <div className="flex items-center gap-4">
+          {status === "connected" && (
+            <Link
+              href="/dashboard"
+              className="btn-ghost rounded-xl px-4 py-2.5 text-sm font-medium transition cursor-pointer"
+            >
+              Dashboard
+            </Link>
+          )}
+          <ConnectWalletButton />
+        </div>
       </div>
     </nav>
   );

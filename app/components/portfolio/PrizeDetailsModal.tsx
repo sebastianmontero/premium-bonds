@@ -11,6 +11,7 @@ interface PrizeDetailsModalProps {
   tokenDecimals: number;
   tokenSymbol: string;
   onSimulateCrank: (drawCycleId: number) => void;
+  crankingCycles?: Record<number, boolean>;
 }
 
 export default function PrizeDetailsModal({
@@ -20,6 +21,7 @@ export default function PrizeDetailsModal({
   tokenDecimals,
   tokenSymbol,
   onSimulateCrank,
+  crankingCycles = {},
 }: PrizeDetailsModalProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
@@ -148,23 +150,32 @@ export default function PrizeDetailsModal({
                 Verification Status
               </p>
               <div className="mt-1">
-                {entry.status === "processing" && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Processing
+                {crankingCycles[entry.drawCycleId] ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 animate-pulse">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
+                    Cranking...
                   </span>
-                )}
-                {entry.status === "partial" && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Reinvesting (Partial)
-                  </span>
-                )}
-                {entry.status === "reinvested" && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    Reinvested
-                  </span>
+                ) : (
+                  <>
+                    {entry.status === "processing" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Processing
+                      </span>
+                    )}
+                    {entry.status === "partial" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Reinvesting (Partial)
+                      </span>
+                    )}
+                    {entry.status === "reinvested" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Reinvested
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -543,8 +554,13 @@ export default function PrizeDetailsModal({
 
             {(entry.status === "processing" || entry.status === "partial") && (
               <button
+                disabled={!!crankingCycles[entry.drawCycleId]}
                 onClick={() => onSimulateCrank(entry.drawCycleId)}
-                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-semibold text-xs px-5 py-2.5 transition cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
+                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
+                  crankingCycles[entry.drawCycleId]
+                    ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                    : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
+                }`}
               >
                 <svg
                   width="16"
@@ -555,11 +571,17 @@ export default function PrizeDetailsModal({
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="animate-spin duration-3000"
+                  className={`animate-spin ${
+                    crankingCycles[entry.drawCycleId]
+                      ? "duration-1000 text-on-surface-variant/40"
+                      : "duration-3000"
+                  }`}
                 >
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                 </svg>
-                Run Crank {entry.status === "partial" && "(Batch)"}
+                {crankingCycles[entry.drawCycleId]
+                  ? "Cranking..."
+                  : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
               </button>
             )}
           </div>

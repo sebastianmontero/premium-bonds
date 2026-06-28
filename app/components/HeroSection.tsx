@@ -1,4 +1,11 @@
+"use client";
+
+import { useWalletConnection } from "@solana/react-hooks";
+import Link from "next/link";
+
 export function HeroSection() {
+  const { status } = useWalletConnection();
+
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 pt-24 pb-16 text-center">
       {/* Atmospheric background glows */}
@@ -32,18 +39,37 @@ export function HeroSection() {
 
         {/* CTAs */}
         <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
-          <a
-            href="#how-it-works"
-            className="btn-gradient rounded-xl px-8 py-3.5 text-base"
-          >
-            Start Saving
-          </a>
-          <a
-            href="#features"
-            className="btn-ghost rounded-xl px-8 py-3.5 text-base"
-          >
-            Learn More
-          </a>
+          {status === "connected" ? (
+            <>
+              <Link
+                href="/dashboard"
+                className="btn-gradient rounded-xl px-8 py-3.5 text-base"
+              >
+                Go to Dashboard
+              </Link>
+              <a
+                href="#how-it-works"
+                className="btn-ghost rounded-xl px-8 py-3.5 text-base"
+              >
+                How It Works
+              </a>
+            </>
+          ) : (
+            <>
+              <a
+                href="#how-it-works"
+                className="btn-gradient rounded-xl px-8 py-3.5 text-base"
+              >
+                Start Saving
+              </a>
+              <a
+                href="#features"
+                className="btn-ghost rounded-xl px-8 py-3.5 text-base"
+              >
+                Learn More
+              </a>
+            </>
+          )}
         </div>
 
         {/* Social proof / protocol stats teaser */}
