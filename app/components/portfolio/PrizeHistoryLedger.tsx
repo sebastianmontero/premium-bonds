@@ -10,6 +10,8 @@ interface PrizeHistoryLedgerProps {
   unclaimedTotal: number;
   onClaim: () => void;
   onClaimSinglePrize: (drawCycleId: number) => void;
+  onViewDetails?: (entry: PrizeHistoryEntry) => void;
+  onViewCompleteLedger?: () => void;
 }
 
 function statusPill(status: PrizeHistoryEntry["status"]) {
@@ -61,6 +63,8 @@ export function PrizeHistoryLedger({
   unclaimedTotal,
   onClaim,
   onClaimSinglePrize,
+  onViewDetails,
+  onViewCompleteLedger,
 }: PrizeHistoryLedgerProps) {
   return (
     <div className="glass-strong rounded-2xl p-6 space-y-5">
@@ -85,88 +89,101 @@ export function PrizeHistoryLedger({
         )}
       </div>
 
-      {/* ── Table ─────────────────────────────────────────────────────── */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b border-outline-variant/10">
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Draw
-              </th>
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Date
-              </th>
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Tier
-              </th>
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant text-right">
-                Amount
-              </th>
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Status
-              </th>
-              <th className="pb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant text-right">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-outline-variant/5">
-            {entries.map((entry) => (
-              <tr key={entry.drawCycleId} className="group">
-                <td className="py-4 font-mono text-sm font-semibold text-on-surface">
-                  #{entry.drawCycleId}
-                </td>
-                <td className="py-4 text-sm text-on-surface-variant">
+      {/* ── Ledger Cards ─────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        {entries.map((entry) => (
+          <div
+            key={entry.drawCycleId}
+            className="flex flex-col md:grid md:grid-cols-[150px_120px_130px_220px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-surface-bright/10 hover:bg-surface-container/50 hover:shadow-ambient transition-all duration-300"
+          >
+            {/* Draw ID & Date */}
+            <div className="flex items-center gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-mono text-sm font-bold">
+                #{entry.drawCycleId}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+                  Draw Cycle
+                </p>
+                <p
+                  className="text-xs text-on-surface font-semibold mt-0.5"
+                  suppressHydrationWarning
+                >
                   {formatDate(entry.date)}
-                </td>
-                <td className="py-4">
-                  <span className={tierBadgeClass(entry.tierIndex)}>
-                    {tierLabel(entry.tierIndex)}
+                </p>
+              </div>
+            </div>
+
+            {/* Tier Badge */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+                Tier
+              </p>
+              <div className="mt-0.5">
+                <span className={tierBadgeClass(entry.tierIndex)}>
+                  {tierLabel(entry.tierIndex)}
+                </span>
+              </div>
+            </div>
+
+            {/* Amount */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+                Amount Won
+              </p>
+              <p className="font-mono text-sm font-semibold text-on-surface mt-0.5">
+                {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
+              </p>
+            </div>
+
+            {/* Status */}
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+                Status
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {statusPill(entry.status)}
+                {entry.reinvestedTickets && (
+                  <span className="text-xs text-tertiary font-medium">
+                    (+{entry.reinvestedTickets} tkt)
                   </span>
-                </td>
-                <td className="py-4 text-right font-mono text-sm font-semibold text-on-surface">
-                  {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
-                </td>
-                <td className="py-4">
-                  <div className="flex items-center gap-2">
-                    {statusPill(entry.status)}
-                    {entry.reinvestedTickets && (
-                      <span className="text-xs text-tertiary font-medium">
-                        (+{entry.reinvestedTickets})
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="py-4 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    {entry.status === "unclaimed" && (
-                      <button
-                        onClick={() => onClaimSinglePrize(entry.drawCycleId)}
-                        className="rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-white px-2.5 py-1 text-xs font-semibold transition cursor-pointer border border-emerald-500/30 shadow-sm"
-                      >
-                        Claim
-                      </button>
-                    )}
-                    {entry.status === "claiming" && (
-                      <span className="inline-flex items-center text-xs text-on-surface-variant font-medium">
-                        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        Claiming...
-                      </span>
-                    )}
-                    <button className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer">
-                      Details
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-start gap-3 md:border-l md:border-surface-bright/5 md:pl-6 w-full">
+              {entry.status === "unclaimed" && (
+                <button
+                  onClick={() => onClaimSinglePrize(entry.drawCycleId)}
+                  className="rounded-lg bg-emerald-500 hover:bg-emerald-400 text-surface-container px-3.5 py-1.5 text-xs font-bold transition cursor-pointer shadow-[0_2px_8px_rgba(16,185,129,0.25)]"
+                >
+                  Claim
+                </button>
+              )}
+              {entry.status === "claiming" && (
+                <span className="inline-flex items-center text-xs text-on-surface-variant font-medium py-1.5">
+                  <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Claiming...
+                </span>
+              )}
+              <button
+                onClick={() => onViewDetails?.(entry)}
+                className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer px-2 py-1.5"
+              >
+                Details
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ── View All ──────────────────────────────────────────────────── */}
       <div className="text-center pt-2">
-        <button className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer">
+        <button
+          onClick={onViewCompleteLedger}
+          className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer"
+        >
           View Complete Ledger →
         </button>
       </div>

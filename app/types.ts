@@ -74,6 +74,10 @@ export interface PrizeHistoryEntry {
   amount: number; // base units
   status: PrizeStatus;
   reinvestedTickets?: number; // present when status is "auto-reinvested"
+  winningTicket?: string;
+  userTicketRange?: { start: number; end: number };
+  vrfSeed?: string;
+  txSignature?: string;
 }
 
 export type ActivityType =

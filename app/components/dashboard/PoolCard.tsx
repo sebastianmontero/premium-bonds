@@ -22,7 +22,7 @@ export function PoolCard({
 
   return (
     <div
-      className={`glass-strong rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay" : ""}`}
+      className={`glass-strong relative overflow-hidden rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay" : ""}`}
     >
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -125,7 +125,7 @@ export function PoolCard({
       </div>
 
       {/* ── Actions ──────────────────────────────────────────────────── */}
-      <div className="flex gap-3 relative z-10">
+      <div className="flex gap-3 relative z-0">
         <button
           onClick={onDeposit}
           disabled={isFrozen}
@@ -144,8 +144,8 @@ export function PoolCard({
 
       {/* ── Frozen Message ───────────────────────────────────────────── */}
       {isFrozen && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl">
-          <div className="flex items-center gap-2 rounded-xl bg-surface-container-high/90 px-5 py-3 shadow-ambient">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-2xl pointer-events-auto">
+          <div className="flex items-center gap-2 rounded-xl bg-surface-container-high/95 px-5 py-3 shadow-ambient border border-primary/25">
             <svg
               width="18"
               height="18"

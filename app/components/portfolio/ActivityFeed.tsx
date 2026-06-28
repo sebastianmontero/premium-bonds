@@ -11,13 +11,13 @@ function dotColor(type: ActivityType): string {
     case "deposit":
       return "border-primary";
     case "win":
-      return "border-amber-400";
+      return "border-secondary";
     case "auto-reinvest":
       return "border-tertiary";
     case "withdraw":
-      return "border-on-surface-variant";
+      return "border-error";
     case "claim-redemption":
-      return "border-emerald-400";
+      return "border-primary-dim";
   }
 }
 
@@ -50,7 +50,7 @@ function typeIcon(type: ActivityType) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-amber-400"
+          className="text-secondary"
         >
           <circle cx="12" cy="8" r="7" />
           <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
@@ -84,7 +84,7 @@ function typeIcon(type: ActivityType) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-on-surface-variant"
+          className="text-error"
         >
           <path d="M12 19V5M5 12l7-7 7 7" />
         </svg>
@@ -100,7 +100,7 @@ function typeIcon(type: ActivityType) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-emerald-400"
+          className="text-primary-dim"
         >
           <polyline points="20 6 9 17 4 12" />
         </svg>
@@ -126,7 +126,10 @@ export function ActivityFeed({ entries }: ActivityFeedProps) {
             <div className="flex items-start gap-2">
               {typeIcon(entry.type)}
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-on-surface-variant">
+                <p
+                  className="text-xs font-medium text-on-surface-variant"
+                  suppressHydrationWarning
+                >
                   {formatFeedDate(entry.date)}
                 </p>
                 <p className="text-sm text-on-surface mt-0.5 leading-relaxed">

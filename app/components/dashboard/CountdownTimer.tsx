@@ -27,16 +27,50 @@ function calcTimeLeft(target: number): TimeLeft {
 }
 
 export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
-  const [timeLeft, setTimeLeft] = useState<TimeLeft>(
-    calcTimeLeft(targetTimestamp)
-  );
+  const [isMounted, setIsMounted] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<TimeLeft>({
+    days: 0,
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+    total: 999999, // default to a safe positive number to match the default layout
+  });
 
   useEffect(() => {
+    let active = true;
+    const frame = requestAnimationFrame(() => {
+      if (active) {
+        setIsMounted(true);
+        setTimeLeft(calcTimeLeft(targetTimestamp));
+      }
+    });
+
     const id = setInterval(() => {
-      setTimeLeft(calcTimeLeft(targetTimestamp));
+      if (active) {
+        setTimeLeft(calcTimeLeft(targetTimestamp));
+      }
     }, 1000);
-    return () => clearInterval(id);
+
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame);
+      clearInterval(id);
+    };
   }, [targetTimestamp]);
+
+  if (!isMounted) {
+    return (
+      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50">
+        <TimeUnit value={0} label="d" />
+        <span className="text-on-surface-variant/50">:</span>
+        <TimeUnit value={0} label="h" />
+        <span className="text-on-surface-variant/50">:</span>
+        <TimeUnit value={0} label="m" />
+        <span className="text-on-surface-variant/50">:</span>
+        <TimeUnit value={0} label="s" />
+      </div>
+    );
+  }
 
   if (timeLeft.total <= 0) {
     return (

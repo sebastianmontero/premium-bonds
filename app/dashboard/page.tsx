@@ -10,6 +10,8 @@ import { PendingRedemptionsList } from "@/app/components/portfolio/PendingRedemp
 import { RecentWinnersTicker } from "@/app/components/dashboard/RecentWinnersTicker";
 import { DepositModal } from "@/app/components/dashboard/DepositModal";
 import { WithdrawModal } from "@/app/components/dashboard/WithdrawModal";
+import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
+import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
 import {
   MOCK_POOL,
   MOCK_USER_TICKETS,
@@ -30,6 +32,9 @@ import type {
 export default function DashboardPage() {
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [selectedPrizeDetails, setSelectedPrizeDetails] =
+    useState<PrizeHistoryEntry | null>(null);
+  const [showCompleteLedger, setShowCompleteLedger] = useState(false);
 
   // Stateful tracking for user holdings and activity
   const [userTickets, setUserTickets] = useState(MOCK_USER_TICKETS);
@@ -307,6 +312,8 @@ export default function DashboardPage() {
         unclaimedTotal={unclaimedAmount}
         onClaim={handleClaimAllPrizes}
         onClaimSinglePrize={handleClaimSinglePrize}
+        onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
+        onViewCompleteLedger={() => setShowCompleteLedger(true)}
       />
 
       {/* ── Recent Winners ─────────────────────────────────────────── */}
@@ -333,6 +340,30 @@ export default function DashboardPage() {
           onWithdrawSuccess={handleWithdrawSuccess}
         />
       )}
+
+      <PrizeDetailsModal
+        key={
+          selectedPrizeDetails
+            ? `prize-details-${selectedPrizeDetails.drawCycleId}`
+            : "prize-details-none"
+        }
+        entry={selectedPrizeDetails}
+        isOpen={selectedPrizeDetails !== null}
+        onClose={() => setSelectedPrizeDetails(null)}
+        tokenDecimals={MOCK_POOL.tokenDecimals}
+        tokenSymbol={MOCK_POOL.tokenSymbol}
+        onClaimSinglePrize={handleClaimSinglePrize}
+      />
+
+      <CompleteLedgerModal
+        entries={prizeHistory}
+        isOpen={showCompleteLedger}
+        onClose={() => setShowCompleteLedger(false)}
+        tokenDecimals={MOCK_POOL.tokenDecimals}
+        tokenSymbol={MOCK_POOL.tokenSymbol}
+        onClaimSinglePrize={handleClaimSinglePrize}
+        onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
+      />
     </div>
   );
 }

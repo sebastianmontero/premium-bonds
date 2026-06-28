@@ -63,14 +63,14 @@ export const INITIAL_PENDING_REDEMPTIONS: PendingRedemption[] = [
     redemptionId: "red-mock-1",
     amount: usdc(50),
     status: "settling",
-    requestedAt: new Date(Date.now() - 3600 * 1000).toISOString(), // 1 hr ago
+    requestedAt: "2026-06-27T15:03:00.000Z", // Static time representation
     type: "bond_sale",
   },
   {
     redemptionId: "red-mock-2",
     amount: usdc(85),
     status: "ready",
-    requestedAt: new Date(Date.now() - 600 * 1000).toISOString(), // 10 mins ago
+    requestedAt: "2026-06-27T15:53:00.000Z", // Static time representation
     type: "prize_claim",
   },
 ];
@@ -218,6 +218,12 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     tierIndex: 2,
     amount: usdc(85),
     status: "unclaimed",
+    winningTicket: "154289",
+    userTicketRange: { start: 154200, end: 154450 },
+    vrfSeed:
+      "0x8f2d59ae7a5e8e3d0c2dbb5514f738ac2d19f8e3c12f4581aaefb0f20d5a3721",
+    txSignature:
+      "5bV9k8Pz7R2t1qJyXs8hM3nKa4Lp7dGf2s9e5w4x3c2v1b0n9m8a7s6d5f4g3h2j",
   },
   {
     drawCycleId: 38,
@@ -226,6 +232,12 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     amount: usdc(85),
     status: "auto-reinvested",
     reinvestedTickets: 17,
+    winningTicket: "098231",
+    userTicketRange: { start: 98150, end: 98400 },
+    vrfSeed:
+      "0x3e21ab74d9e03f568a2d12f38c4ab798625df3890ce7cd842ebfae812d4a1b02",
+    txSignature:
+      "3tZ6X4yW8K9mNpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMn",
   },
   {
     drawCycleId: 35,
@@ -233,6 +245,77 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     tierIndex: 2,
     amount: usdc(42),
     status: "claimed",
+    winningTicket: "042912",
+    userTicketRange: { start: 42800, end: 43050 },
+    vrfSeed:
+      "0xfa729e81b2c4d79a2ebdf01235de98214fa3bc876e9a8f4cde231bf584e03d79",
+    txSignature:
+      "2vR4w5qY9L8pHsDtFyGuJiKoLzMxNzPxQxRxSxTxUxVxWxXxYxZxAxBxCxDxExFx",
+  },
+  {
+    drawCycleId: 32,
+    date: "2024-03-28",
+    tierIndex: 2,
+    amount: usdc(25),
+    status: "claimed",
+    winningTicket: "019482",
+    userTicketRange: { start: 19400, end: 19650 },
+    vrfSeed:
+      "0xbc892ea0124f5a381de0f9b6e82c578abef9a12cd0294e7b8f9aef1c2b5e670d",
+    txSignature:
+      "4aP8z9qK5W7mLxNtByCuViKoLzPxQxRxSxTxUxVxWxXxYxZxAxBxCxDxExFxGxHx",
+  },
+  {
+    drawCycleId: 29,
+    date: "2024-03-21",
+    tierIndex: 0,
+    amount: usdc(1500),
+    status: "claimed",
+    winningTicket: "005391",
+    userTicketRange: { start: 5300, end: 5550 },
+    vrfSeed:
+      "0x12a9e3d82f5b4c7f9ea0e81c72f5d027e8a9d1cd20e8b7c3d4fba7c125aefb98",
+    txSignature:
+      "9zL8x7kP2R4wJtQyXs8hM3nKa4Lp7dGf2s9e5w4x3c2v1b0n9m8a7s6d5f4g3h2j",
+  },
+  {
+    drawCycleId: 26,
+    date: "2024-03-14",
+    tierIndex: 2,
+    amount: usdc(18),
+    status: "claimed",
+    winningTicket: "001289",
+    userTicketRange: { start: 1200, end: 1450 },
+    vrfSeed:
+      "0x78a1bc2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+    txSignature:
+      "6yT4r3eW2Q5nMbQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMn",
+  },
+  {
+    drawCycleId: 23,
+    date: "2024-03-07",
+    tierIndex: 2,
+    amount: usdc(22),
+    status: "claimed",
+    winningTicket: "000542",
+    userTicketRange: { start: 400, end: 650 },
+    vrfSeed:
+      "0x89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
+    txSignature:
+      "7uI8o9pL0K2mNxDtFyGuJiKoLzMxNzPxQxRxSxTxUxVxWxXxYxZxAxBxCxDxExFx",
+  },
+  {
+    drawCycleId: 20,
+    date: "2024-02-29",
+    tierIndex: 1,
+    amount: usdc(120),
+    status: "claimed",
+    winningTicket: "000210",
+    userTicketRange: { start: 100, end: 350 },
+    vrfSeed:
+      "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    txSignature:
+      "8iO9p0lK1J3bVcQyXs8hM3nKa4Lp7dGf2s9e5w4x3c2v1b0n9m8a7s6d5f4g3h2j",
   },
 ];
 

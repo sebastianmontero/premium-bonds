@@ -109,11 +109,11 @@ export function PendingRedemptionsList({
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-on-surface-variant/10">
+          <div className="space-y-3">
             {redemptions.map((item) => (
               <div
                 key={item.redemptionId}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-surface-bright/10 hover:bg-surface-container/50 hover:shadow-ambient transition-all duration-300"
               >
                 <div className="flex items-center gap-3">
                   {getIcon(item.type)}
@@ -136,7 +136,10 @@ export function PendingRedemptionsList({
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-on-surface-variant mt-0.5">
+                    <p
+                      className="text-[11px] text-on-surface-variant mt-0.5"
+                      suppressHydrationWarning
+                    >
                       Requested {formatRequestedDate(item.requestedAt)}
                     </p>
                   </div>
