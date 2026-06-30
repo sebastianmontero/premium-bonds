@@ -22,6 +22,8 @@ pub struct PendingRedemption {
     pub pst_shares_locked: u64,
     /// Unix timestamp when the redemption was requested.
     pub requested_at: i64,
+    /// The corresponding Huma request ID in the pool redemption queue.
+    pub huma_request_id: u128,
     /// PDA bump seed.
     pub bump: u8,
 }

@@ -71,6 +71,7 @@ fn inject_pending_redemption(
         amount,
         pst_shares_locked,
         requested_at: 0,
+        huma_request_id: 0,
         bump,
     };
     let mut data = vec![];

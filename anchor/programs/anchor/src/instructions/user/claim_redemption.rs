@@ -97,9 +97,6 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
-    // Record vault balance before disburse
-    let balance_before = ctx.accounts.pool_vault_account.amount;
-
     // CPI → Huma disburse: pull settled USDC into pool vault
     huma::disburse(
         ctx.accounts.huma_program.to_account_info(),
@@ -117,14 +114,12 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         signer_seeds,
     )?;
 
-    // Reload vault to get updated balance
-    ctx.accounts.pool_vault_account.reload()?;
-    let balance_after = ctx.accounts.pool_vault_account.amount;
-    let received = balance_after.checked_sub(balance_before).unwrap();
+    // Read updated next_request_id from the queue after Huma disburse
+    let (next_request_id, _) = huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
-    // Verify we received enough to cover the owed amount
+    // Verify Huma queue has progressed past our request ID (meaning ours is settled/disbursed)
     require!(
-        received >= pending.amount,
+        next_request_id > pending.huma_request_id,
         PremiumBondsError::HumaRedemptionNotSettled
     );
 
@@ -142,10 +137,11 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     )?;
 
     msg!(
-        "ClaimRedemption: user={}, amount={}, redemption_id={}",
+        "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",
         ctx.accounts.user.key(),
         pending.amount,
         pending.redemption_id,
+        pending.huma_request_id,
     );
 
     // PendingRedemption is closed automatically via `close = user` constraint

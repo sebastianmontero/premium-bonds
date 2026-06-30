@@ -381,3 +381,64 @@ pub fn disburse<'info>(
 
     Ok(())
 }
+
+/// Safely deserializes the next_request_id and last_request_id from the Huma PoolState account.
+///
+/// Layout:
+/// - discriminator: [u8; 8]
+/// - bump: u8
+/// - status: enum (u8)
+/// - disbursement_reserve: u128 (16 bytes)
+/// - mode_states: Vec<ModeState> (4-byte length prefix + N * 216 bytes)
+/// - mode_config_keys: Vec<Pubkey> (4-byte length prefix + M * 32 bytes)
+/// - redemption: Redemption (next_request_id: u128, last_request_id: u128, ...)
+pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128, u128)> {
+    let data = pool_state_info.try_borrow_data()?;
+
+    // Read mode_states length prefix (u32 LE) at offset 26
+    require!(
+        data.len() >= MODE_STATES_OFFSET + 4,
+        PremiumBondsError::MathOverflow
+    );
+    let num_modes = u32::from_le_bytes(
+        data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+
+    // Locate mode_config_keys length prefix offset
+    let mode_config_keys_offset = 30 + num_modes * 216;
+    require!(
+        data.len() >= mode_config_keys_offset + 4,
+        PremiumBondsError::MathOverflow
+    );
+
+    // Read mode_config_keys length prefix (u32 LE)
+    let num_config_keys = u32::from_le_bytes(
+        data[mode_config_keys_offset..mode_config_keys_offset + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+
+    // Locate redemption offset
+    let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
+    require!(
+        data.len() >= redemption_offset + 32,
+        PremiumBondsError::MathOverflow
+    );
+
+    // Read next_request_id and last_request_id
+    let next_request_id = u128::from_le_bytes(
+        data[redemption_offset..redemption_offset + 16]
+            .try_into()
+            .unwrap(),
+    );
+    let last_request_id = u128::from_le_bytes(
+        data[redemption_offset + 16..redemption_offset + 32]
+            .try_into()
+            .unwrap(),
+    );
+
+    Ok((next_request_id, last_request_id))
+}
+

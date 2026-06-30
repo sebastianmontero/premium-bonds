@@ -107,6 +107,9 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     };
     let pst_shares = huma::usdc_to_pst_shares(amount, pst_supply, total_assets);
 
+    // Read current last_request_id from the queue before Huma increments it
+    let (_, huma_request_id) = huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
@@ -141,6 +144,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.amount = amount;
     pending.pst_shares_locked = pst_shares;
     pending.requested_at = Clock::get()?.unix_timestamp;
+    pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
 
     // Update accounting

@@ -131,6 +131,9 @@ pub mod mock_huma {
             ctx.accounts.mode_mint.decimals,
         )?;
 
+        // Increment last_request_id in mock queue
+        super::increment_huma_redemption_queue(&ctx.accounts.pool_state.to_account_info(), true, false)?;
+
         msg!("MockHuma: redemption request for {} PST shares", shares);
         Ok(())
     }
@@ -155,35 +158,39 @@ pub mod mock_huma {
             }
         };
 
-        if amount == 0 {
-            msg!("MockHuma: disburse 0, nothing to transfer");
-            return Ok(());
+        if amount > 0 && amount != 500_000 {
+            // Transfer USDC: pool_underlying_token → lender_underlying_token
+            let pool_state_key = ctx.accounts.pool_state.key();
+            let (_, bump) = Pubkey::find_program_address(
+                &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
+                ctx.program_id,
+            );
+            let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.pool_underlying_token.to_account_info(),
+                        mint: ctx.accounts.underlying_mint.to_account_info(),
+                        to: ctx.accounts.lender_underlying_token.to_account_info(),
+                        authority: ctx.accounts.pool_authority.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                amount,
+                ctx.accounts.underlying_mint.decimals,
+            )?;
+            msg!("MockHuma: disbursed {} USDC to lender", amount);
+        } else {
+            msg!("MockHuma: disburse 0 or insufficient (500_000), nothing to transfer");
         }
 
-        // Transfer USDC: pool_underlying_token → lender_underlying_token
-        let pool_state_key = ctx.accounts.pool_state.key();
-        let (_, bump) = Pubkey::find_program_address(
-            &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
-            ctx.program_id,
-        );
-        let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+        // Increment next_request_id in mock queue if not a simulated insufficient amount
+        if amount != 500_000 {
+            super::increment_huma_redemption_queue(&ctx.accounts.pool_state.to_account_info(), false, true)?;
+        }
 
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.key(),
-                TransferChecked {
-                    from: ctx.accounts.pool_underlying_token.to_account_info(),
-                    mint: ctx.accounts.underlying_mint.to_account_info(),
-                    to: ctx.accounts.lender_underlying_token.to_account_info(),
-                    authority: ctx.accounts.pool_authority.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            amount,
-            ctx.accounts.underlying_mint.decimals,
-        )?;
-
-        msg!("MockHuma: disbursed {} USDC to lender", amount);
         Ok(())
     }
 
@@ -196,6 +203,58 @@ pub mod mock_huma {
         msg!("MockHuma: create_lender_accounts_v2 (no-op)");
         Ok(())
     }
+}
+
+pub fn increment_huma_redemption_queue(
+    pool_state_info: &AccountInfo,
+    increment_last: bool,
+    increment_next: bool,
+) -> Result<()> {
+    let mut data = pool_state_info.try_borrow_mut_data()?;
+    if data.len() < 30 {
+        return Ok(());
+    }
+    let num_modes = u32::from_le_bytes(
+        data[26..30].try_into().unwrap()
+    ) as usize;
+
+    let mode_config_keys_offset = 30 + num_modes * 216;
+    if data.len() < mode_config_keys_offset + 4 {
+        return Ok(());
+    }
+
+    let num_config_keys = u32::from_le_bytes(
+        data[mode_config_keys_offset..mode_config_keys_offset + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+
+    let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
+    if data.len() < redemption_offset + 32 {
+        return Ok(());
+    }
+
+    if increment_next {
+        let next_request_id = u128::from_le_bytes(
+            data[redemption_offset..redemption_offset + 16]
+                .try_into()
+                .unwrap(),
+        );
+        let next_request_id = next_request_id.checked_add(1).unwrap();
+        data[redemption_offset..redemption_offset + 16].copy_from_slice(&next_request_id.to_le_bytes());
+    }
+
+    if increment_last {
+        let last_request_id = u128::from_le_bytes(
+            data[redemption_offset + 16..redemption_offset + 32]
+                .try_into()
+                .unwrap(),
+        );
+        let last_request_id = last_request_id.checked_add(1).unwrap();
+        data[redemption_offset + 16..redemption_offset + 32].copy_from_slice(&last_request_id.to_le_bytes());
+    }
+
+    Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

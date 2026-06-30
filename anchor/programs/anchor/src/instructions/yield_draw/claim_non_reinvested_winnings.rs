@@ -105,6 +105,9 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     };
     let pst_shares = huma::usdc_to_pst_shares(claimable, pst_supply, total_assets);
 
+    // Read current last_request_id from the queue before Huma increments it
+    let (_, huma_request_id) = huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
@@ -139,6 +142,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.amount = claimable;
     pending.pst_shares_locked = pst_shares;
     pending.requested_at = Clock::get()?.unix_timestamp;
+    pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
 
     pool.next_redemption_id = pool.next_redemption_id.checked_add(1).ok_or(PremiumBondsError::MathOverflow)?;
