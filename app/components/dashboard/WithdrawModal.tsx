@@ -9,6 +9,7 @@ interface WithdrawModalProps {
   userTickets: UserTicketInfo;
   onClose: () => void;
   onWithdrawSuccess: (tickets: number, value: number) => void;
+  onWithdraw?: (amount: number) => Promise<string>;
 }
 
 export function WithdrawModal({
@@ -16,13 +17,15 @@ export function WithdrawModal({
   userTickets,
   onClose,
   onWithdrawSuccess,
+  onWithdraw,
 }: WithdrawModalProps) {
   const [ticketAmount, setTicketAmount] = useState("");
   const [step, setStep] = useState<
     "input" | "signing" | "confirming" | "success"
   >("input");
 
-  const maxTickets = userTickets.activeTicketsCount;
+  const maxTickets =
+    userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
   const parsedTickets = parseInt(ticketAmount, 10) || 0;
   const withdrawValue = parsedTickets * pool.bondPrice;
   const canWithdraw =
@@ -32,14 +35,26 @@ export function WithdrawModal({
     if (!canWithdraw) return;
     setStep("signing");
 
-    // Simulate wallet signature
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    setStep("confirming");
+    try {
+      if (onWithdraw) {
+        await onWithdraw(withdrawValue);
+        setStep("confirming");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        setStep("success");
+      } else {
+        // Simulate wallet signature
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        setStep("confirming");
 
-    // Simulate blockchain transaction confirmation
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setStep("success");
-  }, [canWithdraw]);
+        // Simulate blockchain transaction confirmation
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        setStep("success");
+      }
+    } catch (err) {
+      console.error("Withdraw transaction failed:", err);
+      setStep("input");
+    }
+  }, [canWithdraw, withdrawValue, onWithdraw]);
 
   const handleDone = useCallback(() => {
     onWithdrawSuccess(parsedTickets, withdrawValue);
@@ -187,7 +202,9 @@ export function WithdrawModal({
                   {pool.tokenSymbol}
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
-                  {maxTickets.toLocaleString()} tickets
+                  {maxTickets.toLocaleString()} tickets (
+                  {userTickets.activeTicketsCount} active ·{" "}
+                  {userTickets.pendingTicketsCount} pending)
                 </p>
               </div>
             </div>

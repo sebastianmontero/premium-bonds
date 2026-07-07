@@ -9,6 +9,7 @@ interface DepositModalProps {
   walletBalance: number; // base units
   onClose: () => void;
   onDepositSuccess: (tickets: number, cost: number) => void;
+  onDeposit?: (tickets: number) => Promise<string>;
 }
 
 export function DepositModal({
@@ -16,6 +17,7 @@ export function DepositModal({
   walletBalance,
   onClose,
   onDepositSuccess,
+  onDeposit,
 }: DepositModalProps) {
   const [inputValue, setInputValue] = useState("");
   const [activeInput, setActiveInput] = useState<"token" | "ticket">("token");
@@ -50,26 +52,33 @@ export function DepositModal({
   const canDeposit =
     parsedTickets > 0 && totalCostBase <= walletBalance && txStage === null;
 
-  const handleDeposit = useCallback(() => {
+  const handleDeposit = useCallback(async () => {
     setTxStage("signing");
-
-    setTimeout(() => {
-      setTxStage("broadcasting");
-
-      setTimeout(() => {
+    try {
+      if (onDeposit) {
+        await onDeposit(parsedTickets);
+        setTxStage("broadcasting");
+        await new Promise((resolve) => setTimeout(resolve, 800));
         setTxStage("confirming");
-
-        setTimeout(() => {
-          setTxStage("success");
-
-          setTimeout(() => {
-            onDepositSuccess(parsedTickets, totalCostBase);
-            onClose();
-          }, 1200);
-        }, 1500);
-      }, 1000);
-    }, 1200);
-  }, [parsedTickets, totalCostBase, onDepositSuccess, onClose]);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        setTxStage("success");
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        setTxStage("broadcasting");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        setTxStage("confirming");
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        setTxStage("success");
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
+      onDepositSuccess(parsedTickets, totalCostBase);
+      onClose();
+    } catch (err) {
+      console.error("Deposit transaction failed:", err);
+      setTxStage(null);
+    }
+  }, [parsedTickets, totalCostBase, onDepositSuccess, onClose, onDeposit]);
 
   return (
     <div

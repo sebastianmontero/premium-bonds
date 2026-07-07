@@ -7,7 +7,7 @@ skip-lint = false
 
 [programs.localnet]
 anchor = "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
-mock_huma = "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw"
+mock_huma = "ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj"
 mock_kamino = "6KZkzJ8iYBHsTg2JynFt6WfT1scUReR3FTyjoE5WVwBj"
 
 [provider]

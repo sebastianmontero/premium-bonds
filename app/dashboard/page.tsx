@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useWalletConnection } from "@solana/react-hooks";
+import { useBondsContract } from "@/app/hooks/useBondsContract";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
 import { PoolCard } from "@/app/components/dashboard/PoolCard";
@@ -32,6 +34,19 @@ import type {
 } from "@/app/types";
 
 export default function DashboardPage() {
+  const { status } = useWalletConnection();
+  const isConnected = status === "connected";
+
+  const {
+    pool: onChainPool,
+    userTickets: onChainTickets,
+    userWinnings: onChainWinnings,
+    pendingRedemptions: onChainPendingRedemptions,
+    walletBalance,
+    refetch,
+    actions,
+  } = useBondsContract(1);
+
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
@@ -41,8 +56,7 @@ export default function DashboardPage() {
     {}
   );
 
-  // Stateful tracking for user holdings and activity
-  const [userTickets, setUserTickets] = useState(MOCK_USER_TICKETS);
+  // Fallbacks to mock data when wallet is not connected
   const [pendingRedemptions, setPendingRedemptions] = useState<
     PendingRedemption[]
   >(INITIAL_PENDING_REDEMPTIONS);
@@ -58,22 +72,44 @@ export default function DashboardPage() {
     MOCK_AUTO_REINVESTED_TOTAL
   );
 
+  // Active state selections
+  const activePool = isConnected && onChainPool ? onChainPool : MOCK_POOL;
+  const activeTickets =
+    isConnected && onChainTickets ? onChainTickets : MOCK_USER_TICKETS;
+  const activePendingRedemptions = isConnected
+    ? onChainPendingRedemptions
+    : pendingRedemptions;
+  const activeUnclaimedWinnings =
+    isConnected && onChainWinnings
+      ? onChainWinnings.unclaimedNonReinvestedWinnings
+      : unclaimedWinningsBalance;
+  const activeAutoReinvestedTotal =
+    isConnected && onChainWinnings
+      ? onChainWinnings.totalReinvested
+      : autoReinvestedTotal;
+  const activeLifetimeWinnings =
+    isConnected && onChainWinnings
+      ? onChainWinnings.totalClaimed +
+        onChainWinnings.totalReinvested +
+        onChainWinnings.unclaimedNonReinvestedWinnings
+      : lifetimeWinnings;
+
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
-  const pendingRedemptionsTotal = pendingRedemptions.reduce(
+  const pendingRedemptionsTotal = activePendingRedemptions.reduce(
     (sum, r) => sum + r.amount,
     0
   );
-  const netWorth =
-    userTickets.activeTicketsCount * MOCK_POOL.bondPrice +
-    pendingRedemptionsTotal +
-    unclaimedWinningsBalance;
+  const investedAmount =
+    (activeTickets.activeTicketsCount + activeTickets.pendingTicketsCount) *
+    activePool.bondPrice;
+  const redeemingAmount = pendingRedemptionsTotal;
+  const netWorth = investedAmount + redeemingAmount + activeUnclaimedWinnings;
 
   // Handlers for Deposit/Withdraw Success
   const handleDepositSuccess = (tickets: number, value: number) => {
-    setUserTickets((prev) => ({
-      ...prev,
-      activeTicketsCount: prev.activeTicketsCount + tickets,
-    }));
+    if (isConnected) {
+      refetch();
+    }
 
     const newActivity: ActivityEntry = {
       id: `act-dep-${Date.now()}`,
@@ -86,19 +122,18 @@ export default function DashboardPage() {
   };
 
   const handleWithdrawSuccess = (tickets: number, value: number) => {
-    setUserTickets((prev) => ({
-      ...prev,
-      activeTicketsCount: prev.activeTicketsCount - tickets,
-    }));
-
-    const newRedemption: PendingRedemption = {
-      redemptionId: `red-w-${Date.now()}`,
-      amount: value,
-      status: "settling",
-      requestedAt: new Date().toISOString(),
-      type: "bond_sale",
-    };
-    setPendingRedemptions((prev) => [newRedemption, ...prev]);
+    if (isConnected) {
+      refetch();
+    } else {
+      const newRedemption: PendingRedemption = {
+        redemptionId: `red-w-${Date.now()}`,
+        amount: value,
+        status: "settling",
+        requestedAt: new Date().toISOString(),
+        type: "bond_sale",
+      };
+      setPendingRedemptions((prev) => [newRedemption, ...prev]);
+    }
 
     const newActivity: ActivityEntry = {
       id: `act-w-${Date.now()}`,
@@ -120,134 +155,147 @@ export default function DashboardPage() {
     // Set status to cranking
     setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: true }));
 
-    // Simulate a realistic 1.5-second transaction processing delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
     try {
-      const BOND_PRICE = MOCK_POOL.bondPrice; // 5 USDC in base units = 5_000_000
-      const MAX_BONDS = 5;
+      if (isConnected) {
+        // Run contract reinvest crank (max 5 bonds batch)
+        await actions.reinvestWinnings(drawCycleId, 0, 5);
+        refetch();
+      } else {
+        // Simulate a realistic 1.5-second transaction processing delay
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // Current amount already reinvested
-      const currentReinvested = entry.amountReinvested || 0;
-      // Winnings amount remaining to be processed
-      const remainingWinnings = entry.amount - currentReinvested;
+        const BOND_PRICE = MOCK_POOL.bondPrice; // 5 USDC in base units = 5_000_000
+        const MAX_BONDS = 5;
 
-      if (remainingWinnings <= 0) return;
+        // Current amount already reinvested
+        const currentReinvested = entry.amountReinvested || 0;
+        // Winnings amount remaining to be processed
+        const remainingWinnings = entry.amount - currentReinvested;
 
-      // How many bonds can we purchase in this batch?
-      // Capped by MAX_BONDS and by remainingWinnings / BOND_PRICE
-      const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
-      const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
+        if (remainingWinnings <= 0) return;
 
-      const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
-      const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
-      const newTicketsCount =
-        (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
+        // How many bonds can we purchase in this batch?
+        const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
+        const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
 
-      // Remaining after this batch
-      const postBatchRemaining = entry.amount - newReinvestedAmount;
+        const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
+        const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
+        const newTicketsCount =
+          (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
 
-      // Is this the final batch?
-      const isFinalBatch = postBatchRemaining < BOND_PRICE;
+        // Remaining after this batch
+        const postBatchRemaining = entry.amount - newReinvestedAmount;
 
-      let finalStatus: PrizeStatus = "partial";
-      let dustAmount = 0;
-      const finalReinvestedAmount = newReinvestedAmount;
+        // Is this the final batch?
+        const isFinalBatch = postBatchRemaining < BOND_PRICE;
 
-      if (isFinalBatch) {
-        finalStatus = "reinvested";
-        dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
-      }
+        let finalStatus: PrizeStatus = "partial";
+        let dustAmount = 0;
+        const finalReinvestedAmount = newReinvestedAmount;
 
-      // Update Prize History
-      setPrizeHistory((prev) =>
-        prev.map((p) =>
-          p.drawCycleId === drawCycleId
-            ? {
-                ...p,
-                status: finalStatus,
-                amountReinvested: finalReinvestedAmount,
-                reinvestedTickets: newTicketsCount,
-                dustAccumulated: dustAmount,
-              }
-            : p
-        )
-      );
+        if (isFinalBatch) {
+          finalStatus = "reinvested";
+          dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
+        }
 
-      // If modal is open and showing this entry, update the modal's selected entry state too
-      if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
-        setSelectedPrizeDetails((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: finalStatus,
-                amountReinvested: finalReinvestedAmount,
-                reinvestedTickets: newTicketsCount,
-                dustAccumulated: dustAmount,
-              }
-            : null
+        // Update Prize History
+        setPrizeHistory((prev) =>
+          prev.map((p) =>
+            p.drawCycleId === drawCycleId
+              ? {
+                  ...p,
+                  status: finalStatus,
+                  amountReinvested: finalReinvestedAmount,
+                  reinvestedTickets: newTicketsCount,
+                  dustAccumulated: dustAmount,
+                }
+              : p
+          )
         );
+
+        // If modal is open and showing this entry, update the modal's selected entry state too
+        if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
+          setSelectedPrizeDetails((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: finalStatus,
+                  amountReinvested: finalReinvestedAmount,
+                  reinvestedTickets: newTicketsCount,
+                  dustAccumulated: dustAmount,
+                }
+              : null
+          );
+        }
+
+        // Update user tickets (active)
+        if (bondsToBuyInBatch > 0) {
+          MOCK_USER_TICKETS.activeTicketsCount += bondsToBuyInBatch;
+        }
+
+        // Update stateful autoReinvestedTotal
+        setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
+
+        // If final batch, credit any dust to unclaimedWinningsBalance
+        if (isFinalBatch && dustAmount > 0) {
+          setUnclaimedWinningsBalance((prev) => prev + dustAmount);
+        }
+
+        // Add Activity Feed Entry
+        const newActivity: ActivityEntry = {
+          id: `act-crank-${drawCycleId}-${Date.now()}`,
+          date: new Date().toISOString().split("T")[0],
+          type: "auto-reinvest",
+          description: isFinalBatch
+            ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
+            : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
+          amount: batchReinvestedAmount,
+        };
+        setActivityFeed((prev) => [newActivity, ...prev]);
       }
-
-      // Update user tickets (active)
-      if (bondsToBuyInBatch > 0) {
-        setUserTickets((prev) => ({
-          ...prev,
-          activeTicketsCount: prev.activeTicketsCount + bondsToBuyInBatch,
-        }));
-      }
-
-      // Update stateful autoReinvestedTotal
-      setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
-
-      // If final batch, credit any dust to unclaimedWinningsBalance
-      if (isFinalBatch && dustAmount > 0) {
-        setUnclaimedWinningsBalance((prev) => prev + dustAmount);
-      }
-
-      // Add Activity Feed Entry
-      const newActivity: ActivityEntry = {
-        id: `act-crank-${drawCycleId}-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
-        type: "auto-reinvest",
-        description: isFinalBatch
-          ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
-          : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
-        amount: batchReinvestedAmount,
-      };
-      setActivityFeed((prev) => [newActivity, ...prev]);
+    } catch (err) {
+      console.error("Reinvest crank failed:", err);
     } finally {
       // Clear cranking status
       setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: false }));
     }
   };
 
-  const handleClaimNonReinvestedWinnings = () => {
-    if (unclaimedWinningsBalance === 0) return;
+  const handleClaimNonReinvestedWinnings = async () => {
+    if (activeUnclaimedWinnings === 0) return;
 
-    const claimAmount = unclaimedWinningsBalance;
+    const claimAmount = activeUnclaimedWinnings;
 
-    // Reset the unclaimed dust balance
-    setUnclaimedWinningsBalance(0);
+    try {
+      if (isConnected) {
+        await actions.claimNonReinvestedWinnings();
+        refetch();
+      } else {
+        // Reset the unclaimed dust balance
+        setUnclaimedWinningsBalance(0);
 
-    // Add to pending redemptions as a prize claim settling
-    const newRedemption: PendingRedemption = {
-      redemptionId: `red-dust-claim-${Date.now()}`,
-      amount: claimAmount,
-      status: "settling",
-      requestedAt: new Date().toISOString(),
-      type: "prize_claim",
-    };
-    setPendingRedemptions((prev) => [newRedemption, ...prev]);
+        // Add to pending redemptions as a prize claim settling
+        const newRedemption: PendingRedemption = {
+          redemptionId: `red-dust-claim-${Date.now()}`,
+          amount: claimAmount,
+          status: "settling",
+          requestedAt: new Date().toISOString(),
+          type: "prize_claim",
+        };
+        setPendingRedemptions((prev) => [newRedemption, ...prev]);
+      }
 
-    const newActivity: ActivityEntry = {
-      id: `act-claim-dust-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      type: "win",
-      description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, MOCK_POOL.tokenDecimals)} USDC · Pending Huma settle`,
-      amount: claimAmount,
-    };
-    setActivityFeed((prev) => [newActivity, ...prev]);
+      const newActivity: ActivityEntry = {
+        id: `act-claim-dust-${Date.now()}`,
+        date: new Date().toISOString().split("T")[0],
+        type: "win",
+        description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
+        amount: claimAmount,
+      };
+      setActivityFeed((prev) => [newActivity, ...prev]);
+    } catch (err) {
+      console.error("Failed to claim dust on-chain:", err);
+    }
   };
 
   // Handlers for Pending Redemptions (Claims & Simulator)
@@ -257,32 +305,45 @@ export default function DashboardPage() {
     );
   };
 
-  const handleClaimRedemption = (id: string) => {
-    const redemption = pendingRedemptions.find((r) => r.redemptionId === id);
+  const handleClaimRedemption = async (id: string) => {
+    const redemption = activePendingRedemptions.find(
+      (r) => r.redemptionId === id
+    );
     if (!redemption) return;
 
-    setPendingRedemptions((prev) => prev.filter((r) => r.redemptionId !== id));
+    try {
+      if (isConnected) {
+        await actions.claimRedemption(id);
+        refetch();
+      } else {
+        setPendingRedemptions((prev) =>
+          prev.filter((r) => r.redemptionId !== id)
+        );
+      }
 
-    const newActivity: ActivityEntry = {
-      id: `act-claim-red-${id}-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      type: "claim-redemption",
-      description: `Claimed settled ${
-        redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
-      } of $${redemption.amount / 1_000_000} USDC to wallet`,
-      amount: redemption.amount,
-    };
-    setActivityFeed((prev) => [newActivity, ...prev]);
+      const newActivity: ActivityEntry = {
+        id: `act-claim-red-${id}-${Date.now()}`,
+        date: new Date().toISOString().split("T")[0],
+        type: "claim-redemption",
+        description: `Claimed settled ${
+          redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
+        } of $${redemption.amount / 1_000_000} USDC to wallet`,
+        amount: redemption.amount,
+      };
+      setActivityFeed((prev) => [newActivity, ...prev]);
+    } catch (err) {
+      console.error("Failed to claim redemption on-chain:", err);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}
-      {unclaimedWinningsBalance > 0 && (
+      {activeUnclaimedWinnings > 0 && (
         <UnclaimedBanner
-          totalUnclaimed={unclaimedWinningsBalance}
-          tokenSymbol={MOCK_POOL.tokenSymbol}
-          tokenDecimals={MOCK_POOL.tokenDecimals}
+          totalUnclaimed={activeUnclaimedWinnings}
+          tokenSymbol={activePool.tokenSymbol}
+          tokenDecimals={activePool.tokenDecimals}
           onClaim={handleClaimNonReinvestedWinnings}
         />
       )}
@@ -290,12 +351,14 @@ export default function DashboardPage() {
       {/* ── Holdings Summary (Hero Row) ────────────────────────────── */}
       <PortfolioHeroRow
         netWorth={netWorth}
-        activeTickets={userTickets.activeTicketsCount}
-        pendingTickets={userTickets.pendingTicketsCount}
-        lifetimeWinnings={lifetimeWinnings}
-        autoReinvestedTotal={autoReinvestedTotal}
-        tokenSymbol={MOCK_POOL.tokenSymbol}
-        tokenDecimals={MOCK_POOL.tokenDecimals}
+        investedAmount={investedAmount}
+        redeemingAmount={redeemingAmount}
+        activeTickets={activeTickets.activeTicketsCount}
+        pendingTickets={activeTickets.pendingTicketsCount}
+        lifetimeWinnings={activeLifetimeWinnings}
+        autoReinvestedTotal={activeAutoReinvestedTotal}
+        tokenSymbol={activePool.tokenSymbol}
+        tokenDecimals={activePool.tokenDecimals}
       />
 
       {/* ── Bond Holdings + Activity Feed (two-column) ─────────────── */}
@@ -323,8 +386,8 @@ export default function DashboardPage() {
               </h2>
             </div>
             <PoolCard
-              pool={MOCK_POOL}
-              userTickets={userTickets}
+              pool={activePool}
+              userTickets={activeTickets}
               onDeposit={() => setShowDeposit(true)}
               onWithdraw={() => setShowWithdraw(true)}
             />
@@ -332,11 +395,11 @@ export default function DashboardPage() {
 
           <div className="flex-1">
             <PendingRedemptionsList
-              redemptions={pendingRedemptions}
+              redemptions={activePendingRedemptions}
               onClaimRedemption={handleClaimRedemption}
               onSimulateSettlement={handleSimulateSettlement}
-              tokenSymbol={MOCK_POOL.tokenSymbol}
-              tokenDecimals={MOCK_POOL.tokenDecimals}
+              tokenSymbol={activePool.tokenSymbol}
+              tokenDecimals={activePool.tokenDecimals}
             />
           </div>
         </div>
@@ -370,9 +433,9 @@ export default function DashboardPage() {
       {/* ── Prize History Ledger ────────────────────────────────────── */}
       <PrizeHistoryLedger
         entries={prizeHistory}
-        tokenDecimals={MOCK_POOL.tokenDecimals}
-        tokenSymbol={MOCK_POOL.tokenSymbol}
-        unclaimedTotal={unclaimedWinningsBalance}
+        tokenDecimals={activePool.tokenDecimals}
+        tokenSymbol={activePool.tokenSymbol}
+        unclaimedTotal={activeUnclaimedWinnings}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
@@ -383,25 +446,27 @@ export default function DashboardPage() {
       {/* ── Recent Winners ─────────────────────────────────────────── */}
       <RecentWinnersTicker
         winners={MOCK_RECENT_WINNERS}
-        tokenDecimals={MOCK_POOL.tokenDecimals}
+        tokenDecimals={activePool.tokenDecimals}
       />
 
       {/* ── Modals ─────────────────────────────────────────────────── */}
       {showDeposit && (
         <DepositModal
-          pool={MOCK_POOL}
-          walletBalance={MOCK_WALLET_BALANCE}
+          pool={activePool}
+          walletBalance={isConnected ? walletBalance : MOCK_WALLET_BALANCE}
           onClose={() => setShowDeposit(false)}
           onDepositSuccess={handleDepositSuccess}
+          onDeposit={isConnected ? actions.buyBonds : undefined}
         />
       )}
 
       {showWithdraw && (
         <WithdrawModal
-          pool={MOCK_POOL}
-          userTickets={userTickets}
+          pool={activePool}
+          userTickets={activeTickets}
           onClose={() => setShowWithdraw(false)}
           onWithdrawSuccess={handleWithdrawSuccess}
+          onWithdraw={isConnected ? actions.sellBonds : undefined}
         />
       )}
 
@@ -414,8 +479,8 @@ export default function DashboardPage() {
         entry={selectedPrizeDetails}
         isOpen={selectedPrizeDetails !== null}
         onClose={() => setSelectedPrizeDetails(null)}
-        tokenDecimals={MOCK_POOL.tokenDecimals}
-        tokenSymbol={MOCK_POOL.tokenSymbol}
+        tokenDecimals={activePool.tokenDecimals}
+        tokenSymbol={activePool.tokenSymbol}
         onSimulateCrank={handleSimulateCrank}
         crankingCycles={crankingCycles}
       />
@@ -424,8 +489,8 @@ export default function DashboardPage() {
         entries={prizeHistory}
         isOpen={showCompleteLedger}
         onClose={() => setShowCompleteLedger(false)}
-        tokenDecimals={MOCK_POOL.tokenDecimals}
-        tokenSymbol={MOCK_POOL.tokenSymbol}
+        tokenDecimals={activePool.tokenDecimals}
+        tokenSymbol={activePool.tokenSymbol}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         crankingCycles={crankingCycles}

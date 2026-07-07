@@ -637,3 +637,45 @@ pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> Result<(), String
     let user_token_account = ctx.user_usdc_account;
     send_e2e_buy_bonds_for_user(ctx, &user, user_token_account, bonds, Pubkey::default())
 }
+
+pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count: u64) {
+    let mut account = svm.get_account(&huma_pool_state).expect("Huma pool state account not found");
+    let data = &mut account.data;
+    if data.len() < 30 {
+        panic!("Huma pool state account data too short");
+    }
+    let num_modes = u32::from_le_bytes(data[26..30].try_into().unwrap()) as usize;
+    let mode_config_keys_offset = 30 + num_modes * 216;
+    if data.len() < mode_config_keys_offset + 4 {
+        panic!("Huma pool state account data too short for mode config keys");
+    }
+    let num_config_keys = u32::from_le_bytes(
+        data[mode_config_keys_offset..mode_config_keys_offset + 4]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
+    if data.len() < redemption_offset + 32 {
+        panic!("Huma pool state account data too short for redemption offset");
+    }
+
+    let mut next_request_id = u128::from_le_bytes(
+        data[redemption_offset..redemption_offset + 16]
+            .try_into()
+            .unwrap(),
+    );
+    next_request_id += count as u128;
+    data[redemption_offset..redemption_offset + 16].copy_from_slice(&next_request_id.to_le_bytes());
+
+    let mut last_request_id = u128::from_le_bytes(
+        data[redemption_offset + 16..redemption_offset + 32]
+            .try_into()
+            .unwrap(),
+    );
+    if last_request_id < next_request_id {
+        last_request_id = next_request_id;
+        data[redemption_offset + 16..redemption_offset + 32].copy_from_slice(&last_request_id.to_le_bytes());
+    }
+
+    svm.set_account(huma_pool_state, account).unwrap();
+}

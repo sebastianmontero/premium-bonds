@@ -4,6 +4,8 @@ import { formatTokenAmount } from "@/app/mock-data";
 
 interface PortfolioHeroRowProps {
   netWorth: number;
+  investedAmount: number;
+  redeemingAmount: number;
   activeTickets: number;
   pendingTickets: number;
   lifetimeWinnings: number;
@@ -14,6 +16,8 @@ interface PortfolioHeroRowProps {
 
 export function PortfolioHeroRow({
   netWorth,
+  investedAmount,
+  redeemingAmount,
   activeTickets,
   pendingTickets,
   lifetimeWinnings,
@@ -50,6 +54,16 @@ export function PortfolioHeroRow({
             {tokenSymbol}
           </span>
         </p>
+        <p className="text-xs text-on-surface-variant">
+          <span className="font-mono text-on-surface">
+            ${formatTokenAmount(investedAmount, tokenDecimals)}
+          </span>{" "}
+          bonds ·{" "}
+          <span className="font-mono text-on-surface">
+            ${formatTokenAmount(redeemingAmount, tokenDecimals)}
+          </span>{" "}
+          redeeming
+        </p>
       </div>
 
       {/* ── Total Tickets ─────────────────────────────────────────────── */}
@@ -74,7 +88,7 @@ export function PortfolioHeroRow({
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-          {activeTickets.toLocaleString()}
+          {(activeTickets + pendingTickets).toLocaleString()}
         </p>
         <p className="text-xs text-on-surface-variant">
           <span className="font-mono text-on-surface">{activeTickets}</span>{" "}

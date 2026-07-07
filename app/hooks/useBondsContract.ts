@@ -1,0 +1,1031 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  useWalletConnection,
+  useSendTransaction,
+  useSolanaClient,
+} from "@solana/react-hooks";
+import {
+  address,
+  getBase58Encoder,
+  getBase58Decoder,
+  getBase64Encoder,
+  getProgramDerivedAddress,
+  Address,
+  AccountRole,
+} from "@solana/kit";
+import {
+  PoolInfo,
+  UserTicketInfo,
+  PendingRedemption,
+  PrizeTier,
+} from "../types";
+import { MOCK_POOL } from "../mock-data";
+
+// ─── Extended Types ──────────────────────────────────────────────────────────
+
+interface ExtendedPoolInfo extends PoolInfo {
+  ticketRegistry?: string;
+  nextRedemptionId?: number;
+}
+
+interface ParsedHumaPool {
+  assets: bigint;
+  nextRequestId: bigint;
+  lastRequestId: bigint;
+}
+
+interface ParsedWinnings {
+  unclaimedNonReinvestedWinnings: number;
+  totalClaimed: number;
+  totalReinvested: number;
+}
+
+interface ParsedRedemption {
+  redemptionId: string;
+  amount: number;
+  humaRequestId: bigint;
+  requestedAt: number;
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+export const PROGRAM_ID = address(
+  "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
+);
+export const HUMA_PROGRAM_ID = address(
+  "ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj"
+);
+export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
+export const TOKEN_PROGRAM_ID = address(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+);
+export const ATA_PROGRAM_ID = address(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+);
+export const USDC_MINT = address(
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+);
+
+// Load configuration with fallbacks for devnet/localnet testing
+export const HUMA_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_POOL_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_POOL_STATE = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_STATE || "11111111111111111111111111111111"
+);
+export const HUMA_MODE_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_LENDER_STATE = address(
+  process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_POOL_UNDERLYING_TOKEN = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_MODE_MINT = address(
+  process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
+);
+
+export const HUMA_POOL_MODE_TOKEN = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_REDEMPTION_REQUEST = address(
+  process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+    "11111111111111111111111111111111"
+);
+
+const textEncoder = new TextEncoder();
+const base58Encoder = getBase58Encoder();
+const base58Decoder = getBase58Decoder();
+const base64Encoder = getBase64Encoder();
+
+// ─── Helper encoders ─────────────────────────────────────────────────────────
+
+function encodeU32(val: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  const view = new DataView(buf.buffer);
+  view.setUint32(0, val, true);
+  return buf;
+}
+
+function encodeU64(val: bigint | number): Uint8Array {
+  const buf = new Uint8Array(8);
+  const view = new DataView(buf.buffer);
+  view.setBigUint64(0, BigInt(val), true);
+  return buf;
+}
+
+// ─── PDA Derivations ─────────────────────────────────────────────────────────
+
+export async function findGlobalConfigPda(): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [textEncoder.encode("global_config")],
+  });
+  return addr;
+}
+
+export async function findPrizePoolPda(poolId: number): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [textEncoder.encode("prize_pool"), encodeU32(poolId)],
+  });
+  return addr;
+}
+
+export async function findPoolVaultPda(poolId: number): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [textEncoder.encode("pool_vault"), encodeU32(poolId)],
+  });
+  return addr;
+}
+
+export async function findPoolPstVaultPda(poolId: number): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [textEncoder.encode("pool_pst"), encodeU32(poolId)],
+  });
+  return addr;
+}
+
+export async function findUserWinningsPda(
+  poolId: number,
+  user: string
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [
+      textEncoder.encode("user_winnings"),
+      encodeU32(poolId),
+      base58Encoder.encode(address(user)),
+    ],
+  });
+  return addr;
+}
+
+export async function findPendingRedemptionPda(
+  poolId: number,
+  redemptionId: bigint | number
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [
+      textEncoder.encode("pending_redemption"),
+      encodeU32(poolId),
+      encodeU64(redemptionId),
+    ],
+  });
+  return addr;
+}
+
+export async function findHumaPoolAuthorityPda(
+  poolState: string
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: HUMA_PROGRAM_ID,
+    seeds: [
+      textEncoder.encode("pool_authority"),
+      base58Encoder.encode(address(poolState)),
+    ],
+  });
+  return addr;
+}
+
+export async function findPayoutRegistryPda(
+  poolId: number,
+  cycleId: number
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [
+      textEncoder.encode("payout"),
+      encodeU32(poolId),
+      encodeU32(cycleId),
+    ],
+  });
+  return addr;
+}
+
+export async function findAtaAddress(
+  owner: string,
+  mint: string
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: ATA_PROGRAM_ID,
+    seeds: [
+      base58Encoder.encode(address(owner)),
+      base58Encoder.encode(TOKEN_PROGRAM_ID),
+      base58Encoder.encode(address(mint)),
+    ],
+  });
+  return addr;
+}
+
+// ─── Decoders ───────────────────────────────────────────────────────────────
+
+function parsePrizePool(data: Uint8Array): Partial<ExtendedPoolInfo> {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const poolId = view.getUint32(9, true);
+  const tokenMint = base58Decoder.decode(data.slice(13, 13 + 32));
+  const ticketRegistry = base58Decoder.decode(data.slice(45, 45 + 32));
+  const bondPrice = Number(view.getBigUint64(109, true));
+  const stakeCycleDurationHrs = Number(view.getBigInt64(117, true));
+  const feeBasisPoints = view.getUint16(125, true);
+
+  const statusVal = view.getUint8(127);
+  let status: "Active" | "Paused" | "Closed" = "Active";
+  if (statusVal === 1) status = "Paused";
+  else if (statusVal === 2) status = "Closed";
+
+  const totalDepositedPrincipal = Number(view.getBigUint64(128, true));
+  const currentCycleEndAt = Number(view.getBigInt64(144, true));
+  const isFrozenForDraw = view.getUint8(152) !== 0;
+  const currentDrawCycleId = view.getUint32(153, true);
+
+  const tiersLength = view.getUint32(157, true);
+  const prizeTiers: PrizeTier[] = [];
+  for (let i = 0; i < tiersLength; i++) {
+    const offset = 161 + i * 6;
+    if (offset + 6 > data.byteLength) break;
+    const basisPoints = view.getUint16(offset, true);
+    const numWinners = view.getUint32(offset + 2, true);
+    prizeTiers.push({ basisPoints, numWinners });
+  }
+
+  const nextRedemptionIdOffset = 161 + tiersLength * 6;
+  let nextRedemptionId = 0n;
+  if (nextRedemptionIdOffset + 8 <= data.byteLength) {
+    nextRedemptionId = view.getBigUint64(nextRedemptionIdOffset, true);
+  }
+
+  return {
+    poolId,
+    tokenMint,
+    ticketRegistry,
+    bondPrice,
+    stakeCycleDurationHrs,
+    feeBasisPoints,
+    status,
+    totalDepositedPrincipal,
+    currentCycleEndAt,
+    isFrozenForDraw,
+    currentDrawCycleId,
+    prizeTiers,
+    nextRedemptionId: Number(nextRedemptionId),
+  };
+}
+
+function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  // Offset to mode_states length prefix = 26
+  const numModes = view.getUint32(26, true);
+  const assetsStart = 30;
+  let assets = BigInt(0);
+  if (numModes > 0 && data.byteLength >= assetsStart + 16) {
+    const low = view.getBigUint64(assetsStart, true);
+    const high = view.getBigUint64(assetsStart + 8, true);
+    assets = (high << BigInt(64)) | low;
+  }
+
+  // Offset to mode_config_keys length prefix
+  const modeConfigKeysOffset = 30 + numModes * 216;
+  const numConfigKeys = view.getUint32(modeConfigKeysOffset, true);
+  const redemptionOffset = modeConfigKeysOffset + 4 + numConfigKeys * 32;
+
+  let nextRequestId = BigInt(0);
+  let lastRequestId = BigInt(0);
+  if (data.byteLength >= redemptionOffset + 32) {
+    const nextLow = view.getBigUint64(redemptionOffset, true);
+    const nextHigh = view.getBigUint64(redemptionOffset + 8, true);
+    nextRequestId = (nextHigh << BigInt(64)) | nextLow;
+
+    const lastLow = view.getBigUint64(redemptionOffset + 16, true);
+    const lastHigh = view.getBigUint64(redemptionOffset + 24, true);
+    lastRequestId = (lastHigh << BigInt(64)) | lastLow;
+  }
+
+  return { assets, nextRequestId, lastRequestId };
+}
+
+function parseUserWinnings(data: Uint8Array): ParsedWinnings {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const unclaimedNonReinvestedWinnings = Number(view.getBigUint64(44, true));
+  const totalClaimed = Number(view.getBigUint64(52, true));
+  const totalReinvested = Number(view.getBigUint64(60, true));
+  return {
+    unclaimedNonReinvestedWinnings,
+    totalClaimed,
+    totalReinvested,
+  };
+}
+
+function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const redemptionId = view.getBigUint64(12, true).toString();
+  const amount = Number(view.getBigUint64(52, true));
+  const requestedAt = Number(view.getBigInt64(68, true));
+
+  const low = view.getBigUint64(76, true);
+  const high = view.getBigUint64(76 + 8, true);
+  const humaRequestId = (high << BigInt(64)) | low;
+
+  return {
+    redemptionId,
+    amount,
+    humaRequestId,
+    requestedAt,
+  };
+}
+
+// ─── Main Hook ───────────────────────────────────────────────────────────────
+
+export function useBondsContract(poolId: number = 1) {
+  const client = useSolanaClient();
+  const { wallet } = useWalletConnection();
+  const { send } = useSendTransaction();
+
+  const [pool, setPool] = useState<ExtendedPoolInfo | null>(null);
+  const [userTickets, setUserTickets] = useState<UserTicketInfo | null>(null);
+  const [userWinnings, setUserWinnings] = useState<ParsedWinnings | null>(null);
+  const [pendingRedemptions, setPendingRedemptions] = useState<
+    PendingRedemption[]
+  >([]);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const userAddress = wallet?.account.address.toString();
+
+  const refetch = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const poolPda = await findPrizePoolPda(poolId);
+      const rpc = client.runtime.rpc;
+
+      // 1. Fetch Prize Pool account
+      let poolInfo: ExtendedPoolInfo = { ...MOCK_POOL };
+      try {
+        const poolAcc = await rpc
+          .getAccountInfo(poolPda, { encoding: "base64" })
+          .send();
+        if (poolAcc && poolAcc.value) {
+          const bytes = new Uint8Array(
+            base64Encoder.encode(poolAcc.value.data[0])
+          );
+          const parsed = parsePrizePool(bytes);
+          poolInfo = {
+            ...poolInfo,
+            ...parsed,
+          };
+
+          // Fetch estimated prize pot from Huma pool state yield if available
+          try {
+            const humaAcc = await rpc
+              .getAccountInfo(HUMA_POOL_STATE, { encoding: "base64" })
+              .send();
+            if (humaAcc && humaAcc.value) {
+              const humaBytes = new Uint8Array(
+                base64Encoder.encode(humaAcc.value.data[0])
+              );
+              const { assets } = parseHumaPoolState(humaBytes);
+              const totalPrincipal = BigInt(poolInfo.totalDepositedPrincipal);
+              if (assets > totalPrincipal) {
+                poolInfo.estimatedPrizePot = Number(assets - totalPrincipal);
+              } else {
+                poolInfo.estimatedPrizePot = 0;
+              }
+            }
+          } catch (err) {
+            console.warn("Failed to fetch Huma pool state assets:", err);
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "PrizePool not found on-chain, using fallback mock data.",
+          err
+        );
+      }
+      setPool(poolInfo);
+
+      // 2. Fetch User state if connected
+      if (userAddress) {
+        const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+
+        // Fetch User's USDC wallet balance
+        try {
+          const userUsdcAta = await findAtaAddress(userAddress, USDC_MINT);
+          const usdcAcc = await rpc
+            .getAccountInfo(userUsdcAta, { encoding: "base64" })
+            .send();
+          if (usdcAcc && usdcAcc.value) {
+            const tokenBytes = base64Encoder.encode(usdcAcc.value.data[0]);
+            const tokenView = new DataView(
+              tokenBytes.buffer,
+              tokenBytes.byteOffset,
+              tokenBytes.byteLength
+            );
+            const balance = Number(tokenView.getBigUint64(64, true));
+            setWalletBalance(balance);
+          } else {
+            setWalletBalance(0);
+          }
+        } catch (err) {
+          console.warn(
+            "User USDC ATA not found, defaulting balance to 0.",
+            err
+          );
+          setWalletBalance(0);
+        }
+
+        // Fetch UserWinnings account
+        try {
+          const winningsAcc = await rpc
+            .getAccountInfo(userWinningsPda, { encoding: "base64" })
+            .send();
+          if (winningsAcc && winningsAcc.value) {
+            const bytes = new Uint8Array(
+              base64Encoder.encode(winningsAcc.value.data[0])
+            );
+            setUserWinnings(parseUserWinnings(bytes));
+          } else {
+            setUserWinnings({
+              unclaimedNonReinvestedWinnings: 0,
+              totalClaimed: 0,
+              totalReinvested: 0,
+            });
+          }
+        } catch (err) {
+          console.warn(
+            "UserWinnings account not found, defaulting to zero.",
+            err
+          );
+          setUserWinnings({
+            unclaimedNonReinvestedWinnings: 0,
+            totalClaimed: 0,
+            totalReinvested: 0,
+          });
+        }
+
+        // Fetch user tickets from TicketRegistry
+        try {
+          const registryAddrStr = poolInfo.ticketRegistry;
+          if (registryAddrStr) {
+            const registryPda = address(registryAddrStr);
+            const registryAcc = await rpc
+              .getAccountInfo(registryPda, { encoding: "base64" })
+              .send();
+            if (registryAcc && registryAcc.value) {
+              const bytes = new Uint8Array(
+                base64Encoder.encode(registryAcc.value.data[0])
+              );
+              const view = new DataView(
+                bytes.buffer,
+                bytes.byteOffset,
+                bytes.byteLength
+              );
+
+              const activeTicketsCount = view.getUint32(16, true);
+              const pendingTicketsCount = view.getUint32(20, true);
+
+              let activeCount = 0;
+              let pendingCount = 0;
+
+              for (let i = 0; i < activeTicketsCount; i++) {
+                const offset = 24 + i * 32;
+                if (offset + 32 <= bytes.byteLength) {
+                  const addrStr = base58Decoder.decode(
+                    bytes.slice(offset, offset + 32)
+                  );
+                  if (addrStr === userAddress) {
+                    activeCount++;
+                  }
+                }
+              }
+
+              for (let i = 0; i < pendingTicketsCount; i++) {
+                const idx = activeTicketsCount + i;
+                const offset = 24 + idx * 32;
+                if (offset + 32 <= bytes.byteLength) {
+                  const addrStr = base58Decoder.decode(
+                    bytes.slice(offset, offset + 32)
+                  );
+                  if (addrStr === userAddress) {
+                    pendingCount++;
+                  }
+                }
+              }
+
+              setUserTickets({
+                poolId,
+                activeTicketsCount: activeCount,
+                pendingTicketsCount: pendingCount,
+              });
+            } else {
+              setUserTickets({
+                poolId,
+                activeTicketsCount: 0,
+                pendingTicketsCount: 0,
+              });
+            }
+          } else {
+            setUserTickets({
+              poolId,
+              activeTicketsCount: 0,
+              pendingTicketsCount: 0,
+            });
+          }
+        } catch (err) {
+          console.warn("Failed to parse ticket registry, defaulting.", err);
+          setUserTickets({
+            poolId,
+            activeTicketsCount: 0,
+            pendingTicketsCount: 0,
+          });
+        }
+
+        // Fetch User's Pending Redemptions on-chain
+        try {
+          const redemptions = await rpc
+            .getProgramAccounts(PROGRAM_ID, {
+              filters: [
+                { dataSize: BigInt(93) },
+                {
+                  memcmp: {
+                    offset: BigInt(20),
+                    bytes: userAddress as Address,
+                    encoding: "base58",
+                  },
+                },
+              ],
+              encoding: "base64",
+            })
+            .send();
+
+          // Get next request ID from Huma pool state to check claimability status
+          let nextHumaRequestId = BigInt(0);
+          try {
+            const humaAcc = await rpc
+              .getAccountInfo(HUMA_POOL_STATE, { encoding: "base64" })
+              .send();
+            if (humaAcc && humaAcc.value) {
+              const humaBytes = new Uint8Array(
+                base64Encoder.encode(humaAcc.value.data[0])
+              );
+              const humaState = parseHumaPoolState(humaBytes);
+              nextHumaRequestId = humaState.nextRequestId;
+            }
+          } catch (err) {
+            console.warn(
+              "Could not fetch Huma next_request_id, redemptions status might default to settling.",
+              err
+            );
+          }
+
+          const parsedRedemptions: PendingRedemption[] = redemptions.map(
+            (r) => {
+              const bytes = new Uint8Array(
+                base64Encoder.encode(r.account.data[0])
+              );
+              const parsed = parsePendingRedemption(bytes);
+              const status: "settling" | "ready" =
+                nextHumaRequestId > parsed.humaRequestId ? "ready" : "settling";
+              return {
+                redemptionId: parsed.redemptionId,
+                amount: parsed.amount,
+                status,
+                requestedAt: new Date(parsed.requestedAt * 1000).toISOString(),
+                type: "bond_sale", // Defaulting to bond sale
+              };
+            }
+          );
+          setPendingRedemptions(parsedRedemptions);
+        } catch (err) {
+          console.warn(
+            "Failed to fetch pending redemptions, using empty array.",
+            err
+          );
+          setPendingRedemptions([]);
+        }
+      } else {
+        setUserTickets(null);
+        setUserWinnings(null);
+        setPendingRedemptions([]);
+        setWalletBalance(0);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("Error fetching bonds contract data:", err);
+      setError(errMsg || "Failed to load contract data.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [poolId, userAddress, client]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  // ─── Transaction actions ───────────────────────────────────────────────────
+
+  const buyBonds = useCallback(
+    async (ticketsToBuy: number) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      if (!pool) throw new Error("Pool state not loaded");
+
+      const poolPda = await findPrizePoolPda(poolId);
+      const poolVault = await findPoolVaultPda(poolId);
+      const poolPstVault = await findPoolPstVaultPda(poolId);
+      const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+      const globalConfig = await findGlobalConfigPda();
+      const userTokenAccount = await findAtaAddress(userAddress, USDC_MINT);
+      const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+
+      const registryAddr = pool.ticketRegistry
+        ? address(pool.ticketRegistry)
+        : poolPda;
+
+      // Build BuyBonds instruction data
+      const ixData = new Uint8Array(12);
+      ixData.set([49, 229, 149, 142, 90, 12, 43, 92], 0);
+      const view = new DataView(ixData.buffer);
+      view.setUint32(8, ticketsToBuy, true);
+
+      const accounts = [
+        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+        { address: userWinningsPda, role: AccountRole.WRITABLE },
+        { address: globalConfig, role: AccountRole.READONLY },
+        { address: poolPda, role: AccountRole.WRITABLE },
+        { address: registryAddr, role: AccountRole.WRITABLE },
+        { address: userTokenAccount, role: AccountRole.WRITABLE },
+        { address: USDC_MINT, role: AccountRole.READONLY },
+        { address: poolVault, role: AccountRole.WRITABLE },
+        { address: poolPstVault, role: AccountRole.WRITABLE },
+        { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: HUMA_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
+        { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_MODE_MINT, role: AccountRole.WRITABLE },
+        { address: humaPoolAuthority, role: AccountRole.READONLY },
+        { address: HUMA_POOL_UNDERLYING_TOKEN, role: AccountRole.WRITABLE },
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
+        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      ];
+
+      const signature = await send({
+        instructions: [
+          {
+            programAddress: PROGRAM_ID,
+            accounts,
+            data: ixData,
+          },
+        ],
+      });
+
+      // Refresh state after transaction
+      await refetch();
+      return signature;
+    },
+    [userAddress, pool, poolId, send, refetch]
+  );
+
+  const sellBonds = useCallback(
+    async (amount: number) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      if (!pool) throw new Error("Pool state not loaded");
+
+      // Fetch the user's active & pending ticket indices from the registry
+      const rpc = client.runtime.rpc;
+      const registryAddrStr = pool.ticketRegistry;
+      if (!registryAddrStr)
+        throw new Error("Ticket registry address not loaded");
+
+      const registryAcc = await rpc
+        .getAccountInfo(address(registryAddrStr), { encoding: "base64" })
+        .send();
+      if (!registryAcc || !registryAcc.value)
+        throw new Error("Ticket registry account not found on-chain");
+
+      const bytes = base64Encoder.encode(registryAcc.value.data[0]);
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength
+      );
+
+      const activeTicketsCount = view.getUint32(16, true);
+      const pendingTicketsCount = view.getUint32(20, true);
+
+      const activeIndices: number[] = [];
+      const pendingIndices: number[] = [];
+
+      // Scan registry for the user's keys
+      for (let i = 0; i < activeTicketsCount; i++) {
+        const offset = 24 + i * 32;
+        if (offset + 32 <= bytes.byteLength) {
+          const addrStr = base58Decoder.decode(
+            bytes.slice(offset, offset + 32)
+          );
+          if (addrStr === userAddress) {
+            activeIndices.push(i);
+          }
+        }
+      }
+
+      for (let i = 0; i < pendingTicketsCount; i++) {
+        const idx = activeTicketsCount + i;
+        const offset = 24 + idx * 32;
+        if (offset + 32 <= bytes.byteLength) {
+          const addrStr = base58Decoder.decode(
+            bytes.slice(offset, offset + 32)
+          );
+          if (addrStr === userAddress) {
+            pendingIndices.push(i);
+          }
+        }
+      }
+
+      // Number of bonds to sell
+      const bondsToSell = Math.floor(amount / pool.bondPrice);
+      if (bondsToSell <= 0)
+        throw new Error("Amount is too small to sell any bonds");
+      if (activeIndices.length + pendingIndices.length < bondsToSell) {
+        throw new Error(
+          `Insufficient tickets owned to sell. Owned: ${activeIndices.length + pendingIndices.length}, Required: ${bondsToSell}`
+        );
+      }
+
+      // Distribute tickets to sell: prioritize pending, then active
+      const pendingToSell: number[] = [];
+      const activeToSell: number[] = [];
+
+      let remaining = bondsToSell;
+      for (const idx of pendingIndices) {
+        if (remaining === 0) break;
+        pendingToSell.push(idx);
+        remaining--;
+      }
+      for (const idx of activeIndices) {
+        if (remaining === 0) break;
+        activeToSell.push(idx);
+        remaining--;
+      }
+
+      // IMPORTANT: Sort both arrays in STRICTLY DESCENDING order to prevent swap-and-pop shift mismatches!
+      activeToSell.sort((a, b) => b - a);
+      pendingToSell.sort((a, b) => b - a);
+
+      const poolPda = await findPrizePoolPda(poolId);
+      const poolPstVault = await findPoolPstVaultPda(poolId);
+      const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+
+      // Derive pending redemption account
+      const nextRedemptionId = pool.nextRedemptionId || 0;
+      const pendingRedemptionPda = await findPendingRedemptionPda(
+        poolId,
+        nextRedemptionId
+      );
+
+      // Build SellBonds instruction data
+      const dataSize =
+        8 + 4 + activeToSell.length * 4 + 4 + pendingToSell.length * 4;
+      const ixData = new Uint8Array(dataSize);
+      ixData.set([205, 139, 46, 24, 50, 76, 182, 76], 0);
+
+      const viewIx = new DataView(ixData.buffer);
+      let offset = 8;
+
+      viewIx.setUint32(offset, activeToSell.length, true);
+      offset += 4;
+      for (const idx of activeToSell) {
+        viewIx.setUint32(offset, idx, true);
+        offset += 4;
+      }
+
+      viewIx.setUint32(offset, pendingToSell.length, true);
+      offset += 4;
+      for (const idx of pendingToSell) {
+        viewIx.setUint32(offset, idx, true);
+        offset += 4;
+      }
+
+      const accounts = [
+        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+        { address: poolPda, role: AccountRole.WRITABLE },
+        { address: address(registryAddrStr), role: AccountRole.WRITABLE },
+        { address: USDC_MINT, role: AccountRole.READONLY },
+        { address: poolPstVault, role: AccountRole.WRITABLE },
+        { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
+        { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: HUMA_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
+        { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_MODE_MINT, role: AccountRole.WRITABLE },
+        { address: HUMA_REDEMPTION_REQUEST, role: AccountRole.WRITABLE },
+        { address: HUMA_LENDER_STATE, role: AccountRole.WRITABLE },
+        { address: humaPoolAuthority, role: AccountRole.READONLY },
+        { address: HUMA_POOL_MODE_TOKEN, role: AccountRole.WRITABLE },
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
+        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      ];
+
+      const signature = await send({
+        instructions: [
+          {
+            programAddress: PROGRAM_ID,
+            accounts,
+            data: ixData,
+          },
+        ],
+      });
+
+      await refetch();
+      return signature;
+    },
+    [userAddress, pool, poolId, client, send, refetch]
+  );
+
+  const claimRedemption = useCallback(
+    async (redemptionId: string) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+
+      const poolPda = await findPrizePoolPda(poolId);
+      const poolVault = await findPoolVaultPda(poolId);
+      const userTokenAccount = await findAtaAddress(userAddress, USDC_MINT);
+      const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+      const pendingRedemptionPda = await findPendingRedemptionPda(
+        poolId,
+        BigInt(redemptionId)
+      );
+
+      const ixData = new Uint8Array(8);
+      ixData.set([109, 110, 9, 188, 195, 217, 112, 83], 0);
+
+      const accounts = [
+        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+        { address: poolPda, role: AccountRole.WRITABLE },
+        { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
+        { address: USDC_MINT, role: AccountRole.READONLY },
+        { address: poolVault, role: AccountRole.WRITABLE },
+        { address: userTokenAccount, role: AccountRole.WRITABLE },
+        { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: HUMA_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
+        { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
+        { address: HUMA_LENDER_STATE, role: AccountRole.WRITABLE },
+        { address: humaPoolAuthority, role: AccountRole.READONLY },
+        { address: HUMA_POOL_UNDERLYING_TOKEN, role: AccountRole.WRITABLE },
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      ];
+
+      const signature = await send({
+        instructions: [
+          {
+            programAddress: PROGRAM_ID,
+            accounts,
+            data: ixData,
+          },
+        ],
+      });
+
+      await refetch();
+      return signature;
+    },
+    [userAddress, poolId, send, refetch]
+  );
+
+  const claimNonReinvestedWinnings = useCallback(async () => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    if (!pool) throw new Error("Pool state not loaded");
+
+    const poolPda = await findPrizePoolPda(poolId);
+    const poolPstVault = await findPoolPstVaultPda(poolId);
+    const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+    const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+
+    const nextRedemptionId = pool.nextRedemptionId || 0;
+    const pendingRedemptionPda = await findPendingRedemptionPda(
+      poolId,
+      nextRedemptionId
+    );
+
+    const ixData = new Uint8Array(8);
+    ixData.set([223, 101, 207, 14, 47, 145, 239, 61], 0);
+
+    const accounts = [
+      { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+      { address: poolPda, role: AccountRole.WRITABLE },
+      { address: userWinningsPda, role: AccountRole.WRITABLE },
+      { address: poolPstVault, role: AccountRole.WRITABLE },
+      { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
+      { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+      { address: HUMA_CONFIG, role: AccountRole.READONLY },
+      { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
+      { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
+      { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
+      { address: HUMA_MODE_MINT, role: AccountRole.WRITABLE },
+      { address: HUMA_REDEMPTION_REQUEST, role: AccountRole.WRITABLE },
+      { address: HUMA_LENDER_STATE, role: AccountRole.WRITABLE },
+      { address: humaPoolAuthority, role: AccountRole.READONLY },
+      { address: HUMA_POOL_MODE_TOKEN, role: AccountRole.WRITABLE },
+      { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+      { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
+      { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+    ];
+
+    const signature = await send({
+      instructions: [
+        {
+          programAddress: PROGRAM_ID,
+          accounts,
+          data: ixData,
+        },
+      ],
+    });
+
+    await refetch();
+    return signature;
+  }, [userAddress, pool, poolId, send, refetch]);
+
+  const reinvestWinnings = useCallback(
+    async (cycleId: number, winnerIndex: number, maxBonds: number) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      if (!pool) throw new Error("Pool state not loaded");
+
+      const poolPda = await findPrizePoolPda(poolId);
+      const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+      const payoutRegistry = await findPayoutRegistryPda(poolId, cycleId);
+      const registryAddr = pool.ticketRegistry
+        ? address(pool.ticketRegistry)
+        : poolPda;
+
+      const ixData = new Uint8Array(20);
+      ixData.set([29, 223, 229, 116, 101, 111, 58, 26], 0);
+      const view = new DataView(ixData.buffer);
+      view.setUint32(8, cycleId, true);
+      view.setUint32(12, winnerIndex, true);
+      view.setUint32(16, maxBonds, true);
+
+      const accounts = [
+        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+        { address: address(userAddress), role: AccountRole.READONLY }, // winner (permissionless crank target)
+        { address: payoutRegistry, role: AccountRole.WRITABLE },
+        { address: poolPda, role: AccountRole.WRITABLE },
+        { address: userWinningsPda, role: AccountRole.WRITABLE },
+        { address: registryAddr, role: AccountRole.WRITABLE },
+        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      ];
+
+      const signature = await send({
+        instructions: [
+          {
+            programAddress: PROGRAM_ID,
+            accounts,
+            data: ixData,
+          },
+        ],
+      });
+
+      await refetch();
+      return signature;
+    },
+    [userAddress, pool, poolId, send, refetch]
+  );
+
+  return {
+    pool,
+    userTickets,
+    userWinnings,
+    pendingRedemptions,
+    walletBalance,
+    isLoading,
+    error,
+    refetch,
+    actions: {
+      buyBonds,
+      sellBonds,
+      claimRedemption,
+      claimNonReinvestedWinnings,
+      reinvestWinnings,
+    },
+  };
+}

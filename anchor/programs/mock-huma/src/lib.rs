@@ -186,11 +186,6 @@ pub mod mock_huma {
             msg!("MockHuma: disburse 0 or insufficient (500_000), nothing to transfer");
         }
 
-        // Increment next_request_id in mock queue if not a simulated insufficient amount
-        if amount != 500_000 {
-            super::increment_huma_redemption_queue(&ctx.accounts.pool_state.to_account_info(), false, true)?;
-        }
-
         Ok(())
     }
 

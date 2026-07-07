@@ -49,3 +49,9 @@ anchor/coverage.profdata
 anchor/scratch/
 anchor/timestamp_before
 anchor/cargo_test_output.txt
+
+# localnet orchestration ignores
+scripts/admin-key.json
+scripts/localnet-state/
+.surfpool/
+anchor/show_output.txt

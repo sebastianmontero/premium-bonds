@@ -556,6 +556,7 @@ fn test_claim_redemption_e2e_happy_path() {
     // Inject simulated Huma lender state
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim redemption
     send_e2e_claim_redemption_for_user(
@@ -788,6 +789,7 @@ fn test_claim_redemption_fails_huma_disburse_error() {
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim with FAIL_DISBURSE_PUBKEY
     let res = send_e2e_claim_redemption_for_user(
@@ -889,6 +891,7 @@ fn test_claim_redemption_fails_wrong_owner() {
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Setup another user who will try to claim User A's redemption
     let attacker = Keypair::new();

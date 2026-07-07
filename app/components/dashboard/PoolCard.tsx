@@ -18,7 +18,9 @@ export function PoolCard({
   onWithdraw,
 }: PoolCardProps) {
   const isFrozen = pool.isFrozenForDraw;
-  const ticketCount = userTickets?.activeTicketsCount ?? 0;
+  const activeTicketsCount = userTickets?.activeTicketsCount ?? 0;
+  const totalTicketsCount =
+    activeTicketsCount + (userTickets?.pendingTicketsCount ?? 0);
 
   return (
     <div
@@ -64,8 +66,8 @@ export function PoolCard({
           accent="text-gradient"
         />
         <StatCell
-          label="Your Tickets"
-          value={ticketCount.toLocaleString()}
+          label="Your Active Tickets"
+          value={activeTicketsCount.toLocaleString()}
           accent="text-primary"
         />
         <StatCell
@@ -135,7 +137,7 @@ export function PoolCard({
         </button>
         <button
           onClick={onWithdraw}
-          disabled={isFrozen || ticketCount === 0}
+          disabled={isFrozen || totalTicketsCount === 0}
           className="btn-ghost flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Withdraw
