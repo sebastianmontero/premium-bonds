@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSolanaClient } from "@solana/react-hooks";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
@@ -14,8 +15,8 @@ interface TimeLeft {
   total: number;
 }
 
-function calcTimeLeft(target: number): TimeLeft {
-  const now = Math.floor(Date.now() / 1000);
+function calcTimeLeft(target: number, offset: number): TimeLeft {
+  const now = Math.floor(Date.now() / 1000) + offset;
   const total = Math.max(0, target - now);
   return {
     days: Math.floor(total / 86400),
@@ -27,7 +28,9 @@ function calcTimeLeft(target: number): TimeLeft {
 }
 
 export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
+  const client = useSolanaClient();
   const [isMounted, setIsMounted] = useState(false);
+  const [clockOffset, setClockOffset] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -38,16 +41,42 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
 
   useEffect(() => {
     let active = true;
+    async function syncClock() {
+      try {
+        const rpc = client.runtime.rpc;
+        const slot = await rpc.getSlot().send();
+        const blockTime = await rpc.getBlockTime(slot).send();
+        if (blockTime !== null && active) {
+          const systemNow = Math.floor(Date.now() / 1000);
+          setClockOffset(Number(blockTime) - systemNow);
+        }
+      } catch {
+        // Silently catch and fallback to local system clock
+      }
+    }
+    syncClock();
+
+    // Periodically resync clock offset (every 10 seconds)
+    const intervalId = setInterval(syncClock, 10000);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [client]);
+
+  useEffect(() => {
+    let active = true;
     const frame = requestAnimationFrame(() => {
       if (active) {
         setIsMounted(true);
-        setTimeLeft(calcTimeLeft(targetTimestamp));
+        setTimeLeft(calcTimeLeft(targetTimestamp, clockOffset));
       }
     });
 
     const id = setInterval(() => {
       if (active) {
-        setTimeLeft(calcTimeLeft(targetTimestamp));
+        setTimeLeft(calcTimeLeft(targetTimestamp, clockOffset));
       }
     }, 1000);
 
@@ -56,11 +85,11 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
       cancelAnimationFrame(frame);
       clearInterval(id);
     };
-  }, [targetTimestamp]);
+  }, [targetTimestamp, clockOffset]);
 
   if (!isMounted) {
     return (
-      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50">
+      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
         <TimeUnit value={0} label="d" />
         <span className="text-on-surface-variant/50">:</span>
         <TimeUnit value={0} label="h" />
@@ -74,16 +103,16 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
 
   if (timeLeft.total <= 0) {
     return (
-      <span className="pill pill-warning animate-yield-pulse">
+      <span className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap">
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Awaiting draw…
+        Awaiting draw
       </span>
     );
   }
 
   if (timeLeft.total < 3600) {
     return (
-      <span className="pill pill-error animate-yield-pulse">
+      <span className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap">
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
         Draw imminent!&nbsp;
         <span className="font-mono">
@@ -95,7 +124,7 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
   }
 
   return (
-    <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface">
+    <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0">
       <TimeUnit value={timeLeft.days} label="d" />
       <span className="text-on-surface-variant/50">:</span>
       <TimeUnit value={timeLeft.hours} label="h" />

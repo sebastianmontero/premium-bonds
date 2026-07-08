@@ -1,9 +1,2 @@
-import {
-  createSolanaRpc,
-  address,
-  createTransaction,
-} from "@solana/kit";
-
-console.log("createSolanaRpc type:", typeof createSolanaRpc);
-console.log("address type:", typeof address);
-console.log("createTransaction type:", typeof createTransaction);
+// Empty file for imports testing, not needed anymore
+console.log("No-op");

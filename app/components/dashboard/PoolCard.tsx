@@ -78,8 +78,8 @@ export function PoolCard({
       </div>
 
       {/* ── Countdown ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between rounded-xl bg-surface-container/80 px-4 py-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-container/80 px-4 py-3">
+        <div className="flex items-center gap-2 shrink-0">
           <svg
             width="16"
             height="16"
@@ -162,7 +162,7 @@ export function PoolCard({
               <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
             </svg>
             <p className="text-sm font-semibold text-on-surface">
-              Draw in progress…
+              Draw in progress
             </p>
           </div>
         </div>

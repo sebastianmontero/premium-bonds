@@ -8,6 +8,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "localnet": "tsx scripts/localnet.ts",
+    "pb-cli": "tsx scripts/pb-cli.ts",
     "start": "next start"
   },
   "description": "Next.js, Tailwind, @solana/react-hooks",
