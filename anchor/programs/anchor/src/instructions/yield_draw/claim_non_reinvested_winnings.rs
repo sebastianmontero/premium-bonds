@@ -94,6 +94,10 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     user_winnings.total_claimed = user_winnings.total_claimed.checked_add(claimable).ok_or(PremiumBondsError::MathOverflow)?;
 
     let pool = &mut ctx.accounts.pool;
+    pool.total_prizes_allocated = pool
+        .total_prizes_allocated
+        .checked_sub(claimable)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     // Calculate $PST shares for the claimable USDC amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
@@ -146,6 +150,11 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.bump = ctx.bumps.pending_redemption;
 
     pool.next_redemption_id = pool.next_redemption_id.checked_add(1).ok_or(PremiumBondsError::MathOverflow)?;
+
+    pool.total_pending_redemptions = pool
+        .total_pending_redemptions
+        .checked_add(claimable)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     msg!(
         "ClaimNonReinvestedWinnings: user={}, claimable={}, pst_shares={}, redemption_id={}",

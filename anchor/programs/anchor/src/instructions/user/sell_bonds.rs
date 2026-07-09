@@ -205,6 +205,11 @@ pub fn handle(
         .checked_add(1)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
+    pool.total_pending_redemptions = pool
+        .total_pending_redemptions
+        .checked_add(expected_principal)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
     msg!(
         "SellBonds: user={}, bonds={}, principal={}, pst_shares={}, redemption_id={}",
         ctx.accounts.user.key(),

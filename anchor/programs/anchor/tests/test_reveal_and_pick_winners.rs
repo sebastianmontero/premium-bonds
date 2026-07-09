@@ -101,7 +101,9 @@ fn inject_pool_custom(
         total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
+        total_prizes_allocated: 10_000_000_000,
         next_redemption_id: 0,
+        total_pending_redemptions: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: is_frozen,
         current_draw_cycle_id: cycle_id,
@@ -480,7 +482,7 @@ fn test_reveal_multi_tier_multi_winner() {
             num_winners: 1,
         },
         anchor::PrizeTier {
-            basis_points: 3000,
+            basis_points: 1000,
             num_winners: 3,
         },
     ];
@@ -496,9 +498,9 @@ fn test_reveal_multi_tier_multi_winner() {
     assert_eq!(pr.winners[0].amount_owed, 700_000);
     assert_eq!(pr.winners[0].tier_index, 0);
 
-    // Tier 1: 3000bps of 1M = 300_000 per winner
+    // Tier 1: 1000bps of 1M = 100_000 per winner
     for i in 1..4 {
-        assert_eq!(pr.winners[i].amount_owed, 300_000);
+        assert_eq!(pr.winners[i].amount_owed, 100_000);
         assert_eq!(pr.winners[i].tier_index, 1);
     }
 }
@@ -507,11 +509,11 @@ fn test_reveal_multi_tier_multi_winner() {
 fn test_reveal_winner_determinism() {
     let tiers = vec![
         anchor::PrizeTier {
-            basis_points: 5000,
+            basis_points: 3000,
             num_winners: 2,
         },
         anchor::PrizeTier {
-            basis_points: 5000,
+            basis_points: 4000,
             num_winners: 1,
         },
     ];
@@ -543,7 +545,7 @@ fn test_reveal_winner_determinism() {
 #[test]
 fn test_reveal_payout_registry_fields() {
     let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
+        basis_points: 5000,
         num_winners: 2,
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 800_000, 5);

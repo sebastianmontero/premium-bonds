@@ -88,6 +88,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
     );
 
     let mut winners_vec = Vec::new();
+    let mut total_distributed: u64 = 0;
 
     for (tier_idx, tier) in pool.prize_tiers.iter().enumerate() {
         let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot);
@@ -109,7 +110,22 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
                 tier_index: tier_idx as u8,
                 amount_reinvested: 0,
             });
+
+            total_distributed = total_distributed
+                .checked_add(prize_per_winner)
+                .ok_or(PremiumBondsError::MathOverflow)?;
         }
+    }
+
+    let dust = draw_cycle
+        .prize_pot
+        .checked_sub(total_distributed)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    if dust > 0 {
+        pool.total_prizes_allocated = pool
+            .total_prizes_allocated
+            .checked_sub(dust)
+            .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
     let payout_registry = &mut ctx.accounts.payout_registry;

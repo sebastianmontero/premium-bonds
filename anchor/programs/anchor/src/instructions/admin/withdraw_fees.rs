@@ -150,6 +150,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     // Update accounting
     pool.total_fees_withdrawn = pool.total_fees_withdrawn.checked_add(amount).unwrap();
     pool.next_redemption_id = pool.next_redemption_id.checked_add(1).unwrap();
+    pool.total_pending_redemptions = pool.total_pending_redemptions.checked_add(amount).unwrap();
 
     msg!(
         "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",

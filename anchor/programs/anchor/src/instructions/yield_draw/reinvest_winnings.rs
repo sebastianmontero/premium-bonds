@@ -147,6 +147,11 @@ pub fn handle(
             .checked_add(cost)
             .ok_or(PremiumBondsError::MathOverflow)?;
 
+        pool.total_prizes_allocated = pool
+            .total_prizes_allocated
+            .checked_sub(cost)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
         // Register new tickets
         crate::utils::registry_add_tickets(
             &ctx.accounts.ticket_registry,

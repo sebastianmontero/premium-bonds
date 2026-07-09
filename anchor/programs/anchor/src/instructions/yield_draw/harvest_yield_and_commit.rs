@@ -94,6 +94,19 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         PremiumBondsError::CycleNotEnded
     );
 
+    // ── Registry merge: Pending → Active ────────────────────────────────────
+    let eligible_locked_count;
+    {
+        let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
+
+        // Snapshot mature active tickets BEFORE merging.
+        eligible_locked_count = ticket_registry.active_tickets_count;
+
+        // O(1) block merge: Pending → Active for NEXT cycle eligibility.
+        ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
+        ticket_registry.pending_tickets_count = 0;
+    }
+
     // ── Accounting-only yield calculation ────────────────────────────────────
     //
     // Read $PST price from Huma PoolState to determine the USDC value of our
@@ -106,17 +119,26 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     // current_value = pool_pst_balance × total_assets / pst_supply
     let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets);
 
-    // The "book value" is everything we've already accounted for:
-    //   principal still deposited + fees already accrued + fees already withdrawn
-    let book_value = pool
-        .total_deposited_principal
-        .checked_add(pool.total_fees_accrued)
-        .unwrap()
-        .checked_add(pool.total_fees_withdrawn)
-        .unwrap();
+    // If there are no active tickets, we do not harvest any yield or accrue fees.
+    // The yield will roll over naturally in the Huma pool and be harvested in a later cycle
+    // when active tickets are present.
+    let yield_generated = if eligible_locked_count > 0 {
+        let fees_in_vault = pool
+            .total_fees_accrued
+            .checked_sub(pool.total_fees_withdrawn)
+            .unwrap();
 
-    // Yield = current market value − book value (saturate to 0 if negative due to rounding)
-    let yield_generated = current_value.saturating_sub(book_value);
+        let book_value = pool
+            .total_deposited_principal
+            .checked_add(fees_in_vault)
+            .unwrap()
+            .checked_add(pool.total_prizes_allocated)
+            .unwrap();
+
+        current_value.saturating_sub(book_value)
+    } else {
+        0
+    };
 
     let fee = pool.calculate_fee(yield_generated);
     let net_yield = yield_generated.checked_sub(fee).unwrap();
@@ -125,19 +147,6 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     if fee > 0 {
         pool.total_fees_accrued = pool.total_fees_accrued.checked_add(fee).unwrap();
         pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
-    }
-
-    // ── Registry merge: Pending → Active ────────────────────────────────────
-    let eligible_locked_count;
-    {
-        let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
-
-        // Snapshot mature active tickets BEFORE merging.
-        eligible_locked_count = ticket_registry.active_tickets_count;
-
-        // O(1) block merge: Pending → Active for NEXT cycle eligibility.
-        ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
-        ticket_registry.pending_tickets_count = 0;
     }
 
     // ── Draw Cycle creation ─────────────────────────────────────────────────
@@ -152,6 +161,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         );
         draw_cycle.status = DrawStatus::AwaitingRandomness;
         pool.is_frozen_for_draw = true;
+
+        pool.total_prizes_allocated = pool
+            .total_prizes_allocated
+            .checked_add(net_yield)
+            .ok_or(PremiumBondsError::MathOverflow)?;
     } else {
         draw_cycle.status = DrawStatus::Complete;
     }

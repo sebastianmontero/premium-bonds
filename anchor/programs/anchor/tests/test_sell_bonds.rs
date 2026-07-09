@@ -510,6 +510,7 @@ fn test_sell_bonds_e2e_happy_path() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.next_redemption_id, 1);
+    assert_eq!(pool.total_pending_redemptions, 3_000_000);
 }
 
 #[test]
@@ -575,6 +576,9 @@ fn test_claim_redemption_e2e_happy_path() {
     // PendingRedemption PDA should be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
+
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_pending_redemptions, 0);
 }
 
 #[test]

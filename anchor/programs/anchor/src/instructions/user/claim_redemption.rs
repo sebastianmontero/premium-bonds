@@ -136,6 +136,12 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         ctx.accounts.token_mint.decimals,
     )?;
 
+    let pool_mut = &mut ctx.accounts.pool;
+    pool_mut.total_pending_redemptions = pool_mut
+        .total_pending_redemptions
+        .checked_sub(pending.amount)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
     msg!(
         "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",
         ctx.accounts.user.key(),

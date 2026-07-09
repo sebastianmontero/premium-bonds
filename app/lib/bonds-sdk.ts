@@ -199,6 +199,8 @@ export interface PrizePoolInfo {
   nextRedemptionId: number;
   totalFeesAccrued: bigint;
   totalFeesWithdrawn: bigint;
+  totalPrizesAllocated: bigint;
+  totalPendingRedemptions: bigint;
 }
 
 export interface DrawCycleInfo {
@@ -261,6 +263,8 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
   let nextRedemptionId = BigInt(0);
   let totalFeesAccrued = BigInt(0);
   let totalFeesWithdrawn = BigInt(0);
+  let totalPrizesAllocated = BigInt(0);
+  let totalPendingRedemptions = BigInt(0);
 
   if (nextRedemptionIdOffset + 8 <= data.byteLength) {
     nextRedemptionId = view.getBigUint64(nextRedemptionIdOffset, true);
@@ -270,6 +274,15 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
   }
   if (nextRedemptionIdOffset + 24 <= data.byteLength) {
     totalFeesWithdrawn = view.getBigUint64(nextRedemptionIdOffset + 16, true);
+  }
+  if (nextRedemptionIdOffset + 32 <= data.byteLength) {
+    totalPrizesAllocated = view.getBigUint64(nextRedemptionIdOffset + 24, true);
+  }
+  if (nextRedemptionIdOffset + 40 <= data.byteLength) {
+    totalPendingRedemptions = view.getBigUint64(
+      nextRedemptionIdOffset + 32,
+      true
+    );
   }
 
   return {
@@ -290,6 +303,8 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
     nextRedemptionId: Number(nextRedemptionId),
     totalFeesAccrued,
     totalFeesWithdrawn,
+    totalPrizesAllocated,
+    totalPendingRedemptions,
   };
 }
 
@@ -381,6 +396,82 @@ export function parsePayoutRegistry(data: Uint8Array): PayoutRegistryInfo {
     winnersCount,
     payoutsCompleted,
     winners,
+  };
+}
+
+export interface UserWinningsInfo {
+  poolId: number;
+  user: Address;
+  unclaimedNonReinvestedWinnings: bigint;
+  totalClaimed: bigint;
+  totalReinvested: bigint;
+  bump: number;
+}
+
+export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
+  if (data.length < 69) {
+    throw new Error(`UserWinnings data too short (${data.length} bytes)`);
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const poolId = view.getUint32(8, true);
+  const user = base58Decoder.decode(data.slice(12, 12 + 32)) as Address;
+  const unclaimedNonReinvestedWinnings = view.getBigUint64(44, true);
+  const totalClaimed = view.getBigUint64(52, true);
+  const totalReinvested = view.getBigUint64(60, true);
+  const bump = view.getUint8(68);
+
+  return {
+    poolId,
+    user,
+    unclaimedNonReinvestedWinnings,
+    totalClaimed,
+    totalReinvested,
+    bump,
+  };
+}
+
+export interface PendingRedemptionInfo {
+  poolId: number;
+  redemptionId: bigint;
+  user: Address;
+  amount: bigint;
+  pstSharesLocked: bigint;
+  requestedAt: bigint;
+  humaRequestId: bigint;
+  bump: number;
+}
+
+export function parsePendingRedemption(
+  data: Uint8Array
+): PendingRedemptionInfo {
+  if (data.length < 93) {
+    throw new Error(`PendingRedemption data too short (${data.length} bytes)`);
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const poolId = view.getUint32(8, true);
+  const redemptionId = view.getBigUint64(12, true);
+  const user = base58Decoder.decode(data.slice(20, 20 + 32)) as Address;
+  const amount = view.getBigUint64(52, true);
+  const pstSharesLocked = view.getBigUint64(60, true);
+  const requestedAt = view.getBigInt64(68, true);
+
+  const low = view.getBigUint64(76, true);
+  const high = view.getBigUint64(76 + 8, true);
+  const humaRequestId = (high << BigInt(64)) | low;
+
+  const bump = view.getUint8(92);
+
+  return {
+    poolId,
+    redemptionId,
+    user,
+    amount,
+    pstSharesLocked,
+    requestedAt,
+    humaRequestId,
+    bump,
   };
 }
 

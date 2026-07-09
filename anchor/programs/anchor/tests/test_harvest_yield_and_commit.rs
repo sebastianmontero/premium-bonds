@@ -146,7 +146,9 @@ fn inject_pool_custom(
         total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
+        total_prizes_allocated: 0,
         next_redemption_id: 0,
+        total_pending_redemptions: 0,
         current_cycle_end_at: cycle_end_at,
         is_frozen_for_draw: is_frozen,
         current_draw_cycle_id: cycle_id,
@@ -518,13 +520,13 @@ fn test_harvest_happy_path_yield_no_eligible() {
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Complete);
-    assert_eq!(dc.cycle_fee_collected, 25_000);
-    assert_eq!(dc.prize_pot, 475_000);
+    assert_eq!(dc.cycle_fee_collected, 0);
+    assert_eq!(dc.prize_pot, 0);
     assert_eq!(dc.locked_ticket_count, 0);
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_fees_accrued, 25_000);
-    assert_eq!(pool.total_fees_collected, 25_000);
+    assert_eq!(pool.total_fees_accrued, 0);
+    assert_eq!(pool.total_fees_collected, 0);
 }
 
 #[test]

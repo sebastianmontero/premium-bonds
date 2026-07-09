@@ -38,6 +38,10 @@ import { MOCK_POOL } from "../mock-data";
 interface ExtendedPoolInfo extends PoolInfo {
   ticketRegistry?: string;
   nextRedemptionId?: number;
+  totalFeesAccrued?: bigint;
+  totalFeesWithdrawn?: bigint;
+  totalPrizesAllocated?: bigint;
+  totalPendingRedemptions?: bigint;
 }
 
 interface ParsedHumaPool {
@@ -216,8 +220,23 @@ export function useBondsContract(poolId: number = 1) {
               );
               const { assets } = parseHumaPoolState(humaBytes);
               const totalPrincipal = BigInt(poolInfo.totalDepositedPrincipal);
-              if (assets > totalPrincipal) {
-                poolInfo.estimatedPrizePot = Number(assets - totalPrincipal);
+              const totalPrizesAllocated = poolInfo.totalPrizesAllocated || 0n;
+              const totalFeesAccrued = poolInfo.totalFeesAccrued || 0n;
+              const totalFeesWithdrawn = poolInfo.totalFeesWithdrawn || 0n;
+              const feesInVault =
+                totalFeesAccrued > totalFeesWithdrawn
+                  ? totalFeesAccrued - totalFeesWithdrawn
+                  : 0n;
+              const totalPendingRedemptions =
+                poolInfo.totalPendingRedemptions || 0n;
+              const totalLiabilities =
+                totalPrincipal +
+                totalPrizesAllocated +
+                feesInVault +
+                totalPendingRedemptions;
+
+              if (assets > totalLiabilities) {
+                poolInfo.estimatedPrizePot = Number(assets - totalLiabilities);
               } else {
                 poolInfo.estimatedPrizePot = 0;
               }

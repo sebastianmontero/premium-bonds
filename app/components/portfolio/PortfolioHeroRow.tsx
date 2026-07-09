@@ -10,6 +10,7 @@ interface PortfolioHeroRowProps {
   pendingTickets: number;
   lifetimeWinnings: number;
   autoReinvestedTotal: number;
+  nonReinvestedWinnings: number;
   tokenSymbol: string;
   tokenDecimals: number;
 }
@@ -22,6 +23,7 @@ export function PortfolioHeroRow({
   pendingTickets,
   lifetimeWinnings,
   autoReinvestedTotal,
+  nonReinvestedWinnings,
   tokenSymbol,
   tokenDecimals,
 }: PortfolioHeroRowProps) {
@@ -125,6 +127,16 @@ export function PortfolioHeroRow({
             {tokenSymbol}
           </span>
         </p>
+        <p className="text-xs text-on-surface-variant">
+          <span className="font-mono text-on-surface">
+            ${formatTokenAmount(autoReinvestedTotal, tokenDecimals)}
+          </span>{" "}
+          reinvested ·{" "}
+          <span className="font-mono text-on-surface">
+            ${formatTokenAmount(nonReinvestedWinnings, tokenDecimals)}
+          </span>{" "}
+          non-reinvested
+        </p>
       </div>
 
       {/* ── Auto-Reinvested ───────────────────────────────────────────── */}
@@ -154,6 +166,15 @@ export function PortfolioHeroRow({
           <span className="ml-1.5 text-base font-medium text-on-surface-variant">
             {tokenSymbol}
           </span>
+        </p>
+        <p className="text-xs text-on-surface-variant">
+          <span className="font-mono text-on-surface">
+            {lifetimeWinnings > 0
+              ? ((autoReinvestedTotal / lifetimeWinnings) * 100).toFixed(1)
+              : "0.0"}
+            %
+          </span>{" "}
+          reinvestment rate
         </p>
       </div>
     </div>

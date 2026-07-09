@@ -10,6 +10,8 @@ import {
   getBase64EncodedWireTransaction,
   getBase64Encoder,
   KeyPairSigner,
+  getBase58Decoder,
+  Base58EncodedBytes,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -26,6 +28,12 @@ import {
   buildHarvestYieldAndCommitInstruction,
   buildRevealAndPickWinnersInstruction,
   buildReinvestWinningsInstruction,
+  findUserWinningsPda,
+  findPendingRedemptionPda,
+  parseUserWinnings,
+  parsePendingRedemption,
+  encodeU32,
+  PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
 
 // ─── Help / Usage ────────────────────────────────────────────────────────────
@@ -44,6 +52,8 @@ Commands:
   query-pool           Query and display the Prize Pool state
   query-draw           Query and display the current Draw Cycle state
   query-payout         Query and display the Payout Registry state
+  query-winnings [usr] Query and display User Winnings (specify user pubkey or omit to list all)
+  query-redemption [id] Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)
   reinvest             Reinvest draw winnings back into principal/tickets
 
 Options:
@@ -54,6 +64,7 @@ Options:
   --cycle <number>     Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
   --winner <idx|addr>  Winner index or public key to reinvest (default: all unprocessed winners)
   --max-bonds <number> Maximum bonds to buy per reinvest transaction (default: 1000)
+  --user <pubkey>      User public key filter/target (for query-winnings or query-redemption)
   --help, -h           Show this help message
 `);
 }
@@ -340,6 +351,7 @@ async function main() {
   Next Redemption ID: ${state.nextRedemptionId}
   Total Fees Accrued: ${formatAmount(state.totalFeesAccrued)}
   Total Fees Withdrawn: ${formatAmount(state.totalFeesWithdrawn)}
+  Total Prizes Allocated: ${formatAmount(state.totalPrizesAllocated)}
 `);
       break;
     }
@@ -637,6 +649,206 @@ async function main() {
         }
       }
       console.log("Reinvestment process completed successfully!");
+      break;
+    }
+
+    case "query-winnings": {
+      const userOption = options["--user"] || positionals[0];
+
+      if (userOption) {
+        // Query specific user winnings account
+        const userWinningsPda = await findUserWinningsPda(poolId, userOption);
+        console.log(
+          `Querying User Winnings for User ${userOption} at ${userWinningsPda}...`
+        );
+
+        const account = await rpc
+          .getAccountInfo(userWinningsPda, { encoding: "base64" })
+          .send();
+
+        if (!account || !account.value) {
+          console.log(
+            `No UserWinnings account found for user ${userOption} in pool ${poolId}.`
+          );
+          break;
+        }
+
+        const bytes = new Uint8Array(
+          base64Encoder.encode(account.value.data[0])
+        );
+        const state = parseUserWinnings(bytes);
+
+        console.log(`User Winnings details:
+  Pool ID: ${state.poolId}
+  User: ${state.user}
+  PDA: ${userWinningsPda}
+  Unclaimed Non-Reinvested Winnings: ${formatAmount(state.unclaimedNonReinvestedWinnings)}
+  Total Claimed: ${formatAmount(state.totalClaimed)}
+  Total Reinvested: ${formatAmount(state.totalReinvested)}
+  Bump: ${state.bump}
+`);
+      } else {
+        // List all user winnings in the pool
+        console.log(
+          `Fetching all User Winnings accounts for Pool ${poolId}...`
+        );
+        const base58Decoder = getBase58Decoder();
+        const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
+
+        const filters = [
+          { dataSize: 69n },
+          {
+            memcmp: {
+              offset: 8n,
+              bytes: poolIdBase58 as Base58EncodedBytes,
+              encoding: "base58" as const,
+            },
+          },
+        ];
+
+        const accounts = await rpc
+          .getProgramAccounts(PROGRAM_ID, {
+            filters,
+            encoding: "base64",
+          })
+          .send();
+
+        console.log(
+          `Listing User Winnings for Pool ${poolId} (${accounts.length} found):`
+        );
+        accounts.forEach((acc) => {
+          const bytes = new Uint8Array(
+            base64Encoder.encode(acc.account.data[0])
+          );
+          const state = parseUserWinnings(bytes);
+          console.log(`  User: ${state.user}`);
+          console.log(`    PDA: ${acc.pubkey}`);
+          console.log(
+            `    Unclaimed Non-Reinvested Winnings: ${formatAmount(state.unclaimedNonReinvestedWinnings)}`
+          );
+          console.log(`    Total Claimed: ${formatAmount(state.totalClaimed)}`);
+          console.log(
+            `    Total Reinvested: ${formatAmount(state.totalReinvested)}`
+          );
+          console.log(`    Bump: ${state.bump}`);
+          console.log("");
+        });
+      }
+      break;
+    }
+
+    case "query-redemption": {
+      const redemptionIdOption = positionals[0];
+      const userOption = options["--user"];
+
+      if (redemptionIdOption) {
+        // Query specific pending redemption account
+        const redemptionId = BigInt(redemptionIdOption);
+        const redemptionPda = await findPendingRedemptionPda(
+          poolId,
+          redemptionId
+        );
+        console.log(
+          `Querying Pending Redemption ID ${redemptionId} for Pool ${poolId} at ${redemptionPda}...`
+        );
+
+        const account = await rpc
+          .getAccountInfo(redemptionPda, { encoding: "base64" })
+          .send();
+
+        if (!account || !account.value) {
+          console.log(
+            `No PendingRedemption account found for ID ${redemptionId} in pool ${poolId}.`
+          );
+          break;
+        }
+
+        const bytes = new Uint8Array(
+          base64Encoder.encode(account.value.data[0])
+        );
+        const state = parsePendingRedemption(bytes);
+
+        console.log(`Pending Redemption details:
+  Pool ID: ${state.poolId}
+  Redemption ID: ${state.redemptionId.toString()}
+  PDA: ${redemptionPda}
+  User/Beneficiary: ${state.user}
+  Amount (USD/USDC): ${formatAmount(state.amount)}
+  PST Shares Locked: ${formatAmount(state.pstSharesLocked)}
+  Requested At: ${new Date(Number(state.requestedAt) * 1000).toLocaleString()}
+  Huma Request ID: ${state.humaRequestId.toString()}
+  Bump: ${state.bump}
+`);
+      } else {
+        // List pending redemptions (optionally filtered by user)
+        console.log(
+          `Fetching Pending Redemptions for Pool ${poolId}${userOption ? ` filtered by User: ${userOption}` : ""}...`
+        );
+        const base58Decoder = getBase58Decoder();
+        const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
+
+        const filters = [
+          { dataSize: 93n },
+          {
+            memcmp: {
+              offset: 8n,
+              bytes: poolIdBase58 as Base58EncodedBytes,
+              encoding: "base58" as const,
+            },
+          },
+        ];
+
+        if (userOption) {
+          filters.push({
+            memcmp: {
+              offset: 20n,
+              bytes: userOption as Base58EncodedBytes,
+              encoding: "base58" as const,
+            },
+          });
+        }
+
+        const accounts = await rpc
+          .getProgramAccounts(PROGRAM_ID, {
+            filters,
+            encoding: "base64",
+          })
+          .send();
+
+        const parsedRedemptions = accounts.map((acc) => {
+          const bytes = new Uint8Array(
+            base64Encoder.encode(acc.account.data[0])
+          );
+          const state = parsePendingRedemption(bytes);
+          return { pubkey: acc.pubkey, state };
+        });
+
+        // Sort by redemptionId ascending
+        parsedRedemptions.sort((a, b) => {
+          if (a.state.redemptionId < b.state.redemptionId) return -1;
+          if (a.state.redemptionId > b.state.redemptionId) return 1;
+          return 0;
+        });
+
+        console.log(
+          `Listing Pending Redemptions for Pool ${poolId}${userOption ? ` (filtered by User: ${userOption})` : ""} (${parsedRedemptions.length} found):`
+        );
+        parsedRedemptions.forEach(({ pubkey, state }) => {
+          console.log(`  Redemption ID: ${state.redemptionId.toString()}`);
+          console.log(`    PDA: ${pubkey}`);
+          console.log(`    User/Beneficiary: ${state.user}`);
+          console.log(`    Amount (USD/USDC): ${formatAmount(state.amount)}`);
+          console.log(
+            `    PST Shares Locked: ${formatAmount(state.pstSharesLocked)}`
+          );
+          console.log(
+            `    Requested At: ${new Date(Number(state.requestedAt) * 1000).toLocaleString()}`
+          );
+          console.log(`    Huma Request ID: ${state.humaRequestId.toString()}`);
+          console.log(`    Bump: ${state.bump}`);
+          console.log("");
+        });
+      }
       break;
     }
 

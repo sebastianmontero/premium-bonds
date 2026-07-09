@@ -109,6 +109,8 @@ pub fn handle(
     pool.next_redemption_id = 0;
     pool.total_fees_accrued = 0;
     pool.total_fees_withdrawn = 0;
+    pool.total_prizes_allocated = 0;
+    pool.total_pending_redemptions = 0;
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);

@@ -48,6 +48,10 @@ pub struct PrizePool {
     pub total_fees_accrued: u64,
     /// Fees already withdrawn by admin via withdraw_fees instruction.
     pub total_fees_withdrawn: u64,
+    /// Total prizes currently allocated/committed (waiting in payout registry or user winnings but not yet reinvested/claimed).
+    pub total_prizes_allocated: u64,
+    /// Total outstanding pending redemptions (bond sales, winnings claims, fee withdrawals).
+    pub total_pending_redemptions: u64,
 }
 
 use crate::error::PremiumBondsError;
@@ -152,6 +156,8 @@ mod tests {
             next_redemption_id: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
         }
     }
 

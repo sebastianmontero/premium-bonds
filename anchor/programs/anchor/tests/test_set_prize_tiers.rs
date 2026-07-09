@@ -95,7 +95,9 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         current_draw_cycle_id: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
+        total_prizes_allocated: 0,
         next_redemption_id: 0,
+        total_pending_redemptions: 0,
         prize_tiers: vec![],
     };
 

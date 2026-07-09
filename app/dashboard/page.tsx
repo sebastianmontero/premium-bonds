@@ -93,6 +93,8 @@ export default function DashboardPage() {
         onChainWinnings.totalReinvested +
         onChainWinnings.unclaimedNonReinvestedWinnings
       : lifetimeWinnings;
+  const activeNonReinvestedWinnings =
+    activeLifetimeWinnings - activeAutoReinvestedTotal;
 
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
   const pendingRedemptionsTotal = activePendingRedemptions.reduce(
@@ -357,6 +359,7 @@ export default function DashboardPage() {
         pendingTickets={activeTickets.pendingTicketsCount}
         lifetimeWinnings={activeLifetimeWinnings}
         autoReinvestedTotal={activeAutoReinvestedTotal}
+        nonReinvestedWinnings={activeNonReinvestedWinnings}
         tokenSymbol={activePool.tokenSymbol}
         tokenDecimals={activePool.tokenDecimals}
       />

@@ -1493,18 +1493,20 @@ async function handleYield(args: string[]) {
   const prizeTiersLen = poolBuffer.readUInt32LE(157);
   const postTiersOffset = 161 + prizeTiersLen * 6;
 
-  if (poolBuffer.length < postTiersOffset + 24) {
+  if (poolBuffer.length < postTiersOffset + 32) {
     console.error(
-      "Error: PrizePool account data is too short to read fee fields."
+      "Error: PrizePool account data is too short to read allocated prizes field."
     );
     process.exit(1);
   }
 
   const totalFeesAccrued = poolBuffer.readBigUInt64LE(postTiersOffset + 8);
   const totalFeesWithdrawn = poolBuffer.readBigUInt64LE(postTiersOffset + 16);
+  const totalPrizesAllocated = poolBuffer.readBigUInt64LE(postTiersOffset + 24);
 
+  const feesInVault = totalFeesAccrued - totalFeesWithdrawn;
   const bookValue =
-    totalDepositedPrincipal + totalFeesAccrued + totalFeesWithdrawn;
+    totalDepositedPrincipal + feesInVault + totalPrizesAllocated;
 
   console.log(`Fetching PST Mint account: ${addresses.pstMint}...`);
   const pstMintInfo = await rpc
