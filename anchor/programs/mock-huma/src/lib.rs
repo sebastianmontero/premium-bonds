@@ -102,6 +102,9 @@ pub mod mock_huma {
             assets, // 1:1 for test simplicity
         )?;
 
+        // 3. Update total_assets in PoolState to reflect the new capital
+        update_pool_total_assets(&ctx.accounts.pool_state.to_account_info(), assets as i128)?;
+
         msg!("MockHuma: deposited {} USDC, minted {} PST", assets, assets);
         Ok(())
     }
@@ -249,6 +252,23 @@ pub fn increment_huma_redemption_queue(
         data[redemption_offset + 16..redemption_offset + 32].copy_from_slice(&last_request_id.to_le_bytes());
     }
 
+    Ok(())
+}
+
+/// Read/write the u128 `total_assets` field at offset 30 in the mock PoolState.
+/// `delta` is signed: positive for deposits, negative for withdrawals.
+pub fn update_pool_total_assets(pool_state_info: &AccountInfo, delta: i128) -> Result<()> {
+    let mut data = pool_state_info.try_borrow_mut_data()?;
+    if data.len() < 46 {
+        return Ok(());
+    }
+    let current = u128::from_le_bytes(data[30..46].try_into().unwrap());
+    let updated = if delta >= 0 {
+        current.checked_add(delta as u128).unwrap_or(u128::MAX)
+    } else {
+        current.saturating_sub((-delta) as u128)
+    };
+    data[30..46].copy_from_slice(&updated.to_le_bytes());
     Ok(())
 }
 

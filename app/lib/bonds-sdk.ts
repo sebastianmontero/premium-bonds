@@ -475,6 +475,48 @@ export function parsePendingRedemption(
   };
 }
 
+export interface TicketRegistryInfo {
+  poolId: number;
+  capacity: number;
+  activeTicketsCount: number;
+  pendingTicketsCount: number;
+  tickets: Address[];
+}
+
+export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
+  if (data.length < 24) {
+    throw new Error(`TicketRegistry data too short (${data.length} bytes)`);
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const poolId = view.getUint32(8, true);
+  const capacity = view.getUint32(12, true);
+  const activeTicketsCount = view.getUint32(16, true);
+  const pendingTicketsCount = view.getUint32(20, true);
+
+  const ticketsCount = activeTicketsCount + pendingTicketsCount;
+  const tickets: Address[] = [];
+
+  for (let i = 0; i < ticketsCount; i++) {
+    const offset = 24 + i * 32;
+    if (offset + 32 > data.byteLength) {
+      break;
+    }
+    const ticketOwner = base58Decoder.decode(
+      data.slice(offset, offset + 32)
+    ) as Address;
+    tickets.push(ticketOwner);
+  }
+
+  return {
+    poolId,
+    capacity,
+    activeTicketsCount,
+    pendingTicketsCount,
+    tickets,
+  };
+}
+
 // ─── Instruction Builders ────────────────────────────────────────────────────
 
 export interface HarvestInstructionParams {

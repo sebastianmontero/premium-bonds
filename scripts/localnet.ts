@@ -1347,7 +1347,7 @@ async function handleSettle(args: string[]) {
   );
   rawData.writeBigUInt64LE(newLast >> 64n, redemptionOffset + 24);
 
-  // Set Huma pool state account
+  // Set Huma pool state account (queue IDs updated)
   await setAccount(
     addresses.humaPoolState,
     Number(poolStateInfo.value.lamports),
@@ -1355,6 +1355,110 @@ async function handleSettle(args: string[]) {
     poolStateInfo.value.owner,
     poolStateInfo.value.executable
   );
+
+  // ── Simulate Huma epoch processing ─────────────────────────────────────
+  // The real Huma burns escrowed PST and decrements total_assets during
+  // epoch settlement. The mock doesn't do this, so we simulate it here
+  // by editing the mint supply and pool_state total_assets directly.
+
+  // 1. Read escrowed PST balance from huma_pool_mode_token
+  console.log(
+    `Reading escrowed PST from huma_pool_mode_token: ${addresses.humaPoolModeToken}...`
+  );
+  const modeTokenInfo = await rpc
+    .getAccountInfo(address(addresses.humaPoolModeToken))
+    .send();
+
+  let escrowedPst = 0n;
+  if (modeTokenInfo?.value) {
+    const modeTokenBuffer = Buffer.from(modeTokenInfo.value.data[0], "base64");
+    if (modeTokenBuffer.length >= 72) {
+      escrowedPst = modeTokenBuffer.readBigUInt64LE(64);
+    }
+  }
+
+  if (escrowedPst > 0n) {
+    // 2. Read PST mint supply
+    const pstMintInfo = await rpc
+      .getAccountInfo(address(addresses.pstMint))
+      .send();
+    if (!pstMintInfo?.value) {
+      console.error("Error: PST Mint account does not exist.");
+      process.exit(1);
+    }
+    const pstMintBuffer = Buffer.from(pstMintInfo.value.data[0], "base64");
+    const pstSupply = pstMintBuffer.readBigUInt64LE(36);
+
+    // 3. Read current total_assets from pool_state (re-read after queue update)
+    const updatedPoolStateInfo = await rpc
+      .getAccountInfo(address(addresses.humaPoolState))
+      .send();
+    const updatedRawData = Buffer.from(
+      updatedPoolStateInfo!.value!.data[0],
+      "base64"
+    );
+    const totalAssetsLow = updatedRawData.readBigUInt64LE(30);
+    const totalAssetsHigh = updatedRawData.readBigUInt64LE(38);
+    const totalAssets = (totalAssetsHigh << 64n) | totalAssetsLow;
+
+    // 4. Compute USDC value of escrowed PST and decrement total_assets
+    let usdcValue = 0n;
+    if (pstSupply > 0n && totalAssets > 0n) {
+      usdcValue = (escrowedPst * totalAssets) / pstSupply;
+    } else {
+      usdcValue = escrowedPst; // 1:1 fallback
+    }
+
+    const newTotalAssets =
+      totalAssets > usdcValue ? totalAssets - usdcValue : 0n;
+    updatedRawData.writeBigUInt64LE(newTotalAssets & 0xffffffffffffffffn, 30);
+    updatedRawData.writeBigUInt64LE(newTotalAssets >> 64n, 38);
+
+    await setAccount(
+      addresses.humaPoolState,
+      Number(updatedPoolStateInfo!.value!.lamports),
+      updatedRawData.toString("hex"),
+      updatedPoolStateInfo!.value!.owner,
+      updatedPoolStateInfo!.value!.executable
+    );
+
+    // 5. Burn escrowed PST: decrement mint supply
+    const newSupply = pstSupply - escrowedPst;
+    pstMintBuffer.writeBigUInt64LE(newSupply, 36);
+
+    await setAccount(
+      addresses.pstMint,
+      Number(pstMintInfo.value.lamports),
+      pstMintBuffer.toString("hex"),
+      pstMintInfo.value.owner,
+      pstMintInfo.value.executable
+    );
+
+    // 6. Zero out huma_pool_mode_token balance (PST burned)
+    const modeTokenBuffer2 = Buffer.from(
+      modeTokenInfo!.value!.data[0],
+      "base64"
+    );
+    modeTokenBuffer2.writeBigUInt64LE(0n, 64);
+
+    await setAccount(
+      addresses.humaPoolModeToken,
+      Number(modeTokenInfo!.value!.lamports),
+      modeTokenBuffer2.toString("hex"),
+      modeTokenInfo!.value!.owner,
+      modeTokenInfo!.value!.executable
+    );
+
+    console.log(
+      `Epoch simulation: burned ${escrowedPst} escrowed PST (worth ${Number(usdcValue) / 1_000_000} USDC)`
+    );
+    console.log(`  PST supply: ${pstSupply} → ${newSupply}`);
+    console.log(
+      `  Total assets: ${Number(totalAssets) / 1_000_000} → ${Number(newTotalAssets) / 1_000_000} USDC`
+    );
+  } else {
+    console.log("No escrowed PST to burn — skipping epoch simulation.");
+  }
 
   // Inject/update Huma Lender State with a large settled amount
   console.log(

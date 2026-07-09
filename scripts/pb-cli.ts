@@ -32,6 +32,7 @@ import {
   findPendingRedemptionPda,
   parseUserWinnings,
   parsePendingRedemption,
+  parseTicketRegistry,
   encodeU32,
   PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
@@ -54,6 +55,7 @@ Commands:
   query-payout         Query and display the Payout Registry state
   query-winnings [usr] Query and display User Winnings (specify user pubkey or omit to list all)
   query-redemption [id] Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)
+  query-registry       Query and display the Ticket Registry state (optionally filter with --user)
   reinvest             Reinvest draw winnings back into principal/tickets
 
 Options:
@@ -64,7 +66,7 @@ Options:
   --cycle <number>     Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
   --winner <idx|addr>  Winner index or public key to reinvest (default: all unprocessed winners)
   --max-bonds <number> Maximum bonds to buy per reinvest transaction (default: 1000)
-  --user <pubkey>      User public key filter/target (for query-winnings or query-redemption)
+  --user <pubkey>      User public key filter/target (for query-winnings, query-redemption, or query-registry)
   --help, -h           Show this help message
 `);
 }
@@ -848,6 +850,236 @@ async function main() {
           console.log(`    Bump: ${state.bump}`);
           console.log("");
         });
+      }
+      break;
+    }
+
+    case "query-registry": {
+      const userOption = options["--user"] || positionals[0];
+      if (userOption) {
+        try {
+          address(userOption);
+        } catch {
+          throw new Error(`Invalid user public key address: "${userOption}"`);
+        }
+      }
+
+      // Fetch PrizePool to get ticketRegistry PDA
+      const poolPda = await findPrizePoolPda(poolId);
+      const poolAcc = await rpc
+        .getAccountInfo(poolPda, { encoding: "base64" })
+        .send();
+      if (!poolAcc || !poolAcc.value) {
+        throw new Error(
+          `PrizePool account for pool ${poolId} not found on-chain.`
+        );
+      }
+      const poolBytes = new Uint8Array(
+        base64Encoder.encode(poolAcc.value.data[0])
+      );
+      const poolState = parsePrizePool(poolBytes);
+
+      const registryAddr = poolState.ticketRegistry;
+      console.log(
+        `Fetching Ticket Registry for Pool ${poolId} at ${registryAddr}...`
+      );
+
+      const registryAcc = await rpc
+        .getAccountInfo(address(registryAddr), { encoding: "base64" })
+        .send();
+
+      if (!registryAcc || !registryAcc.value) {
+        throw new Error(
+          `TicketRegistry account at ${registryAddr} not found on-chain.`
+        );
+      }
+
+      const registryBytes = new Uint8Array(
+        base64Encoder.encode(registryAcc.value.data[0])
+      );
+      const registryState = parseTicketRegistry(registryBytes);
+
+      const activeTickets = registryState.tickets.slice(
+        0,
+        registryState.activeTicketsCount
+      );
+      const pendingTickets = registryState.tickets.slice(
+        registryState.activeTicketsCount,
+        registryState.activeTicketsCount + registryState.pendingTicketsCount
+      );
+
+      // Helper function to calculate contiguous ticket index ranges
+      interface TicketRange {
+        owner: string;
+        start: number;
+        end: number;
+        count: number;
+      }
+
+      const getRanges = (
+        ticketsList: string[],
+        startIndexOffset: number
+      ): TicketRange[] => {
+        if (ticketsList.length === 0) return [];
+        const rangesList: TicketRange[] = [];
+        let currentOwner = ticketsList[0];
+        let start = startIndexOffset;
+
+        for (let i = 1; i < ticketsList.length; i++) {
+          if (ticketsList[i] !== currentOwner) {
+            rangesList.push({
+              owner: currentOwner,
+              start,
+              end: startIndexOffset + i - 1,
+              count: startIndexOffset + i - start,
+            });
+            currentOwner = ticketsList[i];
+            start = startIndexOffset + i;
+          }
+        }
+        rangesList.push({
+          owner: currentOwner,
+          start,
+          end: startIndexOffset + ticketsList.length - 1,
+          count: startIndexOffset + ticketsList.length - start,
+        });
+        return rangesList;
+      };
+
+      const activeRanges = getRanges(activeTickets, 0);
+      const pendingRanges = getRanges(
+        pendingTickets,
+        registryState.activeTicketsCount
+      );
+
+      const formatOwnerLabel = (owner: string): string => {
+        if (owner === "11111111111111111111111111111111") {
+          return "[Empty/Unassigned]";
+        }
+        return owner;
+      };
+
+      if (userOption) {
+        // Filtered for a specific user
+        const targetUser = address(userOption);
+        const userActiveRanges = activeRanges.filter(
+          (r) => r.owner === targetUser
+        );
+        const userPendingRanges = pendingRanges.filter(
+          (r) => r.owner === targetUser
+        );
+
+        let userActiveCount = 0;
+        userActiveRanges.forEach((r) => (userActiveCount += r.count));
+
+        let userPendingCount = 0;
+        userPendingRanges.forEach((r) => (userPendingCount += r.count));
+
+        console.log(`
+Ticket Registry for Pool ${poolId} (Filtered by User: ${targetUser})
+  Registry Address: ${registryAddr}
+  Capacity: ${registryState.capacity}
+  Active Tickets Total (Registry): ${registryState.activeTicketsCount}
+  Pending Tickets Total (Registry): ${registryState.pendingTicketsCount}
+
+User Totals:
+  User Active Tickets: ${userActiveCount}
+  User Pending Tickets: ${userPendingCount}
+  User Total Tickets: ${userActiveCount + userPendingCount}
+`);
+
+        console.log(
+          `User Active Ticket Ranges (${userActiveRanges.length} ranges):`
+        );
+        if (userActiveRanges.length === 0) {
+          console.log("  None");
+        } else {
+          userActiveRanges.forEach((r) => {
+            console.log(`  [${r.start}..${r.end}] (${r.count} ticket(s))`);
+          });
+        }
+
+        console.log(
+          `\nUser Pending Ticket Ranges (${userPendingRanges.length} ranges):`
+        );
+        if (userPendingRanges.length === 0) {
+          console.log("  None");
+        } else {
+          userPendingRanges.forEach((r) => {
+            console.log(`  [${r.start}..${r.end}] (${r.count} ticket(s))`);
+          });
+        }
+      } else {
+        // Unfiltered full display
+        // Calculate Top Ticket Holders
+        const holderMap = new Map<
+          string,
+          { active: number; pending: number }
+        >();
+        activeTickets.forEach((owner) => {
+          const stats = holderMap.get(owner) || { active: 0, pending: 0 };
+          stats.active++;
+          holderMap.set(owner, stats);
+        });
+        pendingTickets.forEach((owner) => {
+          const stats = holderMap.get(owner) || { active: 0, pending: 0 };
+          stats.pending++;
+          holderMap.set(owner, stats);
+        });
+
+        const topHolders = Array.from(holderMap.entries())
+          .map(([owner, stats]) => ({
+            owner,
+            active: stats.active,
+            pending: stats.pending,
+            total: stats.active + stats.pending,
+          }))
+          .sort((a, b) => b.total - a.total);
+
+        console.log(`
+Ticket Registry for Pool ${poolId}
+  Registry Address: ${registryAddr}
+  Capacity: ${registryState.capacity}
+  Active Tickets Count: ${registryState.activeTicketsCount}
+  Pending Tickets Count: ${registryState.pendingTicketsCount}
+  Total Tickets Registered: ${activeTickets.length + pendingTickets.length}
+`);
+
+        console.log("Top Ticket Holders:");
+        if (topHolders.length === 0) {
+          console.log("  No ticket holders found.");
+        } else {
+          topHolders.slice(0, 10).forEach((holder, idx) => {
+            console.log(
+              `  [${idx + 1}] ${formatOwnerLabel(holder.owner)}: ${holder.total} ticket(s) (Active: ${holder.active}, Pending: ${holder.pending})`
+            );
+          });
+          if (topHolders.length > 10) {
+            console.log(`  ... and ${topHolders.length - 10} other holder(s).`);
+          }
+        }
+
+        console.log(`\nActive Ranges (${activeRanges.length} ranges):`);
+        if (activeRanges.length === 0) {
+          console.log("  None");
+        } else {
+          activeRanges.forEach((r) => {
+            console.log(
+              `  [${r.start}..${r.end}] Owner: ${formatOwnerLabel(r.owner)} (${r.count} ticket(s))`
+            );
+          });
+        }
+
+        console.log(`\nPending Ranges (${pendingRanges.length} ranges):`);
+        if (pendingRanges.length === 0) {
+          console.log("  None");
+        } else {
+          pendingRanges.forEach((r) => {
+            console.log(
+              `  [${r.start}..${r.end}] Owner: ${formatOwnerLabel(r.owner)} (${r.count} ticket(s))`
+            );
+          });
+        }
       }
       break;
     }
