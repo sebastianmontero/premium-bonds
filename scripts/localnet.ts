@@ -60,7 +60,7 @@ function printUsage() {
     "                        --pool-id / -i specifies which pool to target (defaults to 1)."
   );
   console.log(
-    "  settle [--count <n>]  Updates mock Huma queue to enable the redemption of pending requests"
+    "  settle [--count <n>]  Updates mock Huma queue to enable the redemption of pending requests (settles all by default)"
   );
   console.log("  yield <amount_usdc> [--pool-id <id> | -i <id>]");
   console.log(
@@ -1239,7 +1239,7 @@ async function handleStart() {
 }
 
 async function handleSettle(args: string[]) {
-  let count = 1;
+  let count = -1; // sentinel: -1 means "settle all pending"
   const countEq = args.find((a) => a.startsWith("--count="));
   const cEq = args.find((a) => a.startsWith("-c="));
   const countIndex = args.indexOf("--count");
@@ -1324,6 +1324,19 @@ async function handleSettle(args: string[]) {
   console.log(`  last_request_id: ${last}`);
   console.log(`  Pending requests: ${pendingCount}`);
 
+  // Resolve sentinel: settle all pending if no explicit count given
+  if (count === -1) {
+    count = pendingCount;
+    console.log(
+      `No --count specified, settling all ${count} pending requests.`
+    );
+  }
+
+  if (count === 0) {
+    console.log("No pending requests to settle.");
+    return;
+  }
+
   if (count > pendingCount) {
     console.log(
       `Warning: requested to settle ${count} requests, but only ${pendingCount} are currently pending.`
@@ -1402,9 +1415,11 @@ async function handleSettle(args: string[]) {
     const totalAssets = (totalAssetsHigh << 64n) | totalAssetsLow;
 
     // 4. Compute USDC value of escrowed PST and decrement total_assets
+    // Use ceiling division to avoid rounding down by 1 micro-USDC, which would
+    // leave the pool_vault underfunded when claim_redemption transfers exact principal.
     let usdcValue = 0n;
     if (pstSupply > 0n && totalAssets > 0n) {
-      usdcValue = (escrowedPst * totalAssets) / pstSupply;
+      usdcValue = (escrowedPst * totalAssets + pstSupply - 1n) / pstSupply;
     } else {
       usdcValue = escrowedPst; // 1:1 fallback
     }

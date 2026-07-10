@@ -142,24 +142,34 @@ pub mod mock_huma {
     }
 
     /// Mock `disburse`: transfers USDC from pool → lender.
+    ///
+    /// The amount is read from `lender_state[8..16]` (the "owed" field), but
+    /// capped to the available `pool_underlying_token` balance so that
+    /// sequential disburse calls against a shared funding pool never fail
+    /// with SPL-Token InsufficientFunds.
+    ///
+    /// After each transfer, `lender_state` is decremented by the disbursed
+    /// amount so that subsequent calls see the reduced remaining balance.
     pub fn disburse(ctx: Context<MockDisburse>) -> Result<()> {
         if ctx.accounts.huma_config.key() == FAIL_DISBURSE_PUBKEY {
             msg!("MockHuma: simulated disburse failure triggered");
             return err!(MockHumaError::SimulatedDisburseFailure);
         }
 
-        // For mock, disburse all available USDC in the lender_state "owed" field.
-        let pool_mode_balance = ctx.accounts.pool_underlying_token.amount;
+        let available = ctx.accounts.pool_underlying_token.amount;
 
-        // In the mock, disburse the lender_state data as the amount.
-        let amount = {
+        // Read the owed amount from lender_state.
+        let owed = {
             let data = ctx.accounts.lender_state.try_borrow_data()?;
             if data.len() >= 16 {
                 u64::from_le_bytes(data[8..16].try_into().unwrap())
             } else {
-                pool_mode_balance // fallback
+                available // fallback
             }
         };
+
+        // Cap to available balance so sequential disburse calls don't over-draw.
+        let amount = owed.min(available);
 
         if amount > 0 && amount != 500_000 {
             // Transfer USDC: pool_underlying_token → lender_underlying_token
@@ -184,7 +194,17 @@ pub mod mock_huma {
                 amount,
                 ctx.accounts.underlying_mint.decimals,
             )?;
-            msg!("MockHuma: disbursed {} USDC to lender", amount);
+
+            // Decrement lender_state owed amount so next disburse sees the remainder.
+            {
+                let mut data = ctx.accounts.lender_state.try_borrow_mut_data()?;
+                if data.len() >= 16 {
+                    let remaining = owed.saturating_sub(amount);
+                    data[8..16].copy_from_slice(&remaining.to_le_bytes());
+                }
+            }
+
+            msg!("MockHuma: disbursed {} USDC to lender (remaining owed: {})", amount, owed.saturating_sub(amount));
         } else {
             msg!("MockHuma: disburse 0 or insufficient (500_000), nothing to transfer");
         }
