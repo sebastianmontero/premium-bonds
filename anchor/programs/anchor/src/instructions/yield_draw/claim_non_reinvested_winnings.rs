@@ -2,6 +2,7 @@ use crate::constants::{
     DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED,
 };
 use crate::error::PremiumBondsError;
+use crate::events::WinningsClaimed;
 use crate::huma;
 use crate::state::{PendingRedemption, PrizePool, UserWinnings};
 use anchor_lang::prelude::*;
@@ -163,6 +164,14 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         pst_shares,
         pending.redemption_id,
     );
+
+    emit!(WinningsClaimed {
+        user: ctx.accounts.user.key(),
+        pool_id: pool.pool_id,
+        amount: claimable,
+        redemption_id: pending.redemption_id,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

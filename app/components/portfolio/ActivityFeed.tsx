@@ -115,31 +115,56 @@ function formatFeedDate(isoDate: string): string {
 
 export function ActivityFeed({ entries }: ActivityFeedProps) {
   return (
-    <div className="glass-strong rounded-2xl p-6 h-full">
-      <div className="space-y-0">
-        {entries.map((entry) => (
-          <div key={entry.id} className="timeline-item py-3">
-            {/* Timeline dot */}
-            <div className={`timeline-dot ${dotColor(entry.type)}`} />
+    <div className="glass-strong rounded-2xl p-6 h-full flex flex-col">
+      {entries.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-8 text-center h-full border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-on-surface-variant/40 mb-2"
+          >
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+          <p className="text-xs font-semibold text-on-surface-variant">
+            No activity yet
+          </p>
+          <p className="text-[10px] text-on-surface-variant/60 max-w-[200px] mt-0.5">
+            Your transactions, prize claims, and reinvestment events will be
+            logged here.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-0">
+          {entries.map((entry) => (
+            <div key={entry.id} className="timeline-item py-3">
+              {/* Timeline dot */}
+              <div className={`timeline-dot ${dotColor(entry.type)}`} />
 
-            {/* Content */}
-            <div className="flex items-start gap-2">
-              {typeIcon(entry.type)}
-              <div className="flex-1 min-w-0">
-                <p
-                  className="text-xs font-medium text-on-surface-variant"
-                  suppressHydrationWarning
-                >
-                  {formatFeedDate(entry.date)}
-                </p>
-                <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
-                  {entry.description}
-                </p>
+              {/* Content */}
+              <div className="flex items-start gap-2">
+                {typeIcon(entry.type)}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-xs font-medium text-on-surface-variant"
+                    suppressHydrationWarning
+                  >
+                    {formatFeedDate(entry.date)}
+                  </p>
+                  <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
+                    {entry.description}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

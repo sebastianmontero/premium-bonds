@@ -68,6 +68,7 @@ export interface PrizeHistoryEntry {
   date: string; // ISO date string
   tierIndex: number; // 0 = Grand Prize, 1 = Runner-up, 2 = Consolation
   amount: number; // base units (total amount won in this draw)
+  winnerIndex: number; // index in PayoutRegistry.winners[] — needed for crank
   status: PrizeStatus;
   amountReinvested: number; // how much has been reinvested so far
   dustAccumulated?: number; // dust accumulated from this draw (when finalized)

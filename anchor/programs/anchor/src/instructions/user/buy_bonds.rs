@@ -1,4 +1,5 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
+use crate::events::BondsPurchased;
 use crate::huma;
 use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
 
@@ -157,6 +158,14 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         &ctx.accounts.user.key(),
         bonds_to_buy,
     )?;
+
+    emit!(BondsPurchased {
+        user: ctx.accounts.user.key(),
+        pool_id: pool.pool_id,
+        bonds: bonds_to_buy,
+        amount,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

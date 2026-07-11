@@ -1,5 +1,6 @@
 use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::BondsSold;
 use crate::huma;
 use crate::state::{PendingRedemption, PrizePool, TicketRegistry};
 use crate::utils::{swap_and_pop_active, swap_and_pop_pending};
@@ -218,6 +219,15 @@ pub fn handle(
         pst_shares,
         pending.redemption_id,
     );
+
+    emit!(BondsSold {
+        user: ctx.accounts.user.key(),
+        pool_id: pool.pool_id,
+        bonds: bonds_to_sell,
+        principal: expected_principal,
+        redemption_id: pending.redemption_id,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

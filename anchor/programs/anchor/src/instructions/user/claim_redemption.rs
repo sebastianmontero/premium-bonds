@@ -1,5 +1,6 @@
 use crate::constants::{PENDING_REDEMPTION_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::RedemptionClaimed;
 use crate::huma;
 use crate::state::{PendingRedemption, PrizePool};
 use anchor_lang::prelude::*;
@@ -149,6 +150,14 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         pending.redemption_id,
         pending.huma_request_id,
     );
+
+    emit!(RedemptionClaimed {
+        user: ctx.accounts.user.key(),
+        pool_id: pool_mut.pool_id,
+        amount: pending.amount,
+        redemption_id: pending.redemption_id,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     // PendingRedemption is closed automatically via `close = user` constraint
 

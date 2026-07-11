@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
+import { useDrawHistory } from "@/app/hooks/useDrawHistory";
+import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
 import { PoolCard } from "@/app/components/dashboard/PoolCard";
@@ -34,8 +36,9 @@ import type {
 } from "@/app/types";
 
 export default function DashboardPage() {
-  const { status } = useWalletConnection();
+  const { status, wallet } = useWalletConnection();
   const isConnected = status === "connected";
+  const userAddress = wallet?.account.address.toString();
 
   const {
     pool: onChainPool,
@@ -47,22 +50,53 @@ export default function DashboardPage() {
     actions,
   } = useBondsContract(1);
 
+  // Active pool for deriving parameters
+  const activePool = isConnected && onChainPool ? onChainPool : MOCK_POOL;
+
+  // ── On-chain Draw History & Activity Feed hooks ──
+  const {
+    prizeHistory: onChainPrizeHistory,
+    recentWinners: onChainRecentWinners,
+    isLoading: isDrawHistoryLoading,
+    refetch: refetchDrawHistory,
+  } = useDrawHistory(
+    1,
+    isConnected && onChainPool ? onChainPool.currentDrawCycleId : undefined,
+    isConnected ? userAddress : undefined,
+    activePool.tokenSymbol,
+    activePool.bondPrice
+  );
+
+  const {
+    entries: onChainActivityFeed,
+    isLoading: isActivityLoading,
+    refetch: refetchActivity,
+    prependLocal,
+  } = useActivityFeed(
+    isConnected ? userAddress : undefined,
+    activePool.tokenDecimals
+  );
+
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
-  const [crankingCycles, setCrankingCycles] = useState<Record<number, boolean>>(
+  const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
     {}
   );
+
+  /** Composite key for crankingCycles to disambiguate entries in the same draw cycle */
+  const crankKey = (drawCycleId: number, winnerIndex: number) =>
+    `${drawCycleId}-${winnerIndex}`;
 
   // Fallbacks to mock data when wallet is not connected
   const [pendingRedemptions, setPendingRedemptions] = useState<
     PendingRedemption[]
   >(INITIAL_PENDING_REDEMPTIONS);
-  const [prizeHistory, setPrizeHistory] =
+  const [mockPrizeHistory, setMockPrizeHistory] =
     useState<PrizeHistoryEntry[]>(MOCK_PRIZE_HISTORY);
-  const [activityFeed, setActivityFeed] =
+  const [mockActivityFeed, setMockActivityFeed] =
     useState<ActivityEntry[]>(MOCK_ACTIVITY_FEED);
 
   const [unclaimedWinningsBalance, setUnclaimedWinningsBalance] =
@@ -72,8 +106,7 @@ export default function DashboardPage() {
     MOCK_AUTO_REINVESTED_TOTAL
   );
 
-  // Active state selections
-  const activePool = isConnected && onChainPool ? onChainPool : MOCK_POOL;
+  // Active state selections — prefer on-chain data when connected
   const activeTickets =
     isConnected && onChainTickets ? onChainTickets : MOCK_USER_TICKETS;
   const activePendingRedemptions = isConnected
@@ -96,6 +129,17 @@ export default function DashboardPage() {
   const activeNonReinvestedWinnings =
     activeLifetimeWinnings - activeAutoReinvestedTotal;
 
+  // ── Hydrated data: real when connected, mock when disconnected ──
+  const activePrizeHistory = isConnected
+    ? onChainPrizeHistory
+    : mockPrizeHistory;
+  const activeActivityFeed = isConnected
+    ? onChainActivityFeed
+    : mockActivityFeed;
+  const activeRecentWinners = isConnected
+    ? onChainRecentWinners
+    : MOCK_RECENT_WINNERS;
+
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
   const pendingRedemptionsTotal = activePendingRedemptions.reduce(
     (sum, r) => sum + r.amount,
@@ -109,10 +153,6 @@ export default function DashboardPage() {
 
   // Handlers for Deposit/Withdraw Success
   const handleDepositSuccess = (tickets: number, value: number) => {
-    if (isConnected) {
-      refetch();
-    }
-
     const newActivity: ActivityEntry = {
       id: `act-dep-${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
@@ -120,12 +160,28 @@ export default function DashboardPage() {
       description: `Deposited ${value / 1_000_000} USDC → +${tickets} tickets`,
       amount: value,
     };
-    setActivityFeed((prev) => [newActivity, ...prev]);
+
+    if (isConnected) {
+      refetch();
+      refetchDrawHistory();
+      prependLocal(newActivity);
+    } else {
+      setMockActivityFeed((prev) => [newActivity, ...prev]);
+    }
   };
 
   const handleWithdrawSuccess = (tickets: number, value: number) => {
+    const newActivity: ActivityEntry = {
+      id: `act-w-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      type: "withdraw",
+      description: `Requested withdrawal of ${tickets} bonds (${value / 1_000_000} USDC) · Pending settle`,
+      amount: value,
+    };
+
     if (isConnected) {
       refetch();
+      prependLocal(newActivity);
     } else {
       const newRedemption: PendingRedemption = {
         redemptionId: `red-w-${Date.now()}`,
@@ -135,33 +191,33 @@ export default function DashboardPage() {
         type: "bond_sale",
       };
       setPendingRedemptions((prev) => [newRedemption, ...prev]);
+      setMockActivityFeed((prev) => [newActivity, ...prev]);
     }
-
-    const newActivity: ActivityEntry = {
-      id: `act-w-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      type: "withdraw",
-      description: `Requested withdrawal of ${tickets} bonds (${value / 1_000_000} USDC) · Pending settle`,
-      amount: value,
-    };
-    setActivityFeed((prev) => [newActivity, ...prev]);
   };
 
   // Handlers for Prize Crank Reinvestment & Dust Claiming
-  const handleSimulateCrank = async (drawCycleId: number) => {
-    const entry = prizeHistory.find((p) => p.drawCycleId === drawCycleId);
+  const handleSimulateCrank = async (
+    drawCycleId: number,
+    winnerIndex: number
+  ) => {
+    const entry = activePrizeHistory.find(
+      (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+    );
     if (!entry) return;
     if (entry.status === "reinvested") return;
-    if (crankingCycles[drawCycleId]) return;
+    const key = crankKey(drawCycleId, winnerIndex);
+    if (crankingCycles[key]) return;
 
     // Set status to cranking
-    setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: true }));
+    setCrankingCycles((prev) => ({ ...prev, [key]: true }));
 
     try {
       if (isConnected) {
         // Run contract reinvest crank (max 5 bonds batch)
-        await actions.reinvestWinnings(drawCycleId, 0, 5);
+        await actions.reinvestWinnings(drawCycleId, entry.winnerIndex, 5);
         refetch();
+        refetchDrawHistory();
+        refetchActivity();
       } else {
         // Simulate a realistic 1.5-second transaction processing delay
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -200,10 +256,10 @@ export default function DashboardPage() {
           dustAmount = postBatchRemaining; // Any leftovers < 1 bond is dust
         }
 
-        // Update Prize History
-        setPrizeHistory((prev) =>
+        // Update Prize History (mock path only)
+        setMockPrizeHistory((prev) =>
           prev.map((p) =>
-            p.drawCycleId === drawCycleId
+            p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
               ? {
                   ...p,
                   status: finalStatus,
@@ -216,7 +272,10 @@ export default function DashboardPage() {
         );
 
         // If modal is open and showing this entry, update the modal's selected entry state too
-        if (selectedPrizeDetails?.drawCycleId === drawCycleId) {
+        if (
+          selectedPrizeDetails?.drawCycleId === drawCycleId &&
+          selectedPrizeDetails?.winnerIndex === winnerIndex
+        ) {
           setSelectedPrizeDetails((prev) =>
             prev
               ? {
@@ -253,13 +312,13 @@ export default function DashboardPage() {
             : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
           amount: batchReinvestedAmount,
         };
-        setActivityFeed((prev) => [newActivity, ...prev]);
+        setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
     } catch (err) {
       console.error("Reinvest crank failed:", err);
     } finally {
       // Clear cranking status
-      setCrankingCycles((prev) => ({ ...prev, [drawCycleId]: false }));
+      setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -268,15 +327,22 @@ export default function DashboardPage() {
 
     const claimAmount = activeUnclaimedWinnings;
 
+    const newActivity: ActivityEntry = {
+      id: `act-claim-dust-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      type: "win",
+      description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
+      amount: claimAmount,
+    };
+
     try {
       if (isConnected) {
         await actions.claimNonReinvestedWinnings();
         refetch();
+        refetchDrawHistory();
+        prependLocal(newActivity);
       } else {
-        // Reset the unclaimed dust balance
         setUnclaimedWinningsBalance(0);
-
-        // Add to pending redemptions as a prize claim settling
         const newRedemption: PendingRedemption = {
           redemptionId: `red-dust-claim-${Date.now()}`,
           amount: claimAmount,
@@ -285,16 +351,8 @@ export default function DashboardPage() {
           type: "prize_claim",
         };
         setPendingRedemptions((prev) => [newRedemption, ...prev]);
+        setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
-
-      const newActivity: ActivityEntry = {
-        id: `act-claim-dust-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
-        type: "win",
-        description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
-        amount: claimAmount,
-      };
-      setActivityFeed((prev) => [newActivity, ...prev]);
     } catch (err) {
       console.error("Failed to claim dust on-chain:", err);
     }
@@ -332,7 +390,12 @@ export default function DashboardPage() {
         } of $${redemption.amount / 1_000_000} USDC to wallet`,
         amount: redemption.amount,
       };
-      setActivityFeed((prev) => [newActivity, ...prev]);
+
+      if (isConnected) {
+        prependLocal(newActivity);
+      } else {
+        setMockActivityFeed((prev) => [newActivity, ...prev]);
+      }
     } catch (err) {
       console.error("Failed to claim redemption on-chain:", err);
     }
@@ -428,14 +491,14 @@ export default function DashboardPage() {
             </h2>
           </div>
           <div className="flex-1 min-h-0">
-            <ActivityFeed entries={activityFeed} />
+            <ActivityFeed entries={activeActivityFeed} />
           </div>
         </div>
       </div>
 
       {/* ── Prize History Ledger ────────────────────────────────────── */}
       <PrizeHistoryLedger
-        entries={prizeHistory}
+        entries={activePrizeHistory}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         unclaimedTotal={activeUnclaimedWinnings}
@@ -448,7 +511,7 @@ export default function DashboardPage() {
 
       {/* ── Recent Winners ─────────────────────────────────────────── */}
       <RecentWinnersTicker
-        winners={MOCK_RECENT_WINNERS}
+        winners={activeRecentWinners}
         tokenDecimals={activePool.tokenDecimals}
       />
 
@@ -476,7 +539,7 @@ export default function DashboardPage() {
       <PrizeDetailsModal
         key={
           selectedPrizeDetails
-            ? `prize-details-${selectedPrizeDetails.drawCycleId}`
+            ? `prize-details-${selectedPrizeDetails.drawCycleId}-${selectedPrizeDetails.tierIndex}-${selectedPrizeDetails.winningTicket || ""}`
             : "prize-details-none"
         }
         entry={selectedPrizeDetails}
@@ -489,7 +552,7 @@ export default function DashboardPage() {
       />
 
       <CompleteLedgerModal
-        entries={prizeHistory}
+        entries={activePrizeHistory}
         isOpen={showCompleteLedger}
         onClose={() => setShowCompleteLedger(false)}
         tokenDecimals={activePool.tokenDecimals}

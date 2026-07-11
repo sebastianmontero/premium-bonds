@@ -2,6 +2,7 @@ use crate::constants::{
     DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED,
 };
 use crate::error::PremiumBondsError;
+use crate::events::DrawCompleted;
 use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
     Winner,
@@ -134,6 +135,14 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
     payout_registry.winners_count = winners_vec.len() as u32;
     payout_registry.payouts_completed = 0;
     payout_registry.winners = winners_vec;
+
+    emit!(DrawCompleted {
+        pool_id: pool.pool_id,
+        cycle_id: draw_cycle.cycle_id,
+        prize_pot: draw_cycle.prize_pot,
+        winners_count: payout_registry.winners_count,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

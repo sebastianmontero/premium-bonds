@@ -10,9 +10,9 @@ interface CompleteLedgerModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
-  onSimulateCrank: (drawCycleId: number) => void;
+  onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
-  crankingCycles?: Record<number, boolean>;
+  crankingCycles?: Record<string, boolean>;
 }
 
 function statusPill(
@@ -367,9 +367,9 @@ export default function CompleteLedgerModal({
                 <div className="text-right">Actions</div>
               </div>
 
-              {filteredEntries.map((entry) => (
+              {filteredEntries.map((entry, index) => (
                 <div
-                  key={entry.drawCycleId}
+                  key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
                   onClick={() => onViewDetails(entry)}
                   className="flex flex-col md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group"
                 >
@@ -436,7 +436,9 @@ export default function CompleteLedgerModal({
                     <div className="flex flex-wrap items-center gap-1.5 mt-0.5 md:mt-0">
                       {statusPill(
                         entry.status,
-                        !!crankingCycles[entry.drawCycleId]
+                        !!crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
                       )}
                       {entry.reinvestedTickets !== undefined &&
                         entry.reinvestedTickets > 0 && (
@@ -472,13 +474,22 @@ export default function CompleteLedgerModal({
                     {(entry.status === "processing" ||
                       entry.status === "partial") && (
                       <button
-                        disabled={!!crankingCycles[entry.drawCycleId]}
+                        disabled={
+                          !!crankingCycles[
+                            `${entry.drawCycleId}-${entry.winnerIndex}`
+                          ]
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSimulateCrank(entry.drawCycleId);
+                          onSimulateCrank(
+                            entry.drawCycleId,
+                            entry.winnerIndex
+                          );
                         }}
                         className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
-                          crankingCycles[entry.drawCycleId]
+                          crankingCycles[
+                            `${entry.drawCycleId}-${entry.winnerIndex}`
+                          ]
                             ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
                             : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
                         }`}
@@ -493,14 +504,18 @@ export default function CompleteLedgerModal({
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           className={`animate-spin ${
-                            crankingCycles[entry.drawCycleId]
+                            crankingCycles[
+                              `${entry.drawCycleId}-${entry.winnerIndex}`
+                            ]
                               ? "duration-1000 text-on-surface-variant/40"
                               : "duration-3000"
                           }`}
                         >
                           <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                         </svg>
-                        {crankingCycles[entry.drawCycleId]
+                        {crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
                           ? "Cranking..."
                           : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
                       </button>

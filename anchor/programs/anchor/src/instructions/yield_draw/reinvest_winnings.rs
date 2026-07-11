@@ -1,5 +1,6 @@
 use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::WinningsReinvested;
 use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserWinnings};
 
 use anchor_lang::prelude::*;
@@ -170,6 +171,16 @@ pub fn handle(
         if is_final_batch { remaining_current.checked_sub(from_current).unwrap_or(0) } else { 0 },
         is_final_batch,
     );
+
+    emit!(WinningsReinvested {
+        winner: ctx.accounts.winner.key(),
+        pool_id: pool.pool_id,
+        cycle_id: _cycle_id,
+        bonds_bought: bonds_to_buy,
+        amount_reinvested: cost,
+        is_final_batch,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }
