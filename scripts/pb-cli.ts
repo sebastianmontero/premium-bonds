@@ -33,6 +33,9 @@ import {
   parseUserWinnings,
   parsePendingRedemption,
   parseTicketRegistry,
+  findPoolVaultPda,
+  findPoolPstVaultPda,
+  findAtaAddress,
   encodeU32,
   PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
@@ -336,8 +339,23 @@ async function main() {
       }
       const bytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
       const state = parsePrizePool(bytes);
-      console.log(`Prize Pool ${poolId}:
+      const poolVault = await findPoolVaultPda(targetPoolId);
+      const poolAta = await findAtaAddress(poolPda, state.tokenMint);
+      const poolPstVault = await findPoolPstVaultPda(targetPoolId);
+
+      const pstMintStr = localnetAddresses.pstMint;
+      let poolPstAtaStr = "N/A (PST Mint not configured)";
+      if (pstMintStr) {
+        const poolPstAta = await findAtaAddress(poolPda, pstMintStr);
+        poolPstAtaStr = poolPstAta.toString();
+      }
+
+      console.log(`Prize Pool ${targetPoolId}:
   Token Mint: ${state.tokenMint}
+  Pool Vault (PDA): ${poolVault}
+  Associated Token Account (ATA): ${poolAta}
+  Pool PST Vault (PDA): ${poolPstVault}
+  Associated PST Token Account (ATA): ${poolPstAtaStr}
   Ticket Registry: ${state.ticketRegistry}
   Fee Wallet: ${state.feeWallet}
   Bond Price: ${formatAmount(state.bondPrice)}

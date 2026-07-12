@@ -264,10 +264,7 @@ export function PrizeHistoryLedger({
                         }
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSimulateCrank(
-                            entry.drawCycleId,
-                            entry.winnerIndex
-                          );
+                          onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
                         }}
                         className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                           crankingCycles[

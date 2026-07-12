@@ -39,3 +39,18 @@
 
 - **Command Execution:** When using `run_command` for any command that might invoke user prompts, ALWAYS set `SafeToAutoRun: false`. Setting this to `true` bypasses standard permission workflows and frequently causes `unexpected user interaction type: not permission` or `context canceled` errors.
 - **Solution Design:** Do not default to the first or easiest solution that comes to mind. Always take a moment to evaluate different possible approaches and trade-offs, and intentionally pick the best, most robust solution before writing code.
+- **Targeted Verification:** Only run verification and testing commands when relevant to the modified files. For example, do not run Rust/Anchor tests (like `cargo test`) if no smart contract files were modified, and do not run TypeScript verification checks (like `npx tsc --noEmit` or `npm run lint`) if no TypeScript/frontend files were modified.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues tracked using the `gh` CLI. See [issue-tracker.md](file:///home/sebastian/vsc-workspace/premium-bonds/docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Canonical triage label vocabulary mapping. See [triage-labels.md](file:///home/sebastian/vsc-workspace/premium-bonds/docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context layout with a root `CONTEXT.md` and ADRs in `docs/adr/`. See [domain.md](file:///home/sebastian/vsc-workspace/premium-bonds/docs/agents/domain.md).

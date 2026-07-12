@@ -150,9 +150,7 @@ export default function PrizeDetailsModal({
                 Verification Status
               </p>
               <div className="mt-1">
-                {crankingCycles[
-                  `${entry.drawCycleId}-${entry.winnerIndex}`
-                ] ? (
+                {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`] ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 animate-pulse">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
                     Cranking...
@@ -557,17 +555,13 @@ export default function PrizeDetailsModal({
             {(entry.status === "processing" || entry.status === "partial") && (
               <button
                 disabled={
-                  !!crankingCycles[
-                    `${entry.drawCycleId}-${entry.winnerIndex}`
-                  ]
+                  !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                 }
                 onClick={() =>
                   onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
                 }
                 className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
-                  crankingCycles[
-                    `${entry.drawCycleId}-${entry.winnerIndex}`
-                  ]
+                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                     ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
                     : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
                 }`}
@@ -582,18 +576,14 @@ export default function PrizeDetailsModal({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className={`animate-spin ${
-                    crankingCycles[
-                      `${entry.drawCycleId}-${entry.winnerIndex}`
-                    ]
+                    crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                       ? "duration-1000 text-on-surface-variant/40"
                       : "duration-3000"
                   }`}
                 >
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                 </svg>
-                {crankingCycles[
-                  `${entry.drawCycleId}-${entry.winnerIndex}`
-                ]
+                {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                   ? "Cranking..."
                   : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
               </button>
