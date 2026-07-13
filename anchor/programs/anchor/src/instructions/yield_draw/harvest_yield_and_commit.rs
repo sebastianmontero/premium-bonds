@@ -55,6 +55,7 @@ pub struct HarvestYieldAndCommit<'info> {
     #[account(
         seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
         bump,
+        token::mint = pst_mint,
         token::token_program = pst_token_program
     )]
     pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,

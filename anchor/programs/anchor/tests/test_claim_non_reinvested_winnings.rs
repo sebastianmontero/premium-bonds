@@ -208,7 +208,7 @@ fn build_claim_ix_with_redemption_id(
         huma_pool_config: dummy,
         huma_pool_state: dummy,
         huma_mode_config: dummy,
-        huma_mode_mint: dummy,
+        huma_mode_mint: pst_mint,
         huma_redemption_request: dummy,
         huma_lender_state: dummy,
         huma_pool_authority: dummy,
@@ -327,4 +327,16 @@ fn test_claim_fails_next_redemption_id_overflow() {
     );
     let err = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_claim_fails_invalid_mode_mint() {
+    let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
+    let fake_mint = Keypair::new().pubkey();
+    inject_mint(&mut ctx.svm, fake_mint, 6);
+
+    ctx.pst_mint = fake_mint;
+
+    let err = send_claim(&mut ctx, 1).unwrap_err();
+    assert!(err.contains("InvalidModeMint"), "Expected InvalidModeMint, got: {err}");
 }

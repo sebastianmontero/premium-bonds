@@ -97,6 +97,12 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         PremiumBondsError::InsufficientFeeBalance
     );
 
+    // Verify that the huma_mode_mint matches the pool_pst_vault mint
+    require!(
+        ctx.accounts.pool_pst_vault.mint == ctx.accounts.huma_mode_mint.key(),
+        PremiumBondsError::InvalidModeMint
+    );
+
     // Calculate $PST shares for the fee amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = {

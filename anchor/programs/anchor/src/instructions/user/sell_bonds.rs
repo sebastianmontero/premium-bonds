@@ -149,6 +149,12 @@ pub fn handle(
         .checked_sub(expected_principal)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
+    // Verify that the huma_mode_mint matches the pool_pst_vault mint
+    require!(
+        ctx.accounts.pool_pst_vault.mint == ctx.accounts.huma_mode_mint.key(),
+        PremiumBondsError::InvalidModeMint
+    );
+
     // Calculate $PST shares to redeem for the principal amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = {

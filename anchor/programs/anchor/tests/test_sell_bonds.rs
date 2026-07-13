@@ -915,3 +915,43 @@ fn test_claim_redemption_fails_wrong_owner() {
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("InvalidRedemptionOwner"));
 }
+
+#[test]
+fn test_sell_bonds_fails_invalid_mode_mint() {
+    let mut ctx = setup_e2e(10);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 3).unwrap();
+
+    let user_a = clone_keypair(&ctx.user);
+
+    // Create a fake mint and configure ctx.pst_mint to it
+    let fake_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
+    ctx.pst_mint = fake_mint;
+
+    let res = send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        vec![],
+        vec![0],
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    );
+
+    assert!(res.is_err());
+    assert!(res.as_ref().unwrap_err().contains("InvalidModeMint"), "got: {:?}", res);
+}

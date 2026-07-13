@@ -56,4 +56,6 @@ pub enum PremiumBondsError {
     NoWinningsToClaim,
     #[msg("Fee basis points must be less than or equal to 10,000 (100%).")]
     InvalidFeeConfig,
+    #[msg("The mode mint does not match the pool's mode mint.")]
+    InvalidModeMint,
 }

@@ -754,3 +754,61 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
         err_str
     );
 }
+
+#[test]
+fn test_withdraw_fees_fails_invalid_mode_mint() {
+    let mut ctx = setup_e2e(10);
+
+    // Set up pool state
+    let (pool_pda, _) = pool_pda(1);
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_fees_accrued = 5_000_000;
+    pool.total_fees_withdrawn = 0;
+    pool.next_redemption_id = 0;
+
+    let mut serialized_pool = vec![];
+    pool.try_serialize(&mut serialized_pool).unwrap();
+    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    ctx.svm
+        .set_account(
+            pool_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data: serialized_pool,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        huma_pool_mode_token,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        0,
+    );
+
+    // Create a fake mint
+    let fake_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
+
+    let ix = build_withdraw_fees_ix(
+        ctx.admin.pubkey(),
+        1,
+        0,
+        pool_pst_vault_pda(1).0,
+        Keypair::new().pubkey(),
+        ctx.huma_pool_state,
+        fake_mint, // Pass fake mint!
+        ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        1_000_000,
+    );
+
+    let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
+    assert!(res.is_err(), "Must fail with InvalidModeMint");
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidModeMint"), "Expected InvalidModeMint error, got: {}", err_str);
+}
