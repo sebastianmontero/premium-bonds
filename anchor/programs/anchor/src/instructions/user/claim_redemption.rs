@@ -116,7 +116,8 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     )?;
 
     // Read updated next_request_id from the queue after Huma disburse
-    let (next_request_id, _) = huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let (next_request_id, _) =
+        huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
     // Verify Huma queue has progressed past our request ID (meaning ours is settled/disbursed)
     require!(

@@ -75,12 +75,15 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
     if total_assets == 0 {
         return usdc_amount; // 1:1 if pool is empty
     }
-    let shares = (usdc_amount as u128)
+    let numerator = (usdc_amount as u128)
         .checked_mul(pst_supply as u128)
         .unwrap()
-        .checked_div(total_assets)
+        .checked_add(total_assets)
+        .unwrap()
+        .checked_sub(1)
         .unwrap();
-    shares as u64
+    let shares = numerator.checked_div(total_assets).unwrap();
+    shares.try_into().unwrap()
 }
 
 /// Calculates the USDC value of a given number of $PST shares.
@@ -98,7 +101,7 @@ pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) 
         .unwrap()
         .checked_div(pst_supply as u128)
         .unwrap();
-    value as u64
+    value.try_into().unwrap()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -441,4 +444,3 @@ pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128
 
     Ok((next_request_id, last_request_id))
 }
-

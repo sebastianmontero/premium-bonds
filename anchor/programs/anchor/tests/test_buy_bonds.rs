@@ -667,7 +667,7 @@ fn test_buy_bonds_fails_huma_deposit_error() {
 #[test]
 fn test_buy_bonds_initializes_user_winnings() {
     let mut ctx = setup_e2e(10);
-    
+
     // Before: user_winnings account should not exist
     let (user_winnings_pda, _) = user_winnings_pda(1, &ctx.user.pubkey());
     assert!(ctx.svm.get_account(&user_winnings_pda).is_none());

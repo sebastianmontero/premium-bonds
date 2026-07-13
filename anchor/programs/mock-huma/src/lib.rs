@@ -135,7 +135,11 @@ pub mod mock_huma {
         )?;
 
         // Increment last_request_id in mock queue
-        super::increment_huma_redemption_queue(&ctx.accounts.pool_state.to_account_info(), true, false)?;
+        super::increment_huma_redemption_queue(
+            &ctx.accounts.pool_state.to_account_info(),
+            true,
+            false,
+        )?;
 
         msg!("MockHuma: redemption request for {} PST shares", shares);
         Ok(())
@@ -178,7 +182,8 @@ pub mod mock_huma {
                 &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
                 ctx.program_id,
             );
-            let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+            let signer_seeds: &[&[&[u8]]] =
+                &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
 
             token_interface::transfer_checked(
                 CpiContext::new_with_signer(
@@ -204,7 +209,11 @@ pub mod mock_huma {
                 }
             }
 
-            msg!("MockHuma: disbursed {} USDC to lender (remaining owed: {})", amount, owed.saturating_sub(amount));
+            msg!(
+                "MockHuma: disbursed {} USDC to lender (remaining owed: {})",
+                amount,
+                owed.saturating_sub(amount)
+            );
         } else {
             msg!("MockHuma: disburse 0 or insufficient (500_000), nothing to transfer");
         }
@@ -232,9 +241,7 @@ pub fn increment_huma_redemption_queue(
     if data.len() < 30 {
         return Ok(());
     }
-    let num_modes = u32::from_le_bytes(
-        data[26..30].try_into().unwrap()
-    ) as usize;
+    let num_modes = u32::from_le_bytes(data[26..30].try_into().unwrap()) as usize;
 
     let mode_config_keys_offset = 30 + num_modes * 216;
     if data.len() < mode_config_keys_offset + 4 {
@@ -259,7 +266,8 @@ pub fn increment_huma_redemption_queue(
                 .unwrap(),
         );
         let next_request_id = next_request_id.checked_add(1).unwrap();
-        data[redemption_offset..redemption_offset + 16].copy_from_slice(&next_request_id.to_le_bytes());
+        data[redemption_offset..redemption_offset + 16]
+            .copy_from_slice(&next_request_id.to_le_bytes());
     }
 
     if increment_last {
@@ -269,7 +277,8 @@ pub fn increment_huma_redemption_queue(
                 .unwrap(),
         );
         let last_request_id = last_request_id.checked_add(1).unwrap();
-        data[redemption_offset + 16..redemption_offset + 32].copy_from_slice(&last_request_id.to_le_bytes());
+        data[redemption_offset + 16..redemption_offset + 32]
+            .copy_from_slice(&last_request_id.to_le_bytes());
     }
 
     Ok(())

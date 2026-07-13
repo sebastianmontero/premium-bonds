@@ -252,3 +252,20 @@ fn test_update_pool_config_unauthorized_admin() {
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"));
 }
+
+#[test]
+fn test_update_pool_config_fails_invalid_fee() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(10_001), None, None);
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidFeeConfig"));
+}

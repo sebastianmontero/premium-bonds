@@ -90,6 +90,10 @@ pub fn handle(
         stake_cycle_duration_hrs > 0,
         PremiumBondsError::InvalidStakeCycleDuration
     );
+    require!(
+        fee_basis_points <= 10000,
+        PremiumBondsError::InvalidFeeConfig
+    );
 
     let pool = &mut ctx.accounts.pool;
     pool.vault_authority_bump = ctx.bumps.pool;

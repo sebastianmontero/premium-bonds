@@ -425,5 +425,9 @@ fn test_set_prize_tiers_fails_on_math_overflow() {
     assert!(result.is_err(), "Must fail on math overflow");
 
     let err_str = format!("{:?}", result.unwrap_err());
-    assert!(err_str.contains("MathOverflow"), "Expected MathOverflow error, got: {}", err_str);
+    assert!(
+        err_str.contains("MathOverflow"),
+        "Expected MathOverflow error, got: {}",
+        err_str
+    );
 }

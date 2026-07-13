@@ -26,7 +26,11 @@ fn pool_pst_vault_pda(id: u32) -> (Pubkey, u8) {
 }
 fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[b"user_winnings", pool_id.to_le_bytes().as_ref(), user.as_ref()],
+        &[
+            b"user_winnings",
+            pool_id.to_le_bytes().as_ref(),
+            user.as_ref(),
+        ],
         &anchor::id(),
     )
 }
@@ -177,11 +181,7 @@ fn inject_user_winnings(
 
 // ─── Instruction builder ─────────────────────────────────────────────────────
 
-fn build_claim_ix(
-    user: Pubkey,
-    pool_id: u32,
-    pst_mint: Pubkey,
-) -> Instruction {
+fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
     build_claim_ix_with_redemption_id(user, pool_id, pst_mint, 0)
 }
 
@@ -222,8 +222,7 @@ fn build_claim_ix_with_redemption_id(
     Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}
-        .data(),
+        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     }
 }
 
@@ -267,10 +266,7 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     }
 }
 
-fn send_claim(
-    ctx: &mut ClaimCtx,
-    pool_id: u32,
-) -> Result<(), String> {
+fn send_claim(ctx: &mut ClaimCtx, pool_id: u32) -> Result<(), String> {
     send_claim_with_redemption_id(ctx, pool_id, 0)
 }
 
@@ -279,12 +275,8 @@ fn send_claim_with_redemption_id(
     pool_id: u32,
     redemption_id: u64,
 ) -> Result<(), String> {
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        pool_id,
-        ctx.pst_mint,
-        redemption_id,
-    );
+    let ix =
+        build_claim_ix_with_redemption_id(ctx.user.pubkey(), pool_id, ctx.pst_mint, redemption_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
@@ -326,7 +318,13 @@ fn test_claim_fails_total_claimed_overflow() {
 fn test_claim_fails_next_redemption_id_overflow() {
     let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
     // Reinject pool with next_redemption_id = u64::MAX
-    inject_pool_with_next_redemption_id(&mut ctx.svm, 1, ctx.token_mint, anchor::PoolStatus::Active, u64::MAX);
+    inject_pool_with_next_redemption_id(
+        &mut ctx.svm,
+        1,
+        ctx.token_mint,
+        anchor::PoolStatus::Active,
+        u64::MAX,
+    );
     let err = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
 }

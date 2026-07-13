@@ -1,6 +1,4 @@
-use crate::constants::{
-    DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED,
-};
+use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::WinningsClaimed;
 use crate::huma;
@@ -92,7 +90,10 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     // Reset unclaimed winnings and increase total claimed
     user_winnings.unclaimed_non_reinvested_winnings = 0;
-    user_winnings.total_claimed = user_winnings.total_claimed.checked_add(claimable).ok_or(PremiumBondsError::MathOverflow)?;
+    user_winnings.total_claimed = user_winnings
+        .total_claimed
+        .checked_add(claimable)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     let pool = &mut ctx.accounts.pool;
     pool.total_prizes_allocated = pool
@@ -111,7 +112,8 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let pst_shares = huma::usdc_to_pst_shares(claimable, pst_supply, total_assets);
 
     // Read current last_request_id from the queue before Huma increments it
-    let (_, huma_request_id) = huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let (_, huma_request_id) =
+        huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
@@ -150,7 +152,10 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
 
-    pool.next_redemption_id = pool.next_redemption_id.checked_add(1).ok_or(PremiumBondsError::MathOverflow)?;
+    pool.next_redemption_id = pool
+        .next_redemption_id
+        .checked_add(1)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     pool.total_pending_redemptions = pool
         .total_pending_redemptions

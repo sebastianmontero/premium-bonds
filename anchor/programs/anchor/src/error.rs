@@ -54,4 +54,6 @@ pub enum PremiumBondsError {
     InsufficientFeeBalance,
     #[msg("No unclaimed non-reinvested winnings to claim.")]
     NoWinningsToClaim,
+    #[msg("Fee basis points must be less than or equal to 10,000 (100%).")]
+    InvalidFeeConfig,
 }

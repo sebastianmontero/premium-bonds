@@ -361,9 +361,9 @@ fn send_claim_redemption_guard(
     let msg = Message::new_with_blockhash(&[ix], Some(&user_kp.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user_kp]).unwrap();
     ctx.svm
-         .send_transaction(tx)
-         .map(|_| ())
-         .map_err(|e| format!("{e:?}"))
+        .send_transaction(tx)
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -376,17 +376,8 @@ fn test_claim_redemption_fails_wrong_user() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, Some(wrong_user));
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
-    let err = send_claim_redemption_guard(
-        &mut ctx,
-        &user_kp,
-        1,
-        0,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap_err();
+    let err =
+        send_claim_redemption_guard(&mut ctx, &user_kp, 1, 0, None, None, None, None).unwrap_err();
     assert!(err.contains("InvalidRedemptionOwner"), "got: {err}");
 }
 
@@ -396,17 +387,9 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
-    let err = send_claim_redemption_guard(
-        &mut ctx,
-        &user_kp,
-        1,
-        0,
-        Some(wrong_mint),
-        None,
-        None,
-        None,
-    )
-    .unwrap_err();
+    let err =
+        send_claim_redemption_guard(&mut ctx, &user_kp, 1, 0, Some(wrong_mint), None, None, None)
+            .unwrap_err();
     assert!(
         err.contains("ConstraintAddress") || err.contains("ConstraintRaw"),
         "Expected address constraint failure, got: {err}"
@@ -418,19 +401,13 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. It will fail to resolve pool account or pending redemption constraint checks.
-    let err = send_claim_redemption_guard(
-        &mut ctx,
-        &user_kp,
-        2,
-        0,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap_err();
+    let err =
+        send_claim_redemption_guard(&mut ctx, &user_kp, 2, 0, None, None, None, None).unwrap_err();
     assert!(
-        err.contains("AccountNotFound") || err.contains("ConstraintSeeds") || err.contains("ConstraintRaw") || err.contains("AccountNotInitialized"),
+        err.contains("AccountNotFound")
+            || err.contains("ConstraintSeeds")
+            || err.contains("ConstraintRaw")
+            || err.contains("AccountNotInitialized"),
         "Expected constraint mismatch error, got: {err}"
     );
 }
@@ -456,7 +433,6 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
         "Expected address check failure for Huma Program, got: {err}"
     );
 }
-
 
 // ═════════════════════════════════════════════════════════════════════════════
 // E2E Happy Path & Failure Tests
@@ -636,4 +612,363 @@ fn test_claim_redemption_fails_simulated_disburse_failure() {
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     assert!(ctx.svm.get_account(&pending_redemption_key).is_some());
+}
+
+fn set_huma_total_assets(svm: &mut LiteSVM, huma_pool_state: Pubkey, assets: u128) {
+    let mut account = svm.get_account(&huma_pool_state).unwrap();
+    account.data[30..46].copy_from_slice(&assets.to_le_bytes());
+    svm.set_account(huma_pool_state, account).unwrap();
+}
+
+fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
+    let (pda, _) = pool_pda(pool_id);
+    let mut pool = read_pool_state(svm, pool_id);
+    pool.total_prizes_allocated = amount;
+    let mut data = vec![];
+    pool.try_serialize(&mut data).unwrap();
+    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    let mut account = svm.get_account(&pda).unwrap();
+    account.data = data;
+    svm.set_account(pda, account).unwrap();
+}
+
+fn send_e2e_claim_winnings_for_user(
+    ctx: &mut E2eContext,
+    user: &Keypair,
+    huma_config: Pubkey,
+    huma_lender_state: Pubkey,
+    huma_pool_mode_token: Pubkey,
+) -> Result<(), String> {
+    let (pool_pda_key, _) = pool_pda(1);
+    let pool = read_pool_state(&ctx.svm, 1);
+    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
+    let dummy = Keypair::new().pubkey();
+    let huma_lender_state = if huma_lender_state == Pubkey::default() {
+        Keypair::new().pubkey()
+    } else {
+        huma_lender_state
+    };
+
+    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
+        user: user.pubkey(),
+        pool: pool_pda_key,
+        user_winnings,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: dummy,
+        huma_lender_state,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
+    ctx.svm
+        .send_transaction(tx)
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn test_claim_redemption_rounding_error_failure() {
+    let mut ctx = setup_e2e(10);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    // Manipulate Huma pool state: total_assets = 10,000,030, pst_supply = 10,000,000
+    // Yield rate is > 1:1 (approx 1.000003 USDC per share)
+    set_huma_total_assets(&mut ctx.svm, ctx.huma_pool_state, 10_000_030);
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // Sell 3 pending bonds -> target USDC = 3,000,000
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        vec![],
+        vec![2, 1, 0],
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let (pending_key, _) = pending_redemption_pda(1, 0);
+    let pending_acct = ctx.svm.get_account(&pending_key).unwrap();
+    let pending_data =
+        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct.data[..]).unwrap();
+
+    // S = ceil(3,000,000 * 10,000,000 / 10,000,030) = 2,999,992 shares
+    // This assertion verifies that ceiling behavior is applied.
+    assert_eq!(pending_data.pst_shares_locked, 2_999_992);
+
+    // Huma payout calculation on old code:
+    // D = floor(2,999,991 * 10,000,030 / 10,000,000) = 2,999,999 USDC
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 2_999_999);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption - MUST FAIL because Huma only disbursed 2,999,999 but program tries to pay 3,000,000.
+    // The pool vault has 0 USDC start balance (all was deposited to Huma during buy_bonds).
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+
+    assert!(res.is_err());
+    // Since vault only has 2,999,999 USDC but attempts to transfer 3,000,000,
+    // the SPL transfer will fail with InsufficientFunds.
+    let err_msg = res.unwrap_err();
+    assert!(
+        err_msg.contains("custom program error: 0x1") || err_msg.contains("InsufficientFunds"),
+        "got: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_claim_redemption_case_a_1_to_1() {
+    let mut ctx = setup_e2e(10);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // Sell 3 pending bonds -> creates PendingRedemption 0
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        vec![],
+        vec![2, 1, 0],
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    // Verify locked shares (exactly 3,000,000 for 1:1)
+    let (pending_key, _) = pending_redemption_pda(1, 0);
+    let pending_acct = ctx.svm.get_account(&pending_key).unwrap();
+    let pending_data =
+        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct.data[..]).unwrap();
+    assert_eq!(pending_data.pst_shares_locked, 3_000_000);
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .expect("Case A: 1:1 redemption claim should succeed");
+
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+}
+
+#[test]
+fn test_claim_redemption_case_b_accrued_yield() {
+    let mut ctx = setup_e2e(10);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        15_000_000, // Mint enough USDC in Huma pool underlying token to cover all redemptions
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    // Manipulate Huma pool state: total_assets = 12_000_030, pst_supply = 10,000,000
+    // Yield rate is > 1:1 (approx 1.200003 USDC per share)
+    set_huma_total_assets(&mut ctx.svm, ctx.huma_pool_state, 12_000_030);
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // ── Operation 1: Sell 3 pending bonds -> target USDC = 3,000,000 ──
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        vec![],
+        vec![2, 1, 0],
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let (pending_key0, _) = pending_redemption_pda(1, 0);
+    let pending_acct0 = ctx.svm.get_account(&pending_key0).unwrap();
+    let pending_data0 =
+        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct0.data[..]).unwrap();
+
+    // Ceiling expectation:
+    // S = ceil(3,000,000 * 10,000,000 / 12,000,030) = 2,499,994 shares
+    assert_eq!(pending_data0.pst_shares_locked, 2_499_994);
+
+    let huma_lender_state0 = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state0, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption 0
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state0,
+    )
+    .expect("Redemption 0 should succeed");
+
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+
+    // ── Operation 2: Claim 2,000,000 USDC winnings ──
+    set_pool_prizes_allocated(&mut ctx.svm, 1, 2_000_000);
+    inject_user_winnings(&mut ctx.svm, 1, user_a.pubkey(), 2_000_000, 0, 0);
+
+    send_e2e_claim_winnings_for_user(
+        &mut ctx,
+        &user_a,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let (pending_key1, _) = pending_redemption_pda(1, 1);
+    let pending_acct1 = ctx.svm.get_account(&pending_key1).unwrap();
+    let pending_data1 =
+        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct1.data[..]).unwrap();
+
+    // Ceiling expectation:
+    // S = ceil(2,000,000 * 10,000,000 / 12,000,030) = 1,666,663 shares
+    assert_eq!(pending_data1.pst_shares_locked, 1_666_663);
+
+    let huma_lender_state1 = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state1, 2_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption 1
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        1,
+        Pubkey::default(),
+        huma_lender_state1,
+    )
+    .expect("Redemption 1 (winnings) should succeed");
+
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 95_000_000);
+
+    // ── Operation 3: Sell remaining 7 pending bonds -> target USDC = 7,000,000 ──
+    // The remaining tickets occupy indices 0..6 in the pending registry
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        vec![],
+        vec![6, 5, 4, 3, 2, 1, 0],
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let (pending_key2, _) = pending_redemption_pda(1, 2);
+    let pending_acct2 = ctx.svm.get_account(&pending_key2).unwrap();
+    let pending_data2 =
+        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct2.data[..]).unwrap();
+
+    // Ceiling expectation:
+    // S = ceil(7,000,000 * 10,000,000 / 12,000,030) = 5,833,319 shares
+    assert_eq!(pending_data2.pst_shares_locked, 5_833_319);
+
+    let huma_lender_state2 = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state2, 7_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption 2
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        2,
+        Pubkey::default(),
+        huma_lender_state2,
+    )
+    .expect("Redemption 2 (remaining bonds) should succeed");
+
+    // Total claimed should be user's start balance (90 USDC) + 10 USDC (bonds principal) + 2 USDC (winnings) = 102 USDC
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 102_000_000);
+
+    // Vault should have 0 USDC left
+    let (pool_vault, _) = pool_vault_pda(1);
+    assert_eq!(read_token_balance(&ctx.svm, pool_vault), 0);
 }

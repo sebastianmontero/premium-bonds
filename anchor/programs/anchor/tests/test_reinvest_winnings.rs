@@ -32,7 +32,11 @@ fn payout_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
 }
 fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[b"user_winnings", pool_id.to_le_bytes().as_ref(), user.as_ref()],
+        &[
+            b"user_winnings",
+            pool_id.to_le_bytes().as_ref(),
+            user.as_ref(),
+        ],
         &anchor::id(),
     )
 }
@@ -247,7 +251,10 @@ fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
 
 fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnings {
     let (pda, _) = user_winnings_pda(1, user);
-    anchor::state::UserWinnings::try_deserialize(&mut svm.get_account(&pda).unwrap().data.as_slice()).unwrap()
+    anchor::state::UserWinnings::try_deserialize(
+        &mut svm.get_account(&pda).unwrap().data.as_slice(),
+    )
+    .unwrap()
 }
 
 fn read_reg_pending(svm: &LiteSVM, reg: Pubkey) -> u32 {
@@ -471,7 +478,7 @@ fn test_reinvest_fails_pool_frozen() {
 fn test_reinvest_using_accumulated_dust() {
     // Setup pool with 1M bond price, winner owes 500K (from current draw).
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
-    
+
     // Inject 600K accumulated dust in UserWinnings PDA first
     inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 600_000, 0, 0);
 
@@ -495,7 +502,7 @@ fn test_reinvest_using_accumulated_dust() {
 fn test_reinvest_fails_total_reinvested_overflow() {
     // Setup pool with 1M bond price, winner owes 1M (from current draw).
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 1_000_000, 0);
-    
+
     // Inject u64::MAX total_reinvested in UserWinnings PDA
     inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 0, 0, u64::MAX);
 

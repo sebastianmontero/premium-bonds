@@ -52,7 +52,11 @@ pub fn pool_pst_vault_pda(pool_id: u32) -> (Pubkey, u8) {
 
 pub fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[b"user_winnings", pool_id.to_le_bytes().as_ref(), user.as_ref()],
+        &[
+            b"user_winnings",
+            pool_id.to_le_bytes().as_ref(),
+            user.as_ref(),
+        ],
         &anchor::id(),
     )
 }
@@ -358,12 +362,53 @@ pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     anchor::PrizePool::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
-pub fn read_user_winnings_state(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
+pub fn read_user_winnings_state(
+    svm: &LiteSVM,
+    pool_id: u32,
+    user: &Pubkey,
+) -> anchor::state::UserWinnings {
     use anchor_lang::AccountDeserialize;
     let (pda, _) = user_winnings_pda(pool_id, user);
-    let acct = svm.get_account(&pda).expect("user winnings account should exist");
+    let acct = svm
+        .get_account(&pda)
+        .expect("user winnings account should exist");
     anchor::state::UserWinnings::try_deserialize(&mut &acct.data[..]).unwrap()
 }
+
+pub fn inject_user_winnings(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    user: Pubkey,
+    unclaimed: u64,
+    total_claimed: u64,
+    total_reinvested: u64,
+) {
+    use anchor_lang::AccountSerialize;
+    let (pda, bump) = user_winnings_pda(pool_id, &user);
+    let uw = anchor::state::UserWinnings {
+        pool_id,
+        user,
+        unclaimed_non_reinvested_winnings: unclaimed,
+        total_claimed,
+        total_reinvested,
+        bump,
+    };
+    let mut d = vec![];
+    uw.try_serialize(&mut d).unwrap();
+    d.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        solana_sdk::account::Account {
+            lamports: 10_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
 
 pub fn read_registry_pending(svm: &LiteSVM, address: Pubkey) -> u32 {
     let acct = svm.get_account(&address).expect("registry should exist");
@@ -641,7 +686,9 @@ pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> Result<(), String
 }
 
 pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count: u64) {
-    let mut account = svm.get_account(&huma_pool_state).expect("Huma pool state account not found");
+    let mut account = svm
+        .get_account(&huma_pool_state)
+        .expect("Huma pool state account not found");
     let data = &mut account.data;
     if data.len() < 30 {
         panic!("Huma pool state account data too short");
@@ -676,7 +723,8 @@ pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count:
     );
     if last_request_id < next_request_id {
         last_request_id = next_request_id;
-        data[redemption_offset + 16..redemption_offset + 32].copy_from_slice(&last_request_id.to_le_bytes());
+        data[redemption_offset + 16..redemption_offset + 32]
+            .copy_from_slice(&last_request_id.to_le_bytes());
     }
 
     svm.set_account(huma_pool_state, account).unwrap();

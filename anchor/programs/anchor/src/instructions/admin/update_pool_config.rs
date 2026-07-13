@@ -31,6 +31,7 @@ pub fn handle(
     let pool = &mut ctx.accounts.pool;
 
     if let Some(v) = new_fee_basis_points {
+        require!(v <= 10000, PremiumBondsError::InvalidFeeConfig);
         pool.fee_basis_points = v;
     }
     if let Some(v) = new_bond_price {
