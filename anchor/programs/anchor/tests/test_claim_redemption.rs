@@ -313,6 +313,9 @@ fn setup_claim_redemption_guard(
 
     let user_token_account = create_spl_token_account(&mut svm, &user, &token_mint, &user.pubkey());
 
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
     let dummy = Keypair::new().pubkey();
 
     ClaimGuardCtx {
@@ -323,7 +326,7 @@ fn setup_claim_redemption_guard(
         user_token_account,
         huma_config: dummy,
         huma_pool_config: dummy,
-        huma_pool_state: dummy,
+        huma_pool_state,
         huma_mode_config: dummy,
         huma_lender_state: dummy,
         huma_pool_authority: dummy,

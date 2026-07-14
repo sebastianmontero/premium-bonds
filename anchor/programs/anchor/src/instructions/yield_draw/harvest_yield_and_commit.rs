@@ -69,7 +69,7 @@ pub struct HarvestYieldAndCommit<'info> {
     // ── Huma Finance read-only account ──────────────────────────────────────
     /// CHECK: Huma PoolState — deserialized manually to read ModeState.assets.
     /// Validated by the Huma program ID ownership check.
-    #[account(owner = crate::constants::HUMA_PROGRAM_ID)]
+    #[account(constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID)]
     pub huma_pool_state: UncheckedAccount<'info>,
 
     pub pst_token_program: Interface<'info, TokenInterface>,

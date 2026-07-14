@@ -60,13 +60,18 @@ pub struct SellBonds<'info> {
     pub huma_config: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
-    #[account(mut)]
+    /// CHECK: Validated by Huma CPI and owner check
+    #[account(
+        mut,
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+    )]
     pub huma_pool_state: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_mode_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
-    pub huma_mode_mint: UncheckedAccount<'info>,
+    #[account(
+        mint::token_program = pst_token_program
+    )]
+    pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Validated by Huma CPI
     #[account(mut)]
     pub huma_redemption_request: UncheckedAccount<'info>,
@@ -157,14 +162,7 @@ pub fn handle(
 
     // Calculate $PST shares to redeem for the principal amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
-    let pst_supply = {
-        // Read supply from the huma_mode_mint (SPL Mint)
-        let mint_info = ctx.accounts.huma_mode_mint.to_account_info();
-        let mint_data_borrowed = mint_info.try_borrow_data()?;
-        // SPL Mint supply is at offset 36 (after mint_authority option (36 bytes))
-        let supply_bytes: [u8; 8] = mint_data_borrowed[36..44].try_into().unwrap();
-        u64::from_le_bytes(supply_bytes)
-    };
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pst_shares = huma::usdc_to_pst_shares(expected_principal, pst_supply, total_assets);
 
     // Read current last_request_id from the queue before Huma increments it

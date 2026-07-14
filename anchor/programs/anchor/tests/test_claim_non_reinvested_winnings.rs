@@ -179,10 +179,26 @@ fn inject_user_winnings(
     .unwrap();
 }
 
+fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
+    let mut huma_pool_state_data = vec![0u8; 512];
+    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: huma_pool_state_data,
+            owner: anchor::constants::HUMA_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
 // ─── Instruction builder ─────────────────────────────────────────────────────
 
 fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
-    build_claim_ix_with_redemption_id(user, pool_id, pst_mint, 0)
+    build_claim_ix_with_redemption_id(user, pool_id, pst_mint, 0, Pubkey::default(), Pubkey::default())
 }
 
 fn build_claim_ix_with_redemption_id(
@@ -190,6 +206,8 @@ fn build_claim_ix_with_redemption_id(
     pool_id: u32,
     pst_mint: Pubkey,
     redemption_id: u64,
+    huma_pool_state: Pubkey,
+    huma_pool_mode_token: Pubkey,
 ) -> Instruction {
     let (pool, _) = pool_pda(pool_id);
     let (user_winnings, _) = user_winnings_pda(pool_id, &user);
@@ -206,13 +224,13 @@ fn build_claim_ix_with_redemption_id(
         huma_program: anchor::constants::HUMA_PROGRAM_ID,
         huma_config: dummy,
         huma_pool_config: dummy,
-        huma_pool_state: dummy,
+        huma_pool_state,
         huma_mode_config: dummy,
         huma_mode_mint: pst_mint,
         huma_redemption_request: dummy,
         huma_lender_state: dummy,
         huma_pool_authority: dummy,
-        huma_pool_mode_token: dummy,
+        huma_pool_mode_token,
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
@@ -233,6 +251,8 @@ struct ClaimCtx {
     user: Keypair,
     token_mint: Pubkey,
     pst_mint: Pubkey,
+    huma_pool_state: Pubkey,
+    huma_pool_mode_token: Pubkey,
 }
 
 fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> ClaimCtx {
@@ -240,6 +260,10 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     let _ = svm.add_program(
         anchor::id(),
         include_bytes!("../../../target/deploy/anchor.so"),
+    );
+    let _ = svm.add_program(
+        anchor::constants::HUMA_PROGRAM_ID,
+        include_bytes!("../../../target/deploy/mock_huma.so"),
     );
 
     let user = Keypair::new();
@@ -254,15 +278,25 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     inject_pool(&mut svm, 1, token_mint, status);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 0);
+    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 1_000_000_000); // Fund vault with PST to pass Huma transfer
 
     inject_user_winnings(&mut svm, 1, user.pubkey(), unclaimed_amount, 0, 0);
+
+    // Setup and inject valid huma_pool_state stub
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    // Setup and inject huma_pool_mode_token
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(&mut svm, huma_pool_mode_token, pst_mint, Pubkey::default(), 0);
 
     ClaimCtx {
         svm,
         user,
         token_mint,
         pst_mint,
+        huma_pool_state,
+        huma_pool_mode_token,
     }
 }
 
@@ -276,7 +310,7 @@ fn send_claim_with_redemption_id(
     redemption_id: u64,
 ) -> Result<(), String> {
     let ix =
-        build_claim_ix_with_redemption_id(ctx.user.pubkey(), pool_id, ctx.pst_mint, redemption_id);
+        build_claim_ix_with_redemption_id(ctx.user.pubkey(), pool_id, ctx.pst_mint, redemption_id, ctx.huma_pool_state, ctx.huma_pool_mode_token);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();

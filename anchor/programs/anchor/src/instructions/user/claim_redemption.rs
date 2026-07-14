@@ -71,8 +71,11 @@ pub struct ClaimRedemption<'info> {
     pub huma_config: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
-    #[account(mut)]
+    /// CHECK: Validated by Huma CPI and owner check
+    #[account(
+        mut,
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+    )]
     pub huma_pool_state: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_mode_config: UncheckedAccount<'info>,
@@ -91,7 +94,12 @@ pub struct ClaimRedemption<'info> {
 
 pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     let pool = &ctx.accounts.pool;
-    let pending = &ctx.accounts.pending_redemption;
+
+    // Copy pending values locally to avoid borrow conflicts and correctly report amounts in events/logs
+    let (redemption_amount, redemption_id, huma_request_id) = {
+        let p = &ctx.accounts.pending_redemption;
+        (p.amount, p.redemption_id, p.huma_request_id)
+    };
 
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
@@ -121,9 +129,12 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
 
     // Verify Huma queue has progressed past our request ID (meaning ours is settled/disbursed)
     require!(
-        next_request_id > pending.huma_request_id,
+        next_request_id > huma_request_id,
         PremiumBondsError::HumaRedemptionNotSettled
     );
+
+    // Prevent re-entrancy: zero out the redemption amount before token transfer CPI
+    ctx.accounts.pending_redemption.amount = 0;
 
     // Transfer owed USDC to user
     let cpi_accounts = TransferChecked {
@@ -134,29 +145,29 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     };
     transfer_checked(
         CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-        pending.amount,
+        redemption_amount,
         ctx.accounts.token_mint.decimals,
     )?;
 
     let pool_mut = &mut ctx.accounts.pool;
     pool_mut.total_pending_redemptions = pool_mut
         .total_pending_redemptions
-        .checked_sub(pending.amount)
+        .checked_sub(redemption_amount)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     msg!(
         "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",
         ctx.accounts.user.key(),
-        pending.amount,
-        pending.redemption_id,
-        pending.huma_request_id,
+        redemption_amount,
+        redemption_id,
+        huma_request_id,
     );
 
     emit!(RedemptionClaimed {
         user: ctx.accounts.user.key(),
         pool_id: pool_mut.pool_id,
-        amount: pending.amount,
-        redemption_id: pending.redemption_id,
+        amount: redemption_amount,
+        redemption_id,
         timestamp: Clock::get()?.unix_timestamp,
     });
 

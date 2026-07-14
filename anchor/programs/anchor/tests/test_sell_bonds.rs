@@ -232,6 +232,8 @@ fn build_sell_bonds_ix(
     ticket_registry: Pubkey,
     active_indices: Vec<u32>,
     pending_indices: Vec<u32>,
+    huma_pool_state: Pubkey,
+    huma_mode_mint: Pubkey,
 ) -> Instruction {
     let (pool, _) = pool_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
@@ -248,9 +250,9 @@ fn build_sell_bonds_ix(
         huma_program: huma_program_id(),
         huma_config: dummy,
         huma_pool_config: dummy,
-        huma_pool_state: dummy,
+        huma_pool_state,
         huma_mode_config: dummy,
-        huma_mode_mint: dummy,
+        huma_mode_mint,
         huma_redemption_request: dummy,
         huma_lender_state: dummy,
         huma_pool_authority: dummy,
@@ -279,6 +281,8 @@ struct GuardCtx {
     user: Keypair,
     token_mint: Pubkey,
     ticket_registry: Pubkey,
+    huma_pool_state: Pubkey,
+    huma_mode_mint: Pubkey,
 }
 
 fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -> GuardCtx {
@@ -310,11 +314,17 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
         is_frozen,
     );
 
+    // Setup and inject valid huma_pool_state stub
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
     GuardCtx {
         svm,
         user,
         token_mint,
         ticket_registry,
+        huma_pool_state,
+        huma_mode_mint: pst_mint,
     }
 }
 
@@ -330,6 +340,8 @@ fn send_sell_guard(
         ctx.ticket_registry,
         active_indices,
         pending_indices,
+        ctx.huma_pool_state,
+        ctx.huma_mode_mint,
     );
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);

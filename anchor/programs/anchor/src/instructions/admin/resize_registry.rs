@@ -39,7 +39,7 @@ pub struct ResizeRegistry<'info> {
         // Anchor handles the CPI rent transfer from `payer` and calls realloc for us.
         realloc = ticket_registry.to_account_info().data_len() + REGISTRY_REALLOC_STEP,
         realloc::payer = payer,
-        realloc::zero = false,
+        realloc::zero = true,
     )]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 

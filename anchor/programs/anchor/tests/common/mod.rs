@@ -729,3 +729,19 @@ pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count:
 
     svm.set_account(huma_pool_state, account).unwrap();
 }
+
+pub fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
+    let mut huma_pool_state_data = vec![0u8; 512];
+    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: huma_pool_state_data,
+            owner: huma_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}

@@ -2,9 +2,9 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::WinningsClaimed;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, UserWinnings};
+use crate::state::{PendingRedemption, PrizePool, UserWinnings, PoolStatus};
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 /// Async claim_non_reinvested_winnings: instead of instant USDC transfer, creates a PendingRedemption
 /// and submits a Huma redemption request. The user calls `claim_redemption` after settlement.
@@ -58,13 +58,18 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     pub huma_config: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
-    #[account(mut)]
+    /// CHECK: Validated by Huma CPI and owner check
+    #[account(
+        mut,
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+    )]
     pub huma_pool_state: UncheckedAccount<'info>,
     /// CHECK: Validated by Huma CPI
     pub huma_mode_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
-    pub huma_mode_mint: UncheckedAccount<'info>,
+    #[account(
+        mint::token_program = pst_token_program
+    )]
+    pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Validated by Huma CPI
     #[account(mut)]
     pub huma_redemption_request: UncheckedAccount<'info>,
@@ -83,6 +88,13 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 }
 
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
+    let pool = &mut ctx.accounts.pool;
+
+    require!(
+        pool.status == PoolStatus::Active,
+        PremiumBondsError::PoolNotActive
+    );
+
     let user_winnings = &mut ctx.accounts.user_winnings;
     let claimable = user_winnings.unclaimed_non_reinvested_winnings;
 
@@ -95,7 +107,6 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         .checked_add(claimable)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    let pool = &mut ctx.accounts.pool;
     pool.total_prizes_allocated = pool
         .total_prizes_allocated
         .checked_sub(claimable)
@@ -109,12 +120,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     // Calculate $PST shares for the claimable USDC amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
-    let pst_supply = {
-        let mint_info = ctx.accounts.huma_mode_mint.to_account_info();
-        let mint_data = mint_info.try_borrow_data()?;
-        let supply_bytes: [u8; 8] = mint_data[36..44].try_into().unwrap();
-        u64::from_le_bytes(supply_bytes)
-    };
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pst_shares = huma::usdc_to_pst_shares(claimable, pst_supply, total_assets);
 
     // Read current last_request_id from the queue before Huma increments it
