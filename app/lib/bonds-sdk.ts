@@ -211,6 +211,8 @@ export interface DrawCycleInfo {
   randomnessSeed: Uint8Array;
   prizePot: bigint;
   cycleFeeCollected: bigint;
+  randomnessAccount: Address;
+  harvestSlot: bigint;
 }
 
 export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
@@ -309,7 +311,7 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
 }
 
 export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
-  if (data.length < 69) {
+  if (data.length < 109) {
     throw new Error(`DrawCycle data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -326,6 +328,8 @@ export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
   const randomnessSeed = new Uint8Array(data.slice(21, 21 + 32));
   const prizePot = view.getBigUint64(53, true);
   const cycleFeeCollected = view.getBigUint64(61, true);
+  const randomnessAccount = base58Decoder.decode(data.slice(69, 69 + 32)) as Address;
+  const harvestSlot = view.getBigUint64(101, true);
 
   return {
     poolId,
@@ -335,6 +339,8 @@ export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
     randomnessSeed,
     prizePot,
     cycleFeeCollected,
+    randomnessAccount,
+    harvestSlot,
   };
 }
 
@@ -526,6 +532,7 @@ export interface HarvestInstructionParams {
   currentDrawCycleId: number;
   pstMint: Address;
   humaPoolState: Address;
+  randomnessAccount: Address;
 }
 
 export async function buildHarvestYieldAndCommitInstruction(
@@ -550,6 +557,7 @@ export async function buildHarvestYieldAndCommitInstruction(
     { address: poolPstVault, role: AccountRole.READONLY },
     { address: params.pstMint, role: AccountRole.READONLY },
     { address: params.humaPoolState, role: AccountRole.READONLY },
+    { address: params.randomnessAccount, role: AccountRole.READONLY },
     { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
     { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
   ];
@@ -566,16 +574,12 @@ export interface RevealInstructionParams {
   poolId: number;
   currentDrawCycleId: number;
   ticketRegistry: Address;
-  randomSeed: Uint8Array; // 32 bytes
+  randomnessAccount: Address;
 }
 
 export async function buildRevealAndPickWinnersInstruction(
   params: RevealInstructionParams
 ) {
-  if (params.randomSeed.length !== 32) {
-    throw new Error("randomSeed must be exactly 32 bytes");
-  }
-
   const globalConfig = await findGlobalConfigPda();
   const pool = await findPrizePoolPda(params.poolId);
   const drawCycle = await findDrawCyclePda(
@@ -587,12 +591,7 @@ export async function buildRevealAndPickWinnersInstruction(
     params.currentDrawCycleId
   );
 
-  const data = new Uint8Array(8 + 32);
-  const discriminator = [70, 108, 21, 126, 214, 41, 209, 144];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-  data.set(params.randomSeed, 8);
+  const discriminator = new Uint8Array([70, 108, 21, 126, 214, 41, 209, 144]);
 
   const accounts = [
     { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
@@ -600,6 +599,7 @@ export async function buildRevealAndPickWinnersInstruction(
     { address: drawCycle, role: AccountRole.WRITABLE },
     { address: pool, role: AccountRole.WRITABLE },
     { address: params.ticketRegistry, role: AccountRole.READONLY },
+    { address: params.randomnessAccount, role: AccountRole.READONLY },
     { address: payoutRegistry, role: AccountRole.WRITABLE },
     { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
   ];
@@ -607,7 +607,7 @@ export async function buildRevealAndPickWinnersInstruction(
   return {
     programAddress: PROGRAM_ID,
     accounts,
-    data,
+    data: discriminator,
   };
 }
 

@@ -194,6 +194,21 @@ fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String>
         &anchor::id(),
     );
 
+    let randomness_account = Keypair::new().pubkey();
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    ctx.svm.set_account(
+        randomness_account,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![],
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
     let accounts = anchor::accounts::HarvestYieldAndCommit {
         crank: ctx.admin.pubkey(),
         global_config,
@@ -203,6 +218,7 @@ fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String>
         pool_pst_vault,
         pst_mint: ctx.pst_mint,
         huma_pool_state: ctx.huma_pool_state,
+        randomness_account,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
     }

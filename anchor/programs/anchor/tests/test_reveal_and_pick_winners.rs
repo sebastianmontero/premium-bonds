@@ -133,6 +133,7 @@ fn inject_draw_cycle(
     status: anchor::DrawStatus,
     locked_ticket_count: u32,
     prize_pot: u64,
+    randomness_account: Pubkey,
 ) {
     let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
     let dc = anchor::DrawCycle {
@@ -143,6 +144,8 @@ fn inject_draw_cycle(
         randomness_seed: [0u8; 32],
         prize_pot,
         cycle_fee_collected: 0,
+        randomness_account,
+        harvest_slot: 0,
     };
     let mut data = vec![];
     dc.try_serialize(&mut data).unwrap();
@@ -203,9 +206,47 @@ struct RevealCtx {
     crank: Keypair,
     ticket_registry: Pubkey,
     tickets: Vec<Pubkey>, // known ticket pubkeys for verification
+    randomness_account: Pubkey,
 }
 
-fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> Instruction {
+fn update_mock_randomness_account(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    seed_slot: u64,
+    reveal_slot: u64,
+    value: [u8; 32],
+) {
+    let mut data = vec![0u8; 8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()];
+    data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
+    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData = bytemuck::Zeroable::zeroed();
+    randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.seed_slothash = [0u8; 32];
+    randomness_data.seed_slot = seed_slot;
+    randomness_data.oracle = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.reveal_slot = reveal_slot;
+    randomness_data.value = value;
+
+    let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
+    data[8..8 + bytes.len()].copy_from_slice(bytes);
+
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32) -> Instruction {
     let (gc, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (dc, _) = draw_cycle_pda(pool_id, cycle_id);
@@ -217,6 +258,7 @@ fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32])
         current_draw_cycle: dc,
         pool,
         ticket_registry: ctx.ticket_registry,
+        randomness_account: ctx.randomness_account,
         payout_registry: payout,
         system_program: anchor_lang::system_program::ID,
     }
@@ -225,7 +267,7 @@ fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32])
     Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::RevealAndPickWinners { random_seed: seed }.data(),
+        data: anchor::instruction::RevealAndPickWinners {}.data(),
     }
 }
 
@@ -235,7 +277,8 @@ fn send_reveal(
     cycle_id: u32,
     seed: [u8; 32],
 ) -> Result<(), String> {
-    let ix = build_reveal_ix(ctx, pool_id, cycle_id, seed);
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 0, 0, seed);
+    let ix = build_reveal_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
@@ -249,20 +292,20 @@ fn send_reveal(
 
 fn read_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     let (pda, _) = pool_pda(pool_id);
-    let acct = svm.get_account(&pda).unwrap();
-    anchor::PrizePool::try_deserialize(&mut acct.data.as_slice()).unwrap()
+    let account = svm.get_account(&pda).unwrap();
+    anchor::PrizePool::try_deserialize(&mut &account.data[..]).unwrap()
 }
 
 fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCycle {
     let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
-    let acct = svm.get_account(&pda).unwrap();
-    anchor::DrawCycle::try_deserialize(&mut acct.data.as_slice()).unwrap()
+    let account = svm.get_account(&pda).unwrap();
+    anchor::DrawCycle::try_deserialize(&mut &account.data[..]).unwrap()
 }
 
 fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
-    let acct = svm.get_account(&pda).unwrap();
-    anchor::PayoutRegistry::try_deserialize(&mut acct.data.as_slice()).unwrap()
+    let account = svm.get_account(&pda).unwrap();
+    anchor::PayoutRegistry::try_deserialize(&mut &account.data[..]).unwrap()
 }
 
 /// Recompute derive_random_index locally (mirrors program logic).
@@ -306,6 +349,10 @@ fn setup_reveal(
     inject_registry(&mut svm, registry, 1, 1000, num_tickets as u32, 0, &tickets);
 
     inject_pool_custom(&mut svm, 1, registry, status, is_frozen, tiers, 0);
+
+    let randomness_account = Keypair::new().pubkey();
+    update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+
     inject_draw_cycle(
         &mut svm,
         1,
@@ -313,6 +360,7 @@ fn setup_reveal(
         anchor::DrawStatus::AwaitingRandomness,
         locked,
         prize_pot,
+        randomness_account,
     );
 
     RevealCtx {
@@ -320,6 +368,7 @@ fn setup_reveal(
         crank,
         ticket_registry: registry,
         tickets,
+        randomness_account,
     }
 }
 
@@ -343,13 +392,18 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
         tiers,
         0,
     );
-    inject_draw_cycle(&mut svm, 1, 0, dc_status, 5, 1_000_000);
+
+    let randomness_account = Keypair::new().pubkey();
+    update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+
+    inject_draw_cycle(&mut svm, 1, 0, dc_status, 5, 1_000_000, randomness_account);
 
     RevealCtx {
         svm,
         crank,
         ticket_registry: registry,
         tickets,
+        randomness_account,
     }
 }
 

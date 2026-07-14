@@ -725,6 +725,21 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     gc_acct.data = new_data;
     svm.set_account(gc_pda, gc_acct).unwrap();
 
+    let randomness_account = Keypair::new().pubkey();
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    svm.set_account(
+        randomness_account,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![],
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::HarvestYieldAndCommit {
@@ -736,6 +751,7 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
             pool_pst_vault,
             pst_mint,
             huma_pool_state: fake_pool_state, // counterfeit
+            randomness_account,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
         }

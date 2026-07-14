@@ -56,3 +56,4 @@ scripts/admin-key.json
 scripts/localnet-state/
 .surfpool/
 anchor/show_output.txt
+scripts/randomness-key.json

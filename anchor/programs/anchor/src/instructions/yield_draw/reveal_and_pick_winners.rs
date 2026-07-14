@@ -26,6 +26,7 @@ pub struct RevealAndPickWinners<'info> {
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
+        constraint = current_draw_cycle.randomness_account == randomness_account.key() @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
@@ -39,6 +40,12 @@ pub struct RevealAndPickWinners<'info> {
 
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// CHECK: Checked by owner constraint and verified against current_draw_cycle above
+    #[account(
+        constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
+    )]
+    pub randomness_account: UncheckedAccount<'info>,
+
     #[account(
         init,
         payer = crank,
@@ -51,7 +58,9 @@ pub struct RevealAndPickWinners<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Result<()> {
+use switchboard_on_demand::accounts::RandomnessAccountData;
+
+pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     require!(
         pool.status == PoolStatus::Active,
@@ -68,6 +77,30 @@ pub fn handle(ctx: Context<RevealAndPickWinners>, random_seed: [u8; 32]) -> Resu
         draw_cycle.status == DrawStatus::AwaitingRandomness,
         PremiumBondsError::InvalidDrawStatus
     );
+
+    // ─── SWITCHBOARD ON-DEMAND RANDOMNESS EXTRACTION ────────────────────────
+    let clock = Clock::get()?;
+    
+    // Parse the Switchboard account data
+    let randomness_data = RandomnessAccountData::parse(
+        ctx.accounts.randomness_account.data.borrow()
+    ).map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
+
+    // Ensure the randomness request was committed AFTER or AT the harvest block
+    require!(
+        randomness_data.seed_slot >= draw_cycle.harvest_slot,
+        PremiumBondsError::StaleRandomnessRequest
+    );
+
+    // Enforce freshness (must be resolved and consumed within 1000 slots)
+    require!(
+        clock.slot.saturating_sub(randomness_data.seed_slot) <= 1000,
+        PremiumBondsError::StaleRandomnessRequest
+    );
+
+    // Retrieve the verified 32-byte VRF output
+    let random_seed = randomness_data.get_value(clock.slot)
+        .map_err(|_| PremiumBondsError::RandomnessNotResolved)?;
 
     draw_cycle.randomness_seed = random_seed;
     draw_cycle.status = DrawStatus::Complete;

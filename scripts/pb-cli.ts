@@ -96,6 +96,59 @@ function loadAddresses(): Record<string, string> {
   return {};
 }
 
+function loadEnvLocal(): Record<string, string> {
+  const envPath = path.resolve(process.cwd(), ".env.local");
+  const env: Record<string, string> = {};
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, "utf-8").split("\n");
+    for (const line of lines) {
+      const match = line.match(/^\s*([^#=\s]+)\s*=\s*(.*)$/);
+      if (match) {
+        let val = match[2].trim();
+        if (val.startsWith('"') && val.endsWith('"')) {
+          val = val.substring(1, val.length - 1);
+        }
+        env[match[1]] = val;
+      }
+    }
+  }
+  return env;
+}
+
+async function setAccount(
+  rpcUrl: string,
+  addr: string,
+  lamports: number,
+  dataHex: string,
+  owner: string,
+  executable: boolean
+) {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: Date.now(),
+      method: "surfnet_setAccount",
+      params: [
+        addr,
+        {
+          lamports,
+          data: dataHex,
+          owner,
+          executable,
+        },
+      ],
+    }),
+  });
+  const json = (await res.json()) as { error?: unknown };
+  if (json.error) {
+    throw new Error(
+      `RPC Error setting account ${addr}: ${JSON.stringify(json.error)}`
+    );
+  }
+}
+
 async function sendTransaction(
   rpc: ReturnType<typeof createSolanaRpc>,
   signer: KeyPairSigner,
@@ -220,11 +273,21 @@ async function main() {
         );
       }
 
+      // Load static randomness account from env
+      const env = loadEnvLocal();
+      const randomnessAccountStr = env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
+      if (!randomnessAccountStr) {
+        throw new Error(
+          "Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run localnet init' first."
+        );
+      }
+
       console.log(`Pool Details:
   Current Draw Cycle ID: ${poolState.currentDrawCycleId}
   Ticket Registry: ${poolState.ticketRegistry}
   PST Mint: ${pstMintStr}
   Huma Pool State: ${humaPoolStateStr}
+  Randomness Account: ${randomnessAccountStr}
 `);
 
       const ix = await buildHarvestYieldAndCommitInstruction({
@@ -234,6 +297,7 @@ async function main() {
         currentDrawCycleId: poolState.currentDrawCycleId,
         pstMint: address(pstMintStr),
         humaPoolState: address(humaPoolStateStr),
+        randomnessAccount: address(randomnessAccountStr),
       });
 
       await sendTransaction(rpc, signer!, ix);
@@ -286,12 +350,67 @@ async function main() {
       console.log(`Using Random Seed (hex): ${seed.toString("hex")}`);
       console.log(`Targeting Draw Cycle ID: ${cycleId}`);
 
+      // Query the DrawCycle account to extract the locked randomnessAccount
+      const drawCyclePda = await findDrawCyclePda(poolId, cycleId);
+      const drawCycleAcc = await rpc
+        .getAccountInfo(drawCyclePda, { encoding: "base64" })
+        .send();
+      if (!drawCycleAcc || !drawCycleAcc.value) {
+        throw new Error(`Draw Cycle account for ID ${cycleId} not found on-chain.`);
+      }
+      const drawCycleBytes = new Uint8Array(
+        base64Encoder.encode(drawCycleAcc.value.data[0])
+      );
+      const drawCycleState = parseDrawCycle(drawCycleBytes);
+      const randomnessAccountStr = drawCycleState.randomnessAccount;
+      console.log(`Extracted locked randomness account: ${randomnessAccountStr}`);
+
+      // Inject mock resolved randomness if on localnet
+      const isLocalnet = rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
+      if (isLocalnet) {
+        console.log("Localnet detected. Injecting mock resolved randomness...");
+
+        const currentSlot = await rpc.getSlot().send();
+        console.log(`Current slot: ${currentSlot}`);
+
+        const buffer = new Uint8Array(400);
+        const view = new DataView(buffer.buffer);
+
+        // Copy discriminator
+        const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
+        buffer.set(discriminator, 0);
+
+        // Set seed_slot at offset 104
+        view.setBigUint64(104, BigInt(currentSlot), true);
+
+        // Set reveal_slot at offset 144
+        view.setBigUint64(144, BigInt(currentSlot), true);
+
+        // Set resolved value/seed at offset 152
+        buffer.set(new Uint8Array(seed), 152);
+
+        const dataHex = Buffer.from(buffer).toString("hex");
+        const sbProgramId = process.env.SB_ENV === "devnet"
+          ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+          : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
+
+        await setAccount(
+          rpcUrl,
+          randomnessAccountStr,
+          1_000_000_000,
+          dataHex,
+          sbProgramId,
+          false
+        );
+        console.log("Mock resolved randomness injected successfully.");
+      }
+
       const ix = await buildRevealAndPickWinnersInstruction({
         crank: signer!.address,
         poolId,
         currentDrawCycleId: cycleId,
         ticketRegistry: address(poolState.ticketRegistry),
-        randomSeed: new Uint8Array(seed),
+        randomnessAccount: address(randomnessAccountStr),
       });
 
       await sendTransaction(rpc, signer!, ix);
@@ -432,6 +551,8 @@ async function main() {
   Randomness Seed (hex): ${Buffer.from(state.randomnessSeed).toString("hex")}
   Prize Pot: ${formatAmount(state.prizePot)}
   Cycle Fee Collected: ${formatAmount(state.cycleFeeCollected)}
+  Randomness Account: ${state.randomnessAccount}
+  Harvest Slot: ${state.harvestSlot.toString()}
 `);
       break;
     }

@@ -92,9 +92,16 @@ pub mod anchor {
 
     pub fn reveal_and_pick_winners(
         ctx: Context<RevealAndPickWinners>,
-        random_seed: [u8; 32],
     ) -> Result<()> {
-        instructions::yield_draw::reveal_and_pick_winners::handle(ctx, random_seed)
+        instructions::yield_draw::reveal_and_pick_winners::handle(ctx)
+    }
+
+    pub fn admin_force_unlock_draw(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
+        instructions::yield_draw::admin_force_unlock_draw::handle(ctx)
+    }
+
+    pub fn crank_rebind_expired_randomness(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
+        instructions::yield_draw::crank_rebind_expired_randomness::handle(ctx)
     }
 
     pub fn claim_non_reinvested_winnings(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {

@@ -58,4 +58,12 @@ pub enum PremiumBondsError {
     InvalidFeeConfig,
     #[msg("The mode mint does not match the pool's mode mint.")]
     InvalidModeMint,
+    #[msg("The provided randomness account is invalid or does not belong to Switchboard.")]
+    InvalidRandomnessAccount,
+    #[msg("The randomness request has not yet been resolved by the oracle network.")]
+    RandomnessNotResolved,
+    #[msg("The randomness request is stale or was committed before the harvest freeze.")]
+    StaleRandomnessRequest,
+    #[msg("The randomness account cannot be re-locked because the current one is not yet expired.")]
+    RandomnessNotExpired,
 }

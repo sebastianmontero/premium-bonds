@@ -72,6 +72,12 @@ pub struct HarvestYieldAndCommit<'info> {
     #[account(constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID)]
     pub huma_pool_state: UncheckedAccount<'info>,
 
+    /// CHECK: Validated in handler via owner check
+    #[account(
+        constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
+    )]
+    pub randomness_account: UncheckedAccount<'info>,
+
     pub pst_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -154,6 +160,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
+    draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
+    draw_cycle.harvest_slot = Clock::get()?.slot;
 
     if yield_generated > 0 && eligible_locked_count > 0 {
         require!(

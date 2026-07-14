@@ -19,6 +19,8 @@ pub struct DrawCycle {
     pub randomness_seed: [u8; 32],
     pub prize_pot: u64,
     pub cycle_fee_collected: u64,
+    pub randomness_account: Pubkey, // Locked Switchboard randomness account
+    pub harvest_slot: u64,          // Track slot of freeze to prevent pre-commitment lookup
 }
 
 #[account]

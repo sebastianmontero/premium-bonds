@@ -251,6 +251,23 @@ struct HarvestCtx {
     pst_mint: Pubkey,
     ticket_registry: Pubkey,
     huma_pool_state: Pubkey,
+    randomness_account: Pubkey,
+}
+
+fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![],
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
 }
 
 fn build_harvest_ix(ctx: &HarvestCtx, pool_id: u32, _cycle_id: u32) -> Instruction {
@@ -271,6 +288,7 @@ fn build_harvest_ix(ctx: &HarvestCtx, pool_id: u32, _cycle_id: u32) -> Instructi
         pool_pst_vault,
         pst_mint: ctx.pst_mint,
         huma_pool_state: ctx.huma_pool_state,
+        randomness_account: ctx.randomness_account,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
     }
@@ -352,6 +370,9 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state, 0);
 
+    let randomness_account = Keypair::new().pubkey();
+    inject_mock_randomness_account(&mut svm, randomness_account);
+
     warp_clock(&mut svm, 1000);
 
     HarvestCtx {
@@ -360,6 +381,7 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
         pst_mint,
         ticket_registry: registry,
         huma_pool_state,
+        randomness_account,
     }
 }
 
@@ -418,6 +440,9 @@ fn setup_happy(
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state, total_assets);
 
+    let randomness_account = Keypair::new().pubkey();
+    inject_mock_randomness_account(&mut svm, randomness_account);
+
     warp_clock(&mut svm, 1000);
 
     HarvestCtx {
@@ -426,6 +451,7 @@ fn setup_happy(
         pst_mint,
         ticket_registry: registry,
         huma_pool_state,
+        randomness_account,
     }
 }
 
