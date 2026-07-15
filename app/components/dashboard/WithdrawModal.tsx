@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
+import { parseTransactionError } from "@/app/lib/errors";
 
 interface WithdrawModalProps {
   pool: PoolInfo;
@@ -23,6 +24,7 @@ export function WithdrawModal({
   const [step, setStep] = useState<
     "input" | "signing" | "confirming" | "success"
   >("input");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const maxTickets =
     userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
@@ -34,6 +36,7 @@ export function WithdrawModal({
   const handleWithdraw = useCallback(async () => {
     if (!canWithdraw) return;
     setStep("signing");
+    setErrorMsg(null);
 
     try {
       if (onWithdraw) {
@@ -51,7 +54,13 @@ export function WithdrawModal({
         setStep("success");
       }
     } catch (err) {
-      console.error("Withdraw transaction failed:", err);
+      const parsed = parseTransactionError(err);
+      if (parsed.isCancellation) {
+        console.warn("Withdraw transaction cancelled by user.");
+      } else {
+        console.error("Withdraw transaction failed:", err);
+        setErrorMsg(parsed.message);
+      }
       setStep("input");
     }
   }, [canWithdraw, withdrawValue, onWithdraw]);
@@ -115,6 +124,39 @@ export function WithdrawModal({
             </button>
           )}
         </div>
+
+        {/* Error Banner */}
+        {errorMsg && step === "input" && (
+          <div className="rounded-xl bg-error/15 border border-error/30 p-3 text-xs text-error flex items-start gap-2.5 animate-fade-in">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 mt-0.5"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div className="flex-1 space-y-0.5">
+              <p className="font-semibold">Transaction Failed</p>
+              <p className="text-[10px] text-on-surface-variant/80 font-mono leading-normal break-all">
+                {errorMsg}
+              </p>
+            </div>
+            <button
+              onClick={() => setErrorMsg(null)}
+              className="text-error/70 hover:text-error transition cursor-pointer text-sm font-bold leading-none px-1"
+            >
+              &times;
+            </button>
+          </div>
+        )}
 
         {/* ── Progress Stepper ───────────────────────────────────────── */}
         {step !== "input" && (

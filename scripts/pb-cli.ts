@@ -356,24 +356,29 @@ async function main() {
         .getAccountInfo(drawCyclePda, { encoding: "base64" })
         .send();
       if (!drawCycleAcc || !drawCycleAcc.value) {
-        throw new Error(`Draw Cycle account for ID ${cycleId} not found on-chain.`);
+        throw new Error(
+          `Draw Cycle account for ID ${cycleId} not found on-chain.`
+        );
       }
       const drawCycleBytes = new Uint8Array(
         base64Encoder.encode(drawCycleAcc.value.data[0])
       );
       const drawCycleState = parseDrawCycle(drawCycleBytes);
       const randomnessAccountStr = drawCycleState.randomnessAccount;
-      console.log(`Extracted locked randomness account: ${randomnessAccountStr}`);
+      console.log(
+        `Extracted locked randomness account: ${randomnessAccountStr}`
+      );
 
       // Inject mock resolved randomness if on localnet
-      const isLocalnet = rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
+      const isLocalnet =
+        rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
       if (isLocalnet) {
         console.log("Localnet detected. Injecting mock resolved randomness...");
 
         const currentSlot = await rpc.getSlot().send();
         console.log(`Current slot: ${currentSlot}`);
 
-        const buffer = new Uint8Array(400);
+        const buffer = new Uint8Array(408);
         const view = new DataView(buffer.buffer);
 
         // Copy discriminator
@@ -390,9 +395,10 @@ async function main() {
         buffer.set(new Uint8Array(seed), 152);
 
         const dataHex = Buffer.from(buffer).toString("hex");
-        const sbProgramId = process.env.SB_ENV === "devnet"
-          ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
-          : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
+        const sbProgramId =
+          process.env.SB_ENV === "devnet"
+            ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+            : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
 
         await setAccount(
           rpcUrl,

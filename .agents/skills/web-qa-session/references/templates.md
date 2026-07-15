@@ -10,6 +10,7 @@ A charter defines the scope and goal of an exploratory session without restricti
 
 ```markdown
 ### Charter #[ID]: [Short Charter Title]
+
 - **Objective / Focus:** Explore the behavior and usability of [Feature/Area].
 - **Scenario Notes:** [Detail specific paths, input ranges, or edge cases]
 - **Out of Scope:** [Specific features or platforms excluded from this test]
@@ -24,7 +25,7 @@ A charter defines the scope and goal of an exploratory session without restricti
 
 A high-fidelity bug report contains all details required for a developer to reproduce and fix the bug without back-and-forth communication.
 
-```markdown
+````markdown
 ### [Bug ID] - [Area] Short Summary of the Bug
 
 - **Charter / Flow:** Charter # [X] - [Charter Name]
@@ -32,24 +33,31 @@ A high-fidelity bug report contains all details required for a developer to repr
 - **Environment:** [e.g., Windows 11, Chrome 126, Desktop 1440px / Phantom Wallet v24.8]
 
 #### Steps to Reproduce:
+
 1. Navigate to `[URL / Route]`
 2. Click on `[Element]`
 3. Enter `[Inputs]` and submit
 4. Observe `[Specific Interaction]`
 
 #### Expected Behavior:
+
 [Describe what the application should have done]
 
 #### Actual Behavior:
+
 [Describe what the application actually did, including error codes or console errors]
 
 #### Evidence:
+
 - **Console Log / Stack Trace:**
   ```javascript
   // Paste relevant console errors or stack traces here
   ```
+````
+
 - **Screenshots / Recordings:** [Link to screenshot, GIF, or WebM video]
-```
+
+````
 
 ---
 
@@ -83,4 +91,4 @@ This template is designed to summarize the outcome of a QA session or Bug Bash f
 
 ## 📝 Additional Notes / Observations
 - [Add any general observations, performance bottlenecks, or user experience polish ideas]
-```
+````

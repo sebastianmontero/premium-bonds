@@ -10,6 +10,7 @@ interface PendingRedemptionsListProps {
   onSimulateSettlement: (id: string) => void;
   tokenSymbol: string;
   tokenDecimals: number;
+  showSimulation?: boolean;
 }
 
 export function PendingRedemptionsList({
@@ -18,6 +19,7 @@ export function PendingRedemptionsList({
   onSimulateSettlement,
   tokenSymbol,
   tokenDecimals,
+  showSimulation = true,
 }: PendingRedemptionsListProps) {
   const getIcon = useCallback((type: "bond_sale" | "prize_claim") => {
     if (type === "bond_sale") {
@@ -157,13 +159,17 @@ export function PendingRedemptionsList({
 
                   <div className="flex gap-2 shrink-0">
                     {item.status === "settling" ? (
-                      <button
-                        onClick={() => onSimulateSettlement(item.redemptionId)}
-                        className="rounded-lg border border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition cursor-pointer hover:bg-amber-500/10"
-                        title="Simulate yield-bearing settlement in Huma Finance"
-                      >
-                        Simulate Settled
-                      </button>
+                      showSimulation && (
+                        <button
+                          onClick={() =>
+                            onSimulateSettlement(item.redemptionId)
+                          }
+                          className="rounded-lg border border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition cursor-pointer hover:bg-amber-500/10"
+                          title="Simulate yield-bearing settlement in Huma Finance"
+                        >
+                          Simulate Settled
+                        </button>
+                      )
                     ) : (
                       <button
                         onClick={() => onClaimRedemption(item.redemptionId)}

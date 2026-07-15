@@ -43,7 +43,6 @@
 - **Code Reuse:** Before implementing new functions or logic, scan the codebase and shared modules (such as `tests/common/mod.rs`) to check if similar utilities already exist that can be reused or exported.
 - **Designing for Reusability:** When writing new logic, helper functions, or testing utilities, make a best effort to structure the code in a modular, generic, and reusable way to avoid future duplication.
 
-
 ## Agent skills
 
 ### Issue tracker

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
+import { parseTransactionError } from "@/app/lib/errors";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
@@ -79,6 +80,7 @@ export default function DashboardPage() {
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
@@ -211,6 +213,7 @@ export default function DashboardPage() {
     // Set status to cranking
     setCrankingCycles((prev) => ({ ...prev, [key]: true }));
 
+    setTxError(null);
     try {
       if (isConnected) {
         // Run contract reinvest crank (max 5 bonds batch)
@@ -315,7 +318,13 @@ export default function DashboardPage() {
         setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
     } catch (err) {
-      console.error("Reinvest crank failed:", err);
+      const parsed = parseTransactionError(err);
+      if (parsed.isCancellation) {
+        console.warn("Reinvest crank cancelled by user.");
+      } else {
+        console.error("Reinvest crank failed:", err);
+        setTxError(parsed.message);
+      }
     } finally {
       // Clear cranking status
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
@@ -335,6 +344,7 @@ export default function DashboardPage() {
       amount: claimAmount,
     };
 
+    setTxError(null);
     try {
       if (isConnected) {
         await actions.claimNonReinvestedWinnings();
@@ -354,7 +364,13 @@ export default function DashboardPage() {
         setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
     } catch (err) {
-      console.error("Failed to claim dust on-chain:", err);
+      const parsed = parseTransactionError(err);
+      if (parsed.isCancellation) {
+        console.warn("Claim non-reinvested winnings cancelled by user.");
+      } else {
+        console.error("Failed to claim dust on-chain:", err);
+        setTxError(parsed.message);
+      }
     }
   };
 
@@ -371,6 +387,7 @@ export default function DashboardPage() {
     );
     if (!redemption) return;
 
+    setTxError(null);
     try {
       if (isConnected) {
         await actions.claimRedemption(id);
@@ -397,12 +414,51 @@ export default function DashboardPage() {
         setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
     } catch (err) {
-      console.error("Failed to claim redemption on-chain:", err);
+      const parsed = parseTransactionError(err);
+      if (parsed.isCancellation) {
+        console.warn("Claim redemption cancelled by user.");
+      } else {
+        console.error("Failed to claim redemption on-chain:", err);
+        setTxError(parsed.message);
+      }
     }
   };
 
   return (
     <div className="space-y-6">
+      {/* Transaction Error Banner */}
+      {txError && (
+        <div className="rounded-xl bg-error/15 border border-error/30 p-4 text-sm text-error flex items-start gap-3 animate-fade-in shadow-ambient">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="shrink-0 mt-0.5"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <div className="flex-1 space-y-1">
+            <h4 className="font-bold text-on-surface">Transaction Failed</h4>
+            <p className="text-xs text-on-surface-variant font-mono leading-normal break-all">
+              {txError}
+            </p>
+          </div>
+          <button
+            onClick={() => setTxError(null)}
+            className="text-error/70 hover:text-error transition cursor-pointer text-lg font-bold leading-none px-1.5"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}
       {activeUnclaimedWinnings > 0 && (
         <UnclaimedBanner
@@ -466,6 +522,7 @@ export default function DashboardPage() {
               onSimulateSettlement={handleSimulateSettlement}
               tokenSymbol={activePool.tokenSymbol}
               tokenDecimals={activePool.tokenDecimals}
+              showSimulation={!isConnected}
             />
           </div>
         </div>

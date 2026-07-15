@@ -48,7 +48,7 @@ Ensure the interface renders correctly, remains visually appealing, and has cons
 Verify that the application meets WCAG 2.1 Level AA compliance guidelines using standard manual techniques.
 
 - [ ] **Keyboard Only Navigation:**
-  - Navigate the entire app using *only* the `Tab` and `Shift+Tab` keys.
+  - Navigate the entire app using _only_ the `Tab` and `Shift+Tab` keys.
   - Use `Enter` and `Spacebar` to interact with buttons, links, tabs, and custom inputs.
   - Verify that the cursor focus sequence is logical (usually top-to-bottom, left-to-right).
 - [ ] **Visible Focus Indicators:**
@@ -58,7 +58,7 @@ Verify that the application meets WCAG 2.1 Level AA compliance guidelines using 
   - Ensure the keyboard focus is never trapped inside a widget (like a modal or a custom dropdown). The user must be able to escape the element (e.g., hitting `Esc` to close a modal and returning focus to the trigger button).
 - [ ] **Color Contrast:**
   - Verify that the contrast ratio for all text is at least `4.5:1` (for standard body text) or `3:1` (for large text).
-  - Ensure color is never the *only* visual indicator of status (e.g., use an warning icon alongside red text to indicate errors).
+  - Ensure color is never the _only_ visual indicator of status (e.g., use an warning icon alongside red text to indicate errors).
 - [ ] **Zoom & Scaling (200%):**
   - Zoom the browser to 200% using `Ctrl +` or `Cmd +`.
   - Ensure all text scales correctly, elements do not overlap, and the page is fully functional without requiring horizontal scrolling.

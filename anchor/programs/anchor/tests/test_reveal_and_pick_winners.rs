@@ -712,3 +712,5 @@ fn test_reveal_fails_wrong_ticket_registry() {
         "Should be constraint error, got: {err}"
     );
 }
+
+

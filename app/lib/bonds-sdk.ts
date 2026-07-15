@@ -328,7 +328,9 @@ export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
   const randomnessSeed = new Uint8Array(data.slice(21, 21 + 32));
   const prizePot = view.getBigUint64(53, true);
   const cycleFeeCollected = view.getBigUint64(61, true);
-  const randomnessAccount = base58Decoder.decode(data.slice(69, 69 + 32)) as Address;
+  const randomnessAccount = base58Decoder.decode(
+    data.slice(69, 69 + 32)
+  ) as Address;
   const harvestSlot = view.getBigUint64(101, true);
 
   return {
