@@ -14,6 +14,8 @@ use solana_sdk::{
 };
 use solana_transaction::versioned::VersionedTransaction;
 
+mod common;
+
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 const POOL_PST_SEED: &[u8] = b"pool_pst";
 const PENDING_REDEMPTION_SEED: &[u8] = b"pending_redemption";
@@ -146,39 +148,7 @@ fn inject_pool_with_next_redemption_id(
     pda
 }
 
-fn inject_user_winnings(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    user: Pubkey,
-    unclaimed: u64,
-    total_claimed: u64,
-    total_reinvested: u64,
-) {
-    let (pda, bump) = user_winnings_pda(pool_id, &user);
-    let uw = anchor::state::UserWinnings {
-        pool_id,
-        user,
-        unclaimed_non_reinvested_winnings: unclaimed,
-        total_claimed,
-        total_reinvested,
-        registry_entry_index: u32::MAX,
-        bump,
-    };
-    let mut d = vec![];
-    uw.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
+use common::inject_user_winnings;
 
 fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
     let mut huma_pool_state_data = vec![0u8; 512];

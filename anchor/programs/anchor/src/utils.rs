@@ -65,7 +65,8 @@ pub fn registry_capacity_from_len_legacy(data_len: usize) -> u32 {
     ((data_len.saturating_sub(REGISTRY_HEADER_SIZE)) / PUBKEY_SIZE) as u32
 }
 
-pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize = 36; // 8 discriminator + 28 bytes header fields
+pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize =
+    8 + std::mem::size_of::<crate::state::TicketRegistry>();
 pub const USER_ENTRY_SIZE: usize = 48; // Size of UserEntry struct
 
 /// Read the user entry at `idx` from raw account data.
@@ -76,7 +77,7 @@ pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
     }
     unsafe {
         let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
-        *ptr
+        std::ptr::read_unaligned(ptr)
     }
 }
 
@@ -88,7 +89,7 @@ pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::Use
     }
     unsafe {
         let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
-        *ptr = *entry;
+        std::ptr::write_unaligned(ptr, *entry);
     }
 }
 
@@ -98,15 +99,16 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
 }
 
 /// Lazy merge implementation for a specific entry.
-pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) {
+pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) -> Result<()> {
     if entry.merged_through_cycle < current_cycle_id {
         entry.active = entry
             .active
             .checked_add(entry.pending)
-            .unwrap_or(entry.active);
+            .ok_or(error!(PremiumBondsError::MathOverflow))?;
         entry.pending = 0;
         entry.merged_through_cycle = current_cycle_id;
     }
+    Ok(())
 }
 
 /// Adds new tickets to the pending region of a TicketRegistry account.
@@ -810,22 +812,26 @@ mod tests {
         };
 
         // Case 1: merged_through_cycle < current_cycle_id -> should merge
-        lazy_merge_entry(&mut entry, 3);
+        assert!(lazy_merge_entry(&mut entry, 3).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 0);
         assert_eq!(entry.merged_through_cycle, 3);
 
         // Case 2: merged_through_cycle == current_cycle_id -> should not merge again
         entry.pending = 8; // set some pending again in same cycle
-        lazy_merge_entry(&mut entry, 3);
+        assert!(lazy_merge_entry(&mut entry, 3).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 8);
         assert_eq!(entry.merged_through_cycle, 3);
 
         // Case 3: merged_through_cycle > current_cycle_id -> should not merge (already ahead)
-        lazy_merge_entry(&mut entry, 2);
+        assert!(lazy_merge_entry(&mut entry, 2).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 8);
         assert_eq!(entry.merged_through_cycle, 3);
+
+        // Case 4: overflow check -> should fail
+        entry.pending = u32::MAX;
+        assert!(lazy_merge_entry(&mut entry, 4).is_err());
     }
 }
