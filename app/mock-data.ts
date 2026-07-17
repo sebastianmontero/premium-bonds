@@ -160,11 +160,18 @@ export const MOCK_RECENT_WINNERS: RecentWinner[] = [
 export function formatTokenAmount(
   amount: number,
   decimals: number = USDC_DECIMALS,
-  fractionDigits: number = 2
+  minFractionDigits: number = 2,
+  maxFractionDigits?: number
 ): string {
+  const finalMax =
+    maxFractionDigits ??
+    (minFractionDigits < 2
+      ? minFractionDigits
+      : Math.max(minFractionDigits, 6));
+
   return (amount / 10 ** decimals).toLocaleString("en-US", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: minFractionDigits,
+    maximumFractionDigits: finalMax,
   });
 }
 

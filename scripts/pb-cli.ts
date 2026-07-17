@@ -369,6 +369,14 @@ async function main() {
         `Extracted locked randomness account: ${randomnessAccountStr}`
       );
 
+      const ix = await buildRevealAndPickWinnersInstruction({
+        crank: signer!.address,
+        poolId,
+        currentDrawCycleId: cycleId,
+        ticketRegistry: address(poolState.ticketRegistry),
+        randomnessAccount: address(randomnessAccountStr),
+      });
+
       // Inject mock resolved randomness if on localnet
       const isLocalnet =
         rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
@@ -385,41 +393,124 @@ async function main() {
         const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
         buffer.set(discriminator, 0);
 
-        // Set seed_slot at offset 104
-        view.setBigUint64(104, BigInt(currentSlot), true);
-
-        // Set reveal_slot at offset 144
-        view.setBigUint64(144, BigInt(currentSlot), true);
-
         // Set resolved value/seed at offset 152
         buffer.set(new Uint8Array(seed), 152);
 
-        const dataHex = Buffer.from(buffer).toString("hex");
         const sbProgramId =
           process.env.SB_ENV === "devnet"
             ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
             : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
 
-        await setAccount(
-          rpcUrl,
-          randomnessAccountStr,
-          1_000_000_000,
-          dataHex,
-          sbProgramId,
-          false
+        // Build and sign the transaction message first to minimize latency
+        const { value: latestBlockhash } = await rpc
+          .getLatestBlockhash()
+          .send();
+        const message = setTransactionMessageLifetimeUsingBlockhash(
+          latestBlockhash,
+          setTransactionMessageFeePayerSigner(
+            signer!,
+            appendTransactionMessageInstruction(
+              ix,
+              createTransactionMessage({ version: 0 })
+            )
+          )
         );
-        console.log("Mock resolved randomness injected successfully.");
+        const signedTx = await signTransactionMessageWithSigners(message);
+        const wireTx = getBase64EncodedWireTransaction(signedTx);
+
+        // Attempt resolving using different slot offsets.
+        // We try:
+        // Offset +1: The expected next slot where the transaction executes (most common)
+        // Offset +2: In case block production is slightly delayed
+        // Offset 0: In case the slot hasn't progressed
+        // Offset +3: In case of further delay
+        const offsets = [1n, 2n, 0n, 3n];
+        let confirmed = false;
+        let lastError: Error | null = null;
+
+        for (const offset of offsets) {
+          const targetSlot = currentSlot + offset;
+          console.log(
+            `Attempting with reveal_slot offset +${offset} (target slot: ${targetSlot})...`
+          );
+
+          // Set seed_slot and reveal_slot to targetSlot
+          view.setBigUint64(104, targetSlot, true);
+          view.setBigUint64(144, targetSlot, true);
+
+          const dataHex = Buffer.from(buffer).toString("hex");
+
+          await setAccount(
+            rpcUrl,
+            randomnessAccountStr,
+            1_000_000_000,
+            dataHex,
+            sbProgramId,
+            false
+          );
+
+          try {
+            // Send transaction bypassing preflight check (which would run at simulation slot != reveal_slot)
+            const signature = await rpc
+              .sendTransaction(wireTx, {
+                encoding: "base64",
+                skipPreflight: true,
+              })
+              .send();
+
+            console.log(
+              `Transaction sent: ${signature}. Checking confirmation status...`
+            );
+
+            // Check signature status for confirmation
+            let txSuccess = false;
+            for (let i = 0; i < 15; i++) {
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              const status = await rpc.getSignatureStatuses([signature]).send();
+              if (status && status.value && status.value[0]) {
+                const err = status.value[0].err;
+                if (err) {
+                  throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
+                }
+                txSuccess = true;
+                break;
+              }
+            }
+
+            if (txSuccess) {
+              console.log("Transaction confirmed successfully!");
+              confirmed = true;
+              break;
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`Attempt with offset +${offset} failed: ${msg}`);
+            lastError = err instanceof Error ? err : new Error(msg);
+
+            // If the failure was not a randomness resolution issue (e.g. 0x178d or 0x178e/0x1790 etc),
+            // then retrying with different slots won't help. We should abort immediately.
+            if (
+              !msg.includes("178d") &&
+              !msg.includes("178e") &&
+              !msg.includes("1790") &&
+              !msg.includes("SwitchboardRandomnessTooOld")
+            ) {
+              throw err;
+            }
+          }
+        }
+
+        if (!confirmed) {
+          throw (
+            lastError ||
+            new Error(
+              "Failed to confirm reveal transaction after all slot offset attempts."
+            )
+          );
+        }
+      } else {
+        await sendTransaction(rpc, signer!, ix);
       }
-
-      const ix = await buildRevealAndPickWinnersInstruction({
-        crank: signer!.address,
-        poolId,
-        currentDrawCycleId: cycleId,
-        ticketRegistry: address(poolState.ticketRegistry),
-        randomnessAccount: address(randomnessAccountStr),
-      });
-
-      await sendTransaction(rpc, signer!, ix);
       break;
     }
 
