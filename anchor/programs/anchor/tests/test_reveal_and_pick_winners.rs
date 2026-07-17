@@ -216,9 +216,14 @@ fn update_mock_randomness_account(
     reveal_slot: u64,
     value: [u8; 32],
 ) {
-    let mut data = vec![0u8; 8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()];
+    let mut data =
+        vec![
+            0u8;
+            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
+        ];
     data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
-    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData = bytemuck::Zeroable::zeroed();
+    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
     randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
     randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
     randomness_data.seed_slothash = [0u8; 32];
@@ -712,7 +717,3 @@ fn test_reveal_fails_wrong_ticket_registry() {
         "Should be constraint error, got: {err}"
     );
 }
-
-
-
-

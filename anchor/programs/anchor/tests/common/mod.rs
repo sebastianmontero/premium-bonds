@@ -391,6 +391,7 @@ pub fn inject_user_winnings(
         unclaimed_non_reinvested_winnings: unclaimed,
         total_claimed,
         total_reinvested,
+        registry_entry_index: u32::MAX,
         bump,
     };
     let mut d = vec![];
@@ -408,7 +409,6 @@ pub fn inject_user_winnings(
     )
     .unwrap();
 }
-
 
 pub fn read_registry_pending(svm: &LiteSVM, address: Pubkey) -> u32 {
     let acct = svm.get_account(&address).expect("registry should exist");

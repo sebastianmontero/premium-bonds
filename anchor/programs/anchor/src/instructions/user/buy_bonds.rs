@@ -150,6 +150,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         user_winnings.pool_id = pool.pool_id;
         user_winnings.user = ctx.accounts.user.key();
         user_winnings.bump = ctx.bumps.user_winnings;
+        user_winnings.registry_entry_index = u32::MAX;
     }
 
     // Register new tickets

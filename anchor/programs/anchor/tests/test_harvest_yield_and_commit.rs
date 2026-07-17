@@ -683,10 +683,10 @@ fn test_harvest_fails_invalid_mint() {
     let mut ctx = setup_happy(0, 0, 100, vec![], 0, 0, 0, 0);
     let fake_mint = Keypair::new().pubkey();
     ctx.pst_mint = fake_mint;
-    
+
     // Inject the fake mint into the SVM
     inject_mint(&mut ctx.svm, fake_mint, 6, 0);
-    
+
     let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
     assert!(
         err.contains("ConstraintMint") || err.contains("ConstraintRaw") || err.contains("0x7de"),

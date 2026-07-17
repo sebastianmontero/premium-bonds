@@ -161,6 +161,7 @@ fn inject_user_winnings(
         unclaimed_non_reinvested_winnings: unclaimed,
         total_claimed,
         total_reinvested,
+        registry_entry_index: u32::MAX,
         bump,
     };
     let mut d = vec![];
@@ -198,7 +199,14 @@ fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
 // ─── Instruction builder ─────────────────────────────────────────────────────
 
 fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
-    build_claim_ix_with_redemption_id(user, pool_id, pst_mint, 0, Pubkey::default(), Pubkey::default())
+    build_claim_ix_with_redemption_id(
+        user,
+        pool_id,
+        pst_mint,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
 }
 
 fn build_claim_ix_with_redemption_id(
@@ -288,7 +296,13 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
 
     // Setup and inject huma_pool_mode_token
     let huma_pool_mode_token = Keypair::new().pubkey();
-    inject_token_account(&mut svm, huma_pool_mode_token, pst_mint, Pubkey::default(), 0);
+    inject_token_account(
+        &mut svm,
+        huma_pool_mode_token,
+        pst_mint,
+        Pubkey::default(),
+        0,
+    );
 
     ClaimCtx {
         svm,
@@ -309,8 +323,14 @@ fn send_claim_with_redemption_id(
     pool_id: u32,
     redemption_id: u64,
 ) -> Result<(), String> {
-    let ix =
-        build_claim_ix_with_redemption_id(ctx.user.pubkey(), pool_id, ctx.pst_mint, redemption_id, ctx.huma_pool_state, ctx.huma_pool_mode_token);
+    let ix = build_claim_ix_with_redemption_id(
+        ctx.user.pubkey(),
+        pool_id,
+        ctx.pst_mint,
+        redemption_id,
+        ctx.huma_pool_state,
+        ctx.huma_pool_mode_token,
+    );
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
@@ -372,5 +392,8 @@ fn test_claim_fails_invalid_mode_mint() {
     ctx.pst_mint = fake_mint;
 
     let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("InvalidModeMint"), "Expected InvalidModeMint, got: {err}");
+    assert!(
+        err.contains("InvalidModeMint"),
+        "Expected InvalidModeMint, got: {err}"
+    );
 }

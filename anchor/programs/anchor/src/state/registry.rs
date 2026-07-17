@@ -15,3 +15,14 @@ pub struct TicketRegistry {
     pub active_tickets_count: u32,
     pub pending_tickets_count: u32,
 }
+
+#[zero_copy(unsafe)]
+#[repr(C)]
+#[derive(Default)]
+pub struct UserEntry {
+    pub owner: Pubkey,             // 32 bytes
+    pub active: u32,               // 4 bytes
+    pub pending: u32,              // 4 bytes
+    pub merged_through_cycle: u32, // 4 bytes — cycle ID when pending was merged
+    pub cumulative_active: u32,    // 4 bytes — prefix sum built during prepare_draw
+}

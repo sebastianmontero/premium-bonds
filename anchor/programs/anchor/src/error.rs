@@ -64,6 +64,8 @@ pub enum PremiumBondsError {
     RandomnessNotResolved,
     #[msg("The randomness request is stale or was committed before the harvest freeze.")]
     StaleRandomnessRequest,
-    #[msg("The randomness account cannot be re-locked because the current one is not yet expired.")]
+    #[msg(
+        "The randomness account cannot be re-locked because the current one is not yet expired."
+    )]
     RandomnessNotExpired,
 }

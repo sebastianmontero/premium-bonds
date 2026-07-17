@@ -90,9 +90,7 @@ pub mod anchor {
         instructions::yield_draw::harvest_yield_and_commit::handle(ctx)
     }
 
-    pub fn reveal_and_pick_winners(
-        ctx: Context<RevealAndPickWinners>,
-    ) -> Result<()> {
+    pub fn reveal_and_pick_winners(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         instructions::yield_draw::reveal_and_pick_winners::handle(ctx)
     }
 
@@ -100,7 +98,9 @@ pub mod anchor {
         instructions::yield_draw::admin_force_unlock_draw::handle(ctx)
     }
 
-    pub fn crank_rebind_expired_randomness(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
+    pub fn crank_rebind_expired_randomness(
+        ctx: Context<CrankRebindExpiredRandomness>,
+    ) -> Result<()> {
         instructions::yield_draw::crank_rebind_expired_randomness::handle(ctx)
     }
 

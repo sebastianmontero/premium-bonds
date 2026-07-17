@@ -118,6 +118,7 @@ pub struct UserWinnings {
     pub unclaimed_non_reinvested_winnings: u64,
     pub total_claimed: u64,
     pub total_reinvested: u64,
+    pub registry_entry_index: u32,
     pub bump: u8,
 }
 

@@ -810,5 +810,9 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
     assert!(res.is_err(), "Must fail with InvalidModeMint");
     let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidModeMint"), "Expected InvalidModeMint error, got: {}", err_str);
+    assert!(
+        err_str.contains("InvalidModeMint"),
+        "Expected InvalidModeMint error, got: {}",
+        err_str
+    );
 }

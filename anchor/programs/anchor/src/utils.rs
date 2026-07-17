@@ -61,8 +61,52 @@ pub fn registry_set_ticket(data: &mut [u8], idx: usize, key: &Pubkey) {
 }
 
 /// Derive the maximum ticket capacity from the raw account data length.
-pub fn registry_capacity_from_len(data_len: usize) -> u32 {
+pub fn registry_capacity_from_len_legacy(data_len: usize) -> u32 {
     ((data_len.saturating_sub(REGISTRY_HEADER_SIZE)) / PUBKEY_SIZE) as u32
+}
+
+pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize = 36; // 8 discriminator + 28 bytes header fields
+pub const USER_ENTRY_SIZE: usize = 48; // Size of UserEntry struct
+
+/// Read the user entry at `idx` from raw account data.
+pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
+    let start = USER_ENTRY_REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
+    if start + USER_ENTRY_SIZE > data.len() {
+        panic!("Out of bounds read in registry_get_entry");
+    }
+    unsafe {
+        let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
+        *ptr
+    }
+}
+
+/// Write `entry` into the user entry slot at `idx` in raw account data.
+pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {
+    let start = USER_ENTRY_REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
+    if start + USER_ENTRY_SIZE > data.len() {
+        panic!("Out of bounds write in registry_set_entry");
+    }
+    unsafe {
+        let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
+        *ptr = *entry;
+    }
+}
+
+/// Derive the maximum user entry capacity from the raw account data length.
+pub fn registry_capacity_from_len(data_len: usize) -> u32 {
+    ((data_len.saturating_sub(USER_ENTRY_REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32
+}
+
+/// Lazy merge implementation for a specific entry.
+pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) {
+    if entry.merged_through_cycle < current_cycle_id {
+        entry.active = entry
+            .active
+            .checked_add(entry.pending)
+            .unwrap_or(entry.active);
+        entry.pending = 0;
+        entry.merged_through_cycle = current_cycle_id;
+    }
 }
 
 /// Adds new tickets to the pending region of a TicketRegistry account.
@@ -326,31 +370,31 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    // ── registry_capacity_from_len ───────────────────────────────────────────
+    // ── registry_capacity_from_len_legacy ───────────────────────────────────────────
 
     #[test]
     fn capacity_from_exact_header() {
         // No room for any tickets
-        assert_eq!(registry_capacity_from_len(REGISTRY_HEADER_SIZE), 0);
+        assert_eq!(registry_capacity_from_len_legacy(REGISTRY_HEADER_SIZE), 0);
     }
 
     #[test]
     fn capacity_from_zero() {
         // saturating_sub prevents underflow
-        assert_eq!(registry_capacity_from_len(0), 0);
+        assert_eq!(registry_capacity_from_len_legacy(0), 0);
     }
 
     #[test]
     fn capacity_from_partial_slot() {
         // Bytes that don't form a full Pubkey are truncated
         let partial = REGISTRY_HEADER_SIZE + PUBKEY_SIZE - 1;
-        assert_eq!(registry_capacity_from_len(partial), 0);
+        assert_eq!(registry_capacity_from_len_legacy(partial), 0);
     }
 
     #[test]
     fn capacity_from_one_slot() {
         assert_eq!(
-            registry_capacity_from_len(REGISTRY_HEADER_SIZE + PUBKEY_SIZE),
+            registry_capacity_from_len_legacy(REGISTRY_HEADER_SIZE + PUBKEY_SIZE),
             1
         );
     }
@@ -359,7 +403,7 @@ mod tests {
     fn capacity_from_many_slots() {
         let n = 500usize;
         assert_eq!(
-            registry_capacity_from_len(REGISTRY_HEADER_SIZE + n * PUBKEY_SIZE),
+            registry_capacity_from_len_legacy(REGISTRY_HEADER_SIZE + n * PUBKEY_SIZE),
             n as u32
         );
     }
@@ -648,5 +692,140 @@ mod tests {
             swap_and_pop_active(&mut data, 2, 3, &[1, 0], &owner).unwrap();
         assert_eq!(new_active, 0);
         assert_eq!(new_pending, 3);
+    }
+
+    // ── UserEntry Redesign Tests ─────────────────────────────────────────────
+
+    fn make_entry_data(capacity: usize) -> Vec<u8> {
+        vec![0u8; USER_ENTRY_REGISTRY_HEADER_SIZE + capacity * USER_ENTRY_SIZE]
+    }
+
+    #[test]
+    fn test_user_entry_size_and_alignment() {
+        use crate::state::UserEntry;
+        assert_eq!(std::mem::size_of::<UserEntry>(), 48);
+
+        // Check field offsets manually using raw pointers
+        let entry = UserEntry::default();
+        let base_ptr = &entry as *const UserEntry as usize;
+        let owner_ptr = &entry.owner as *const Pubkey as usize;
+        let active_ptr = &entry.active as *const u32 as usize;
+        let pending_ptr = &entry.pending as *const u32 as usize;
+        let merged_ptr = &entry.merged_through_cycle as *const u32 as usize;
+        let cumulative_ptr = &entry.cumulative_active as *const u32 as usize;
+
+        assert_eq!(owner_ptr - base_ptr, 0);
+        assert_eq!(active_ptr - base_ptr, 32);
+        assert_eq!(pending_ptr - base_ptr, 36);
+        assert_eq!(merged_ptr - base_ptr, 40);
+        assert_eq!(cumulative_ptr - base_ptr, 44);
+    }
+
+    #[test]
+    fn test_user_entry_capacity_from_len() {
+        assert_eq!(registry_capacity_from_len(0), 0);
+        assert_eq!(
+            registry_capacity_from_len(USER_ENTRY_REGISTRY_HEADER_SIZE - 1),
+            0
+        );
+        assert_eq!(
+            registry_capacity_from_len(USER_ENTRY_REGISTRY_HEADER_SIZE),
+            0
+        );
+        assert_eq!(
+            registry_capacity_from_len(USER_ENTRY_REGISTRY_HEADER_SIZE + USER_ENTRY_SIZE - 1),
+            0
+        );
+        assert_eq!(
+            registry_capacity_from_len(USER_ENTRY_REGISTRY_HEADER_SIZE + USER_ENTRY_SIZE),
+            1
+        );
+        assert_eq!(
+            registry_capacity_from_len(USER_ENTRY_REGISTRY_HEADER_SIZE + 10 * USER_ENTRY_SIZE),
+            10
+        );
+    }
+
+    #[test]
+    fn test_user_entry_get_set_roundtrip() {
+        let mut data = make_entry_data(3);
+        let entry1 = crate::state::UserEntry {
+            owner: pk(1),
+            active: 10,
+            pending: 5,
+            merged_through_cycle: 2,
+            cumulative_active: 15,
+        };
+        let entry2 = crate::state::UserEntry {
+            owner: pk(2),
+            active: 100,
+            pending: 50,
+            merged_through_cycle: 4,
+            cumulative_active: 150,
+        };
+
+        registry_set_entry(&mut data, 0, &entry1);
+        registry_set_entry(&mut data, 2, &entry2);
+
+        let read1 = registry_get_entry(&data, 0);
+        let read2 = registry_get_entry(&data, 2);
+
+        assert_eq!(read1.owner, entry1.owner);
+        assert_eq!(read1.active, entry1.active);
+        assert_eq!(read1.pending, entry1.pending);
+        assert_eq!(read1.merged_through_cycle, entry1.merged_through_cycle);
+        assert_eq!(read1.cumulative_active, entry1.cumulative_active);
+
+        assert_eq!(read2.owner, entry2.owner);
+        assert_eq!(read2.active, entry2.active);
+        assert_eq!(read2.pending, entry2.pending);
+        assert_eq!(read2.merged_through_cycle, entry2.merged_through_cycle);
+        assert_eq!(read2.cumulative_active, entry2.cumulative_active);
+    }
+
+    #[test]
+    #[should_panic(expected = "Out of bounds read in registry_get_entry")]
+    fn test_user_entry_get_out_of_bounds_panics() {
+        let data = make_entry_data(2);
+        // capacity is 2 (valid indices 0 and 1)
+        let _ = registry_get_entry(&data, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Out of bounds write in registry_set_entry")]
+    fn test_user_entry_set_out_of_bounds_panics() {
+        let mut data = make_entry_data(2);
+        let entry = crate::state::UserEntry::default();
+        registry_set_entry(&mut data, 2, &entry);
+    }
+
+    #[test]
+    fn test_lazy_merge_entry_transitions() {
+        let mut entry = crate::state::UserEntry {
+            owner: pk(1),
+            active: 10,
+            pending: 5,
+            merged_through_cycle: 2,
+            cumulative_active: 0,
+        };
+
+        // Case 1: merged_through_cycle < current_cycle_id -> should merge
+        lazy_merge_entry(&mut entry, 3);
+        assert_eq!(entry.active, 15);
+        assert_eq!(entry.pending, 0);
+        assert_eq!(entry.merged_through_cycle, 3);
+
+        // Case 2: merged_through_cycle == current_cycle_id -> should not merge again
+        entry.pending = 8; // set some pending again in same cycle
+        lazy_merge_entry(&mut entry, 3);
+        assert_eq!(entry.active, 15);
+        assert_eq!(entry.pending, 8);
+        assert_eq!(entry.merged_through_cycle, 3);
+
+        // Case 3: merged_through_cycle > current_cycle_id -> should not merge (already ahead)
+        lazy_merge_entry(&mut entry, 2);
+        assert_eq!(entry.active, 15);
+        assert_eq!(entry.pending, 8);
+        assert_eq!(entry.merged_through_cycle, 3);
     }
 }

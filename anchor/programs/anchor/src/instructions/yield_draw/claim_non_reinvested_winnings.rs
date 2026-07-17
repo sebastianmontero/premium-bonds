@@ -2,7 +2,7 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::WinningsClaimed;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, UserWinnings, PoolStatus};
+use crate::state::{PendingRedemption, PoolStatus, PrizePool, UserWinnings};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 

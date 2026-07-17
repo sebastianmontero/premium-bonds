@@ -260,7 +260,7 @@ fn test_resize_registry_zero_initialization() {
     let mut initial_data = vec![0xAAu8; initial_size];
     initial_data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
     initial_data[8..12].copy_from_slice(&pool_id.to_le_bytes());
-    let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
+    let initial_capacity = anchor::utils::registry_capacity_from_len_legacy(initial_size);
     initial_data[12..16].copy_from_slice(&initial_capacity.to_le_bytes());
     initial_data[16..20].copy_from_slice(&0u32.to_le_bytes()); // active
     initial_data[20..24].copy_from_slice(&0u32.to_le_bytes()); // pending
@@ -279,7 +279,14 @@ fn test_resize_registry_zero_initialization() {
 
     let token_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
 
     // Call ResizeRegistry
     let payer = Keypair::new();
@@ -312,7 +319,8 @@ fn test_resize_registry_zero_initialization() {
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &jobs_kp]).unwrap();
+    let tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &jobs_kp]).unwrap();
     svm.send_transaction(tx).expect("ResizeRegistry failed");
 
     // Fetch account data and verify that all newly allocated bytes are strictly 0
@@ -320,7 +328,11 @@ fn test_resize_registry_zero_initialization() {
     let expected_len = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
     assert_eq!(registry_acct.data.len(), expected_len);
     for i in initial_size..expected_len {
-        assert_eq!(registry_acct.data[i], 0, "Newly reallocated byte at index {} is not zeroed", i);
+        assert_eq!(
+            registry_acct.data[i], 0,
+            "Newly reallocated byte at index {} is not zeroed",
+            i
+        );
     }
 }
 
@@ -334,28 +346,47 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
     inject_mint(&mut svm, pst_mint, 6);
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
-    
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
+
     // Set total_deposited_principal to avoid subtraction overflow in handler
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_deposited_principal = 10_000_000;
     let mut d = vec![];
     pool.try_serialize(&mut d).unwrap();
     d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
-    svm.set_account(pool_key, Account {
-        lamports: 10_000_000,
-        data: d,
-        owner: anchor::id(),
-        executable: false,
-        rent_epoch: 0,
-    }).unwrap();
+    svm.set_account(
+        pool_key,
+        Account {
+            lamports: 10_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
-    inject_registry_with_tickets(&mut svm, ticket_registry, pool_id, 100, 1, 0, &[user.pubkey()]);
+    inject_registry_with_tickets(
+        &mut svm,
+        ticket_registry,
+        pool_id,
+        100,
+        1,
+        0,
+        &[user.pubkey()],
+    );
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
@@ -410,7 +441,9 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -514,7 +547,9 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -550,21 +585,32 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     let (pool_vault, _) = pool_vault_pda(pool_id);
-    inject_pool(&mut svm, pool_id, Keypair::new().pubkey(), Keypair::new().pubkey(), anchor::PoolStatus::Active, false);
-    
+    inject_pool(
+        &mut svm,
+        pool_id,
+        Keypair::new().pubkey(),
+        Keypair::new().pubkey(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
     // Set total_prizes_allocated on injected pool to avoid MathOverflow subtraction underflow
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_prizes_allocated = 5_000_000;
     let mut d = vec![];
     pool.try_serialize(&mut d).unwrap();
     d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
-    svm.set_account(pool_key, Account {
-        lamports: 10_000_000,
-        data: d,
-        owner: anchor::id(),
-        executable: false,
-        rent_epoch: 0,
-    }).unwrap();
+    svm.set_account(
+        pool_key,
+        Account {
+            lamports: 10_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
@@ -601,7 +647,9 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -619,7 +667,14 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     inject_token_account(&mut svm, pool_vault, token_mint, pool_key, 10_000_000);
 
     let ticket_registry = Keypair::new().pubkey();
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -674,7 +729,9 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -686,7 +743,14 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
-    inject_pool(&mut svm, pool_id, Keypair::new().pubkey(), ticket_registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        Keypair::new().pubkey(),
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     inject_registry(&mut svm, ticket_registry, pool_id, 100, 0, 0);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
@@ -709,7 +773,11 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     let (current_draw_cycle, _) = Pubkey::find_program_address(
-        &[b"draw_cycle", pool_id.to_le_bytes().as_ref(), 0u32.to_le_bytes().as_ref()],
+        &[
+            b"draw_cycle",
+            pool_id.to_le_bytes().as_ref(),
+            0u32.to_le_bytes().as_ref(),
+        ],
         &anchor::id(),
     );
 
@@ -764,7 +832,9 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&jobs_kp]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -780,28 +850,47 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
     inject_mint(&mut svm, pst_mint, 6);
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
-    
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
+
     // Set total_deposited_principal to avoid subtraction overflow
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_deposited_principal = 10_000_000;
     let mut d = vec![];
     pool.try_serialize(&mut d).unwrap();
     d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
-    svm.set_account(pool_key, Account {
-        lamports: 10_000_000,
-        data: d,
-        owner: anchor::id(),
-        executable: false,
-        rent_epoch: 0,
-    }).unwrap();
+    svm.set_account(
+        pool_key,
+        Account {
+            lamports: 10_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
-    inject_registry_with_tickets(&mut svm, ticket_registry, pool_id, 100, 1, 0, &[user.pubkey()]);
+    inject_registry_with_tickets(
+        &mut svm,
+        ticket_registry,
+        pool_id,
+        100,
+        1,
+        0,
+        &[user.pubkey()],
+    );
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
@@ -872,7 +961,10 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
     assert!(
-        err.contains("ConstraintOwner") || err.contains("AccountOwnedByWrongProgram") || err.contains("ConstraintMint") || err.contains("ConstraintRaw"),
+        err.contains("ConstraintOwner")
+            || err.contains("AccountOwnedByWrongProgram")
+            || err.contains("ConstraintMint")
+            || err.contains("ConstraintRaw"),
         "expected owner constraint check failure for Huma mode mint, got: {}",
         err
     );
@@ -921,7 +1013,8 @@ fn test_claim_redemption_reentrancy_protection() {
 
     // Verify pending redemption initially has 3 USDC amount
     let initial_acct = ctx.svm.get_account(&pending_pda).unwrap();
-    let initial_data = anchor::state::PendingRedemption::try_deserialize(&mut &initial_acct.data[..]).unwrap();
+    let initial_data =
+        anchor::state::PendingRedemption::try_deserialize(&mut &initial_acct.data[..]).unwrap();
     assert_eq!(initial_data.amount, 3_000_000);
 
     // Inject simulated Huma lender state with 3 USDC settled

@@ -159,6 +159,7 @@ fn inject_user_winnings(
         unclaimed_non_reinvested_winnings: unclaimed,
         total_claimed,
         total_reinvested,
+        registry_entry_index: u32::MAX,
         bump,
     };
     let mut d = vec![];

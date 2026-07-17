@@ -197,17 +197,18 @@ fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String>
     let randomness_account = Keypair::new().pubkey();
     let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
     let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    ctx.svm.set_account(
-        randomness_account,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    ctx.svm
+        .set_account(
+            randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: owner_pubkey,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let accounts = anchor::accounts::HarvestYieldAndCommit {
         crank: ctx.admin.pubkey(),
@@ -981,5 +982,9 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
     );
 
     assert!(res.is_err());
-    assert!(res.as_ref().unwrap_err().contains("InvalidModeMint"), "got: {:?}", res);
+    assert!(
+        res.as_ref().unwrap_err().contains("InvalidModeMint"),
+        "got: {:?}",
+        res
+    );
 }

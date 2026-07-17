@@ -80,11 +80,11 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     // ─── SWITCHBOARD ON-DEMAND RANDOMNESS EXTRACTION ────────────────────────
     let clock = Clock::get()?;
-    
+
     // Parse the Switchboard account data
-    let randomness_data = RandomnessAccountData::parse(
-        ctx.accounts.randomness_account.data.borrow()
-    ).map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
+    let randomness_data =
+        RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
+            .map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
 
     // Ensure the randomness request was committed AFTER or AT the harvest block
     require!(
@@ -99,7 +99,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     );
 
     // Retrieve the verified 32-byte VRF output
-    let random_seed = randomness_data.get_value(clock.slot)
+    let random_seed = randomness_data
+        .get_value(clock.slot)
         .map_err(|_| PremiumBondsError::RandomnessNotResolved)?;
 
     draw_cycle.randomness_seed = random_seed;
