@@ -69,15 +69,18 @@ pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize =
     8 + std::mem::size_of::<crate::state::TicketRegistry>();
 pub const USER_ENTRY_SIZE: usize = std::mem::size_of::<crate::state::UserEntry>();
 
+/// Helper to calculate and validate the byte start offset for a user entry.
+/// Handles checked multiplication, addition, and bounds validation to prevent overflow.
+#[inline]
+fn get_user_entry_start_offset(data_len: usize, idx: usize) -> Option<usize> {
+    idx.checked_mul(USER_ENTRY_SIZE)
+        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
+        .filter(|&s| s.checked_add(USER_ENTRY_SIZE).map_or(false, |end| end <= data_len))
+}
+
 /// Read the user entry at `idx` from raw account data.
 pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
-    let start = idx
-        .checked_mul(USER_ENTRY_SIZE)
-        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
-        .filter(|&s| {
-            s.checked_add(USER_ENTRY_SIZE)
-                .map_or(false, |end| end <= data.len())
-        })
+    let start = get_user_entry_start_offset(data.len(), idx)
         .expect("Out of bounds read in registry_get_entry");
     unsafe {
         let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
@@ -87,13 +90,7 @@ pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
 
 /// Write `entry` into the user entry slot at `idx` in raw account data.
 pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {
-    let start = idx
-        .checked_mul(USER_ENTRY_SIZE)
-        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
-        .filter(|&s| {
-            s.checked_add(USER_ENTRY_SIZE)
-                .map_or(false, |end| end <= data.len())
-        })
+    let start = get_user_entry_start_offset(data.len(), idx)
         .expect("Out of bounds write in registry_set_entry");
     unsafe {
         let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
@@ -104,11 +101,6 @@ pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::Use
 /// Derive the maximum user entry capacity from the raw account data length.
 pub fn registry_capacity_from_len(data_len: usize) -> u32 {
     ((data_len.saturating_sub(USER_ENTRY_REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32
-}
-
-/// Lazy merge implementation for a specific entry.
-pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) -> Result<()> {
-    entry.lazy_merge(current_cycle_id)
 }
 
 /// Adds new tickets to the pending region of a TicketRegistry account.
@@ -802,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lazy_merge_entry_transitions() {
+    fn test_lazy_merge_transitions() {
         let mut entry = crate::state::UserEntry {
             owner: pk(1),
             active: 10,
@@ -812,26 +804,26 @@ mod tests {
         };
 
         // Case 1: merged_through_cycle < current_cycle_id -> should merge
-        assert!(lazy_merge_entry(&mut entry, 3).is_ok());
+        assert!(entry.lazy_merge(3).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 0);
         assert_eq!(entry.merged_through_cycle, 3);
 
         // Case 2: merged_through_cycle == current_cycle_id -> should not merge again
         entry.pending = 8; // set some pending again in same cycle
-        assert!(lazy_merge_entry(&mut entry, 3).is_ok());
+        assert!(entry.lazy_merge(3).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 8);
         assert_eq!(entry.merged_through_cycle, 3);
 
         // Case 3: merged_through_cycle > current_cycle_id -> should not merge (already ahead)
-        assert!(lazy_merge_entry(&mut entry, 2).is_ok());
+        assert!(entry.lazy_merge(2).is_ok());
         assert_eq!(entry.active, 15);
         assert_eq!(entry.pending, 8);
         assert_eq!(entry.merged_through_cycle, 3);
 
         // Case 4: overflow check -> should fail
         entry.pending = u32::MAX;
-        assert!(lazy_merge_entry(&mut entry, 4).is_err());
+        assert!(entry.lazy_merge(4).is_err());
     }
 }

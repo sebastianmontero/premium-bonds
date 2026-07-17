@@ -373,93 +373,106 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
         pub draw_prepared_up_to: u32,   // cursor for prepare_draw batch processing                                                                                                        
     }                                                                                                                                                                                      
                                                                                                                                                                                            
-    #[zero_copy(unsafe)]                                                                                                                                                                   
-    #[repr(C)]                                                                                                                                                                             
-    #[derive(Default)]                                                                                                                                                                     
-    pub struct UserEntry {                                                                                                                                                                 
-        pub owner: Pubkey,              // 32 bytes                                                                                                                                        
-        pub active: u32,                // 4 bytes                                                                                                                                         
-        pub pending: u32,               // 4 bytes                                                                                                                                         
-        pub merged_through_cycle: u32,  // 4 bytes — cycle ID when pending was merged                                                                                                      
-        pub cumulative_active: u32,     // 4 bytes — prefix sum built during prepare_draw                                                                                                  
-    }                                                                                                                                                                                      
-                                                                                                                                                                                           
-  ### pool.rs                                                                                                                                                                              
-                                                                                                                                                                                           
-  Update /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs to add registry_entry_index to UserWinnings:                                                 
-                                                                                                                                                                                           
-    #[account]                                                                                                                                                                             
-    #[derive(InitSpace)]                                                                                                                                                                   
-    pub struct UserWinnings {                                                                                                                                                              
-        pub pool_id: u32,                                                                                                                                                                  
-        pub user: Pubkey,                                                                                                                                                                  
-        pub unclaimed_non_reinvested_winnings: u64,                                                                                                                                        
-        pub total_claimed: u64,                                                                                                                                                            
-        pub total_reinvested: u64,                                                                                                                                                         
-        pub bump: u8,                                                                                                                                                                      
-        pub registry_entry_index: u32,  // Set to u32::MAX (4,294,967,295) if user has no entry                                                                                            
-    }                                                                                                                                                                                      
-    ──────                                                                                                                                                                                 
-  ## 3. Error Code Additions                                                                                                                                                               
-                                                                                                                                                                                           
-  Append these errors to /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/error.rs:                                                                                  
-                                                                                                                                                                                           
-    #[error_code]                                                                                                                                                                          
-    pub enum PremiumBondsError {                                                                                                                                                           
-        // ... existing errors                                                                                                                                                             
-        #[msg("Invalid registry user entry hint provided")]                                                                                                                                
-        InvalidUserEntryHint,                                                                                                                                                              
-        #[msg("Insufficient pending tickets for this transaction")]                                                                                                                        
-        InsufficientPendingTickets,                                                                                                                                                        
-        #[msg("Insufficient active tickets for this transaction")]                                                                                                                         
-        InsufficientActiveTickets,                                                                                                                                                         
-        #[msg("The prize pool must be frozen for draw preparation")]                                                                                                                       
-        PoolNotFrozen,                                                                                                                                                                     
-        #[msg("The draw cycle is in an invalid phase for this operation")]                                                                                                                 
-        InvalidDrawStatus,                                                                                                                                                                 
-        #[msg("Required remaining account for swapped user's UserWinnings is missing")]                                                                                                    
-        MissingSwappedUserWinnings,                                                                                                                                                        
-    }                                                                                                                                                                                      
-    ──────                                                                                                                                                                                 
-  ## 4. Helper Utilities (utils.rs)                                                                                                                                                        
-                                                                                                                                                                                           
-  Replace the registry raw-byte helpers in /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/utils.rs with the following implementation:                              
-                                                                                                                                                                                           
-    pub const REGISTRY_HEADER_SIZE: usize = 36; // 8 discriminator + 28 bytes header fields                                                                                                
-    pub const USER_ENTRY_SIZE: usize = 48; // Size of UserEntry struct                                                                                                                     
-                                                                                                                                                                                           
-    /// Read the user entry at `idx` from raw account data.                                                                                                                                
-    pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {                                                                                                        
-        let start = REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;                                                                                                                          
-        unsafe {                                                                                                                                                                           
-            let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;                                                                                                          
-            *ptr                                                                                                                                                                           
-        }                                                                                                                                                                                  
-    }                                                                                                                                                                                      
-                                                                                                                                                                                           
-    /// Write `entry` into the user entry slot at `idx` in raw account data.                                                                                                               
-    pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {                                                                                              
-        let start = REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;                                                                                                                          
-        unsafe {                                                                                                                                                                           
-            let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;                                                                                                        
-            *ptr = *entry;                                                                                                                                                                 
-        }                                                                                                                                                                                  
-    }                                                                                                                                                                                      
-                                                                                                                                                                                           
-    /// Derive the maximum user entry capacity from the raw account data length.                                                                                                           
-    pub fn registry_capacity_from_len(data_len: usize) -> u32 {                                                                                                                            
-        ((data_len.saturating_sub(REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32                                                                                                         
-    }                                                                                                                                                                                      
-                                                                                                                                                                                           
-    /// Lazy merge implementation for a specific entry.                                                                                                                                    
-    pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) {                                                                                                  
-        if entry.merged_through_cycle < current_cycle_id {                                                                                                                                 
-            entry.active += entry.pending;                                                                                                                                                 
-            entry.pending = 0;                                                                                                                                                             
-            entry.merged_through_cycle = current_cycle_id;                                                                                                                                 
-        }                                                                                                                                                                                  
-    }                                                                                                                                                                                      
-                                                                                                                                                                                           
+    #[zero_copy(unsafe)]
+    #[repr(C)]
+    #[derive(Default)]
+    pub struct UserEntry {
+        pub owner: Pubkey,              // 32 bytes
+        pub active: u32,                // 4 bytes
+        pub pending: u32,               // 4 bytes
+        pub merged_through_cycle: u32,  // 4 bytes — cycle ID when pending was merged
+        pub cumulative_active: u32,     // 4 bytes — prefix sum built during prepare_draw
+    }
+
+    impl UserEntry {
+        pub fn lazy_merge(&mut self, current_cycle_id: u32) -> Result<()> {
+            if self.merged_through_cycle < current_cycle_id {
+                self.active = self.active.checked_add(self.pending)
+                    .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+                self.pending = 0;
+                self.merged_through_cycle = current_cycle_id;
+            }
+            Ok(())
+        }
+    }
+
+  ### pool.rs
+
+  Update /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs to add registry_entry_index to UserWinnings:
+
+    #[account]
+    #[derive(InitSpace)]
+    pub struct UserWinnings {
+        pub pool_id: u32,
+        pub user: Pubkey,
+        pub unclaimed_non_reinvested_winnings: u64,
+        pub total_claimed: u64,
+        pub total_reinvested: u64,
+        pub bump: u8,
+        pub registry_entry_index: u32,  // Set to u32::MAX (4,294,967,295) if user has no entry
+    }
+    ──────
+  ## 3. Error Code Additions
+
+  Append these errors to /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/error.rs:
+
+    #[error_code]
+    pub enum PremiumBondsError {
+        // ... existing errors
+        #[msg("Invalid registry user entry hint provided")]
+        InvalidUserEntryHint,
+        #[msg("Insufficient pending tickets for this transaction")]
+        InsufficientPendingTickets,
+        #[msg("Insufficient active tickets for this transaction")]
+        InsufficientActiveTickets,
+        #[msg("The prize pool must be frozen for draw preparation")]
+        PoolNotFrozen,
+        #[msg("The draw cycle is in an invalid phase for this operation")]
+        InvalidDrawStatus,
+        #[msg("Required remaining account for swapped user's UserWinnings is missing")]
+        MissingSwappedUserWinnings,
+    }
+    ──────
+  ## 4. Helper Utilities (utils.rs)
+
+  Replace the registry raw-byte helpers in /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/utils.rs with the following implementation:
+
+    pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize =
+        8 + std::mem::size_of::<crate::state::TicketRegistry>();
+    pub const USER_ENTRY_SIZE: usize = std::mem::size_of::<crate::state::UserEntry>();
+
+    #[inline]
+    fn get_user_entry_start_offset(data_len: usize, idx: usize) -> Option<usize> {
+        idx.checked_mul(USER_ENTRY_SIZE)
+            .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
+            .filter(|&s| s.checked_add(USER_ENTRY_SIZE).map_or(false, |end| end <= data_len))
+    }
+
+    /// Read the user entry at `idx` from raw account data.
+    pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
+        let start = get_user_entry_start_offset(data.len(), idx)
+            .expect("Out of bounds read in registry_get_entry");
+        unsafe {
+            let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
+            std::ptr::read_unaligned(ptr)
+        }
+    }
+
+    /// Write `entry` into the user entry slot at `idx` in raw account data.
+    pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {
+        let start = get_user_entry_start_offset(data.len(), idx)
+            .expect("Out of bounds write in registry_set_entry");
+        unsafe {
+            let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
+            std::ptr::write_unaligned(ptr, *entry);
+        }
+    }
+
+    /// Derive the maximum user entry capacity from the raw account data length.
+    pub fn registry_capacity_from_len(data_len: usize) -> u32 {
+        ((data_len.saturating_sub(USER_ENTRY_REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32
+    }
+
   Note: Delete the old registry_add_tickets, swap_and_pop_pending, and swap_and_pop_active functions.                                                                                      
   ──────                                                                                                                                                                                   
   ## 5. Detailed Instruction Modifications                                                                                                                                                 
@@ -505,7 +518,7 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
         let mut entry = registry_get_entry(&data, user_entry_idx as usize);                                                                                                                
         require!(entry.owner == user_key, PremiumBondsError::InvalidUserEntryHint);                                                                                                        
                                                                                                                                                                                            
-        lazy_merge_entry(&mut entry, current_cycle);                                                                                                                                       
+        entry.lazy_merge(current_cycle)?;                                                                                                                                                  
         entry.pending += bonds_to_buy;                                                                                                                                                     
         registry_set_entry(&mut data, user_entry_idx as usize, &entry);                                                                                                                    
     }                                                                                                                                                                                      
@@ -538,7 +551,7 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
     let mut entry = registry_get_entry(&data, user_entry_idx as usize);                                                                                                                    
     require!(entry.owner == user_key, PremiumBondsError::InvalidUserEntryHint);                                                                                                            
                                                                                                                                                                                            
-    lazy_merge_entry(&mut entry, current_cycle);                                                                                                                                           
+    entry.lazy_merge(current_cycle)?;                                                                                                                                           
                                                                                                                                                                                            
     require!(entry.active >= active_to_sell, PremiumBondsError::InsufficientActiveTickets);                                                                                                
     require!(entry.pending >= pending_to_sell, PremiumBondsError::InsufficientPendingTickets);                                                                                             
@@ -610,7 +623,7 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
     use crate::constants::{DRAW_CYCLE_SEED, PRIZE_POOL_SEED};                                                                                                                              
     use crate::error::PremiumBondsError;                                                                                                                                                   
     use crate::state::{DrawCycle, DrawStatus, PrizePool, TicketRegistry};                                                                                                                  
-    use crate::utils::{registry_get_entry, registry_set_entry, lazy_merge_entry};                                                                                                          
+    use crate::utils::{registry_get_entry, registry_set_entry};                                                                                                          
     use anchor_lang::prelude::*;                                                                                                                                                           
                                                                                                                                                                                            
     #[derive(Accounts)]                                                                                                                                                                    
@@ -660,7 +673,7 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
             let mut entry = registry_get_entry(&data, i as usize);                                                                                                                         
                                                                                                                                                                                            
             // Apply lazy merge                                                                                                                                                            
-            lazy_merge_entry(&mut entry, cycle_id);                                                                                                                                        
+            entry.lazy_merge(cycle_id)?;                                                                                                                                        
                                                                                                                                                                                            
             cumulative = cumulative.checked_add(entry.active).ok_or(PremiumBondsError::MathOverflow)?;                                                                                     
             entry.cumulative_active = cumulative;                                                                                                                                          
@@ -738,7 +751,7 @@ TicketRegistry Redesign: Weighted User Entries Technical Specification
     let mut entry = registry_get_entry(&data, user_entry_idx as usize);
     require!(entry.owner == ctx.accounts.winner.key(), PremiumBondsError::InvalidUserEntryHint);
   
-    lazy_merge_entry(&mut entry, current_cycle);
+    entry.lazy_merge(current_cycle)?;
     entry.pending += bonds_to_buy;
   
     registry_set_entry(&mut data, user_entry_idx as usize, &entry);
