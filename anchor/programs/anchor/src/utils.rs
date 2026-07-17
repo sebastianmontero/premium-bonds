@@ -67,14 +67,18 @@ pub fn registry_capacity_from_len_legacy(data_len: usize) -> u32 {
 
 pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize =
     8 + std::mem::size_of::<crate::state::TicketRegistry>();
-pub const USER_ENTRY_SIZE: usize = 48; // Size of UserEntry struct
+pub const USER_ENTRY_SIZE: usize = std::mem::size_of::<crate::state::UserEntry>();
 
 /// Read the user entry at `idx` from raw account data.
 pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
-    let start = USER_ENTRY_REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
-    if start + USER_ENTRY_SIZE > data.len() {
-        panic!("Out of bounds read in registry_get_entry");
-    }
+    let start = idx
+        .checked_mul(USER_ENTRY_SIZE)
+        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
+        .filter(|&s| {
+            s.checked_add(USER_ENTRY_SIZE)
+                .map_or(false, |end| end <= data.len())
+        })
+        .expect("Out of bounds read in registry_get_entry");
     unsafe {
         let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
         std::ptr::read_unaligned(ptr)
@@ -83,10 +87,14 @@ pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
 
 /// Write `entry` into the user entry slot at `idx` in raw account data.
 pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {
-    let start = USER_ENTRY_REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
-    if start + USER_ENTRY_SIZE > data.len() {
-        panic!("Out of bounds write in registry_set_entry");
-    }
+    let start = idx
+        .checked_mul(USER_ENTRY_SIZE)
+        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
+        .filter(|&s| {
+            s.checked_add(USER_ENTRY_SIZE)
+                .map_or(false, |end| end <= data.len())
+        })
+        .expect("Out of bounds write in registry_set_entry");
     unsafe {
         let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
         std::ptr::write_unaligned(ptr, *entry);
@@ -100,15 +108,7 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
 
 /// Lazy merge implementation for a specific entry.
 pub fn lazy_merge_entry(entry: &mut crate::state::UserEntry, current_cycle_id: u32) -> Result<()> {
-    if entry.merged_through_cycle < current_cycle_id {
-        entry.active = entry
-            .active
-            .checked_add(entry.pending)
-            .ok_or(error!(PremiumBondsError::MathOverflow))?;
-        entry.pending = 0;
-        entry.merged_through_cycle = current_cycle_id;
-    }
-    Ok(())
+    entry.lazy_merge(current_cycle_id)
 }
 
 /// Adds new tickets to the pending region of a TicketRegistry account.

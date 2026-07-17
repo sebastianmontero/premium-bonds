@@ -26,3 +26,17 @@ pub struct UserEntry {
     pub merged_through_cycle: u32, // 4 bytes — cycle ID when pending was merged
     pub cumulative_active: u32,    // 4 bytes — prefix sum built during prepare_draw
 }
+
+impl UserEntry {
+    pub fn lazy_merge(&mut self, current_cycle_id: u32) -> Result<()> {
+        if self.merged_through_cycle < current_cycle_id {
+            self.active = self
+                .active
+                .checked_add(self.pending)
+                .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+            self.pending = 0;
+            self.merged_through_cycle = current_cycle_id;
+        }
+        Ok(())
+    }
+}
