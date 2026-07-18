@@ -8,7 +8,6 @@ import {
 } from "@solana/react-hooks";
 import {
   address,
-  getBase58Decoder,
   getBase64Encoder,
   AccountRole,
   Base58EncodedBytes,
@@ -30,6 +29,10 @@ import {
   findPayoutRegistryPda,
   findAtaAddress,
   parsePrizePool,
+  parseUserWinnings,
+  parseTicketRegistry,
+  parseRegistryEntry,
+  UserWinningsInfo,
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { MOCK_POOL } from "../mock-data";
@@ -51,11 +54,7 @@ interface ParsedHumaPool {
   lastRequestId: bigint;
 }
 
-interface ParsedWinnings {
-  unclaimedNonReinvestedWinnings: number;
-  totalClaimed: number;
-  totalReinvested: number;
-}
+
 
 interface ParsedRedemption {
   redemptionId: string;
@@ -100,7 +99,6 @@ export const HUMA_REDEMPTION_REQUEST = address(
     "11111111111111111111111111111111"
 );
 
-const base58Decoder = getBase58Decoder();
 const base64Encoder = getBase64Encoder();
 
 function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
@@ -136,17 +134,7 @@ function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
   return { assets, nextRequestId, lastRequestId };
 }
 
-function parseUserWinnings(data: Uint8Array): ParsedWinnings {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const unclaimedNonReinvestedWinnings = Number(view.getBigUint64(44, true));
-  const totalClaimed = Number(view.getBigUint64(52, true));
-  const totalReinvested = Number(view.getBigUint64(60, true));
-  return {
-    unclaimedNonReinvestedWinnings,
-    totalClaimed,
-    totalReinvested,
-  };
-}
+
 
 function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -176,7 +164,7 @@ export function useBondsContract(poolId: number = 1) {
 
   const [pool, setPool] = useState<ExtendedPoolInfo | null>(null);
   const [userTickets, setUserTickets] = useState<UserTicketInfo | null>(null);
-  const [userWinnings, setUserWinnings] = useState<ParsedWinnings | null>(null);
+  const [userWinnings, setUserWinnings] = useState<UserWinningsInfo | null>(null);
   const [pendingRedemptions, setPendingRedemptions] = useState<
     PendingRedemption[]
   >([]);
@@ -284,6 +272,7 @@ export function useBondsContract(poolId: number = 1) {
           setWalletBalance(0);
         }
 
+        let registryEntryIndex = 0xffffffff;
         // Fetch UserWinnings account
         try {
           const winningsAcc = await rpc
@@ -293,30 +282,37 @@ export function useBondsContract(poolId: number = 1) {
             const bytes = new Uint8Array(
               base64Encoder.encode(winningsAcc.value.data[0])
             );
-            setUserWinnings(parseUserWinnings(bytes));
+            const parsed = parseUserWinnings(bytes);
+            setUserWinnings(parsed);
+            registryEntryIndex = parsed.registryEntryIndex;
           } else {
             setUserWinnings({
-              unclaimedNonReinvestedWinnings: 0,
-              totalClaimed: 0,
-              totalReinvested: 0,
+              poolId,
+              user: address(userAddress),
+              unclaimedNonReinvestedWinnings: 0n,
+              totalClaimed: 0n,
+              totalReinvested: 0n,
+              bump: 0,
+              registryEntryIndex: 0xffffffff,
             });
           }
         } catch (err) {
-          console.warn(
-            "UserWinnings account not found, defaulting to zero.",
-            err
-          );
+          console.warn("UserWinnings account not found, defaulting.", err);
           setUserWinnings({
-            unclaimedNonReinvestedWinnings: 0,
-            totalClaimed: 0,
-            totalReinvested: 0,
+            poolId,
+            user: address(userAddress),
+            unclaimedNonReinvestedWinnings: 0n,
+            totalClaimed: 0n,
+            totalReinvested: 0n,
+            bump: 0,
+            registryEntryIndex: 0xffffffff,
           });
         }
 
         // Fetch user tickets from TicketRegistry
         try {
           const registryAddrStr = poolInfo.ticketRegistry;
-          if (registryAddrStr) {
+          if (registryAddrStr && registryEntryIndex !== 0xffffffff) {
             const registryPda = address(registryAddrStr);
             const registryAcc = await rpc
               .getAccountInfo(registryPda, { encoding: "base64" })
@@ -331,34 +327,20 @@ export function useBondsContract(poolId: number = 1) {
                 bytes.byteLength
               );
 
-              const activeTicketsCount = view.getUint32(16, true);
-              const pendingTicketsCount = view.getUint32(20, true);
+              const currentCycle = view.getUint32(28, true);
+              const userEntry = parseRegistryEntry(bytes, registryEntryIndex);
 
               let activeCount = 0;
               let pendingCount = 0;
 
-              for (let i = 0; i < activeTicketsCount; i++) {
-                const offset = 24 + i * 32;
-                if (offset + 32 <= bytes.byteLength) {
-                  const addrStr = base58Decoder.decode(
-                    bytes.slice(offset, offset + 32)
-                  );
-                  if (addrStr === userAddress) {
-                    activeCount++;
-                  }
-                }
-              }
-
-              for (let i = 0; i < pendingTicketsCount; i++) {
-                const idx = activeTicketsCount + i;
-                const offset = 24 + idx * 32;
-                if (offset + 32 <= bytes.byteLength) {
-                  const addrStr = base58Decoder.decode(
-                    bytes.slice(offset, offset + 32)
-                  );
-                  if (addrStr === userAddress) {
-                    pendingCount++;
-                  }
+              if (userEntry && userEntry.owner === userAddress) {
+                // Simulate lazy merge check locally
+                if (userEntry.mergedThroughCycle < currentCycle) {
+                  activeCount = userEntry.active + userEntry.pending;
+                  pendingCount = 0;
+                } else {
+                  activeCount = userEntry.active;
+                  pendingCount = userEntry.pending;
                 }
               }
 
@@ -544,12 +526,11 @@ export function useBondsContract(poolId: number = 1) {
 
       const rpc = client.runtime.rpc;
       const registryAddrStr = pool.ticketRegistry;
-      if (!registryAddrStr)
-        throw new Error("Ticket registry address not loaded");
+      if (!registryAddrStr) throw new Error("Ticket registry address not loaded");
 
       // 1. Fetch user winnings PDA to get registry index
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
-      let registryEntryIndex = 0xffffffff; // u32::MAX
+      let registryEntryIndex = 0xffffffff;
 
       const winningsAcc = await rpc
         .getAccountInfo(userWinningsPda, { encoding: "base64" })
@@ -557,27 +538,11 @@ export function useBondsContract(poolId: number = 1) {
 
       if (winningsAcc && winningsAcc.value) {
         const winningsBytes = base64Encoder.encode(winningsAcc.value.data[0]);
-        const winningsView = new DataView(
-          winningsBytes.buffer,
-          winningsBytes.byteOffset,
-          winningsBytes.byteLength
-        );
-        // UserWinnings layout:
-        // offset 0: 8-byte discriminator
-        // offset 8: pool_id (u32)
-        // offset 12: user (32 bytes)
-        // offset 44: unclaimed_non_reinvested_winnings (u64)
-        // offset 52: total_claimed (u64)
-        // offset 60: total_reinvested (u64)
-        // offset 68: registry_entry_index (u32)
-        registryEntryIndex = winningsView.getUint32(68, true);
+        const winnings = parseUserWinnings(new Uint8Array(winningsBytes));
+        registryEntryIndex = winnings.registryEntryIndex;
       }
 
-      let activeOwned = 0;
-      let pendingOwned = 0;
-      let mergedThroughCycle = 0;
-
-      // 2. Fetch registry header details and user entry if registered
+      // 2. Fetch registry details
       const registryAcc = await rpc
         .getAccountInfo(address(registryAddrStr), { encoding: "base64" })
         .send();
@@ -585,146 +550,111 @@ export function useBondsContract(poolId: number = 1) {
         throw new Error("Ticket registry account not found on-chain");
 
       const bytes = base64Encoder.encode(registryAcc.value.data[0]);
-      const view = new DataView(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength
-      );
+      const registry = parseTicketRegistry(new Uint8Array(bytes));
 
-      // TicketRegistry header fields:
-      // pool_id: offset 8 (u32)
-      // capacity: offset 12 (u32)
-      // user_count: offset 16 (u32)
-      // total_active_tickets: offset 20 (u32)
-      // total_pending_tickets: offset 24 (u32)
-      // draw_cycle_id: offset 28 (u32)
-      // draw_prepared_up_to: offset 32 (u32)
-      const userCount = view.getUint32(16, true);
-      const currentCycle = view.getUint32(28, true);
+      let activeOwned = 0;
+      let pendingOwned = 0;
+      const currentCycle = registry.drawCycleId;
 
-      if (registryEntryIndex !== 0xffffffff && registryEntryIndex < userCount) {
-        const offset = 36 + registryEntryIndex * 48;
-        if (offset + 48 <= bytes.byteLength) {
-          // UserEntry layout:
-          // owner: offset 0 (32 bytes)
-          // active: offset 32 (u32)
-          // pending: offset 36 (u32)
-          // merged_through_cycle: offset 40 (u32)
-          // cumulative_active: offset 44 (u32)
-          const ownerBytes = bytes.slice(offset, offset + 32);
-          const ownerStr = base58Decoder.decode(ownerBytes);
-          if (ownerStr === userAddress) {
-            activeOwned = view.getUint32(offset + 32, true);
-            pendingOwned = view.getUint32(offset + 36, true);
-            mergedThroughCycle = view.getUint32(offset + 40, true);
+      if (registryEntryIndex !== 0xffffffff && registryEntryIndex < registry.userCount) {
+        const entry = registry.entries[registryEntryIndex];
+        if (entry && entry.owner === userAddress) {
+          activeOwned = entry.active;
+          pendingOwned = entry.pending;
+          
+          // Apply lazy merge locally
+          if (entry.mergedThroughCycle < currentCycle) {
+            activeOwned += pendingOwned;
+            pendingOwned = 0;
           }
         }
       }
 
-      // Lazy merge logic in JavaScript to determine final active/pending count
-      if (mergedThroughCycle < currentCycle) {
-        activeOwned += pendingOwned;
-        pendingOwned = 0;
-      }
-
       // Number of bonds to sell
       const bondsToSell = Math.floor(amount / pool.bondPrice);
-      if (bondsToSell <= 0)
-        throw new Error("Amount is too small to sell any bonds");
+      if (bondsToSell <= 0) throw new Error("Amount is too small to sell any bonds");
       if (activeOwned + pendingOwned < bondsToSell) {
-        throw new Error(
-          `Insufficient tickets owned to sell. Owned: ${activeOwned + pendingOwned}, Required: ${bondsToSell}`
-        );
+        throw new Error(`Insufficient tickets owned to sell. Owned: ${activeOwned + pendingOwned}, Required: ${bondsToSell}`);
       }
 
       // Distribute bonds to sell: prioritize pending, then active
       const pendingToSell = Math.min(pendingOwned, bondsToSell);
       const activeToSell = bondsToSell - pendingToSell;
 
-      // Determine if exit triggers swap-and-pop
-      const willExit =
-        activeOwned === activeToSell && pendingOwned === pendingToSell;
-      const lastEntryIdx = userCount - 1;
+      const executeTx = async (pToSell: number, aToSell: number) => {
+        const willExit = activeOwned === aToSell && pendingOwned === pToSell;
+        const lastEntryIdx = registry.userCount - 1;
 
-      let swappedUserWinningsPda: Address | null = null;
-      if (
-        willExit &&
-        registryEntryIndex !== lastEntryIdx &&
-        lastEntryIdx >= 0
-      ) {
-        // Read owner of last entry to derive their winnings PDA
-        const lastOffset = 36 + lastEntryIdx * 48;
-        if (lastOffset + 48 <= bytes.byteLength) {
-          const lastOwnerBytes = bytes.slice(lastOffset, lastOffset + 32);
-          const lastOwnerStr = base58Decoder.decode(lastOwnerBytes);
-          swappedUserWinningsPda = await findUserWinningsPda(
-            poolId,
-            lastOwnerStr
-          );
+        let swappedUserWinningsPda: Address | null = null;
+        if (willExit && registryEntryIndex !== lastEntryIdx && lastEntryIdx >= 0) {
+          const lastEntry = registry.entries[lastEntryIdx];
+          if (lastEntry) {
+            swappedUserWinningsPda = await findUserWinningsPda(poolId, lastEntry.owner);
+          }
         }
-      }
 
-      const poolPda = await findPrizePoolPda(poolId);
-      const poolPstVault = await findPoolPstVaultPda(poolId);
-      const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+        const poolPda = await findPrizePoolPda(poolId);
+        const poolPstVault = await findPoolPstVaultPda(poolId);
+        const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
-      // Derive pending redemption account
-      const nextRedemptionId = pool.nextRedemptionId || 0;
-      const pendingRedemptionPda = await findPendingRedemptionPda(
-        poolId,
-        nextRedemptionId
-      );
+        const nextRedemptionId = pool.nextRedemptionId || 0;
+        const pendingRedemptionPda = await findPendingRedemptionPda(poolId, nextRedemptionId);
 
-      // Build SellBonds instruction data (8 byte discriminator + 4 byte active_to_sell + 4 byte pending_to_sell)
-      const ixData = new Uint8Array(16);
-      ixData.set([205, 139, 46, 24, 50, 76, 182, 76], 0);
+        const ixData = new Uint8Array(16);
+        ixData.set([205, 139, 46, 24, 50, 76, 182, 76], 0);
 
-      const viewIx = new DataView(ixData.buffer);
-      viewIx.setUint32(8, activeToSell, true);
-      viewIx.setUint32(12, pendingToSell, true);
+        const viewIx = new DataView(ixData.buffer);
+        viewIx.setUint32(8, aToSell, true);
+        viewIx.setUint32(12, pToSell, true);
 
-      const accounts = [
-        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
-        { address: userWinningsPda, role: AccountRole.WRITABLE },
-        { address: poolPda, role: AccountRole.WRITABLE },
-        { address: address(registryAddrStr), role: AccountRole.WRITABLE },
-        { address: USDC_MINT, role: AccountRole.READONLY },
-        { address: poolPstVault, role: AccountRole.WRITABLE },
-        { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
-        { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
-        { address: HUMA_CONFIG, role: AccountRole.READONLY },
-        { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
-        { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
-        { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
-        { address: HUMA_MODE_MINT, role: AccountRole.WRITABLE },
-        { address: HUMA_REDEMPTION_REQUEST, role: AccountRole.WRITABLE },
-        { address: HUMA_LENDER_STATE, role: AccountRole.WRITABLE },
-        { address: humaPoolAuthority, role: AccountRole.READONLY },
-        { address: HUMA_POOL_MODE_TOKEN, role: AccountRole.WRITABLE },
-        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
-        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-      ];
+        const accounts = [
+          { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+          { address: userWinningsPda, role: AccountRole.WRITABLE },
+          { address: poolPda, role: AccountRole.WRITABLE },
+          { address: address(registryAddrStr), role: AccountRole.WRITABLE },
+          { address: USDC_MINT, role: AccountRole.READONLY },
+          { address: poolPstVault, role: AccountRole.WRITABLE },
+          { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
+          { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+          { address: HUMA_CONFIG, role: AccountRole.READONLY },
+          { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },
+          { address: HUMA_POOL_STATE, role: AccountRole.WRITABLE },
+          { address: HUMA_MODE_CONFIG, role: AccountRole.READONLY },
+          { address: HUMA_MODE_MINT, role: AccountRole.WRITABLE },
+          { address: HUMA_REDEMPTION_REQUEST, role: AccountRole.WRITABLE },
+          { address: HUMA_LENDER_STATE, role: AccountRole.WRITABLE },
+          { address: humaPoolAuthority, role: AccountRole.READONLY },
+          { address: HUMA_POOL_MODE_TOKEN, role: AccountRole.WRITABLE },
+          { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+          { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+          { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+        ];
 
-      if (swappedUserWinningsPda) {
-        accounts.push({
-          address: swappedUserWinningsPda,
-          role: AccountRole.WRITABLE,
+        if (swappedUserWinningsPda) {
+          accounts.push({ address: swappedUserWinningsPda, role: AccountRole.WRITABLE });
+        }
+
+        return await send({
+          instructions: [{ programAddress: PROGRAM_ID, accounts, data: ixData }],
         });
+      };
+
+      try {
+        const signature = await executeTx(pendingToSell, activeToSell);
+        await refetch();
+        return signature;
+      } catch (err: unknown) {
+        // Concurrency Auto-Recovery: Catch InsufficientPendingTickets
+        const errorMsg = String(err);
+        if (errorMsg.includes("InsufficientPendingTickets") || errorMsg.includes("0x1776")) {
+          console.warn("Sell pending failed due to harvest concurrency. Retrying with active...");
+          const totalToSell = pendingToSell + activeToSell;
+          const retrySignature = await executeTx(0, totalToSell);
+          await refetch();
+          return retrySignature;
+        }
+        throw err;
       }
-
-      const signature = await send({
-        instructions: [
-          {
-            programAddress: PROGRAM_ID,
-            accounts,
-            data: ixData,
-          },
-        ],
-      });
-
-      await refetch();
-      return signature;
     },
     [userAddress, pool, poolId, client, send, refetch]
   );
@@ -881,7 +811,14 @@ export function useBondsContract(poolId: number = 1) {
   return {
     pool,
     userTickets,
-    userWinnings,
+    userWinnings: userWinnings
+      ? {
+          unclaimedNonReinvestedWinnings: Number(userWinnings.unclaimedNonReinvestedWinnings),
+          totalClaimed: Number(userWinnings.totalClaimed),
+          totalReinvested: Number(userWinnings.totalReinvested),
+          registryEntryIndex: userWinnings.registryEntryIndex,
+        }
+      : null,
     pendingRedemptions,
     walletBalance,
     isLoading,

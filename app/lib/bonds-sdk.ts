@@ -414,10 +414,11 @@ export interface UserWinningsInfo {
   totalClaimed: bigint;
   totalReinvested: bigint;
   bump: number;
+  registryEntryIndex: number;
 }
 
 export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
-  if (data.length < 69) {
+  if (data.length < 73) {
     throw new Error(`UserWinnings data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -428,6 +429,7 @@ export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
   const totalClaimed = view.getBigUint64(52, true);
   const totalReinvested = view.getBigUint64(60, true);
   const bump = view.getUint8(68);
+  const registryEntryIndex = view.getUint32(69, true);
 
   return {
     poolId,
@@ -436,6 +438,7 @@ export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
     totalClaimed,
     totalReinvested,
     bump,
+    registryEntryIndex,
   };
 }
 
@@ -483,45 +486,96 @@ export function parsePendingRedemption(
   };
 }
 
+export interface UserEntryInfo {
+  owner: Address;
+  active: number;
+  pending: number;
+  mergedThroughCycle: number;
+  cumulativeActive: number;
+}
+
 export interface TicketRegistryInfo {
   poolId: number;
   capacity: number;
-  activeTicketsCount: number;
-  pendingTicketsCount: number;
-  tickets: Address[];
+  userCount: number;
+  totalActiveTickets: number;
+  totalPendingTickets: number;
+  drawCycleId: number;
+  drawPreparedUpTo: number;
+  entries: UserEntryInfo[];
 }
 
 export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
-  if (data.length < 24) {
+  if (data.length < 36) {
     throw new Error(`TicketRegistry data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   const poolId = view.getUint32(8, true);
   const capacity = view.getUint32(12, true);
-  const activeTicketsCount = view.getUint32(16, true);
-  const pendingTicketsCount = view.getUint32(20, true);
+  const userCount = view.getUint32(16, true);
+  const totalActiveTickets = view.getUint32(20, true);
+  const totalPendingTickets = view.getUint32(24, true);
+  const drawCycleId = view.getUint32(28, true);
+  const drawPreparedUpTo = view.getUint32(32, true);
 
-  const ticketsCount = activeTicketsCount + pendingTicketsCount;
-  const tickets: Address[] = [];
+  const entries: UserEntryInfo[] = [];
 
-  for (let i = 0; i < ticketsCount; i++) {
-    const offset = 24 + i * 32;
-    if (offset + 32 > data.byteLength) {
+  for (let i = 0; i < userCount; i++) {
+    const offset = 36 + i * 48;
+    if (offset + 48 > data.byteLength) {
       break;
     }
-    const ticketOwner = base58Decoder.decode(
-      data.slice(offset, offset + 32)
-    ) as Address;
-    tickets.push(ticketOwner);
+    const ownerBytes = data.slice(offset, offset + 32);
+    const owner = base58Decoder.decode(ownerBytes) as Address;
+    const active = view.getUint32(offset + 32, true);
+    const pending = view.getUint32(offset + 36, true);
+    const mergedThroughCycle = view.getUint32(offset + 40, true);
+    const cumulativeActive = view.getUint32(offset + 44, true);
+
+    entries.push({
+      owner,
+      active,
+      pending,
+      mergedThroughCycle,
+      cumulativeActive,
+    });
   }
 
   return {
     poolId,
     capacity,
-    activeTicketsCount,
-    pendingTicketsCount,
-    tickets,
+    userCount,
+    totalActiveTickets,
+    totalPendingTickets,
+    drawCycleId,
+    drawPreparedUpTo,
+    entries,
+  };
+}
+
+export function parseRegistryEntry(data: Uint8Array, index: number): UserEntryInfo | null {
+  if (data.length < 36) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const userCount = view.getUint32(16, true);
+  if (index >= userCount) return null;
+
+  const offset = 36 + index * 48;
+  if (offset + 48 > data.byteLength) return null;
+
+  const ownerBytes = data.slice(offset, offset + 32);
+  const owner = base58Decoder.decode(ownerBytes) as Address;
+  const active = view.getUint32(offset + 32, true);
+  const pending = view.getUint32(offset + 36, true);
+  const mergedThroughCycle = view.getUint32(offset + 40, true);
+  const cumulativeActive = view.getUint32(offset + 44, true);
+
+  return {
+    owner,
+    active,
+    pending,
+    mergedThroughCycle,
+    cumulativeActive,
   };
 }
 
@@ -652,6 +706,46 @@ export async function buildReinvestWinningsInstruction(
     { address: userWinnings, role: AccountRole.WRITABLE },
     { address: params.ticketRegistry, role: AccountRole.WRITABLE },
     { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface PrepareDrawInstructionParams {
+  crank: Address;
+  poolId: number;
+  currentDrawCycleId: number;
+  ticketRegistry: Address;
+  batchSize: number;
+}
+
+export async function buildPrepareDrawInstruction(
+  params: PrepareDrawInstructionParams
+) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const drawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.currentDrawCycleId
+  );
+
+  const data = new Uint8Array(8 + 4);
+  const discriminator = [1, 48, 179, 57, 145, 28, 26, 131];
+  for (let i = 0; i < 8; i++) {
+    data[i] = discriminator[i];
+  }
+
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  view.setUint32(8, params.batchSize, true);
+
+  const accounts = [
+    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
+    { address: pool, role: AccountRole.WRITABLE },
+    { address: drawCycle, role: AccountRole.WRITABLE },
+    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
   ];
 
   return {

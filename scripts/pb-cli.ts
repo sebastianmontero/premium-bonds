@@ -38,6 +38,7 @@ import {
   findAtaAddress,
   encodeU32,
   PROGRAM_ID,
+  buildPrepareDrawInstruction,
 } from "../app/lib/bonds-sdk";
 
 // ─── Help / Usage ────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ Usage:
 
 Commands:
   harvest              Harvest yield from Huma and commit it to the current draw cycle
+  prepare-draw         Prepare tickets for the draw cycle in batches
   reveal               Reveal the random seed and pick winners for the draw cycle
   query-config         Query and display the Global Config state
   query-pool           Query and display the Prize Pool state
@@ -69,6 +71,7 @@ Options:
   --cycle <number>     Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
   --winner <idx|addr>  Winner index or public key to reinvest (default: all unprocessed winners)
   --max-bonds <number> Maximum bonds to buy per reinvest transaction (default: 1000)
+  --batch-size <num>   Maximum entries to process per prepare-draw transaction (default: 1000)
   --user <pubkey>      User public key filter/target (for query-winnings, query-redemption, or query-registry)
   --help, -h           Show this help message
 `);
@@ -237,7 +240,12 @@ async function main() {
 
   // Load keypair if performing writes
   let signer: KeyPairSigner | null = null;
-  if (command === "harvest" || command === "reveal" || command === "reinvest") {
+  if (
+    command === "harvest" ||
+    command === "reveal" ||
+    command === "reinvest" ||
+    command === "prepare-draw"
+  ) {
     if (!fs.existsSync(keypairPath)) {
       throw new Error(`Keypair file not found at ${keypairPath}`);
     }
@@ -320,6 +328,42 @@ async function main() {
         base64Encoder.encode(poolAcc.value.data[0])
       );
       const poolState = parsePrizePool(poolBytes);
+
+      // ─── Verification & Batch Preparation ───
+      const registryAddr = poolState.ticketRegistry;
+      const registryAcc = await rpc
+        .getAccountInfo(address(registryAddr), { encoding: "base64" })
+        .send();
+      if (!registryAcc || !registryAcc.value) {
+        throw new Error(`Ticket registry at ${registryAddr} not found.`);
+      }
+      let registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+      let registryState = parseTicketRegistry(registryBytes);
+
+      if (registryState.drawPreparedUpTo < registryState.userCount) {
+        console.log(`Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`);
+        const batchSize = 1000;
+        while (registryState.drawPreparedUpTo < registryState.userCount) {
+          console.log(`Sending prepare_draw batch starting at index ${registryState.drawPreparedUpTo}...`);
+          const prepIx = await buildPrepareDrawInstruction({
+            crank: signer!.address,
+            poolId,
+            currentDrawCycleId: poolState.currentDrawCycleId,
+            ticketRegistry: address(registryAddr),
+            batchSize,
+          });
+          await sendTransaction(rpc, signer!, prepIx);
+
+          // Refetch registry state
+          const updatedRegistryAcc = await rpc
+            .getAccountInfo(address(registryAddr), { encoding: "base64" })
+            .send();
+          registryBytes = new Uint8Array(base64Encoder.encode(updatedRegistryAcc!.value!.data[0]));
+          registryState = parseTicketRegistry(registryBytes);
+          console.log(`Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+        }
+        console.log("Automatic draw preparation completed.");
+      }
 
       // Parse seed option or generate random
       let seed = crypto.randomBytes(32);
@@ -511,6 +555,77 @@ async function main() {
       } else {
         await sendTransaction(rpc, signer!, ix);
       }
+      break;
+    }
+
+    case "prepare-draw": {
+      const batchSize = parseInt(options["--batch-size"] || "1000", 10);
+      if (isNaN(batchSize) || batchSize <= 0) {
+        throw new Error("Batch size must be a positive integer.");
+      }
+
+      console.log(`Preparing draw for pool ${poolId} with batch size ${batchSize}...`);
+
+      const poolPda = await findPrizePoolPda(poolId);
+      const poolAcc = await rpc
+        .getAccountInfo(poolPda, { encoding: "base64" })
+        .send();
+      if (!poolAcc || !poolAcc.value) {
+        throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+      }
+      const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
+      const poolState = parsePrizePool(poolBytes);
+
+      const registryAddr = poolState.ticketRegistry;
+      console.log(`Registry address: ${registryAddr}`);
+
+      let registryAcc = await rpc
+        .getAccountInfo(address(registryAddr), { encoding: "base64" })
+        .send();
+      if (!registryAcc || !registryAcc.value) {
+        throw new Error(`Ticket registry at ${registryAddr} not found.`);
+      }
+      let registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+      let registryState = parseTicketRegistry(registryBytes);
+
+      console.log(`Current state: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+
+      if (registryState.drawPreparedUpTo >= registryState.userCount) {
+        console.log("Draw preparation is already complete.");
+        break;
+      }
+
+      while (registryState.drawPreparedUpTo < registryState.userCount) {
+        console.log(
+          `Sending batch transaction for entries ${registryState.drawPreparedUpTo} to ${Math.min(
+            registryState.drawPreparedUpTo + batchSize,
+            registryState.userCount
+          )}...`
+        );
+
+        const ix = await buildPrepareDrawInstruction({
+          crank: signer!.address,
+          poolId,
+          currentDrawCycleId: poolState.currentDrawCycleId,
+          ticketRegistry: address(registryAddr),
+          batchSize,
+        });
+
+        await sendTransaction(rpc, signer!, ix);
+
+        // Fetch updated status
+        registryAcc = await rpc
+          .getAccountInfo(address(registryAddr), { encoding: "base64" })
+          .send();
+        if (!registryAcc || !registryAcc.value) {
+          throw new Error(`Ticket registry not found after transaction.`);
+        }
+        registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+        registryState = parseTicketRegistry(registryBytes);
+        console.log(`Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+      }
+
+      console.log("Draw preparation completed successfully.");
       break;
     }
 
@@ -1135,186 +1250,65 @@ async function main() {
       );
       const registryState = parseTicketRegistry(registryBytes);
 
-      const activeTickets = registryState.tickets.slice(
-        0,
-        registryState.activeTicketsCount
-      );
-      const pendingTickets = registryState.tickets.slice(
-        registryState.activeTicketsCount,
-        registryState.activeTicketsCount + registryState.pendingTicketsCount
-      );
-
-      // Helper function to calculate contiguous ticket index ranges
-      interface TicketRange {
-        owner: string;
-        start: number;
-        end: number;
-        count: number;
-      }
-
-      const getRanges = (
-        ticketsList: string[],
-        startIndexOffset: number
-      ): TicketRange[] => {
-        if (ticketsList.length === 0) return [];
-        const rangesList: TicketRange[] = [];
-        let currentOwner = ticketsList[0];
-        let start = startIndexOffset;
-
-        for (let i = 1; i < ticketsList.length; i++) {
-          if (ticketsList[i] !== currentOwner) {
-            rangesList.push({
-              owner: currentOwner,
-              start,
-              end: startIndexOffset + i - 1,
-              count: startIndexOffset + i - start,
-            });
-            currentOwner = ticketsList[i];
-            start = startIndexOffset + i;
-          }
-        }
-        rangesList.push({
-          owner: currentOwner,
-          start,
-          end: startIndexOffset + ticketsList.length - 1,
-          count: startIndexOffset + ticketsList.length - start,
-        });
-        return rangesList;
-      };
-
-      const activeRanges = getRanges(activeTickets, 0);
-      const pendingRanges = getRanges(
-        pendingTickets,
-        registryState.activeTicketsCount
-      );
-
-      const formatOwnerLabel = (owner: string): string => {
-        if (owner === "11111111111111111111111111111111") {
-          return "[Empty/Unassigned]";
-        }
-        return owner;
-      };
-
       if (userOption) {
-        // Filtered for a specific user
-        const targetUser = address(userOption);
-        const userActiveRanges = activeRanges.filter(
-          (r) => r.owner === targetUser
-        );
-        const userPendingRanges = pendingRanges.filter(
-          (r) => r.owner === targetUser
-        );
-
-        let userActiveCount = 0;
-        userActiveRanges.forEach((r) => (userActiveCount += r.count));
-
-        let userPendingCount = 0;
-        userPendingRanges.forEach((r) => (userPendingCount += r.count));
+        const target = address(userOption);
+        const entry = registryState.entries.find((e) => e.owner === target);
 
         console.log(`
-Ticket Registry for Pool ${poolId} (Filtered by User: ${targetUser})
+Ticket Registry for Pool ${poolId} (Filtered by User: ${target})
   Registry Address: ${registryAddr}
-  Capacity: ${registryState.capacity}
-  Active Tickets Total (Registry): ${registryState.activeTicketsCount}
-  Pending Tickets Total (Registry): ${registryState.pendingTicketsCount}
-
-User Totals:
-  User Active Tickets: ${userActiveCount}
-  User Pending Tickets: ${userPendingCount}
-  User Total Tickets: ${userActiveCount + userPendingCount}
+  Capacity (Max Users): ${registryState.capacity}
+  User Count: ${registryState.userCount}
+  Total Active Tickets: ${registryState.totalActiveTickets}
+  Total Pending Tickets: ${registryState.totalPendingTickets}
+  Draw Cycle ID: ${registryState.drawCycleId}
+  Draw Prepared Up To: ${registryState.drawPreparedUpTo}
 `);
 
-        console.log(
-          `User Active Ticket Ranges (${userActiveRanges.length} ranges):`
-        );
-        if (userActiveRanges.length === 0) {
-          console.log("  None");
+        if (entry) {
+          const isStale = entry.mergedThroughCycle < registryState.drawCycleId;
+          const activeVal = isStale ? entry.active + entry.pending : entry.active;
+          const pendingVal = isStale ? 0 : entry.pending;
+          console.log(`User Entry Details:
+  Owner: ${entry.owner}
+  Active Tickets: ${activeVal} ${isStale ? `(Lazy-merged: ${entry.active} + ${entry.pending} pending)` : ""}
+  Pending Tickets: ${pendingVal}
+  Merged Cycle: ${entry.mergedThroughCycle}
+  Cumulative Active (Prefix Sum): ${entry.cumulativeActive}
+`);
         } else {
-          userActiveRanges.forEach((r) => {
-            console.log(`  [${r.start}..${r.end}] (${r.count} ticket(s))`);
-          });
-        }
-
-        console.log(
-          `\nUser Pending Ticket Ranges (${userPendingRanges.length} ranges):`
-        );
-        if (userPendingRanges.length === 0) {
-          console.log("  None");
-        } else {
-          userPendingRanges.forEach((r) => {
-            console.log(`  [${r.start}..${r.end}] (${r.count} ticket(s))`);
-          });
+          console.log("  No registry entry found for this user address.");
         }
       } else {
-        // Unfiltered full display
-        // Calculate Top Ticket Holders
-        const holderMap = new Map<
-          string,
-          { active: number; pending: number }
-        >();
-        activeTickets.forEach((owner) => {
-          const stats = holderMap.get(owner) || { active: 0, pending: 0 };
-          stats.active++;
-          holderMap.set(owner, stats);
-        });
-        pendingTickets.forEach((owner) => {
-          const stats = holderMap.get(owner) || { active: 0, pending: 0 };
-          stats.pending++;
-          holderMap.set(owner, stats);
-        });
-
-        const topHolders = Array.from(holderMap.entries())
-          .map(([owner, stats]) => ({
-            owner,
-            active: stats.active,
-            pending: stats.pending,
-            total: stats.active + stats.pending,
-          }))
-          .sort((a, b) => b.total - a.total);
-
         console.log(`
 Ticket Registry for Pool ${poolId}
   Registry Address: ${registryAddr}
-  Capacity: ${registryState.capacity}
-  Active Tickets Count: ${registryState.activeTicketsCount}
-  Pending Tickets Count: ${registryState.pendingTicketsCount}
-  Total Tickets Registered: ${activeTickets.length + pendingTickets.length}
+  Capacity (Max Users): ${registryState.capacity}
+  Active User Entries: ${registryState.userCount}
+  Total Active Tickets: ${registryState.totalActiveTickets}
+  Total Pending Tickets: ${registryState.totalPendingTickets}
+  Draw Cycle ID: ${registryState.drawCycleId}
+  Draw Prepared Up To: ${registryState.drawPreparedUpTo}
 `);
 
-        console.log("Top Ticket Holders:");
-        if (topHolders.length === 0) {
-          console.log("  No ticket holders found.");
+        console.log("Registered User Entries:");
+        if (registryState.entries.length === 0) {
+          console.log("  No registered users found.");
         } else {
-          topHolders.slice(0, 10).forEach((holder, idx) => {
-            console.log(
-              `  [${idx + 1}] ${formatOwnerLabel(holder.owner)}: ${holder.total} ticket(s) (Active: ${holder.active}, Pending: ${holder.pending})`
-            );
-          });
-          if (topHolders.length > 10) {
-            console.log(`  ... and ${topHolders.length - 10} other holder(s).`);
-          }
-        }
-
-        console.log(`\nActive Ranges (${activeRanges.length} ranges):`);
-        if (activeRanges.length === 0) {
-          console.log("  None");
-        } else {
-          activeRanges.forEach((r) => {
-            console.log(
-              `  [${r.start}..${r.end}] Owner: ${formatOwnerLabel(r.owner)} (${r.count} ticket(s))`
-            );
-          });
-        }
-
-        console.log(`\nPending Ranges (${pendingRanges.length} ranges):`);
-        if (pendingRanges.length === 0) {
-          console.log("  None");
-        } else {
-          pendingRanges.forEach((r) => {
-            console.log(
-              `  [${r.start}..${r.end}] Owner: ${formatOwnerLabel(r.owner)} (${r.count} ticket(s))`
-            );
-          });
+          console.table(
+            registryState.entries.map((e, index) => {
+              const isStale = e.mergedThroughCycle < registryState.drawCycleId;
+              return {
+                Index: index,
+                Owner: e.owner.slice(0, 8) + "...",
+                Active: isStale ? e.active + e.pending : e.active,
+                Pending: isStale ? 0 : e.pending,
+                "Merged Cycle": e.mergedThroughCycle,
+                "Cumulative Active": e.cumulativeActive,
+                Stale: isStale ? "YES (will merge)" : "NO",
+              };
+            })
+          );
         }
       }
       break;
