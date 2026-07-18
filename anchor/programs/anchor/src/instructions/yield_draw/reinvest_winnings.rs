@@ -155,13 +155,8 @@ pub fn handle(
             .ok_or(PremiumBondsError::MathOverflow)?;
 
         // Register new tickets
-        let winner_winnings = &ctx.accounts.user_winnings;
-        let user_entry_idx = winner_winnings.registry_entry_index;
-
-        require!(
-            user_entry_idx != u32::MAX,
-            PremiumBondsError::InvalidUserEntryHint
-        );
+        let mut user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
+        let is_new = user_entry_idx == u32::MAX;
 
         let registry_loader = &ctx.accounts.ticket_registry;
         let current_cycle = {
@@ -169,7 +164,17 @@ pub fn handle(
             registry.draw_cycle_id
         };
 
-        {
+        if is_new {
+            let mut registry = registry_loader.load_mut()?;
+            require!(
+                registry.user_count < registry.capacity,
+                crate::error::PremiumBondsError::RegistryFull
+            );
+            user_entry_idx = registry.user_count;
+            ctx.accounts.user_winnings.registry_entry_index = user_entry_idx;
+            registry.user_count += 1;
+            registry.total_pending_tickets += bonds_to_buy;
+        } else {
             let mut registry = registry_loader.load_mut()?;
             registry.total_pending_tickets += bonds_to_buy;
         }
@@ -177,16 +182,27 @@ pub fn handle(
         let registry_ai = registry_loader.to_account_info();
         let mut data = registry_ai.try_borrow_mut_data()?;
 
-        let mut entry = registry_get_entry(&data, user_entry_idx as usize);
-        require!(
-            entry.owner == ctx.accounts.winner.key(),
-            PremiumBondsError::InvalidUserEntryHint
-        );
+        if is_new {
+            let new_entry = crate::state::UserEntry {
+                owner: ctx.accounts.winner.key(),
+                active: 0,
+                pending: bonds_to_buy,
+                merged_through_cycle: current_cycle,
+                cumulative_active: 0,
+            };
+            registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
+        } else {
+            let mut entry = registry_get_entry(&data, user_entry_idx as usize);
+            require!(
+                entry.owner == ctx.accounts.winner.key(),
+                PremiumBondsError::InvalidUserEntryHint
+            );
 
-        entry.lazy_merge(current_cycle)?;
-        entry.pending += bonds_to_buy;
+            entry.lazy_merge(current_cycle)?;
+            entry.pending += bonds_to_buy;
 
-        registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+            registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+        }
     }
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────
