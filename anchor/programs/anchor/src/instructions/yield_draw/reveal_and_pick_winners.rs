@@ -7,7 +7,7 @@ use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
     Winner,
 };
-use crate::utils::{derive_random_index, registry_get_ticket};
+use crate::utils::{derive_random_index, registry_get_entry};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -78,6 +78,16 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         PremiumBondsError::InvalidDrawStatus
     );
 
+    // Enforce that all user entries have been prepared.
+    let user_count = {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        require!(
+            registry.draw_prepared_up_to == registry.user_count,
+            PremiumBondsError::InvalidDrawStatus
+        );
+        registry.user_count
+    };
+
     // ─── SWITCHBOARD ON-DEMAND RANDOMNESS EXTRACTION ────────────────────────
     let clock = Clock::get()?;
 
@@ -107,12 +117,6 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     draw_cycle.status = DrawStatus::Complete;
     pool.is_frozen_for_draw = false;
 
-    // Step 1: call load() to validate discriminator + program ownership, then drop immediately.
-    // This preserves Anchor's account validation without holding the RefMut during raw byte access.
-    {
-        ctx.accounts.ticket_registry.load()?;
-    }
-
     // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
     let registry_ai = ctx.accounts.ticket_registry.to_account_info();
     let data = registry_ai.try_borrow_data()?;
@@ -134,9 +138,23 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 tier_idx as u32,
                 i,
                 draw_cycle.cycle_id,
-                draw_cycle.locked_ticket_count,
+                draw_cycle.locked_ticket_count as u32,
             );
-            let winner_pubkey = registry_get_ticket(&data, winning_index as usize);
+
+            let mut lo = 0;
+            let mut hi = user_count.saturating_sub(1);
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                let mid_entry = registry_get_entry(&data, mid as usize);
+                if (mid_entry.cumulative_active as u64) <= winning_index {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+
+            let winner_entry = registry_get_entry(&data, lo as usize);
+            let winner_pubkey = winner_entry.owner;
 
             winners_vec.push(Winner {
                 winner_pubkey,

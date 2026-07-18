@@ -2,8 +2,8 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::BondsSold;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, TicketRegistry};
-use crate::utils::{swap_and_pop_active, swap_and_pop_pending};
+use crate::state::{PendingRedemption, PrizePool, TicketRegistry, UserWinnings};
+use crate::utils::{registry_get_entry, registry_set_entry};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -11,6 +11,13 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 pub struct SellBonds<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        bump = user_winnings.bump,
+    )]
+    pub user_winnings: Box<Account<'info, UserWinnings>>,
 
     #[account(
         mut,
@@ -89,11 +96,7 @@ pub struct SellBonds<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handle(
-    ctx: Context<SellBonds>,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
-) -> Result<()> {
+pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
     require!(
@@ -101,51 +104,115 @@ pub fn handle(
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
-    let bonds_to_sell = active_indices.len() as u32 + pending_indices.len() as u32;
+    let bonds_to_sell = active_to_sell + pending_to_sell;
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
     let expected_principal = (bonds_to_sell as u64)
         .checked_mul(pool.bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // Phase 1: load counts via zero-copy (read-only borrow)
-    let (active_count, pending_count);
-    {
-        let registry = ctx.accounts.ticket_registry.load()?;
-        active_count = registry.active_tickets_count;
-        pending_count = registry.pending_tickets_count;
-    }
+    let user_key = ctx.accounts.user.key();
+    let user_winnings = &mut ctx.accounts.user_winnings;
+    let registry_loader = &ctx.accounts.ticket_registry;
+    let user_entry_idx = user_winnings.registry_entry_index;
 
-    // Phase 2: swap-and-pop via raw bytes
-    let new_pending;
-    let new_active;
+    require!(
+        user_entry_idx != u32::MAX,
+        PremiumBondsError::InvalidUserEntryHint
+    );
+
+    let (current_cycle, last_entry_idx) = {
+        let registry = registry_loader.load()?;
+        let last_idx = if registry.user_count > 0 {
+            registry.user_count - 1
+        } else {
+            0
+        };
+        (registry.draw_cycle_id, last_idx)
+    };
+
+    let registry_ai = registry_loader.to_account_info();
+
+    let mut swapped_owner = Pubkey::default();
+    let will_exit;
+
+    // 1. First scope: read, validate, merge, check exit status, write entries.
     {
-        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
         let mut data = registry_ai.try_borrow_mut_data()?;
-        let user_key = ctx.accounts.user.key();
+        let mut entry = registry_get_entry(&data, user_entry_idx as usize);
+        require!(
+            entry.owner == user_key,
+            PremiumBondsError::InvalidUserEntryHint
+        );
 
-        new_pending = swap_and_pop_pending(
-            &mut data,
-            active_count,
-            pending_count,
-            &pending_indices,
-            &user_key,
-        )?;
+        entry.lazy_merge(current_cycle)?;
 
-        (new_active, _) = swap_and_pop_active(
-            &mut data,
-            active_count,
-            new_pending,
-            &active_indices,
-            &user_key,
-        )?;
+        require!(
+            entry.active >= active_to_sell,
+            PremiumBondsError::InsufficientActiveTickets
+        );
+        require!(
+            entry.pending >= pending_to_sell,
+            PremiumBondsError::InsufficientPendingTickets
+        );
+
+        entry.active -= active_to_sell;
+        entry.pending -= pending_to_sell;
+
+        will_exit = entry.active == 0 && entry.pending == 0;
+
+        if will_exit {
+            user_winnings.registry_entry_index = u32::MAX;
+            if user_entry_idx != last_entry_idx {
+                let last_entry = registry_get_entry(&data, last_entry_idx as usize);
+                swapped_owner = last_entry.owner;
+                registry_set_entry(&mut data, user_entry_idx as usize, &last_entry);
+            }
+            registry_set_entry(
+                &mut data,
+                last_entry_idx as usize,
+                &crate::state::UserEntry::default(),
+            );
+        } else {
+            registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+        }
     }
 
-    // Phase 3: commit updated counts
+    // 2. Second scope: update global counters, decrement user count, handle swapped winnings pda.
     {
-        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-        registry.active_tickets_count = new_active;
-        registry.pending_tickets_count = new_pending;
+        let mut registry = registry_loader.load_mut()?;
+        registry.total_active_tickets -= active_to_sell;
+        registry.total_pending_tickets -= pending_to_sell;
+
+        if will_exit {
+            if user_entry_idx != last_entry_idx {
+                let swapped_user_winnings_info = ctx
+                    .remaining_accounts
+                    .first()
+                    .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
+
+                // Verify PDA seeds & ownership on remaining account
+                let pool_id_bytes = pool.pool_id.to_le_bytes();
+                let expected_seeds = &[
+                    b"user_winnings",
+                    pool_id_bytes.as_ref(),
+                    swapped_owner.as_ref(),
+                ];
+                let (expected_pda, _) =
+                    Pubkey::find_program_address(expected_seeds, ctx.program_id);
+                require_keys_eq!(
+                    swapped_user_winnings_info.key(),
+                    expected_pda,
+                    PremiumBondsError::InvalidUserEntryHint
+                );
+
+                let mut swapped_winnings =
+                    Account::<UserWinnings>::try_from(swapped_user_winnings_info)?;
+                swapped_winnings.registry_entry_index = user_entry_idx;
+                swapped_winnings.exit(ctx.program_id)?; // serialize changes back to account
+            }
+            registry.user_count -= 1;
+        }
     }
 
     // Update pool principal

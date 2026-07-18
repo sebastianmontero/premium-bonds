@@ -78,8 +78,11 @@ fn inject_ticket_registry_account(
     data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]);
     data[8..12].copy_from_slice(&pool_id.to_le_bytes());
     data[12..16].copy_from_slice(&capacity.to_le_bytes());
-    data[16..20].copy_from_slice(&active.to_le_bytes());
-    data[20..24].copy_from_slice(&pending.to_le_bytes());
+    data[16..20].copy_from_slice(&1u32.to_le_bytes()); // user_count = 1
+    data[20..24].copy_from_slice(&active.to_le_bytes()); // total_active_tickets
+    data[24..28].copy_from_slice(&pending.to_le_bytes()); // total_pending_tickets
+    data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
+    data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
 
     svm.set_account(
         address,
@@ -182,9 +185,14 @@ fn read_registry_capacity(svm: &LiteSVM, address: Pubkey) -> u32 {
     u32::from_le_bytes(acct.data[12..16].try_into().unwrap())
 }
 
-fn write_ticket_at_idx(svm: &mut LiteSVM, address: Pubkey, idx: usize, ticket: Pubkey) {
+fn write_entry_at_idx(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    idx: usize,
+    entry: &anchor::state::UserEntry,
+) {
     let mut acct = svm.get_account(&address).expect("registry should exist");
-    anchor::utils::registry_set_ticket(&mut acct.data, idx, &ticket);
+    anchor::utils::registry_set_entry(&mut acct.data, idx, entry);
     svm.set_account(address, acct).unwrap();
 }
 
@@ -199,7 +207,7 @@ fn test_resize_registry_succeeds() {
 
     let ticket_registry = Keypair::new().pubkey();
     let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
-    let initial_capacity = anchor::utils::registry_capacity_from_len_legacy(initial_size);
+    let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
 
     inject_ticket_registry_account(
         &mut svm,
@@ -211,9 +219,16 @@ fn test_resize_registry_succeeds() {
         initial_size,
     );
 
-    // Write a dummy ticket to verify data preservation
-    let ticket_owner = Keypair::new().pubkey();
-    write_ticket_at_idx(&mut svm, ticket_registry, 0, ticket_owner);
+    // Write a dummy entry to verify data preservation
+    let entry_owner = Keypair::new().pubkey();
+    let entry = anchor::state::UserEntry {
+        owner: entry_owner,
+        active: 2,
+        pending: 3,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+    };
+    write_entry_at_idx(&mut svm, ticket_registry, 0, &entry);
 
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
 
@@ -233,7 +248,7 @@ fn test_resize_registry_succeeds() {
     assert_eq!(registry_acct.lamports, rent_before + rent_diff);
 
     // Verify capacity and other header fields in zero-copy state
-    let expected_new_capacity = anchor::utils::registry_capacity_from_len_legacy(expected_new_size);
+    let expected_new_capacity = anchor::utils::registry_capacity_from_len(expected_new_size);
     assert_eq!(
         read_registry_capacity(&svm, ticket_registry),
         expected_new_capacity
@@ -241,8 +256,11 @@ fn test_resize_registry_succeeds() {
     assert_eq!(read_registry_pending(&svm, ticket_registry), 3);
     assert_eq!(read_registry_active(&svm, ticket_registry), 2);
 
-    // Verify that the written ticket was preserved
-    assert_eq!(read_registry_ticket(&svm, ticket_registry, 0), ticket_owner);
+    // Verify that the written entry was preserved
+    let read_entry = read_registry_entry(&svm, ticket_registry, 0);
+    assert_eq!(read_entry.owner, entry_owner);
+    assert_eq!(read_entry.active, 2);
+    assert_eq!(read_entry.pending, 3);
 }
 
 #[test]
@@ -252,7 +270,7 @@ fn test_resize_registry_sequential_growth() {
 
     let ticket_registry = Keypair::new().pubkey();
     let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
-    let initial_capacity = anchor::utils::registry_capacity_from_len_legacy(initial_size);
+    let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
 
     inject_ticket_registry_account(
         &mut svm,
@@ -271,7 +289,7 @@ fn test_resize_registry_sequential_growth() {
     assert!(res1.is_ok());
 
     let size_1 = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
-    let cap_1 = anchor::utils::registry_capacity_from_len_legacy(size_1);
+    let cap_1 = anchor::utils::registry_capacity_from_len(size_1);
     assert_eq!(
         svm.get_account(&ticket_registry).unwrap().data.len(),
         size_1
@@ -312,7 +330,7 @@ fn test_resize_registry_sequential_growth() {
     assert!(res2.is_ok());
 
     let size_2 = size_1 + anchor::constants::REGISTRY_REALLOC_STEP;
-    let cap_2 = anchor::utils::registry_capacity_from_len_legacy(size_2);
+    let cap_2 = anchor::utils::registry_capacity_from_len(size_2);
     assert_eq!(
         svm.get_account(&ticket_registry).unwrap().data.len(),
         size_2
@@ -335,7 +353,7 @@ fn test_resize_registry_fails_unauthorized_crank() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -363,7 +381,7 @@ fn test_resize_registry_fails_unsigned_crank() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -412,7 +430,7 @@ fn test_resize_registry_fails_unsigned_payer() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -461,7 +479,7 @@ fn test_resize_registry_fails_wrong_global_config_pda() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -507,7 +525,7 @@ fn test_resize_registry_fails_wrong_pool_pda() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -553,7 +571,7 @@ fn test_resize_registry_fails_pool_frozen() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -578,7 +596,7 @@ fn test_resize_registry_fails_unauthorized_ticket() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,
@@ -606,7 +624,7 @@ fn test_resize_registry_fails_registry_at_max_size() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(max_size),
+        anchor::utils::registry_capacity_from_len(max_size),
         0,
         0,
         max_size,
@@ -632,7 +650,7 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len_legacy(initial_size),
+        anchor::utils::registry_capacity_from_len(initial_size),
         0,
         0,
         initial_size,

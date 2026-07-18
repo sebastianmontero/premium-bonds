@@ -145,20 +145,63 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     // 3. Update State
     pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
 
+    let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
     if user_winnings.user == Pubkey::default() {
         user_winnings.pool_id = pool.pool_id;
-        user_winnings.user = ctx.accounts.user.key();
+        user_winnings.user = user_key;
         user_winnings.bump = ctx.bumps.user_winnings;
         user_winnings.registry_entry_index = u32::MAX;
     }
 
-    // Register new tickets
-    crate::utils::registry_add_tickets(
-        &ctx.accounts.ticket_registry,
-        &ctx.accounts.user.key(),
-        bonds_to_buy,
-    )?;
+    let registry_loader = &ctx.accounts.ticket_registry;
+    let mut user_entry_idx = user_winnings.registry_entry_index;
+
+    let current_cycle = {
+        let registry = registry_loader.load()?;
+        registry.draw_cycle_id
+    };
+
+    let is_new = user_entry_idx == u32::MAX;
+
+    if is_new {
+        let mut registry = registry_loader.load_mut()?;
+        require!(
+            registry.user_count < registry.capacity,
+            crate::error::PremiumBondsError::RegistryFull
+        );
+        user_entry_idx = registry.user_count;
+        user_winnings.registry_entry_index = user_entry_idx;
+        registry.user_count += 1;
+        registry.total_pending_tickets += bonds_to_buy;
+    } else {
+        let mut registry = registry_loader.load_mut()?;
+        registry.total_pending_tickets += bonds_to_buy;
+    }
+
+    // Now borrow data mutably to write/update entry
+    let registry_ai = registry_loader.to_account_info();
+    let mut data = registry_ai.try_borrow_mut_data()?;
+
+    if is_new {
+        let new_entry = crate::state::UserEntry {
+            owner: user_key,
+            active: 0,
+            pending: bonds_to_buy,
+            merged_through_cycle: current_cycle,
+            cumulative_active: 0,
+        };
+        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
+    } else {
+        let mut entry = crate::utils::registry_get_entry(&data, user_entry_idx as usize);
+        require!(
+            entry.owner == user_key,
+            crate::error::PremiumBondsError::InvalidUserEntryHint
+        );
+        entry.lazy_merge(current_cycle)?;
+        entry.pending += bonds_to_buy;
+        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+    }
 
     emit!(BondsPurchased {
         user: ctx.accounts.user.key(),

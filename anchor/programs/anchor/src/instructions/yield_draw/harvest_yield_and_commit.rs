@@ -107,11 +107,15 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
 
         // Snapshot mature active tickets BEFORE merging.
-        eligible_locked_count = ticket_registry.active_tickets_count;
+        eligible_locked_count = ticket_registry.total_active_tickets;
 
         // O(1) block merge: Pending → Active for NEXT cycle eligibility.
-        ticket_registry.active_tickets_count += ticket_registry.pending_tickets_count;
-        ticket_registry.pending_tickets_count = 0;
+        ticket_registry.total_active_tickets += ticket_registry.total_pending_tickets;
+        ticket_registry.total_pending_tickets = 0;
+
+        // Increment draw cycle to trigger lazy merges, and reset preparation index
+        ticket_registry.draw_cycle_id += 1;
+        ticket_registry.draw_prepared_up_to = 0;
     }
 
     // ── Accounting-only yield calculation ────────────────────────────────────

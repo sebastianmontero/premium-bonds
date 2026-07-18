@@ -72,10 +72,10 @@ pub mod anchor {
 
     pub fn sell_bonds(
         ctx: Context<SellBonds>,
-        active_indices: Vec<u32>,
-        pending_indices: Vec<u32>,
+        active_to_sell: u32,
+        pending_to_sell: u32,
     ) -> Result<()> {
-        instructions::user::sell_bonds::handle(ctx, active_indices, pending_indices)
+        instructions::user::sell_bonds::handle(ctx, active_to_sell, pending_to_sell)
     }
 
     pub fn claim_redemption(ctx: Context<ClaimRedemption>) -> Result<()> {
@@ -88,6 +88,10 @@ pub mod anchor {
 
     pub fn harvest_yield_and_commit(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         instructions::yield_draw::harvest_yield_and_commit::handle(ctx)
+    }
+
+    pub fn prepare_draw(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
+        instructions::yield_draw::prepare_draw::handle(ctx, batch_size)
     }
 
     pub fn reveal_and_pick_winners(ctx: Context<RevealAndPickWinners>) -> Result<()> {

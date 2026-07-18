@@ -1,7 +1,10 @@
 //! Integration tests for security hardening fixes (PB-01, PB-02, PB-05, PB-06).
 //! Verified via LiteSVM in-process test runner.
 
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
+use anchor_lang::{
+    prelude::AccountMeta, AccountDeserialize, AccountSerialize, AnchorDeserialize, InstructionData,
+    Space, ToAccountMetas,
+};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -137,8 +140,8 @@ fn build_claim_redemption_ix(
 fn send_e2e_sell_bonds_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
+    active_to_sell: u32,
+    pending_to_sell: u32,
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
@@ -154,8 +157,37 @@ fn send_e2e_sell_bonds_for_user(
         huma_lender_state
     };
 
-    let accounts = anchor::accounts::SellBonds {
+    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
+
+    // Auto-detect if a swap-and-pop is going to occur
+    let user_winnings_acct = ctx.svm.get_account(&user_winnings);
+    let mut swapped_user_winnings = None;
+    if let Some(acct) = user_winnings_acct {
+        let mut data_slice = &acct.data[8..];
+        let unwrapped_winnings = anchor::state::UserWinnings::deserialize(&mut data_slice).unwrap();
+        let user_entry_idx = unwrapped_winnings.registry_entry_index;
+
+        if user_entry_idx != u32::MAX {
+            let registry_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+            let user_count = u32::from_le_bytes(registry_acct.data[16..20].try_into().unwrap());
+            let entry =
+                anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize);
+            let will_exit = (entry.active <= active_to_sell) && (entry.pending <= pending_to_sell);
+
+            if will_exit && user_count > 0 && user_entry_idx != user_count - 1 {
+                let last_entry = anchor::utils::registry_get_entry(
+                    &registry_acct.data,
+                    (user_count - 1) as usize,
+                );
+                let (last_winnings, _) = user_winnings_pda(1, &last_entry.owner);
+                swapped_user_winnings = Some(last_winnings);
+            }
+        }
+    }
+
+    let mut accounts = anchor::accounts::SellBonds {
         user: user.pubkey(),
+        user_winnings,
         pool: pool_pda_key,
         ticket_registry: ctx.ticket_registry,
         token_mint: ctx.usdc_mint,
@@ -177,12 +209,16 @@ fn send_e2e_sell_bonds_for_user(
     }
     .to_account_metas(None);
 
+    if let Some(swapped) = swapped_user_winnings {
+        accounts.push(AccountMeta::new(swapped, false));
+    }
+
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::SellBonds {
-            active_indices,
-            pending_indices,
+            active_to_sell,
+            pending_to_sell,
         }
         .data(),
     };
@@ -260,7 +296,7 @@ fn test_resize_registry_zero_initialization() {
     let mut initial_data = vec![0xAAu8; initial_size];
     initial_data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
     initial_data[8..12].copy_from_slice(&pool_id.to_le_bytes());
-    let initial_capacity = anchor::utils::registry_capacity_from_len_legacy(initial_size);
+    let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
     initial_data[12..16].copy_from_slice(&initial_capacity.to_le_bytes());
     initial_data[16..20].copy_from_slice(&0u32.to_le_bytes()); // active
     initial_data[20..24].copy_from_slice(&0u32.to_le_bytes()); // pending
@@ -387,6 +423,7 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
         0,
         &[user.pubkey()],
     );
+    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
@@ -405,10 +442,19 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     let dummy = Keypair::new().pubkey();
+    let (user_winnings, _) = Pubkey::find_program_address(
+        &[
+            b"user_winnings",
+            1u32.to_le_bytes().as_ref(),
+            user.pubkey().as_ref(),
+        ],
+        &anchor::id(),
+    );
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::SellBonds {
             user: user.pubkey(),
+            user_winnings,
             pool: pool_key,
             ticket_registry,
             token_mint,
@@ -430,8 +476,8 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
         }
         .to_account_metas(None),
         data: anchor::instruction::SellBonds {
-            active_indices: vec![0],
-            pending_indices: vec![],
+            active_to_sell: 1,
+            pending_to_sell: 0,
         }
         .data(),
     };
@@ -891,6 +937,7 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
         0,
         &[user.pubkey()],
     );
+    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
@@ -925,10 +972,19 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     .unwrap();
 
     let dummy = Keypair::new().pubkey();
+    let (user_winnings, _) = Pubkey::find_program_address(
+        &[
+            b"user_winnings",
+            1u32.to_le_bytes().as_ref(),
+            user.pubkey().as_ref(),
+        ],
+        &anchor::id(),
+    );
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::SellBonds {
             user: user.pubkey(),
+            user_winnings,
             pool: pool_key,
             ticket_registry,
             token_mint,
@@ -950,8 +1006,8 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
         }
         .to_account_metas(None),
         data: anchor::instruction::SellBonds {
-            active_indices: vec![0],
-            pending_indices: vec![],
+            active_to_sell: 1,
+            pending_to_sell: 0,
         }
         .data(),
     };
@@ -1001,8 +1057,8 @@ fn test_claim_redemption_reentrancy_protection() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_kp,
-        vec![],
-        vec![2, 1, 0],
+        0,
+        3,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,

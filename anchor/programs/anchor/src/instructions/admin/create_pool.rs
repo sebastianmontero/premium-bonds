@@ -4,7 +4,7 @@ use crate::constants::{
 };
 use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
-use crate::utils::registry_capacity_from_len_legacy;
+use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -127,9 +127,12 @@ pub fn handle(
 
     let mut ticket_registry = ctx.accounts.ticket_registry.load_init()?;
     ticket_registry.pool_id = pool_id;
-    ticket_registry.capacity = registry_capacity_from_len_legacy(initial_len);
-    ticket_registry.active_tickets_count = 0;
-    ticket_registry.pending_tickets_count = 0;
+    ticket_registry.capacity = registry_capacity_from_len(initial_len);
+    ticket_registry.user_count = 0;
+    ticket_registry.total_active_tickets = 0;
+    ticket_registry.total_pending_tickets = 0;
+    ticket_registry.draw_cycle_id = 0;
+    ticket_registry.draw_prepared_up_to = 0;
 
     Ok(())
 }

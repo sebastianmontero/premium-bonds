@@ -34,7 +34,7 @@ pub enum PremiumBondsError {
     PrizeTiersNotConfigured,
     #[msg("Total basis points across all tiers must equal exactly 10,000 (100%).")]
     BasisPointsMustEqual10000,
-    #[msg("Draw cycle is not currently awaiting random execution.")]
+    #[msg("The draw cycle is in an invalid phase for this operation")]
     InvalidDrawStatus,
     #[msg("The draw cycle has an invalid locked count or prize pot.")]
     InvalidDrawState,
@@ -68,4 +68,14 @@ pub enum PremiumBondsError {
         "The randomness account cannot be re-locked because the current one is not yet expired."
     )]
     RandomnessNotExpired,
+    #[msg("Invalid registry user entry hint provided")]
+    InvalidUserEntryHint,
+    #[msg("Insufficient pending tickets for this transaction")]
+    InsufficientPendingTickets,
+    #[msg("Insufficient active tickets for this transaction")]
+    InsufficientActiveTickets,
+    #[msg("The prize pool must be frozen for draw preparation")]
+    PoolNotFrozen,
+    #[msg("Required remaining account for swapped user's UserWinnings is missing")]
+    MissingSwappedUserWinnings,
 }

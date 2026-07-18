@@ -5,7 +5,9 @@
 //! E2E tests verify the complete interaction with the `mock-huma` program,
 //! including simulated failures, multiple users, sequential sales, and claim validation.
 
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor_lang::{
+    prelude::AccountMeta, AccountDeserialize, AnchorDeserialize, InstructionData, ToAccountMetas,
+};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -65,8 +67,8 @@ fn inject_lender_state(svm: &mut LiteSVM, address: Pubkey, amount: u64) {
 fn send_e2e_sell_bonds_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
+    active_to_sell: u32,
+    pending_to_sell: u32,
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
@@ -82,8 +84,37 @@ fn send_e2e_sell_bonds_for_user(
         huma_lender_state
     };
 
-    let accounts = anchor::accounts::SellBonds {
+    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
+
+    // Auto-detect if a swap-and-pop is going to occur
+    let user_winnings_acct = ctx.svm.get_account(&user_winnings);
+    let mut swapped_user_winnings = None;
+    if let Some(acct) = user_winnings_acct {
+        let mut data_slice = &acct.data[8..];
+        let unwrapped_winnings = anchor::state::UserWinnings::deserialize(&mut data_slice).unwrap();
+        let user_entry_idx = unwrapped_winnings.registry_entry_index;
+
+        if user_entry_idx != u32::MAX {
+            let registry_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+            let user_count = u32::from_le_bytes(registry_acct.data[16..20].try_into().unwrap());
+            let entry =
+                anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize);
+            let will_exit = (entry.active <= active_to_sell) && (entry.pending <= pending_to_sell);
+
+            if will_exit && user_count > 0 && user_entry_idx != user_count - 1 {
+                let last_entry = anchor::utils::registry_get_entry(
+                    &registry_acct.data,
+                    (user_count - 1) as usize,
+                );
+                let (last_winnings, _) = user_winnings_pda(1, &last_entry.owner);
+                swapped_user_winnings = Some(last_winnings);
+            }
+        }
+    }
+
+    let mut accounts = anchor::accounts::SellBonds {
         user: user.pubkey(),
+        user_winnings,
         pool: pool_pda_key,
         ticket_registry: ctx.ticket_registry,
         token_mint: ctx.usdc_mint,
@@ -105,12 +136,16 @@ fn send_e2e_sell_bonds_for_user(
     }
     .to_account_metas(None);
 
+    if let Some(swapped) = swapped_user_winnings {
+        accounts.push(AccountMeta::new(swapped, false));
+    }
+
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::SellBonds {
-            active_indices,
-            pending_indices,
+            active_to_sell,
+            pending_to_sell,
         }
         .data(),
     };
@@ -247,18 +282,20 @@ fn build_sell_bonds_ix(
     pool_id: u32,
     token_mint: Pubkey,
     ticket_registry: Pubkey,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
+    active_to_sell: u32,
+    pending_to_sell: u32,
     huma_pool_state: Pubkey,
     huma_mode_mint: Pubkey,
 ) -> Instruction {
     let (pool, _) = pool_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user);
     let dummy = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::SellBonds {
         user,
+        user_winnings,
         pool,
         ticket_registry,
         token_mint,
@@ -284,8 +321,8 @@ fn build_sell_bonds_ix(
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::SellBonds {
-            active_indices,
-            pending_indices,
+            active_to_sell,
+            pending_to_sell,
         }
         .data(),
     }
@@ -320,7 +357,31 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    inject_registry_with_tickets(&mut svm, ticket_registry, 1, 1000, active, pending, tickets);
+
+    let mut entries = vec![anchor::state::UserEntry {
+        owner: user.pubkey(),
+        active,
+        pending,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+    }];
+
+    for &pk in tickets {
+        if pk != user.pubkey() {
+            entries.push(anchor::state::UserEntry {
+                owner: pk,
+                active: 1,
+                pending: 0,
+                merged_through_cycle: 0,
+                cumulative_active: 0,
+            });
+        }
+    }
+
+    inject_registry_with_entries(&mut svm, ticket_registry, 1, 1000, &entries);
+
+    // Inject user winnings
+    inject_user_winnings_with_index(&mut svm, 1, user.pubkey(), 0, 0, 0, 0);
 
     inject_pool(
         &mut svm,
@@ -347,16 +408,16 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
 
 fn send_sell_guard(
     ctx: &mut GuardCtx,
-    active_indices: Vec<u32>,
-    pending_indices: Vec<u32>,
+    active_to_sell: u32,
+    pending_to_sell: u32,
 ) -> Result<(), String> {
     let ix = build_sell_bonds_ix(
         ctx.user.pubkey(),
         1,
         ctx.token_mint,
         ctx.ticket_registry,
-        active_indices,
-        pending_indices,
+        active_to_sell,
+        pending_to_sell,
         ctx.huma_pool_state,
         ctx.huma_mode_mint,
     );
@@ -375,9 +436,8 @@ fn send_sell_guard(
 
 #[test]
 fn test_sell_bonds_fails_pool_frozen() {
-    let user_pk = Keypair::new().pubkey();
-    let mut ctx = setup_guard(true, 1, 0, &[user_pk]);
-    let err = send_sell_guard(&mut ctx, vec![0], vec![]).unwrap_err();
+    let mut ctx = setup_guard(true, 1, 0, &[]);
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
     assert!(
         err.contains("AwaitingRandomnessFreeze"),
         "Expected AwaitingRandomnessFreeze, got: {err}"
@@ -387,7 +447,7 @@ fn test_sell_bonds_fails_pool_frozen() {
 #[test]
 fn test_sell_bonds_fails_zero_quantity() {
     let mut ctx = setup_guard(false, 0, 0, &[]);
-    let err = send_sell_guard(&mut ctx, vec![], vec![]).unwrap_err();
+    let err = send_sell_guard(&mut ctx, 0, 0).unwrap_err();
     assert!(
         err.contains("InvalidBondQuantity"),
         "Expected InvalidBondQuantity, got: {err}"
@@ -395,88 +455,33 @@ fn test_sell_bonds_fails_zero_quantity() {
 }
 
 #[test]
-fn test_sell_bonds_fails_unauthorized_pending_ticket() {
-    let other = Pubkey::new_unique();
-    let mut ctx = setup_guard(false, 0, 1, &[other]);
-    let err = send_sell_guard(&mut ctx, vec![], vec![0]).unwrap_err();
+fn test_sell_bonds_fails_insufficient_active_tickets() {
+    let mut ctx = setup_guard(false, 2, 0, &[]);
+    let err = send_sell_guard(&mut ctx, 3, 0).unwrap_err();
     assert!(
-        err.contains("UnauthorizedTicket"),
-        "Expected UnauthorizedTicket, got: {err}"
+        err.contains("InsufficientActiveTickets"),
+        "Expected InsufficientActiveTickets, got: {err}"
     );
 }
 
 #[test]
-fn test_sell_bonds_fails_unauthorized_active_ticket() {
+fn test_sell_bonds_fails_insufficient_pending_tickets() {
+    let mut ctx = setup_guard(false, 0, 2, &[]);
+    let err = send_sell_guard(&mut ctx, 0, 3).unwrap_err();
+    assert!(
+        err.contains("InsufficientPendingTickets"),
+        "Expected InsufficientPendingTickets, got: {err}"
+    );
+}
+
+#[test]
+fn test_sell_bonds_fails_missing_swapped_user_winnings() {
     let other = Pubkey::new_unique();
     let mut ctx = setup_guard(false, 1, 0, &[other]);
-    let err = send_sell_guard(&mut ctx, vec![0], vec![]).unwrap_err();
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
     assert!(
-        err.contains("UnauthorizedTicket"),
-        "Expected UnauthorizedTicket, got: {err}"
-    );
-}
-
-#[test]
-fn test_sell_bonds_fails_invalid_pending_indices_not_descending() {
-    let mut ctx = setup_guard(false, 0, 3, &[]);
-    {
-        let pk = ctx.user.pubkey();
-        let acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-        let mut data = acct.data.clone();
-        for i in 0..3 {
-            let s = 24 + i * 32;
-            data[s..s + 32].copy_from_slice(pk.as_ref());
-        }
-        ctx.svm
-            .set_account(ctx.ticket_registry, Account { data, ..acct })
-            .unwrap();
-    }
-    let err = send_sell_guard(&mut ctx, vec![], vec![0, 1]).unwrap_err();
-    assert!(
-        err.contains("InvalidIndices"),
-        "Expected InvalidIndices, got: {err}"
-    );
-}
-
-#[test]
-fn test_sell_bonds_fails_invalid_active_indices_not_descending() {
-    let mut ctx = setup_guard(false, 3, 0, &[]);
-    {
-        let pk = ctx.user.pubkey();
-        let acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-        let mut data = acct.data.clone();
-        for i in 0..3 {
-            let s = 24 + i * 32;
-            data[s..s + 32].copy_from_slice(pk.as_ref());
-        }
-        ctx.svm
-            .set_account(ctx.ticket_registry, Account { data, ..acct })
-            .unwrap();
-    }
-    let err = send_sell_guard(&mut ctx, vec![0, 1], vec![]).unwrap_err();
-    assert!(
-        err.contains("InvalidIndices"),
-        "Expected InvalidIndices, got: {err}"
-    );
-}
-
-#[test]
-fn test_sell_bonds_fails_math_overflow() {
-    let mut ctx = setup_guard(false, 1, 0, &[]);
-    {
-        let pk = ctx.user.pubkey();
-        let acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-        let mut data = acct.data.clone();
-        let s = 24;
-        data[s..s + 32].copy_from_slice(pk.as_ref());
-        ctx.svm
-            .set_account(ctx.ticket_registry, Account { data, ..acct })
-            .unwrap();
-    }
-    let err = send_sell_guard(&mut ctx, vec![0], vec![]).unwrap_err();
-    assert!(
-        err.contains("MathOverflow"),
-        "Expected MathOverflow, got: {err}"
+        err.contains("MissingSwappedUserWinnings"),
+        "Expected MissingSwappedUserWinnings, got: {err}"
     );
 }
 
@@ -506,8 +511,8 @@ fn test_sell_bonds_e2e_happy_path() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![2, 1, 0],
+        0,
+        3,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
@@ -573,8 +578,8 @@ fn test_claim_redemption_e2e_happy_path() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![2, 1, 0],
+        0,
+        3,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
@@ -648,33 +653,19 @@ fn test_sell_bonds_multiple_users_and_sales() {
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
 
-    // User A buys 3 bonds (pending indices: 0, 1, 2)
+    // User A buys 3 bonds
     send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
 
-    // User B buys 2 bonds (pending indices: 3, 4)
+    // User B buys 2 bonds
     send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
 
-    // Verify ticket ownership before cycle commit
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 0),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 1),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 2),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 3),
-        user_b.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 4),
-        user_b.pubkey()
-    );
+    // Verify entries before harvest
+    let entry_a = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_a.owner, user_a.pubkey());
+    assert_eq!(entry_a.pending, 3);
+    let entry_b = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(entry_b.owner, user_b.pubkey());
+    assert_eq!(entry_b.pending, 2);
 
     // Commit cycle to transition pending tickets to active tickets
     send_e2e_harvest_yield_and_commit(&mut ctx).unwrap();
@@ -682,79 +673,134 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 5);
     assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), 0);
 
-    // User A sells active ticket at index 1 (User A owns 0, 1, 2)
-    // Swap-and-pop should swap active index 1 (User A) with active index 4 (User B)
+    // User A sells active ticket count = 1
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![1],
-        vec![],
+        1,
+        0,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
     )
     .unwrap();
 
-    // Verify new active list: User B's ticket originally at index 4 is now at index 1.
+    // Verify active count and entry updates
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 4);
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 0),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 1),
-        user_b.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 2),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 3),
-        user_b.pubkey()
-    );
+    let entry_a_after = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_a_after.active, 2);
 
-    // Verification of PendingRedemption 0 user
     let (pending_0, _) = pending_redemption_pda(1, 0);
     let acct_0 = ctx.svm.get_account(&pending_0).unwrap();
     let redemption_0 =
         anchor::PendingRedemption::try_deserialize(&mut acct_0.data.as_slice()).unwrap();
     assert_eq!(redemption_0.user, user_a.pubkey());
 
-    // User B sells active ticket at index 1 (which now belongs to User B)
-    // Swap-and-pop should swap active index 1 (User B) with active index 3 (User B)
+    // User B sells active ticket count = 1
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_b,
-        vec![1],
-        vec![],
+        1,
+        0,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
     )
     .unwrap();
 
-    // Verify new active list: active count is 3, indices 0 & 2 are User A, index 1 is User B
+    // Verify active count and entry updates
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 3);
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 0),
-        user_a.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 1),
-        user_b.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 2),
-        user_a.pubkey()
-    );
+    let entry_b_after = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(entry_b_after.active, 1);
 
-    // Verification of PendingRedemption 1 user (User B)
     let (pending_1, _) = pending_redemption_pda(1, 1);
     let acct_1 = ctx.svm.get_account(&pending_1).unwrap();
     let redemption_1 =
         anchor::PendingRedemption::try_deserialize(&mut acct_1.data.as_slice()).unwrap();
     assert_eq!(redemption_1.user, user_b.pubkey());
+}
+
+#[test]
+fn test_sell_bonds_e2e_swap_and_pop() {
+    let mut ctx = setup_e2e(100);
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // Fund Huma underlying token
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        50_000_000,
+    );
+
+    // Setup User B
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // User A buys 3 bonds (registry entry 0 -> user_a, pending = 3)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
+
+    // User B buys 2 bonds (registry entry 1 -> user_b, pending = 2)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
+
+    // Verify registry state
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 2);
+    let entry_a = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_a.owner, user_a.pubkey());
+    assert_eq!(entry_a.pending, 3);
+    let entry_b = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(entry_b.owner, user_b.pubkey());
+    assert_eq!(entry_b.pending, 2);
+
+    // User A sells all pending bonds -> this exits the pool for User A, causing entry 0 to be deleted.
+    // Since User B is at index 1 (the tail), User B's entry should swap-and-pop into index 0!
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    // Verify swap and pop:
+    // 1. user_count is 1
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
+    // 2. entry at index 0 belongs to User B (originally at index 1)
+    let entry_0 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_0.owner, user_b.pubkey());
+    assert_eq!(entry_0.pending, 2);
+
+    // 3. User B's UserWinnings registry_entry_index should be updated to 0
+    let winnings_b = read_user_winnings_state(&ctx.svm, 1, &user_b.pubkey());
+    assert_eq!(winnings_b.registry_entry_index, 0);
+
+    // 4. User A's UserWinnings registry_entry_index should be u32::MAX (exited)
+    let winnings_a = read_user_winnings_state(&ctx.svm, 1, &user_a.pubkey());
+    assert_eq!(winnings_a.registry_entry_index, u32::MAX);
 }
 
 #[test]
@@ -775,8 +821,8 @@ fn test_sell_bonds_fails_huma_redemption_error() {
     let res = send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![0],
+        0,
+        1,
         FAIL_REDEMPTION_PUBKEY,
         Pubkey::default(),
         huma_pool_mode_token,
@@ -812,8 +858,8 @@ fn test_claim_redemption_fails_huma_disburse_error() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![0],
+        0,
+        1,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
@@ -864,8 +910,8 @@ fn test_claim_redemption_fails_not_settled() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![0],
+        0,
+        1,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
@@ -914,8 +960,8 @@ fn test_claim_redemption_fails_wrong_owner() {
     send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![0],
+        0,
+        1,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,
@@ -974,8 +1020,8 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
     let res = send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
-        vec![],
-        vec![0],
+        0,
+        1,
         Pubkey::default(),
         Pubkey::default(),
         huma_pool_mode_token,

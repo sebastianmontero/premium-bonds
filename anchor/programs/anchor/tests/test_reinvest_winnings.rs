@@ -230,16 +230,10 @@ fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnin
 
 fn read_reg_pending(svm: &LiteSVM, reg: Pubkey) -> u32 {
     u32::from_le_bytes(
-        svm.get_account(&reg).unwrap().data[20..24]
+        svm.get_account(&reg).unwrap().data[24..28]
             .try_into()
             .unwrap(),
     )
-}
-
-fn read_reg_ticket(svm: &LiteSVM, reg: Pubkey, idx: usize) -> Pubkey {
-    let d = svm.get_account(&reg).unwrap().data;
-    let s = 24 + idx * 32;
-    Pubkey::try_from(&d[s..s + 32]).unwrap()
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -262,7 +256,15 @@ fn setup(
     let winner = Keypair::new().pubkey();
     let mint = Keypair::new().pubkey();
     let reg = Keypair::new().pubkey();
-    inject_registry(&mut svm, reg, 1, 1000, 0, 0);
+
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 0,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+    }];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
     inject_pool(&mut svm, 1, mint, reg, status, frozen, bond_price);
     inject_payout(
@@ -271,7 +273,7 @@ fn setup(
         0,
         vec![w(winner, amount_owed, 0, reinvested, false)],
     );
-    inject_user_winnings(&mut svm, 1, winner, 0, 0, 0);
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
     Ctx {
         svm,
@@ -296,7 +298,7 @@ fn test_reinvest_fails_max_bonds_zero() {
 fn test_reinvest_fails_wrong_winner() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
-    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 0, 0, 0);
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 0);
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("UnauthorizedTicket"), "got: {err}");
 }
@@ -386,8 +388,9 @@ fn test_reinvest_tickets_written() {
     send(&mut ctx, 0, 0, 10).expect("reinvest");
 
     assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 2);
-    assert_eq!(read_reg_ticket(&ctx.svm, ctx.registry, 0), ctx.winner);
-    assert_eq!(read_reg_ticket(&ctx.svm, ctx.registry, 1), ctx.winner);
+    let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
+    assert_eq!(entry.owner, ctx.winner);
+    assert_eq!(entry.pending, 2);
 }
 
 #[test]
@@ -422,15 +425,6 @@ fn test_reinvest_dust_only_no_bonds() {
 }
 
 #[test]
-fn test_reinvest_fails_registry_full() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 2_000_000, 0);
-    // Re-inject registry at capacity
-    inject_registry(&mut ctx.svm, ctx.registry, 1, 10, 10, 0);
-    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
-    assert!(err.contains("RegistryFull"), "got: {err}");
-}
-
-#[test]
 fn test_reinvest_fails_pool_not_active() {
     let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000, 0);
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
@@ -450,8 +444,8 @@ fn test_reinvest_using_accumulated_dust() {
     // Setup pool with 1M bond price, winner owes 500K (from current draw).
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
 
-    // Inject 600K accumulated dust in UserWinnings PDA first
-    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 600_000, 0, 0);
+    // Inject 600K accumulated dust in UserWinnings PDA first, pointed to index 0
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 600_000, 0, 0, 0);
 
     // Reinvest: total available = 500K (current) + 600K (accumulated) = 1.1M.
     // This allows buying 1 bond (1M), leaving 100K dust.
@@ -474,8 +468,8 @@ fn test_reinvest_fails_total_reinvested_overflow() {
     // Setup pool with 1M bond price, winner owes 1M (from current draw).
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 1_000_000, 0);
 
-    // Inject u64::MAX total_reinvested in UserWinnings PDA
-    inject_user_winnings(&mut ctx.svm, 1, ctx.winner, 0, 0, u64::MAX);
+    // Inject u64::MAX total_reinvested in UserWinnings PDA, pointed to index 0
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, u64::MAX, 0);
 
     // Reinvest: total available = 1M (current winnings).
     // This allows buying 1 bond costing 1M, but updating total_reinvested will overflow (u64::MAX + 1M)

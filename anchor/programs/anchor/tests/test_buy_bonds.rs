@@ -155,10 +155,13 @@ fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    match ctx.svm.send_transaction(tx) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            println!("Transaction failed metadata: {:#?}", err);
+            Err(format!("{err:?}"))
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -282,11 +285,14 @@ fn test_buy_bonds_e2e_single_bond() {
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
     assert_eq!(pending, 1);
 
-    // Verify ticket ownership
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 0),
-        ctx.user.pubkey()
-    );
+    // Verify user entry
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    let entry_idx = winnings.registry_entry_index;
+    assert_ne!(entry_idx, u32::MAX);
+    let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
+    assert_eq!(entry.owner, ctx.user.pubkey());
+    assert_eq!(entry.active, 0);
+    assert_eq!(entry.pending, 1);
 }
 
 /// Buy multiple bonds in one transaction.
@@ -310,13 +316,14 @@ fn test_buy_bonds_e2e_multiple_bonds() {
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
     assert_eq!(pending, 5);
 
-    // Verify ticket ownership
-    for i in 0..5 {
-        assert_eq!(
-            read_registry_ticket(&ctx.svm, ctx.ticket_registry, i),
-            ctx.user.pubkey()
-        );
-    }
+    // Verify user entry
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    let entry_idx = winnings.registry_entry_index;
+    assert_ne!(entry_idx, u32::MAX);
+    let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
+    assert_eq!(entry.owner, ctx.user.pubkey());
+    assert_eq!(entry.active, 0);
+    assert_eq!(entry.pending, 5);
 }
 
 /// Two sequential buy_bonds transactions accumulate correctly.
@@ -341,17 +348,17 @@ fn test_buy_bonds_e2e_sequential_buys() {
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
     assert_eq!(pending, 5);
 
-    // Verify ticket ownership for sequential buys
-    for i in 0..5 {
-        assert_eq!(
-            read_registry_ticket(&ctx.svm, ctx.ticket_registry, i),
-            ctx.user.pubkey()
-        );
-    }
+    // Verify user entry
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    let entry_idx = winnings.registry_entry_index;
+    assert_ne!(entry_idx, u32::MAX);
+    let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
+    assert_eq!(entry.owner, ctx.user.pubkey());
+    assert_eq!(entry.active, 0);
+    assert_eq!(entry.pending, 5);
 }
 
-/// E2E test verifying multiple users can buy bonds and that the ticket registry correctly
-/// maps each ticket index to the appropriate user, even when the purchases are interleaved (non-sequential).
+/// E2E test verifying multiple users can buy bonds.
 #[test]
 fn test_buy_bonds_e2e_multiple_users() {
     let mut ctx = setup_e2e(10);
@@ -371,17 +378,17 @@ fn test_buy_bonds_e2e_multiple_users() {
         100_000_000,
     );
 
-    // User 1 buys 2 bonds (indices: 0, 1)
+    // User 1 buys 2 bonds
     send_e2e_buy_bonds(&mut ctx, 2).expect("User 1 buying 2 bonds should succeed");
 
-    // User 2 buys 3 bonds (indices: 2, 3, 4)
+    // User 2 buys 3 bonds
     send_e2e_buy_bonds_for_user(&mut ctx, &user2, user2_usdc, 3, Pubkey::default())
         .expect("User 2 buying 3 bonds should succeed");
 
-    // User 1 buys 1 more bond (index: 5)
+    // User 1 buys 1 more bond
     send_e2e_buy_bonds(&mut ctx, 1).expect("User 1 buying 1 more bond should succeed");
 
-    // User 2 buys 1 more bond (index: 6)
+    // User 2 buys 1 more bond
     send_e2e_buy_bonds_for_user(&mut ctx, &user2, user2_usdc, 1, Pubkey::default())
         .expect("User 2 buying 1 more bond should succeed");
 
@@ -389,37 +396,21 @@ fn test_buy_bonds_e2e_multiple_users() {
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
     assert_eq!(pending, 7);
 
-    // Verify User 1 owns indices 0, 1, and 5
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 0),
-        ctx.user.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 1),
-        ctx.user.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 5),
-        ctx.user.pubkey()
-    );
+    // Verify User 1 entry
+    let winnings1 = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    let entry_idx1 = winnings1.registry_entry_index;
+    let entry1 = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx1 as usize);
+    assert_eq!(entry1.owner, ctx.user.pubkey());
+    assert_eq!(entry1.active, 0);
+    assert_eq!(entry1.pending, 3); // 2 + 1
 
-    // Verify User 2 owns indices 2, 3, 4, and 6
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 2),
-        user2.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 3),
-        user2.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 4),
-        user2.pubkey()
-    );
-    assert_eq!(
-        read_registry_ticket(&ctx.svm, ctx.ticket_registry, 6),
-        user2.pubkey()
-    );
+    // Verify User 2 entry
+    let winnings2 = read_user_winnings_state(&ctx.svm, 1, &user2.pubkey());
+    let entry_idx2 = winnings2.registry_entry_index;
+    let entry2 = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx2 as usize);
+    assert_eq!(entry2.owner, user2.pubkey());
+    assert_eq!(entry2.active, 0);
+    assert_eq!(entry2.pending, 4); // 3 + 1
 
     // Verify balances
     assert_eq!(
@@ -440,12 +431,15 @@ fn test_buy_bonds_fails_registry_full() {
     // To trigger RegistryFull efficiently, we manually inject a small registry of capacity 2.
     let small_registry = Keypair::new().pubkey();
     {
-        let mut data = vec![0u8; 24 + 2 * 32]; // Header size (24) + 2 Pubkeys
+        let mut data = vec![0u8; 36 + 2 * 48]; // Header size (36) + 2 UserEntry (48)
         data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // Discriminator
         data[8..12].copy_from_slice(&1u32.to_le_bytes()); // pool_id
         data[12..16].copy_from_slice(&2u32.to_le_bytes()); // capacity = 2
-        data[16..20].copy_from_slice(&0u32.to_le_bytes()); // active = 0
-        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // pending = 0
+        data[16..20].copy_from_slice(&0u32.to_le_bytes()); // user_count = 0
+        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // total_active_tickets = 0
+        data[24..28].copy_from_slice(&0u32.to_le_bytes()); // total_pending_tickets = 0
+        data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
+        data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
 
         ctx.svm
             .set_account(
@@ -484,8 +478,40 @@ fn test_buy_bonds_fails_registry_full() {
 
     ctx.ticket_registry = small_registry;
 
-    // Try to buy 3 bonds when capacity is 2
-    let err = send_e2e_buy_bonds(&mut ctx, 3).unwrap_err();
+    // User 1 buys 1 bond (succeeds)
+    send_e2e_buy_bonds(&mut ctx, 1).expect("User 1 buy should succeed");
+
+    // User 2 buys 1 bond (succeeds)
+    let user2 = Keypair::new();
+    ctx.svm.airdrop(&user2.pubkey(), 50_000_000_000).unwrap();
+    let user2_usdc =
+        create_spl_token_account(&mut ctx.svm, &user2, &ctx.usdc_mint, &user2.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user2_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+    send_e2e_buy_bonds_for_user(&mut ctx, &user2, user2_usdc, 1, Pubkey::default())
+        .expect("User 2 buy should succeed");
+
+    // User 3 tries to buy 1 bond (fails because capacity is 2 and user_count is 2)
+    let user3 = Keypair::new();
+    ctx.svm.airdrop(&user3.pubkey(), 50_000_000_000).unwrap();
+    let user3_usdc =
+        create_spl_token_account(&mut ctx.svm, &user3, &ctx.usdc_mint, &user3.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user3_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+    let err = send_e2e_buy_bonds_for_user(&mut ctx, &user3, user3_usdc, 1, Pubkey::default())
+        .unwrap_err();
     assert!(
         err.contains("RegistryFull"),
         "Expected RegistryFull, got: {err}"

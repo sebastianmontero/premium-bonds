@@ -3,7 +3,7 @@ use crate::constants::{
 };
 use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
-use crate::utils::registry_capacity_from_len_legacy;
+use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -50,7 +50,7 @@ pub fn handle(ctx: Context<ResizeRegistry>) -> Result<()> {
     // The `realloc` constraint has already grown the account and topped up rent.
     // All we need to do is sync the cached `capacity` field in the zero-copy header.
     let new_len = ctx.accounts.ticket_registry.to_account_info().data_len();
-    let new_capacity = registry_capacity_from_len_legacy(new_len);
+    let new_capacity = registry_capacity_from_len(new_len);
 
     let mut registry = ctx.accounts.ticket_registry.load_mut()?;
     registry.capacity = new_capacity;

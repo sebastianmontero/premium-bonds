@@ -2,6 +2,7 @@ use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::WinningsReinvested;
 use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserWinnings};
+use crate::utils::{registry_get_entry, registry_set_entry};
 
 use anchor_lang::prelude::*;
 
@@ -154,11 +155,38 @@ pub fn handle(
             .ok_or(PremiumBondsError::MathOverflow)?;
 
         // Register new tickets
-        crate::utils::registry_add_tickets(
-            &ctx.accounts.ticket_registry,
-            &ctx.accounts.winner.key(),
-            bonds_to_buy,
-        )?;
+        let winner_winnings = &ctx.accounts.user_winnings;
+        let user_entry_idx = winner_winnings.registry_entry_index;
+
+        require!(
+            user_entry_idx != u32::MAX,
+            PremiumBondsError::InvalidUserEntryHint
+        );
+
+        let registry_loader = &ctx.accounts.ticket_registry;
+        let current_cycle = {
+            let registry = registry_loader.load()?;
+            registry.draw_cycle_id
+        };
+
+        {
+            let mut registry = registry_loader.load_mut()?;
+            registry.total_pending_tickets += bonds_to_buy;
+        }
+
+        let registry_ai = registry_loader.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+
+        let mut entry = registry_get_entry(&data, user_entry_idx as usize);
+        require!(
+            entry.owner == ctx.accounts.winner.key(),
+            PremiumBondsError::InvalidUserEntryHint
+        );
+
+        entry.lazy_merge(current_cycle)?;
+        entry.pending += bonds_to_buy;
+
+        registry_set_entry(&mut data, user_entry_idx as usize, &entry);
     }
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────

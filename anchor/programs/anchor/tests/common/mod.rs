@@ -178,25 +178,32 @@ pub fn inject_registry(
     inject_registry_with_tickets(svm, address, pool_id, capacity, active, pending, &[]);
 }
 
-pub fn inject_registry_with_tickets(
+pub fn inject_registry_with_entries(
     svm: &mut LiteSVM,
     address: Pubkey,
     pool_id: u32,
     capacity: u32,
-    active: u32,
-    pending: u32,
-    tickets: &[Pubkey],
+    entries: &[anchor::state::UserEntry],
 ) {
     let mut data = vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE];
     data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
     data[8..12].copy_from_slice(&pool_id.to_le_bytes());
     data[12..16].copy_from_slice(&capacity.to_le_bytes());
-    data[16..20].copy_from_slice(&active.to_le_bytes());
-    data[20..24].copy_from_slice(&pending.to_le_bytes());
-    for (i, pk) in tickets.iter().enumerate() {
-        let start = 24 + i * 32;
-        data[start..start + 32].copy_from_slice(pk.as_ref());
+    data[16..20].copy_from_slice(&(entries.len() as u32).to_le_bytes()); // user_count
+
+    let mut total_active = 0;
+    let mut total_pending = 0;
+    for (i, entry) in entries.iter().enumerate() {
+        total_active += entry.active;
+        total_pending += entry.pending;
+        anchor::utils::registry_set_entry(&mut data, i, entry);
     }
+
+    data[20..24].copy_from_slice(&total_active.to_le_bytes());
+    data[24..28].copy_from_slice(&total_pending.to_le_bytes());
+    data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
+    data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
+
     svm.set_account(
         address,
         Account {
@@ -208,6 +215,37 @@ pub fn inject_registry_with_tickets(
         },
     )
     .unwrap();
+}
+
+pub fn inject_registry_with_tickets(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    pool_id: u32,
+    capacity: u32,
+    active: u32,
+    pending: u32,
+    tickets: &[Pubkey],
+) {
+    let mut entries = Vec::new();
+    for &owner in tickets {
+        entries.push(anchor::state::UserEntry {
+            owner,
+            active: 1,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        });
+    }
+    if tickets.is_empty() && (active > 0 || pending > 0) {
+        entries.push(anchor::state::UserEntry {
+            owner: Pubkey::new_unique(),
+            active,
+            pending,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        });
+    }
+    inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
 }
 
 pub fn setup_global_config(max_tickets_per_buy: u32) -> (LiteSVM, Keypair) {
@@ -375,13 +413,14 @@ pub fn read_user_winnings_state(
     anchor::state::UserWinnings::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
-pub fn inject_user_winnings(
+pub fn inject_user_winnings_with_index(
     svm: &mut LiteSVM,
     pool_id: u32,
     user: Pubkey,
     unclaimed: u64,
     total_claimed: u64,
     total_reinvested: u64,
+    registry_entry_index: u32,
 ) {
     use anchor_lang::AccountSerialize;
     let (pda, bump) = user_winnings_pda(pool_id, &user);
@@ -391,7 +430,7 @@ pub fn inject_user_winnings(
         unclaimed_non_reinvested_winnings: unclaimed,
         total_claimed,
         total_reinvested,
-        registry_entry_index: u32::MAX,
+        registry_entry_index,
         bump,
     };
     let mut d = vec![];
@@ -410,19 +449,43 @@ pub fn inject_user_winnings(
     .unwrap();
 }
 
+pub fn inject_user_winnings(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    user: Pubkey,
+    unclaimed: u64,
+    total_claimed: u64,
+    total_reinvested: u64,
+) {
+    inject_user_winnings_with_index(
+        svm,
+        pool_id,
+        user,
+        unclaimed,
+        total_claimed,
+        total_reinvested,
+        u32::MAX,
+    );
+}
+
 pub fn read_registry_pending(svm: &LiteSVM, address: Pubkey) -> u32 {
     let acct = svm.get_account(&address).expect("registry should exist");
-    u32::from_le_bytes(acct.data[20..24].try_into().unwrap())
+    u32::from_le_bytes(acct.data[24..28].try_into().unwrap())
 }
 
 pub fn read_registry_active(svm: &LiteSVM, address: Pubkey) -> u32 {
     let acct = svm.get_account(&address).expect("registry should exist");
+    u32::from_le_bytes(acct.data[20..24].try_into().unwrap())
+}
+
+pub fn read_registry_user_count(svm: &LiteSVM, address: Pubkey) -> u32 {
+    let acct = svm.get_account(&address).expect("registry should exist");
     u32::from_le_bytes(acct.data[16..20].try_into().unwrap())
 }
 
-pub fn read_registry_ticket(svm: &LiteSVM, address: Pubkey, idx: usize) -> Pubkey {
+pub fn read_registry_entry(svm: &LiteSVM, address: Pubkey, idx: usize) -> anchor::state::UserEntry {
     let acct = svm.get_account(&address).expect("registry should exist");
-    anchor::utils::registry_get_ticket(&acct.data, idx)
+    anchor::utils::registry_get_entry(&acct.data, idx)
 }
 
 // ─── E2E Context ─────────────────────────────────────────────────────────────

@@ -1,19 +1,22 @@
 use anchor_lang::prelude::*;
 
 /// Zero-copy header for the TicketRegistry account.
-/// Ticket pubkeys are stored in the raw bytes immediately following this struct
-/// (starting at byte offset 24: 8 discriminator + 16 struct fields).
-/// Access them via the helpers in `utils.rs` (registry_get_ticket / registry_set_ticket).
+/// User entries are stored in the raw bytes immediately following this struct
+/// (starting at byte offset 36: 8 discriminator + 28 struct fields).
+/// Access them via the helpers in `utils.rs`.
 ///
-/// The account starts at 128 KB and grows by 10 KB per `resize_registry` crank call.
+/// The account starts at 196,644 bytes and grows by 10,080 bytes per `resize_registry` crank call.
 #[account(zero_copy(unsafe))]
 #[repr(C)]
 pub struct TicketRegistry {
     pub pool_id: u32,
-    /// Current ticket slot capacity — derived from account data_len() at init and each resize.
+    /// Current user entry capacity — derived from account data_len() at init and each resize.
     pub capacity: u32,
-    pub active_tickets_count: u32,
-    pub pending_tickets_count: u32,
+    pub user_count: u32,
+    pub total_active_tickets: u32,
+    pub total_pending_tickets: u32,
+    pub draw_cycle_id: u32,
+    pub draw_prepared_up_to: u32,
 }
 
 #[zero_copy(unsafe)]
