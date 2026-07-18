@@ -4217,8 +4217,6 @@ dependencies = [
 [[package]]
 name = "solana-program-ed25519-dalek-bump"
 version = "1.16.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "040e2ff000c7de461bd1113e4965a83295dfbc2fd9ddb9225265330a471bcdf3"
 dependencies = [
  "ark-bn254 0.4.0",
  "ark-ec 0.4.2",

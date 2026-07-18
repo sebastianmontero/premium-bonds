@@ -31,3 +31,7 @@ opt-level = 1
 [profile.test]
 opt-level = 1
 
+[patch.crates-io]
+solana-program-ed25519-dalek-bump = { path = "patches/solana-program-ed25519-dalek-bump" }
+
+
