@@ -1,0 +1,237 @@
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas, Space};
+use litesvm::LiteSVM;
+use solana_program::{instruction::Instruction, pubkey::Pubkey};
+use solana_sdk::{
+    account::Account,
+    message::{Message, VersionedMessage},
+    signature::Keypair,
+    signer::Signer,
+};
+use solana_transaction::versioned::VersionedTransaction;
+
+mod common;
+use common::*;
+
+fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            b"draw_cycle",
+            pool_id.to_le_bytes().as_ref(),
+            cycle_id.to_le_bytes().as_ref(),
+        ],
+        &anchor::id(),
+    )
+}
+
+struct Ctx {
+    svm: LiteSVM,
+    crank: Keypair,
+    pool_key: Pubkey,
+    ticket_registry: Pubkey,
+    draw_cycle: Pubkey,
+}
+
+fn setup(is_pool_frozen: bool, dc_status: anchor::DrawStatus, entries: &[anchor::state::UserEntry]) -> Ctx {
+    let mut svm = LiteSVM::new();
+    let _ = svm.add_program(
+        anchor::id(),
+        include_bytes!("../../../target/deploy/anchor.so"),
+    );
+
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let ticket_registry = Keypair::new().pubkey();
+    inject_registry_with_entries(&mut svm, ticket_registry, 1, 1000, entries);
+
+    // Inject pool
+    let pool_key = pool_pda(1).0;
+    inject_pool_custom(&mut svm, 1, ticket_registry, anchor::PoolStatus::Active, is_pool_frozen, vec![], 0);
+
+    // Inject draw cycle
+    let (draw_cycle, _) = draw_cycle_pda(1, 0);
+    let dc = anchor::DrawCycle {
+        pool_id: 1,
+        cycle_id: 0,
+        status: dc_status,
+        locked_ticket_count: 10,
+        randomness_seed: [0u8; 32],
+        prize_pot: 1_000_000,
+        cycle_fee_collected: 0,
+        randomness_account: Pubkey::default(),
+        harvest_slot: 0,
+    };
+    let mut data = vec![];
+    dc.try_serialize(&mut data).unwrap();
+    data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
+    svm.set_account(
+        draw_cycle,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
+    Ctx {
+        svm,
+        crank,
+        pool_key,
+        ticket_registry,
+        draw_cycle,
+    }
+}
+
+fn inject_pool_custom(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    ticket_registry: Pubkey,
+    status: anchor::PoolStatus,
+    is_frozen: bool,
+    prize_tiers: Vec<anchor::PrizeTier>,
+    total_deposited_principal: u64,
+) {
+    let (pda, bump) = pool_pda(pool_id);
+    let pool = anchor::PrizePool {
+        vault_authority_bump: bump,
+        pool_id,
+        token_mint: Pubkey::default(),
+        ticket_registry,
+        fee_wallet: Pubkey::default(),
+        bond_price: 1_000_000,
+        stake_cycle_duration_hrs: 24,
+        fee_basis_points: 100,
+        status,
+        total_deposited_principal,
+        total_fees_collected: 0,
+        total_fees_accrued: 0,
+        total_fees_withdrawn: 0,
+        total_prizes_allocated: 0,
+        next_redemption_id: 0,
+        total_pending_redemptions: 0,
+        current_cycle_end_at: i64::MAX,
+        is_frozen_for_draw: is_frozen,
+        current_draw_cycle_id: 0,
+        prize_tiers,
+    };
+
+    let mut data = vec![];
+    pool.try_serialize(&mut data).unwrap();
+    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<(), String> {
+    let accounts = anchor::accounts::PrepareDraw {
+        crank: ctx.crank.pubkey(),
+        pool: ctx.pool_key,
+        draw_cycle: ctx.draw_cycle,
+        ticket_registry: ctx.ticket_registry,
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::PrepareDraw { batch_size }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    ctx.svm
+        .send_transaction(tx)
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn test_prepare_draw_happy_path() {
+    let user_a = Keypair::new().pubkey();
+    let user_b = Keypair::new().pubkey();
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: user_a,
+            active: 5,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+        anchor::state::UserEntry {
+            owner: user_b,
+            active: 3,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+    ];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    send_prepare(&mut ctx, 2).unwrap();
+
+    let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
+    assert_eq!(draw_prepared_up_to, 2);
+
+    let entry_a = anchor::utils::registry_get_entry(&reg_acct.data, 0);
+    assert_eq!(entry_a.cumulative_active, 5);
+
+    let entry_b = anchor::utils::registry_get_entry(&reg_acct.data, 1);
+    assert_eq!(entry_b.cumulative_active, 8);
+}
+
+#[test]
+fn test_prepare_draw_fails_pool_not_frozen() {
+    let mut ctx = setup(false, anchor::DrawStatus::AwaitingRandomness, &[]);
+
+    let err = send_prepare(&mut ctx, 1).unwrap_err();
+    assert!(err.contains("PoolNotFrozen"), "got: {err}");
+}
+
+#[test]
+fn test_prepare_draw_fails_invalid_draw_status() {
+    let mut ctx = setup(true, anchor::DrawStatus::Complete, &[]);
+
+    let err = send_prepare(&mut ctx, 1).unwrap_err();
+    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+}
+
+#[test]
+fn test_prepare_draw_fails_math_overflow() {
+    let user_a = Keypair::new().pubkey();
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: user_a,
+            active: u32::MAX,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+        anchor::state::UserEntry {
+            owner: Keypair::new().pubkey(),
+            active: 1,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+    ];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    let err = send_prepare(&mut ctx, 2).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}

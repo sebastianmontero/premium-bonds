@@ -203,11 +203,11 @@ pub fn inject_registry_with_entries(
     data[12..16].copy_from_slice(&capacity.to_le_bytes());
     data[16..20].copy_from_slice(&(entries.len() as u32).to_le_bytes()); // user_count
 
-    let mut total_active = 0;
-    let mut total_pending = 0;
+    let mut total_active: u32 = 0;
+    let mut total_pending: u32 = 0;
     for (i, entry) in entries.iter().enumerate() {
-        total_active += entry.active;
-        total_pending += entry.pending;
+        total_active = total_active.wrapping_add(entry.active);
+        total_pending = total_pending.wrapping_add(entry.pending);
         anchor::utils::registry_set_entry(&mut data, i, entry);
     }
 

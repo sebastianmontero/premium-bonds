@@ -32,11 +32,13 @@ pub struct PrepareDraw<'info> {
 
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     let registry_loader = &ctx.accounts.ticket_registry;
-    let mut registry = registry_loader.load_mut()?;
-    let cycle_id = registry.draw_cycle_id;
-
-    let start = registry.draw_prepared_up_to;
-    let end = (start + batch_size).min(registry.user_count);
+    let (cycle_id, start, end) = {
+        let registry = registry_loader.load_mut()?;
+        let cycle_id = registry.draw_cycle_id;
+        let start = registry.draw_prepared_up_to;
+        let end = (start + batch_size).min(registry.user_count);
+        (cycle_id, start, end)
+    };
 
     let registry_ai = registry_loader.to_account_info();
     let mut data = registry_ai.try_borrow_mut_data()?;
@@ -61,6 +63,9 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
         registry_set_entry(&mut data, i as usize, &entry);
     }
 
+    drop(data);
+
+    let mut registry = registry_loader.load_mut()?;
     registry.draw_prepared_up_to = end;
     msg!(
         "Prepared entries from index {} to {}. Cumulative active: {}",

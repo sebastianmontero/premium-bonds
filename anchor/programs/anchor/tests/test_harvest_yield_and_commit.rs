@@ -724,3 +724,48 @@ fn test_harvest_fails_invalid_mint() {
         "Expected constraint error, got: {err}"
     );
 }
+
+#[test]
+fn test_harvest_fails_invalid_randomness_account() {
+    let mut ctx = setup_guard(anchor::PoolStatus::Active, false, 0);
+    ctx.randomness_account = Keypair::new().pubkey();
+    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidRandomnessAccount"),
+        "Expected InvalidRandomnessAccount, got: {err}"
+    );
+}
+
+#[test]
+fn test_harvest_fails_math_overflow() {
+    let mut ctx = setup_happy(
+        10, // active count > 0 to have yield_generated > 0
+        0,
+        100, // fee bps
+        vec![anchor::PrizeTier {
+            basis_points: 10000,
+            num_winners: 1,
+        }], // prize tiers not empty
+        1_000_000, // pst_balance
+        1_000_000, // pst_supply
+        2_000_000, // total_assets
+        1_000_000, // principal
+    );
+
+    let (pool_pda_key, _) = pool_pda(1);
+    let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
+    let mut pool = anchor::PrizePool::try_deserialize(&mut pool_acct.data.as_slice()).unwrap();
+    pool.total_prizes_allocated = u64::MAX;
+    let mut new_data = vec![];
+    pool.try_serialize(&mut new_data).unwrap();
+    new_data.resize(pool_acct.data.len(), 0);
+    pool_acct.data = new_data;
+    ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
+
+    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("ProgramFailedToComplete"),
+        "Expected ProgramFailedToComplete panic (MathOverflow), got: {err}"
+    );
+}
+

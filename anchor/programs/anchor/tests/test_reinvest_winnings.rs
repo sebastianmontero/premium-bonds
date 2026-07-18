@@ -476,3 +476,51 @@ fn test_reinvest_fails_total_reinvested_overflow() {
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
 }
+
+#[test]
+fn test_reinvest_fails_invalid_user_entry_hint() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let other_user = Keypair::new().pubkey();
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: ctx.winner,
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+        anchor::state::UserEntry {
+            owner: other_user,
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+    ];
+    common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1000, &entries);
+
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
+
+    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
+    assert!(err.contains("InvalidUserEntryHint"), "got: {err}");
+}
+
+#[test]
+fn test_reinvest_fails_registry_full() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
+
+    let entries = vec![anchor::state::UserEntry {
+        owner: Keypair::new().pubkey(),
+        active: 0,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+    }];
+    common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1, &entries);
+
+    let err = send(&mut ctx, 0, 0, 10).unwrap_err();
+    assert!(err.contains("RegistryFull"), "got: {err}");
+}
+

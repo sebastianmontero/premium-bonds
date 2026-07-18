@@ -324,3 +324,20 @@ fn test_create_pool_fails_on_unauthorized_admin() {
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"));
 }
+
+#[test]
+fn test_create_pool_fails_on_invalid_fee_config() {
+    let mut ctx = setup_create_pool_context();
+    // fee_basis_points = 10001 (exceeds 10000 / 100%) should fail
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10001);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidFeeConfig"), "got: {err_str}");
+}
+

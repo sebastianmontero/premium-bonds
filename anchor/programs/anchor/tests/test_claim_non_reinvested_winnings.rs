@@ -325,8 +325,7 @@ fn test_claim_fails_no_winnings() {
 fn test_claim_fails_pool_not_active() {
     let mut ctx = setup_claim_guard(500_000, anchor::PoolStatus::Paused);
     let err = send_claim(&mut ctx, 1).unwrap_err();
-    // Pool status check: `seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` doesn't enforce active status itself unless explicitly validated or during CPI.
-    // Wait, let's see if ClaimNonReinvestedWinnings validates pool status. No, ClaimNonReinvestedWinnings doesn't have an explicit require!(pool.status == PoolStatus::Active) check, but Huma redemption itself might depend on pool state or just require it. Let's see if there is any other error check we can perform.
+    assert!(err.contains("PoolNotActive"), "got: {err}");
 }
 
 #[test]

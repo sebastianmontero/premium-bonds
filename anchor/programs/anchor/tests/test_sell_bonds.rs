@@ -941,3 +941,37 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
         res
     );
 }
+
+#[test]
+fn test_sell_bonds_fails_invalid_user_entry_hint_max() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, u32::MAX);
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
+}
+
+#[test]
+fn test_sell_bonds_fails_invalid_user_entry_hint_owner_mismatch() {
+    let other_user = Pubkey::new_unique();
+    let mut ctx = setup_guard(false, 1, 0, &[other_user]);
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 1);
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
+}
+
+#[test]
+fn test_sell_bonds_fails_math_overflow() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("MathOverflow"),
+        "Expected MathOverflow, got: {err}"
+    );
+}
+

@@ -708,3 +708,35 @@ fn test_buy_bonds_initializes_user_winnings() {
     assert_eq!(winnings.total_claimed, 0);
     assert_eq!(winnings.total_reinvested, 0);
 }
+
+#[test]
+fn test_buy_bonds_fails_invalid_user_entry_hint() {
+    let mut ctx = setup_e2e(10);
+
+    let other_user = Keypair::new().pubkey();
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: other_user,
+            active: 1,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+        },
+    ];
+    common::inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
+
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&ctx.user.to_bytes()[..32]);
+    let user = Keypair::new_from_array(seed);
+
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, user.pubkey(), 0, 0, 0, 0);
+
+    let user_usdc = ctx.user_usdc_account;
+    let err = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, Pubkey::default())
+        .unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
+}
+

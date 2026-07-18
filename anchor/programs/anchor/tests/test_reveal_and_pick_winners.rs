@@ -748,3 +748,126 @@ fn test_reveal_fails_wrong_ticket_registry() {
         "Should be constraint error, got: {err}"
     );
 }
+
+#[test]
+fn test_reveal_fails_invalid_randomness_account_key() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    let wrong_randomness_account = Keypair::new().pubkey();
+    ctx.randomness_account = wrong_randomness_account;
+
+    update_mock_randomness_account(&mut ctx.svm, wrong_randomness_account, 0, 0, [1u8; 32]);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(err_str.contains("InvalidRandomnessAccount"), "got: {err_str}");
+}
+
+#[test]
+fn test_reveal_fails_invalid_randomness_account_owner() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    ctx.svm.set_account(
+        ctx.randomness_account,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![0u8; 100],
+            owner: Pubkey::default(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    ).unwrap();
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(err_str.contains("InvalidRandomnessAccount"), "got: {err_str}");
+}
+
+#[test]
+fn test_reveal_fails_stale_randomness_request_seed_slot() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    
+    let (dc_pda, _) = draw_cycle_pda(1, 0);
+    let mut dc_acct = ctx.svm.get_account(&dc_pda).unwrap();
+    let mut dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
+    dc.harvest_slot = 10;
+    let mut new_data = vec![];
+    use anchor_lang::AccountSerialize;
+    dc.try_serialize(&mut new_data).unwrap();
+    new_data.resize(dc_acct.data.len(), 0);
+    dc_acct.data = new_data;
+    ctx.svm.set_account(dc_pda, dc_acct).unwrap();
+
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(err_str.contains("StaleRandomnessRequest"), "got: {err_str}");
+}
+
+#[test]
+fn test_reveal_fails_stale_randomness_request_expired() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
+    
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1006;
+    ctx.svm.set_sysvar(&clock);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(err_str.contains("StaleRandomnessRequest"), "got: {err_str}");
+}
+
+#[test]
+fn test_reveal_fails_randomness_not_resolved() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 0, [0u8; 32]);
+    
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 5;
+    ctx.svm.set_sysvar(&clock);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(err_str.contains("RandomnessNotResolved"), "got: {err_str}");
+}
+
+#[test]
+fn test_reveal_fails_math_overflow() {
+    let mut ctx = setup_reveal(
+        anchor::PoolStatus::Active,
+        true,
+        vec![anchor::PrizeTier {
+            basis_points: 20000,
+            num_winners: 1,
+        }],
+        5,
+        1_000_000,
+        5,
+    );
+
+    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
