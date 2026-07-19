@@ -508,7 +508,7 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
 #[test]
 fn test_reinvest_fails_registry_full() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
-    
+
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
 
     let entries = vec![anchor::state::UserEntry {
@@ -523,4 +523,3 @@ fn test_reinvest_fails_registry_full() {
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("RegistryFull"), "got: {err}");
 }
-

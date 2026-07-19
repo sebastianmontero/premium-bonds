@@ -46,6 +46,7 @@ fn read_pending_redemption(
 
 /// Build a `WithdrawFees` instruction.
 fn build_withdraw_fees_ix(
+    svm: &LiteSVM,
     admin: Pubkey,
     pool_id: u32,
     redemption_id: u64,
@@ -57,6 +58,10 @@ fn build_withdraw_fees_ix(
     huma_pool_mode_token: Pubkey,
     amount: u64,
 ) -> Instruction {
+    let pool_state = read_pool_state(svm, pool_id);
+    let token_mint = pool_state.token_mint;
+    let fee_wallet = pool_state.fee_wallet;
+
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
@@ -78,6 +83,8 @@ fn build_withdraw_fees_ix(
         huma_lender_state: dummy,
         huma_pool_authority,
         huma_pool_mode_token,
+        token_mint,
+        fee_wallet,
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
@@ -155,6 +162,7 @@ fn test_withdraw_fees_succeeds() {
         .unwrap();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0, // redemption_id = 0
@@ -179,7 +187,7 @@ fn test_withdraw_fees_succeeds() {
     let pending = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pending.pool_id, 1);
     assert_eq!(pending.redemption_id, 0);
-    assert_eq!(pending.user, updated_pool.fee_wallet);
+    assert_eq!(pending.user, ctx.admin.pubkey());
     assert_eq!(pending.amount, 2_000_000);
     assert_eq!(pending.pst_shares_locked, 2_000_000); // 1:1 since total_assets is 0
 
@@ -279,6 +287,7 @@ fn test_withdraw_fees_math_non_1_to_1() {
 
     // Withdraw 2 USDC (2_000_000). At 1 PST = 2 USDC, this should equal 1 PST (1_000_000 shares)
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -320,6 +329,7 @@ fn test_withdraw_fees_fails_unauthorized_admin() {
     ctx.svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         hacker.pubkey(), // hacker tries to pretend to be the admin
         1,
         0,
@@ -348,6 +358,7 @@ fn test_withdraw_fees_fails_unsigned_admin() {
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -388,6 +399,7 @@ fn test_withdraw_fees_fails_zero_amount() {
     let dummy = Keypair::new().pubkey();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -440,6 +452,7 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
         .unwrap();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -474,6 +487,7 @@ fn test_withdraw_fees_fails_wrong_global_config_pda() {
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -504,6 +518,7 @@ fn test_withdraw_fees_fails_wrong_pool_pda() {
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -555,6 +570,7 @@ fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
         .unwrap();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -577,6 +593,7 @@ fn test_withdraw_fees_fails_wrong_pst_vault_pda() {
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -607,6 +624,7 @@ fn test_withdraw_fees_fails_wrong_huma_program() {
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -660,6 +678,7 @@ fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
         .unwrap();
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -728,6 +747,7 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
 
     // Use FAIL_REDEMPTION_PUBKEY as the huma_config account to trigger simulated failure
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -795,6 +815,7 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
     let fake_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
 
     let ix = build_withdraw_fees_ix(
+        &ctx.svm,
         ctx.admin.pubkey(),
         1,
         0,
@@ -815,4 +836,197 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
         "Expected InvalidModeMint error, got: {}",
         err_str
     );
+}
+
+#[test]
+fn test_withdraw_fees_and_claim_e2e() {
+    let mut ctx = setup_e2e(10);
+    let (pool_pda, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pool_vault, _) = pool_vault_pda(1);
+
+    // Setup pool state with accrued fees
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_fees_accrued = 5_000_000;
+    pool.total_fees_withdrawn = 0;
+    pool.next_redemption_id = 0;
+
+    let mut serialized_pool = vec![];
+    pool.try_serialize(&mut serialized_pool).unwrap();
+    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    ctx.svm
+        .set_account(
+            pool_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data: serialized_pool,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Set up mock $PST in pool's pst vault (representing Huma yield)
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda,
+        10_000_000,
+    );
+
+    // Initialize huma_pool_mode_token owned by huma_pool_authority
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        huma_pool_mode_token,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        0,
+    );
+
+    let dummy = Keypair::new().pubkey();
+
+    // 1. Withdraw fees (creates PendingRedemption)
+    let ix_withdraw = build_withdraw_fees_ix(
+        &ctx.svm,
+        ctx.admin.pubkey(),
+        1,
+        0, // redemption_id = 0
+        pool_pst_vault,
+        dummy,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        2_000_000, // withdraw 2 USDC
+    );
+
+    let res_withdraw = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw);
+    assert!(
+        res_withdraw.is_ok(),
+        "withdraw_fees should succeed: {:?}",
+        res_withdraw
+    );
+
+    // Verify PendingRedemption was created with admin (fee wallet owner) as the user
+    let pending_pda = pending_redemption_pda(1, 0).0;
+    let pending_acct = ctx.svm.get_account(&pending_pda).unwrap();
+    let pending_state =
+        <anchor::state::PendingRedemption as anchor_lang::AccountDeserialize>::try_deserialize(
+            &mut &pending_acct.data[..],
+        )
+        .unwrap();
+    // admin.pubkey() is the owner of the fee_wallet token account
+    assert_eq!(pending_state.user, ctx.admin.pubkey());
+    assert_eq!(pending_state.amount, 2_000_000);
+
+    // 2. Claim redemption
+    // We mock Huma's disburse by transferring underlying USDC into the pool vault and advancing next_request_id.
+    // Let's set the Huma PoolState's redemption queue to next_request_id = 1.
+    let mut huma_pool_state_data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
+    huma_pool_state_data[250..266].copy_from_slice(&1u128.to_le_bytes()); // next_request_id = 1
+
+    // Set mock assets to 100_000_000 so conversion is 1:1
+    huma_pool_state_data[30..46].copy_from_slice(&100_000_000u128.to_le_bytes());
+
+    let mut pool_state_acct = ctx.svm.get_account(&ctx.huma_pool_state).unwrap();
+    pool_state_acct.data = huma_pool_state_data;
+    ctx.svm
+        .set_account(ctx.huma_pool_state, pool_state_acct)
+        .unwrap();
+
+    // Fund the pool vault so it can pay out the USDC
+    inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda, 5_000_000);
+
+    // Create the admin's token account (destination for claiming fees)
+    let admin_usdc = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.admin.pubkey(),
+    );
+
+    // Build and send claim_redemption signed by admin (fee wallet owner)
+    let ix_claim = build_claim_redemption_ix(
+        ctx.admin.pubkey(),
+        1,
+        0, // redemption_id = 0
+        ctx.usdc_mint,
+        pool_vault,
+        admin_usdc,
+        huma_program_id(),
+        dummy,
+        dummy,
+        ctx.huma_pool_state,
+        dummy,
+        dummy,
+        ctx.huma_pool_authority,
+        ctx.huma_pool_underlying_token,
+    );
+
+    // Admin signs the claim transaction!
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix_claim], Some(&ctx.admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    let res_claim = ctx.svm.send_transaction(tx);
+    assert!(
+        res_claim.is_ok(),
+        "claim_redemption should succeed for fee wallet owner: {:?}",
+        res_claim
+    );
+
+    // Assert that the admin received the 2 USDC fees
+    let balance = read_token_balance(&ctx.svm, admin_usdc);
+    assert_eq!(balance, 2_000_000);
+
+    // Assert that the PendingRedemption account was closed (does not exist anymore)
+    assert!(ctx.svm.get_account(&pending_pda).is_none());
+}
+
+fn build_claim_redemption_ix(
+    user: Pubkey,
+    pool_id: u32,
+    redemption_id: u64,
+    token_mint: Pubkey,
+    pool_vault_account: Pubkey,
+    user_token_account: Pubkey,
+    huma_program: Pubkey,
+    huma_config: Pubkey,
+    huma_pool_config: Pubkey,
+    huma_pool_state: Pubkey,
+    huma_mode_config: Pubkey,
+    huma_lender_state: Pubkey,
+    huma_pool_authority: Pubkey,
+    huma_pool_underlying_token: Pubkey,
+) -> Instruction {
+    let (pool, _) = pool_pda(pool_id);
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
+
+    let accounts = anchor::accounts::ClaimRedemption {
+        user,
+        pool,
+        pending_redemption,
+        token_mint,
+        pool_vault_account,
+        user_token_account,
+        huma_program,
+        huma_config,
+        huma_pool_config,
+        huma_pool_state,
+        huma_mode_config,
+        huma_lender_state,
+        huma_pool_authority,
+        huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
+    }
 }

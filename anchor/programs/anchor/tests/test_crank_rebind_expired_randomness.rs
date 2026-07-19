@@ -1,4 +1,4 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas, Space};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -71,7 +71,14 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
     // Inject pool
     let pool_key = pool_pda(1).0;
     let ticket_registry = Keypair::new().pubkey();
-    inject_pool(&mut svm, 1, Keypair::new().pubkey(), ticket_registry, anchor::PoolStatus::Active, true);
+    inject_pool(
+        &mut svm,
+        1,
+        Keypair::new().pubkey(),
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        true,
+    );
 
     // Inject draw cycle
     let (current_draw_cycle, _) = draw_cycle_pda(1, 0);
@@ -176,7 +183,9 @@ fn test_rebind_fails_unauthorized_crank() {
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
 
     let fake_crank = Keypair::new();
-    ctx.svm.airdrop(&fake_crank.pubkey(), 10_000_000_000).unwrap();
+    ctx.svm
+        .airdrop(&fake_crank.pubkey(), 10_000_000_000)
+        .unwrap();
 
     let err = send_rebind(&mut ctx, &fake_crank).unwrap_err();
     assert!(err.contains("UnauthorizedCrank"), "got: {err}");
@@ -214,16 +223,18 @@ fn test_rebind_fails_invalid_randomness_account() {
     ctx.svm.set_sysvar(&clock);
 
     // Set new_randomness_account owner to system program
-    ctx.svm.set_account(
-        ctx.new_randomness_account,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: Pubkey::default(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            ctx.new_randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: Pubkey::default(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let crank = clone_keypair(&ctx.crank);
     let err = send_rebind(&mut ctx, &crank).unwrap_err();

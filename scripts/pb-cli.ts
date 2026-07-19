@@ -337,14 +337,20 @@ async function main() {
       if (!registryAcc || !registryAcc.value) {
         throw new Error(`Ticket registry at ${registryAddr} not found.`);
       }
-      let registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+      let registryBytes = new Uint8Array(
+        base64Encoder.encode(registryAcc.value.data[0])
+      );
       let registryState = parseTicketRegistry(registryBytes);
 
       if (registryState.drawPreparedUpTo < registryState.userCount) {
-        console.log(`Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`);
+        console.log(
+          `Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`
+        );
         const batchSize = 1000;
         while (registryState.drawPreparedUpTo < registryState.userCount) {
-          console.log(`Sending prepare_draw batch starting at index ${registryState.drawPreparedUpTo}...`);
+          console.log(
+            `Sending prepare_draw batch starting at index ${registryState.drawPreparedUpTo}...`
+          );
           const prepIx = await buildPrepareDrawInstruction({
             crank: signer!.address,
             poolId,
@@ -358,9 +364,13 @@ async function main() {
           const updatedRegistryAcc = await rpc
             .getAccountInfo(address(registryAddr), { encoding: "base64" })
             .send();
-          registryBytes = new Uint8Array(base64Encoder.encode(updatedRegistryAcc!.value!.data[0]));
+          registryBytes = new Uint8Array(
+            base64Encoder.encode(updatedRegistryAcc!.value!.data[0])
+          );
           registryState = parseTicketRegistry(registryBytes);
-          console.log(`Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+          console.log(
+            `Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
+          );
         }
         console.log("Automatic draw preparation completed.");
       }
@@ -564,16 +574,22 @@ async function main() {
         throw new Error("Batch size must be a positive integer.");
       }
 
-      console.log(`Preparing draw for pool ${poolId} with batch size ${batchSize}...`);
+      console.log(
+        `Preparing draw for pool ${poolId} with batch size ${batchSize}...`
+      );
 
       const poolPda = await findPrizePoolPda(poolId);
       const poolAcc = await rpc
         .getAccountInfo(poolPda, { encoding: "base64" })
         .send();
       if (!poolAcc || !poolAcc.value) {
-        throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+        throw new Error(
+          `PrizePool account for pool ${poolId} not found on-chain.`
+        );
       }
-      const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
+      const poolBytes = new Uint8Array(
+        base64Encoder.encode(poolAcc.value.data[0])
+      );
       const poolState = parsePrizePool(poolBytes);
 
       const registryAddr = poolState.ticketRegistry;
@@ -585,10 +601,14 @@ async function main() {
       if (!registryAcc || !registryAcc.value) {
         throw new Error(`Ticket registry at ${registryAddr} not found.`);
       }
-      let registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+      let registryBytes = new Uint8Array(
+        base64Encoder.encode(registryAcc.value.data[0])
+      );
       let registryState = parseTicketRegistry(registryBytes);
 
-      console.log(`Current state: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+      console.log(
+        `Current state: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
+      );
 
       if (registryState.drawPreparedUpTo >= registryState.userCount) {
         console.log("Draw preparation is already complete.");
@@ -620,9 +640,13 @@ async function main() {
         if (!registryAcc || !registryAcc.value) {
           throw new Error(`Ticket registry not found after transaction.`);
         }
-        registryBytes = new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]));
+        registryBytes = new Uint8Array(
+          base64Encoder.encode(registryAcc.value.data[0])
+        );
         registryState = parseTicketRegistry(registryBytes);
-        console.log(`Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`);
+        console.log(
+          `Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
+        );
       }
 
       console.log("Draw preparation completed successfully.");
@@ -1267,7 +1291,9 @@ Ticket Registry for Pool ${poolId} (Filtered by User: ${target})
 
         if (entry) {
           const isStale = entry.mergedThroughCycle < registryState.drawCycleId;
-          const activeVal = isStale ? entry.active + entry.pending : entry.active;
+          const activeVal = isStale
+            ? entry.active + entry.pending
+            : entry.active;
           const pendingVal = isStale ? 0 : entry.pending;
           console.log(`User Entry Details:
   Owner: ${entry.owner}

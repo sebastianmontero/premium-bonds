@@ -1,4 +1,4 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas, Space};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -31,7 +31,11 @@ struct Ctx {
     draw_cycle: Pubkey,
 }
 
-fn setup(is_pool_frozen: bool, dc_status: anchor::DrawStatus, entries: &[anchor::state::UserEntry]) -> Ctx {
+fn setup(
+    is_pool_frozen: bool,
+    dc_status: anchor::DrawStatus,
+    entries: &[anchor::state::UserEntry],
+) -> Ctx {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
@@ -46,7 +50,15 @@ fn setup(is_pool_frozen: bool, dc_status: anchor::DrawStatus, entries: &[anchor:
 
     // Inject pool
     let pool_key = pool_pda(1).0;
-    inject_pool_custom(&mut svm, 1, ticket_registry, anchor::PoolStatus::Active, is_pool_frozen, vec![], 0);
+    inject_pool_custom(
+        &mut svm,
+        1,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        is_pool_frozen,
+        vec![],
+        0,
+    );
 
     // Inject draw cycle
     let (draw_cycle, _) = draw_cycle_pda(1, 0);
@@ -234,4 +246,41 @@ fn test_prepare_draw_fails_math_overflow() {
 
     let err = send_prepare(&mut ctx, 2).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_prepare_draw_excludes_pending_tickets() {
+    let user_a = Keypair::new().pubkey();
+    let entries = vec![anchor::state::UserEntry {
+        owner: user_a,
+        active: 10,
+        pending: 5,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+    }];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Set registry.draw_cycle_id = 1 (incremented during harvest)
+    let mut reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acct.data[28..32].copy_from_slice(&1u32.to_le_bytes()); // draw_cycle_id = 1
+
+    // Write entries[0] to index 0 using the utility function
+    anchor::utils::registry_set_entry(&mut reg_acct.data, 0, &entries[0]);
+
+    ctx.svm.set_account(ctx.ticket_registry, reg_acct).unwrap();
+
+    let res = send_prepare(&mut ctx, 1);
+    assert!(res.is_ok(), "prepare should succeed: {:?}", res);
+
+    let reg_acct_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let draw_prepared_up_to = u32::from_le_bytes(reg_acct_after.data[32..36].try_into().unwrap());
+    assert_eq!(draw_prepared_up_to, 1);
+
+    let entry_after = anchor::utils::registry_get_entry(&reg_acct_after.data, 0);
+
+    assert_eq!(entry_after.active, 10);
+    assert_eq!(entry_after.pending, 5);
+    assert_eq!(entry_after.cumulative_active, 10);
+    assert_eq!(entry_after.merged_through_cycle, 0);
 }

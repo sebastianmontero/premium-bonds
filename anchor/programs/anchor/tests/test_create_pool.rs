@@ -340,4 +340,3 @@ fn test_create_pool_fails_on_invalid_fee_config() {
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("InvalidFeeConfig"), "got: {err_str}");
 }
-

@@ -137,8 +137,6 @@ fn build_claim_redemption_ix(
     }
 }
 
-
-
 fn send_e2e_claim_redemption_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -410,6 +408,12 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
 
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
 
@@ -431,9 +435,9 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     let mut pool = anchor::PrizePool {
         vault_authority_bump: bump, // Use correct bump
         pool_id,
-        token_mint: Keypair::new().pubkey(),
+        token_mint,
         ticket_registry: Keypair::new().pubkey(),
-        fee_wallet: Keypair::new().pubkey(),
+        fee_wallet,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
@@ -487,6 +491,8 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
             huma_lender_state: dummy,
             huma_pool_authority: dummy,
             huma_pool_mode_token: dummy,
+            token_mint,
+            fee_wallet,
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,

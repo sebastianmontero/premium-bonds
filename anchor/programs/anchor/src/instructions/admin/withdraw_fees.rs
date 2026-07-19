@@ -85,6 +85,19 @@ pub struct WithdrawFees<'info> {
     #[account(mut)]
     pub huma_pool_mode_token: UncheckedAccount<'info>,
 
+    #[account(
+        address = pool.token_mint,
+        mint::token_program = token_program
+    )]
+    pub token_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(
+        token::mint = token_mint,
+        token::token_program = token_program,
+        constraint = fee_wallet.key() == pool.fee_wallet @ PremiumBondsError::InvalidFeeWallet
+    )]
+    pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
+
     pub token_program: Interface<'info, TokenInterface>,
     pub pst_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
@@ -147,7 +160,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool.pool_id;
     pending.redemption_id = pool.next_redemption_id;
-    pending.user = pool.fee_wallet; // Fee wallet receives the USDC on disburse
+    pending.user = ctx.accounts.fee_wallet.owner; // Fee wallet owner receives the USDC on disburse
     pending.amount = amount;
     pending.pst_shares_locked = pst_shares;
     pending.requested_at = Clock::get()?.unix_timestamp;

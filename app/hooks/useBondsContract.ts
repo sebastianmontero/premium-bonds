@@ -54,8 +54,6 @@ interface ParsedHumaPool {
   lastRequestId: bigint;
 }
 
-
-
 interface ParsedRedemption {
   redemptionId: string;
   amount: number;
@@ -134,8 +132,6 @@ function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
   return { assets, nextRequestId, lastRequestId };
 }
 
-
-
 function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
@@ -164,7 +160,9 @@ export function useBondsContract(poolId: number = 1) {
 
   const [pool, setPool] = useState<ExtendedPoolInfo | null>(null);
   const [userTickets, setUserTickets] = useState<UserTicketInfo | null>(null);
-  const [userWinnings, setUserWinnings] = useState<UserWinningsInfo | null>(null);
+  const [userWinnings, setUserWinnings] = useState<UserWinningsInfo | null>(
+    null
+  );
   const [pendingRedemptions, setPendingRedemptions] = useState<
     PendingRedemption[]
   >([]);
@@ -526,7 +524,8 @@ export function useBondsContract(poolId: number = 1) {
 
       const rpc = client.runtime.rpc;
       const registryAddrStr = pool.ticketRegistry;
-      if (!registryAddrStr) throw new Error("Ticket registry address not loaded");
+      if (!registryAddrStr)
+        throw new Error("Ticket registry address not loaded");
 
       // 1. Fetch user winnings PDA to get registry index
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
@@ -556,12 +555,15 @@ export function useBondsContract(poolId: number = 1) {
       let pendingOwned = 0;
       const currentCycle = registry.drawCycleId;
 
-      if (registryEntryIndex !== 0xffffffff && registryEntryIndex < registry.userCount) {
+      if (
+        registryEntryIndex !== 0xffffffff &&
+        registryEntryIndex < registry.userCount
+      ) {
         const entry = registry.entries[registryEntryIndex];
         if (entry && entry.owner === userAddress) {
           activeOwned = entry.active;
           pendingOwned = entry.pending;
-          
+
           // Apply lazy merge locally
           if (entry.mergedThroughCycle < currentCycle) {
             activeOwned += pendingOwned;
@@ -572,9 +574,12 @@ export function useBondsContract(poolId: number = 1) {
 
       // Number of bonds to sell
       const bondsToSell = Math.floor(amount / pool.bondPrice);
-      if (bondsToSell <= 0) throw new Error("Amount is too small to sell any bonds");
+      if (bondsToSell <= 0)
+        throw new Error("Amount is too small to sell any bonds");
       if (activeOwned + pendingOwned < bondsToSell) {
-        throw new Error(`Insufficient tickets owned to sell. Owned: ${activeOwned + pendingOwned}, Required: ${bondsToSell}`);
+        throw new Error(
+          `Insufficient tickets owned to sell. Owned: ${activeOwned + pendingOwned}, Required: ${bondsToSell}`
+        );
       }
 
       // Distribute bonds to sell: prioritize pending, then active
@@ -586,19 +591,30 @@ export function useBondsContract(poolId: number = 1) {
         const lastEntryIdx = registry.userCount - 1;
 
         let swappedUserWinningsPda: Address | null = null;
-        if (willExit && registryEntryIndex !== lastEntryIdx && lastEntryIdx >= 0) {
+        if (
+          willExit &&
+          registryEntryIndex !== lastEntryIdx &&
+          lastEntryIdx >= 0
+        ) {
           const lastEntry = registry.entries[lastEntryIdx];
           if (lastEntry) {
-            swappedUserWinningsPda = await findUserWinningsPda(poolId, lastEntry.owner);
+            swappedUserWinningsPda = await findUserWinningsPda(
+              poolId,
+              lastEntry.owner
+            );
           }
         }
 
         const poolPda = await findPrizePoolPda(poolId);
         const poolPstVault = await findPoolPstVaultPda(poolId);
-        const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+        const humaPoolAuthority =
+          await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
         const nextRedemptionId = pool.nextRedemptionId || 0;
-        const pendingRedemptionPda = await findPendingRedemptionPda(poolId, nextRedemptionId);
+        const pendingRedemptionPda = await findPendingRedemptionPda(
+          poolId,
+          nextRedemptionId
+        );
 
         const ixData = new Uint8Array(16);
         ixData.set([205, 139, 46, 24, 50, 76, 182, 76], 0);
@@ -631,11 +647,16 @@ export function useBondsContract(poolId: number = 1) {
         ];
 
         if (swappedUserWinningsPda) {
-          accounts.push({ address: swappedUserWinningsPda, role: AccountRole.WRITABLE });
+          accounts.push({
+            address: swappedUserWinningsPda,
+            role: AccountRole.WRITABLE,
+          });
         }
 
         return await send({
-          instructions: [{ programAddress: PROGRAM_ID, accounts, data: ixData }],
+          instructions: [
+            { programAddress: PROGRAM_ID, accounts, data: ixData },
+          ],
         });
       };
 
@@ -646,8 +667,13 @@ export function useBondsContract(poolId: number = 1) {
       } catch (err: unknown) {
         // Concurrency Auto-Recovery: Catch InsufficientPendingTickets
         const errorMsg = String(err);
-        if (errorMsg.includes("InsufficientPendingTickets") || errorMsg.includes("0x1776")) {
-          console.warn("Sell pending failed due to harvest concurrency. Retrying with active...");
+        if (
+          errorMsg.includes("InsufficientPendingTickets") ||
+          errorMsg.includes("0x1776")
+        ) {
+          console.warn(
+            "Sell pending failed due to harvest concurrency. Retrying with active..."
+          );
           const totalToSell = pendingToSell + activeToSell;
           const retrySignature = await executeTx(0, totalToSell);
           await refetch();
@@ -813,7 +839,9 @@ export function useBondsContract(poolId: number = 1) {
     userTickets,
     userWinnings: userWinnings
       ? {
-          unclaimedNonReinvestedWinnings: Number(userWinnings.unclaimedNonReinvestedWinnings),
+          unclaimedNonReinvestedWinnings: Number(
+            userWinnings.unclaimedNonReinvestedWinnings
+          ),
           totalClaimed: Number(userWinnings.totalClaimed),
           totalReinvested: Number(userWinnings.totalReinvested),
           registryEntryIndex: userWinnings.registryEntryIndex,

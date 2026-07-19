@@ -78,4 +78,6 @@ pub enum PremiumBondsError {
     PoolNotFrozen,
     #[msg("Required remaining account for swapped user's UserWinnings is missing")]
     MissingSwappedUserWinnings,
+    #[msg("The provided fee wallet account is invalid or does not match the pool configuration")]
+    InvalidFeeWallet,
 }

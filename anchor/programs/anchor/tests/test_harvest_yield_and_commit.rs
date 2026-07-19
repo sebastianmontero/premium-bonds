@@ -768,4 +768,3 @@ fn test_harvest_fails_math_overflow() {
         "Expected ProgramFailedToComplete panic (MathOverflow), got: {err}"
     );
 }
-

@@ -64,8 +64,6 @@ fn inject_lender_state(svm: &mut LiteSVM, address: Pubkey, amount: u64) {
 
 // ─── E2E Helpers ─────────────────────────────────────────────────────────────
 
-
-
 fn send_e2e_claim_redemption_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -974,4 +972,3 @@ fn test_sell_bonds_fails_math_overflow() {
         "Expected MathOverflow, got: {err}"
     );
 }
-

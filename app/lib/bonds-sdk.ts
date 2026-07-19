@@ -554,7 +554,10 @@ export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
   };
 }
 
-export function parseRegistryEntry(data: Uint8Array, index: number): UserEntryInfo | null {
+export function parseRegistryEntry(
+  data: Uint8Array,
+  index: number
+): UserEntryInfo | null {
   if (data.length < 36) return null;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const userCount = view.getUint32(16, true);

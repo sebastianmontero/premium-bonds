@@ -32,9 +32,9 @@ pub struct PrepareDraw<'info> {
 
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     let registry_loader = &ctx.accounts.ticket_registry;
-    let (cycle_id, start, end) = {
+    let (merge_cycle_id, start, end) = {
         let registry = registry_loader.load_mut()?;
-        let cycle_id = registry.draw_cycle_id;
+        let cycle_id = registry.draw_cycle_id.saturating_sub(1);
         let start = registry.draw_prepared_up_to;
         let end = (start + batch_size).min(registry.user_count);
         (cycle_id, start, end)
@@ -53,7 +53,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
         let mut entry = registry_get_entry(&data, i as usize);
 
         // Apply lazy merge
-        entry.lazy_merge(cycle_id)?;
+        entry.lazy_merge(merge_cycle_id)?;
 
         cumulative = cumulative
             .checked_add(entry.active)

@@ -1,4 +1,4 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas, Space};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -66,7 +66,14 @@ fn setup(admin: &Keypair, draw_status: anchor::DrawStatus) -> Ctx {
     // Inject pool
     let pool_key = pool_pda(1).0;
     let ticket_registry = Keypair::new().pubkey();
-    inject_pool(&mut svm, 1, Keypair::new().pubkey(), ticket_registry, anchor::PoolStatus::Active, true);
+    inject_pool(
+        &mut svm,
+        1,
+        Keypair::new().pubkey(),
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        true,
+    );
 
     // Inject draw cycle
     let (current_draw_cycle, _) = draw_cycle_pda(1, 0);
@@ -158,7 +165,9 @@ fn test_admin_force_unlock_fails_unauthorized_admin() {
     let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
 
     let fake_admin = Keypair::new();
-    ctx.svm.airdrop(&fake_admin.pubkey(), 10_000_000_000).unwrap();
+    ctx.svm
+        .airdrop(&fake_admin.pubkey(), 10_000_000_000)
+        .unwrap();
 
     let err = send_force_unlock(&mut ctx, &fake_admin).unwrap_err();
     assert!(err.contains("UnauthorizedAdmin"), "got: {err}");

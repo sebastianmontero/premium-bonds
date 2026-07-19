@@ -1,6 +1,9 @@
 use anchor_lang::{AccountSerialize, AnchorDeserialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
-use solana_program::{instruction::{Instruction, AccountMeta}, pubkey::Pubkey};
+use solana_program::{
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+};
 use solana_sdk::{
     account::Account,
     message::{Message, VersionedMessage},

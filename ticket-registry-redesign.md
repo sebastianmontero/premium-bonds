@@ -62,7 +62,6 @@ The redesign stores one entry per user with ticket counts, eliminating the stale
     5. Increment entry.pending += bonds_to_buy.
     6. total_pending_tickets += bonds_to_buy.
 
-
 • Accounts: Signer (User), UserWinnings (PDA, mut), TicketRegistry (mut)  
  • Client passes: bonds_to_buy  
  • Duplicate Prevention: Since the UserWinnings PDA is unique to the (pool_id, user) combination, using it to track the registry index ensures a user can never have more than one entry  
@@ -85,7 +84,6 @@ The redesign stores one entry per user with ticket counts, eliminating the stale
        d. registry.user_count -= 1.
     7. total_active/pending -= amounts.
 
-
 • Accounts: Signer (User), UserWinnings (PDA, mut), TicketRegistry (mut), Optional remaining account: swapped_user_winnings (mut).  
  • Client passes: active_to_sell: u32, pending_to_sell: u32.  
  • UX Improvement: Index-free parameters from the client. No stale client hints. If a swap-and-pop occurs, the client resolves the swapped user's pubkey from the last index of the  
@@ -97,7 +95,6 @@ The redesign stores one entry per user with ticket counts, eliminating the stale
     registry.total_active_tickets += registry.total_pending_tickets
     registry.total_pending_tickets = 0
     registry.draw_prepared_up_to = 0    // reset prepare_draw cursor
-
 
 The harvest is O(1) — it only touches global counters. Per-user entry merging is deferred (see Lazy Merge below).
 
@@ -123,7 +120,6 @@ After harvest freezes the pool, a new prepare_draw crank instruction processes u
 
       registry.draw_prepared_up_to = end
 
-
 #### Account Constraints & Safety Guards
 
     #[derive(Accounts)]
@@ -148,7 +144,6 @@ After harvest freezes the pool, a new prepare_draw crank instruction processes u
         #[account(mut)]
         pub ticket_registry: AccountLoader<'info, TicketRegistry>,
     }
-
 
 Compute budget per batch:
 
@@ -185,7 +180,6 @@ With prefix sums precomputed by prepare_draw, the draw uses binary search:
             else:
                 hi = mid
         winner = entries[lo].owner
-
 
 Compute budget:
 
@@ -225,7 +219,6 @@ Safety Invariants & Limits:
     3. Lazy-merge the entry if stale.
     4. Increment entry.pending += reinvested_bonds.
 
-
 • Accounts: Signer (Crank), UserWinnings (PDA, mut), TicketRegistry (mut)  
  • Uses the winner's UserWinnings.registry_entry_index to find the user entry in O(1). No linear scan or client-side index hint needed.
 
@@ -245,7 +238,6 @@ Whenever an instruction touches a user entry (buy, sell, prepare_draw), it first
         entry.pending = 0;
         entry.merged_through_cycle = registry.draw_cycle_id;
     }
-
 
 ### Edge Case: Sell-After-Harvest Race Condition
 
@@ -550,8 +542,6 @@ Update BuyBonds to load UserWinnings as mutable and execute index assignment:
     let mut registry = registry_loader.load_mut()?;
     registry.total_pending_tickets += bonds_to_buy;
 
-
-
 ### B. sell_bonds.rs
 
 Update sell_bonds.rs to accept active_to_sell: u32 and pending_to_sell: u32 inputs. Load the UserWinnings account of the caller as a regular PDA in #[derive(Accounts)].
@@ -622,8 +612,6 @@ Update sell_bonds.rs to accept active_to_sell: u32 and pending_to_sell: u32 inpu
         registry_set_entry(&mut data, user_entry_idx as usize, &entry);
     }
 
-
-
 ### C. harvest_yield_and_commit.rs
 
 Simplify the registry merge down to O(1) global counter updates:
@@ -640,7 +628,6 @@ Simplify the registry merge down to O(1) global counter updates:
     // Increment draw cycle to trigger lazy merges, and reset preparation index
     ticket_registry.draw_cycle_id += 1;
     ticket_registry.draw_prepared_up_to = 0;
-
 
 ### D. prepare_draw.rs (NEW instruction)
 
@@ -713,52 +700,48 @@ Create /home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/in
         Ok(())
     }
 
-
 ### E. reveal_and_pick_winners.rs
 
 Update to use binary search against the cumulative prefix sums:
 
-1. Guard check: Enforce require!(registry.draw_prepared_up_to == registry.user_count).
-2. Derivation loop:  
-   // Replace direct array index access with binary search  
-   let user_count = registry.user_count;  
-   let target_tickets = registry.total_active_tickets;  
-
-
+1.  Guard check: Enforce require!(registry.draw_prepared_up_to == registry.user_count).
+2.  Derivation loop:  
+    // Replace direct array index access with binary search  
+    let user_count = registry.user_count;  
+    let target_tickets = registry.total_active_tickets;
 
     for (tier_idx, tier) in pool.prize_tiers.iter().enumerate() {
-        let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot);
+    let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot);
 
-        for i in 0..tier.num_winners {
-            let winning_index = derive_random_index(
-                &random_seed,
-                tier_idx as u32,
-                i,
-                draw_cycle.cycle_id,
-                target_tickets, // total active tickets used as upper bounds
-            );
+         for i in 0..tier.num_winners {
+             let winning_index = derive_random_index(
+                 &random_seed,
+                 tier_idx as u32,
+                 i,
+                 draw_cycle.cycle_id,
+                 target_tickets, // total active tickets used as upper bounds
+             );
 
-            // Binary search for prefix range
-            let mut lo = 0;
-            let mut hi = user_count - 1;
-            while lo < hi {
-                let mid = (lo + hi) / 2;
-                let mid_entry = registry_get_entry(&data, mid as usize);
-                if (mid_entry.cumulative_active as u64) <= winning_index {
-                    lo = mid + 1;
-                } else {
-                    hi = mid;
-                }
-            }
+             // Binary search for prefix range
+             let mut lo = 0;
+             let mut hi = user_count - 1;
+             while lo < hi {
+                 let mid = (lo + hi) / 2;
+                 let mid_entry = registry_get_entry(&data, mid as usize);
+                 if (mid_entry.cumulative_active as u64) <= winning_index {
+                     lo = mid + 1;
+                 } else {
+                     hi = mid;
+                 }
+             }
 
-            let winner_entry = registry_get_entry(&data, lo as usize);
-            let winner_pubkey = winner_entry.owner;
+             let winner_entry = registry_get_entry(&data, lo as usize);
+             let winner_pubkey = winner_entry.owner;
 
-            // ... push winner to payouts structure as normal
-        }
+             // ... push winner to payouts structure as normal
+         }
+
     }
-
-
 
 ### F. reinvest_winnings.rs
 
