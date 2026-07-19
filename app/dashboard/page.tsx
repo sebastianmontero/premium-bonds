@@ -58,7 +58,6 @@ export default function DashboardPage() {
   const {
     prizeHistory: onChainPrizeHistory,
     recentWinners: onChainRecentWinners,
-    isLoading: isDrawHistoryLoading,
     refetch: refetchDrawHistory,
   } = useDrawHistory(
     1,
@@ -70,7 +69,6 @@ export default function DashboardPage() {
 
   const {
     entries: onChainActivityFeed,
-    isLoading: isActivityLoading,
     refetch: refetchActivity,
     prependLocal,
   } = useActivityFeed(

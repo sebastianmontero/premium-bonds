@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
-import { address, Address, getBase64Encoder } from "@solana/kit";
+import { Address, getBase64Encoder } from "@solana/kit";
 import {
   findDrawCyclePda,
   findPayoutRegistryPda,

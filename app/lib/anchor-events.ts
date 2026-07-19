@@ -7,7 +7,7 @@
  * followed by Borsh-serialized fields.
  */
 
-import { address, Address, getBase58Decoder } from "@solana/kit";
+import { Address, getBase58Decoder } from "@solana/kit";
 import { PROGRAM_ID } from "./bonds-sdk";
 
 // ─── Event Type Definitions ──────────────────────────────────────────────────

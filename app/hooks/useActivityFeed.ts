@@ -37,7 +37,10 @@ function formatAmount(
   });
 }
 
-function eventToActivity(event: ProgramEvent): ActivityEntry | null {
+function eventToActivity(
+  event: ProgramEvent,
+  decimals: number = 6
+): ActivityEntry | null {
   const date = event.blockTime
     ? new Date(Number(event.blockTime) * 1000).toISOString().split("T")[0]
     : new Date().toISOString().split("T")[0];
@@ -49,7 +52,7 @@ function eventToActivity(event: ProgramEvent): ActivityEntry | null {
         id: `evt-buy-${event.signature.slice(0, 8)}`,
         date,
         type: "deposit" as ActivityType,
-        description: `Deposited ${formatAmount(d.amount)} USDC → +${d.bonds} tickets`,
+        description: `Deposited ${formatAmount(d.amount, decimals)} USDC → +${d.bonds} tickets`,
         amount: Number(d.amount),
       };
     }
@@ -59,7 +62,7 @@ function eventToActivity(event: ProgramEvent): ActivityEntry | null {
         id: `evt-sell-${event.signature.slice(0, 8)}`,
         date,
         type: "withdraw" as ActivityType,
-        description: `Sold ${d.bonds} bonds (${formatAmount(d.principal)} USDC) · Pending settle`,
+        description: `Sold ${d.bonds} bonds (${formatAmount(d.principal, decimals)} USDC) · Pending settle`,
         amount: Number(d.principal),
       };
     }
@@ -71,8 +74,8 @@ function eventToActivity(event: ProgramEvent): ActivityEntry | null {
         date,
         type: "auto-reinvest" as ActivityType,
         description: d.isFinalBatch
-          ? `Draw #${d.cycleId} reinvestment finalized: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested)} USDC`
-          : `Draw #${d.cycleId} batch reinvest: +${d.bondsBought} tickets (${formatAmount(d.amountReinvested)} USDC)`,
+          ? `Draw #${d.cycleId} reinvestment finalized: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested, decimals)} USDC`
+          : `Draw #${d.cycleId} batch reinvest: +${d.bondsBought} tickets (${formatAmount(d.amountReinvested, decimals)} USDC)`,
         amount: Number(d.amountReinvested),
       };
     }
@@ -82,7 +85,7 @@ function eventToActivity(event: ProgramEvent): ActivityEntry | null {
         id: `evt-claim-win-${event.signature.slice(0, 8)}`,
         date,
         type: "win" as ActivityType,
-        description: `Claimed accumulated winnings of ${formatAmount(d.amount)} USDC · Pending settle`,
+        description: `Claimed accumulated winnings of ${formatAmount(d.amount, decimals)} USDC · Pending settle`,
         amount: Number(d.amount),
       };
     }
@@ -92,7 +95,7 @@ function eventToActivity(event: ProgramEvent): ActivityEntry | null {
         id: `evt-redeem-${event.signature.slice(0, 8)}`,
         date,
         type: "claim-redemption" as ActivityType,
-        description: `Claimed settled redemption of ${formatAmount(d.amount)} USDC to wallet`,
+        description: `Claimed settled redemption of ${formatAmount(d.amount, decimals)} USDC to wallet`,
         amount: Number(d.amount),
       };
     }
@@ -172,7 +175,7 @@ export function useActivityFeed(
       const seenIds = new Set<string>();
 
       for (const event of allEvents) {
-        const entry = eventToActivity(event);
+        const entry = eventToActivity(event, tokenDecimals);
         if (entry && !seenIds.has(entry.id)) {
           seenIds.add(entry.id);
           activityEntries.push(entry);
