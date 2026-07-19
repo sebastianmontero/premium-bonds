@@ -16,6 +16,7 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { sendTx } from "./utils";
 import {
   findPrizePoolPda,
   findGlobalConfigPda,
@@ -74,6 +75,24 @@ Options:
   --batch-size <num>   Maximum entries to process per prepare-draw transaction (default: 1000)
   --user <pubkey>      User public key filter/target (for query-winnings, query-redemption, or query-registry)
   --help, -h           Show this help message
+
+Environments & Usage Examples:
+  The CLI dynamically resolves configuration state (e.g. program and vault addresses)
+  between localnet and devnet based on the '--rpc' URL.
+
+  Localnet (Default):
+    Runs against a local validator (http://127.0.0.1:8899) and defaults to the local
+    admin keypair:
+      npm run pb-cli query-pool
+
+  Devnet:
+    Runs against Solana Devnet. You must supply a devnet RPC URL and a funded,
+    authorized keypair file:
+      npm run pb-cli query-pool -- --rpc https://api.devnet.solana.com
+      npm run pb-cli harvest -- --rpc https://api.devnet.solana.com --keypair ~/.config/solana/id.json
+
+  Note: When running via 'npm run', always include '--' before specifying CLI options so
+  that npm forwards the arguments properly.
 `);
 }
 
@@ -87,13 +106,17 @@ function formatAmount(amount: bigint | number): string {
   });
 }
 
-function loadAddresses(): Record<string, string> {
-  const filePath = path.resolve(__dirname, "localnet-state", "addresses.json");
+function loadAddresses(isDevnet: boolean): Record<string, string> {
+  const stateDir = isDevnet ? "devnet-state" : "localnet-state";
+  const filePath = path.resolve(__dirname, stateDir, "addresses.json");
   if (fs.existsSync(filePath)) {
     try {
       return JSON.parse(fs.readFileSync(filePath, "utf-8"));
     } catch (err) {
-      console.warn("Failed to parse addresses.json, using defaults:", err);
+      console.warn(
+        `Failed to parse ${stateDir}/addresses.json, using defaults:`,
+        err
+      );
     }
   }
   return {};
@@ -152,55 +175,6 @@ async function setAccount(
   }
 }
 
-async function sendTransaction(
-  rpc: ReturnType<typeof createSolanaRpc>,
-  signer: KeyPairSigner,
-  instruction: Parameters<typeof appendTransactionMessageInstruction>[0]
-) {
-  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-  const message = setTransactionMessageLifetimeUsingBlockhash(
-    latestBlockhash,
-    setTransactionMessageFeePayerSigner(
-      signer,
-      appendTransactionMessageInstruction(
-        instruction,
-        createTransactionMessage({ version: 0 })
-      )
-    )
-  );
-
-  const signedTx = await signTransactionMessageWithSigners(message);
-  const wireTx = getBase64EncodedWireTransaction(signedTx);
-  const signature = await rpc
-    .sendTransaction(wireTx, { encoding: "base64" })
-    .send();
-
-  console.log(`Transaction sent: ${signature}. Waiting for confirmation...`);
-
-  for (let i = 0; i < 15; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    try {
-      const status = await rpc.getSignatureStatuses([signature]).send();
-      if (status && status.value && status.value[0]) {
-        const err = status.value[0].err;
-        if (err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
-        }
-        console.log("Transaction confirmed successfully!");
-        return signature;
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("Checking signature status:", msg);
-    }
-  }
-
-  console.warn(
-    "Transaction signature status check timed out, continuing anyway."
-  );
-  return signature;
-}
-
 // ─── Main CLI Logic ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -234,9 +208,10 @@ async function main() {
   const keypairPath =
     options["--keypair"] || path.resolve(__dirname, "admin-key.json");
 
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
-  const localnetAddresses = loadAddresses();
+  const stateAddresses = loadAddresses(isDevnet);
 
   // Load keypair if performing writes
   let signer: KeyPairSigner | null = null;
@@ -273,11 +248,11 @@ async function main() {
       );
       const poolState = parsePrizePool(poolBytes);
 
-      const pstMintStr = localnetAddresses.pstMint;
-      const humaPoolStateStr = localnetAddresses.humaPoolState;
+      const pstMintStr = stateAddresses.pstMint;
+      const humaPoolStateStr = stateAddresses.humaPoolState;
       if (!pstMintStr || !humaPoolStateStr) {
         throw new Error(
-          "Missing pstMint or humaPoolState in localnet addresses."
+          `Missing pstMint or humaPoolState in ${isDevnet ? "devnet" : "localnet"} state addresses.`
         );
       }
 
@@ -286,7 +261,7 @@ async function main() {
       const randomnessAccountStr = env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
       if (!randomnessAccountStr) {
         throw new Error(
-          "Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run localnet init' first."
+          `Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run ${isDevnet ? "devnet" : "localnet"} init' first.`
         );
       }
 
@@ -308,7 +283,7 @@ async function main() {
         randomnessAccount: address(randomnessAccountStr),
       });
 
-      await sendTransaction(rpc, signer!, ix);
+      await sendTx(rpc, ix, signer!);
       break;
     }
 
@@ -358,7 +333,7 @@ async function main() {
             ticketRegistry: address(registryAddr),
             batchSize,
           });
-          await sendTransaction(rpc, signer!, prepIx);
+          await sendTx(rpc, prepIx, signer!);
 
           // Refetch registry state
           const updatedRegistryAcc = await rpc
@@ -563,7 +538,7 @@ async function main() {
           );
         }
       } else {
-        await sendTransaction(rpc, signer!, ix);
+        await sendTx(rpc, ix, signer!);
       }
       break;
     }
@@ -631,7 +606,7 @@ async function main() {
           batchSize,
         });
 
-        await sendTransaction(rpc, signer!, ix);
+        await sendTx(rpc, ix, signer!);
 
         // Fetch updated status
         registryAcc = await rpc
@@ -698,7 +673,7 @@ async function main() {
       const poolAta = await findAtaAddress(poolPda, state.tokenMint);
       const poolPstVault = await findPoolPstVaultPda(targetPoolId);
 
-      const pstMintStr = localnetAddresses.pstMint;
+      const pstMintStr = stateAddresses.pstMint;
       let poolPstAtaStr = "N/A (PST Mint not configured)";
       if (pstMintStr) {
         const poolPstAta = await findAtaAddress(poolPda, pstMintStr);
@@ -1019,7 +994,7 @@ async function main() {
           console.log(
             `Submitting reinvestment transaction (maxBonds: ${maxBonds})...`
           );
-          await sendTransaction(rpc, signer!, ix);
+          await sendTx(rpc, ix, signer!);
 
           // Brief delay between batch checks
           await new Promise((resolve) => setTimeout(resolve, 1000));

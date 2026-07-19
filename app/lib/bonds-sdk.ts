@@ -13,7 +13,7 @@ export const PROGRAM_ID = address(
   "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
 );
 export const HUMA_PROGRAM_ID = address(
-  "ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj"
+  "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw"
 );
 export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
 export const TOKEN_PROGRAM_ID = address(

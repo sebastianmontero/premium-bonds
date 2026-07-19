@@ -8,6 +8,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "localnet": "tsx scripts/localnet.ts",
+    "devnet": "tsx scripts/devnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "start": "next start"
   },

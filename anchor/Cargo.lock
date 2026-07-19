@@ -154,6 +154,7 @@ dependencies = [
  "blake3",
  "bytemuck",
  "litesvm",
+ "mock-huma",
  "sha2 0.10.9",
  "solana-keypair",
  "solana-message 3.1.0",

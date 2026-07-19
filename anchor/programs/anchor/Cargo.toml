@@ -39,6 +39,7 @@ solana-system-interface = { version = "3.2.0", features = ["bincode"] }
 sha2 = "0.10"
 bytemuck = "1"
 solana-program-v2 = { package = "solana-program", version = "2.2.1" }
+mock-huma = { path = "../mock-huma" }
 
 
 
