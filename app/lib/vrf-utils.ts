@@ -56,6 +56,9 @@ export async function deriveRandomIndex(
 
 /**
  * Format a randomness seed as a hex string for display.
+ *
+ * @param seed - The 32-byte randomness seed.
+ * @returns Hexadecimal string representation of the seed.
  */
 export function formatSeedHex(seed: Uint8Array): string {
   return Array.from(seed)

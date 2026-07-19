@@ -3,8 +3,12 @@ use crate::error::PremiumBondsError;
 use crate::state::GlobalConfig;
 use anchor_lang::prelude::*;
 
+/// Accounts required to update the global configuration state.
 #[derive(Accounts)]
 pub struct UpdateGlobalConfig<'info> {
+    /// The global configuration state account to update.
+    ///
+    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         mut,
         seeds = [GLOBAL_CONFIG_SEED],
@@ -13,9 +17,20 @@ pub struct UpdateGlobalConfig<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The admin authority.
     pub admin: Signer<'info>,
 }
 
+/// Updates the global program configuration parameters.
+///
+/// Allows modifying the admin address, the jobs account address (cranking bot),
+/// and the maximum number of tickets allowed per single purchase.
+///
+/// # Parameters
+/// * `ctx` - The context of the update global config instruction.
+/// * `new_admin` - Optional new admin authority public key.
+/// * `new_jobs_account` - Optional new cranking bot public key.
+/// * `new_max_tickets_per_buy` - Optional new limit for tickets purchased in a single transaction.
 pub fn handle(
     ctx: Context<UpdateGlobalConfig>,
     new_admin: Option<Pubkey>,

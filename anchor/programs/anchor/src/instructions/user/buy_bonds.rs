@@ -8,11 +8,17 @@ use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
 };
 
+/// Accounts required for a user to buy bonds.
 #[derive(Accounts)]
 pub struct BuyBonds<'info> {
+    /// The user purchasing the bonds, who signs and pays for the transaction.
     #[account(mut)]
     pub user: Signer<'info>,
 
+    /// The user winnings/metadata PDA. It tracks the user's active/pending tickets
+    /// and accumulated winnings for this pool.
+    ///
+    /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
     #[account(
         init_if_needed,
         payer = user,
@@ -22,12 +28,19 @@ pub struct BuyBonds<'info> {
     )]
     pub user_winnings: Box<Account<'info, crate::state::UserWinnings>>,
 
+    /// The global configuration state.
+    ///
+    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The prize pool state account.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -36,9 +49,11 @@ pub struct BuyBonds<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The zero-copy ticket registry storing all raffle ticket entries for this pool.
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// The user's underlying token account (e.g. USDC source) to purchase bonds from.
     #[account(
         mut,
         token::mint = token_mint,
@@ -47,12 +62,16 @@ pub struct BuyBonds<'info> {
     )]
     pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// The underlying token mint (e.g. USDC).
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
+    /// The pool's underlying token vault where USDC is deposited.
+    ///
+    /// PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
     #[account(
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -63,6 +82,8 @@ pub struct BuyBonds<'info> {
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// Pool's $PST vault — receives minted $PST from Huma deposit.
+    ///
+    /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         mut,
         seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -72,32 +93,61 @@ pub struct BuyBonds<'info> {
     pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // ── Huma Finance accounts ───────────────────────────────────────────────
-    /// CHECK: Validated by address constraint
+    /// CHECK: This is the Huma Finance program account. It is validated via the address constraint
+    /// to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call.
     #[account(address = crate::constants::HUMA_PROGRAM_ID)]
     pub huma_program: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma global configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool state account. It is unchecked here because its structure
+    /// and validity are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_pool_state: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma mode configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_mode_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma mode mint account. It is unchecked here because its structure
+    /// and validity are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_mode_mint: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool authority PDA. It is unchecked here because its validity as the
+    /// pool's authority is fully validated by the Huma program during the CPI call.
     pub huma_pool_authority: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool's underlying token vault. It is unchecked here because its address
+    /// and token authority are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_pool_underlying_token: UncheckedAccount<'info>,
 
+    /// The SPL Token program interface for underlying tokens.
     pub token_program: Interface<'info, TokenInterface>,
+
+    /// The SPL Token program interface for $PST tokens.
     pub pst_token_program: Interface<'info, TokenInterface>,
+
+    /// Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
+/// Allows a user to buy bonds by depositing underlying tokens (e.g., USDC).
+///
+/// The deposited amount is transferred to the pool vault and immediately deposited into the Huma program
+/// to generate yield via $PST tokens. The user's entry in the ticket registry is created or updated
+/// to record the pending ticket balance.
+///
+/// # Parameters
+/// * `ctx` - The context of the buy bonds instruction.
+/// * `bonds_to_buy` - The number of bonds/tickets the user wants to purchase.
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 

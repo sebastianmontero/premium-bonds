@@ -302,6 +302,9 @@ async function parseEventsFromLogs(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RpcClient = any;
 
+/**
+ * Options for pagination and filtering when fetching program events.
+ */
 export interface FetchEventsOptions {
   /** Maximum number of signatures to fetch per page. Default: 100 */
   limit?: number;
@@ -409,6 +412,12 @@ interface EventCache {
 
 const CACHE_TTL_MS = 60_000; // 1 minute
 
+/**
+ * Retrieves cached events from localStorage if they exist and are not expired.
+ *
+ * @param cacheKey - Unique key string identifying the cached user events.
+ * @returns The cached event object, or null if empty or expired.
+ */
 export function getCachedEvents(cacheKey: string): EventCache | null {
   try {
     const raw = localStorage.getItem(`pb_events:${cacheKey}`);
@@ -425,6 +434,13 @@ export function getCachedEvents(cacheKey: string): EventCache | null {
   }
 }
 
+/**
+ * Serializes and saves program events in the localStorage cache.
+ *
+ * @param cacheKey - Unique key string identifying the cache slot.
+ * @param events - List of parsed events to store.
+ * @param lastSignature - The signature cursor corresponding to the latest event cached.
+ */
 export function setCachedEvents(
   cacheKey: string,
   events: ProgramEvent[],

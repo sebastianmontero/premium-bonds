@@ -8,9 +8,13 @@ use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
+/// Accounts required to initialize a new prize pool.
 #[derive(Accounts)]
 #[instruction(pool_id: u32)]
 pub struct CreatePool<'info> {
+    /// The global configuration state, used to verify the admin signature.
+    ///
+    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -18,9 +22,13 @@ pub struct CreatePool<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The admin authority creator of the pool, who pays for the pool creation.
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    /// The prize pool state account to initialize.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
     #[account(
         init,
         payer = admin,
@@ -30,20 +38,26 @@ pub struct CreatePool<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The zero-initialized ticket registry account that will hold user raffle entries.
+    /// Must be pre-allocated by the client with sufficient space.
     #[account(zero)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// The underlying token mint (e.g. USDC) used for bond purchases.
     #[account(
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// The Huma $PST mint for Classic mode.
+    /// The Huma yield-bearing $PST token mint representing deposits.
     #[account(
         mint::token_program = pst_token_program
     )]
     pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 
+    /// The pool's underlying token vault holding intermediate deposits.
+    ///
+    /// PDA seeds: `[POOL_VAULT_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
     #[account(
         init,
         payer = admin,
@@ -55,7 +69,9 @@ pub struct CreatePool<'info> {
     )]
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// Pool's $PST vault — holds all yield-bearing tokens from Huma deposits.
+    /// The pool's $PST token vault holding the Huma yield-bearing shares.
+    ///
+    /// PDA seeds: `[POOL_PST_SEED, pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         init,
         payer = admin,
@@ -67,17 +83,32 @@ pub struct CreatePool<'info> {
     )]
     pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// The token account designated to receive protocol fees.
     #[account(
         token::mint = token_mint,
         token::token_program = token_program
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// Token program for the underlying mint.
     pub token_program: Interface<'info, TokenInterface>,
+
+    /// Token program for the Huma $PST mint.
     pub pst_token_program: Interface<'info, TokenInterface>,
 }
 
+/// Creates and initializes a new prize pool, setting up its configurations,
+/// vault accounts, and initializing the ticket registry.
+///
+/// # Parameters
+/// * `ctx` - The context of the create pool instruction.
+/// * `pool_id` - A unique identifier for the pool.
+/// * `bond_price` - The price of a single bond/ticket in underlying tokens.
+/// * `stake_cycle_duration_hrs` - The duration of each staking/draw cycle in hours.
+/// * `fee_basis_points` - Protocol fee rate in basis points (e.g., 50 = 0.5%).
 pub fn handle(
     ctx: Context<CreatePool>,
     pool_id: u32,

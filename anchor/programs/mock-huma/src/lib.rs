@@ -230,6 +230,17 @@ pub mod mock_huma {
         msg!("MockHuma: create_lender_accounts_v2 (no-op)");
         Ok(())
     }
+
+    /// Exposes a setup instruction to initialize a mock pool state account on-chain for devnet testing.
+    pub fn initialize_mock_pool_state(ctx: Context<InitializeMockPoolState>) -> Result<()> {
+        let pool_state_info = ctx.accounts.pool_state.to_account_info();
+        let mut data = pool_state_info.try_borrow_mut_data()?;
+        if data.len() >= 30 {
+            data[26..30].copy_from_slice(&1u32.to_le_bytes()); // mode array length = 1
+        }
+        msg!("MockHuma: Initialized mock pool state successfully.");
+        Ok(())
+    }
 }
 
 pub fn increment_huma_redemption_queue(
@@ -418,6 +429,22 @@ pub struct MockCreateLenderAccounts<'info> {
     pub token_program: UncheckedAccount<'info>,
     /// CHECK: Mock does not validate.
     pub associated_token_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Accounts for mock `initialize_mock_pool_state`.
+#[derive(Accounts)]
+pub struct InitializeMockPoolState<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = 512,
+        owner = crate::ID,
+    )]
+    /// CHECK: This is a raw mock state account owned by the Mock Huma Program
+    pub pool_state: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 

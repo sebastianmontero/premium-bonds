@@ -59,6 +59,14 @@ async function fetchAccountData(
  * 3. Filter winners matching the user's address → PrizeHistoryEntry[].
  * 4. Extract all winners from the latest completed draw → RecentWinner[].
  * 5. Use client-side VRF to derive winning ticket indices for provable fairness.
+ *
+ * @param poolId - The unique ID of the pool.
+ * @param currentDrawCycleId - The current draw cycle ID on-chain.
+ * @param userAddress - The base58 user wallet address.
+ * @param tokenSymbol - Token symbol for UI formatting (defaults to "USDC").
+ * @param bondPrice - Price per ticket in base units (defaults to 5_000_000).
+ * @param maxCyclesToFetch - Number of historical cycles to inspect (defaults to 10).
+ * @returns Prize history entries, recent winners, loading status, and refetch handler.
  */
 export function useDrawHistory(
   poolId: number,

@@ -3,8 +3,12 @@ use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PrizePool, PrizeTier};
 use anchor_lang::prelude::*;
 
+/// Accounts required to update the prize tiers for a pool.
 #[derive(Accounts)]
 pub struct SetPrizeTiers<'info> {
+    /// The global configuration state, used to verify the admin signature.
+    ///
+    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -12,9 +16,14 @@ pub struct SetPrizeTiers<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The admin authority signature authorizing the configuration update.
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    /// The prize pool state account to update.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -23,6 +32,18 @@ pub struct SetPrizeTiers<'info> {
     pub pool: Box<Account<'info, PrizePool>>,
 }
 
+/// Sets the prize tiers distribution config for a prize pool.
+///
+/// Validates that:
+/// - The pool is not currently frozen for drawing.
+/// - The number of tiers does not exceed `MAX_PRIZE_TIERS`.
+/// - Each tier specifies positive prize share (basis_points) and winner counts (num_winners).
+/// - The sum of basis points multiplied by the number of winners in each tier equals exactly 10,000.
+/// - The total number of winners does not exceed `MAX_TOTAL_WINNERS`.
+///
+/// # Parameters
+/// * `ctx` - The context of the set prize tiers instruction.
+/// * `tiers` - The list of prize tiers to configure.
 pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 

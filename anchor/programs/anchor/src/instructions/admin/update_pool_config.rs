@@ -3,8 +3,12 @@ use crate::error::PremiumBondsError;
 use crate::state::{GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
+/// Accounts required to update a prize pool's configuration.
 #[derive(Accounts)]
 pub struct UpdatePoolConfig<'info> {
+    /// The global configuration state, used to verify the admin signature.
+    ///
+    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -12,8 +16,13 @@ pub struct UpdatePoolConfig<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The admin authority.
     pub admin: Signer<'info>,
 
+    /// The prize pool state account to update.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -22,6 +31,15 @@ pub struct UpdatePoolConfig<'info> {
     pub pool: Box<Account<'info, PrizePool>>,
 }
 
+/// Updates a prize pool's configuration parameters.
+///
+/// Allows modifying the fee rate (basis points), the bond price, and the fee wallet address.
+///
+/// # Parameters
+/// * `ctx` - The context of the update pool config instruction.
+/// * `new_fee_basis_points` - Optional new fee rate in basis points.
+/// * `new_bond_price` - Optional new price of a single bond.
+/// * `new_fee_wallet` - Optional new fee wallet address.
 pub fn handle(
     ctx: Context<UpdatePoolConfig>,
     new_fee_basis_points: Option<u16>,

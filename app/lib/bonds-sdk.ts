@@ -56,6 +56,12 @@ export async function findGlobalConfigPda(): Promise<Address> {
   return addr;
 }
 
+/**
+ * Derives the PrizePool account PDA for a given pool ID.
+ *
+ * @param poolId - The unique ID of the pool.
+ * @returns A promise resolving to the PDA Address.
+ */
 export async function findPrizePoolPda(poolId: number): Promise<Address> {
   const [addr] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
@@ -80,6 +86,13 @@ export async function findPoolPstVaultPda(poolId: number): Promise<Address> {
   return addr;
 }
 
+/**
+ * Derives the UserWinnings account PDA for a user in a specific pool.
+ *
+ * @param poolId - The unique ID of the pool.
+ * @param user - Base58-encoded wallet address of the user.
+ * @returns A promise resolving to the PDA Address.
+ */
 export async function findUserWinningsPda(
   poolId: number,
   user: string
@@ -95,6 +108,13 @@ export async function findUserWinningsPda(
   return addr;
 }
 
+/**
+ * Derives the PendingRedemption account PDA for a given redemption ID in a pool.
+ *
+ * @param poolId - The unique ID of the pool.
+ * @param redemptionId - The sequential ID of the redemption request.
+ * @returns A promise resolving to the PDA Address.
+ */
 export async function findPendingRedemptionPda(
   poolId: number,
   redemptionId: bigint | number
@@ -215,6 +235,13 @@ export interface DrawCycleInfo {
   harvestSlot: bigint;
 }
 
+/**
+ * Parses and deserializes a GlobalConfig account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized GlobalConfig configuration parameters.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
   if (data.length < 76) {
     throw new Error(`GlobalConfig data too short (${data.length} bytes)`);
@@ -227,6 +254,12 @@ export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
   return { admin, jobsAccount, maxTicketsPerBuy };
 }
 
+/**
+ * Parses and deserializes a PrizePool account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized PrizePool status and parameters.
+ */
 export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
@@ -310,6 +343,13 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
   };
 }
 
+/**
+ * Parses and deserializes a DrawCycle account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized DrawCycle details.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
   if (data.length < 109) {
     throw new Error(`DrawCycle data too short (${data.length} bytes)`);
@@ -362,6 +402,13 @@ export interface PayoutRegistryInfo {
   winners: WinnerInfo[];
 }
 
+/**
+ * Parses and deserializes a PayoutRegistry account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized PayoutRegistry list of winners.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parsePayoutRegistry(data: Uint8Array): PayoutRegistryInfo {
   if (data.length < 28) {
     throw new Error(`PayoutRegistry data too short (${data.length} bytes)`);
@@ -417,6 +464,13 @@ export interface UserWinningsInfo {
   registryEntryIndex: number;
 }
 
+/**
+ * Parses and deserializes a UserWinnings account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized UserWinnings tracking statistics.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
   if (data.length < 73) {
     throw new Error(`UserWinnings data too short (${data.length} bytes)`);
@@ -453,6 +507,13 @@ export interface PendingRedemptionInfo {
   bump: number;
 }
 
+/**
+ * Parses and deserializes a PendingRedemption account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized PendingRedemption tracking details.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parsePendingRedemption(
   data: Uint8Array
 ): PendingRedemptionInfo {
@@ -505,6 +566,13 @@ export interface TicketRegistryInfo {
   entries: UserEntryInfo[];
 }
 
+/**
+ * Parses and deserializes a zero-copy TicketRegistry account from raw bytes.
+ *
+ * @param data - Raw byte array of the account data.
+ * @returns Deserialized TicketRegistry header and user entries array.
+ * @throws {Error} If data buffer length is shorter than expected size.
+ */
 export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
   if (data.length < 36) {
     throw new Error(`TicketRegistry data too short (${data.length} bytes)`);
@@ -594,6 +662,12 @@ export interface HarvestInstructionParams {
   randomnessAccount: Address;
 }
 
+/**
+ * Builds a transaction instruction to freeze the yield and trigger draw cycle randomness.
+ *
+ * @param params - The harvest parameters including accounts and IDs.
+ * @returns The structured transaction instruction.
+ */
 export async function buildHarvestYieldAndCommitInstruction(
   params: HarvestInstructionParams
 ) {
@@ -636,6 +710,12 @@ export interface RevealInstructionParams {
   randomnessAccount: Address;
 }
 
+/**
+ * Builds a transaction instruction to reveal randomness and draw winners deterministically.
+ *
+ * @param params - The reveal parameters.
+ * @returns The structured transaction instruction.
+ */
 export async function buildRevealAndPickWinnersInstruction(
   params: RevealInstructionParams
 ) {

@@ -14,6 +14,27 @@ use anchor_lang::prelude::*;
 /// the $PST already represent the full pool value.
 ///
 /// Dust (< 1 bond) is accumulated into the user's UserWinnings PDA.
+/// Accounts required for the `reinvest_winnings` instruction.
+///
+/// This instruction is used to reinvest a winner's claimable prize back into the pool to buy
+/// more bonds. Reinvestment is synchronous and accounting-only since the underlying assets ($PST)
+/// are already held in the pool's vault.
+///
+/// # Accounts
+///
+/// * `crank`: The permissionless signer running the reinvestment.
+/// * `winner`: The winner's pubkey, validated against the payout registry.
+/// * `payout_registry`: The payout registry containing the winners and payout details.
+/// * `pool`: The prize pool account.
+/// * `user_winnings`: The winner's winnings state tracking account.
+/// * `ticket_registry`: The ticket registry loader.
+/// * `system_program`: The Solana System program.
+///
+/// # PDA Derivations
+///
+/// * `payout_registry`: PDA derived with seeds `[PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()]` (i.e. `b"payout"`) and a dynamic bump.
+/// * `pool`: PDA derived with seeds `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"prize_pool"`) and bump `pool.vault_authority_bump`.
+/// * `user_winnings`: PDA derived with seeds `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()]` and bump `user_winnings.bump`.
 #[derive(Accounts)]
 #[instruction(cycle_id: u32, winner_index: u32)]
 pub struct ReinvestWinnings<'info> {
@@ -21,9 +42,10 @@ pub struct ReinvestWinnings<'info> {
     #[account(mut)]
     pub crank: Signer<'info>,
 
-    /// CHECK: The winner's pubkey. Validated against the payout registry entry in the handler.
+    /// CHECK: This is the public key of the winner whose winnings are being reinvested. It is unchecked because we only need its public key to validate against the corresponding entry in the `payout_registry` (checked in the handler via `payout_registry.validate_winner`).
     pub winner: UncheckedAccount<'info>,
 
+    /// The payout registry containing the winner lists.
     #[account(
         mut,
         seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
@@ -31,6 +53,7 @@ pub struct ReinvestWinnings<'info> {
     )]
     pub payout_registry: Box<Account<'info, PayoutRegistry>>,
 
+    /// The prize pool state account.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -39,6 +62,7 @@ pub struct ReinvestWinnings<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The winner's user winnings state account.
     #[account(
         mut,
         seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
@@ -46,12 +70,26 @@ pub struct ReinvestWinnings<'info> {
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 
+    /// The ticket registry account loader.
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// The Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
+/// Reinvests a winner's claimable prize to purchase new bonds.
+///
+/// The handler validates the winner's key against the payout registry entry. It calculates the total
+/// available winnings (including any previously accumulated non-reinvested winnings), and uses them to
+/// buy up to `max_bonds` bonds.
+///
+/// Because yield is tracked on-chain via $PST token balance and is not materialized into USDC, reinvesting
+/// does not require moving tokens or making external CPI calls. The pool simply registers the new tickets in
+/// the registry and increases the `total_deposited_principal` while decreasing `total_prizes_allocated`.
+///
+/// Any leftover dust less than the price of a single bond is stored in the user's `UserWinnings` state
+/// to be claimed or aggregated in subsequent reinvestments.
 pub fn handle(
     ctx: Context<ReinvestWinnings>,
     _cycle_id: u32,

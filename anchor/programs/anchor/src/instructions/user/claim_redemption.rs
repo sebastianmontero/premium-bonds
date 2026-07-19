@@ -8,17 +8,17 @@ use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
 };
 
-/// Claims settled USDC from a completed Huma redemption request.
-///
-/// Flow:
-/// 1. CPI → Huma `disburse` to pull settled USDC into pool vault.
-/// 2. Transfer the owed amount from pool vault to the user.
-/// 3. Close the PendingRedemption PDA, returning rent to user.
+/// Accounts required for a user to claim their settled USDC redemption.
 #[derive(Accounts)]
 pub struct ClaimRedemption<'info> {
+    /// The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA.
     #[account(mut)]
     pub user: Signer<'info>,
 
+    /// The prize pool state account.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -26,6 +26,10 @@ pub struct ClaimRedemption<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The PendingRedemption PDA representing the user's withdrawal request.
+    /// Closes and refunds its rent to `user` upon successful completion.
+    ///
+    /// PDA seeds: `[PENDING_REDEMPTION_SEED, pending_redemption.pool_id.to_le_bytes().as_ref(), pending_redemption.redemption_id.to_le_bytes().as_ref()]`.
     #[account(
         mut,
         seeds = [
@@ -40,12 +44,16 @@ pub struct ClaimRedemption<'info> {
     )]
     pub pending_redemption: Box<Account<'info, PendingRedemption>>,
 
+    /// The underlying token mint (e.g. USDC).
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
+    /// The pool's underlying token vault (receives disbursed USDC from Huma program).
+    ///
+    /// PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
     #[account(
         mut,
         seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -55,6 +63,7 @@ pub struct ClaimRedemption<'info> {
     )]
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// The user's underlying token account (receives the claimed USDC).
     #[account(
         mut,
         token::mint = token_mint,
@@ -64,34 +73,62 @@ pub struct ClaimRedemption<'info> {
     pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // ── Huma Finance accounts ───────────────────────────────────────────────
-    /// CHECK: Validated by address constraint
+    /// CHECK: This is the Huma Finance program account. It is validated via the address constraint
+    /// to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call.
     #[account(address = crate::constants::HUMA_PROGRAM_ID)]
     pub huma_program: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma global configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI and owner check
+
+    /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
+    /// to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+    /// are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
     #[account(
         mut,
         constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma mode configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_mode_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma lender state account. It is unchecked here because its structure,
+    /// ownership, and authorization are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_lender_state: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool authority PDA. It is unchecked here because its validity as the
+    /// pool's authority is fully validated by the Huma program during the CPI call.
     pub huma_pool_authority: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool's underlying token vault. It is unchecked here because its address
+    /// and token authority are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_pool_underlying_token: UncheckedAccount<'info>,
 
+    /// The SPL Token program interface for underlying tokens.
     pub token_program: Interface<'info, TokenInterface>,
+
+    /// Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
+/// Claims settled USDC from a completed Huma redemption request.
+///
+/// Flow:
+/// 1. CPI → Huma `disburse` to pull settled USDC into pool vault.
+/// 2. Transfer the owed amount from pool vault to the user.
+/// 3. Close the PendingRedemption PDA, returning rent to user.
+///
+/// # Parameters
+/// * `ctx` - The context of the claim redemption instruction.
 pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     let pool = &ctx.accounts.pool;
 

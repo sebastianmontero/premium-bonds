@@ -19,11 +19,34 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 /// 5. prize_pot = yield − fee
 /// 6. Accrue fee to pool.total_fees_accrued (no transfer)
 /// 7. Create draw cycle with prize_pot
+///
+/// # Accounts
+///
+/// * `crank`: The crank signer executing the harvest. Must match the `jobs_account` specified in `global_config`.
+/// * `global_config`: The global configuration account for checking authorization of the crank signer.
+/// * `pool`: The prize pool account containing pool configurations, fee parameters, and state.
+/// * `ticket_registry`: The account loader for the ticket registry, used to snapshot and merge pending tickets into active tickets.
+/// * `current_draw_cycle`: The new draw cycle account that is initialized to track the prize pot and randomness status.
+/// * `pool_pst_vault`: The pool's $PST token account, whose balance is read to determine current holdings.
+/// * `pst_mint`: The Huma $PST mint, whose supply is read to calculate the $PST price.
+/// * `huma_pool_state`: The Huma pool state account containing assets information.
+/// * `randomness_account`: The Switchboard randomness account.
+/// * `pst_token_program`: The SPL Token program or Token2022 program for the PST mint and vault.
+/// * `system_program`: The Solana System program.
+///
+/// # PDA Derivations
+///
+/// * `global_config`: PDA derived with seeds `[GLOBAL_CONFIG_SEED]` (i.e. `b"global_config"`)
+/// * `pool`: PDA derived with seeds `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"prize_pool"`) and bump `pool.vault_authority_bump`
+/// * `current_draw_cycle`: PDA initialized with seeds `[DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.current_draw_cycle_id.to_le_bytes().as_ref()]` (i.e. `b"draw_cycle"`) and a dynamic bump
+/// * `pool_pst_vault`: PDA derived with seeds `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"pool_pst_vault"`) and a dynamic bump
 #[derive(Accounts)]
 pub struct HarvestYieldAndCommit<'info> {
+    /// The crank signer executing the harvest. Must match the `jobs_account` in the global configuration.
     #[account(mut)]
     pub crank: Signer<'info>,
 
+    /// The global configuration account, checked to authorize the crank bot.
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -31,6 +54,7 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The prize pool state account, tracking deposit and prize status.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -39,9 +63,11 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The ticket registry account loader, holding all active and pending tickets.
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// The draw cycle account initialized for the current draw.
     #[account(
         init,
         payer = crank,
@@ -67,21 +93,36 @@ pub struct HarvestYieldAndCommit<'info> {
     pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 
     // ── Huma Finance read-only account ──────────────────────────────────────
-    /// CHECK: Huma PoolState — deserialized manually to read ModeState.assets.
-    /// Validated by the Huma program ID ownership check.
+    /// CHECK: This is the raw Huma PoolState account. It is unchecked because it is a foreign program account that is deserialized manually inside the instruction handler using the `huma::read_mode_assets` and `huma::read_huma_redemption_queue` helpers. To ensure safety, it is validated using an ownership constraint check (`huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID`) to verify it belongs to the official Huma program.
     #[account(constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID)]
     pub huma_pool_state: UncheckedAccount<'info>,
 
-    /// CHECK: Validated in handler via owner check
+    /// CHECK: This is the raw randomness account from Switchboard On-Demand. It is unchecked because it is a foreign account owned by the Switchboard On-Demand program. Safety is guaranteed by the constraint check verifying that its owner matches the Switchboard On-Demand program ID (`switchboard_on_demand::get_switchboard_on_demand_program_id()`). In `reveal_and_pick_winners`, its data is also parsed and validated using `RandomnessAccountData::parse`.
     #[account(
         constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub randomness_account: UncheckedAccount<'info>,
 
+    /// The SPL Token interface for the PST mint/vault.
     pub pst_token_program: Interface<'info, TokenInterface>,
+    /// The Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
+/// Handles the yield harvest and draw cycle commitment.
+///
+/// It reads the $PST price from Huma's PoolState on-chain to compute the total
+/// value of the pool's $PST holdings. It then calculates the yield accrued
+/// since the last harvest by subtracting the book value (deposited principal +
+/// accrued fees + allocated prizes) from the current value.
+///
+/// If yield is generated and there are active tickets, a fee is deducted and accrued to
+/// the pool's fees, the rest goes to the prize pot of the new draw cycle, and the draw
+/// cycle's status is set to `AwaitingRandomness` while locking the pool for the draw.
+/// If no yield is generated or no active tickets exist, the draw cycle is completed immediately.
+///
+/// Additionally, it performs a block merge on the ticket registry, converting all pending
+/// tickets from the previous cycle into active tickets for the next cycle.
 pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 

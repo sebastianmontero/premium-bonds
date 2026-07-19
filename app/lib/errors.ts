@@ -1,11 +1,19 @@
+/**
+ * Structured output of a parsed transaction error.
+ */
 export interface ParsedTransactionError {
+  /** True if the user intentionally rejected or cancelled the transaction. */
   isCancellation: boolean;
+  /** Human-readable error message or raw error details. */
   message: string;
 }
 
 /**
  * Parses transaction errors from `@solana/kit` and wallet-standard adapters
  * to identify user cancellations gracefully and format error messages.
+ *
+ * @param err - The raw error object caught from a transaction sending process.
+ * @returns An object containing whether it was a cancellation, and the parsed message.
  */
 export function parseTransactionError(err: unknown): ParsedTransactionError {
   if (!err) {

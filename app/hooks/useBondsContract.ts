@@ -153,6 +153,16 @@ function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
 
 // ─── Main Hook ───────────────────────────────────────────────────────────────
 
+/**
+ * React hook to manage on-chain state queries, wallet balance tracking,
+ * and transaction submissions for the Premium Bonds program.
+ *
+ * Interacts directly with Solana via `@solana/react-hooks` and `@solana/kit`.
+ * Handles Huma Finance lending interactions transparently for user deposits/withdrawals.
+ *
+ * @param poolId - The unique ID of the pool to connect to (defaults to 1).
+ * @returns An object containing the pool state, user tickets, user winnings, pending redemptions, wallet balance, loading status, error status, and a dictionary of transaction action methods.
+ */
 export function useBondsContract(poolId: number = 1) {
   const client = useSolanaClient();
   const { wallet } = useWalletConnection();
@@ -454,6 +464,13 @@ export function useBondsContract(poolId: number = 1) {
 
   // ─── Transaction actions ───────────────────────────────────────────────────
 
+  /**
+   * Submits a transaction to deposit USDC and purchase tickets.
+   *
+   * @param ticketsToBuy - Number of tickets to purchase.
+   * @returns The transaction signature.
+   * @throws {Error} If wallet is not connected or pool is not loaded.
+   */
   const buyBonds = useCallback(
     async (ticketsToBuy: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
@@ -517,6 +534,13 @@ export function useBondsContract(poolId: number = 1) {
     [userAddress, pool, poolId, send, refetch]
   );
 
+  /**
+   * Submits a transaction to initiate the sale of tickets.
+   *
+   * @param amount - The USDC amount equivalent of tickets to sell.
+   * @returns The transaction signature.
+   * @throws {Error} If wallet not connected or ticket balance is insufficient.
+   */
   const sellBonds = useCallback(
     async (amount: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
@@ -685,6 +709,12 @@ export function useBondsContract(poolId: number = 1) {
     [userAddress, pool, poolId, client, send, refetch]
   );
 
+  /**
+   * Submits a transaction to disburse a settled redemption request.
+   *
+   * @param redemptionId - Sequential ID of the pending redemption.
+   * @returns The transaction signature.
+   */
   const claimRedemption = useCallback(
     async (redemptionId: string) => {
       if (!userAddress) throw new Error("Wallet not connected");
@@ -736,6 +766,11 @@ export function useBondsContract(poolId: number = 1) {
     [userAddress, poolId, send, refetch]
   );
 
+  /**
+   * Submits a transaction to claim non-reinvested prize winnings.
+   *
+   * @returns The transaction signature.
+   */
   const claimNonReinvestedWinnings = useCallback(async () => {
     if (!userAddress) throw new Error("Wallet not connected");
     if (!pool) throw new Error("Pool state not loaded");
@@ -789,6 +824,14 @@ export function useBondsContract(poolId: number = 1) {
     return signature;
   }, [userAddress, pool, poolId, send, refetch]);
 
+  /**
+   * Submits a transaction to manually reinvest won prizes into bonds.
+   *
+   * @param cycleId - The draw cycle ID where the prize was won.
+   * @param winnerIndex - Winner index inside the payout registry.
+   * @param maxBonds - Maximum number of bonds to purchase in this batch.
+   * @returns The transaction signature.
+   */
   const reinvestWinnings = useCallback(
     async (cycleId: number, winnerIndex: number, maxBonds: number) => {
       if (!userAddress) throw new Error("Wallet not connected");

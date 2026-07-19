@@ -35,6 +35,12 @@ const MODE_STATES_OFFSET: usize = 26;
 ///
 /// # Safety
 /// The caller must ensure `pool_state_info` is owned by the Huma program and is a valid PoolState.
+///
+/// # Parameters
+/// * `pool_state_info` - The AccountInfo of the Huma PoolState account.
+///
+/// # Returns
+/// * `Result<u128>` - The current total assets in Huma for ModeState 0.
 pub fn read_mode_assets(pool_state_info: &AccountInfo) -> Result<u128> {
     let data = pool_state_info.try_borrow_data()?;
 
@@ -67,10 +73,16 @@ use crate::error::PremiumBondsError;
 
 /// Calculates the number of $PST shares equivalent to a given USDC amount.
 ///
-/// Formula: `shares = usdc_amount × pst_supply / total_assets`
-///
+/// Formula: `shares = usdc_amount × pst_supply / total_assets` (rounds up to avoid dust creation).
 /// Uses u128 intermediate math to avoid overflow.
-/// Returns 0 if total_assets is 0 (no deposits yet).
+///
+/// # Parameters
+/// * `usdc_amount` - Amount of USDC to convert.
+/// * `pst_supply` - Total outstanding supply of the Huma Pool's $PST token.
+/// * `total_assets` - Total assets deposited inside the Huma pool.
+///
+/// # Returns
+/// * `u64` - Equivalent amount of $PST shares.
 pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128) -> u64 {
     if total_assets == 0 {
         return usdc_amount; // 1:1 if pool is empty
@@ -89,9 +101,15 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
 /// Calculates the USDC value of a given number of $PST shares.
 ///
 /// Formula: `usdc_value = pst_amount × total_assets / pst_supply`
-///
 /// Uses u128 intermediate math to avoid overflow.
-/// Returns 0 if pst_supply is 0.
+///
+/// # Parameters
+/// * `pst_amount` - Amount of $PST shares to convert.
+/// * `pst_supply` - Total outstanding supply of the Huma Pool's $PST token.
+/// * `total_assets` - Total assets deposited inside the Huma pool.
+///
+/// # Returns
+/// * `u64` - Equivalent USDC amount in base units.
 pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) -> u64 {
     if pst_supply == 0 {
         return pst_amount; // 1:1 if no supply
@@ -112,6 +130,22 @@ pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) 
 ///
 /// Creates the lender state PDA and associated token accounts required before
 /// any deposit or redemption can be made.
+///
+/// # Parameters
+/// * `huma_program` - AccountInfo of the Huma Finance program.
+/// * `payer` - AccountInfo of the signer funding the transaction.
+/// * `lender` - AccountInfo of the lender (the pool PDA).
+/// * `huma_config` - AccountInfo of the Huma global config.
+/// * `pool_config` - AccountInfo of the Huma pool configuration.
+/// * `pool_state` - AccountInfo of the Huma pool state.
+/// * `mode_config` - AccountInfo of Huma mode config.
+/// * `mode_mint` - AccountInfo of the Huma mode mint ($PST mint).
+/// * `lender_state` - AccountInfo of the Huma lender state to be initialized.
+/// * `lender_mode_token` - AccountInfo of the lender's token account for the mode mint.
+/// * `token_program` - AccountInfo of the SPL token program.
+/// * `associated_token_program` - AccountInfo of the associated token program.
+/// * `system_program` - AccountInfo of the Solana system program.
+/// * `signer_seeds` - Signer seeds for the pool PDA authority.
 pub fn create_lender_accounts<'info>(
     huma_program: AccountInfo<'info>,
     payer: AccountInfo<'info>,
@@ -175,6 +209,24 @@ pub fn create_lender_accounts<'info>(
 /// CPI wrapper for Huma `deposit`.
 ///
 /// Deposits USDC into a Huma pool and mints $PST to the depositor's mode token account.
+///
+/// # Parameters
+/// * `huma_program` - AccountInfo of the Huma Finance program.
+/// * `depositor` - AccountInfo of the pool PDA depositing assets.
+/// * `huma_config` - AccountInfo of the Huma global config.
+/// * `pool_config` - AccountInfo of the Huma pool configuration.
+/// * `pool_state` - AccountInfo of the Huma pool state.
+/// * `mode_config` - AccountInfo of Huma mode config.
+/// * `mode_mint` - AccountInfo of the Huma mode mint ($PST mint).
+/// * `pool_authority` - AccountInfo of the Huma pool authority.
+/// * `underlying_mint` - AccountInfo of the underlying USDC token mint.
+/// * `pool_underlying_token` - AccountInfo of the Huma pool USDC vault.
+/// * `depositor_underlying_token` - AccountInfo of the depositor's underlying USDC vault.
+/// * `depositor_mode_token` - AccountInfo of the depositor's $PST token account.
+/// * `underlying_token_program` - AccountInfo of the SPL token program for the underlying mint.
+/// * `mode_token_program` - AccountInfo of the SPL token program for the mode mint.
+/// * `assets` - The amount of USDC to deposit (in base units).
+/// * `signer_seeds` - Signer seeds for the pool PDA.
 pub fn deposit<'info>(
     huma_program: AccountInfo<'info>,
     depositor: AccountInfo<'info>,
@@ -254,6 +306,25 @@ pub fn deposit<'info>(
 ///
 /// Locks $PST shares and registers an asynchronous redemption request.
 /// The request must be settled by Huma before `disburse` can be called.
+///
+/// # Parameters
+/// * `huma_program` - AccountInfo of the Huma Finance program.
+/// * `payer` - AccountInfo of the transaction fee payer.
+/// * `lender` - AccountInfo of the pool PDA.
+/// * `huma_config` - AccountInfo of the Huma global config.
+/// * `pool_config` - AccountInfo of the Huma pool configuration.
+/// * `pool_state` - AccountInfo of the Huma pool state.
+/// * `mode_config` - AccountInfo of Huma mode config.
+/// * `mode_mint` - AccountInfo of the Huma mode mint ($PST mint).
+/// * `redemption_request` - AccountInfo of Huma's redemption request PDA to initialize.
+/// * `lender_state` - AccountInfo of the Huma lender state.
+/// * `pool_authority` - AccountInfo of the Huma pool authority.
+/// * `pool_mode_token` - AccountInfo of Huma's pool token vault.
+/// * `lender_mode_token` - AccountInfo of the lender's $PST token vault.
+/// * `token_program` - AccountInfo of the SPL token program.
+/// * `system_program` - AccountInfo of the Solana system program.
+/// * `shares` - The amount of $PST shares to redeem.
+/// * `signer_seeds` - Signer seeds for the pool PDA.
 pub fn add_redemption_request<'info>(
     huma_program: AccountInfo<'info>,
     payer: AccountInfo<'info>,
@@ -328,6 +399,21 @@ pub fn add_redemption_request<'info>(
 ///
 /// Claims settled USDC from the Huma disbursement reserve.
 /// Must be called after Huma has processed the redemption request.
+///
+/// # Parameters
+/// * `huma_program` - AccountInfo of the Huma Finance program.
+/// * `lender` - AccountInfo of the pool PDA.
+/// * `huma_config` - AccountInfo of the Huma global config.
+/// * `pool_config` - AccountInfo of the Huma pool configuration.
+/// * `pool_state` - AccountInfo of the Huma pool state.
+/// * `mode_config` - AccountInfo of Huma mode config.
+/// * `lender_state` - AccountInfo of the Huma lender state.
+/// * `underlying_mint` - AccountInfo of the underlying USDC token mint.
+/// * `pool_authority` - AccountInfo of the Huma pool authority.
+/// * `pool_underlying_token` - AccountInfo of the Huma pool underlying token vault.
+/// * `lender_underlying_token` - AccountInfo of the lender's underlying USDC vault to receive disbursed funds.
+/// * `token_program` - AccountInfo of the SPL token program.
+/// * `signer_seeds` - Signer seeds for the pool PDA.
 pub fn disburse<'info>(
     huma_program: AccountInfo<'info>,
     lender: AccountInfo<'info>,
@@ -392,9 +478,15 @@ pub fn disburse<'info>(
 /// - bump: u8
 /// - status: enum (u8)
 /// - disbursement_reserve: u128 (16 bytes)
-/// - mode_states: Vec<ModeState> (4-byte length prefix + N * 216 bytes)
-/// - mode_config_keys: Vec<Pubkey> (4-byte length prefix + M * 32 bytes)
+/// - mode_states: `Vec<ModeState>` (4-byte length prefix + N * 216 bytes)
+/// - mode_config_keys: `Vec<Pubkey>` (4-byte length prefix + M * 32 bytes)
 /// - redemption: Redemption (next_request_id: u128, last_request_id: u128, ...)
+///
+/// # Parameters
+/// * `pool_state_info` - AccountInfo of Huma's PoolState account.
+///
+/// # Returns
+/// * `Result<(u128, u128)>` - Tuple of (next_request_id, last_request_id).
 pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128, u128)> {
     let data = pool_state_info.try_borrow_data()?;
 

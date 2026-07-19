@@ -10,11 +10,36 @@ use crate::state::{
 use crate::utils::{derive_random_index, registry_get_entry};
 use anchor_lang::prelude::*;
 
+/// Accounts required for the `reveal_and_pick_winners` instruction.
+///
+/// This instruction is executed by a authorized crank bot to consume the verified
+/// randomness from Switchboard, resolve the winning ticket indices, map those indices
+/// to users in the ticket registry, and initialize the payout registry for the draw cycle.
+///
+/// # Accounts
+///
+/// * `crank`: The crank signer executing the instruction. Must match the `jobs_account` specified in `global_config`.
+/// * `global_config`: The global configuration account for checking authorization.
+/// * `current_draw_cycle`: The draw cycle account to finalize.
+/// * `pool`: The prize pool account.
+/// * `ticket_registry`: The ticket registry loader.
+/// * `randomness_account`: The Switchboard On-Demand randomness account containing the VRF result.
+/// * `payout_registry`: The payout registry account initialized to record the winners of this draw.
+/// * `system_program`: The Solana System program.
+///
+/// # PDA Derivations
+///
+/// * `global_config`: PDA derived with seeds `[GLOBAL_CONFIG_SEED]` (i.e. `b"global_config"`) and a dynamic bump.
+/// * `current_draw_cycle`: PDA derived with seeds `[DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()]` (i.e. `b"draw_cycle"`) and a dynamic bump.
+/// * `pool`: PDA derived with seeds `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"prize_pool"`) and a dynamic bump.
+/// * `payout_registry`: PDA initialized with seeds `[PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()]` (i.e. `b"payout"`) and a dynamic bump.
 #[derive(Accounts)]
 pub struct RevealAndPickWinners<'info> {
+    /// The crank signer executing the instruction. Must match the jobs_account.
     #[account(mut)]
     pub crank: Signer<'info>,
 
+    /// The global configuration account, checked to verify that the signer is the authorized jobs account.
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -22,6 +47,7 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The current draw cycle account, validated to match the randomness account.
     #[account(
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
@@ -30,6 +56,7 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
+    /// The prize pool state account, validated with has_one ticket_registry constraint.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -38,14 +65,16 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The ticket registry account loader holding all the user entries.
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// CHECK: Checked by owner constraint and verified against current_draw_cycle above
+    /// CHECK: This is the raw Switchboard On-Demand randomness account. It is unchecked because it belongs to the Switchboard program. We validate it by checking that its owner matches the Switchboard On-Demand program ID and its address matches `current_draw_cycle.randomness_account`. Additionally, in the instruction handler, the account data is parsed and validated using `RandomnessAccountData::parse` to extract the randomness value.
     #[account(
         constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub randomness_account: UncheckedAccount<'info>,
 
+    /// The payout registry account initialized to record the winners of this draw.
     #[account(
         init,
         payer = crank,
@@ -55,11 +84,23 @@ pub struct RevealAndPickWinners<'info> {
     )]
     pub payout_registry: Box<Account<'info, PayoutRegistry>>,
 
+    /// The Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
 use switchboard_on_demand::accounts::RandomnessAccountData;
 
+/// Resolves the randomness from Switchboard, determines winners, and initializes the payout registry.
+///
+/// The handler parses the Switchboard randomness account data to retrieve the verified random seed.
+/// It verifies that the randomness request is fresh (i.e., not older than 1000 slots and committed after
+/// the harvest slot).
+///
+/// Using the random seed, it derives a random index for each prize tier. It then performs binary search
+/// on the ticket registry's cumulative active ticket counts to map each random index to the winning user entry.
+///
+/// The winners are recorded in the new `payout_registry` account, and any dust resulting from rounding in the
+/// prize tiers is deducted from the pool's allocated prizes.
 pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     require!(

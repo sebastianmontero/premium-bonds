@@ -3,8 +3,26 @@ use crate::error::PremiumBondsError;
 use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
+/// Accounts required for the `admin_force_unlock_draw` instruction.
+///
+/// This instruction is used by the admin to force unlock a pool frozen for a draw
+/// if the draw process gets stuck.
+///
+/// # Accounts
+///
+/// * `global_config`: The global configuration account, checked for admin authorization.
+/// * `admin`: The admin signer executing the instruction.
+/// * `pool`: The prize pool account to unlock.
+/// * `current_draw_cycle`: The current draw cycle account to finalize.
+///
+/// # PDA Derivations
+///
+/// * `global_config`: PDA derived with seeds `[GLOBAL_CONFIG_SEED]` (i.e. `b"global_config"`) and a dynamic bump.
+/// * `pool`: PDA derived with seeds `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"prize_pool"`) and bump `pool.vault_authority_bump`.
+/// * `current_draw_cycle`: PDA derived with seeds `[DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()]` (i.e. `b"draw_cycle"`) and a dynamic bump.
 #[derive(Accounts)]
 pub struct AdminForceUnlockDraw<'info> {
+    /// The global configuration account, validated to contain the admin address.
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
@@ -12,9 +30,11 @@ pub struct AdminForceUnlockDraw<'info> {
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
+    /// The admin signer executing the force unlock.
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    /// The prize pool state account to unlock.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -22,6 +42,7 @@ pub struct AdminForceUnlockDraw<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The current draw cycle account, validated to be awaiting randomness.
     #[account(
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
@@ -30,6 +51,11 @@ pub struct AdminForceUnlockDraw<'info> {
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 }
 
+/// Force unlocks a prize pool and completes the draw cycle.
+///
+/// If a draw process gets stuck (e.g. due to Switchboard randomness issues), the admin can call this
+/// instruction to unfreeze the pool (`is_frozen_for_draw` set to false) and mark the current draw cycle
+/// status as `Complete`. This allows normal deposits/withdrawals and subsequent harvests to proceed.
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     pool.is_frozen_for_draw = false;

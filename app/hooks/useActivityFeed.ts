@@ -123,6 +123,10 @@ function eventToActivity(
  * 5. Cache results in localStorage for fast subsequent loads.
  *
  * Also exposes `prependLocal()` for optimistic UI updates after transactions.
+ *
+ * @param userAddress - The base58 user wallet address.
+ * @param tokenDecimals - Number of decimals for formatting USDC (defaults to 6).
+ * @returns The parsed list of activities, loading state, refetch function, and local prepend helper.
  */
 export function useActivityFeed(
   userAddress: string | undefined,

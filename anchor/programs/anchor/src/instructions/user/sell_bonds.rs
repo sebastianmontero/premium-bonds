@@ -7,11 +7,24 @@ use crate::utils::{registry_get_entry, registry_set_entry};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
+/// Accounts required for a user to sell/redeem bonds.
+///
+/// ### Remaining Accounts
+/// If the user's entry is removed and it was not the last entry in the `ticket_registry`,
+/// the registry swaps the last entry into the deleted slot to fill the gap. In this swap case,
+/// a single remaining account must be passed:
+/// 1. `swapped_user_winnings` (mut, unchecked): The `UserWinnings` PDA of the owner of the swapped entry.
+///    - PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), swapped_owner.as_ref()]`.
+///    - Verified in the handler to match the expected PDA address and updated to reflect the new registry index.
 #[derive(Accounts)]
 pub struct SellBonds<'info> {
+    /// The user selling the bonds. Signs and pays for the `pending_redemption` account rent.
     #[account(mut)]
     pub user: Signer<'info>,
 
+    /// The user winnings/metadata PDA tracking the user's registry index and winnings.
+    ///
+    /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
     #[account(
         mut,
         seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
@@ -19,6 +32,10 @@ pub struct SellBonds<'info> {
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 
+    /// The prize pool state account.
+    ///
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -27,16 +44,20 @@ pub struct SellBonds<'info> {
     )]
     pub pool: Box<Account<'info, PrizePool>>,
 
+    /// The zero-copy ticket registry storing all raffle ticket entries for this pool.
     #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
+    /// The underlying token mint (e.g. USDC).
     #[account(
         address = pool.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// Pool's $PST vault — $PST shares are redeemed from here.
+    /// Pool's $PST vault holding Huma shares. Shares are redeemed from here.
+    ///
+    /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         mut,
         seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
@@ -45,7 +66,10 @@ pub struct SellBonds<'info> {
     )]
     pub pool_pst_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// The PendingRedemption PDA created for this async withdrawal.
+    /// PendingRedemption PDA created to track this async withdrawal.
+    ///
+    /// PDA seeds: `[PENDING_REDEMPTION_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.next_redemption_id.to_le_bytes().as_ref()]`
+    /// (i.e., `b"pending_redemption"` + pool_id + next_redemption_id).
     #[account(
         init,
         payer = user,
@@ -60,42 +84,81 @@ pub struct SellBonds<'info> {
     pub pending_redemption: Box<Account<'info, PendingRedemption>>,
 
     // ── Huma Finance accounts ───────────────────────────────────────────────
-    /// CHECK: Validated by address constraint
+    /// CHECK: This is the Huma Finance program account. It is validated via the address constraint
+    /// to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call.
     #[account(address = crate::constants::HUMA_PROGRAM_ID)]
     pub huma_program: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma global configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI and owner check
+
+    /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
+    /// to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+    /// are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
     #[account(
         mut,
         constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma mode configuration account. It is unchecked here because its
+    /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_mode_config: UncheckedAccount<'info>,
+
+    /// The Huma mode token mint ($PST token mint).
     #[account(
         mint::token_program = pst_token_program
     )]
     pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma redemption request PDA that will be initialized. It is unchecked here because
+    /// its initialization and ownership are fully managed and validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_redemption_request: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma lender state account. It is unchecked here because its structure,
+    /// ownership, and authorization are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_lender_state: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool authority PDA. It is unchecked here because its validity as the
+    /// pool's authority is fully validated by the Huma program during the CPI call.
     pub huma_pool_authority: UncheckedAccount<'info>,
-    /// CHECK: Validated by Huma CPI
+
+    /// CHECK: This is the Huma pool's mode token account (holding underlying mode tokens). It is unchecked
+    /// here because its address and token authority are fully validated by the Huma program during the CPI call.
     #[account(mut)]
     pub huma_pool_mode_token: UncheckedAccount<'info>,
 
+    /// The SPL Token program interface for underlying tokens.
     pub token_program: Interface<'info, TokenInterface>,
+
+    /// The SPL Token program interface for $PST tokens.
     pub pst_token_program: Interface<'info, TokenInterface>,
+
+    /// Solana System Program.
     pub system_program: Program<'info, System>,
 }
 
+/// Allows a user to sell/redeem their active and/or pending tickets.
+///
+/// This queues an async redemption with the Huma Finance program to reclaim the underlying principal.
+/// The instruction creates a `PendingRedemption` receipt. Once settled by the Huma program, the user
+/// can claim the USDC using `claim_redemption`.
+///
+/// If a user completely exits their position, their entry is removed from the registry. To prevent registry gaps,
+/// the last entry in the registry is swapped into the user's vacated index. If a swap occurs, the `UserWinnings`
+/// PDA of the swapped user must be supplied as the first remaining account.
+///
+/// # Parameters
+/// * `ctx` - The context of the sell bonds instruction.
+/// * `active_to_sell` - The number of active tickets to sell.
+/// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 

@@ -1,19 +1,27 @@
 use anchor_lang::prelude::*;
 
+/// Represents the administrative and lifecycle state of a liquidity pool.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
 pub enum PoolStatus {
+    /// Active and accepting deposits, withdrawals, and draws.
     Active,
+    /// Paused; deposits and sales are temporarily suspended.
     Paused,
+    /// Closed permanently; only withdrawals and redemptions allowed.
     Closed,
 }
 
+/// Defines the configuration for a single prize tier within a pool.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct PrizeTier {
-    pub basis_points: u16, // share of yield each winner in this tier receives
-    pub num_winners: u32,  // number of winners in this tier
+    /// Share of the yield (in basis points) each winner in this tier receives.
+    pub basis_points: u16,
+    /// Number of winners that can be selected for this tier in a single draw.
+    pub num_winners: u32,
 }
 
 impl PrizeTier {
+    /// Calculates the prize amount based on the pool's total prize pot and basis points.
     pub fn calculate_prize(&self, prize_pot: u64) -> u64 {
         (prize_pot as u128)
             .checked_mul(self.basis_points as u128)
@@ -23,23 +31,41 @@ impl PrizeTier {
     }
 }
 
+/// The main state account tracking a specific prize bond pool.
+///
+/// PDA seeds: [b"prize_pool", pool_id.to_le_bytes()]
 #[account]
 #[derive(InitSpace)]
 pub struct PrizePool {
+    /// Bump seed for the vault authority.
     pub vault_authority_bump: u8,
+    /// Unique identifier for this prize pool.
     pub pool_id: u32,
+    /// The mint of the underlying USDC token used for purchasing bonds.
     pub token_mint: Pubkey,
-    pub ticket_registry: Pubkey, // Pointer to the massive zero-copy registry
+    /// Pointer to the massive zero-copy TicketRegistry account.
+    pub ticket_registry: Pubkey,
+    /// Public key of the token account that collects protocol fees.
     pub fee_wallet: Pubkey,
+    /// Price of a single bond/ticket in underlying token base units.
     pub bond_price: u64,
+    /// Duration of each stake/yield cycle in hours.
     pub stake_cycle_duration_hrs: i64,
+    /// Protocol fee rate in basis points (e.g. 250 = 2.5%).
     pub fee_basis_points: u16,
+    /// Administrative lifecycle status of the pool.
     pub status: PoolStatus,
+    /// Total principal deposited by all users in this pool.
     pub total_deposited_principal: u64,
+    /// Total fees historically collected (deprecated or moved to accrued/withdrawn).
     pub total_fees_collected: u64,
+    /// Unix timestamp when the current yield cycle is scheduled to end.
     pub current_cycle_end_at: i64,
+    /// Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation.
     pub is_frozen_for_draw: bool,
+    /// The ID of the draw cycle currently being processed or the last completed cycle.
     pub current_draw_cycle_id: u32,
+    /// Configured prize tiers for this pool.
     #[max_len(10)]
     pub prize_tiers: Vec<PrizeTier>,
     /// Auto-incrementing counter for PendingRedemption PDA derivation.
@@ -58,10 +84,12 @@ use crate::error::PremiumBondsError;
 use crate::utils::calculate_percentage_fee;
 
 impl PrizePool {
+    /// Calculates the protocol fee from a yield harvest.
     pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
         calculate_percentage_fee(yield_amount, self.fee_basis_points)
     }
 
+    /// Advances the current cycle end timestamp.
     pub fn advance_cycle_end_at(&mut self, current_time: i64) {
         self.current_cycle_end_at = current_time
             .checked_add(self.stake_cycle_duration_hrs.checked_mul(3600).unwrap())
@@ -110,15 +138,25 @@ impl PrizePool {
     }
 }
 
+/// Tracks the winnings balance and claims for an individual user.
+///
+/// PDA seeds: [b"user_winnings", pool_id.to_le_bytes(), user.key().as_ref()]
 #[account]
 #[derive(InitSpace)]
 pub struct UserWinnings {
+    /// Pool ID this winnings account belongs to.
     pub pool_id: u32,
+    /// Public key of the user who owns these winnings.
     pub user: Pubkey,
+    /// Unclaimed non-reinvested cash-out winnings (in lamports).
     pub unclaimed_non_reinvested_winnings: u64,
+    /// Total winnings claimed and disbursed to the user's wallet.
     pub total_claimed: u64,
+    /// Total winnings auto-reinvested back into bonds.
     pub total_reinvested: u64,
+    /// User's index position in the pool's TicketRegistry.
     pub registry_entry_index: u32,
+    /// PDA bump seed.
     pub bump: u8,
 }
 
