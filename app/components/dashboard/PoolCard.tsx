@@ -1,6 +1,7 @@
 "use client";
 
 import { CountdownTimer } from "./CountdownTimer";
+import { LiveYieldTicker } from "./LiveYieldTicker";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 
@@ -60,11 +61,17 @@ export function PoolCard({
           value={`$${formatTokenAmount(pool.totalDepositedPrincipal, pool.tokenDecimals, 0)}`}
           accent="text-on-surface"
         />
-        <StatCell
-          label="Prize Pot"
-          value={`$${formatTokenAmount(pool.estimatedPrizePot, pool.tokenDecimals, 0)}`}
-          accent="text-gradient"
-        />
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Prize Pot
+          </p>
+          <LiveYieldTicker
+            pool={pool}
+            precision={2}
+            showBadge={false}
+            valueClassName="font-display text-xl font-bold tracking-tight text-gradient"
+          />
+        </div>
         <StatCell
           label="Your Active Tickets"
           value={activeTicketsCount.toLocaleString()}

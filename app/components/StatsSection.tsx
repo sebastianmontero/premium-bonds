@@ -1,4 +1,12 @@
-export function StatsSection() {
+import { LiveYieldTicker } from "./dashboard/LiveYieldTicker";
+import { MOCK_POOL } from "@/app/mock-data";
+import type { PoolInfo } from "@/app/types";
+
+interface StatsSectionProps {
+  pool?: PoolInfo;
+}
+
+export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
   return (
     <section id="prizes" className="relative px-6 py-24">
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2">
@@ -58,13 +66,18 @@ export function StatsSection() {
               Current Prize Pool
             </p>
           </div>
-          <p className="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl">
-            $45,000
-          </p>
+          <div>
+            <LiveYieldTicker
+              pool={pool}
+              precision={4}
+              showBadge={false}
+              valueClassName="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl"
+            />
+          </div>
           <div className="flex items-center gap-3 pt-1">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-3 py-1 text-xs font-semibold text-secondary animate-yield-pulse">
               <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-              Live
+              Live Yielding
             </span>
             <span className="text-sm text-on-surface-variant">
               Next draw in{" "}
