@@ -369,8 +369,6 @@ async function main() {
         seed = Buffer.from(seedHex, "hex");
       }
 
-
-
       if (cycleId < 0) {
         throw new Error(
           `Invalid Draw Cycle ID: ${cycleId}. No draw cycle has been created yet.`

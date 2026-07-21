@@ -477,10 +477,7 @@ async function handleInit() {
   const mockHumaSoPath = path.resolve(deployDir, "mock_huma.so");
 
   await injectProgram(PROGRAM_ID_STR, anchorSoPath);
-  await injectProgram(
-    MOCK_HUMA_PROGRAM_ID_STR,
-    mockHumaSoPath
-  );
+  await injectProgram(MOCK_HUMA_PROGRAM_ID_STR, mockHumaSoPath);
 
   // 5. Inject mock accounts
   console.log("Injecting USDC Mint account...");
@@ -1339,7 +1336,61 @@ async function handleSettle(args: string[]) {
     }
   }
 
-  if (escrowedPst > 0n) {
+  let usdcValue = 0n;
+
+  if (escrowedPst > 0n && pendingCount > 0) {
+    const countBi = BigInt(count);
+    const startRequestId = next;
+    const endRequestId = next + countBi - 1n;
+
+    // Calculate exact PST to burn by querying matching on-chain PendingRedemption accounts
+    let exactPstToBurn = 0n;
+    let matchedCount = 0;
+
+    try {
+      const redemptions = await rpc
+        .getProgramAccounts(address(PROGRAM_ID_STR), {
+          filters: [{ dataSize: 93n }],
+          encoding: "base64",
+        })
+        .send();
+
+      for (const acc of redemptions) {
+        const buf = Buffer.from(acc.account.data[0], "base64");
+        if (buf.length < 93) continue;
+
+        const low = buf.readBigUInt64LE(76);
+        const high = buf.readBigUInt64LE(84);
+        const humaRequestId = low | (high << 64n);
+
+        if (humaRequestId >= startRequestId && humaRequestId <= endRequestId) {
+          const pstShares = buf.readBigUInt64LE(60);
+          exactPstToBurn += pstShares;
+          matchedCount++;
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "Could not query PendingRedemption accounts, using fallback formula:",
+        e
+      );
+    }
+
+    let pstToBurn = 0n;
+    if (matchedCount > 0) {
+      pstToBurn = exactPstToBurn > escrowedPst ? escrowedPst : exactPstToBurn;
+      console.log(
+        `Found ${matchedCount} matching PendingRedemption account(s) for Huma requests ${startRequestId}..${endRequestId}.`
+      );
+      console.log(`Exact PST to burn: ${pstToBurn} micro-PST`);
+    } else {
+      const pendingCountBi = BigInt(pendingCount);
+      pstToBurn = (escrowedPst * countBi) / pendingCountBi;
+      console.log(
+        `No matching PendingRedemption accounts found. Using proportional PST burn fallback: ${pstToBurn} micro-PST`
+      );
+    }
+
     // 2. Read PST mint supply
     const pstMintInfo = await rpc
       .getAccountInfo(address(addresses.pstMint))
@@ -1363,14 +1414,13 @@ async function handleSettle(args: string[]) {
     const totalAssetsHigh = updatedRawData.readBigUInt64LE(38);
     const totalAssets = (totalAssetsHigh << 64n) | totalAssetsLow;
 
-    // 4. Compute USDC value of escrowed PST and decrement total_assets
+    // 4. Compute USDC value of pstToBurn and decrement total_assets
     // Use ceiling division to avoid rounding down by 1 micro-USDC, which would
     // leave the pool_vault underfunded when claim_redemption transfers exact principal.
-    let usdcValue = 0n;
     if (pstSupply > 0n && totalAssets > 0n) {
-      usdcValue = (escrowedPst * totalAssets + pstSupply - 1n) / pstSupply;
+      usdcValue = (pstToBurn * totalAssets + pstSupply - 1n) / pstSupply;
     } else {
-      usdcValue = escrowedPst; // 1:1 fallback
+      usdcValue = pstToBurn; // 1:1 fallback
     }
 
     const newTotalAssets =
@@ -1386,8 +1436,8 @@ async function handleSettle(args: string[]) {
       updatedPoolStateInfo!.value!.executable
     );
 
-    // 5. Burn escrowed PST: decrement mint supply
-    const newSupply = pstSupply - escrowedPst;
+    // 5. Burn proportional PST: decrement mint supply by pstToBurn
+    const newSupply = pstSupply - pstToBurn;
     pstMintBuffer.writeBigUInt64LE(newSupply, 36);
 
     await setAccount(
@@ -1398,12 +1448,13 @@ async function handleSettle(args: string[]) {
       pstMintInfo.value.executable
     );
 
-    // 6. Zero out huma_pool_mode_token balance (PST burned)
+    // 6. Decrement huma_pool_mode_token balance by pstToBurn
+    const remainingEscrowedPst = escrowedPst - pstToBurn;
     const modeTokenBuffer2 = Buffer.from(
       modeTokenInfo!.value!.data[0],
       "base64"
     );
-    modeTokenBuffer2.writeBigUInt64LE(0n, 64);
+    modeTokenBuffer2.writeBigUInt64LE(remainingEscrowedPst, 64);
 
     await setAccount(
       addresses.humaPoolModeToken,
@@ -1414,7 +1465,7 @@ async function handleSettle(args: string[]) {
     );
 
     console.log(
-      `Epoch simulation: burned ${escrowedPst} escrowed PST (worth ${Number(usdcValue) / 1_000_000} USDC)`
+      `Epoch simulation: burned ${pstToBurn} escrowed PST (worth ${Number(usdcValue) / 1_000_000} USDC, remaining escrowed: ${remainingEscrowedPst})`
     );
     console.log(`  PST supply: ${pstSupply} → ${newSupply}`);
     console.log(
@@ -1424,13 +1475,39 @@ async function handleSettle(args: string[]) {
     console.log("No escrowed PST to burn — skipping epoch simulation.");
   }
 
-  // Inject/update Huma Lender State with a large settled amount
+  // 7. Read existing owed amount from Huma Lender State and add usdcValue
+  let existingOwed = 0n;
+  const lenderStateInfo = await rpc
+    .getAccountInfo(address(addresses.humaLenderState))
+    .send();
+  if (lenderStateInfo?.value) {
+    const buf = Buffer.from(lenderStateInfo.value.data[0], "base64");
+    if (buf.length >= 16) {
+      existingOwed = buf.readBigUInt64LE(8);
+    }
+  }
+
+  // 8. Read existing balance from Huma Pool Underlying vault and add usdcValue
+  let existingBalance = 0n;
+  const humaUnderlyingInfo = await rpc
+    .getAccountInfo(address(addresses.humaPoolUnderlying))
+    .send();
+  if (humaUnderlyingInfo?.value) {
+    const buf = Buffer.from(humaUnderlyingInfo.value.data[0], "base64");
+    if (buf.length >= 72) {
+      existingBalance = buf.readBigUInt64LE(64);
+    }
+  }
+
+  const newOwed = existingOwed + usdcValue;
+  const newBalance = existingBalance + usdcValue;
+
   console.log(
-    `Updating Huma Lender State account: ${addresses.humaLenderState}...`
+    `Updating Huma Lender State owed: ${existingOwed} → ${newOwed} micro-USDC...`
   );
   const lenderStateData = new Uint8Array(16);
   const view = new DataView(lenderStateData.buffer);
-  view.setBigUint64(8, 1_000_000_000_000n, true); // 1M USDC (6 decimals)
+  view.setBigUint64(8, newOwed, true);
   const lenderStateHex = Buffer.from(lenderStateData).toString("hex");
   await setAccount(
     addresses.humaLenderState,
@@ -1440,15 +1517,16 @@ async function handleSettle(args: string[]) {
     false
   );
 
-  // Fund Huma pool underlying token account to support disburse transfers
-  console.log("Funding Huma Pool Underlying token account with USDC...");
+  console.log(
+    `Funding Huma Pool Underlying vault balance: ${existingBalance} → ${newBalance} micro-USDC...`
+  );
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
     addresses.humaPoolState
   );
   const humaPoolUnderlyingData = serializeTokenAccount(
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     humaPoolAuthority,
-    1_000_000_000_000n
+    newBalance
   );
   await setAccount(
     addresses.humaPoolUnderlying,
