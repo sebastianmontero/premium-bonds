@@ -36,7 +36,6 @@ import {
   parseTicketRegistry,
   findPoolVaultPda,
   findPoolPstVaultPda,
-  findAtaAddress,
   encodeU32,
   PROGRAM_ID,
   buildPrepareDrawInstruction,
@@ -317,6 +316,16 @@ async function main() {
       );
       let registryState = parseTicketRegistry(registryBytes);
 
+      let cycleId = poolState.currentDrawCycleId - 1;
+      if (options["--cycle"]) {
+        cycleId = parseInt(options["--cycle"], 10);
+      } else if (positionals.length > 0) {
+        const val = parseInt(positionals[0], 10);
+        if (!isNaN(val)) {
+          cycleId = val;
+        }
+      }
+
       if (registryState.drawPreparedUpTo < registryState.userCount) {
         console.log(
           `Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`
@@ -329,7 +338,7 @@ async function main() {
           const prepIx = await buildPrepareDrawInstruction({
             crank: signer!.address,
             poolId,
-            currentDrawCycleId: poolState.currentDrawCycleId,
+            currentDrawCycleId: cycleId,
             ticketRegistry: address(registryAddr),
             batchSize,
           });
@@ -360,15 +369,7 @@ async function main() {
         seed = Buffer.from(seedHex, "hex");
       }
 
-      let cycleId = poolState.currentDrawCycleId - 1;
-      if (options["--cycle"]) {
-        cycleId = parseInt(options["--cycle"], 10);
-      } else if (positionals.length > 0) {
-        const val = parseInt(positionals[0], 10);
-        if (!isNaN(val)) {
-          cycleId = val;
-        }
-      }
+
 
       if (cycleId < 0) {
         throw new Error(
@@ -590,6 +591,11 @@ async function main() {
         break;
       }
 
+      let cycleId = poolState.currentDrawCycleId - 1;
+      if (options["--cycle"]) {
+        cycleId = parseInt(options["--cycle"], 10);
+      }
+
       while (registryState.drawPreparedUpTo < registryState.userCount) {
         console.log(
           `Sending batch transaction for entries ${registryState.drawPreparedUpTo} to ${Math.min(
@@ -601,7 +607,7 @@ async function main() {
         const ix = await buildPrepareDrawInstruction({
           crank: signer!.address,
           poolId,
-          currentDrawCycleId: poolState.currentDrawCycleId,
+          currentDrawCycleId: cycleId,
           ticketRegistry: address(registryAddr),
           batchSize,
         });
@@ -670,22 +676,12 @@ async function main() {
       const bytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
       const state = parsePrizePool(bytes);
       const poolVault = await findPoolVaultPda(targetPoolId);
-      const poolAta = await findAtaAddress(poolPda, state.tokenMint);
       const poolPstVault = await findPoolPstVaultPda(targetPoolId);
-
-      const pstMintStr = stateAddresses.pstMint;
-      let poolPstAtaStr = "N/A (PST Mint not configured)";
-      if (pstMintStr) {
-        const poolPstAta = await findAtaAddress(poolPda, pstMintStr);
-        poolPstAtaStr = poolPstAta.toString();
-      }
 
       console.log(`Prize Pool ${targetPoolId}:
   Token Mint: ${state.tokenMint}
-  Pool Vault (PDA): ${poolVault}
-  Associated Token Account (ATA): ${poolAta}
-  Pool PST Vault (PDA): ${poolPstVault}
-  Associated PST Token Account (ATA): ${poolPstAtaStr}
+  Pool Vault (PDA / Token Account): ${poolVault}
+  Pool PST Vault (PDA / Token Account): ${poolPstVault}
   Ticket Registry: ${state.ticketRegistry}
   Fee Wallet: ${state.feeWallet}
   Bond Price: ${formatAmount(state.bondPrice)}
@@ -1048,7 +1044,7 @@ async function main() {
         const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
 
         const filters = [
-          { dataSize: 69n },
+          { dataSize: 73n },
           {
             memcmp: {
               offset: 8n,

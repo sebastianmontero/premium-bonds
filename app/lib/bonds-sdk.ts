@@ -482,8 +482,8 @@ export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
   const unclaimedNonReinvestedWinnings = view.getBigUint64(44, true);
   const totalClaimed = view.getBigUint64(52, true);
   const totalReinvested = view.getBigUint64(60, true);
-  const bump = view.getUint8(68);
-  const registryEntryIndex = view.getUint32(69, true);
+  const registryEntryIndex = view.getUint32(68, true);
+  const bump = view.getUint8(72);
 
   return {
     poolId,

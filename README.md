@@ -48,7 +48,7 @@ npm run localnet init
 
 - Loads/generates an admin keypair (`scripts/admin-key.json`).
 - Funds the admin wallet with SOL.
-- Deploys the main smart contract (`CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx`) and the Mock Huma Lending program (`ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj`).
+- Deploys the main smart contract (`CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx`) and the Mock Huma Lending program (`XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw`).
 - Injects mock state accounts (USDC Mint, Huma Pool State, PST Mint, Ticket Registry, Huma Pool Token Accounts, Fee Wallet).
 - Submits on-chain transactions to initialize the `GlobalConfig` and create the initial liquidity pool.
 - Generates/updates `.env.local`.

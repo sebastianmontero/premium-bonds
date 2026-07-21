@@ -3,7 +3,7 @@
 //! **⚠️  TEST-ONLY — DO NOT DEPLOY TO ANY NETWORK ⚠️**
 //!
 //! This program impersonates Huma Finance at the same program ID
-//! (`ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj`) so that LiteSVM
+//! (`XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw`) so that LiteSVM
 //! integration tests can exercise the full CPI path through `buy_bonds`,
 //! `sell_bonds`, `claim_prize`, `claim_redemption`, `withdraw_fees`,
 //! and `initialize_huma_lender`.

@@ -114,17 +114,19 @@ export default function DashboardPage() {
     : pendingRedemptions;
   const activeUnclaimedWinnings =
     isConnected && onChainWinnings
-      ? onChainWinnings.unclaimedNonReinvestedWinnings
+      ? Number(onChainWinnings.unclaimedNonReinvestedWinnings)
       : unclaimedWinningsBalance;
   const activeAutoReinvestedTotal =
     isConnected && onChainWinnings
-      ? onChainWinnings.totalReinvested
+      ? Number(onChainWinnings.totalReinvested)
       : autoReinvestedTotal;
   const activeLifetimeWinnings =
     isConnected && onChainWinnings
-      ? onChainWinnings.totalClaimed +
-        onChainWinnings.totalReinvested +
-        onChainWinnings.unclaimedNonReinvestedWinnings
+      ? Number(
+          onChainWinnings.totalClaimed +
+            onChainWinnings.totalReinvested +
+            onChainWinnings.unclaimedNonReinvestedWinnings
+        )
       : lifetimeWinnings;
   const activeNonReinvestedWinnings =
     activeLifetimeWinnings - activeAutoReinvestedTotal;

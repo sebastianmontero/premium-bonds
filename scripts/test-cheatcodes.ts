@@ -10,7 +10,7 @@ async function main() {
   const url = "http://127.0.0.1:8899";
   const base58Encoder = getBase58Encoder();
 
-  const programIdStr = "ACQydQGziybxnN6dPAy3ssmYYbTp6K4rvwnBjjmh11Hj";
+  const programIdStr = "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw";
   const programId = address(programIdStr);
   const BPFLoaderUpgradeable = address(
     "BPFLoaderUpgradeab1e11111111111111111111111"
