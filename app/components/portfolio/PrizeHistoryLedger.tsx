@@ -8,6 +8,7 @@ interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
   tokenDecimals: number;
   tokenSymbol: string;
+  ticketPrice?: number;
   unclaimedTotal: number;
   onClaim: () => void;
   onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
@@ -66,6 +67,7 @@ export function PrizeHistoryLedger({
   entries,
   tokenDecimals,
   tokenSymbol,
+  ticketPrice = 5_000_000,
   unclaimedTotal,
   onClaim,
   onSimulateCrank,
@@ -243,8 +245,10 @@ export function PrizeHistoryLedger({
                             <strong className="text-tertiary block mb-0.5">
                               Dust Remainder
                             </strong>
-                            Leftover USDC winnings less than the $5.00 ticket
-                            price. Automatically aggregated above to claim.
+                            Leftover {tokenSymbol} winnings less than the{" "}
+                            {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
+                            {tokenSymbol} ticket price. Automatically
+                            aggregated above to claim.
                           </div>
                         </div>
                       )}

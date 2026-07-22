@@ -10,6 +10,7 @@ interface CompleteLedgerModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
+  ticketPrice?: number;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
@@ -67,6 +68,7 @@ export default function CompleteLedgerModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
+  ticketPrice = 5_000_000,
   onSimulateCrank,
   onViewDetails,
   crankingCycles = {},
@@ -461,8 +463,10 @@ export default function CompleteLedgerModal({
                               <strong className="text-tertiary block mb-0.5">
                                 Dust Remainder
                               </strong>
-                              Leftover USDC winnings less than the $5.00 ticket
-                              price. Automatically aggregated above to claim.
+                              Leftover {tokenSymbol} winnings less than the{" "}
+                              {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
+                              {tokenSymbol} ticket price. Automatically
+                              aggregated above to claim.
                             </div>
                           </div>
                         )}

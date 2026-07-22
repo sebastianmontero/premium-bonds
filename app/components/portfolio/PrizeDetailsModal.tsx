@@ -10,6 +10,7 @@ interface PrizeDetailsModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
+  ticketPrice?: number;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -20,6 +21,7 @@ export default function PrizeDetailsModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
+  ticketPrice = 5_000_000,
   onSimulateCrank,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
@@ -306,7 +308,8 @@ export default function PrizeDetailsModal({
                     Purchase Cost
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    5.00 USDC / tkt
+                    {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
+                    {tokenSymbol} / tkt
                   </p>
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
