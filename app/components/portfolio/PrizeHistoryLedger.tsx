@@ -151,7 +151,7 @@ export function PrizeHistoryLedger({
 
           {/* ── Ledger Cards / Rows ───────────────────────────────────────── */}
           <div className="space-y-3">
-            {entries.map((entry, index) => (
+            {entries.slice(0, 5).map((entry, index) => (
               <div
                 key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
                 onClick={() => onViewDetails?.(entry)}
@@ -247,8 +247,8 @@ export function PrizeHistoryLedger({
                             </strong>
                             Leftover {tokenSymbol} winnings less than the{" "}
                             {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                            {tokenSymbol} ticket price. Automatically
-                            aggregated above to claim.
+                            {tokenSymbol} ticket price. Automatically aggregated
+                            above to claim.
                           </div>
                         </div>
                       )}
@@ -403,7 +403,7 @@ export function PrizeHistoryLedger({
               onClick={onViewCompleteLedger}
               className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer"
             >
-              View Complete Ledger →
+              View Complete Ledger ({entries.length} Draws) →
             </button>
           </div>
         </>

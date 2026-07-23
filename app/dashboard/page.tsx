@@ -17,6 +17,7 @@ import { DepositModal } from "@/app/components/dashboard/DepositModal";
 import { WithdrawModal } from "@/app/components/dashboard/WithdrawModal";
 import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
 import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
+import CompleteActivityModal from "@/app/components/portfolio/CompleteActivityModal";
 import {
   MOCK_POOL,
   MOCK_USER_TICKETS,
@@ -69,6 +70,11 @@ export default function DashboardPage() {
 
   const {
     entries: onChainActivityFeed,
+    isFetchingMore: isFetchingActivityMore,
+    hasMore: hasMoreActivity,
+    scanProgress: activityScanProgress,
+    loadMore: loadMoreActivity,
+    fetchUntilMatches: fetchUntilMatchesActivity,
     refetch: refetchActivity,
     prependLocal,
   } = useActivityFeed(
@@ -82,6 +88,7 @@ export default function DashboardPage() {
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
+  const [showCompleteActivity, setShowCompleteActivity] = useState(false);
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
     {}
   );
@@ -483,30 +490,30 @@ export default function DashboardPage() {
         tokenDecimals={activePool.tokenDecimals}
       />
 
-      {/* ── Bond Holdings + Activity Feed (two-column) ─────────────── */}
-      <div className="grid gap-6 lg:grid-cols-5">
-        {/* Pool Card & Pending Redemptions — takes 3 of 5 columns */}
-        <div className="lg:col-span-3 flex flex-col gap-6">
-          <div>
-            <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-secondary"
-              >
-                <circle cx="12" cy="8" r="7" />
-                <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-              </svg>
-              <h2 className="font-display text-lg font-bold text-on-surface">
-                Active Pool
-              </h2>
-            </div>
+      {/* ── Active Pool + Activity Feed (Top two-column row) ───────────── */}
+      <div className="grid gap-6 lg:grid-cols-5 transition-all duration-300 items-stretch">
+        {/* Pool Card — takes 3 of 5 columns */}
+        <div className="lg:col-span-3 flex flex-col transition-all duration-300">
+          <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-secondary"
+            >
+              <circle cx="12" cy="8" r="7" />
+              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+            </svg>
+            <h2 className="font-display text-lg font-bold text-on-surface">
+              Active Pool
+            </h2>
+          </div>
+          <div className="flex-1 flex flex-col">
             <PoolCard
               pool={activePool}
               userTickets={activeTickets}
@@ -514,21 +521,10 @@ export default function DashboardPage() {
               onWithdraw={() => setShowWithdraw(true)}
             />
           </div>
-
-          <div className="flex-1">
-            <PendingRedemptionsList
-              redemptions={activePendingRedemptions}
-              onClaimRedemption={handleClaimRedemption}
-              onSimulateSettlement={handleSimulateSettlement}
-              tokenSymbol={activePool.tokenSymbol}
-              tokenDecimals={activePool.tokenDecimals}
-              showSimulation={!isConnected}
-            />
-          </div>
         </div>
 
         {/* Activity Feed — takes 2 of 5 columns */}
-        <div className="lg:col-span-2 flex flex-col">
+        <div className="lg:col-span-2 flex flex-col min-h-0 transition-all duration-300">
           <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
             <svg
               width="18"
@@ -547,10 +543,25 @@ export default function DashboardPage() {
               Activity Feed
             </h2>
           </div>
-          <div className="flex-1 min-h-0">
-            <ActivityFeed entries={activeActivityFeed} />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <ActivityFeed
+              entries={activeActivityFeed}
+              onViewCompleteFeed={() => setShowCompleteActivity(true)}
+            />
           </div>
         </div>
+      </div>
+
+      {/* ── Pending Redemptions Section (Dedicated Row) ───────────────── */}
+      <div className="transition-all duration-300">
+        <PendingRedemptionsList
+          redemptions={activePendingRedemptions}
+          onClaimRedemption={handleClaimRedemption}
+          onSimulateSettlement={handleSimulateSettlement}
+          tokenSymbol={activePool.tokenSymbol}
+          tokenDecimals={activePool.tokenDecimals}
+          showSimulation={!isConnected}
+        />
       </div>
 
       {/* ── Prize History Ledger ────────────────────────────────────── */}
@@ -620,6 +631,17 @@ export default function DashboardPage() {
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         crankingCycles={crankingCycles}
+      />
+
+      <CompleteActivityModal
+        entries={activeActivityFeed}
+        isOpen={showCompleteActivity}
+        onClose={() => setShowCompleteActivity(false)}
+        hasMore={hasMoreActivity}
+        isFetchingMore={isFetchingActivityMore}
+        scanProgress={activityScanProgress}
+        onLoadMore={loadMoreActivity}
+        onFetchUntilMatches={fetchUntilMatchesActivity}
       />
     </div>
   );

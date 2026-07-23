@@ -4,6 +4,7 @@ import type { ActivityEntry, ActivityType } from "@/app/types";
 
 interface ActivityFeedProps {
   entries: ActivityEntry[];
+  onViewCompleteFeed?: () => void;
 }
 
 function dotColor(type: ActivityType): string {
@@ -113,11 +114,17 @@ function formatFeedDate(isoDate: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function ActivityFeed({ entries }: ActivityFeedProps) {
+export function ActivityFeed({
+  entries,
+  onViewCompleteFeed,
+}: ActivityFeedProps) {
+  const PREVIEW_LIMIT = 10;
+  const previewEntries = entries.slice(0, PREVIEW_LIMIT);
+
   return (
-    <div className="glass-strong rounded-2xl p-6 h-full flex flex-col">
+    <div className="glass-strong rounded-2xl p-6 h-full max-h-[460px] flex flex-col min-h-0">
       {entries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-8 text-center h-full border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
+        <div className="flex flex-col items-center justify-center py-8 text-center my-auto border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
           <svg
             width="32"
             height="32"
@@ -140,8 +147,8 @@ export function ActivityFeed({ entries }: ActivityFeedProps) {
           </p>
         </div>
       ) : (
-        <div className="space-y-0">
-          {entries.map((entry) => (
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-0 scroll-smooth">
+          {previewEntries.map((entry) => (
             <div key={entry.id} className="timeline-item py-3">
               {/* Timeline dot */}
               <div className={`timeline-dot ${dotColor(entry.type)}`} />
@@ -163,6 +170,30 @@ export function ActivityFeed({ entries }: ActivityFeedProps) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {entries.length > 0 && onViewCompleteFeed && (
+        <div className="text-center pt-3 border-t border-surface-bright/5 mt-3 shrink-0">
+          <button
+            onClick={onViewCompleteFeed}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            <span>Search &amp; Filter Full History ({entries.length}) →</span>
+          </button>
         </div>
       )}
     </div>

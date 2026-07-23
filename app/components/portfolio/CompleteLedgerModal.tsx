@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
+import { PaginationControls } from "./PaginationControls";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -78,11 +79,25 @@ export default function CompleteLedgerModal({
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
   const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   const resetFilters = () => {
     setSearchTerm("");
     setStatusFilter("all");
     setTierFilter("all");
+    setCurrentPage(1);
   };
 
   const handleCopySeed = (
@@ -118,6 +133,15 @@ export default function CompleteLedgerModal({
       return matchesSearch && matchesStatus && matchesTier;
     });
   }, [entries, searchTerm, statusFilter, tierFilter]);
+
+  // Declarative Safe Page Clamping
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
+  const safePage = Math.max(1, Math.min(currentPage, totalPages));
+
+  const paginatedEntries = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredEntries.slice(start, start + pageSize);
+  }, [filteredEntries, safePage, pageSize]);
 
   // Aggregate Stats on Filtered Set
   const { totalCount, totalValue } = useMemo(() => {
@@ -226,7 +250,10 @@ export default function CompleteLedgerModal({
               type="text"
               placeholder="Search Draw # or Ticket..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
             />
             <svg
@@ -248,7 +275,10 @@ export default function CompleteLedgerModal({
           <div>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
             >
               <option value="all">All Statuses</option>
@@ -262,7 +292,10 @@ export default function CompleteLedgerModal({
           <div>
             <select
               value={tierFilter}
-              onChange={(e) => setTierFilter(e.target.value)}
+              onChange={(e) => {
+                setTierFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
             >
               <option value="all">All Tiers</option>
@@ -369,7 +402,7 @@ export default function CompleteLedgerModal({
                 <div className="text-right">Actions</div>
               </div>
 
-              {filteredEntries.map((entry, index) => (
+              {paginatedEntries.map((entry, index) => (
                 <div
                   key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
                   onClick={() => onViewDetails(entry)}
@@ -615,6 +648,22 @@ export default function CompleteLedgerModal({
               ))}
             </>
           )}
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="border-t border-surface-bright/5 pt-3 shrink-0">
+          <PaginationControls
+            currentPage={safePage}
+            totalPages={totalPages}
+            totalItems={filteredEntries.length}
+            pageSize={pageSize}
+            onPageChange={(page) => setCurrentPage(page)}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+            variant="full"
+          />
         </div>
 
         {/* Footer */}

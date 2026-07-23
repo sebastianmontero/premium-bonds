@@ -314,6 +314,12 @@ export interface FetchEventsOptions {
   before?: string;
 }
 
+export interface FetchEventsResult {
+  events: ProgramEvent[];
+  oldestRawSignature: string | null;
+  hasMore: boolean;
+}
+
 /**
  * Fetch and parse Anchor program events for a given address.
  * Works with both user wallet addresses and PDA addresses.
@@ -321,13 +327,13 @@ export interface FetchEventsOptions {
  * @param rpc - The @solana/kit RPC client (client.runtime.rpc)
  * @param targetAddress - The address to query signatures for
  * @param options - Pagination and filtering options
- * @returns Array of parsed ProgramEvents sorted by blockTime descending
+ * @returns FetchEventsResult with parsed events, oldest raw signature cursor, and hasMore status
  */
 export async function fetchProgramEvents(
   rpc: RpcClient,
   targetAddress: Address,
   options: FetchEventsOptions = {}
-): Promise<ProgramEvent[]> {
+): Promise<FetchEventsResult> {
   const { limit = 100, until, before } = options;
 
   // 1. Get recent transaction signatures for the target address
@@ -339,7 +345,15 @@ export async function fetchProgramEvents(
     .getSignaturesForAddress(targetAddress, sigConfig)
     .send();
 
-  if (!signatures || signatures.length === 0) return [];
+  if (!signatures || signatures.length === 0) {
+    return { events: [], oldestRawSignature: null, hasMore: false };
+  }
+
+  const oldestRawSignature =
+    signatures.length > 0
+      ? (signatures[signatures.length - 1].signature as string)
+      : null;
+  const hasMore = signatures.length === limit;
 
   // 2. Filter out failed transactions
   const successSigs = signatures.filter(
@@ -399,7 +413,11 @@ export async function fetchProgramEvents(
   // 4. Sort by blockTime descending (most recent first)
   events.sort((a, b) => b.blockTime - a.blockTime);
 
-  return events;
+  return {
+    events,
+    oldestRawSignature,
+    hasMore,
+  };
 }
 
 // ─── Cache Utilities ─────────────────────────────────────────────────────────

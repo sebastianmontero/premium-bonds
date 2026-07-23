@@ -13,13 +13,33 @@ import type { ActivityEntry, ActivityType } from "../types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export interface ScanProgress {
+  currentBatch: number;
+  maxBatches: number;
+}
+
 interface ActivityFeedResult {
   /** Activity feed entries sorted by date descending. */
   entries: ActivityEntry[];
-  /** Whether data is currently loading. */
+  /** Whether initial data is currently loading. */
   isLoading: boolean;
-  /** Refetch all data. */
+  /** Whether historical data is currently being fetched via lazy loading. */
+  isFetchingMore: boolean;
+  /** Whether more historical transactions exist on-chain. */
+  hasMore: boolean;
+  /** Current background batch scan progress (or null if idle). */
+  scanProgress: ScanProgress | null;
+  /** Total number of transactions loaded so far. */
+  totalLoaded: number;
+  /** Refetch all data from scratch. */
   refetch: () => void;
+  /** Lazily fetch the next batch of historical transactions. */
+  loadMore: (limit?: number) => Promise<boolean>;
+  /** Automatically fetch historical transactions in batches until matching count is met or history ends. */
+  fetchUntilMatches: (
+    filterFn: (entry: ActivityEntry) => boolean,
+    targetCount: number
+  ) => Promise<void>;
   /** Prepend a local-only activity entry (for optimistic UI after tx). */
   prependLocal: (entry: ActivityEntry) => void;
 }
@@ -107,26 +127,66 @@ function eventToActivity(
   }
 }
 
+/**
+ * Deduplicate entries and replace optimistic local entries if matching on-chain event arrives.
+ */
+function mergeAndDeduplicate(
+  existing: ActivityEntry[],
+  incoming: ActivityEntry[],
+  maxLimit: number = 200
+): ActivityEntry[] {
+  const map = new Map<string, ActivityEntry>();
+  const incomingOnChainSigs = new Set<string>();
+
+  for (const item of incoming) {
+    if (item.id.startsWith("evt-")) {
+      incomingOnChainSigs.add(item.id);
+    }
+    map.set(item.id, item);
+  }
+
+  for (const item of existing) {
+    // Deduplicate against exact ID
+    if (map.has(item.id)) continue;
+
+    // Check if item is optimistic act-* and is matched by an incoming evt-*
+    if (item.id.startsWith("act-")) {
+      const matched = incoming.some(
+        (inc) =>
+          inc.type === item.type &&
+          inc.amount === item.amount &&
+          inc.date === item.date
+      );
+      if (matched) continue; // Skip optimistic item as on-chain event is present
+    }
+
+    map.set(item.id, item);
+  }
+
+  const merged = Array.from(map.values());
+  merged.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  return merged.slice(0, maxLimit);
+}
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 /**
  * Fetches and parses Anchor program events for the connected user to build
- * a real-time activity feed.
+ * a real-time activity feed with cursor-based lazy loading.
  *
  * Strategy:
- * 1. Fetch transaction signatures for the UserWinnings PDA (touches all
- *    prize-related instructions) and the user's wallet address (touches
- *    buy_bonds, sell_bonds, claim_redemption, claim_non_reinvested_winnings).
- * 2. Parse Anchor event logs from each transaction.
- * 3. Filter events relevant to the user.
- * 4. Convert to ActivityEntry[] for the UI.
- * 5. Cache results in localStorage for fast subsequent loads.
- *
- * Also exposes `prependLocal()` for optimistic UI updates after transactions.
+ * 1. Initial load fetches a light batch (limit: 15) to keep page load fast.
+ * 2. `loadMore()` uses the `oldestSignature` cursor pointer from raw RPC response
+ *    to lazily fetch historical transaction batches without re-fetching non-program transactions.
+ * 3. `fetchUntilMatches()` runs up to 5 background scan iterations when filtering to ensure page size is satisfied.
+ * 4. Caches top 20 items in localStorage for fast subsequent mounts.
  *
  * @param userAddress - The base58 user wallet address.
  * @param tokenDecimals - Number of decimals for formatting USDC (defaults to 6).
- * @returns The parsed list of activities, loading state, refetch function, and local prepend helper.
+ * @returns ActivityFeedResult containing entries, status flags, cursors, and fetch handlers.
  */
 export function useActivityFeed(
   userAddress: string | undefined,
@@ -135,11 +195,27 @@ export function useActivityFeed(
   const client = useSolanaClient();
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+
   const fetchIdRef = useRef(0);
+  const oldestSignatureRef = useRef<string | null>(null);
+  const hasMoreRef = useRef(true);
+  const entriesRef = useRef<ActivityEntry[]>([]);
+
+  // Keep entriesRef in sync with state
+  const updateEntriesState = useCallback((newEntries: ActivityEntry[]) => {
+    entriesRef.current = newEntries;
+    setEntries(newEntries);
+  }, []);
 
   const fetchFeed = useCallback(async () => {
     if (!userAddress) {
-      setEntries([]);
+      updateEntriesState([]);
+      setHasMore(false);
+      hasMoreRef.current = false;
+      oldestSignatureRef.current = null;
       return;
     }
 
@@ -154,67 +230,174 @@ export function useActivityFeed(
       // Check localStorage cache for incremental fetching
       const cached = getCachedEvents(cacheKey);
       const fetchOpts = cached
-        ? { limit: 50, until: cached.lastSignature }
-        : { limit: 100 };
+        ? { limit: 15, until: cached.lastSignature }
+        : { limit: 15 };
 
-      // Fetch events from the user's wallet address
-      // This captures: buy_bonds, sell_bonds, claim_redemption, claim_non_reinvested_winnings
-      const events = await fetchProgramEvents(rpc, walletAddr, fetchOpts);
+      // Fetch initial batch from RPC
+      const result = await fetchProgramEvents(rpc, walletAddr, fetchOpts);
 
       if (fetchId !== fetchIdRef.current) return;
 
-      // Merge with cached events if doing incremental fetch
-      let allEvents: ProgramEvent[] = events;
+      let allEvents: ProgramEvent[] = result.events;
+
+      // If incremental fetch with cache
       if (cached && cached.events.length > 0) {
-        allEvents = [...events, ...cached.events];
+        allEvents = [...result.events, ...cached.events];
       }
 
-      // Update cache
+      // Update cursor refs
+      if (result.oldestRawSignature) {
+        oldestSignatureRef.current = result.oldestRawSignature;
+      }
+      hasMoreRef.current = result.hasMore;
+      setHasMore(result.hasMore);
+
+      // Save top 20 events to localStorage cache
       if (allEvents.length > 0) {
-        setCachedEvents(cacheKey, allEvents, allEvents[0].signature);
+        setCachedEvents(
+          cacheKey,
+          allEvents.slice(0, 20),
+          allEvents[0].signature
+        );
       }
 
       // Convert events to ActivityEntry[]
-      const activityEntries: ActivityEntry[] = [];
+      const parsedEntries: ActivityEntry[] = [];
       const seenIds = new Set<string>();
 
       for (const event of allEvents) {
         const entry = eventToActivity(event, tokenDecimals);
         if (entry && !seenIds.has(entry.id)) {
           seenIds.add(entry.id);
-          activityEntries.push(entry);
+          parsedEntries.push(entry);
         }
       }
 
-      // Sort by date descending (most recent first)
-      activityEntries.sort(
+      parsedEntries.sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
 
       if (fetchId === fetchIdRef.current) {
-        setEntries(activityEntries);
+        updateEntriesState(parsedEntries);
       }
     } catch (err) {
-      console.error("useActivityFeed fetch error:", err);
+      console.error("useActivityFeed initial fetch error:", err);
     } finally {
       if (fetchId === fetchIdRef.current) {
         setIsLoading(false);
       }
     }
-  }, [client, userAddress, tokenDecimals]);
+  }, [client, userAddress, tokenDecimals, updateEntriesState]);
 
   useEffect(() => {
     fetchFeed();
   }, [fetchFeed]);
 
-  const prependLocal = useCallback((entry: ActivityEntry) => {
-    setEntries((prev) => [entry, ...prev]);
-  }, []);
+  /**
+   * Lazily fetch the next batch of historical transactions using `before: oldestSignature`.
+   */
+  const loadMore = useCallback(
+    async (batchLimit: number = 15): Promise<boolean> => {
+      if (!userAddress || !hasMoreRef.current || !oldestSignatureRef.current) {
+        return false;
+      }
+
+      const fetchId = fetchIdRef.current;
+      setIsFetchingMore(true);
+
+      try {
+        const rpc = client.runtime.rpc;
+        const walletAddr = userAddress as unknown as Address;
+
+        const result = await fetchProgramEvents(rpc, walletAddr, {
+          limit: batchLimit,
+          before: oldestSignatureRef.current,
+        });
+
+        if (fetchId !== fetchIdRef.current) return false;
+
+        // Update cursor pointer from raw RPC response
+        if (result.oldestRawSignature) {
+          oldestSignatureRef.current = result.oldestRawSignature;
+        }
+        hasMoreRef.current = result.hasMore;
+        setHasMore(result.hasMore);
+
+        const newParsed: ActivityEntry[] = [];
+        for (const event of result.events) {
+          const entry = eventToActivity(event, tokenDecimals);
+          if (entry) newParsed.push(entry);
+        }
+
+        const merged = mergeAndDeduplicate(entriesRef.current, newParsed, 200);
+        updateEntriesState(merged);
+
+        return result.hasMore;
+      } catch (err) {
+        console.error("useActivityFeed loadMore error:", err);
+        return false;
+      } finally {
+        if (fetchId === fetchIdRef.current) {
+          setIsFetchingMore(false);
+        }
+      }
+    },
+    [client, userAddress, tokenDecimals, updateEntriesState]
+  );
+
+  /**
+   * Automatically fetch historical transactions in batches until matching count is met or history ends.
+   */
+  const fetchUntilMatches = useCallback(
+    async (
+      filterFn: (entry: ActivityEntry) => boolean,
+      targetCount: number
+    ): Promise<void> => {
+      if (!userAddress || !hasMoreRef.current) return;
+
+      let currentMatches = entriesRef.current.filter(filterFn).length;
+      if (currentMatches >= targetCount) return;
+
+      const MAX_BATCHES = 5;
+      let batchCount = 0;
+
+      while (
+        currentMatches < targetCount &&
+        hasMoreRef.current &&
+        batchCount < MAX_BATCHES
+      ) {
+        batchCount++;
+        setScanProgress({ currentBatch: batchCount, maxBatches: MAX_BATCHES });
+
+        const canContinue = await loadMore(15);
+        currentMatches = entriesRef.current.filter(filterFn).length;
+
+        if (!canContinue) break;
+      }
+
+      setScanProgress(null);
+    },
+    [userAddress, loadMore]
+  );
+
+  const prependLocal = useCallback(
+    (entry: ActivityEntry) => {
+      const updated = mergeAndDeduplicate(entriesRef.current, [entry], 200);
+      updateEntriesState(updated);
+    },
+    [updateEntriesState]
+  );
 
   return {
     entries,
     isLoading,
+    isFetchingMore,
+    hasMore,
+    scanProgress,
+    totalLoaded: entries.length,
     refetch: fetchFeed,
+    loadMore,
+    fetchUntilMatches,
     prependLocal,
   };
 }
