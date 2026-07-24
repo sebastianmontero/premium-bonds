@@ -224,15 +224,65 @@ export function PrizeHistoryLedger({
                         `${entry.drawCycleId}-${entry.winnerIndex}`
                       ]
                     )}
-                    {entry.reinvestedTickets !== undefined &&
-                      entry.reinvestedTickets > 0 && (
+                    {(() => {
+                      const priorDustApplied =
+                        entry.usedPriorDust ??
+                        Math.max(
+                          0,
+                          (entry.reinvestedTickets || 0) * ticketPrice -
+                            entry.amount
+                        );
+
+                      if (
+                        entry.reinvestedTickets === undefined ||
+                        entry.reinvestedTickets <= 0
+                      ) {
+                        return null;
+                      }
+
+                      if (priorDustApplied > 0) {
+                        return (
+                          <div
+                            className="relative group/priorDust shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span
+                              className="inline-flex items-center gap-1 border border-tertiary/30 bg-tertiary/15 px-1.5 py-0.5 text-[10px] font-semibold text-tertiary rounded-md cursor-help"
+                              aria-label={`Reinvested ${entry.reinvestedTickets} tickets using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust`}
+                            >
+                              +{entry.reinvestedTickets} tkt
+                              <span className="text-[9px] px-1 bg-tertiary/20 rounded text-tertiary-bright font-bold">
+                                +dust
+                              </span>
+                            </span>
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
+                              <strong className="text-tertiary block mb-1">
+                                ✨ Bonus Ticket Unlocked!
+                              </strong>
+                              Combined $
+                              {formatTokenAmount(
+                                priorDustApplied,
+                                tokenDecimals
+                              )}{" "}
+                              {tokenSymbol} of previous dust with this draw&apos;s
+                              winnings to purchase an extra ticket.
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
                         <span className="inline-flex items-center gap-1 border border-tertiary/20 bg-tertiary/10 px-1.5 py-0.5 text-[10px] font-semibold text-tertiary rounded-md">
                           +{entry.reinvestedTickets} tkt
                         </span>
-                      )}
+                      );
+                    })()}
                     {entry.dustAccumulated !== undefined &&
                       entry.dustAccumulated > 0 && (
-                        <div className="relative group/dust shrink-0">
+                        <div
+                          className="relative group/dust shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help">
                             $
                             {formatTokenAmount(

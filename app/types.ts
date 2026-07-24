@@ -72,6 +72,7 @@ export interface PrizeHistoryEntry {
   status: PrizeStatus;
   amountReinvested: number; // how much has been reinvested so far
   dustAccumulated?: number; // dust accumulated from this draw (when finalized)
+  usedPriorDust?: number; // base units of previously accumulated dust applied to purchase tickets
   reinvestedTickets?: number; // present when status is "reinvested" or "partial"
   winningTicket?: string;
   userTicketRange?: { start: number; end: number };

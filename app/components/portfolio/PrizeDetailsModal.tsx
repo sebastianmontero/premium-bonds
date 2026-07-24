@@ -321,33 +321,93 @@ export default function PrizeDetailsModal({
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mt-2">
-                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                  <p className="text-on-surface-variant font-medium">
-                    Amount Reinvested
-                  </p>
-                  <p className="font-mono text-sm font-bold text-primary mt-1">
-                    {formatTokenAmount(
-                      entry.amountReinvested || 0,
-                      tokenDecimals
-                    )}{" "}
-                    {tokenSymbol}
-                  </p>
-                </div>
-                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                  <p className="text-on-surface-variant font-medium">
-                    Leftover Dust Remainder
-                  </p>
-                  <p className="font-mono text-sm font-bold text-primary mt-1">
-                    {formatTokenAmount(
-                      entry.dustAccumulated || 0,
-                      tokenDecimals
-                    )}{" "}
-                    {tokenSymbol}
-                  </p>
-                </div>
-              </div>
-              <p className="text-xs text-on-surface-variant leading-relaxed">
+              {(() => {
+                const priorDustApplied =
+                  entry.usedPriorDust ??
+                  Math.max(
+                    0,
+                    (entry.reinvestedTickets || 0) * ticketPrice - entry.amount
+                  );
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mt-2">
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          Draw Winnings
+                        </p>
+                        <p className="font-mono text-sm font-bold text-on-surface mt-1">
+                          {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
+                          {tokenSymbol}
+                        </p>
+                      </div>
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-tertiary/20 bg-tertiary/5">
+                        <p className="text-tertiary font-medium">
+                          Prior Dust Applied
+                        </p>
+                        <p className="font-mono text-sm font-bold text-tertiary mt-1">
+                          +
+                          {formatTokenAmount(
+                            priorDustApplied,
+                            tokenDecimals
+                          )}{" "}
+                          {tokenSymbol}
+                        </p>
+                      </div>
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          Total Reinvested
+                        </p>
+                        <p className="font-mono text-sm font-bold text-primary mt-1">
+                          {formatTokenAmount(
+                            (entry.reinvestedTickets || 0) * ticketPrice,
+                            tokenDecimals
+                          )}{" "}
+                          {tokenSymbol}
+                        </p>
+                      </div>
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          Dust Remainder
+                        </p>
+                        <p className="font-mono text-sm font-bold text-on-surface mt-1">
+                          {formatTokenAmount(
+                            entry.dustAccumulated || 0,
+                            tokenDecimals
+                          )}{" "}
+                          {tokenSymbol}
+                        </p>
+                      </div>
+                    </div>
+
+                    {priorDustApplied > 0 && (
+                      <div
+                        className="flex items-start gap-2.5 p-3 rounded-xl border border-tertiary/20 bg-tertiary/5 text-xs text-on-surface mt-3"
+                        aria-label="Bonus ticket unlocked notification"
+                      >
+                        <span className="text-base leading-none">✨</span>
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-tertiary">
+                            Bonus Ticket Unlocked via Dust Aggregation
+                          </p>
+                          <p className="text-on-surface-variant text-[11px] leading-relaxed">
+                            $
+                            {formatTokenAmount(
+                              priorDustApplied,
+                              tokenDecimals
+                            )}{" "}
+                            {tokenSymbol} from your previously accumulated dust
+                            balance was combined with this draw&apos;s winnings ($
+                            {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
+                            {tokenSymbol}) to purchase an extra ticket!
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+              <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
                 {entry.status === "partial"
                   ? "This win draw is currently being reinvested in batches via permissionless crank on-chain. Progress can be monitored above."
                   : "Your reward was compound-reinvested into new active tickets. Reinvestment transaction verified by on-chain smart contract instructions, leaving a small dust balance."}

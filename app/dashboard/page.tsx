@@ -242,14 +242,20 @@ export default function DashboardPage() {
 
         if (remainingWinnings <= 0) return;
 
-        // How many bonds can we purchase in this batch?
-        const possibleBondsToBuy = Math.floor(remainingWinnings / BOND_PRICE);
+        // How many total bonds can be bought combining remaining winnings + unclaimed prior dust?
+        const totalAvailable = remainingWinnings + unclaimedWinningsBalance;
+        const possibleBondsToBuy = Math.floor(totalAvailable / BOND_PRICE);
         const bondsToBuyInBatch = Math.min(MAX_BONDS, possibleBondsToBuy);
 
-        const batchReinvestedAmount = bondsToBuyInBatch * BOND_PRICE;
-        const newReinvestedAmount = currentReinvested + batchReinvestedAmount;
+        const batchCost = bondsToBuyInBatch * BOND_PRICE;
+        const fromCurrent = Math.min(batchCost, remainingWinnings);
+        const usedPriorDustInBatch = batchCost - fromCurrent;
+
+        const newReinvestedAmount = currentReinvested + fromCurrent;
         const newTicketsCount =
           (entry.reinvestedTickets || 0) + bondsToBuyInBatch;
+        const updatedUsedPriorDust =
+          (entry.usedPriorDust || 0) + usedPriorDustInBatch;
 
         // Remaining after this batch
         const postBatchRemaining = entry.amount - newReinvestedAmount;
@@ -275,6 +281,10 @@ export default function DashboardPage() {
                   status: finalStatus,
                   amountReinvested: finalReinvestedAmount,
                   reinvestedTickets: newTicketsCount,
+                  usedPriorDust:
+                    updatedUsedPriorDust > 0
+                      ? updatedUsedPriorDust
+                      : undefined,
                   dustAccumulated: dustAmount,
                 }
               : p
@@ -293,6 +303,10 @@ export default function DashboardPage() {
                   status: finalStatus,
                   amountReinvested: finalReinvestedAmount,
                   reinvestedTickets: newTicketsCount,
+                  usedPriorDust:
+                    updatedUsedPriorDust > 0
+                      ? updatedUsedPriorDust
+                      : undefined,
                   dustAccumulated: dustAmount,
                 }
               : null
@@ -305,12 +319,15 @@ export default function DashboardPage() {
         }
 
         // Update stateful autoReinvestedTotal
-        setAutoReinvestedTotal((prev) => prev + batchReinvestedAmount);
+        setAutoReinvestedTotal((prev) => prev + fromCurrent);
 
-        // If final batch, credit any dust to unclaimedWinningsBalance
-        if (isFinalBatch && dustAmount > 0) {
-          setUnclaimedWinningsBalance((prev) => prev + dustAmount);
-        }
+        // Update unclaimed dust balance (deduct dust used, add new dust if final batch)
+        setUnclaimedWinningsBalance((prev) =>
+          Math.max(
+            0,
+            prev - usedPriorDustInBatch + (isFinalBatch ? dustAmount : 0)
+          )
+        );
 
         // Add Activity Feed Entry
         const newActivity: ActivityEntry = {
@@ -318,9 +335,11 @@ export default function DashboardPage() {
           date: new Date().toISOString().split("T")[0],
           type: "auto-reinvest",
           description: isFinalBatch
-            ? `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
-            : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(batchReinvestedAmount, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
-          amount: batchReinvestedAmount,
+            ? updatedUsedPriorDust > 0
+              ? `Auto-reinvested $${formatTokenAmount(entry.amount, MOCK_POOL.tokenDecimals)} winnings + $${formatTokenAmount(updatedUsedPriorDust, MOCK_POOL.tokenDecimals)} prior dust → +${newTicketsCount} tickets`
+              : `Crank finalized Draw #${drawCycleId} reinvestment: +${newTicketsCount} tickets, $${formatTokenAmount(dustAmount, MOCK_POOL.tokenDecimals)} USDC dust accumulated`
+            : `Crank batch executed for Draw #${drawCycleId}: reinvested $${formatTokenAmount(fromCurrent, MOCK_POOL.tokenDecimals)} USDC (+${bondsToBuyInBatch} tickets)`,
+          amount: batchCost,
         };
         setMockActivityFeed((prev) => [newActivity, ...prev]);
       }

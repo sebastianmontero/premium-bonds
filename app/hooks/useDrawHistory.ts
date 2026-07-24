@@ -29,24 +29,6 @@ interface DrawHistoryResult {
   refetch: () => void;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-async function fetchAccountData(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rpc: any,
-  pda: Address
-): Promise<Uint8Array | null> {
-  try {
-    const acc = await rpc.getAccountInfo(pda, { encoding: "base64" }).send();
-    if (acc?.value) {
-      return new Uint8Array(base64Encoder.encode(acc.value.data[0]));
-    }
-  } catch {
-    // Account doesn't exist
-  }
-  return null;
-}
-
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 /**
@@ -54,10 +36,10 @@ async function fetchAccountData(
  * for the connected user + recent winners for the global ticker.
  *
  * Strategy:
- * 1. Walk backwards from currentDrawCycleId to find completed draw cycles.
- * 2. For each completed cycle, fetch its PayoutRegistry.
- * 3. Filter winners matching the user's address → PrizeHistoryEntry[].
- * 4. Extract all winners from the latest completed draw → RecentWinner[].
+ * 1. Calculate PDAs for up to `maxCyclesToFetch` (defaults to 50) past draw cycles.
+ * 2. Fetch all DrawCycle and PayoutRegistry accounts in a single batch `getMultipleAccounts` RPC request.
+ * 3. In memory, locate the latest completed cycle to populate `recentWinners` for the ticker widget.
+ * 4. Filter all `PayoutRegistry` winner entries matching `userAddress` across all past cycles.
  * 5. Use client-side VRF to derive winning ticket indices for provable fairness.
  *
  * @param poolId - The unique ID of the pool.
@@ -65,7 +47,7 @@ async function fetchAccountData(
  * @param userAddress - The base58 user wallet address.
  * @param tokenSymbol - Token symbol for UI formatting (defaults to "USDC").
  * @param bondPrice - Price per ticket in base units (defaults to 5_000_000).
- * @param maxCyclesToFetch - Number of historical cycles to inspect (defaults to 10).
+ * @param maxCyclesToFetch - Number of historical cycles to inspect (defaults to 50).
  * @returns Prize history entries, recent winners, loading status, and refetch handler.
  */
 export function useDrawHistory(
@@ -74,7 +56,7 @@ export function useDrawHistory(
   userAddress: string | undefined,
   tokenSymbol: string = "USDC",
   bondPrice: number = 5_000_000,
-  maxCyclesToFetch: number = 10
+  maxCyclesToFetch: number = 50
 ): DrawHistoryResult {
   const client = useSolanaClient();
   const [prizeHistory, setPrizeHistory] = useState<PrizeHistoryEntry[]>([]);
@@ -98,42 +80,77 @@ export function useDrawHistory(
       const latestWinners: RecentWinner[] = [];
       let latestCompleteCycleFound = false;
 
-      // Walk backwards from the most recent cycle
-      // currentDrawCycleId might be AwaitingYield or AwaitingRandomness,
-      // so we start checking from currentDrawCycleId itself going down
+      // Build range of historical cycle IDs (newest first)
+      const cycleIds: number[] = [];
       for (
         let cycleId = currentDrawCycleId;
         cycleId >= 1 && cycleId > currentDrawCycleId - maxCyclesToFetch;
         cycleId--
       ) {
-        if (fetchId !== fetchIdRef.current) return; // Stale fetch
+        cycleIds.push(cycleId);
+      }
 
-        // Fetch DrawCycle account
-        const drawCyclePda = await findDrawCyclePda(poolId, cycleId);
-        const drawData = await fetchAccountData(rpc, drawCyclePda);
-        if (!drawData) continue;
+      if (cycleIds.length === 0) {
+        if (fetchId === fetchIdRef.current) {
+          setPrizeHistory([]);
+          setRecentWinners([]);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // Deriving PDAs for all candidate cycles in parallel
+      const pdaPairs = await Promise.all(
+        cycleIds.map(async (cId) => {
+          const drawPda = await findDrawCyclePda(poolId, cId);
+          const payoutPda = await findPayoutRegistryPda(poolId, cId);
+          return { cycleId: cId, drawPda, payoutPda };
+        })
+      );
+
+      if (fetchId !== fetchIdRef.current) return;
+
+      // Construct ordered array of all PDAs for single-RPC batch request
+      const pdaKeys: Address[] = [];
+      for (const pair of pdaPairs) {
+        pdaKeys.push(pair.drawPda, pair.payoutPda);
+      }
+
+      // Single RPC batch request via getMultipleAccounts
+      const accountsRes = await rpc
+        .getMultipleAccounts(pdaKeys, { encoding: "base64" })
+        .send();
+
+      if (fetchId !== fetchIdRef.current) return;
+
+      const accountValues = accountsRes?.value || [];
+
+      // Process each cycle pair in memory
+      for (let i = 0; i < pdaPairs.length; i++) {
+        const cycleId = pdaPairs[i].cycleId;
+        const drawAcc = accountValues[2 * i];
+        const payoutAcc = accountValues[2 * i + 1];
+
+        if (!drawAcc?.data || !payoutAcc?.data) continue;
 
         let drawCycle: DrawCycleInfo;
+        let payout: PayoutRegistryInfo;
+
         try {
-          drawCycle = parseDrawCycle(drawData);
+          const drawBytes = new Uint8Array(
+            base64Encoder.encode(drawAcc.data[0])
+          );
+          const payoutBytes = new Uint8Array(
+            base64Encoder.encode(payoutAcc.data[0])
+          );
+          drawCycle = parseDrawCycle(drawBytes);
+          payout = parsePayoutRegistry(payoutBytes);
         } catch {
           continue;
         }
 
         // Only process completed draw cycles
         if (drawCycle.status !== "Complete") continue;
-
-        // Fetch PayoutRegistry for this cycle
-        const payoutPda = await findPayoutRegistryPda(poolId, cycleId);
-        const payoutData = await fetchAccountData(rpc, payoutPda);
-        if (!payoutData) continue;
-
-        let payout: PayoutRegistryInfo;
-        try {
-          payout = parsePayoutRegistry(payoutData);
-        } catch {
-          continue;
-        }
 
         // Extract Recent Winners from the latest completed cycle
         if (!latestCompleteCycleFound) {
@@ -197,15 +214,23 @@ export function useDrawHistory(
                 ? amountOwed - amountReinvested
                 : undefined;
 
+            // Compute dust applied from prior draws if total ticket purchase exceeded current win
+            const totalTicketValue = (reinvestedTickets || 0) * bondPrice;
+            const usedPriorDust =
+              totalTicketValue > amountOwed
+                ? totalTicketValue - amountOwed
+                : undefined;
+
             userPrizes.push({
               drawCycleId: cycleId,
-              date: new Date().toISOString().split("T")[0], // We'll refine with blockTime if available
+              date: new Date().toISOString().split("T")[0],
               tierIndex: winner.tierIndex,
               amount: amountOwed,
               winnerIndex: wi,
               status,
               amountReinvested,
               dustAccumulated,
+              usedPriorDust,
               reinvestedTickets,
               winningTicket:
                 winningTicketIdx !== undefined
