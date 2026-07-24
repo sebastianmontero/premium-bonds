@@ -15,6 +15,24 @@ interface PrizeDetailsModalProps {
   crankingCycles?: Record<string, boolean>;
 }
 
+/** Sanitizes raw ticket input by stripping non-numeric characters */
+function sanitizeTicketNumber(ticket?: string): string {
+  if (!ticket) return "";
+  return ticket.replace(/[^0-9]/g, "");
+}
+
+/** Formats a ticket string with canonical '#' prefix */
+function formatTicketNumber(ticket?: string): string {
+  const clean = sanitizeTicketNumber(ticket);
+  return clean ? `#${clean}` : "N/A";
+}
+
+/** Safely parses a ticket string to integer for slider math */
+function parseTicketNumber(ticket?: string): number {
+  const clean = sanitizeTicketNumber(ticket);
+  return clean ? parseInt(clean, 10) : NaN;
+}
+
 export default function PrizeDetailsModal({
   entry,
   isOpen,
@@ -43,7 +61,7 @@ export default function PrizeDetailsModal({
   };
 
   const handleShare = () => {
-    const text = `Just checked my Premium Bonds draw cycle ${entry.drawCycleId} - my ticket #${entry.winningTicket} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
+    const text = `Just checked my Premium Bonds draw cycle ${entry.drawCycleId} - my ticket ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
     navigator.clipboard.writeText(text);
     setShareStatus("Copied share template to clipboard!");
     setTimeout(() => setShareStatus(null), 3000);
@@ -54,9 +72,9 @@ export default function PrizeDetailsModal({
   let isWinningTicketInRange = false;
 
   if (entry.userTicketRange && entry.winningTicket) {
-    const winVal = parseInt(entry.winningTicket, 10);
+    const winVal = parseTicketNumber(entry.winningTicket);
     const { start, end } = entry.userTicketRange;
-    if (end > start) {
+    if (!isNaN(winVal) && end > start) {
       visualPct = ((winVal - start) / (end - start)) * 100;
       visualPct = Math.max(0, Math.min(100, visualPct));
       isWinningTicketInRange = winVal >= start && winVal <= end;
@@ -128,8 +146,8 @@ export default function PrizeDetailsModal({
         {/* Modal Content */}
         <div className="space-y-6 pt-5">
           {/* Summary Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 Tier Won
               </p>
@@ -139,15 +157,76 @@ export default function PrizeDetailsModal({
                 </span>
               </div>
             </div>
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5">
+            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 Amount Won
               </p>
-              <p className="text-lg font-bold font-mono text-primary mt-0.5">
+              <p className="text-lg font-bold font-mono text-primary mt-0.5 truncate">
                 {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
               </p>
             </div>
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5">
+            <div className="p-4 rounded-xl bg-primary/[0.03] border border-primary/20 flex flex-col justify-between relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">
+                  Winning Ticket
+                </p>
+                {entry.winningTicket && (
+                  <button
+                    onClick={() =>
+                      handleCopy(
+                        formatTicketNumber(entry.winningTicket),
+                        "winningTicket"
+                      )
+                    }
+                    className="flex items-center gap-1 hover:text-primary transition cursor-pointer text-on-surface-variant text-[10px]"
+                    title="Copy ticket number"
+                  >
+                    {copiedField === "winningTicket" ? (
+                      <>
+                        <svg
+                          className="w-3 h-3 text-emerald-400"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        <span className="text-emerald-400 font-semibold">
+                          Copied
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                          />
+                        </svg>
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              <p className="text-lg font-bold font-mono text-primary mt-1 flex items-center gap-1.5 truncate">
+                <span className="text-base shrink-0">🎫</span>
+                <span className="truncate">{formatTicketNumber(entry.winningTicket)}</span>
+              </p>
+            </div>
+            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 Verification Status
               </p>
@@ -183,8 +262,8 @@ export default function PrizeDetailsModal({
             </div>
           </div>
 
-          {/* Ticket Range Visualizer */}
-          {entry.userTicketRange && entry.winningTicket && (
+          {/* Ticket Range Visualizer or Fallback Info */}
+          {entry.userTicketRange && entry.winningTicket ? (
             <div className="p-5 rounded-xl bg-surface-container/20 border border-surface-bright/5 space-y-4">
               <h4 className="text-sm font-semibold text-on-surface">
                 Ticket Match Visualizer
@@ -201,7 +280,7 @@ export default function PrizeDetailsModal({
                 <div className="text-right">
                   Winning Ticket:{" "}
                   <span className="font-mono text-primary font-bold">
-                    #{entry.winningTicket}
+                    {formatTicketNumber(entry.winningTicket)}
                   </span>
                 </div>
               </div>
@@ -273,7 +352,25 @@ export default function PrizeDetailsModal({
                 </p>
               )}
             </div>
-          )}
+          ) : entry.winningTicket ? (
+            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="text-lg">🎫</span>
+                <div>
+                  <p className="font-semibold text-on-surface">
+                    Winning Ticket Selected via VRF
+                  </p>
+                  <p className="text-[11px] text-on-surface-variant">
+                    Ticket{" "}
+                    <span className="font-mono text-primary font-bold">
+                      {formatTicketNumber(entry.winningTicket)}
+                    </span>{" "}
+                    was selected for Draw Cycle #{entry.drawCycleId}.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Auto-Reinvestment Detail Section */}
           {(entry.status === "reinvested" || entry.status === "partial") && (
