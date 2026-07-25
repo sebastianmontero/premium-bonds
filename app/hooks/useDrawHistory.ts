@@ -202,24 +202,27 @@ export function useDrawHistory(
               // VRF derivation failed — non-critical
             }
 
-            // Compute reinvested tickets count
-            const reinvestedTickets =
-              amountReinvested > 0
-                ? Math.floor(amountReinvested / bondPrice)
-                : undefined;
+            // Compute reinvested tickets count, used prior dust, and leftover dust:
+            // On-chain, when prior dust is combined with current winnings to purchase an extra ticket,
+            // 100% of current winnings (amountOwed) is recorded in amountReinvested.
+            // If amountReinvested % bondPrice !== 0 for a processed winner, Math.ceil gives the true tickets purchased.
+            let reinvestedTickets: number | undefined;
+            let usedPriorDust: number | undefined;
+            let dustAccumulated: number | undefined;
 
-            // Compute dust
-            const dustAccumulated =
-              winner.processed && amountOwed > amountReinvested
-                ? amountOwed - amountReinvested
-                : undefined;
-
-            // Compute dust applied from prior draws if total ticket purchase exceeded current win
-            const totalTicketValue = (reinvestedTickets || 0) * bondPrice;
-            const usedPriorDust =
-              totalTicketValue > amountOwed
-                ? totalTicketValue - amountOwed
-                : undefined;
+            if (amountReinvested > 0) {
+              if (amountReinvested % bondPrice !== 0 && winner.processed) {
+                reinvestedTickets = Math.ceil(amountReinvested / bondPrice);
+                const totalTicketValue = reinvestedTickets * bondPrice;
+                usedPriorDust = totalTicketValue > amountOwed ? totalTicketValue - amountOwed : undefined;
+                dustAccumulated = 0;
+              } else {
+                reinvestedTickets = Math.floor(amountReinvested / bondPrice);
+                if (winner.processed && amountOwed > amountReinvested) {
+                  dustAccumulated = amountOwed - amountReinvested;
+                }
+              }
+            }
 
             userPrizes.push({
               drawCycleId: cycleId,

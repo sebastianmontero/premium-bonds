@@ -75,7 +75,6 @@ export interface PrizeHistoryEntry {
   usedPriorDust?: number; // base units of previously accumulated dust applied to purchase tickets
   reinvestedTickets?: number; // present when status is "reinvested" or "partial"
   winningTicket?: string;
-  userTicketRange?: { start: number; end: number };
   vrfSeed?: string;
   txSignature?: string;
 }

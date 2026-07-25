@@ -251,7 +251,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     status: "processing",
     amountReinvested: 0,
     winningTicket: "154289",
-    userTicketRange: { start: 154200, end: 154450 },
     vrfSeed:
       "0x8f2d59ae7a5e8e3d0c2dbb5514f738ac2d19f8e3c12f4581aaefb0f20d5a3721",
     txSignature:
@@ -268,7 +267,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(0),
     reinvestedTickets: 17,
     winningTicket: "098231",
-    userTicketRange: { start: 98150, end: 98400 },
     vrfSeed:
       "0x3e21ab74d9e03f568a2d12f38c4ab798625df3890ce7cd842ebfae812d4a1b02",
     txSignature:
@@ -285,7 +283,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(2),
     reinvestedTickets: 8,
     winningTicket: "042912",
-    userTicketRange: { start: 42800, end: 43050 },
     vrfSeed:
       "0xfa729e81b2c4d79a2ebdf01235de98214fa3bc876e9a8f4cde231bf584e03d79",
     txSignature:
@@ -302,7 +299,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(0),
     reinvestedTickets: 5,
     winningTicket: "019482",
-    userTicketRange: { start: 19400, end: 19650 },
     vrfSeed:
       "0xbc892ea0124f5a381de0f9b6e82c578abef9a12cd0294e7b8f9aef1c2b5e670d",
     txSignature:
@@ -319,7 +315,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(0),
     reinvestedTickets: 300,
     winningTicket: "005391",
-    userTicketRange: { start: 5300, end: 5550 },
     vrfSeed:
       "0x12a9e3d82f5b4c7f9ea0e81c72f5d027e8a9d1cd20e8b7c3d4fba7c125aefb98",
     txSignature:
@@ -337,7 +332,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(0),
     reinvestedTickets: 4,
     winningTicket: "001289",
-    userTicketRange: { start: 1200, end: 1450 },
     vrfSeed:
       "0x78a1bc2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
     txSignature:
@@ -354,7 +348,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(2),
     reinvestedTickets: 4,
     winningTicket: "000542",
-    userTicketRange: { start: 400, end: 650 },
     vrfSeed:
       "0x89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
     txSignature:
@@ -371,7 +364,6 @@ export const MOCK_PRIZE_HISTORY: PrizeHistoryEntry[] = [
     dustAccumulated: usdc(0),
     reinvestedTickets: 24,
     winningTicket: "000210",
-    userTicketRange: { start: 100, end: 350 },
     vrfSeed:
       "0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
     txSignature:

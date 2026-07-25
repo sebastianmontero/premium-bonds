@@ -27,12 +27,6 @@ function formatTicketNumber(ticket?: string): string {
   return clean ? `#${clean}` : "N/A";
 }
 
-/** Safely parses a ticket string to integer for slider math */
-function parseTicketNumber(ticket?: string): number {
-  const clean = sanitizeTicketNumber(ticket);
-  return clean ? parseInt(clean, 10) : NaN;
-}
-
 export default function PrizeDetailsModal({
   entry,
   isOpen,
@@ -66,20 +60,6 @@ export default function PrizeDetailsModal({
     setShareStatus("Copied share template to clipboard!");
     setTimeout(() => setShareStatus(null), 3000);
   };
-
-  // Calculate ticket visualizer percentage
-  let visualPct = 50;
-  let isWinningTicketInRange = false;
-
-  if (entry.userTicketRange && entry.winningTicket) {
-    const winVal = parseTicketNumber(entry.winningTicket);
-    const { start, end } = entry.userTicketRange;
-    if (!isNaN(winVal) && end > start) {
-      visualPct = ((winVal - start) / (end - start)) * 100;
-      visualPct = Math.max(0, Math.min(100, visualPct));
-      isWinningTicketInRange = winVal >= start && winVal <= end;
-    }
-  }
 
   const formattedDate = new Date(entry.date + "T00:00:00").toLocaleDateString(
     "en-US",
@@ -262,115 +242,6 @@ export default function PrizeDetailsModal({
             </div>
           </div>
 
-          {/* Ticket Range Visualizer or Fallback Info */}
-          {entry.userTicketRange && entry.winningTicket ? (
-            <div className="p-5 rounded-xl bg-surface-container/20 border border-surface-bright/5 space-y-4">
-              <h4 className="text-sm font-semibold text-on-surface">
-                Ticket Match Visualizer
-              </h4>
-
-              <div className="grid grid-cols-2 text-xs text-on-surface-variant">
-                <div>
-                  Your Held Range:{" "}
-                  <span className="font-mono text-on-surface font-semibold">
-                    #{entry.userTicketRange.start} - #
-                    {entry.userTicketRange.end}
-                  </span>
-                </div>
-                <div className="text-right">
-                  Winning Ticket:{" "}
-                  <span className="font-mono text-primary font-bold">
-                    {formatTicketNumber(entry.winningTicket)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Visual Slider Bar */}
-              <div className="relative pt-6 pb-2">
-                {/* Horizontal range bar */}
-                <div className="h-2 w-full rounded-full bg-surface-container border border-surface-bright/10 relative">
-                  {/* Winning ticket highlighted position */}
-                  <div
-                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center"
-                    style={{ left: `${visualPct}%` }}
-                  >
-                    {/* Glowing Pointer */}
-                    <div className="h-4 w-4 rounded-full bg-primary border-2 border-[#0F111A] shadow-[0_0_8px_var(--color-primary)] animate-pulse" />
-
-                    {/* Tooltip Label */}
-                    <div className="absolute bottom-6 whitespace-nowrap bg-primary text-surface-container text-[10px] font-bold px-2 py-0.5 rounded shadow-lg">
-                      Win Match
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tick Labels */}
-                <div className="flex justify-between text-[10px] text-on-surface-variant font-mono mt-2">
-                  <span>#{entry.userTicketRange.start}</span>
-                  <span className="text-on-surface-variant/40">
-                    Range Midpoint
-                  </span>
-                  <span>#{entry.userTicketRange.end}</span>
-                </div>
-              </div>
-
-              {isWinningTicketInRange ? (
-                <p className="text-xs text-emerald-400 flex items-center gap-1.5 bg-emerald-500/5 border border-emerald-500/10 p-2.5 rounded-lg">
-                  <svg
-                    className="w-4 h-4 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  Verification Pass: The drawn winning ticket fell directly
-                  inside your held ticket range.
-                </p>
-              ) : (
-                <p className="text-xs text-amber-400 flex items-center gap-1.5 bg-amber-500/5 border border-amber-500/10 p-2.5 rounded-lg">
-                  <svg
-                    className="w-4 h-4 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
-                  Visual mismatch: Simulated out-of-range indicator for
-                  secondary proof checking.
-                </p>
-              )}
-            </div>
-          ) : entry.winningTicket ? (
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2.5">
-                <span className="text-lg">🎫</span>
-                <div>
-                  <p className="font-semibold text-on-surface">
-                    Winning Ticket Selected via VRF
-                  </p>
-                  <p className="text-[11px] text-on-surface-variant">
-                    Ticket{" "}
-                    <span className="font-mono text-primary font-bold">
-                      {formatTicketNumber(entry.winningTicket)}
-                    </span>{" "}
-                    was selected for Draw Cycle #{entry.drawCycleId}.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
           {/* Auto-Reinvestment Detail Section */}
           {(entry.status === "reinvested" || entry.status === "partial") && (
