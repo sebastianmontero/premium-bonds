@@ -122,7 +122,9 @@ export default function CompleteLedgerModal({
         entry.drawCycleId.toString().includes(searchTerm) ||
         entry.txSignature?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         entry.winningTicket?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tierLabel(entry.tierIndex).toLowerCase().includes(searchTerm.toLowerCase());
+        tierLabel(entry.tierIndex)
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase());
 
       // 2. Status Matching
       const matchesStatus =
@@ -369,7 +371,10 @@ export default function CompleteLedgerModal({
         {/* Scrollable list */}
         <div className="flex-1 overflow-y-auto p-2 space-y-3 min-h-0">
           {isLoading ? (
-            <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+            <div
+              className="space-y-3 pointer-events-none select-none"
+              aria-hidden="true"
+            >
               <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
                 <div>Draw</div>
                 <div>Date</div>

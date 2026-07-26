@@ -126,9 +126,15 @@ export function ActivityFeed({
   return (
     <div className="glass-strong rounded-2xl p-6 h-full max-h-[460px] flex flex-col min-h-0">
       {isLoading ? (
-        <div className="flex-1 min-h-0 space-y-3 pointer-events-none select-none" aria-hidden="true">
+        <div
+          className="flex-1 min-h-0 space-y-3 pointer-events-none select-none"
+          aria-hidden="true"
+        >
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex items-center gap-3 p-3 rounded-xl skeleton-card">
+            <div
+              key={i}
+              className="flex items-center gap-3 p-3 rounded-xl skeleton-card"
+            >
               <div className="w-8 h-8 rounded-lg skeleton-box shrink-0" />
               <div className="flex-1 space-y-2">
                 <div className="flex items-center justify-between">

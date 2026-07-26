@@ -200,9 +200,7 @@ export async function executeHarvest({
   if (!poolAcc || !poolAcc.value) {
     throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
   }
-  const poolBytes = new Uint8Array(
-    base64Encoder.encode(poolAcc.value.data[0])
-  );
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
   const pstMintStr = stateAddresses.pstMint;
@@ -277,9 +275,7 @@ export async function executePrepareDraw({
   if (!poolAcc || !poolAcc.value) {
     throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
   }
-  const poolBytes = new Uint8Array(
-    base64Encoder.encode(poolAcc.value.data[0])
-  );
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
   const registryAddr = poolState.ticketRegistry;
@@ -370,9 +366,7 @@ export async function executeReveal({
   if (!poolAcc || !poolAcc.value) {
     throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
   }
-  const poolBytes = new Uint8Array(
-    base64Encoder.encode(poolAcc.value.data[0])
-  );
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
   const targetCycleId =
@@ -391,10 +385,10 @@ export async function executeReveal({
   if (!registryAcc || !registryAcc.value) {
     throw new Error(`Ticket registry at ${registryAddr} not found.`);
   }
-  let registryBytes = new Uint8Array(
+  const registryBytes = new Uint8Array(
     base64Encoder.encode(registryAcc.value.data[0])
   );
-  let registryState = parseTicketRegistry(registryBytes);
+  const registryState = parseTicketRegistry(registryBytes);
 
   if (registryState.drawPreparedUpTo < registryState.userCount) {
     console.log(
@@ -588,9 +582,7 @@ export async function executeReinvest({
   if (!poolAcc || !poolAcc.value) {
     throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
   }
-  const poolBytes = new Uint8Array(
-    base64Encoder.encode(poolAcc.value.data[0])
-  );
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
   const targetCycleId =
@@ -775,7 +767,9 @@ async function main() {
     }
 
     case "reveal": {
-      let cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      let cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
       if (cycleId === undefined && positionals.length > 0) {
         const val = parseInt(positionals[0], 10);
         if (!isNaN(val)) cycleId = val;
@@ -792,7 +786,9 @@ async function main() {
 
     case "prepare-draw": {
       const batchSize = parseInt(options["--batch-size"] || "1000", 10);
-      const cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      const cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
       await executePrepareDraw({
         poolId,
         cycleId,
@@ -804,7 +800,9 @@ async function main() {
     }
 
     case "reinvest": {
-      const cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      const cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
       const maxBonds = parseInt(options["--max-bonds"] || "1000", 10);
       const winnerOption = options["--winner"] || positionals[0];
       await executeReinvest({

@@ -18,16 +18,10 @@ import { checkRpcHealth, sendTx } from "./utils";
 import {
   findHumaPoolAuthorityPda,
   findAtaAddress,
-  findPrizePoolPda,
   findDrawCyclePda,
-  parsePrizePool,
   parseDrawCycle,
 } from "../app/lib/bonds-sdk";
-import {
-  executeHarvest,
-  executeReveal,
-  executeReinvest,
-} from "./pb-cli";
+import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";
@@ -542,7 +536,6 @@ async function ensureProgramsInjected() {
   await injectProgram(MOCK_HUMA_PROGRAM_ID_STR, mockHumaSoPath);
 }
 
-
 function writeEnvLocal(
   addresses: LocalnetAddresses,
   adminAddress: string,
@@ -607,7 +600,6 @@ async function handleInit(dbName?: string) {
 
   // 4. Inject programs
   await ensureProgramsInjected();
-
 
   // 5. Inject mock accounts
   console.log("Injecting USDC Mint account...");
@@ -2394,7 +2386,9 @@ async function handleDraw(args: string[]) {
   const rpc = createSolanaRpc(RPC_URL);
 
   if (yieldAmountStr !== undefined) {
-    console.log(`Simulating ${yieldAmountStr} USDC yield for pool ${poolId}...`);
+    console.log(
+      `Simulating ${yieldAmountStr} USDC yield for pool ${poolId}...`
+    );
     await handleYield([yieldAmountStr, "--pool-id", poolId.toString()]);
   }
 
@@ -2409,7 +2403,9 @@ async function handleDraw(args: string[]) {
 
   const poolAcc = await rpc.getAccountInfo(poolAddress).send();
   if (!poolAcc || !poolAcc.value) {
-    console.error(`Error: PrizePool account for pool ${poolId} does not exist.`);
+    console.error(
+      `Error: PrizePool account for pool ${poolId} does not exist.`
+    );
     process.exit(1);
   }
 

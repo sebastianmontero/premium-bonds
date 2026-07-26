@@ -123,7 +123,10 @@ export function PrizeHistoryLedger({
 
       {isLoading ? (
         /* ── Loading Skeleton State ───────────────────────────────────── */
-        <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+        <div
+          className="space-y-3 pointer-events-none select-none"
+          aria-hidden="true"
+        >
           <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5">
             <div>Draw</div>
             <div>Date</div>

@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import type { ScanProgress } from "@/app/hooks/useActivityFeed";
@@ -420,7 +426,10 @@ export default function CompleteActivityModal({
         {/* Scrollable Feed List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
           {isLoading ? (
-            <div className="space-y-3 p-1 pointer-events-none select-none" aria-hidden="true">
+            <div
+              className="space-y-3 p-1 pointer-events-none select-none"
+              aria-hidden="true"
+            >
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <div
                   key={i}

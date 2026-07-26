@@ -403,7 +403,8 @@ export function useActivityFeed(
       filterFn: (entry: ActivityEntry) => boolean,
       targetCount: number
     ): Promise<void> => {
-      if (!userAddress || !hasMoreRef.current || isFetchingMoreRef.current) return;
+      if (!userAddress || !hasMoreRef.current || isFetchingMoreRef.current)
+        return;
 
       let currentMatches = entriesRef.current.filter(filterFn).length;
       if (currentMatches >= targetCount) return;

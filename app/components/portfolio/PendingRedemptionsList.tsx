@@ -111,7 +111,10 @@ export function PendingRedemptionsList({
 
         <div className="space-y-4">
           {isLoading ? (
-            <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+            <div
+              className="space-y-3 pointer-events-none select-none"
+              aria-hidden="true"
+            >
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
