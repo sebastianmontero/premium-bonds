@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
 import { parseTransactionError } from "@/app/lib/errors";
@@ -48,6 +48,7 @@ export default function DashboardPage() {
     userWinnings: onChainWinnings,
     pendingRedemptions: onChainPendingRedemptions,
     walletBalance,
+    isLoading: isBondsLoading,
     refetch,
     actions,
   } = useBondsContract(1);
@@ -59,6 +60,7 @@ export default function DashboardPage() {
   const {
     prizeHistory: onChainPrizeHistory,
     recentWinners: onChainRecentWinners,
+    isLoading: isDrawHistoryLoading,
     refetch: refetchDrawHistory,
   } = useDrawHistory(
     1,
@@ -70,6 +72,7 @@ export default function DashboardPage() {
 
   const {
     entries: onChainActivityFeed,
+    isLoading: isActivityLoading,
     isFetchingMore: isFetchingActivityMore,
     hasMore: hasMoreActivity,
     scanProgress: activityScanProgress,
@@ -81,6 +84,13 @@ export default function DashboardPage() {
     isConnected ? userAddress : undefined,
     activePool.tokenDecimals
   );
+
+  // Initial page load simulation (1000ms) for smooth skeleton feedback and account hydration
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setIsInitialLoading(false), 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
@@ -282,9 +292,7 @@ export default function DashboardPage() {
                   amountReinvested: finalReinvestedAmount,
                   reinvestedTickets: newTicketsCount,
                   usedPriorDust:
-                    updatedUsedPriorDust > 0
-                      ? updatedUsedPriorDust
-                      : undefined,
+                    updatedUsedPriorDust > 0 ? updatedUsedPriorDust : undefined,
                   dustAccumulated: dustAmount,
                 }
               : p
@@ -304,9 +312,7 @@ export default function DashboardPage() {
                   amountReinvested: finalReinvestedAmount,
                   reinvestedTickets: newTicketsCount,
                   usedPriorDust:
-                    updatedUsedPriorDust > 0
-                      ? updatedUsedPriorDust
-                      : undefined,
+                    updatedUsedPriorDust > 0 ? updatedUsedPriorDust : undefined,
                   dustAccumulated: dustAmount,
                 }
               : null
@@ -566,6 +572,7 @@ export default function DashboardPage() {
             <ActivityFeed
               entries={activeActivityFeed}
               onViewCompleteFeed={() => setShowCompleteActivity(true)}
+              isLoading={isInitialLoading || (isConnected && isActivityLoading)}
             />
           </div>
         </div>
@@ -580,6 +587,7 @@ export default function DashboardPage() {
           tokenSymbol={activePool.tokenSymbol}
           tokenDecimals={activePool.tokenDecimals}
           showSimulation={!isConnected}
+          isLoading={isInitialLoading || (isConnected && isBondsLoading)}
         />
       </div>
 
@@ -595,6 +603,7 @@ export default function DashboardPage() {
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         onViewCompleteLedger={() => setShowCompleteLedger(true)}
         crankingCycles={crankingCycles}
+        isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
       />
 
       {/* ── Recent Winners ─────────────────────────────────────────── */}
@@ -650,6 +659,7 @@ export default function DashboardPage() {
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         crankingCycles={crankingCycles}
+        isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
       />
 
       <CompleteActivityModal
@@ -658,6 +668,7 @@ export default function DashboardPage() {
         onClose={() => setShowCompleteActivity(false)}
         hasMore={hasMoreActivity}
         isFetchingMore={isFetchingActivityMore}
+        isLoading={isInitialLoading || (isConnected && isActivityLoading)}
         scanProgress={activityScanProgress}
         onLoadMore={loadMoreActivity}
         onFetchUntilMatches={fetchUntilMatchesActivity}

@@ -214,7 +214,10 @@ export function useDrawHistory(
               if (amountReinvested % bondPrice !== 0 && winner.processed) {
                 reinvestedTickets = Math.ceil(amountReinvested / bondPrice);
                 const totalTicketValue = reinvestedTickets * bondPrice;
-                usedPriorDust = totalTicketValue > amountOwed ? totalTicketValue - amountOwed : undefined;
+                usedPriorDust =
+                  totalTicketValue > amountOwed
+                    ? totalTicketValue - amountOwed
+                    : undefined;
                 dustAccumulated = 0;
               } else {
                 reinvestedTickets = Math.floor(amountReinvested / bondPrice);

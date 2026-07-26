@@ -12,6 +12,7 @@ interface PendingRedemptionsListProps {
   tokenSymbol: string;
   tokenDecimals: number;
   showSimulation?: boolean;
+  isLoading?: boolean;
 }
 
 export function PendingRedemptionsList({
@@ -21,6 +22,7 @@ export function PendingRedemptionsList({
   tokenSymbol,
   tokenDecimals,
   showSimulation = true,
+  isLoading = false,
 }: PendingRedemptionsListProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 4;
@@ -90,9 +92,17 @@ export function PendingRedemptionsList({
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-display text-base font-bold text-on-surface">
-              Pending Redemptions
-            </h3>
+            <div className="flex items-center gap-2.5">
+              <h3 className="font-display text-base font-bold text-on-surface">
+                Pending Redemptions
+              </h3>
+              {isLoading && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary animate-pulse">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-spin" />
+                  Syncing on-chain...
+                </span>
+              )}
+            </div>
             <p className="text-xs text-on-surface-variant mt-0.5">
               Retrieve settled funds from Huma Finance yield pools
             </p>
@@ -100,7 +110,28 @@ export function PendingRedemptionsList({
         </div>
 
         <div className="space-y-4">
-          {redemptions.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl skeleton-card"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl skeleton-box shrink-0" />
+                    <div className="space-y-2">
+                      <div className="h-4.5 w-40 rounded-md skeleton-box" />
+                      <div className="h-3.5 w-52 rounded-md skeleton-box" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 self-end sm:self-center">
+                    <div className="h-4.5 w-24 rounded-md skeleton-box" />
+                    <div className="h-8 w-28 rounded-lg skeleton-box" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : redemptions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
               <svg
                 width="32"

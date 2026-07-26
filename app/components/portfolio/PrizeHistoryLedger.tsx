@@ -15,6 +15,7 @@ interface PrizeHistoryLedgerProps {
   onViewDetails?: (entry: PrizeHistoryEntry) => void;
   onViewCompleteLedger?: () => void;
   crankingCycles?: Record<string, boolean>;
+  isLoading?: boolean;
 }
 
 function statusPill(
@@ -74,6 +75,7 @@ export function PrizeHistoryLedger({
   onViewDetails,
   onViewCompleteLedger,
   crankingCycles = {},
+  isLoading = false,
 }: PrizeHistoryLedgerProps) {
   const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
 
@@ -93,9 +95,17 @@ export function PrizeHistoryLedger({
       {/* ── Section Header ────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="font-display text-lg font-bold text-on-surface">
-            Prize History Ledger
-          </h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="font-display text-lg font-bold text-on-surface">
+              Prize History Ledger
+            </h2>
+            {isLoading && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary animate-pulse">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-spin" />
+                Syncing draw history...
+              </span>
+            )}
+          </div>
           <p className="text-xs text-on-surface-variant">
             Historical verification of all win draw allocations.
           </p>
@@ -111,7 +121,32 @@ export function PrizeHistoryLedger({
         )}
       </div>
 
-      {entries.length === 0 ? (
+      {isLoading ? (
+        /* ── Loading Skeleton State ───────────────────────────────────── */
+        <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+          <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5">
+            <div>Draw</div>
+            <div>Date</div>
+            <div>Tier</div>
+            <div>Amount Won</div>
+            <div>Status</div>
+            <div className="text-right">Actions</div>
+          </div>
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="flex flex-col md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl skeleton-card"
+            >
+              <div className="h-5 w-12 rounded-md skeleton-box" />
+              <div className="h-3.5 w-20 rounded-md skeleton-box" />
+              <div className="h-6 w-24 rounded-full skeleton-box" />
+              <div className="h-4 w-20 rounded-md skeleton-box" />
+              <div className="h-6 w-28 rounded-full skeleton-box" />
+              <div className="h-8 w-24 rounded-xl skeleton-box md:ml-auto" />
+            </div>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
         /* ── Empty State ──────────────────────────────────────────────── */
         <div className="flex flex-col items-center justify-center py-8 text-center h-full border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
           <svg
@@ -264,8 +299,8 @@ export function PrizeHistoryLedger({
                                 priorDustApplied,
                                 tokenDecimals
                               )}{" "}
-                              {tokenSymbol} of previous dust with this draw&apos;s
-                              winnings to purchase an extra ticket.
+                              {tokenSymbol} of previous dust with this
+                              draw&apos;s winnings to purchase an extra ticket.
                             </div>
                           </div>
                         );

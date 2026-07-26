@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import type { ScanProgress } from "@/app/hooks/useActivityFeed";
@@ -11,6 +11,7 @@ interface CompleteActivityModalProps {
   onClose: () => void;
   hasMore?: boolean;
   isFetchingMore?: boolean;
+  isLoading?: boolean;
   scanProgress?: ScanProgress | null;
   onLoadMore?: () => Promise<boolean>;
   onFetchUntilMatches?: (
@@ -140,6 +141,7 @@ export default function CompleteActivityModal({
   onClose,
   hasMore = false,
   isFetchingMore = false,
+  isLoading = false,
   scanProgress = null,
   onLoadMore,
   onFetchUntilMatches,
@@ -237,6 +239,50 @@ export default function CompleteActivityModal({
     return filteredEntries.slice(start, start + pageSize);
   }, [filteredEntries, safePage, pageSize]);
 
+  // Track attempted queries to prevent infinite background scanning loops
+  const attemptedQueriesRef = useRef<Set<string>>(new Set());
+  const queryKey = `${debouncedSearchTerm}:${typeFilter}:${safePage}`;
+
+  useEffect(() => {
+    attemptedQueriesRef.current.clear();
+  }, [debouncedSearchTerm, typeFilter]);
+
+  // Auto-trigger background batch scanning if filtered items are fewer than needed for current page
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !onFetchUntilMatches ||
+      !hasMore ||
+      isFetchingMore ||
+      scanProgress !== null ||
+      attemptedQueriesRef.current.has(queryKey)
+    ) {
+      return;
+    }
+
+    const needed = safePage * pageSize;
+    if (filteredEntries.length < needed) {
+      attemptedQueriesRef.current.add(queryKey);
+      onFetchUntilMatches(
+        (entry) => isMatch(entry, debouncedSearchTerm, typeFilter),
+        needed
+      );
+    }
+  }, [
+    isOpen,
+    filteredEntries.length,
+    safePage,
+    pageSize,
+    hasMore,
+    isFetchingMore,
+    scanProgress,
+    debouncedSearchTerm,
+    typeFilter,
+    queryKey,
+    isMatch,
+    onFetchUntilMatches,
+  ]);
+
   if (!isOpen) return null;
 
   return (
@@ -289,11 +335,12 @@ export default function CompleteActivityModal({
               type="text"
               placeholder="Search description or transaction ID..."
               value={searchTerm}
+              disabled={isLoading}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <svg
               className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
@@ -314,11 +361,12 @@ export default function CompleteActivityModal({
           <div className="flex gap-2 items-center">
             <select
               value={typeFilter}
+              disabled={isLoading}
               onChange={(e) => {
                 setTypeFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="all">All Event Types</option>
               <option value="deposit">Deposits</option>
@@ -330,7 +378,8 @@ export default function CompleteActivityModal({
             {(searchTerm || typeFilter !== "all") && (
               <button
                 onClick={resetFilters}
-                className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer shrink-0"
+                disabled={isLoading}
+                className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Clear
               </button>
@@ -370,7 +419,25 @@ export default function CompleteActivityModal({
 
         {/* Scrollable Feed List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
-          {filteredEntries.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-3 p-1 pointer-events-none select-none" aria-hidden="true">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between p-4 rounded-xl border border-surface-bright/10 bg-[#08090E]/50"
+                >
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="w-9 h-9 rounded-lg skeleton-box shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-52 rounded-md skeleton-box" />
+                      <div className="h-3 w-32 rounded-md skeleton-box" />
+                    </div>
+                    <div className="h-4 w-20 rounded-md skeleton-box shrink-0" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40 mt-4">
               <svg
                 className="w-10 h-10 text-on-surface-variant/20 mb-3"
@@ -393,12 +460,48 @@ export default function CompleteActivityModal({
                   ? "Fetching historical records from Solana..."
                   : "No activities matched your current search term or filter selection."}
               </p>
-              <button
-                onClick={resetFilters}
-                className="mt-4 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer"
-              >
-                Reset Filters
-              </button>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={resetFilters}
+                  className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 transition cursor-pointer"
+                >
+                  Reset Filters
+                </button>
+                {hasMore && onLoadMore && (
+                  <button
+                    onClick={() => onLoadMore()}
+                    disabled={isFetchingMore}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {isFetchingMore ? (
+                      <>
+                        <svg
+                          className="w-3.5 h-3.5 animate-spin"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        <span>Scanning Older Transactions...</span>
+                      </>
+                    ) : (
+                      <span>Scan Deeper for Matches ↓</span>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-1">
@@ -490,6 +593,7 @@ export default function CompleteActivityModal({
               setCurrentPage(1);
             }}
             variant="full"
+            showTotalCount={false}
           />
         </div>
 

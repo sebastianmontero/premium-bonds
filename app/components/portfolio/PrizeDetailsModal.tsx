@@ -203,7 +203,9 @@ export default function PrizeDetailsModal({
               </div>
               <p className="text-lg font-bold font-mono text-primary mt-1 flex items-center gap-1.5 truncate">
                 <span className="text-base shrink-0">🎫</span>
-                <span className="truncate">{formatTicketNumber(entry.winningTicket)}</span>
+                <span className="truncate">
+                  {formatTicketNumber(entry.winningTicket)}
+                </span>
               </p>
             </div>
             <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
@@ -241,7 +243,6 @@ export default function PrizeDetailsModal({
               </div>
             </div>
           </div>
-
 
           {/* Auto-Reinvestment Detail Section */}
           {(entry.status === "reinvested" || entry.status === "partial") && (
@@ -314,11 +315,7 @@ export default function PrizeDetailsModal({
                           Prior Dust Applied
                         </p>
                         <p className="font-mono text-sm font-bold text-tertiary mt-1">
-                          +
-                          {formatTokenAmount(
-                            priorDustApplied,
-                            tokenDecimals
-                          )}{" "}
+                          +{formatTokenAmount(priorDustApplied, tokenDecimals)}{" "}
                           {tokenSymbol}
                         </p>
                       </div>
@@ -360,13 +357,14 @@ export default function PrizeDetailsModal({
                           </p>
                           <p className="text-on-surface-variant text-[11px] leading-relaxed">
                             $
+                            {formatTokenAmount(priorDustApplied, tokenDecimals)}{" "}
+                            {tokenSymbol} from your previously accumulated dust
+                            balance was combined with this draw&apos;s winnings
+                            ($
                             {formatTokenAmount(
-                              priorDustApplied,
+                              entry.amount,
                               tokenDecimals
                             )}{" "}
-                            {tokenSymbol} from your previously accumulated dust
-                            balance was combined with this draw&apos;s winnings ($
-                            {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                             {tokenSymbol}) to purchase an extra ticket!
                           </p>
                         </div>

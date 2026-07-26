@@ -3,7 +3,7 @@
 > **Status**: Complete Primary Source Research  
 > **Author**: Senior Staff Solana AI Assistant  
 > **Date**: July 2026  
-> **Target Audience**: Solana dApp Engineers, Smart Contract Developers, UX Designers  
+> **Target Audience**: Solana dApp Engineers, Smart Contract Developers, UX Designers
 
 ---
 
@@ -47,24 +47,28 @@ Errors in a Solana dApp originate from five distinct layers. Correctly categoriz
 ```
 
 ### Layer 1: Wallet & Signer Layer
+
 - **User Rejection (`4001` / `UserRejectedRequestError`)**: The user clicked "Deny" or closed the wallet popup. This is an intentional user choice, **not an application bug**.
 - **Wallet Not Connected**: Triggered when a user attempts a transaction without an active wallet session.
 - **Cluster/Network Mismatch**: Wallet is configured to Devnet while dApp expects Mainnet-Beta.
 - **Hardware Wallet Disconnect / Timeout**: Ledger/hardware wallet locked or timeout during approval.
 
 ### Layer 2: Pre-flight & Simulation Layer
+
 - **Account Rent Exemption Failure**: Account creation missing required lamports for rent exemption.
 - **Account Not Found / Uninitialized**: Instruction expects an account that does not exist on-chain.
 - **Compute Unit (CU) Limit Exceeded**: Transaction requires more CUs than requested (default 200k per instruction).
 - **Invalid Account Owner / Authority**: Signer does not match expected authority constraint.
 
 ### Layer 3: RPC & Network Transport Layer
+
 - **HTTP 429 Rate Limit**: RPC endpoint throttling requests due to excessive traffic.
 - **Blockhash Expired (`SOLANA_ERROR__TRANSACTION__BLOCKHEIGHT_EXCEEDED` / `TransactionExpiredBlockheightExceededError`)**: Transaction was not included in a block before the blockhash reached its valid blockheight limit (~150 blocks, ~60 seconds).
 - **RPC Timeout / Dropped Transaction**: Transaction sent via RPC but never reached validator leader.
 - **Priority Fee / Network Congestion**: Transaction dropped or deprioritized due to low compute unit price during high cluster load.
 
 ### Layer 4: On-Chain Program Layer
+
 - **System Program Errors**:
   - `0x0` (0): Account already in use / initialized.
   - `0x1` (1): Insufficient funds for transaction fee or transfer.
@@ -81,6 +85,7 @@ Errors in a Solana dApp originate from five distinct layers. Correctly categoriz
   - Example: `0x1771` = `6001` = Second custom error defined in `#[error_code]`.
 
 ### Layer 5: Post-Confirmation & Sync State Layer
+
 - **Confirmed Execution Failure**: Transaction confirmed on chain, but contains instruction error (`meta.err != null`).
 - **Indexer / Read Replica Lag**: Transaction succeeded on chain, but dApp UI queries a stale RPC node before state updates propagate.
 
@@ -92,7 +97,7 @@ To transform opaque errors into structured objects, implement a multi-stage deco
 
 ```typescript
 export interface ParsedSolanaError {
-  layer: 'wallet' | 'simulation' | 'rpc' | 'program' | 'unknown';
+  layer: "wallet" | "simulation" | "rpc" | "program" | "unknown";
   code: string | number;
   title: string;
   message: string;
@@ -105,6 +110,7 @@ export interface ParsedSolanaError {
 ```
 
 ### 2.1 Anchor Error Decoding (`AnchorError`)
+
 In `@coral-xyz/anchor`, the `AnchorError` class automatically decodes Anchor-defined errors when the IDL is attached to the `Program` instance.
 
 ```typescript
@@ -114,10 +120,12 @@ export function parseAnchorError(err: unknown): ParsedSolanaError | null {
   const anchorErr = AnchorError.parse(err as Error);
   if (anchorErr) {
     return {
-      layer: 'program',
+      layer: "program",
       code: anchorErr.error.errorCode.code,
       title: `Program Error: ${anchorErr.error.errorCode.name}`,
-      message: anchorErr.error.errorMessage || 'An on-chain program constraint failed.',
+      message:
+        anchorErr.error.errorMessage ||
+        "An on-chain program constraint failed.",
       isUserCancellation: false,
       rawError: err,
       logs: anchorErr.logs,
@@ -128,6 +136,7 @@ export function parseAnchorError(err: unknown): ParsedSolanaError | null {
 ```
 
 ### 2.2 Modern `@solana/errors` and `@solana/kit` Handling
+
 In Solana Web3.js v2 (`@solana/kit` and `@solana/errors`), use `isSolanaError` and specific `SOLANA_ERROR__*` codes:
 
 ```typescript
@@ -140,21 +149,21 @@ import {
 export function parseKitError(err: unknown): ParsedSolanaError | null {
   if (isSolanaError(err, SOLANA_ERROR__TRANSACTION__BLOCKHEIGHT_EXCEEDED)) {
     return {
-      layer: 'rpc',
-      code: 'BLOCKHEIGHT_EXCEEDED',
-      title: 'Transaction Expired',
-      message: 'The transaction took too long to confirm and expired.',
-      actionableStep: 'Please try sending the transaction again.',
+      layer: "rpc",
+      code: "BLOCKHEIGHT_EXCEEDED",
+      title: "Transaction Expired",
+      message: "The transaction took too long to confirm and expired.",
+      actionableStep: "Please try sending the transaction again.",
       isUserCancellation: false,
       rawError: err,
     };
   }
-  
+
   if (isSolanaError(err)) {
     return {
-      layer: 'rpc',
+      layer: "rpc",
       code: err.code,
-      title: 'Solana Protocol Error',
+      title: "Solana Protocol Error",
       message: err.message,
       isUserCancellation: false,
       rawError: err,
@@ -166,36 +175,49 @@ export function parseKitError(err: unknown): ParsedSolanaError | null {
 ```
 
 ### 2.3 Wallet Rejection & Standard Error Codes
+
 Wallets implementing the Wallet Standard or Legacy adapter emit error code `4001` or name `UserRejectedRequestError`.
 
 ```typescript
 export function isUserRejection(err: any): boolean {
   if (!err) return false;
   if (err.code === 4001) return true;
-  if (err.name === 'UserRejectedRequestError') return true;
-  if (typeof err.message === 'string' && err.message.toLowerCase().includes('user rejected')) return true;
+  if (err.name === "UserRejectedRequestError") return true;
+  if (
+    typeof err.message === "string" &&
+    err.message.toLowerCase().includes("user rejected")
+  )
+    return true;
   return false;
 }
 ```
 
 ### 2.4 Program Log Regex Parsing (Fallback Decoder)
+
 When standard decoders miss (e.g. missing IDL or raw RPC simulation error string), parse the transaction logs using regular expressions.
 
 ```typescript
-const ANCHOR_ERROR_REGEX = /Program log: AnchorError thrown in (.*?):(\d+)\. Error Code: (.*?)\. Error Message: (.*?)\./;
+const ANCHOR_ERROR_REGEX =
+  /Program log: AnchorError thrown in (.*?):(\d+)\. Error Code: (.*?)\. Error Message: (.*?)\./;
 const CUSTOM_HEX_REGEX = /Custom error: (0x[0-9a-fA-F]+|\d+)/;
-const INSTRUCTION_ERROR_REGEX = /Instruction (\d+) failed: Custom error (0x[0-9a-fA-F]+|\d+)/;
+const INSTRUCTION_ERROR_REGEX =
+  /Instruction (\d+) failed: Custom error (0x[0-9a-fA-F]+|\d+)/;
 
-export function parseLogsFallback(logs: string[]): { code: number; message?: string } | null {
+export function parseLogsFallback(
+  logs: string[]
+): { code: number; message?: string } | null {
   for (const log of logs) {
     const anchorMatch = log.match(ANCHOR_ERROR_REGEX);
     if (anchorMatch) {
       return { code: 6000, message: anchorMatch[4] };
     }
-    const customMatch = log.match(CUSTOM_HEX_REGEX) || log.match(INSTRUCTION_ERROR_REGEX);
+    const customMatch =
+      log.match(CUSTOM_HEX_REGEX) || log.match(INSTRUCTION_ERROR_REGEX);
     if (customMatch) {
       const rawCode = customMatch[1] || customMatch[2];
-      const decimalCode = rawCode.startsWith('0x') ? parseInt(rawCode, 16) : parseInt(rawCode, 10);
+      const decimalCode = rawCode.startsWith("0x")
+        ? parseInt(rawCode, 16)
+        : parseInt(rawCode, 10);
       return { code: decimalCode };
     }
   }
@@ -209,15 +231,15 @@ export function parseLogsFallback(logs: string[]): { code: number; message?: str
 
 ### 3.1 Tiered Feedback Model
 
-| Error Scenario | User Feedback Pattern | Visual Tone | Toast/Modal Behavior | Example User Message |
-| :--- | :--- | :--- | :--- | :--- |
-| **User Cancelled (4001)** | Subtle Toast / Silent Reset | Neutral / Gray | Auto-dismiss after 2s, non-blocking | *"Transaction cancelled."* |
-| **Insufficient SOL** | Inline Alert or Persistent Toast | Warning / Amber | Actionable button ("Get SOL" / "Faucet") | *"Insufficient SOL for transaction fees. You need at least 0.005 SOL."* |
-| **Slippage Exceeded** | Persistent Toast / Form Feedback | Warning / Amber | Actionable setting link ("Adjust Slippage") | *"Price moved beyond your 0.5% slippage tolerance."* |
-| **Anchor Custom Error** | Banner / Toast Notification | Error / Red | Clear human explanation from `#[msg]` | *"Your deposit exceeds the maximum allowed pool limit."* |
-| **Expired Blockhash** | Retry Toast | Information / Blue | Auto-retry or 1-click "Retry Transaction" | *"Network busy. Retrying with fresh blockhash..."* |
-| **RPC Rate Limit (429)** | System Notice | Warning / Amber | Pause auto-refreshes, switch RPC | *"Network connection throttled. Retrying shortly..."* |
-| **Uncaught Exception** | Error Modal with Tx Log Accordion | Danger / Red | Copy debug log button + Explorer link | *"Unexpected transaction failure. Copy details for support."* |
+| Error Scenario            | User Feedback Pattern             | Visual Tone        | Toast/Modal Behavior                        | Example User Message                                                    |
+| :------------------------ | :-------------------------------- | :----------------- | :------------------------------------------ | :---------------------------------------------------------------------- |
+| **User Cancelled (4001)** | Subtle Toast / Silent Reset       | Neutral / Gray     | Auto-dismiss after 2s, non-blocking         | _"Transaction cancelled."_                                              |
+| **Insufficient SOL**      | Inline Alert or Persistent Toast  | Warning / Amber    | Actionable button ("Get SOL" / "Faucet")    | _"Insufficient SOL for transaction fees. You need at least 0.005 SOL."_ |
+| **Slippage Exceeded**     | Persistent Toast / Form Feedback  | Warning / Amber    | Actionable setting link ("Adjust Slippage") | _"Price moved beyond your 0.5% slippage tolerance."_                    |
+| **Anchor Custom Error**   | Banner / Toast Notification       | Error / Red        | Clear human explanation from `#[msg]`       | _"Your deposit exceeds the maximum allowed pool limit."_                |
+| **Expired Blockhash**     | Retry Toast                       | Information / Blue | Auto-retry or 1-click "Retry Transaction"   | _"Network busy. Retrying with fresh blockhash..."_                      |
+| **RPC Rate Limit (429)**  | System Notice                     | Warning / Amber    | Pause auto-refreshes, switch RPC            | _"Network connection throttled. Retrying shortly..."_                   |
+| **Uncaught Exception**    | Error Modal with Tx Log Accordion | Danger / Red       | Copy debug log button + Explorer link       | _"Unexpected transaction failure. Copy details for support."_           |
 
 ---
 
@@ -226,12 +248,12 @@ export function parseLogsFallback(logs: string[]): { code: number; message?: str
 A premium Solana dApp must guide the user through each phase of transaction execution.
 
 ```
-[Idle] 
-  └─► User Clicks Action 
+[Idle]
+  └─► User Clicks Action
         └─► Phase 1: Validating Inputs & Fetching Blockhash (Loading Spinner)
               └─► Phase 2: Awaiting Wallet Signature (Wallet Toast)
                     ├─► User Rejects (4001) ──► Reset UI & Quiet Toast ("Cancelled")
-                    └─► User Signs 
+                    └─► User Signs
                           └─► Phase 3: Submitting to Solana Cluster (Sending Tx)
                                 └─► Phase 4: Confirming Transaction (Polling Commitment)
                                       ├─► Success ──► Green Toast + Solscan Link
@@ -239,9 +261,10 @@ A premium Solana dApp must guide the user through each phase of transaction exec
 ```
 
 ### Key UI Principles for Solana Transactions:
+
 1. **Never Leave the User Guessing**: Update UI status immediately when moving between Signature -> Submission -> Confirmation.
 2. **Always Provide Tx Hash Links**: Once a transaction signature is received, display a link to Solana Explorer / Solscan immediately, even while confirming.
-3. **Simulate First**: Run simulation in the background before popping up the wallet. If simulation fails, warn the user *before* requesting signature.
+3. **Simulate First**: Run simulation in the background before popping up the wallet. If simulation fails, warn the user _before_ requesting signature.
 4. **Dynamic Compute Budget & Priority Fees**: Automatically attach priority fees during congestion to prevent dropped transactions.
 
 ---
@@ -251,6 +274,7 @@ A premium Solana dApp must guide the user through each phase of transaction exec
 To enable client-side error decoding, on-chain Anchor programs must implement high-quality error definitions.
 
 ### Rust Best Practices:
+
 ```rust
 use anchor_lang::prelude::*;
 

@@ -441,7 +441,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     id: "act-10",
     date: "2024-03-14",
     type: "auto-reinvest",
-    description: "Auto-reinvested $18.00 winnings + $2.00 prior dust → +4 tickets",
+    description:
+      "Auto-reinvested $18.00 winnings + $2.00 prior dust → +4 tickets",
     amount: usdc(20),
   },
   {

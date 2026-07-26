@@ -13,6 +13,7 @@ metadata:
 ## What this Skill is for
 
 Use this Skill when:
+
 - Designing or auditing error handling architecture in a Solana dApp (React / Next.js).
 - Translating raw Solana error codes (`Custom(6001)`, `0x1770`, `0x1`, `4001`, simulation failures) into human-readable user feedback.
 - Building transaction lifecycle feedback components (preparing, signing, submitting, confirming, success, error).
@@ -25,25 +26,28 @@ Use this Skill when:
 ## Core Principles
 
 ### 1. Never Show Raw Hex or Cryptic Error Codes to Users
+
 Users should **never** see raw errors like `Error processing Instruction 0: custom program error: 0x1771` or `Transaction simulation failed: Error processing Instruction 1`.
 Always translate raw codes using Anchor IDLs, `@solana/errors` type guards, or humanized fallback message maps.
 
 ### 2. Differentiate User Intent (Wallet Code 4001)
+
 When a user closes the wallet popup or clicks "Deny", the wallet returns error code `4001` or name `UserRejectedRequestError`.
+
 - **Do NOT** display an aggressive red "Transaction Failed!" alert.
-- **Do** show a quiet, short-lived neutral toast (e.g. *"Transaction cancelled"*) or simply reset the UI loading state.
+- **Do** show a quiet, short-lived neutral toast (e.g. _"Transaction cancelled"_) or simply reset the UI loading state.
 
 ### 3. Tiered Feedback Matrix
 
-| Error Category | Visual Style | UX Component | Primary User Message | Actionable Button |
-| :--- | :--- | :--- | :--- | :--- |
-| **User Cancelled (4001)** | Neutral (Gray) | Short Toast (2s) | *"Transaction cancelled."* | None |
-| **Insufficient SOL** | Warning (Amber) | Persistent Alert | *"Insufficient SOL for transaction fees."* | *"Get SOL"* / Faucet |
-| **Slippage Tolerance** | Warning (Amber) | Form / Toast | *"Price moved beyond your slippage limit."* | *"Adjust Slippage"* |
-| **Anchor Program Custom** | Error (Red) | Toast / Modal | Human message from `#[msg("...")]` | *"Try Again"* |
-| **Blockhash Expired** | Info (Blue) | Toast with Spinner | *"Network busy. Retrying with fresh blockhash..."* | *"Retry Now"* |
-| **Network Congestion** | Warning (Amber) | Notice Banner | *"High network traffic. Priority fee recommended."* | *"Boost Fee"* |
-| **Uncaught / Unknown** | Error (Red) | Modal w/ Details | *"Unexpected transaction failure."* | *"Copy Debug Logs"* |
+| Error Category            | Visual Style    | UX Component       | Primary User Message                                | Actionable Button    |
+| :------------------------ | :-------------- | :----------------- | :-------------------------------------------------- | :------------------- |
+| **User Cancelled (4001)** | Neutral (Gray)  | Short Toast (2s)   | _"Transaction cancelled."_                          | None                 |
+| **Insufficient SOL**      | Warning (Amber) | Persistent Alert   | _"Insufficient SOL for transaction fees."_          | _"Get SOL"_ / Faucet |
+| **Slippage Tolerance**    | Warning (Amber) | Form / Toast       | _"Price moved beyond your slippage limit."_         | _"Adjust Slippage"_  |
+| **Anchor Program Custom** | Error (Red)     | Toast / Modal      | Human message from `#[msg("...")]`                  | _"Try Again"_        |
+| **Blockhash Expired**     | Info (Blue)     | Toast with Spinner | _"Network busy. Retrying with fresh blockhash..."_  | _"Retry Now"_        |
+| **Network Congestion**    | Warning (Amber) | Notice Banner      | _"High network traffic. Priority fee recommended."_ | _"Boost Fee"_        |
+| **Uncaught / Unknown**    | Error (Red)     | Modal w/ Details   | _"Unexpected transaction failure."_                 | _"Copy Debug Logs"_  |
 
 ---
 
@@ -86,6 +90,7 @@ Surfacing transaction progress reduces user anxiety and prevents duplicate trans
 ## Decoding Pipeline Quick Reference
 
 ### Anchor Error Decoding
+
 ```typescript
 import { AnchorError } from "@coral-xyz/anchor";
 
@@ -104,8 +109,12 @@ try {
 ```
 
 ### Modern `@solana/errors` Decoding
+
 ```typescript
-import { isSolanaError, SOLANA_ERROR__TRANSACTION__BLOCKHEIGHT_EXCEEDED } from '@solana/errors';
+import {
+  isSolanaError,
+  SOLANA_ERROR__TRANSACTION__BLOCKHEIGHT_EXCEEDED,
+} from "@solana/errors";
 
 try {
   await sendAndConfirmTransaction(tx);

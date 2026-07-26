@@ -19,6 +19,8 @@ export interface PaginationControlsProps {
   pageSizeOptions?: number[];
   /** Display variant: 'compact' (simple prev/next/count) or 'full' (with page numbers & size selector). */
   variant?: "compact" | "full";
+  /** Whether to show the total item count (e.g. 'of 50 entries'). Defaults to true. */
+  showTotalCount?: boolean;
   /** Optional custom container CSS classes. */
   className?: string;
 }
@@ -32,6 +34,7 @@ export function PaginationControls({
   onPageSizeChange,
   pageSizeOptions = [10, 25, 50],
   variant = "full",
+  showTotalCount = true,
   className = "",
 }: PaginationControlsProps) {
   // Clamped page number ensuring no out-of-bounds rendering
@@ -83,10 +86,14 @@ export function PaginationControls({
           <strong className="font-mono font-semibold text-on-surface">
             {startItem}–{endItem}
           </strong>{" "}
-          of{" "}
-          <strong className="font-mono font-semibold text-on-surface">
-            {totalItems}
-          </strong>{" "}
+          {showTotalCount && (
+            <>
+              of{" "}
+              <strong className="font-mono font-semibold text-on-surface">
+                {totalItems}
+              </strong>{" "}
+            </>
+          )}
           entries
         </span>
         <span aria-live="polite" className="sr-only">

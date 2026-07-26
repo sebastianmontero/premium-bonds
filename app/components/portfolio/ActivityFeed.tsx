@@ -5,6 +5,7 @@ import type { ActivityEntry, ActivityType } from "@/app/types";
 interface ActivityFeedProps {
   entries: ActivityEntry[];
   onViewCompleteFeed?: () => void;
+  isLoading?: boolean;
 }
 
 function dotColor(type: ActivityType): string {
@@ -117,13 +118,29 @@ function formatFeedDate(isoDate: string): string {
 export function ActivityFeed({
   entries,
   onViewCompleteFeed,
+  isLoading = false,
 }: ActivityFeedProps) {
   const PREVIEW_LIMIT = 10;
   const previewEntries = entries.slice(0, PREVIEW_LIMIT);
 
   return (
     <div className="glass-strong rounded-2xl p-6 h-full max-h-[460px] flex flex-col min-h-0">
-      {entries.length === 0 ? (
+      {isLoading ? (
+        <div className="flex-1 min-h-0 space-y-3 pointer-events-none select-none" aria-hidden="true">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-xl skeleton-card">
+              <div className="w-8 h-8 rounded-lg skeleton-box shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="h-4 w-36 rounded-md skeleton-box" />
+                  <div className="h-3 w-16 rounded-md skeleton-box" />
+                </div>
+                <div className="h-3.5 w-48 rounded-md skeleton-box" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-center my-auto border border-dashed border-on-surface-variant/10 rounded-xl bg-surface-container/20">
           <svg
             width="32"
@@ -192,7 +209,7 @@ export function ActivityFeed({
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
             </svg>
-            <span>Search &amp; Filter Full History ({entries.length}) →</span>
+            <span>Search &amp; Filter Full History →</span>
           </button>
         </div>
       )}

@@ -398,7 +398,8 @@ export async function fetchProgramEvents(
                 blockTime: sig.blockTime !== null ? Number(sig.blockTime) : 0,
               }) as ProgramEvent
           );
-        } catch {
+        } catch (err) {
+          console.warn(`Failed to fetch tx ${sig.signature}:`, err);
           return [];
         }
       }
@@ -422,9 +423,11 @@ export async function fetchProgramEvents(
 
 // ─── Cache Utilities ─────────────────────────────────────────────────────────
 
-interface EventCache {
+export interface EventCache {
   events: ProgramEvent[];
   lastSignature: string;
+  oldestSignature: string | null;
+  hasMore: boolean;
   timestamp: number;
 }
 
@@ -458,14 +461,24 @@ export function getCachedEvents(cacheKey: string): EventCache | null {
  * @param cacheKey - Unique key string identifying the cache slot.
  * @param events - List of parsed events to store.
  * @param lastSignature - The signature cursor corresponding to the latest event cached.
+ * @param oldestSignature - The signature cursor corresponding to the oldest transaction scanned.
+ * @param hasMore - Whether additional historical transactions exist on-chain.
  */
 export function setCachedEvents(
   cacheKey: string,
   events: ProgramEvent[],
-  lastSignature: string
+  lastSignature: string,
+  oldestSignature: string | null = null,
+  hasMore: boolean = true
 ): void {
   try {
-    const cache: EventCache = { events, lastSignature, timestamp: Date.now() };
+    const cache: EventCache = {
+      events,
+      lastSignature,
+      oldestSignature,
+      hasMore,
+      timestamp: Date.now(),
+    };
     const serialized = JSON.stringify(cache, (_, value) =>
       typeof value === "bigint" ? { __bigint: value.toString() } : value
     );

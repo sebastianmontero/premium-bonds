@@ -174,6 +174,546 @@ async function setAccount(
   }
 }
 
+// ─── Exported Action Handlers ────────────────────────────────────────────────
+
+export interface ExecuteHarvestParams {
+  poolId?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeHarvest({
+  poolId = 1,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteHarvestParams): Promise<{ drawCycleId: number }> {
+  console.log(`Harvesting yield for pool ${poolId}...`);
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+  }
+  const poolBytes = new Uint8Array(
+    base64Encoder.encode(poolAcc.value.data[0])
+  );
+  const poolState = parsePrizePool(poolBytes);
+
+  const pstMintStr = stateAddresses.pstMint;
+  const humaPoolStateStr = stateAddresses.humaPoolState;
+  if (!pstMintStr || !humaPoolStateStr) {
+    throw new Error(
+      `Missing pstMint or humaPoolState in ${isDevnet ? "devnet" : "localnet"} state addresses.`
+    );
+  }
+
+  const env = loadEnvLocal();
+  const randomnessAccountStr = env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
+  if (!randomnessAccountStr) {
+    throw new Error(
+      `Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run ${isDevnet ? "devnet" : "localnet"} init' first.`
+    );
+  }
+
+  const targetCycleId = poolState.currentDrawCycleId;
+
+  console.log(`Pool Details:
+  Current Draw Cycle ID: ${targetCycleId}
+  Ticket Registry: ${poolState.ticketRegistry}
+  PST Mint: ${pstMintStr}
+  Huma Pool State: ${humaPoolStateStr}
+  Randomness Account: ${randomnessAccountStr}
+`);
+
+  const ix = await buildHarvestYieldAndCommitInstruction({
+    crank: signer.address,
+    poolId,
+    ticketRegistry: address(poolState.ticketRegistry),
+    currentDrawCycleId: targetCycleId,
+    pstMint: address(pstMintStr),
+    humaPoolState: address(humaPoolStateStr),
+    randomnessAccount: address(randomnessAccountStr),
+  });
+
+  await sendTx(rpc, ix, signer);
+  return { drawCycleId: targetCycleId };
+}
+
+export interface ExecutePrepareDrawParams {
+  poolId?: number;
+  cycleId?: number;
+  batchSize?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executePrepareDraw({
+  poolId = 1,
+  cycleId,
+  batchSize = 1000,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecutePrepareDrawParams) {
+  if (isNaN(batchSize) || batchSize <= 0) {
+    throw new Error("Batch size must be a positive integer.");
+  }
+
+  console.log(
+    `Preparing draw for pool ${poolId} with batch size ${batchSize}...`
+  );
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+  }
+  const poolBytes = new Uint8Array(
+    base64Encoder.encode(poolAcc.value.data[0])
+  );
+  const poolState = parsePrizePool(poolBytes);
+
+  const registryAddr = poolState.ticketRegistry;
+  console.log(`Registry address: ${registryAddr}`);
+
+  let registryAcc = await rpc
+    .getAccountInfo(address(registryAddr), { encoding: "base64" })
+    .send();
+  if (!registryAcc || !registryAcc.value) {
+    throw new Error(`Ticket registry at ${registryAddr} not found.`);
+  }
+  let registryBytes = new Uint8Array(
+    base64Encoder.encode(registryAcc.value.data[0])
+  );
+  let registryState = parseTicketRegistry(registryBytes);
+
+  console.log(
+    `Current state: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
+  );
+
+  if (registryState.drawPreparedUpTo >= registryState.userCount) {
+    console.log("Draw preparation is already complete.");
+    return;
+  }
+
+  const targetCycleId =
+    cycleId !== undefined ? cycleId : poolState.currentDrawCycleId - 1;
+
+  while (registryState.drawPreparedUpTo < registryState.userCount) {
+    console.log(
+      `Sending batch transaction for entries ${registryState.drawPreparedUpTo} to ${Math.min(
+        registryState.drawPreparedUpTo + batchSize,
+        registryState.userCount
+      )}...`
+    );
+
+    const ix = await buildPrepareDrawInstruction({
+      crank: signer.address,
+      poolId,
+      currentDrawCycleId: targetCycleId,
+      ticketRegistry: address(registryAddr),
+      batchSize,
+    });
+
+    await sendTx(rpc, ix, signer);
+
+    registryAcc = await rpc
+      .getAccountInfo(address(registryAddr), { encoding: "base64" })
+      .send();
+    if (!registryAcc || !registryAcc.value) {
+      throw new Error(`Ticket registry not found after transaction.`);
+    }
+    registryBytes = new Uint8Array(
+      base64Encoder.encode(registryAcc.value.data[0])
+    );
+    registryState = parseTicketRegistry(registryBytes);
+    console.log(
+      `Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
+    );
+  }
+
+  console.log("Draw preparation completed successfully.");
+}
+
+export interface ExecuteRevealParams {
+  poolId?: number;
+  cycleId?: number;
+  seedHex?: string;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeReveal({
+  poolId = 1,
+  cycleId,
+  seedHex,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteRevealParams) {
+  console.log(`Revealing and picking winners for pool ${poolId}...`);
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+  }
+  const poolBytes = new Uint8Array(
+    base64Encoder.encode(poolAcc.value.data[0])
+  );
+  const poolState = parsePrizePool(poolBytes);
+
+  const targetCycleId =
+    cycleId !== undefined ? cycleId : poolState.currentDrawCycleId - 1;
+  if (targetCycleId < 0) {
+    throw new Error(
+      `Invalid Draw Cycle ID: ${targetCycleId}. No draw cycle has been created yet.`
+    );
+  }
+
+  // Check and prepare draw if needed
+  const registryAddr = poolState.ticketRegistry;
+  const registryAcc = await rpc
+    .getAccountInfo(address(registryAddr), { encoding: "base64" })
+    .send();
+  if (!registryAcc || !registryAcc.value) {
+    throw new Error(`Ticket registry at ${registryAddr} not found.`);
+  }
+  let registryBytes = new Uint8Array(
+    base64Encoder.encode(registryAcc.value.data[0])
+  );
+  let registryState = parseTicketRegistry(registryBytes);
+
+  if (registryState.drawPreparedUpTo < registryState.userCount) {
+    console.log(
+      `Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`
+    );
+    await executePrepareDraw({
+      poolId,
+      cycleId: targetCycleId,
+      batchSize: 1000,
+      rpcUrl,
+      signer,
+    });
+  }
+
+  let seed = crypto.randomBytes(32);
+  if (seedHex) {
+    if (seedHex.length !== 64) {
+      throw new Error("Seed must be a 64-character (32-byte) hex string.");
+    }
+    seed = Buffer.from(seedHex, "hex");
+  }
+
+  console.log(`Using Random Seed (hex): ${seed.toString("hex")}`);
+  console.log(`Targeting Draw Cycle ID: ${targetCycleId}`);
+
+  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+  const drawCycleAcc = await rpc
+    .getAccountInfo(drawCyclePda, { encoding: "base64" })
+    .send();
+  if (!drawCycleAcc || !drawCycleAcc.value) {
+    throw new Error(
+      `Draw Cycle account for ID ${targetCycleId} not found on-chain.`
+    );
+  }
+  const drawCycleBytes = new Uint8Array(
+    base64Encoder.encode(drawCycleAcc.value.data[0])
+  );
+  const drawCycleState = parseDrawCycle(drawCycleBytes);
+  const randomnessAccountStr = drawCycleState.randomnessAccount;
+  console.log(`Extracted locked randomness account: ${randomnessAccountStr}`);
+
+  const ix = await buildRevealAndPickWinnersInstruction({
+    crank: signer.address,
+    poolId,
+    currentDrawCycleId: targetCycleId,
+    ticketRegistry: address(poolState.ticketRegistry),
+    randomnessAccount: address(randomnessAccountStr),
+  });
+
+  const isLocalnet =
+    rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
+  if (isLocalnet) {
+    console.log("Localnet detected. Injecting mock resolved randomness...");
+
+    const currentSlot = await rpc.getSlot().send();
+    console.log(`Current slot: ${currentSlot}`);
+
+    const buffer = new Uint8Array(408);
+    const view = new DataView(buffer.buffer);
+    const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
+    buffer.set(discriminator, 0);
+    buffer.set(new Uint8Array(seed), 152);
+
+    const sbProgramId =
+      process.env.SB_ENV === "devnet"
+        ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
+
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    const message = setTransactionMessageLifetimeUsingBlockhash(
+      latestBlockhash,
+      setTransactionMessageFeePayerSigner(
+        signer,
+        appendTransactionMessageInstruction(
+          ix,
+          createTransactionMessage({ version: 0 })
+        )
+      )
+    );
+    const signedTx = await signTransactionMessageWithSigners(message);
+    const wireTx = getBase64EncodedWireTransaction(signedTx);
+
+    const offsets = [1n, 2n, 0n, 3n];
+    let confirmed = false;
+    let lastError: Error | null = null;
+
+    for (const offset of offsets) {
+      const targetSlot = currentSlot + offset;
+      console.log(
+        `Attempting with reveal_slot offset +${offset} (target slot: ${targetSlot})...`
+      );
+
+      view.setBigUint64(104, targetSlot, true);
+      view.setBigUint64(144, targetSlot, true);
+
+      const dataHex = Buffer.from(buffer).toString("hex");
+
+      await setAccount(
+        rpcUrl,
+        randomnessAccountStr,
+        1_000_000_000,
+        dataHex,
+        sbProgramId,
+        false
+      );
+
+      try {
+        const signature = await rpc
+          .sendTransaction(wireTx, {
+            encoding: "base64",
+            skipPreflight: true,
+          })
+          .send();
+
+        console.log(
+          `Transaction sent: ${signature}. Checking confirmation status...`
+        );
+
+        let txSuccess = false;
+        for (let i = 0; i < 15; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const status = await rpc.getSignatureStatuses([signature]).send();
+          if (status && status.value && status.value[0]) {
+            const err = status.value[0].err;
+            if (err) {
+              throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
+            }
+            txSuccess = true;
+            break;
+          }
+        }
+
+        if (txSuccess) {
+          console.log("Transaction confirmed successfully!");
+          confirmed = true;
+          break;
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`Attempt with offset +${offset} failed: ${msg}`);
+        lastError = err instanceof Error ? err : new Error(msg);
+
+        if (
+          !msg.includes("178d") &&
+          !msg.includes("178e") &&
+          !msg.includes("1790") &&
+          !msg.includes("SwitchboardRandomnessTooOld")
+        ) {
+          throw err;
+        }
+      }
+    }
+
+    if (!confirmed) {
+      throw (
+        lastError ||
+        new Error(
+          "Failed to confirm reveal transaction after all slot offset attempts."
+        )
+      );
+    }
+  } else {
+    await sendTx(rpc, ix, signer);
+  }
+}
+
+export interface ExecuteReinvestParams {
+  poolId?: number;
+  cycleId?: number;
+  winnerOption?: string;
+  maxBonds?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeReinvest({
+  poolId = 1,
+  cycleId,
+  winnerOption,
+  maxBonds = 1000,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteReinvestParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found on-chain.`);
+  }
+  const poolBytes = new Uint8Array(
+    base64Encoder.encode(poolAcc.value.data[0])
+  );
+  const poolState = parsePrizePool(poolBytes);
+
+  const targetCycleId =
+    cycleId !== undefined ? cycleId : poolState.currentDrawCycleId - 1;
+  if (targetCycleId < 0) {
+    throw new Error(
+      `Invalid Draw Cycle ID: ${targetCycleId}. No draw cycle has been created yet.`
+    );
+  }
+
+  if (isNaN(maxBonds) || maxBonds <= 0) {
+    throw new Error("Invalid maxBonds value. Must be a positive integer.");
+  }
+
+  const payoutRegistryPda = await findPayoutRegistryPda(poolId, targetCycleId);
+  console.log(
+    `Fetching Payout Registry ${targetCycleId} for Pool ${poolId} at ${payoutRegistryPda}...`
+  );
+
+  const payoutRegistryAcc = await rpc
+    .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
+    .send();
+  if (!payoutRegistryAcc || !payoutRegistryAcc.value) {
+    console.log(
+      `Payout Registry account for cycle ${targetCycleId} does not exist.`
+    );
+    return;
+  }
+
+  const bytes = new Uint8Array(
+    base64Encoder.encode(payoutRegistryAcc.value.data[0])
+  );
+  const state = parsePayoutRegistry(bytes);
+
+  let targetWinnerIndices: number[] = [];
+
+  if (winnerOption) {
+    const parsedIdx = parseInt(winnerOption, 10);
+    if (!isNaN(parsedIdx)) {
+      if (parsedIdx < 0 || parsedIdx >= state.winners.length) {
+        throw new Error(
+          `Winner index ${parsedIdx} out of range (0-${state.winners.length - 1})`
+        );
+      }
+      targetWinnerIndices = [parsedIdx];
+    } else {
+      const index = state.winners.findIndex(
+        (w) => w.winnerPubkey === winnerOption
+      );
+      if (index === -1) {
+        throw new Error(
+          `Winner address ${winnerOption} not found in payout registry.`
+        );
+      }
+      targetWinnerIndices = [index];
+    }
+  } else {
+    targetWinnerIndices = state.winners
+      .map((w, idx) => ({ ...w, idx }))
+      .filter((w) => !w.processed)
+      .map((w) => w.idx);
+  }
+
+  if (targetWinnerIndices.length === 0) {
+    console.log("No unprocessed winners found to reinvest.");
+    return;
+  }
+
+  console.log(
+    `Starting reinvestment for ${targetWinnerIndices.length} winner(s)...`
+  );
+
+  for (const winnerIndex of targetWinnerIndices) {
+    while (true) {
+      const currentRegistryAcc = await rpc
+        .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
+        .send();
+      if (!currentRegistryAcc || !currentRegistryAcc.value) {
+        throw new Error("Payout Registry not found during loop execution.");
+      }
+      const currentBytes = new Uint8Array(
+        base64Encoder.encode(currentRegistryAcc.value.data[0])
+      );
+      const currentRegistry = parsePayoutRegistry(currentBytes);
+      const winnerEntry = currentRegistry.winners[winnerIndex];
+
+      if (winnerEntry.processed) {
+        console.log(
+          `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}) is fully processed.`
+        );
+        break;
+      }
+
+      const claimable = winnerEntry.amountOwed - winnerEntry.amountReinvested;
+      console.log(
+        `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}): Owed: ${formatAmount(
+          winnerEntry.amountOwed
+        )}, Reinvested: ${formatAmount(
+          winnerEntry.amountReinvested
+        )}, Claimable: ${formatAmount(claimable)}`
+      );
+
+      const ix = await buildReinvestWinningsInstruction({
+        crank: signer.address,
+        winner: address(winnerEntry.winnerPubkey),
+        poolId,
+        cycleId: targetCycleId,
+        winnerIndex,
+        maxBonds,
+        ticketRegistry: address(poolState.ticketRegistry),
+      });
+
+      console.log(
+        `Submitting reinvestment transaction (maxBonds: ${maxBonds})...`
+      );
+      await sendTx(rpc, ix, signer);
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  console.log("Reinvestment process completed successfully!");
+}
+
 // ─── Main CLI Logic ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -230,405 +770,51 @@ async function main() {
 
   switch (command) {
     case "harvest": {
-      console.log(`Harvesting yield for pool ${poolId}...`);
-
-      // Retrieve pool state first to extract draw cycle details and registry pointer
-      const poolPda = await findPrizePoolPda(poolId);
-      const poolAcc = await rpc
-        .getAccountInfo(poolPda, { encoding: "base64" })
-        .send();
-      if (!poolAcc || !poolAcc.value) {
-        throw new Error(
-          `PrizePool account for pool ${poolId} not found on-chain.`
-        );
-      }
-      const poolBytes = new Uint8Array(
-        base64Encoder.encode(poolAcc.value.data[0])
-      );
-      const poolState = parsePrizePool(poolBytes);
-
-      const pstMintStr = stateAddresses.pstMint;
-      const humaPoolStateStr = stateAddresses.humaPoolState;
-      if (!pstMintStr || !humaPoolStateStr) {
-        throw new Error(
-          `Missing pstMint or humaPoolState in ${isDevnet ? "devnet" : "localnet"} state addresses.`
-        );
-      }
-
-      // Load static randomness account from env
-      const env = loadEnvLocal();
-      const randomnessAccountStr = env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
-      if (!randomnessAccountStr) {
-        throw new Error(
-          `Missing NEXT_PUBLIC_RANDOMNESS_ACCOUNT in .env.local. Please run 'npm run ${isDevnet ? "devnet" : "localnet"} init' first.`
-        );
-      }
-
-      console.log(`Pool Details:
-  Current Draw Cycle ID: ${poolState.currentDrawCycleId}
-  Ticket Registry: ${poolState.ticketRegistry}
-  PST Mint: ${pstMintStr}
-  Huma Pool State: ${humaPoolStateStr}
-  Randomness Account: ${randomnessAccountStr}
-`);
-
-      const ix = await buildHarvestYieldAndCommitInstruction({
-        crank: signer!.address,
-        poolId,
-        ticketRegistry: address(poolState.ticketRegistry),
-        currentDrawCycleId: poolState.currentDrawCycleId,
-        pstMint: address(pstMintStr),
-        humaPoolState: address(humaPoolStateStr),
-        randomnessAccount: address(randomnessAccountStr),
-      });
-
-      await sendTx(rpc, ix, signer!);
+      await executeHarvest({ poolId, rpcUrl, signer: signer! });
       break;
     }
 
     case "reveal": {
-      console.log(`Revealing and picking winners for pool ${poolId}...`);
-
-      const poolPda = await findPrizePoolPda(poolId);
-      const poolAcc = await rpc
-        .getAccountInfo(poolPda, { encoding: "base64" })
-        .send();
-      if (!poolAcc || !poolAcc.value) {
-        throw new Error(
-          `PrizePool account for pool ${poolId} not found on-chain.`
-        );
-      }
-      const poolBytes = new Uint8Array(
-        base64Encoder.encode(poolAcc.value.data[0])
-      );
-      const poolState = parsePrizePool(poolBytes);
-
-      // ─── Verification & Batch Preparation ───
-      const registryAddr = poolState.ticketRegistry;
-      const registryAcc = await rpc
-        .getAccountInfo(address(registryAddr), { encoding: "base64" })
-        .send();
-      if (!registryAcc || !registryAcc.value) {
-        throw new Error(`Ticket registry at ${registryAddr} not found.`);
-      }
-      let registryBytes = new Uint8Array(
-        base64Encoder.encode(registryAcc.value.data[0])
-      );
-      let registryState = parseTicketRegistry(registryBytes);
-
-      let cycleId = poolState.currentDrawCycleId - 1;
-      if (options["--cycle"]) {
-        cycleId = parseInt(options["--cycle"], 10);
-      } else if (positionals.length > 0) {
+      let cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      if (cycleId === undefined && positionals.length > 0) {
         const val = parseInt(positionals[0], 10);
-        if (!isNaN(val)) {
-          cycleId = val;
-        }
+        if (!isNaN(val)) cycleId = val;
       }
-
-      if (registryState.drawPreparedUpTo < registryState.userCount) {
-        console.log(
-          `Draw preparation incomplete (${registryState.drawPreparedUpTo}/${registryState.userCount}). Starting automatic batched preparation...`
-        );
-        const batchSize = 1000;
-        while (registryState.drawPreparedUpTo < registryState.userCount) {
-          console.log(
-            `Sending prepare_draw batch starting at index ${registryState.drawPreparedUpTo}...`
-          );
-          const prepIx = await buildPrepareDrawInstruction({
-            crank: signer!.address,
-            poolId,
-            currentDrawCycleId: cycleId,
-            ticketRegistry: address(registryAddr),
-            batchSize,
-          });
-          await sendTx(rpc, prepIx, signer!);
-
-          // Refetch registry state
-          const updatedRegistryAcc = await rpc
-            .getAccountInfo(address(registryAddr), { encoding: "base64" })
-            .send();
-          registryBytes = new Uint8Array(
-            base64Encoder.encode(updatedRegistryAcc!.value!.data[0])
-          );
-          registryState = parseTicketRegistry(registryBytes);
-          console.log(
-            `Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
-          );
-        }
-        console.log("Automatic draw preparation completed.");
-      }
-
-      // Parse seed option or generate random
-      let seed = crypto.randomBytes(32);
-      const seedHex = options["--seed"];
-      if (seedHex) {
-        if (seedHex.length !== 64) {
-          throw new Error("Seed must be a 64-character (32-byte) hex string.");
-        }
-        seed = Buffer.from(seedHex, "hex");
-      }
-
-      if (cycleId < 0) {
-        throw new Error(
-          `Invalid Draw Cycle ID: ${cycleId}. No draw cycle has been created yet.`
-        );
-      }
-
-      console.log(`Using Random Seed (hex): ${seed.toString("hex")}`);
-      console.log(`Targeting Draw Cycle ID: ${cycleId}`);
-
-      // Query the DrawCycle account to extract the locked randomnessAccount
-      const drawCyclePda = await findDrawCyclePda(poolId, cycleId);
-      const drawCycleAcc = await rpc
-        .getAccountInfo(drawCyclePda, { encoding: "base64" })
-        .send();
-      if (!drawCycleAcc || !drawCycleAcc.value) {
-        throw new Error(
-          `Draw Cycle account for ID ${cycleId} not found on-chain.`
-        );
-      }
-      const drawCycleBytes = new Uint8Array(
-        base64Encoder.encode(drawCycleAcc.value.data[0])
-      );
-      const drawCycleState = parseDrawCycle(drawCycleBytes);
-      const randomnessAccountStr = drawCycleState.randomnessAccount;
-      console.log(
-        `Extracted locked randomness account: ${randomnessAccountStr}`
-      );
-
-      const ix = await buildRevealAndPickWinnersInstruction({
-        crank: signer!.address,
+      await executeReveal({
         poolId,
-        currentDrawCycleId: cycleId,
-        ticketRegistry: address(poolState.ticketRegistry),
-        randomnessAccount: address(randomnessAccountStr),
+        cycleId,
+        seedHex: options["--seed"],
+        rpcUrl,
+        signer: signer!,
       });
-
-      // Inject mock resolved randomness if on localnet
-      const isLocalnet =
-        rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
-      if (isLocalnet) {
-        console.log("Localnet detected. Injecting mock resolved randomness...");
-
-        const currentSlot = await rpc.getSlot().send();
-        console.log(`Current slot: ${currentSlot}`);
-
-        const buffer = new Uint8Array(408);
-        const view = new DataView(buffer.buffer);
-
-        // Copy discriminator
-        const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
-        buffer.set(discriminator, 0);
-
-        // Set resolved value/seed at offset 152
-        buffer.set(new Uint8Array(seed), 152);
-
-        const sbProgramId =
-          process.env.SB_ENV === "devnet"
-            ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
-            : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
-
-        // Build and sign the transaction message first to minimize latency
-        const { value: latestBlockhash } = await rpc
-          .getLatestBlockhash()
-          .send();
-        const message = setTransactionMessageLifetimeUsingBlockhash(
-          latestBlockhash,
-          setTransactionMessageFeePayerSigner(
-            signer!,
-            appendTransactionMessageInstruction(
-              ix,
-              createTransactionMessage({ version: 0 })
-            )
-          )
-        );
-        const signedTx = await signTransactionMessageWithSigners(message);
-        const wireTx = getBase64EncodedWireTransaction(signedTx);
-
-        // Attempt resolving using different slot offsets.
-        // We try:
-        // Offset +1: The expected next slot where the transaction executes (most common)
-        // Offset +2: In case block production is slightly delayed
-        // Offset 0: In case the slot hasn't progressed
-        // Offset +3: In case of further delay
-        const offsets = [1n, 2n, 0n, 3n];
-        let confirmed = false;
-        let lastError: Error | null = null;
-
-        for (const offset of offsets) {
-          const targetSlot = currentSlot + offset;
-          console.log(
-            `Attempting with reveal_slot offset +${offset} (target slot: ${targetSlot})...`
-          );
-
-          // Set seed_slot and reveal_slot to targetSlot
-          view.setBigUint64(104, targetSlot, true);
-          view.setBigUint64(144, targetSlot, true);
-
-          const dataHex = Buffer.from(buffer).toString("hex");
-
-          await setAccount(
-            rpcUrl,
-            randomnessAccountStr,
-            1_000_000_000,
-            dataHex,
-            sbProgramId,
-            false
-          );
-
-          try {
-            // Send transaction bypassing preflight check (which would run at simulation slot != reveal_slot)
-            const signature = await rpc
-              .sendTransaction(wireTx, {
-                encoding: "base64",
-                skipPreflight: true,
-              })
-              .send();
-
-            console.log(
-              `Transaction sent: ${signature}. Checking confirmation status...`
-            );
-
-            // Check signature status for confirmation
-            let txSuccess = false;
-            for (let i = 0; i < 15; i++) {
-              await new Promise((resolve) => setTimeout(resolve, 500));
-              const status = await rpc.getSignatureStatuses([signature]).send();
-              if (status && status.value && status.value[0]) {
-                const err = status.value[0].err;
-                if (err) {
-                  throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
-                }
-                txSuccess = true;
-                break;
-              }
-            }
-
-            if (txSuccess) {
-              console.log("Transaction confirmed successfully!");
-              confirmed = true;
-              break;
-            }
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`Attempt with offset +${offset} failed: ${msg}`);
-            lastError = err instanceof Error ? err : new Error(msg);
-
-            // If the failure was not a randomness resolution issue (e.g. 0x178d or 0x178e/0x1790 etc),
-            // then retrying with different slots won't help. We should abort immediately.
-            if (
-              !msg.includes("178d") &&
-              !msg.includes("178e") &&
-              !msg.includes("1790") &&
-              !msg.includes("SwitchboardRandomnessTooOld")
-            ) {
-              throw err;
-            }
-          }
-        }
-
-        if (!confirmed) {
-          throw (
-            lastError ||
-            new Error(
-              "Failed to confirm reveal transaction after all slot offset attempts."
-            )
-          );
-        }
-      } else {
-        await sendTx(rpc, ix, signer!);
-      }
       break;
     }
 
     case "prepare-draw": {
       const batchSize = parseInt(options["--batch-size"] || "1000", 10);
-      if (isNaN(batchSize) || batchSize <= 0) {
-        throw new Error("Batch size must be a positive integer.");
-      }
+      const cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      await executePrepareDraw({
+        poolId,
+        cycleId,
+        batchSize,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
 
-      console.log(
-        `Preparing draw for pool ${poolId} with batch size ${batchSize}...`
-      );
-
-      const poolPda = await findPrizePoolPda(poolId);
-      const poolAcc = await rpc
-        .getAccountInfo(poolPda, { encoding: "base64" })
-        .send();
-      if (!poolAcc || !poolAcc.value) {
-        throw new Error(
-          `PrizePool account for pool ${poolId} not found on-chain.`
-        );
-      }
-      const poolBytes = new Uint8Array(
-        base64Encoder.encode(poolAcc.value.data[0])
-      );
-      const poolState = parsePrizePool(poolBytes);
-
-      const registryAddr = poolState.ticketRegistry;
-      console.log(`Registry address: ${registryAddr}`);
-
-      let registryAcc = await rpc
-        .getAccountInfo(address(registryAddr), { encoding: "base64" })
-        .send();
-      if (!registryAcc || !registryAcc.value) {
-        throw new Error(`Ticket registry at ${registryAddr} not found.`);
-      }
-      let registryBytes = new Uint8Array(
-        base64Encoder.encode(registryAcc.value.data[0])
-      );
-      let registryState = parseTicketRegistry(registryBytes);
-
-      console.log(
-        `Current state: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
-      );
-
-      if (registryState.drawPreparedUpTo >= registryState.userCount) {
-        console.log("Draw preparation is already complete.");
-        break;
-      }
-
-      let cycleId = poolState.currentDrawCycleId - 1;
-      if (options["--cycle"]) {
-        cycleId = parseInt(options["--cycle"], 10);
-      }
-
-      while (registryState.drawPreparedUpTo < registryState.userCount) {
-        console.log(
-          `Sending batch transaction for entries ${registryState.drawPreparedUpTo} to ${Math.min(
-            registryState.drawPreparedUpTo + batchSize,
-            registryState.userCount
-          )}...`
-        );
-
-        const ix = await buildPrepareDrawInstruction({
-          crank: signer!.address,
-          poolId,
-          currentDrawCycleId: cycleId,
-          ticketRegistry: address(registryAddr),
-          batchSize,
-        });
-
-        await sendTx(rpc, ix, signer!);
-
-        // Fetch updated status
-        registryAcc = await rpc
-          .getAccountInfo(address(registryAddr), { encoding: "base64" })
-          .send();
-        if (!registryAcc || !registryAcc.value) {
-          throw new Error(`Ticket registry not found after transaction.`);
-        }
-        registryBytes = new Uint8Array(
-          base64Encoder.encode(registryAcc.value.data[0])
-        );
-        registryState = parseTicketRegistry(registryBytes);
-        console.log(
-          `Progress: Prepared ${registryState.drawPreparedUpTo}/${registryState.userCount} users.`
-        );
-      }
-
-      console.log("Draw preparation completed successfully.");
+    case "reinvest": {
+      const cycleId = options["--cycle"] ? parseInt(options["--cycle"], 10) : undefined;
+      const maxBonds = parseInt(options["--max-bonds"] || "1000", 10);
+      const winnerOption = options["--winner"] || positionals[0];
+      await executeReinvest({
+        poolId,
+        cycleId,
+        winnerOption,
+        maxBonds,
+        rpcUrl,
+        signer: signer!,
+      });
       break;
     }
 
@@ -1316,7 +1502,9 @@ Ticket Registry for Pool ${poolId}
   }
 }
 
-main().catch((err) => {
-  console.error("CLI Execution Error:", err.message || err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("CLI Execution Error:", err.message || err);
+    process.exit(1);
+  });
+}

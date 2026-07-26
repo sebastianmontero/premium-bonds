@@ -15,6 +15,7 @@ interface CompleteLedgerModalProps {
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
+  isLoading?: boolean;
 }
 
 function statusPill(
@@ -73,6 +74,7 @@ export default function CompleteLedgerModal({
   onSimulateCrank,
   onViewDetails,
   crankingCycles = {},
+  isLoading = false,
 }: CompleteLedgerModalProps) {
   // Stateful Filtering
   const [searchTerm, setSearchTerm] = useState("");
@@ -111,30 +113,39 @@ export default function CompleteLedgerModal({
     setTimeout(() => setCopiedDrawId(null), 2000);
   };
 
+  // Filtered dataset computation
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
-      // Search check
+      // 1. Search Matching (Draw ID, Tx Signature, Ticket Seed, or Tier Label)
       const matchesSearch =
         searchTerm === "" ||
         entry.drawCycleId.toString().includes(searchTerm) ||
-        entry.winningTicket?.includes(searchTerm);
+        entry.txSignature?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        entry.winningTicket?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tierLabel(entry.tierIndex).toLowerCase().includes(searchTerm.toLowerCase());
 
-      // Status check
+      // 2. Status Matching
       const matchesStatus =
         statusFilter === "all" || entry.status === statusFilter;
 
-      // Tier check
+      // 3. Tier Matching
       const matchesTier =
         tierFilter === "all" ||
         (tierFilter === "grand" && entry.tierIndex === 0) ||
         (tierFilter === "runnerup" && entry.tierIndex === 1) ||
-        (tierFilter === "consolation" && entry.tierIndex === 2);
+        (tierFilter === "consolation" && entry.tierIndex >= 2);
 
       return matchesSearch && matchesStatus && matchesTier;
     });
   }, [entries, searchTerm, statusFilter, tierFilter]);
 
-  // Declarative Safe Page Clamping
+  // Aggregate stats across matching records
+  const totalCount = filteredEntries.length;
+  const totalValue = useMemo(() => {
+    return filteredEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  }, [filteredEntries]);
+
+  // Safe page clamping
   const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
   const safePage = Math.max(1, Math.min(currentPage, totalPages));
 
@@ -143,49 +154,32 @@ export default function CompleteLedgerModal({
     return filteredEntries.slice(start, start + pageSize);
   }, [filteredEntries, safePage, pageSize]);
 
-  // Aggregate Stats on Filtered Set
-  const { totalCount, totalValue } = useMemo(() => {
-    let count = 0;
-    let value = 0;
-    filteredEntries.forEach((entry) => {
-      count += 1;
-      value += entry.amount;
-    });
-    return { totalCount: count, totalValue: value };
-  }, [filteredEntries]);
-
-  // CSV Export Handler
   const handleExportCSV = () => {
+    if (filteredEntries.length === 0) return;
+
     const headers = [
-      "Draw Cycle ID",
-      "Date",
+      "Draw Cycle",
       "Tier Index",
-      "Tier Label",
-      "Amount Won (USDC)",
+      "Tier Name",
+      "Amount Won (USDC Base Units)",
       "Status",
-      "Winning Ticket",
-      "VRF Seed",
-      "Transaction Signature",
+      "Winning Ticket Seed",
+      "Tx Signature",
     ];
 
-    const rows = filteredEntries.map((entry) => [
-      entry.drawCycleId,
-      entry.date,
-      entry.tierIndex,
-      tierLabel(entry.tierIndex),
-      formatTokenAmount(entry.amount, tokenDecimals),
-      entry.status,
-      entry.winningTicket || "",
-      entry.vrfSeed || "",
-      entry.txSignature || "",
+    const rows = filteredEntries.map((e) => [
+      e.drawCycleId,
+      e.tierIndex,
+      `"${tierLabel(e.tierIndex)}"`,
+      e.amount,
+      e.status,
+      `"${e.winningTicket || ""}"`,
+      `"${e.txSignature || ""}"`,
     ]);
 
     const csvContent =
       "data:text/csv;charset=utf-8," +
-      [
-        headers.join(","),
-        ...rows.map((row) => row.map((val) => `"${val}"`).join(",")),
-      ].join("\n");
+      [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -218,12 +212,13 @@ export default function CompleteLedgerModal({
               Prize History Ledger
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Historical ledger containing audit records for all draws since
-              inception.
+              Complete provable fairness records for all past prize distribution
+              cycles.
             </p>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
           >
             <svg
@@ -250,11 +245,12 @@ export default function CompleteLedgerModal({
               type="text"
               placeholder="Search Draw # or Ticket..."
               value={searchTerm}
+              disabled={isLoading}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <svg
               className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
@@ -275,11 +271,12 @@ export default function CompleteLedgerModal({
           <div>
             <select
               value={statusFilter}
+              disabled={isLoading}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="all">All Statuses</option>
               <option value="processing">Processing</option>
@@ -292,11 +289,12 @@ export default function CompleteLedgerModal({
           <div>
             <select
               value={tierFilter}
+              disabled={isLoading}
               onChange={(e) => {
                 setTierFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="all">All Tiers</option>
               <option value="grand">Grand Prize</option>
@@ -310,14 +308,15 @@ export default function CompleteLedgerModal({
             {(searchTerm || statusFilter !== "all" || tierFilter !== "all") && (
               <button
                 onClick={resetFilters}
-                className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer"
+                disabled={isLoading}
+                className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Clear
               </button>
             )}
             <button
               onClick={handleExportCSV}
-              disabled={filteredEntries.length === 0}
+              disabled={isLoading || filteredEntries.length === 0}
               className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 disabled:opacity-40 disabled:cursor-not-allowed text-on-surface font-semibold text-xs px-3.5 py-2 transition cursor-pointer"
             >
               <svg
@@ -343,15 +342,23 @@ export default function CompleteLedgerModal({
           <div className="flex items-center gap-6">
             <div>
               Matching Entries:{" "}
-              <span className="font-mono text-on-surface font-bold">
-                {totalCount}
-              </span>
+              {isLoading ? (
+                <span className="inline-block h-3.5 w-8 rounded bg-surface-bright/10 animate-pulse align-middle" />
+              ) : (
+                <span className="font-mono text-on-surface font-bold">
+                  {totalCount}
+                </span>
+              )}
             </div>
             <div>
               Total Filtered Value:{" "}
-              <span className="font-mono text-primary font-bold">
-                {formatTokenAmount(totalValue, tokenDecimals)} {tokenSymbol}
-              </span>
+              {isLoading ? (
+                <span className="inline-block h-3.5 w-20 rounded bg-surface-bright/10 animate-pulse align-middle" />
+              ) : (
+                <span className="font-mono text-primary font-bold">
+                  {formatTokenAmount(totalValue, tokenDecimals)} {tokenSymbol}
+                </span>
+              )}
             </div>
           </div>
           <div className="text-[10px] text-on-surface-variant/60 font-semibold uppercase tracking-wider">
@@ -361,7 +368,31 @@ export default function CompleteLedgerModal({
 
         {/* Scrollable list */}
         <div className="flex-1 overflow-y-auto p-2 space-y-3 min-h-0">
-          {filteredEntries.length === 0 ? (
+          {isLoading ? (
+            <div className="space-y-3 pointer-events-none select-none" aria-hidden="true">
+              <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
+                <div>Draw</div>
+                <div>Date</div>
+                <div>Tier</div>
+                <div>Amount Won</div>
+                <div>Status</div>
+                <div className="text-right">Actions</div>
+              </div>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className="flex flex-col md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/10"
+                >
+                  <div className="h-5 w-12 rounded-md skeleton-box" />
+                  <div className="h-3.5 w-20 rounded-md skeleton-box" />
+                  <div className="h-6 w-24 rounded-full skeleton-box" />
+                  <div className="h-4 w-20 rounded-md skeleton-box" />
+                  <div className="h-6 w-28 rounded-full skeleton-box" />
+                  <div className="h-8 w-24 rounded-xl skeleton-box md:ml-auto" />
+                </div>
+              ))}
+            </div>
+          ) : filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40 mt-4">
               <svg
                 className="w-10 h-10 text-on-surface-variant/20 mb-3"
@@ -480,7 +511,8 @@ export default function CompleteLedgerModal({
                           entry.usedPriorDust ??
                           Math.max(
                             0,
-                            (entry.reinvestedTickets || 0) * (ticketPrice || 5_000_000) -
+                            (entry.reinvestedTickets || 0) *
+                              (ticketPrice || 5_000_000) -
                               entry.amount
                           );
 
@@ -515,8 +547,9 @@ export default function CompleteLedgerModal({
                                   priorDustApplied,
                                   tokenDecimals
                                 )}{" "}
-                                {tokenSymbol} of previous dust with this draw&apos;s
-                                winnings to purchase an extra ticket.
+                                {tokenSymbol} of previous dust with this
+                                draw&apos;s winnings to purchase an extra
+                                ticket.
                               </div>
                             </div>
                           );

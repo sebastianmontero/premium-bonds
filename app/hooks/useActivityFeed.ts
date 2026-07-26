@@ -133,7 +133,7 @@ function eventToActivity(
 function mergeAndDeduplicate(
   existing: ActivityEntry[],
   incoming: ActivityEntry[],
-  maxLimit: number = 200
+  maxLimit: number = Infinity
 ): ActivityEntry[] {
   const map = new Map<string, ActivityEntry>();
   const incomingOnChainSigs = new Set<string>();
@@ -168,7 +168,7 @@ function mergeAndDeduplicate(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
-  return merged.slice(0, maxLimit);
+  return isFinite(maxLimit) ? merged.slice(0, maxLimit) : merged;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -202,6 +202,7 @@ export function useActivityFeed(
   const fetchIdRef = useRef(0);
   const oldestSignatureRef = useRef<string | null>(null);
   const hasMoreRef = useRef(true);
+  const isFetchingMoreRef = useRef(false);
   const entriesRef = useRef<ActivityEntry[]>([]);
 
   // Keep entriesRef in sync with state
@@ -229,7 +230,18 @@ export function useActivityFeed(
 
       // Check localStorage cache for incremental fetching
       const cached = getCachedEvents(cacheKey);
-      const fetchOpts = cached
+
+      if (cached) {
+        if (cached.oldestSignature !== undefined) {
+          oldestSignatureRef.current = cached.oldestSignature;
+        }
+        if (cached.hasMore !== undefined) {
+          hasMoreRef.current = cached.hasMore;
+          setHasMore(cached.hasMore);
+        }
+      }
+
+      const fetchOpts = cached?.lastSignature
         ? { limit: 15, until: cached.lastSignature }
         : { limit: 15 };
 
@@ -245,19 +257,31 @@ export function useActivityFeed(
         allEvents = [...result.events, ...cached.events];
       }
 
-      // Update cursor refs
-      if (result.oldestRawSignature) {
+      // Update cursor refs: ONLY update if not doing an incremental `until` fetch
+      // or if oldestSignatureRef is not set yet
+      if (!cached?.lastSignature) {
+        if (result.oldestRawSignature) {
+          oldestSignatureRef.current = result.oldestRawSignature;
+        }
+        hasMoreRef.current = result.hasMore;
+        setHasMore(result.hasMore);
+      } else if (!oldestSignatureRef.current && result.oldestRawSignature) {
         oldestSignatureRef.current = result.oldestRawSignature;
       }
-      hasMoreRef.current = result.hasMore;
-      setHasMore(result.hasMore);
 
-      // Save top 20 events to localStorage cache
+      // Robust cursor fallback: Ensure oldestSignatureRef is populated if we have events
+      if (!oldestSignatureRef.current && allEvents.length > 0) {
+        oldestSignatureRef.current = allEvents[allEvents.length - 1].signature;
+      }
+
+      // Save top 20 events to localStorage cache with history cursors
       if (allEvents.length > 0) {
         setCachedEvents(
           cacheKey,
           allEvents.slice(0, 20),
-          allEvents[0].signature
+          allEvents[0].signature,
+          oldestSignatureRef.current,
+          hasMoreRef.current
         );
       }
 
@@ -295,48 +319,74 @@ export function useActivityFeed(
 
   /**
    * Lazily fetch the next batch of historical transactions using `before: oldestSignature`.
+   * Automatically scans up to 4 signature batches if non-program transactions are encountered.
    */
   const loadMore = useCallback(
     async (batchLimit: number = 15): Promise<boolean> => {
-      if (!userAddress || !hasMoreRef.current || !oldestSignatureRef.current) {
+      if (
+        !userAddress ||
+        !hasMoreRef.current ||
+        !oldestSignatureRef.current ||
+        isFetchingMoreRef.current
+      ) {
         return false;
       }
 
       const fetchId = fetchIdRef.current;
+      isFetchingMoreRef.current = true;
       setIsFetchingMore(true);
 
       try {
         const rpc = client.runtime.rpc;
         const walletAddr = userAddress as unknown as Address;
 
-        const result = await fetchProgramEvents(rpc, walletAddr, {
-          limit: batchLimit,
-          before: oldestSignatureRef.current,
-        });
-
-        if (fetchId !== fetchIdRef.current) return false;
-
-        // Update cursor pointer from raw RPC response
-        if (result.oldestRawSignature) {
-          oldestSignatureRef.current = result.oldestRawSignature;
-        }
-        hasMoreRef.current = result.hasMore;
-        setHasMore(result.hasMore);
-
         const newParsed: ActivityEntry[] = [];
-        for (const event of result.events) {
-          const entry = eventToActivity(event, tokenDecimals);
-          if (entry) newParsed.push(entry);
+        let canContinue: boolean = hasMoreRef.current;
+        const MAX_SCAN_BATCHES = 4;
+        let batchCount = 0;
+
+        while (
+          newParsed.length === 0 &&
+          canContinue &&
+          oldestSignatureRef.current &&
+          batchCount < MAX_SCAN_BATCHES
+        ) {
+          batchCount++;
+          const result = await fetchProgramEvents(rpc, walletAddr, {
+            limit: batchLimit,
+            before: oldestSignatureRef.current,
+          });
+
+          if (fetchId !== fetchIdRef.current) return false;
+
+          if (result.oldestRawSignature) {
+            oldestSignatureRef.current = result.oldestRawSignature;
+          }
+          hasMoreRef.current = result.hasMore;
+          setHasMore(result.hasMore);
+          canContinue = result.hasMore;
+
+          for (const event of result.events) {
+            const entry = eventToActivity(event, tokenDecimals);
+            if (entry) newParsed.push(entry);
+          }
+
+          if (result.events.length === 0 && !result.hasMore) {
+            break;
+          }
         }
 
-        const merged = mergeAndDeduplicate(entriesRef.current, newParsed, 200);
-        updateEntriesState(merged);
+        if (newParsed.length > 0) {
+          const merged = mergeAndDeduplicate(entriesRef.current, newParsed);
+          updateEntriesState(merged);
+        }
 
-        return result.hasMore;
+        return hasMoreRef.current;
       } catch (err) {
         console.error("useActivityFeed loadMore error:", err);
         return false;
       } finally {
+        isFetchingMoreRef.current = false;
         if (fetchId === fetchIdRef.current) {
           setIsFetchingMore(false);
         }
@@ -353,7 +403,7 @@ export function useActivityFeed(
       filterFn: (entry: ActivityEntry) => boolean,
       targetCount: number
     ): Promise<void> => {
-      if (!userAddress || !hasMoreRef.current) return;
+      if (!userAddress || !hasMoreRef.current || isFetchingMoreRef.current) return;
 
       let currentMatches = entriesRef.current.filter(filterFn).length;
       if (currentMatches >= targetCount) return;
@@ -382,7 +432,7 @@ export function useActivityFeed(
 
   const prependLocal = useCallback(
     (entry: ActivityEntry) => {
-      const updated = mergeAndDeduplicate(entriesRef.current, [entry], 200);
+      const updated = mergeAndDeduplicate(entriesRef.current, [entry]);
       updateEntriesState(updated);
     },
     [updateEntriesState]

@@ -31,6 +31,7 @@ pub enum ProtocolError {
 ```
 
 ### Best Practices:
+
 1. **Descriptive `#[msg("...")]` Strings**: Provide complete, grammatically correct English sentences. Avoid cryptic abbreviations.
 2. **One Cause per Error Code**: Do not reuse `InvalidInput` across multiple validation checks. Define separate enum variants so client decoders can pin down the exact failing check.
 3. **UpperCamelCase Naming**: Enum variant names should clearly reflect the domain violation (e.g. `TicketAlreadyClaimed`).
@@ -44,7 +45,7 @@ Use Anchor's `require!` and `require_gt!` macros to enforce invariant checks.
 ```rust
 pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     require!(amount > 0, ProtocolError::InvalidDepositAmount);
-    
+
     let vault = &ctx.accounts.vault;
     require!(!vault.is_paused, ProtocolError::VaultPaused);
 
@@ -77,6 +78,7 @@ When Anchor compiles your Rust program, it produces an IDL JSON file containing 
 ```
 
 ### Verification Step:
+
 Ensure `idl-build` feature is enabled in your program's `Cargo.toml`:
 
 ```toml
@@ -86,7 +88,9 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 ```
 
 When building, execute:
+
 ```bash
 NO_DNA=1 anchor build
 ```
+
 And verify that `target/idl/<program_name>.json` contains all custom error definitions with matching messages.
