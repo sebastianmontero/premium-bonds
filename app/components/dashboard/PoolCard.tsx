@@ -67,7 +67,7 @@ export function PoolCard({
           </p>
           <LiveYieldTicker
             pool={pool}
-            precision={2}
+            precision={4}
             showBadge={false}
             valueClassName="font-display text-xl font-bold tracking-tight text-gradient"
           />

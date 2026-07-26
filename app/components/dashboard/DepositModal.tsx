@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { LiveYieldTicker } from "./LiveYieldTicker";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo } from "@/app/types";
 import { parseTransactionError } from "@/app/lib/errors";
@@ -243,14 +244,12 @@ export function DepositModal({
               <span className="text-xs font-medium text-on-surface-variant">
                 Current Prize Pot
               </span>
-              <span className="font-display text-lg font-bold text-gradient">
-                $
-                {formatTokenAmount(
-                  pool.estimatedPrizePot,
-                  pool.tokenDecimals,
-                  0
-                )}
-              </span>
+              <LiveYieldTicker
+                pool={pool}
+                precision={4}
+                showBadge={false}
+                valueClassName="font-display text-lg font-bold text-gradient"
+              />
             </div>
 
             {/* ── Dual Input ──────────────────────────────────────────────── */}
