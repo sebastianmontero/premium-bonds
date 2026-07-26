@@ -508,7 +508,7 @@ export default function CompleteLedgerModal({
                       {statusPill(
                         entry.status,
                         !!crankingCycles[
-                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        `${entry.drawCycleId}-${entry.winnerIndex}`
                         ]
                       )}
                       {(() => {
@@ -517,8 +517,8 @@ export default function CompleteLedgerModal({
                           Math.max(
                             0,
                             (entry.reinvestedTickets || 0) *
-                              (ticketPrice || 5_000_000) -
-                              entry.amount
+                            (ticketPrice || 5_000_000) -
+                            entry.amount
                           );
 
                         if (
@@ -598,50 +598,48 @@ export default function CompleteLedgerModal({
                   <div className="flex items-center justify-start md:justify-end gap-3 md:pl-0 w-full font-sans">
                     {(entry.status === "processing" ||
                       entry.status === "partial") && (
-                      <button
-                        disabled={
-                          !!crankingCycles[
+                        <button
+                          disabled={
+                            !!crankingCycles[
                             `${entry.drawCycleId}-${entry.winnerIndex}`
-                          ]
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
-                        }}
-                        className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
-                          crankingCycles[
-                            `${entry.drawCycleId}-${entry.winnerIndex}`
-                          ]
-                            ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                            : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
-                        }`}
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={`animate-spin ${
-                            crankingCycles[
+                            ]
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
+                          }}
+                          className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${crankingCycles[
                               `${entry.drawCycleId}-${entry.winnerIndex}`
                             ]
-                              ? "duration-1000 text-on-surface-variant/40"
-                              : "duration-3000"
-                          }`}
+                              ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                              : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+                            }`}
                         >
-                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-                        </svg>
-                        {crankingCycles[
-                          `${entry.drawCycleId}-${entry.winnerIndex}`
-                        ]
-                          ? "Cranking..."
-                          : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
-                      </button>
-                    )}
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={`animate-spin ${crankingCycles[
+                                `${entry.drawCycleId}-${entry.winnerIndex}`
+                              ]
+                                ? "duration-1000 text-on-surface-variant/40"
+                                : "duration-3000"
+                              }`}
+                          >
+                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                          </svg>
+                          {crankingCycles[
+                            `${entry.drawCycleId}-${entry.winnerIndex}`
+                          ]
+                            ? "Cranking..."
+                            : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
+                        </button>
+                      )}
 
                     {/* Monospace/truncated VRF indicator to reassure users of fairness */}
                     {entry.vrfSeed && (
@@ -757,7 +755,7 @@ export default function CompleteLedgerModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-4 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
-            Premium Bonds Cryptographic Ledgers v1.0
+            YieldBonds Cryptographic Ledgers v1.0
           </p>
           <button
             onClick={onClose}

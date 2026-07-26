@@ -3,7 +3,11 @@
 import { useState, useEffect } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
-import { parseTransactionError } from "@/app/lib/errors";
+import {
+  parseTransactionError,
+  ParsedTransactionError,
+} from "@/app/lib/errors";
+import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
@@ -94,7 +98,9 @@ export default function DashboardPage() {
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [txError, setTxError] = useState<string | null>(null);
+  const [txError, setTxError] = useState<
+    ParsedTransactionError | string | null
+  >(null);
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
@@ -171,13 +177,14 @@ export default function DashboardPage() {
   const netWorth = investedAmount + redeemingAmount + activeUnclaimedWinnings;
 
   // Handlers for Deposit/Withdraw Success
-  const handleDepositSuccess = (tickets: number, value: number) => {
+  const handleDepositSuccess = (tickets: number, value: number, signature?: string) => {
     const newActivity: ActivityEntry = {
       id: `act-dep-${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
       type: "deposit",
       description: `Deposited ${value / 1_000_000} USDC → +${tickets} tickets`,
       amount: value,
+      txSignature: signature,
     };
 
     if (isConnected) {
@@ -189,13 +196,14 @@ export default function DashboardPage() {
     }
   };
 
-  const handleWithdrawSuccess = (tickets: number, value: number) => {
+  const handleWithdrawSuccess = (tickets: number, value: number, signature?: string) => {
     const newActivity: ActivityEntry = {
       id: `act-w-${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
       type: "withdraw",
       description: `Requested withdrawal of ${tickets} bonds (${value / 1_000_000} USDC) · Pending settle`,
       amount: value,
+      txSignature: signature,
     };
 
     if (isConnected) {
@@ -355,8 +363,8 @@ export default function DashboardPage() {
         console.warn("Reinvest crank cancelled by user.");
       } else {
         console.error("Reinvest crank failed:", err);
-        setTxError(parsed.message);
       }
+      setTxError(parsed);
     } finally {
       // Clear cranking status
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
@@ -367,22 +375,13 @@ export default function DashboardPage() {
     if (activeUnclaimedWinnings === 0) return;
 
     const claimAmount = activeUnclaimedWinnings;
-
-    const newActivity: ActivityEntry = {
-      id: `act-claim-dust-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      type: "win",
-      description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
-      amount: claimAmount,
-    };
-
     setTxError(null);
     try {
+      let txSignature: string | undefined;
       if (isConnected) {
-        await actions.claimNonReinvestedWinnings();
+        txSignature = await actions.claimNonReinvestedWinnings();
         refetch();
         refetchDrawHistory();
-        prependLocal(newActivity);
       } else {
         setUnclaimedWinningsBalance(0);
         const newRedemption: PendingRedemption = {
@@ -393,6 +392,20 @@ export default function DashboardPage() {
           type: "prize_claim",
         };
         setPendingRedemptions((prev) => [newRedemption, ...prev]);
+      }
+
+      const newActivity: ActivityEntry = {
+        id: `act-claim-dust-${Date.now()}`,
+        date: new Date().toISOString().split("T")[0],
+        type: "win",
+        description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
+        amount: claimAmount,
+        txSignature,
+      };
+
+      if (isConnected) {
+        prependLocal(newActivity);
+      } else {
         setMockActivityFeed((prev) => [newActivity, ...prev]);
       }
     } catch (err) {
@@ -401,8 +414,8 @@ export default function DashboardPage() {
         console.warn("Claim non-reinvested winnings cancelled by user.");
       } else {
         console.error("Failed to claim dust on-chain:", err);
-        setTxError(parsed.message);
       }
+      setTxError(parsed);
     }
   };
 
@@ -421,8 +434,9 @@ export default function DashboardPage() {
 
     setTxError(null);
     try {
+      let txSignature: string | undefined;
       if (isConnected) {
-        await actions.claimRedemption(id);
+        txSignature = await actions.claimRedemption(id);
         refetch();
       } else {
         setPendingRedemptions((prev) =>
@@ -438,6 +452,7 @@ export default function DashboardPage() {
           redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
         } of $${redemption.amount / 1_000_000} USDC to wallet`,
         amount: redemption.amount,
+        txSignature,
       };
 
       if (isConnected) {
@@ -451,44 +466,16 @@ export default function DashboardPage() {
         console.warn("Claim redemption cancelled by user.");
       } else {
         console.error("Failed to claim redemption on-chain:", err);
-        setTxError(parsed.message);
       }
+      setTxError(parsed);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Transaction Error Banner */}
+      {/* Transaction Error Alert */}
       {txError && (
-        <div className="rounded-xl bg-error/15 border border-error/30 p-4 text-sm text-error flex items-start gap-3 animate-fade-in shadow-ambient">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="shrink-0 mt-0.5"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <div className="flex-1 space-y-1">
-            <h4 className="font-bold text-on-surface">Transaction Failed</h4>
-            <p className="text-xs text-on-surface-variant font-mono leading-normal break-all">
-              {txError}
-            </p>
-          </div>
-          <button
-            onClick={() => setTxError(null)}
-            className="text-error/70 hover:text-error transition cursor-pointer text-lg font-bold leading-none px-1.5"
-          >
-            &times;
-          </button>
-        </div>
+        <SolanaErrorAlert error={txError} onDismiss={() => setTxError(null)} />
       )}
 
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}

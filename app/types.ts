@@ -93,6 +93,7 @@ export interface ActivityEntry {
   type: ActivityType;
   description: string; // human-readable summary
   amount?: number; // base units, optional
+  txSignature?: string; // Solana transaction signature (base58)
 }
 
 export interface PendingRedemption {

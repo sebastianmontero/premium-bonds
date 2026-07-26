@@ -3,13 +3,19 @@
 import { useState, useCallback } from "react";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
-import { parseTransactionError } from "@/app/lib/errors";
+import {
+  parseTransactionError,
+  ParsedTransactionError,
+  getExplorerUrl,
+  truncateSignature,
+} from "@/app/lib/errors";
+import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 
 interface WithdrawModalProps {
   pool: PoolInfo;
   userTickets: UserTicketInfo;
   onClose: () => void;
-  onWithdrawSuccess: (tickets: number, value: number) => void;
+  onWithdrawSuccess: (tickets: number, value: number, signature?: string) => void;
   onWithdraw?: (amount: number) => Promise<string>;
 }
 
@@ -24,7 +30,10 @@ export function WithdrawModal({
   const [step, setStep] = useState<
     "input" | "signing" | "confirming" | "success"
   >("input");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [parsedError, setParsedError] = useState<ParsedTransactionError | null>(
+    null
+  );
+  const [txSignature, setTxSignature] = useState<string | null>(null);
 
   const maxTickets =
     userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
@@ -36,11 +45,13 @@ export function WithdrawModal({
   const handleWithdraw = useCallback(async () => {
     if (!canWithdraw) return;
     setStep("signing");
-    setErrorMsg(null);
+    setParsedError(null);
+    setTxSignature(null);
 
     try {
       if (onWithdraw) {
-        await onWithdraw(withdrawValue);
+        const sig = await onWithdraw(withdrawValue);
+        if (sig) setTxSignature(sig);
         setStep("confirming");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         setStep("success");
@@ -59,16 +70,16 @@ export function WithdrawModal({
         console.warn("Withdraw transaction cancelled by user.");
       } else {
         console.error("Withdraw transaction failed:", err);
-        setErrorMsg(parsed.message);
       }
+      setParsedError(parsed);
       setStep("input");
     }
   }, [canWithdraw, withdrawValue, onWithdraw]);
 
   const handleDone = useCallback(() => {
-    onWithdrawSuccess(parsedTickets, withdrawValue);
+    onWithdrawSuccess(parsedTickets, withdrawValue, txSignature || undefined);
     onClose();
-  }, [parsedTickets, withdrawValue, onWithdrawSuccess, onClose]);
+  }, [parsedTickets, withdrawValue, txSignature, onWithdrawSuccess, onClose]);
 
   return (
     <div className="modal-backdrop animate-fade-in" onClick={onClose}>
@@ -125,39 +136,6 @@ export function WithdrawModal({
           )}
         </div>
 
-        {/* Error Banner */}
-        {errorMsg && step === "input" && (
-          <div className="rounded-xl bg-error/15 border border-error/30 p-3 text-xs text-error flex items-start gap-2.5 animate-fade-in">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0 mt-0.5"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            <div className="flex-1 space-y-0.5">
-              <p className="font-semibold">Transaction Failed</p>
-              <p className="text-[10px] text-on-surface-variant/80 font-mono leading-normal break-all">
-                {errorMsg}
-              </p>
-            </div>
-            <button
-              onClick={() => setErrorMsg(null)}
-              className="text-error/70 hover:text-error transition cursor-pointer text-sm font-bold leading-none px-1"
-            >
-              &times;
-            </button>
-          </div>
-        )}
-
         {/* ── Progress Stepper ───────────────────────────────────────── */}
         {step !== "input" && (
           <div className="flex items-center justify-between px-6 py-2 bg-surface-container/30 rounded-xl">
@@ -202,6 +180,15 @@ export function WithdrawModal({
         {/* ── Step Views ────────────────────────────────────────────── */}
         {step === "input" && (
           <>
+            {/* Error Alert */}
+            {parsedError && (
+              <SolanaErrorAlert
+                error={parsedError}
+                onDismiss={() => setParsedError(null)}
+                onRetry={canWithdraw ? handleWithdraw : undefined}
+              />
+            )}
+
             {/* Frozen Alert */}
             {pool.isFrozenForDraw && (
               <div className="flex items-center gap-3 rounded-xl border border-tertiary/20 bg-tertiary/5 px-4 py-3">
@@ -462,6 +449,19 @@ export function WithdrawModal({
                   Asynchronous
                 </span>
               </div>
+              {txSignature && (
+                <div className="flex justify-between pt-1 border-t border-white/10">
+                  <span className="text-on-surface-variant">Solana Tx</span>
+                  <a
+                    href={getExplorerUrl(txSignature, "devnet", "solscan")}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-primary hover:underline font-medium"
+                  >
+                    {truncateSignature(txSignature)} ↗
+                  </a>
+                </div>
+              )}
             </div>
 
             <button

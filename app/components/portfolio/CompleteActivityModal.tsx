@@ -10,6 +10,7 @@ import React, {
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import type { ScanProgress } from "@/app/hooks/useActivityFeed";
+import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 
 interface CompleteActivityModalProps {
   entries: ActivityEntry[];
@@ -186,10 +187,15 @@ export default function CompleteActivityModal({
 
   const isMatch = useCallback(
     (entry: ActivityEntry, term: string, type: string) => {
+      const cleanTerm = term.trim().toLowerCase();
+      if (!cleanTerm && type === "all") return true;
+
       const matchesSearch =
-        term === "" ||
-        entry.description.toLowerCase().includes(term.toLowerCase()) ||
-        entry.id.toLowerCase().includes(term.toLowerCase());
+        cleanTerm === "" ||
+        entry.description.toLowerCase().includes(cleanTerm) ||
+        entry.id.toLowerCase().includes(cleanTerm) ||
+        (entry.txSignature &&
+          entry.txSignature.toLowerCase().includes(cleanTerm));
 
       const matchesType = type === "all" || entry.type === type;
       return matchesSearch && matchesType;
@@ -530,12 +536,21 @@ export default function CompleteActivityModal({
                         <p className="text-sm text-on-surface font-medium leading-snug">
                           {entry.description}
                         </p>
-                        <p
-                          className="text-[11px] text-on-surface-variant/70 mt-1 font-mono"
-                          suppressHydrationWarning
-                        >
-                          ID: {entry.id}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span
+                            className="text-[11px] text-on-surface-variant/70 font-mono"
+                            suppressHydrationWarning
+                          >
+                            ID: {entry.id}
+                          </span>
+                          {entry.txSignature && (
+                            <TxExplorerLink
+                              signature={entry.txSignature}
+                              variant="subtle"
+                              showCopy={true}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                     <span
@@ -609,7 +624,7 @@ export default function CompleteActivityModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
-            Premium Bonds Protocol Audit Log v1.0
+            YieldBonds Protocol Audit Log v1.0
           </p>
           <button
             onClick={onClose}

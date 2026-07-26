@@ -380,6 +380,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "deposit",
     description: "Deposited 500 USDC → 100 tickets",
     amount: usdc(500),
+    txSignature:
+      "5K3f90lK1J3bVcQyXs8hM3nKa4Lp7dGf2s9e5w4x3c2v1b0n9m8a7s6d5f4g3h2j1k2l3m4n5p6q",
   },
   {
     id: "act-2",
@@ -387,6 +389,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "win",
     description: "Won $85.00 USDC · Consolation · Draw #41",
     amount: usdc(85),
+    txSignature:
+      "4J2e89jJ0I2aUbPxXr7gL2mJz3Ko6cFe1r8d4w3w2b1u0m9l8z6r5e4d3c2b1a0j9i8h7g6f5e4d",
   },
   {
     id: "act-3",
@@ -394,6 +398,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "auto-reinvest",
     description: "Auto-reinvested $85.00 → +17 tickets, $0.00 dust",
     amount: usdc(85),
+    txSignature:
+      "3H1d78hH9H1zTaOwWq6fK1lIy2Jn5bEd0q7c3v2v1a0t9k8j7y5q4d3c2b1a0j9i8h7g6f5e4c3b",
   },
   {
     id: "act-4",
@@ -401,6 +407,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "deposit",
     description: "Deposited 750 USDC → 150 tickets",
     amount: usdc(750),
+    txSignature:
+      "2G0c67gG8G0ySZNvVp5eJ0kHx1Im4aDc9p6b2u1u0z9s8j7i6x4p3c2b1a0j9i8h7g6f5e4c3b2a",
   },
   {
     id: "act-5",
@@ -408,6 +416,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "claim-redemption",
     description: "Claimed settled redemption of 200 USDC to wallet",
     amount: usdc(200),
+    txSignature:
+      "1F9b56fF7F9xRYMuUo4dI9jGw0Hl3zCb8o5a1t0t9y8r7h6g5w3o2b1a0j9i8h7g6f5e4c3b2a1z",
   },
   {
     id: "act-6",
@@ -415,6 +425,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "withdraw",
     description: "Sold 40 bonds (200 USDC) · Pending settle",
     amount: usdc(200),
+    txSignature:
+      "0E8a45eE6E8wQXLtTn3cH8iFv9Gk2yBa7n4z0s0s8x7q6f5e4v2n1a0j9i8h7g6f5e4c3b2a1z0y",
   },
   {
     id: "act-7",
@@ -422,6 +434,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "win",
     description: "Won $1,500.00 USDC · Jackpot · Draw #29",
     amount: usdc(1500),
+    txSignature:
+      "9D7z34dD5D7vPWKsSm2bG7hEu8Fj1xAz6m3y9r9r7w6p5e4d3u1m0a9i8h7g6f5e4c3b2a1z0y9x",
   },
   {
     id: "act-8",
@@ -429,6 +443,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "auto-reinvest",
     description: "Auto-reinvested $1,500.00 → +300 tickets",
     amount: usdc(1500),
+    txSignature:
+      "8C6y23cC4C6uOVJrRl1aF6gDt7Ei0wZy5l2x8q8q6v5d4c3b2t0l9h8g7f6e5d4c3b2a1z0y9x8w",
   },
   {
     id: "act-9",
@@ -436,6 +452,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "win",
     description: "Won $18.00 USDC · Consolation · Draw #26",
     amount: usdc(18),
+    txSignature:
+      "7B5x12bB3B5tNUIqQk0zE5fCs6Dh9yYx4k1w7p7p5u4c3b2a1s9k8g7f6e5d4c3b2a1z0y9x8w7v",
   },
   {
     id: "act-10",
@@ -444,6 +462,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     description:
       "Auto-reinvested $18.00 winnings + $2.00 prior dust → +4 tickets",
     amount: usdc(20),
+    txSignature:
+      "6A4w01aA2A4sMTHpPj9yD4eBr5Cg8xXw3j0v6o6o4t3b2a1z0r8j7f6e5d4c3b2a1z0y9x8w7v6u",
   },
   {
     id: "act-11",
@@ -451,6 +471,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "win",
     description: "Won $22.00 USDC · Consolation · Draw #23",
     amount: usdc(22),
+    txSignature:
+      "5Z3v90zZ1Z3rLSGoOi8xC3dAq4Bf7wWv2i9u5n5n3s2a1z0y9q7i6e5d4c3b2a1z0y9x8w7v6u5t",
   },
   {
     id: "act-12",
@@ -458,6 +480,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "deposit",
     description: "Deposited 1,000 USDC → 200 tickets",
     amount: usdc(1000),
+    txSignature:
+      "4Y2u89yY0Y2qKRFnNh7wB2cZp3Ae6vVu1h8t4m4m2r1z0y9x8p6h5d4c3b2a1z0y9x8w7v6u5t4s",
   },
   {
     id: "act-13",
@@ -465,6 +489,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "win",
     description: "Won $120.00 USDC · Tier 2 · Draw #20",
     amount: usdc(120),
+    txSignature:
+      "3X1t78xX9X1pJQEmMg6vA1bYo2Zd5uUt0g7s3l3l1y0x9w8v7o5g4c3b2a1z0y9x8w7v6u5t4s3r",
   },
   {
     id: "act-14",
@@ -472,6 +498,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "claim-redemption",
     description: "Claimed settled redemption of 50 USDC to wallet",
     amount: usdc(50),
+    txSignature:
+      "2W0s67wW8W0oIPDlLf5uz0aXn1Yc4tTs9f6r2k2k0x9w8v7u6n4f3b2a1z0y9x8w7v6u5t4s3r2q",
   },
   {
     id: "act-15",
@@ -479,6 +507,8 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "withdraw",
     description: "Sold 10 bonds (50 USDC) · Pending settle",
     amount: usdc(50),
+    txSignature:
+      "1V9r56vV7V9nHPCkKe4ty9zWm0Xb3sSr8e5q1j1j9w8v7u6t5m3e2a1z0y9x8w7v6u5t4s3r2q1p",
   },
   {
     id: "act-16",
@@ -486,5 +516,7 @@ export const MOCK_ACTIVITY_FEED: ActivityEntry[] = [
     type: "deposit",
     description: "Deposited 250 USDC → 50 tickets",
     amount: usdc(250),
+    txSignature:
+      "0U8q45uU6U8mGOBjJd3sx8yVl9Wa2rRq7d4p0i0i8v7u6t5s4l2d1a0j9i8h7g6f5e4c3b2a1z0y",
   },
 ];

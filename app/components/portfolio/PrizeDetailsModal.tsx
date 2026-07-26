@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
+import { getExplorerUrl } from "@/app/lib/errors";
 
 interface PrizeDetailsModalProps {
   entry: PrizeHistoryEntry | null;
@@ -55,7 +56,7 @@ export default function PrizeDetailsModal({
   };
 
   const handleShare = () => {
-    const text = `Just checked my Premium Bonds draw cycle ${entry.drawCycleId} - my ticket ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
+    const text = `Just checked my YieldBonds draw cycle ${entry.drawCycleId} - my ticket ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
     navigator.clipboard.writeText(text);
     setShareStatus("Copied share template to clipboard!");
     setTimeout(() => setShareStatus(null), 3000);
@@ -488,7 +489,7 @@ export default function PrizeDetailsModal({
                       )}
                     </button>
                     <a
-                      href={`https://explorer.solana.com/tx/${entry.txSignature}?cluster=devnet`}
+                      href={getExplorerUrl(entry.txSignature, "devnet", "solscan")}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
@@ -506,7 +507,7 @@ export default function PrizeDetailsModal({
                           d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                         />
                       </svg>
-                      <span>Solana Explorer</span>
+                      <span>Solscan</span>
                     </a>
                   </div>
                 </div>
@@ -589,11 +590,10 @@ export default function PrizeDetailsModal({
                 onClick={() =>
                   onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
                 }
-                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
-                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                     ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
                     : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
-                }`}
+                  }`}
               >
                 <svg
                   width="16"
@@ -604,11 +604,10 @@ export default function PrizeDetailsModal({
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className={`animate-spin ${
-                    crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                  className={`animate-spin ${crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                       ? "duration-1000 text-on-surface-variant/40"
                       : "duration-3000"
-                  }`}
+                    }`}
                 >
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                 </svg>

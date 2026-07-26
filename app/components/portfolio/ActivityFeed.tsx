@@ -1,6 +1,7 @@
 "use client";
 
 import type { ActivityEntry, ActivityType } from "@/app/types";
+import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 
 interface ActivityFeedProps {
   entries: ActivityEntry[];
@@ -177,19 +178,28 @@ export function ActivityFeed({
               <div className={`timeline-dot ${dotColor(entry.type)}`} />
 
               {/* Content */}
-              <div className="flex items-start gap-2">
-                {typeIcon(entry.type)}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className="text-xs font-medium text-on-surface-variant"
-                    suppressHydrationWarning
-                  >
-                    {formatFeedDate(entry.date)}
-                  </p>
-                  <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
-                    {entry.description}
-                  </p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 flex-1 min-w-0">
+                  {typeIcon(entry.type)}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-xs font-medium text-on-surface-variant"
+                      suppressHydrationWarning
+                    >
+                      {formatFeedDate(entry.date)}
+                    </p>
+                    <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
+                      {entry.description}
+                    </p>
+                  </div>
                 </div>
+                {entry.txSignature && (
+                  <TxExplorerLink
+                    signature={entry.txSignature}
+                    variant="compact"
+                    showCopy={false}
+                  />
+                )}
               </div>
             </div>
           ))}

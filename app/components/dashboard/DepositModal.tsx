@@ -4,13 +4,19 @@ import { useState, useCallback } from "react";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo } from "@/app/types";
-import { parseTransactionError } from "@/app/lib/errors";
+import {
+  parseTransactionError,
+  ParsedTransactionError,
+  getExplorerUrl,
+  truncateSignature,
+} from "@/app/lib/errors";
+import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 
 interface DepositModalProps {
   pool: PoolInfo;
   walletBalance: number; // base units
   onClose: () => void;
-  onDepositSuccess: (tickets: number, cost: number) => void;
+  onDepositSuccess: (tickets: number, cost: number, signature?: string) => void;
   onDeposit?: (tickets: number) => Promise<string>;
 }
 
@@ -26,7 +32,10 @@ export function DepositModal({
   const [txStage, setTxStage] = useState<
     "signing" | "broadcasting" | "confirming" | "success" | null
   >(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [parsedError, setParsedError] = useState<ParsedTransactionError | null>(
+    null
+  );
+  const [txSignature, setTxSignature] = useState<string | null>(null);
 
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
 
@@ -57,10 +66,16 @@ export function DepositModal({
 
   const handleDeposit = useCallback(async () => {
     setTxStage("signing");
-    setErrorMsg(null);
+    setParsedError(null);
+    setTxSignature(null);
+    let capturedSig: string | undefined;
     try {
       if (onDeposit) {
-        await onDeposit(parsedTickets);
+        const sig = await onDeposit(parsedTickets);
+        if (sig) {
+          capturedSig = sig;
+          setTxSignature(sig);
+        }
         setTxStage("broadcasting");
         await new Promise((resolve) => setTimeout(resolve, 800));
         setTxStage("confirming");
@@ -76,7 +91,7 @@ export function DepositModal({
         setTxStage("success");
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
-      onDepositSuccess(parsedTickets, totalCostBase);
+      onDepositSuccess(parsedTickets, totalCostBase, capturedSig);
       onClose();
     } catch (err) {
       const parsed = parseTransactionError(err);
@@ -84,8 +99,8 @@ export function DepositModal({
         console.warn("Deposit transaction cancelled by user.");
       } else {
         console.error("Deposit transaction failed:", err);
-        setErrorMsg(parsed.message);
       }
+      setParsedError(parsed);
       setTxStage(null);
     }
   }, [parsedTickets, totalCostBase, onDepositSuccess, onClose, onDeposit]);
@@ -145,6 +160,18 @@ export function DepositModal({
                 {txStage === "success" &&
                   `Successfully purchased ${parsedTickets} bonds for ${formatTokenAmount(totalCostBase, pool.tokenDecimals)} ${pool.tokenSymbol}!`}
               </p>
+              {txStage === "success" && txSignature && (
+                <div className="pt-2">
+                  <a
+                    href={getExplorerUrl(txSignature, "devnet", "solscan")}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-mono text-primary hover:underline bg-primary/10 px-3 py-1.5 rounded-lg border border-primary/20"
+                  >
+                    View on Solscan: {truncateSignature(txSignature)} ↗
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* Stepper indicators */}
@@ -206,37 +233,13 @@ export function DepositModal({
               </button>
             </div>
 
-            {/* Error Banner */}
-            {errorMsg && (
-              <div className="rounded-xl bg-error/15 border border-error/30 p-3 text-xs text-error flex items-start gap-2.5 animate-fade-in">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="shrink-0 mt-0.5"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <div className="flex-1 space-y-0.5">
-                  <p className="font-semibold">Transaction Failed</p>
-                  <p className="text-[10px] text-on-surface-variant/80 font-mono leading-normal break-all">
-                    {errorMsg}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setErrorMsg(null)}
-                  className="text-error/70 hover:text-error transition cursor-pointer text-sm font-bold leading-none px-1"
-                >
-                  &times;
-                </button>
-              </div>
+            {/* Error Alert */}
+            {parsedError && (
+              <SolanaErrorAlert
+                error={parsedError}
+                onDismiss={() => setParsedError(null)}
+                onRetry={canDeposit ? handleDeposit : undefined}
+              />
             )}
 
             {/* ── Current Prize Pot ───────────────────────────────────────── */}

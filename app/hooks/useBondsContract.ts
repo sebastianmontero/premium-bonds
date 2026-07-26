@@ -36,6 +36,7 @@ import {
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { MOCK_POOL } from "../mock-data";
+import { sanitizeErrorMessage } from "../lib/errors";
 
 // ─── Extended Types ──────────────────────────────────────────────────────────
 
@@ -78,11 +79,11 @@ export const HUMA_MODE_CONFIG = address(
 );
 export const HUMA_LENDER_STATE = address(
   process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-    "11111111111111111111111111111111"
+  "11111111111111111111111111111111"
 );
 export const HUMA_POOL_UNDERLYING_TOKEN = address(
   process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-    "11111111111111111111111111111111"
+  "11111111111111111111111111111111"
 );
 export const HUMA_MODE_MINT = address(
   process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
@@ -90,11 +91,11 @@ export const HUMA_MODE_MINT = address(
 
 export const HUMA_POOL_MODE_TOKEN = address(
   process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-    "11111111111111111111111111111111"
+  "11111111111111111111111111111111"
 );
 export const HUMA_REDEMPTION_REQUEST = address(
   process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-    "11111111111111111111111111111111"
+  "11111111111111111111111111111111"
 );
 
 const base64Encoder = getBase64Encoder();
@@ -155,7 +156,7 @@ function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
 
 /**
  * React hook to manage on-chain state queries, wallet balance tracking,
- * and transaction submissions for the Premium Bonds program.
+ * and transaction submissions for the YieldBonds program.
  *
  * Interacts directly with Solana via `@solana/react-hooks` and `@solana/kit`.
  * Handles Huma Finance lending interactions transparently for user deposits/withdrawals.
@@ -450,9 +451,9 @@ export function useBondsContract(poolId: number = 1) {
         setWalletBalance(0);
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
       console.error("Error fetching bonds contract data:", err);
-      setError(errMsg || "Failed to load contract data.");
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setError(sanitizeErrorMessage(errMsg) || "Failed to load contract data.");
     } finally {
       setIsLoading(false);
     }
@@ -882,13 +883,13 @@ export function useBondsContract(poolId: number = 1) {
     userTickets,
     userWinnings: userWinnings
       ? {
-          unclaimedNonReinvestedWinnings: Number(
-            userWinnings.unclaimedNonReinvestedWinnings
-          ),
-          totalClaimed: Number(userWinnings.totalClaimed),
-          totalReinvested: Number(userWinnings.totalReinvested),
-          registryEntryIndex: userWinnings.registryEntryIndex,
-        }
+        unclaimedNonReinvestedWinnings: Number(
+          userWinnings.unclaimedNonReinvestedWinnings
+        ),
+        totalClaimed: Number(userWinnings.totalClaimed),
+        totalReinvested: Number(userWinnings.totalReinvested),
+        registryEntryIndex: userWinnings.registryEntryIndex,
+      }
       : null,
     pendingRedemptions,
     walletBalance,

@@ -1,4 +1,4 @@
-# Premium Bonds Protocol
+# YieldBonds (based on Premium Bonds) Protocol
 
 Next.js starter with Tailwind CSS and `@solana/kit` for wallet connection and Solana hooks.
 
@@ -112,7 +112,7 @@ The devnet orchestrator manages building, deploying, initializing, and simulatin
 npm run devnet deploy
 ```
 
-- Checks and generates local keypairs for the Premium Bonds program and Mock Huma program if they do not exist.
+- Checks and generates local keypairs for the YieldBonds program and Mock Huma program if they do not exist.
 - Synchronizes program IDs across `Cargo.toml`, `Anchor.toml`, `constants.rs`, and `bonds-sdk.ts`.
 - Compiles the Anchor workspace and deploys programs to Solana Devnet.
 
@@ -124,7 +124,7 @@ npm run devnet init [path_to_admin_keypair]
 
 - Loads the admin authority keypair (defaults to your local Solana CLI configuration `~/.config/solana/id.json`).
 - Initializes on-chain state: Huma Pool State, Mock USDC Mint (via SPL Token CLI), Huma Pool token vaults, and admin fee wallet.
-- Initializes Premium Bonds `GlobalConfig` and registers the initial Prize Pool 1.
+- Initializes YieldBonds `GlobalConfig` and registers the initial Prize Pool 1.
 - Generates/updates the devnet environment variables inside `.env.local` and saves addresses to `scripts/devnet-state/addresses.json`.
 
 #### 3. Fund Wallets
@@ -154,7 +154,7 @@ npm run devnet settle [count]
 
 ---
 
-## Premium Bonds Crank CLI (`scripts/pb-cli.ts`)
+## YieldBonds Crank CLI (`scripts/pb-cli.ts`)
 
 A utility crank CLI to manage the draw cycle, query on-chain state, and trigger administrative functions. It dynamically resolves program and vault addresses for both localnet and devnet depending on the target RPC URL.
 

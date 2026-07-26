@@ -1,11 +1,11 @@
-# QA Session: Premium Bonds Protocol Manual Sweep (2026-07-14)
+# QA Session: YieldBonds Protocol Manual Sweep (2026-07-14)
 
 ## 📋 Session Metadata
 
 - **Date:** 2026-07-14
 - **Session Lead:** [Assign Tester/Agent Name]
 - **Target Environment:** Localnet / Surfpool Simulator (Or Devnet staging)
-- **Scope & Objective:** Verify functional correctness, visual consistency, responsive layout, and technical accessibility of the Premium Bonds Protocol client interface.
+- **Scope & Objective:** Verify functional correctness, visual consistency, responsive layout, and technical accessibility of the YieldBonds Protocol client interface.
 - **Test Credentials / Wallets:**
   - Account 1 (Connected Mode): `[Insert Localnet/Devnet Solana Wallet Address]`
   - Account 2 (Connected Mode): `[Insert Secondary Wallet Address for Crank/Winner Testing]`

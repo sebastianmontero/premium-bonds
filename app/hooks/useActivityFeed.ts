@@ -65,58 +65,65 @@ function eventToActivity(
     ? new Date(Number(event.blockTime) * 1000).toISOString().split("T")[0]
     : new Date().toISOString().split("T")[0];
 
+  const signature = event.signature;
+
   switch (event.type) {
     case "BondsPurchased": {
       const d = event.data;
       return {
-        id: `evt-buy-${event.signature.slice(0, 8)}`,
+        id: `evt-buy-${signature.slice(0, 8)}`,
         date,
         type: "deposit" as ActivityType,
         description: `Deposited ${formatAmount(d.amount, decimals)} USDC → +${d.bonds} tickets`,
         amount: Number(d.amount),
+        txSignature: signature,
       };
     }
     case "BondsSold": {
       const d = event.data;
       return {
-        id: `evt-sell-${event.signature.slice(0, 8)}`,
+        id: `evt-sell-${signature.slice(0, 8)}`,
         date,
         type: "withdraw" as ActivityType,
         description: `Sold ${d.bonds} bonds (${formatAmount(d.principal, decimals)} USDC) · Pending settle`,
         amount: Number(d.principal),
+        txSignature: signature,
       };
     }
     case "WinningsReinvested": {
       const d = event.data;
       if (d.bondsBought === 0) return null; // Skip zero-bond batches
       return {
-        id: `evt-reinvest-${event.signature.slice(0, 8)}`,
+        id: `evt-reinvest-${signature.slice(0, 8)}`,
         date,
         type: "auto-reinvest" as ActivityType,
         description: d.isFinalBatch
           ? `Draw #${d.cycleId} reinvestment finalized: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested, decimals)} USDC`
           : `Draw #${d.cycleId} batch reinvest: +${d.bondsBought} tickets (${formatAmount(d.amountReinvested, decimals)} USDC)`,
         amount: Number(d.amountReinvested),
+        txSignature: signature,
       };
     }
     case "WinningsClaimed": {
       const d = event.data;
       return {
-        id: `evt-claim-win-${event.signature.slice(0, 8)}`,
+        id: `evt-claim-win-${signature.slice(0, 8)}`,
         date,
         type: "win" as ActivityType,
         description: `Claimed accumulated winnings of ${formatAmount(d.amount, decimals)} USDC · Pending settle`,
         amount: Number(d.amount),
+        txSignature: signature,
       };
     }
     case "RedemptionClaimed": {
       const d = event.data;
       return {
-        id: `evt-redeem-${event.signature.slice(0, 8)}`,
+        id: `evt-redeem-${signature.slice(0, 8)}`,
         date,
         type: "claim-redemption" as ActivityType,
         description: `Claimed settled redemption of ${formatAmount(d.amount, decimals)} USDC to wallet`,
         amount: Number(d.amount),
+        txSignature: signature,
       };
     }
     case "DrawCompleted":
@@ -153,9 +160,10 @@ function mergeAndDeduplicate(
     if (item.id.startsWith("act-")) {
       const matched = incoming.some(
         (inc) =>
-          inc.type === item.type &&
-          inc.amount === item.amount &&
-          inc.date === item.date
+          (item.txSignature && inc.txSignature === item.txSignature) ||
+          (inc.type === item.type &&
+            inc.amount === item.amount &&
+            inc.date === item.date)
       );
       if (matched) continue; // Skip optimistic item as on-chain event is present
     }

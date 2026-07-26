@@ -1,6 +1,6 @@
 # LiteSVM Testing & Mocking Patterns
 
-This document details common testing patterns for Anchor integration tests in Premium Bonds, utilizing `LiteSVM` for in-process state injection and validation.
+This document details common testing patterns for Anchor integration tests in YieldBonds, utilizing `LiteSVM` for in-process state injection and validation.
 
 ---
 

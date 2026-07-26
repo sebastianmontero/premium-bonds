@@ -45,7 +45,7 @@ import {
 
 function showHelp() {
   console.log(`
-Premium Bonds Crank CLI (pb-cli)
+YieldBonds Crank CLI (pb-cli)
 
 Usage:
   pb-cli [command] [options]

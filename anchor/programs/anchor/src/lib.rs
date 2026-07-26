@@ -17,7 +17,7 @@ pub use state::*;
 
 declare_id!("CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx");
 
-/// The Premium Bonds smart contract program.
+/// The YieldBonds smart contract program.
 ///
 /// Implements a lossless, yield-generating prize savings protocol built on Solana
 /// and integrated with Huma Finance. Users deposit USDC to buy bonds, earning tickets for

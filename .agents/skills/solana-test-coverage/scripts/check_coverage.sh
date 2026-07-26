@@ -6,7 +6,7 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 ANCHOR_DIR="$GIT_ROOT/anchor"
 SCRIPTS_DIR="$GIT_ROOT/.agents/skills/solana-test-coverage/scripts"
 
-echo "=== Premium Bonds Coverage Check ==="
+echo "=== YieldBonds Coverage Check ==="
 echo "Workspace root: $GIT_ROOT"
 echo "Anchor directory: $ANCHOR_DIR"
 

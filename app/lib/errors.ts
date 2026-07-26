@@ -1,89 +1,637 @@
+export type ErrorCategory =
+  | "wallet_cancellation"
+  | "insufficient_sol"
+  | "insufficient_tokens"
+  | "anchor_custom"
+  | "anchor_constraint"
+  | "blockhash_expired"
+  | "network_rpc"
+  | "unknown";
+
 /**
  * Structured output of a parsed transaction error.
  */
 export interface ParsedTransactionError {
   /** True if the user intentionally rejected or cancelled the transaction. */
   isCancellation: boolean;
+  /** High-level layer where error originated. */
+  layer: "wallet" | "anchor" | "spl" | "system" | "rpc" | "unknown";
+  /** Categorized error classification. */
+  category: ErrorCategory;
+  /** Short human-readable title. */
+  title: string;
   /** Human-readable error message or raw error details. */
   message: string;
+  /** Numeric or string error code if identified. */
+  code?: string | number;
+  /** Suggested actionable step for the user. */
+  actionableStep?: string;
+  /** Extracted transaction/simulation logs if present. */
+  logs?: string[];
+  /** Original raw error object. */
+  rawError?: unknown;
 }
 
 /**
- * Parses transaction errors from `@solana/kit` and wallet-standard adapters
- * to identify user cancellations gracefully and format error messages.
- *
- * @param err - The raw error object caught from a transaction sending process.
- * @returns An object containing whether it was a cancellation, and the parsed message.
+ * Anchor custom error codes map for YieldBonds Program (offset 6000 / 0x1770)
  */
-export function parseTransactionError(err: unknown): ParsedTransactionError {
-  if (!err) {
-    return { isCancellation: false, message: "An unknown error occurred" };
-  }
+const ANCHOR_CUSTOM_ERRORS: Record<
+  number,
+  { name: string; message: string; actionable?: string }
+> = {
+  6000: {
+    name: "PoolNotActive",
+    message: "The prize pool is not currently active.",
+    actionable: "Please wait for the administrator to activate this pool.",
+  },
+  6001: {
+    name: "CycleNotEnded",
+    message: "The current stake cycle has not yet ended.",
+    actionable: "Please wait until the current draw cycle completes.",
+  },
+  6002: {
+    name: "InvalidBondQuantity",
+    message: "Invalid bond quantity specified.",
+    actionable: "Please enter a valid ticket quantity greater than zero.",
+  },
+  6003: {
+    name: "InvalidCollateralAmount",
+    message: "Invalid collateral amount.",
+    actionable: "Ensure your USDC deposit meets the minimum requirement.",
+  },
+  6004: {
+    name: "RegistryFull",
+    message: "The prize pool ticket registry is at maximum capacity.",
+    actionable:
+      "Contact pool administrators to resize or reallocate registry storage.",
+  },
+  6005: {
+    name: "RegistryTooSmall",
+    message: "The ticket registry account pre-allocation is too small.",
+    actionable: "Pre-allocate sufficient byte size for ticket entries.",
+  },
+  6006: {
+    name: "RegistryAtMaxSize",
+    message:
+      "The ticket registry has reached Solana's 10 MB maximum account size.",
+  },
+  6007: {
+    name: "AwaitingRandomnessFreeze",
+    message:
+      "Withdrawals and deposits are momentarily paused during draw snapshotting.",
+    actionable:
+      "Please try your request again in a few seconds after the draw snapshot resolves.",
+  },
+  6008: {
+    name: "UnauthorizedTicket",
+    message:
+      "You are trying to perform an action on tickets that do not belong to your wallet.",
+  },
+  6009: {
+    name: "AlreadyClaimed",
+    message: "This prize has already been claimed.",
+  },
+  6010: {
+    name: "MathOverflow",
+    message: "A numerical overflow occurred during calculations.",
+  },
+  6011: {
+    name: "InvalidIndices",
+    message: "Invalid ticket indices provided.",
+  },
+  6012: {
+    name: "UnauthorizedCrank",
+    message: "Only designated oracle crank bots can execute this operation.",
+  },
+  6013: {
+    name: "InvalidPrizeTierConfig",
+    message: "Invalid prize tier configuration.",
+  },
+  6014: {
+    name: "PrizeTiersNotConfigured",
+    message: "Prize tiers have not been configured for this pool.",
+  },
+  6015: {
+    name: "BasisPointsMustEqual10000",
+    message:
+      "Prize tier allocations must total exactly 100% (10,000 basis points).",
+  },
+  6016: {
+    name: "InvalidDrawStatus",
+    message: "The draw cycle is in an invalid phase for this operation.",
+  },
+  6017: {
+    name: "InvalidDrawState",
+    message: "The draw cycle has an invalid locked ticket count or prize pot.",
+  },
+  6018: {
+    name: "UnauthorizedAdmin",
+    message: "Only the designated pool administrator can perform this action.",
+  },
+  6019: {
+    name: "InvalidBondPrice",
+    message: "Bond price must be greater than 0.",
+  },
+  6020: {
+    name: "InvalidStakeCycleDuration",
+    message: "Stake cycle duration must be greater than 0 hours.",
+  },
+  6021: {
+    name: "MaxTicketsPerBuyExceeded",
+    message:
+      "The maximum number of tickets per single transaction was exceeded.",
+    actionable: "Try purchasing a smaller quantity of tickets in this batch.",
+  },
+  6022: {
+    name: "HumaRedemptionNotSettled",
+    message: "Huma Protocol liquidity redemption is still settling on-chain.",
+    actionable:
+      "Please wait for the settlement window to expire before claiming.",
+  },
+  6023: {
+    name: "InvalidRedemptionOwner",
+    message: "This pending redemption belongs to a different wallet.",
+  },
+  6024: {
+    name: "InsufficientFeeBalance",
+    message: "Insufficient accrued protocol fee balance for withdrawal.",
+  },
+  6025: {
+    name: "NoWinningsToClaim",
+    message: "No unclaimed prize winnings available.",
+  },
+  6026: {
+    name: "InvalidFeeConfig",
+    message: "Fee basis points must be less than or equal to 100%.",
+  },
+  6027: {
+    name: "InvalidModeMint",
+    message: "The provided token mint does not match the pool configuration.",
+  },
+  6028: {
+    name: "InvalidRandomnessAccount",
+    message:
+      "The provided randomness account is invalid or not owned by Switchboard.",
+  },
+  6029: {
+    name: "RandomnessNotResolved",
+    message: "The oracle randomness request has not yet been resolved.",
+    actionable:
+      "Please wait a moment for Switchboard oracle workers to fulfill the randomness request.",
+  },
+  6030: {
+    name: "StaleRandomnessRequest",
+    message: "The randomness request is stale or expired.",
+    actionable: "Request a fresh randomness commitment.",
+  },
+  6031: {
+    name: "RandomnessNotExpired",
+    message: "The active randomness commitment has not expired yet.",
+  },
+  6032: {
+    name: "InvalidUserEntryHint",
+    message: "Invalid registry user entry hint provided.",
+  },
+  6033: {
+    name: "InsufficientPendingTickets",
+    message: "Insufficient pending tickets available.",
+  },
+  6034: {
+    name: "InsufficientActiveTickets",
+    message:
+      "Insufficient active tickets available to complete this redemption.",
+  },
+  6035: {
+    name: "PoolNotFrozen",
+    message: "The prize pool must be frozen for draw snapshotting.",
+  },
+  6036: {
+    name: "MissingSwappedUserWinnings",
+    message: "Required user winnings account is missing.",
+  },
+  6037: {
+    name: "InvalidFeeWallet",
+    message: "The provided fee wallet account is invalid.",
+  },
+};
 
+/**
+ * Anchor internal framework constraint errors map
+ */
+const ANCHOR_FRAMEWORK_ERRORS: Record<
+  number,
+  { name: string; message: string }
+> = {
+  2000: {
+    name: "ConstraintMut",
+    message: "Account mutability constraint check failed.",
+  },
+  2001: {
+    name: "ConstraintHasOne",
+    message: "Account ownership / has_one constraint check failed.",
+  },
+  2003: {
+    name: "ConstraintSeeds",
+    message: "Program Derived Address (PDA) seed mismatch.",
+  },
+  2008: {
+    name: "ConstraintSigner",
+    message: "Required account did not sign transaction.",
+  },
+  3010: {
+    name: "AccountNotInitialized",
+    message: "Required program account is not initialized.",
+  },
+};
+
+/**
+ * Helper to test whether an error is a user wallet rejection (code 4001 or cancellation text).
+ */
+function isWalletCancellation(err: unknown): boolean {
+  if (!err) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const errorObj = err as any;
-  const message = errorObj.message || String(err);
+  const e = err as any;
 
-  // Helper to check common user rejection phrases
-  const isCancelledMessage = (msg: string): boolean => {
-    const normalized = msg.toLowerCase();
-    return (
-      normalized.includes("user rejected") ||
-      normalized.includes("user cancelled") ||
-      normalized.includes("rejected the request") ||
-      normalized.includes("cancellation") ||
-      normalized.includes("transaction cancelled") ||
-      normalized.includes("declined") ||
-      normalized.includes("user declined")
-    );
-  };
-
-  // 1. Direct message check
-  if (isCancelledMessage(message)) {
-    return { isCancellation: true, message: "Transaction cancelled by user" };
+  if (e?.code === 4001 || e?.name === "UserRejectedRequestError") {
+    return true;
   }
 
-  // 2. Cause property check (often holds the original error in modern Solana SDK wrappers)
-  if (errorObj.cause) {
-    const causeMsg = errorObj.cause.message || String(errorObj.cause);
-    if (isCancelledMessage(causeMsg)) {
-      return { isCancellation: true, message: "Transaction cancelled by user" };
-    }
-  }
+  const msgParts = [
+    typeof e?.message === "string" ? e.message : "",
+    typeof e?.cause?.message === "string" ? e.cause.message : "",
+    typeof e?.cause === "string" ? e.cause : "",
+    String(err),
+  ];
 
-  // 3. transactionPlanResult check (modern Solana Kit transaction plan execution results)
-  if (errorObj.transactionPlanResult) {
+  if (e?.transactionPlanResult) {
     try {
-      const resultStr = JSON.stringify(errorObj.transactionPlanResult);
-      if (isCancelledMessage(resultStr)) {
-        return {
-          isCancellation: true,
-          message: "Transaction cancelled by user",
-        };
-      }
+      msgParts.push(JSON.stringify(e.transactionPlanResult));
     } catch {
       // Ignored
     }
   }
 
-  // 4. If it's a plan execution error but not a cancellation, try to extract a meaningful detail
-  let details = message;
-  if (errorObj.cause?.message) {
-    details = errorObj.cause.message;
-  } else if (
-    message.includes("failed to execute") &&
-    errorObj.transactionPlanResult
+  const fullText = msgParts.join(" ").toLowerCase();
+
+  return (
+    fullText.includes("user rejected") ||
+    fullText.includes("user cancelled") ||
+    fullText.includes("user denied") ||
+    fullText.includes("rejected the request") ||
+    fullText.includes("user declined") ||
+    fullText.includes("transaction cancelled") ||
+    fullText.includes("cancelled by user")
+  );
+}
+
+/**
+ * Extract logs array from error or simulation response if available.
+ */
+function extractLogs(err: unknown): string[] {
+  if (!err) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = err as any;
+  if (Array.isArray(e?.logs)) return e.logs;
+  if (Array.isArray(e?.simulationResponse?.logs))
+    return e.simulationResponse.logs;
+  if (Array.isArray(e?.cause?.logs)) return e.cause.logs;
+  return [];
+}
+
+/**
+ * Helper to recursively extract underlying error messages from `@solana/kit` transactionPlanResult objects.
+ */
+function extractPlanErrorMessage(err: unknown): string | null {
+  if (!err) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = err as any;
+  if (e?.transactionPlanResult?.error) {
+    return String(e.transactionPlanResult.error);
+  }
+  if (Array.isArray(e?.transactionPlanResult?.results)) {
+    for (const res of e.transactionPlanResult.results) {
+      if (res?.error) return String(res.error);
+    }
+  }
+  if (e?.cause) {
+    return extractPlanErrorMessage(e.cause);
+  }
+  return null;
+}
+
+/**
+ * Sanitizes raw error strings to remove developer deprecation warnings,
+ * internal object instructions, ANSI color codes, stack traces, and raw RPC endpoint URLs.
+ */
+export function sanitizeErrorMessage(rawMsg: string): string {
+  if (!rawMsg) return "An unexpected error occurred.";
+
+  let clean = String(rawMsg);
+
+  // 1. Remove ANSI escape sequences & raw RPC endpoint URLs / IP addresses
+  clean = clean.replace(/\u001b\[[0-9;]*m/g, "");
+  clean = clean.replace(/https?:\/\/[^\s]+/gi, "[RPC Endpoint]");
+
+  // 2. Remove SDK deprecation notes & property inspection hints
+  clean = clean.replace(
+    /Note that the `?cause`? property is deprecated,.*$/i,
+    ""
+  );
+  clean = clean.replace(
+    /See the `?transactionPlanResult`? attribute for more details\.?/i,
+    ""
+  );
+  clean = clean.replace(
+    /The provided transaction plan failed to execute\.?/i,
+    ""
+  );
+
+  // 3. Strip RPC simulation wrappers & stack traces
+  clean = clean.replace(/^Transaction simulation failed:\s*/i, "");
+  clean = clean.replace(/^Error processing Instruction \d+:\s*/i, "");
+  clean = clean.replace(/\s*at\s+.*:\d+:\d+.*/g, "");
+
+  clean = clean.trim();
+
+  // 4. Fallback if empty after stripping
+  if (!clean) {
+    return "Transaction execution failed. Please try again.";
+  }
+
+  // 5. Truncate long technical blobs (> 160 chars)
+  if (clean.length > 160) {
+    return `${clean.slice(0, 157)}...`;
+  }
+
+  return clean;
+}
+
+/**
+ * Helper to parse transaction errors from `@solana/kit`, wallet-standard adapters,
+ * Anchor, and System program, identifying user cancellations gracefully and formatting
+ * error messages according to the Solana error handling skill playbook.
+ *
+ * @param err - The raw error object caught from a transaction sending process.
+ * @returns A structured `ParsedTransactionError` object.
+ */
+export function parseTransactionError(err: unknown): ParsedTransactionError {
+  if (!err) {
+    return {
+      isCancellation: false,
+      layer: "unknown",
+      category: "unknown",
+      title: "Unexpected Error",
+      message: "An unknown error occurred.",
+      rawError: err,
+    };
+  }
+
+  // 1. Check for User Wallet Rejection (Code 4001)
+  if (isWalletCancellation(err)) {
+    return {
+      isCancellation: true,
+      layer: "wallet",
+      category: "wallet_cancellation",
+      title: "Transaction Cancelled",
+      message: "You cancelled the transaction request in your wallet.",
+      code: 4001,
+      rawError: err,
+    };
+  }
+
+  const logs = extractLogs(err);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const errorObj = err as any;
+  const rawMsg = errorObj.message || errorObj.cause?.message || String(err);
+
+  // 2. Check for @solana/kit Transaction Plan Failure or Blockhash Expiration
+  if (
+    rawMsg.includes("provided transaction plan failed to execute") ||
+    errorObj.transactionPlanResult ||
+    rawMsg.includes("BlockheightExceeded") ||
+    rawMsg.includes("blockhash not found") ||
+    rawMsg.includes("Transaction expired")
   ) {
-    // If it's the generic "The provided transaction plan failed to execute" message,
-    // let's try to extract something more helpful from the plan result.
-    const result = errorObj.transactionPlanResult;
-    if (result.error) {
-      details = String(result.error);
+    const innerPlanErr = extractPlanErrorMessage(err);
+    const innerStr = innerPlanErr ? innerPlanErr : rawMsg;
+
+    // Check if inner error is actually a custom program error
+    for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
+      const code = Number(codeStr);
+      const hexCode = `0x${code.toString(16)}`;
+      if (
+        innerStr.includes(info.name) ||
+        innerStr.includes(`Error Number: ${code}`) ||
+        innerStr.includes(`custom program error: ${hexCode}`) ||
+        innerStr.includes(`Custom error: ${code}`)
+      ) {
+        return {
+          isCancellation: false,
+          layer: "anchor",
+          category: "anchor_custom",
+          title: `Program Error: ${info.name}`,
+          message: info.message,
+          code,
+          actionableStep:
+            info.actionable || "Check input values and try again.",
+          logs,
+          rawError: err,
+        };
+      }
+    }
+
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "blockhash_expired",
+      title: "Transaction Expired",
+      message:
+        "Approval took too long or the network was busy, causing the transaction blockhash to expire.",
+      code: "EXPIRED_BLOCKHASH",
+      actionableStep:
+        "Please try again and approve the prompt in your wallet promptly.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 3. RPC Rate Limit (429) & Network Disconnections
+  if (
+    rawMsg.includes("429") ||
+    rawMsg.toLowerCase().includes("too many requests")
+  ) {
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "network_rpc",
+      title: "Network Busy",
+      message:
+        "Solana RPC rate limit reached. Please wait a moment before retrying.",
+      code: "429",
+      actionableStep: "Wait a few seconds and click retry.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  if (
+    rawMsg.toLowerCase().includes("failed to fetch") ||
+    rawMsg.toLowerCase().includes("networkerror") ||
+    rawMsg.toLowerCase().includes("fetch failed")
+  ) {
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "network_rpc",
+      title: "Connection Error",
+      message: "Unable to reach the Solana network cluster.",
+      code: "FETCH_FAILED",
+      actionableStep: "Check your internet connection or try again shortly.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 4. Check for Anchor Error Name in message or cause
+  for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
+    const code = Number(codeStr);
+    const hexCode = `0x${code.toString(16)}`;
+    if (
+      rawMsg.includes(info.name) ||
+      rawMsg.includes(`Error Number: ${code}`) ||
+      rawMsg.includes(`custom program error: ${hexCode}`) ||
+      rawMsg.includes(`Custom error: ${code}`) ||
+      rawMsg.includes(`Custom error: ${hexCode}`)
+    ) {
+      return {
+        isCancellation: false,
+        layer: "anchor",
+        category: "anchor_custom",
+        title: `Program Error: ${info.name}`,
+        message: info.message,
+        code,
+        actionableStep: info.actionable || "Check input values and try again.",
+        logs,
+        rawError: err,
+      };
     }
   }
 
+  // 5. Scan logs for Anchor Custom Error codes or System Insufficient Funds
+  for (const log of logs) {
+    // Insufficient SOL / Lamports
+    if (
+      log.includes("custom program error: 0x1") ||
+      log.includes("Insufficient funds") ||
+      log.includes("insufficient lamports")
+    ) {
+      return {
+        isCancellation: false,
+        layer: "system",
+        category: "insufficient_sol",
+        title: "Insufficient SOL",
+        message:
+          "Your wallet does not have enough SOL to cover network gas fees or account rent.",
+        code: "0x1",
+        actionableStep: "Add SOL to your wallet to pay for transaction fees.",
+        logs,
+        rawError: err,
+      };
+    }
+
+    // Custom Error hex / dec regex in logs
+    const customMatch =
+      log.match(/Custom error: (0x[0-9a-fA-F]+|\d+)/i) ||
+      log.match(/custom program error: (0x[0-9a-fA-F]+|\d+)/i);
+    if (customMatch) {
+      const matchVal = customMatch[1];
+      const decCode = matchVal.startsWith("0x")
+        ? parseInt(matchVal, 16)
+        : parseInt(matchVal, 10);
+
+      if (ANCHOR_CUSTOM_ERRORS[decCode]) {
+        const info = ANCHOR_CUSTOM_ERRORS[decCode];
+        return {
+          isCancellation: false,
+          layer: "anchor",
+          category: "anchor_custom",
+          title: `Program Error: ${info.name}`,
+          message: info.message,
+          code: decCode,
+          actionableStep:
+            info.actionable || "Check input values and try again.",
+          logs,
+          rawError: err,
+        };
+      }
+
+      if (ANCHOR_FRAMEWORK_ERRORS[decCode]) {
+        const info = ANCHOR_FRAMEWORK_ERRORS[decCode];
+        return {
+          isCancellation: false,
+          layer: "anchor",
+          category: "anchor_constraint",
+          title: `Constraint Error: ${info.name}`,
+          message: info.message,
+          code: decCode,
+          logs,
+          rawError: err,
+        };
+      }
+    }
+  }
+
+  if (
+    rawMsg.toLowerCase().includes("insufficient lamports") ||
+    rawMsg.toLowerCase().includes("insufficient funds for fee")
+  ) {
+    return {
+      isCancellation: false,
+      layer: "system",
+      category: "insufficient_sol",
+      title: "Insufficient SOL",
+      message:
+        "Your wallet balance is too low to pay for Solana transaction gas fees.",
+      code: "INSUFFICIENT_SOL",
+      actionableStep: "Add SOL to your wallet and try again.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 6. Fallback for general errors (using sanitizeErrorMessage)
+  const sanitized = sanitizeErrorMessage(rawMsg);
   return {
     isCancellation: false,
-    message: details,
+    layer: "unknown",
+    category: "unknown",
+    title: "Transaction Failed",
+    message: sanitized,
+    logs,
+    rawError: err,
   };
+}
+
+/**
+ * Builds a block explorer link for a transaction signature.
+ */
+export function getExplorerUrl(
+  signature: string,
+  cluster: "devnet" | "mainnet-beta" | "testnet" | "localnet" = "devnet",
+  provider: "solscan" | "solana-explorer" = "solscan"
+): string {
+  const clusterParam = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
+  if (provider === "solscan") {
+    return `https://solscan.io/tx/${signature}${clusterParam}`;
+  }
+  return `https://explorer.solana.com/tx/${signature}${clusterParam}`;
+}
+
+/**
+ * Helper to truncate a 88-character Solana signature for display.
+ */
+export function truncateSignature(signature: string): string {
+  if (!signature) return "";
+  if (signature.length <= 12) return signature;
+  return `${signature.slice(0, 4)}...${signature.slice(-4)}`;
 }
