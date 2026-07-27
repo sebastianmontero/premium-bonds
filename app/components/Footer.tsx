@@ -1,4 +1,10 @@
+"use client";
+
+import { useTranslations } from "next-intl";
+
 export function Footer() {
+  const t = useTranslations("Footer");
+
   return (
     <footer className="bg-surface-container-low px-6 py-16">
       <div className="mx-auto max-w-5xl">
@@ -32,19 +38,19 @@ export function Footer() {
               href="#features"
               className="hover:text-on-surface transition-colors"
             >
-              Features
+              {t("features")}
             </a>
             <a
               href="#how-it-works"
               className="hover:text-on-surface transition-colors"
             >
-              How It Works
+              {t("howItWorks")}
             </a>
             <a
               href="#prizes"
               className="hover:text-on-surface transition-colors"
             >
-              Prizes
+              {t("prizes")}
             </a>
             <a
               href="https://github.com"
@@ -52,7 +58,7 @@ export function Footer() {
               rel="noreferrer"
               className="hover:text-on-surface transition-colors"
             >
-              GitHub
+              {t("github")}
             </a>
           </div>
 
@@ -98,8 +104,8 @@ export function Footer() {
 
         {/* Copyright */}
         <p className="mt-6 text-center text-xs text-on-surface-variant/60">
-          © {new Date().getFullYear()} YieldBonds Protocol. All rights reserved.
-          Built on Solana.
+          © {new Date().getFullYear()} YieldBonds Protocol.{" "}
+          {t("rightsReserved")}
         </p>
       </div>
     </footer>

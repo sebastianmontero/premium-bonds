@@ -26,7 +26,9 @@
   "dependencies": {
     "@solana/client": "^1.2.0",
     "@solana/react-hooks": "^1.1.5",
+    "@solana/sysvars": "^7.0.0",
     "next": "16.1.7",
+    "next-intl": "^4.13.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "ws": "^8.18.3"

@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
 import { PaginationControls } from "./PaginationControls";
+import { useTranslations } from "next-intl";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -18,52 +19,6 @@ interface CompleteLedgerModalProps {
   isLoading?: boolean;
 }
 
-function statusPill(
-  status: PrizeHistoryEntry["status"],
-  isCranking: boolean = false
-) {
-  if (isCranking) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 animate-pulse">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
-        Cranking...
-      </span>
-    );
-  }
-  switch (status) {
-    case "processing":
-      return (
-        <span className="pill pill-warning">
-          <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-          Processing
-        </span>
-      );
-    case "partial":
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          Reinvesting
-        </span>
-      );
-    case "reinvested":
-      return (
-        <span className="pill pill-success">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Reinvested
-        </span>
-      );
-  }
-}
-
-function formatDate(isoDate: string): string {
-  const date = new Date(isoDate + "T00:00:00");
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 export default function CompleteLedgerModal({
   entries,
   isOpen,
@@ -76,6 +31,7 @@ export default function CompleteLedgerModal({
   crankingCycles = {},
   isLoading = false,
 }: CompleteLedgerModalProps) {
+  const t = useTranslations("Ledger");
   // Stateful Filtering
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -83,6 +39,52 @@ export default function CompleteLedgerModal({
   const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  const statusPill = (
+    status: PrizeHistoryEntry["status"],
+    isCranking: boolean = false
+  ) => {
+    if (isCranking) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 animate-pulse">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
+          {t("cranking")}
+        </span>
+      );
+    }
+    switch (status) {
+      case "processing":
+        return (
+          <span className="pill pill-warning">
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+            {t("processing")}
+          </span>
+        );
+      case "partial":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            {t("reinvesting")}
+          </span>
+        );
+      case "reinvested":
+        return (
+          <span className="pill pill-success">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {t("reinvested")}
+          </span>
+        );
+    }
+  };
+
+  const formatDate = (isoDate: string): string => {
+    const date = new Date(isoDate + "T00:00:00");
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
 
   // Close on Escape key press
   useEffect(() => {
@@ -211,11 +213,10 @@ export default function CompleteLedgerModal({
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
           <div>
             <h3 className="text-xl font-bold font-display text-on-surface">
-              Prize History Ledger
+              {t("modalTitle")}
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Complete provable fairness records for all past prize distribution
-              cycles.
+              {t("modalSubtitle")}
             </p>
           </div>
           <button
@@ -245,7 +246,7 @@ export default function CompleteLedgerModal({
           <div className="relative">
             <input
               type="text"
-              placeholder="Search Draw # or Ticket..."
+              placeholder={t("searchPlaceholder")}
               value={searchTerm}
               disabled={isLoading}
               onChange={(e) => {
@@ -280,10 +281,10 @@ export default function CompleteLedgerModal({
               }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="all">All Statuses</option>
-              <option value="processing">Processing</option>
-              <option value="partial">Reinvesting</option>
-              <option value="reinvested">Reinvested</option>
+              <option value="all">{t("allStatuses")}</option>
+              <option value="processing">{t("processing")}</option>
+              <option value="partial">{t("reinvesting")}</option>
+              <option value="reinvested">{t("reinvested")}</option>
             </select>
           </div>
 
@@ -298,10 +299,10 @@ export default function CompleteLedgerModal({
               }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="all">All Tiers</option>
-              <option value="grand">Grand Prize</option>
-              <option value="runnerup">Runner-up</option>
-              <option value="consolation">Consolation</option>
+              <option value="all">{t("allTiers")}</option>
+              <option value="grand">{t("grandPrize")}</option>
+              <option value="runnerup">{t("runnerUp")}</option>
+              <option value="consolation">{t("consolation")}</option>
             </select>
           </div>
 
@@ -313,7 +314,7 @@ export default function CompleteLedgerModal({
                 disabled={isLoading}
                 className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
             <button
@@ -334,7 +335,7 @@ export default function CompleteLedgerModal({
                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                 />
               </svg>
-              Export CSV
+              {t("exportCSV")}
             </button>
           </div>
         </div>
@@ -343,7 +344,7 @@ export default function CompleteLedgerModal({
         <div className="flex flex-wrap items-center justify-between gap-4 py-3 px-4 bg-surface-container/10 border-b border-surface-bright/5 text-xs text-on-surface-variant shrink-0">
           <div className="flex items-center gap-6">
             <div>
-              Matching Entries:{" "}
+              {t("matchingEntries")}{" "}
               {isLoading ? (
                 <span className="inline-block h-3.5 w-8 rounded bg-surface-bright/10 animate-pulse align-middle" />
               ) : (
@@ -353,7 +354,7 @@ export default function CompleteLedgerModal({
               )}
             </div>
             <div>
-              Total Filtered Value:{" "}
+              {t("totalFilteredValue")}{" "}
               {isLoading ? (
                 <span className="inline-block h-3.5 w-20 rounded bg-surface-bright/10 animate-pulse align-middle" />
               ) : (
@@ -364,7 +365,7 @@ export default function CompleteLedgerModal({
             </div>
           </div>
           <div className="text-[10px] text-on-surface-variant/60 font-semibold uppercase tracking-wider">
-            Draw History Audit
+            {t("drawHistoryAudit")}
           </div>
         </div>
 
@@ -376,12 +377,12 @@ export default function CompleteLedgerModal({
               aria-hidden="true"
             >
               <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
-                <div>Draw</div>
-                <div>Date</div>
-                <div>Tier</div>
-                <div>Amount Won</div>
-                <div>Status</div>
-                <div className="text-right">Actions</div>
+                <div>{t("draw")}</div>
+                <div>{t("date")}</div>
+                <div>{t("tier")}</div>
+                <div>{t("amountWon")}</div>
+                <div>{t("status")}</div>
+                <div className="text-right">{t("actions")}</div>
               </div>
               {[1, 2, 3, 4, 5].map((i) => (
                 <div
@@ -413,29 +414,28 @@ export default function CompleteLedgerModal({
                 />
               </svg>
               <h4 className="text-sm font-semibold text-on-surface">
-                No Prize Draws Found
+                {t("noDrawsFound")}
               </h4>
               <p className="text-xs text-on-surface-variant max-w-xs mt-1 leading-relaxed">
-                No historical prize records matched your current search criteria
-                or filter options.
+                {t("noDrawsSub")}
               </p>
               <button
                 onClick={resetFilters}
                 className="mt-4 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer"
               >
-                Reset Filters
+                {t("clear")}
               </button>
             </div>
           ) : (
             <>
               {/* ── Ledger Headers (Desktop Only) ─────────────────────────────── */}
               <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
-                <div>Draw</div>
-                <div>Date</div>
-                <div>Tier</div>
-                <div>Amount Won</div>
-                <div>Status</div>
-                <div className="text-right">Actions</div>
+                <div>{t("draw")}</div>
+                <div>{t("date")}</div>
+                <div>{t("tier")}</div>
+                <div>{t("amountWon")}</div>
+                <div>{t("status")}</div>
+                <div className="text-right">{t("actions")}</div>
               </div>
 
               {paginatedEntries.map((entry, index) => (
@@ -451,7 +451,7 @@ export default function CompleteLedgerModal({
                     </div>
                     <div className="md:hidden">
                       <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                        Date
+                        {t("date")}
                       </p>
                       <p
                         className="text-xs text-on-surface font-semibold mt-0.5"
@@ -475,7 +475,7 @@ export default function CompleteLedgerModal({
                   {/* Tier Badge */}
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                      Tier
+                      {t("tier")}
                     </p>
                     <div className="mt-0.5 md:mt-0">
                       <span className={tierBadgeClass(entry.tierIndex)}>
@@ -487,7 +487,7 @@ export default function CompleteLedgerModal({
                   {/* Amount Won */}
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                      Amount Won
+                      {t("amountWon")}
                     </p>
                     <p
                       className={`font-mono text-xs md:text-sm font-bold mt-0.5 md:mt-0 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
@@ -502,13 +502,13 @@ export default function CompleteLedgerModal({
                   {/* Status */}
                   <div>
                     <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                      Status
+                      {t("status")}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5 mt-0.5 md:mt-0">
                       {statusPill(
                         entry.status,
                         !!crankingCycles[
-                        `${entry.drawCycleId}-${entry.winnerIndex}`
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
                         ]
                       )}
                       {(() => {
@@ -517,8 +517,8 @@ export default function CompleteLedgerModal({
                           Math.max(
                             0,
                             (entry.reinvestedTickets || 0) *
-                            (ticketPrice || 5_000_000) -
-                            entry.amount
+                              (ticketPrice || 5_000_000) -
+                              entry.amount
                           );
 
                         if (
@@ -545,7 +545,7 @@ export default function CompleteLedgerModal({
                               </span>
                               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
                                 <strong className="text-tertiary block mb-1">
-                                  ✨ Bonus Ticket Unlocked!
+                                  {t("bonusTicket")}
                                 </strong>
                                 Combined $
                                 {formatTokenAmount(
@@ -582,7 +582,7 @@ export default function CompleteLedgerModal({
                             </span>
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 rounded-lg bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
                               <strong className="text-tertiary block mb-0.5">
-                                Dust Remainder
+                                {t("dustRemainder")}
                               </strong>
                               Leftover {tokenSymbol} winnings less than the{" "}
                               {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
@@ -598,48 +598,50 @@ export default function CompleteLedgerModal({
                   <div className="flex items-center justify-start md:justify-end gap-3 md:pl-0 w-full font-sans">
                     {(entry.status === "processing" ||
                       entry.status === "partial") && (
-                        <button
-                          disabled={
-                            !!crankingCycles[
-                            `${entry.drawCycleId}-${entry.winnerIndex}`
-                            ]
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
-                          }}
-                          className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${crankingCycles[
-                              `${entry.drawCycleId}-${entry.winnerIndex}`
-                            ]
-                              ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                              : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
-                            }`}
-                        >
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className={`animate-spin ${crankingCycles[
-                                `${entry.drawCycleId}-${entry.winnerIndex}`
-                              ]
-                                ? "duration-1000 text-on-surface-variant/40"
-                                : "duration-3000"
-                              }`}
-                          >
-                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-                          </svg>
-                          {crankingCycles[
+                      <button
+                        disabled={
+                          !!crankingCycles[
                             `${entry.drawCycleId}-${entry.winnerIndex}`
                           ]
-                            ? "Cranking..."
-                            : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
-                        </button>
-                      )}
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
+                        }}
+                        className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                          crankingCycles[
+                            `${entry.drawCycleId}-${entry.winnerIndex}`
+                          ]
+                            ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                            : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+                        }`}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className={`animate-spin ${
+                            crankingCycles[
+                              `${entry.drawCycleId}-${entry.winnerIndex}`
+                            ]
+                              ? "duration-1000 text-on-surface-variant/40"
+                              : "duration-3000"
+                          }`}
+                        >
+                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                        </svg>
+                        {crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
+                          ? t("cranking")
+                          : `${t("runCrank")} ${entry.status === "partial" ? t("batch") : ""}`}
+                      </button>
+                    )}
 
                     {/* Monospace/truncated VRF indicator to reassure users of fairness */}
                     {entry.vrfSeed && (
@@ -688,15 +690,14 @@ export default function CompleteLedgerModal({
                                   d="M5 13l4 4L19 7"
                                 />
                               </svg>
-                              VRF Seed Copied!
+                              {t("vrfSeedCopied")}
                             </span>
                           ) : (
                             <span>
                               <strong className="text-primary block mb-0.5">
-                                VRF Randomness Seed
+                                {t("vrfRandomnessSeed")}
                               </strong>
-                              Provably fair draw entropy. Click to copy full
-                              seed.
+                              {t("vrfHelp")}
                             </span>
                           )}
                         </div>
@@ -727,7 +728,7 @@ export default function CompleteLedgerModal({
                       }}
                       className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer px-2 py-1.5 md:hidden"
                     >
-                      Details
+                      {t("details")}
                     </button>
                   </div>
                 </div>
@@ -755,13 +756,13 @@ export default function CompleteLedgerModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-4 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
-            YieldBonds Cryptographic Ledgers v1.0
+            {t("cryptographicLedgersFooter")}
           </p>
           <button
             onClick={onClose}
             className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-5 py-2.5 transition cursor-pointer"
           >
-            Close
+            {t("close")}
           </button>
         </div>
       </div>

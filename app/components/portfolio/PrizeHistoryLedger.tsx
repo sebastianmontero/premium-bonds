@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
+import { useTranslations } from "next-intl";
 
 interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
@@ -16,52 +17,6 @@ interface PrizeHistoryLedgerProps {
   onViewCompleteLedger?: () => void;
   crankingCycles?: Record<string, boolean>;
   isLoading?: boolean;
-}
-
-function statusPill(
-  status: PrizeHistoryEntry["status"],
-  isCranking: boolean = false
-) {
-  if (isCranking) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 animate-pulse">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
-        Cranking...
-      </span>
-    );
-  }
-  switch (status) {
-    case "processing":
-      return (
-        <span className="pill pill-warning">
-          <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-          Processing
-        </span>
-      );
-    case "partial":
-      return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          Reinvesting
-        </span>
-      );
-    case "reinvested":
-      return (
-        <span className="pill pill-success">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          Reinvested
-        </span>
-      );
-  }
-}
-
-function formatDate(isoDate: string): string {
-  const date = new Date(isoDate + "T00:00:00");
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 export function PrizeHistoryLedger({
@@ -78,6 +33,53 @@ export function PrizeHistoryLedger({
   isLoading = false,
 }: PrizeHistoryLedgerProps) {
   const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
+  const t = useTranslations("Ledger");
+
+  const statusPill = (
+    status: PrizeHistoryEntry["status"],
+    isCranking: boolean = false
+  ) => {
+    if (isCranking) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 animate-pulse">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
+          {t("cranking")}
+        </span>
+      );
+    }
+    switch (status) {
+      case "processing":
+        return (
+          <span className="pill pill-warning">
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
+            {t("processing")}
+          </span>
+        );
+      case "partial":
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            {t("reinvesting")}
+          </span>
+        );
+      case "reinvested":
+        return (
+          <span className="pill pill-success">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {t("reinvested")}
+          </span>
+        );
+    }
+  };
+
+  const formatDate = (isoDate: string): string => {
+    const date = new Date(isoDate + "T00:00:00");
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
 
   const handleCopySeed = (
     e: React.MouseEvent,
@@ -97,25 +99,23 @@ export function PrizeHistoryLedger({
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="font-display text-lg font-bold text-on-surface">
-              Prize History Ledger
+              {t("title")}
             </h2>
             {isLoading && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary animate-pulse">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-spin" />
-                Syncing draw history...
+                {t("syncing")}
               </span>
             )}
           </div>
-          <p className="text-xs text-on-surface-variant">
-            Historical verification of all win draw allocations.
-          </p>
+          <p className="text-xs text-on-surface-variant">{t("subtitle")}</p>
         </div>
         {unclaimedTotal > 0 && (
           <button
             onClick={onClaim}
             className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
           >
-            Claim All ({formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
+            {t("claimAll")} ({formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
             {tokenSymbol})
           </button>
         )}
@@ -128,12 +128,12 @@ export function PrizeHistoryLedger({
           aria-hidden="true"
         >
           <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5">
-            <div>Draw</div>
-            <div>Date</div>
-            <div>Tier</div>
-            <div>Amount Won</div>
-            <div>Status</div>
-            <div className="text-right">Actions</div>
+            <div>{t("draw")}</div>
+            <div>{t("date")}</div>
+            <div>{t("tier")}</div>
+            <div>{t("amountWon")}</div>
+            <div>{t("status")}</div>
+            <div className="text-right">{t("actions")}</div>
           </div>
           {[1, 2, 3, 4].map((i) => (
             <div
@@ -168,23 +168,22 @@ export function PrizeHistoryLedger({
             <path d="M12 6v6l4 2" />
           </svg>
           <p className="text-xs font-semibold text-on-surface-variant">
-            No prizes yet
+            {t("noPrizes")}
           </p>
           <p className="text-[10px] text-on-surface-variant/60 max-w-[200px] mt-0.5">
-            When a draw cycle completes and your tickets are selected, your
-            prize history will appear here with full provable fairness details.
+            {t("noPrizesSub")}
           </p>
         </div>
       ) : (
         <>
           {/* ── Ledger Headers (Desktop Only) ─────────────────────────────── */}
           <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5">
-            <div>Draw</div>
-            <div>Date</div>
-            <div>Tier</div>
-            <div>Amount Won</div>
-            <div>Status</div>
-            <div className="text-right">Actions</div>
+            <div>{t("draw")}</div>
+            <div>{t("date")}</div>
+            <div>{t("tier")}</div>
+            <div>{t("amountWon")}</div>
+            <div>{t("status")}</div>
+            <div className="text-right">{t("actions")}</div>
           </div>
 
           {/* ── Ledger Cards / Rows ───────────────────────────────────────── */}
@@ -202,7 +201,7 @@ export function PrizeHistoryLedger({
                   </div>
                   <div className="md:hidden">
                     <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                      Date
+                      {t("date")}
                     </p>
                     <p
                       className="text-xs text-on-surface font-semibold mt-0.5"
@@ -226,7 +225,7 @@ export function PrizeHistoryLedger({
                 {/* Tier Badge */}
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                    Tier
+                    {t("tier")}
                   </p>
                   <div className="mt-0.5 md:mt-0">
                     <span className={tierBadgeClass(entry.tierIndex)}>
@@ -238,7 +237,7 @@ export function PrizeHistoryLedger({
                 {/* Amount */}
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                    Amount Won
+                    {t("amountWon")}
                   </p>
                   <p
                     className={`font-mono text-xs md:text-sm font-bold mt-0.5 md:mt-0 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
@@ -253,7 +252,7 @@ export function PrizeHistoryLedger({
                 {/* Status */}
                 <div>
                   <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold md:hidden">
-                    Status
+                    {t("status")}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 mt-0.5 md:mt-0">
                     {statusPill(
@@ -295,7 +294,7 @@ export function PrizeHistoryLedger({
                             </span>
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
                               <strong className="text-tertiary block mb-1">
-                                ✨ Bonus Ticket Unlocked!
+                                {t("bonusTicket")}
                               </strong>
                               Combined $
                               {formatTokenAmount(
@@ -331,7 +330,7 @@ export function PrizeHistoryLedger({
                           </span>
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 rounded-lg bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
                             <strong className="text-tertiary block mb-0.5">
-                              Dust Remainder
+                              {t("dustRemainder")}
                             </strong>
                             Leftover {tokenSymbol} winnings less than the{" "}
                             {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
@@ -388,8 +387,8 @@ export function PrizeHistoryLedger({
                         {crankingCycles[
                           `${entry.drawCycleId}-${entry.winnerIndex}`
                         ]
-                          ? "Cranking..."
-                          : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
+                          ? t("cranking")
+                          : `${t("runCrank")} ${entry.status === "partial" ? t("batch") : ""}`}
                       </button>
                     )}
 
@@ -440,14 +439,14 @@ export function PrizeHistoryLedger({
                                 d="M5 13l4 4L19 7"
                               />
                             </svg>
-                            VRF Seed Copied!
+                            {t("vrfSeedCopied")}
                           </span>
                         ) : (
                           <span>
                             <strong className="text-primary block mb-0.5">
-                              VRF Randomness Seed
+                              {t("vrfRandomnessSeed")}
                             </strong>
-                            Provably fair draw entropy. Click to copy full seed.
+                            {t("vrfHelp")}
                           </span>
                         )}
                       </div>
@@ -478,7 +477,7 @@ export function PrizeHistoryLedger({
                     }}
                     className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer px-2 py-1.5 md:hidden"
                   >
-                    Details
+                    {t("details")}
                   </button>
                 </div>
               </div>
@@ -491,7 +490,7 @@ export function PrizeHistoryLedger({
               onClick={onViewCompleteLedger}
               className="text-xs font-semibold text-on-surface-variant hover:text-primary transition cursor-pointer"
             >
-              View Complete Ledger ({entries.length} Draws) →
+              {t("viewComplete", { count: entries.length })}
             </button>
           </div>
         </>

@@ -2,12 +2,14 @@
 
 import { useWalletConnection } from "@solana/react-hooks";
 import { useState, useRef, useEffect } from "react";
+import { useTranslations } from "next-intl";
 
 export function ConnectWalletButton() {
   const { connectors, connect, disconnect, wallet, status } =
     useWalletConnection();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const t = useTranslations("Wallet");
 
   const address = wallet?.account.address.toString();
   const truncated = address
@@ -51,7 +53,7 @@ export function ConnectWalletButton() {
               }}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-error hover:bg-surface-container-highest transition cursor-pointer"
             >
-              Disconnect
+              {t("disconnect")}
             </button>
           </div>
         )}
@@ -66,13 +68,13 @@ export function ConnectWalletButton() {
         disabled={status === "connecting"}
         className="btn-gradient rounded-xl px-5 py-2.5 text-sm cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {status === "connecting" ? "Connecting…" : "Connect Wallet"}
+        {status === "connecting" ? t("connecting") : t("connectWallet")}
       </button>
 
       {isOpen && connectors.length > 0 && (
         <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl glass shadow-ambient p-2">
           <p className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-on-surface-variant">
-            Select Wallet
+            {t("selectWallet")}
           </p>
           {connectors.map((connector) => (
             <button

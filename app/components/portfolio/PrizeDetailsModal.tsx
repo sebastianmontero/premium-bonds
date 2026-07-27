@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
 import { getExplorerUrl } from "@/app/lib/errors";
+import { useTranslations } from "next-intl";
 
 interface PrizeDetailsModalProps {
   entry: PrizeHistoryEntry | null;
@@ -40,6 +41,8 @@ export default function PrizeDetailsModal({
 }: PrizeDetailsModalProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const t = useTranslations("PrizeDetails");
+  const tLedger = useTranslations("Ledger");
 
   if (!isOpen || !entry) return null;
 
@@ -98,10 +101,10 @@ export default function PrizeDetailsModal({
                   d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                 />
               </svg>
-              Draw Cycle #{entry.drawCycleId} Verification
+              {t("title", { drawCycleId: entry.drawCycleId })}
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Draw conducted on {formattedDate}
+              {t("conductedOn", { date: formattedDate })}
             </p>
           </div>
           <button
@@ -130,7 +133,7 @@ export default function PrizeDetailsModal({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
             <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                Tier Won
+                {t("tierWon")}
               </p>
               <div className="mt-1">
                 <span className={tierBadgeClass(entry.tierIndex)}>
@@ -140,7 +143,7 @@ export default function PrizeDetailsModal({
             </div>
             <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                Amount Won
+                {t("amountWon")}
               </p>
               <p className="text-lg font-bold font-mono text-primary mt-0.5 truncate">
                 {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
@@ -149,7 +152,7 @@ export default function PrizeDetailsModal({
             <div className="p-4 rounded-xl bg-primary/[0.03] border border-primary/20 flex flex-col justify-between relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">
-                  Winning Ticket
+                  {t("winningTicket")}
                 </p>
                 {entry.winningTicket && (
                   <button
@@ -178,7 +181,7 @@ export default function PrizeDetailsModal({
                           />
                         </svg>
                         <span className="text-emerald-400 font-semibold">
-                          Copied
+                          {t("copied")}
                         </span>
                       </>
                     ) : (
@@ -196,7 +199,7 @@ export default function PrizeDetailsModal({
                             d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
                           />
                         </svg>
-                        <span>Copy</span>
+                        <span>{t("copy")}</span>
                       </>
                     )}
                   </button>
@@ -211,32 +214,32 @@ export default function PrizeDetailsModal({
             </div>
             <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-                Verification Status
+                {t("verificationStatus")}
               </p>
               <div className="mt-1">
                 {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`] ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 animate-pulse">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
-                    Cranking...
+                    {tLedger("cranking")}
                   </span>
                 ) : (
                   <>
                     {entry.status === "processing" && (
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        Processing
+                        {tLedger("processing")}
                       </span>
                     )}
                     {entry.status === "partial" && (
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        Reinvesting (Partial)
+                        {t("reinvestingPartial")}
                       </span>
                     )}
                     {entry.status === "reinvested" && (
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        Reinvested
+                        {tLedger("reinvested")}
                       </span>
                     )}
                   </>
@@ -262,12 +265,12 @@ export default function PrizeDetailsModal({
                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"
                   />
                 </svg>
-                Auto-Reinvestment Breakdown
+                {t("autoReinvestmentBreakdown")}
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                   <p className="text-on-surface-variant font-medium">
-                    Reinvested Tickets
+                    {t("reinvestedTickets")}
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
                     +{entry.reinvestedTickets || 0} Tickets
@@ -275,7 +278,7 @@ export default function PrizeDetailsModal({
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                   <p className="text-on-surface-variant font-medium">
-                    Purchase Cost
+                    {t("purchaseCost")}
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
                     {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
@@ -284,10 +287,10 @@ export default function PrizeDetailsModal({
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                   <p className="text-on-surface-variant font-medium">
-                    Target Pool
+                    {t("targetPool")}
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    Solana Yield Pool
+                    {t("solanaYieldPool")}
                   </p>
                 </div>
               </div>
@@ -304,7 +307,7 @@ export default function PrizeDetailsModal({
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mt-2">
                       <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                         <p className="text-on-surface-variant font-medium">
-                          Draw Winnings
+                          {t("drawWinnings")}
                         </p>
                         <p className="font-mono text-sm font-bold text-on-surface mt-1">
                           {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
@@ -313,7 +316,7 @@ export default function PrizeDetailsModal({
                       </div>
                       <div className="bg-surface-container/10 p-3 rounded-lg border border-tertiary/20 bg-tertiary/5">
                         <p className="text-tertiary font-medium">
-                          Prior Dust Applied
+                          {t("priorDustApplied")}
                         </p>
                         <p className="font-mono text-sm font-bold text-tertiary mt-1">
                           +{formatTokenAmount(priorDustApplied, tokenDecimals)}{" "}
@@ -322,7 +325,7 @@ export default function PrizeDetailsModal({
                       </div>
                       <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                         <p className="text-on-surface-variant font-medium">
-                          Total Reinvested
+                          {t("totalReinvested")}
                         </p>
                         <p className="font-mono text-sm font-bold text-primary mt-1">
                           {formatTokenAmount(
@@ -334,7 +337,7 @@ export default function PrizeDetailsModal({
                       </div>
                       <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                         <p className="text-on-surface-variant font-medium">
-                          Dust Remainder
+                          {t("dustRemainder")}
                         </p>
                         <p className="font-mono text-sm font-bold text-on-surface mt-1">
                           {formatTokenAmount(
@@ -354,19 +357,20 @@ export default function PrizeDetailsModal({
                         <span className="text-base leading-none">✨</span>
                         <div className="space-y-0.5">
                           <p className="font-semibold text-tertiary">
-                            Bonus Ticket Unlocked via Dust Aggregation
+                            {t("bonusTicketTitle")}
                           </p>
                           <p className="text-on-surface-variant text-[11px] leading-relaxed">
-                            $
-                            {formatTokenAmount(priorDustApplied, tokenDecimals)}{" "}
-                            {tokenSymbol} from your previously accumulated dust
-                            balance was combined with this draw&apos;s winnings
-                            ($
-                            {formatTokenAmount(
-                              entry.amount,
-                              tokenDecimals
-                            )}{" "}
-                            {tokenSymbol}) to purchase an extra ticket!
+                            {t("bonusTicketDesc", {
+                              priorDust: formatTokenAmount(
+                                priorDustApplied,
+                                tokenDecimals
+                              ),
+                              winnings: formatTokenAmount(
+                                entry.amount,
+                                tokenDecimals
+                              ),
+                              symbol: tokenSymbol,
+                            })}
                           </p>
                         </div>
                       </div>
@@ -376,8 +380,8 @@ export default function PrizeDetailsModal({
               })()}
               <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
                 {entry.status === "partial"
-                  ? "This win draw is currently being reinvested in batches via permissionless crank on-chain. Progress can be monitored above."
-                  : "Your reward was compound-reinvested into new active tickets. Reinvestment transaction verified by on-chain smart contract instructions, leaving a small dust balance."}
+                  ? t("partialReinvestNote")
+                  : t("reinvestedNote")}
               </p>
             </div>
           )}
@@ -385,14 +389,14 @@ export default function PrizeDetailsModal({
           {/* Verification Code Fields */}
           <div className="space-y-4">
             <h4 className="text-sm font-semibold text-on-surface">
-              On-Chain Cryptographic Proofs
+              {t("onChainProofs")}
             </h4>
 
             {/* VRF Seed */}
             {entry.vrfSeed && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">
-                  <span>Randomness VRF Seed (SHA-256)</span>
+                  <span>{t("vrfSeedLabel")}</span>
                   <button
                     onClick={() => handleCopy(entry.vrfSeed!, "vrf")}
                     className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
@@ -412,7 +416,7 @@ export default function PrizeDetailsModal({
                             d="M5 13l4 4L19 7"
                           />
                         </svg>
-                        <span className="text-emerald-400">Copied</span>
+                        <span className="text-emerald-400">{t("copied")}</span>
                       </>
                     ) : (
                       <>
@@ -429,7 +433,7 @@ export default function PrizeDetailsModal({
                             d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
                           />
                         </svg>
-                        <span>Copy</span>
+                        <span>{t("copy")}</span>
                       </>
                     )}
                   </button>
@@ -446,7 +450,7 @@ export default function PrizeDetailsModal({
             {entry.txSignature && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">
-                  <span>Transaction Signature</span>
+                  <span>{t("txSignatureLabel")}</span>
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => handleCopy(entry.txSignature!, "tx")}
@@ -467,7 +471,9 @@ export default function PrizeDetailsModal({
                               d="M5 13l4 4L19 7"
                             />
                           </svg>
-                          <span className="text-emerald-400">Copied</span>
+                          <span className="text-emerald-400">
+                            {t("copied")}
+                          </span>
                         </>
                       ) : (
                         <>
@@ -484,12 +490,16 @@ export default function PrizeDetailsModal({
                               d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
                             />
                           </svg>
-                          <span>Copy</span>
+                          <span>{t("copy")}</span>
                         </>
                       )}
                     </button>
                     <a
-                      href={getExplorerUrl(entry.txSignature, "devnet", "solscan")}
+                      href={getExplorerUrl(
+                        entry.txSignature,
+                        "devnet",
+                        "solscan"
+                      )}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
@@ -537,10 +547,10 @@ export default function PrizeDetailsModal({
                     d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"
                   />
                 </svg>
-                Bragging Rights
+                {t("braggingRights")}
               </h5>
               <p className="text-xs text-on-surface-variant">
-                Tell your friends about your winning verification.
+                {t("braggingSubtitle")}
               </p>
             </div>
 
@@ -562,7 +572,7 @@ export default function PrizeDetailsModal({
                     d="M8.684 10.742l4.632-2.316m0 4.632l-4.632-2.316M12 10.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7.5-6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-7.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"
                   />
                 </svg>
-                Share Win
+                {t("shareWin")}
               </button>
 
               {shareStatus && (
@@ -579,7 +589,7 @@ export default function PrizeDetailsModal({
               onClick={handleClose}
               className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-5 py-2.5 transition cursor-pointer"
             >
-              Close
+              {t("close")}
             </button>
 
             {(entry.status === "processing" || entry.status === "partial") && (
@@ -590,10 +600,11 @@ export default function PrizeDetailsModal({
                 onClick={() =>
                   onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
                 }
-                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
+                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                     ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
                     : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
-                  }`}
+                }`}
               >
                 <svg
                   width="16"
@@ -604,16 +615,17 @@ export default function PrizeDetailsModal({
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className={`animate-spin ${crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                  className={`animate-spin ${
+                    crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                       ? "duration-1000 text-on-surface-variant/40"
                       : "duration-3000"
-                    }`}
+                  }`}
                 >
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
                 </svg>
                 {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                  ? "Cranking..."
-                  : `Run Crank ${entry.status === "partial" ? "(Batch)" : ""}`}
+                  ? tLedger("cranking")
+                  : `${tLedger("runCrank")} ${entry.status === "partial" ? tLedger("batch") : ""}`}
               </button>
             )}
           </div>

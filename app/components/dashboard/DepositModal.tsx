@@ -11,6 +11,7 @@ import {
   truncateSignature,
 } from "@/app/lib/errors";
 import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
+import { useTranslations } from "next-intl";
 
 interface DepositModalProps {
   pool: PoolInfo;
@@ -27,6 +28,7 @@ export function DepositModal({
   onDepositSuccess,
   onDeposit,
 }: DepositModalProps) {
+  const t = useTranslations("Modals");
   const [inputValue, setInputValue] = useState("");
   const [activeInput, setActiveInput] = useState<"token" | "ticket">("token");
   const [txStage, setTxStage] = useState<
@@ -206,10 +208,10 @@ export function DepositModal({
                 </div>
                 <div>
                   <h2 className="font-display text-lg font-bold text-on-surface">
-                    Deposit {pool.tokenSymbol}
+                    {t("depositHeader", { symbol: pool.tokenSymbol })}
                   </h2>
                   <p className="text-xs text-on-surface-variant">
-                    {pool.tokenSymbol} Premium Pool
+                    {t("poolName", { symbol: pool.tokenSymbol })}
                   </p>
                 </div>
               </div>
@@ -245,7 +247,7 @@ export function DepositModal({
             {/* ── Current Prize Pot ───────────────────────────────────────── */}
             <div className="rounded-xl bg-surface-container/60 px-4 py-3 flex items-center justify-between">
               <span className="text-xs font-medium text-on-surface-variant">
-                Current Prize Pot
+                {t("currentPrizePot")}
               </span>
               <LiveYieldTicker
                 pool={pool}
@@ -261,7 +263,7 @@ export function DepositModal({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-medium text-on-surface-variant">
-                    Amount ({pool.tokenSymbol})
+                    {t("amountLabel", { symbol: pool.tokenSymbol })}
                   </label>
                   <button
                     onClick={() => {
@@ -277,7 +279,8 @@ export function DepositModal({
                     }}
                     className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
                   >
-                    MAX: {formatTokenAmount(walletBalance, pool.tokenDecimals)}
+                    {t("max")}:{" "}
+                    {formatTokenAmount(walletBalance, pool.tokenDecimals)}
                   </button>
                 </div>
                 <input
@@ -316,7 +319,7 @@ export function DepositModal({
               {/* Ticket amount */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-on-surface-variant">
-                  Tickets
+                  {t("ticketsLabel")}
                 </label>
                 <input
                   type="number"
@@ -337,28 +340,32 @@ export function DepositModal({
             {parsedTickets > 0 && (
               <div className="space-y-2 rounded-xl bg-surface-container/40 px-4 py-3 text-xs">
                 <div className="flex justify-between text-on-surface-variant">
-                  <span>Tickets received</span>
+                  <span>{t("ticketsReceived")}</span>
                   <span className="font-semibold text-on-surface">
                     {parsedTickets}
                   </span>
                 </div>
                 <div className="flex justify-between text-on-surface-variant">
-                  <span>Bond price</span>
+                  <span>{t("bondPriceLabel")}</span>
                   <span className="font-mono text-on-surface">
-                    1 ticket ={" "}
-                    {formatTokenAmount(pool.bondPrice, pool.tokenDecimals)}{" "}
-                    {pool.tokenSymbol}
+                    {t("oneTicket", {
+                      price: formatTokenAmount(
+                        pool.bondPrice,
+                        pool.tokenDecimals
+                      ),
+                      symbol: pool.tokenSymbol,
+                    })}
                   </span>
                 </div>
                 <div className="flex justify-between text-on-surface-variant">
-                  <span>Total cost</span>
+                  <span>{t("totalCostLabel")}</span>
                   <span className="font-mono font-semibold text-on-surface">
                     {formatTokenAmount(totalCostBase, pool.tokenDecimals)}{" "}
                     {pool.tokenSymbol}
                   </span>
                 </div>
                 <div className="flex justify-between text-on-surface-variant">
-                  <span>Est. network fee</span>
+                  <span>{t("networkFeeLabel")}</span>
                   <span className="font-mono text-on-surface">
                     ~0.00005 SOL
                   </span>
@@ -373,10 +380,16 @@ export function DepositModal({
               className="w-full btn-gradient rounded-xl py-3.5 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {totalCostBase > walletBalance
-                ? "Insufficient Balance"
+                ? t("insufficientBalance")
                 : parsedTickets > 0
-                  ? `Confirm Deposit — ${formatTokenAmount(totalCostBase, pool.tokenDecimals)} ${pool.tokenSymbol}`
-                  : "Enter an amount"}
+                  ? t("confirmDepositAmount", {
+                      amount: formatTokenAmount(
+                        totalCostBase,
+                        pool.tokenDecimals
+                      ),
+                      symbol: pool.tokenSymbol,
+                    })
+                  : t("enterAmount")}
             </button>
           </>
         )}

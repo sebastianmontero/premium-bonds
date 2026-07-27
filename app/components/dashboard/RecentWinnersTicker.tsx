@@ -1,7 +1,8 @@
 "use client";
 
-import { formatTokenAmount, tierLabel, tierColor } from "@/app/mock-data";
+import { formatTokenAmount, tierColor } from "@/app/mock-data";
 import type { RecentWinner } from "@/app/types";
+import { useTranslations } from "next-intl";
 
 interface RecentWinnersTickerProps {
   winners: RecentWinner[];
@@ -12,10 +13,24 @@ export function RecentWinnersTicker({
   winners,
   tokenDecimals,
 }: RecentWinnersTickerProps) {
+  const t = useTranslations("RecentWinners");
+
   if (winners.length === 0) return null;
 
   // Duplicate the list so the marquee loops seamlessly
   const items = [...winners, ...winners];
+
+  const getTierLabel = (tierIndex: number) => {
+    switch (tierIndex) {
+      case 0:
+        return t("grand");
+      case 1:
+        return t("runnerUp");
+      case 2:
+      default:
+        return t("consolation");
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -34,7 +49,7 @@ export function RecentWinnersTicker({
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
         </svg>
         <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-          Recent Winners
+          {t("title")}
         </p>
       </div>
 
@@ -80,7 +95,7 @@ export function RecentWinnersTicker({
                       : "pill-success"
                 }`}
               >
-                {tierLabel(winner.tierIndex)}
+                {getTierLabel(winner.tierIndex)}
               </span>
             </div>
           ))}

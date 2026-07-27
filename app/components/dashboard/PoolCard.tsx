@@ -4,6 +4,7 @@ import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { formatTokenAmount } from "@/app/mock-data";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
+import { useFormatter, useTranslations } from "next-intl";
 
 interface PoolCardProps {
   pool: PoolInfo;
@@ -18,10 +19,25 @@ export function PoolCard({
   onDeposit,
   onWithdraw,
 }: PoolCardProps) {
+  const format = useFormatter();
+  const t = useTranslations("Pools");
+
   const isFrozen = pool.isFrozenForDraw;
   const activeTicketsCount = userTickets?.activeTicketsCount ?? 0;
   const totalTicketsCount =
     activeTicketsCount + (userTickets?.pendingTicketsCount ?? 0);
+
+  const getTierLabel = (tierIndex: number) => {
+    switch (tierIndex) {
+      case 0:
+        return t("grand");
+      case 1:
+        return t("runnerUp");
+      case 2:
+      default:
+        return t("consolation");
+    }
+  };
 
   return (
     <div
@@ -38,10 +54,12 @@ export function PoolCard({
           </div>
           <div>
             <h3 className="font-display text-lg font-bold text-on-surface">
-              {pool.tokenSymbol} Premium Pool
+              {pool.tokenSymbol === "USDC"
+                ? t("weeklyUSDC")
+                : `${pool.tokenSymbol} Pool`}
             </h3>
             <p className="text-xs text-on-surface-variant">
-              Draw #{pool.currentDrawCycleId} · Weekly
+              {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
             </p>
           </div>
         </div>
@@ -57,13 +75,13 @@ export function PoolCard({
       {/* ── Stats Grid ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4">
         <StatCell
-          label="Pool TVL"
+          label={t("totalDeposited")}
           value={`$${formatTokenAmount(pool.totalDepositedPrincipal, pool.tokenDecimals, 0)}`}
           accent="text-on-surface"
         />
         <div className="space-y-0.5">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Prize Pot
+            {t("estimatedPot")}
           </p>
           <LiveYieldTicker
             pool={pool}
@@ -73,12 +91,12 @@ export function PoolCard({
           />
         </div>
         <StatCell
-          label="Your Active Tickets"
-          value={activeTicketsCount.toLocaleString()}
+          label={t("yourTickets")}
+          value={format.number(activeTicketsCount)}
           accent="text-primary"
         />
         <StatCell
-          label="Bond Price"
+          label={t("bondPrice")}
           value={`${formatTokenAmount(pool.bondPrice, pool.tokenDecimals)} ${pool.tokenSymbol}`}
           accent="text-on-surface"
         />
@@ -102,7 +120,7 @@ export function PoolCard({
             <path d="M12 6v6l4 2" />
           </svg>
           <span className="text-xs font-medium text-on-surface-variant">
-            Next Draw In
+            {t("drawIn")}
           </span>
         </div>
         <CountdownTimer targetTimestamp={pool.currentCycleEndAt} />
@@ -111,7 +129,7 @@ export function PoolCard({
       {/* ── Prize Tiers ──────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-          Prize Tiers
+          {t("prizeTiers")}
         </p>
         <div className="flex gap-2">
           {pool.prizeTiers.map((tier, i) => (
@@ -120,7 +138,7 @@ export function PoolCard({
               className="flex-1 rounded-lg bg-surface-container/60 px-3 py-2 text-center"
             >
               <p className="text-[10px] font-medium text-on-surface-variant">
-                {i === 0 ? "Grand" : i === 1 ? "Runner-up" : "Consolation"}
+                {getTierLabel(i)}
               </p>
               <p className="mt-0.5 font-mono text-sm font-semibold text-on-surface">
                 {(tier.basisPoints / 100).toFixed(0)}%
@@ -140,14 +158,14 @@ export function PoolCard({
           disabled={isFrozen}
           className="btn-gradient flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Deposit
+          {t("depositButton")}
         </button>
         <button
           onClick={onWithdraw}
           disabled={isFrozen || totalTicketsCount === 0}
           className="btn-ghost flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Withdraw
+          {t("withdrawButton")}
         </button>
       </div>
 
@@ -169,7 +187,7 @@ export function PoolCard({
               <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
             </svg>
             <p className="text-sm font-semibold text-on-surface">
-              Draw in progress
+              {t("drawInProgress")}
             </p>
           </div>
         </div>

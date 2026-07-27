@@ -1,6 +1,7 @@
 "use client";
 
 import { formatTokenAmount } from "@/app/mock-data";
+import { useFormatter, useTranslations } from "next-intl";
 
 interface PortfolioHeroRowProps {
   netWorth: number;
@@ -27,6 +28,11 @@ export function PortfolioHeroRow({
   tokenSymbol,
   tokenDecimals,
 }: PortfolioHeroRowProps) {
+  const format = useFormatter();
+  const t = useTranslations("Portfolio");
+
+  const totalTickets = activeTickets + pendingTickets;
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {/* ── Net Worth ─────────────────────────────────────────────────── */}
@@ -47,12 +53,12 @@ export function PortfolioHeroRow({
             <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
           </svg>
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-            Net Worth
+            {t("totalPortfolioValue")}
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
           ${formatTokenAmount(netWorth, tokenDecimals)}
-          <span className="ml-1.5 text-base font-medium text-on-surface-variant">
+          <span className="ms-1.5 text-base font-medium text-on-surface-variant">
             {tokenSymbol}
           </span>
         </p>
@@ -60,11 +66,11 @@ export function PortfolioHeroRow({
           <span className="font-mono text-on-surface">
             ${formatTokenAmount(investedAmount, tokenDecimals)}
           </span>{" "}
-          bonds ·{" "}
+          {t("bonds")} ·{" "}
           <span className="font-mono text-on-surface">
             ${formatTokenAmount(redeemingAmount, tokenDecimals)}
           </span>{" "}
-          redeeming
+          {t("redeeming")}
         </p>
       </div>
 
@@ -86,17 +92,21 @@ export function PortfolioHeroRow({
             <path d="M2 12h20" />
           </svg>
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-            Total Tickets
+            {t("activeBondsCount", { count: totalTickets })}
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-          {(activeTickets + pendingTickets).toLocaleString()}
+          {format.number(totalTickets)}
         </p>
         <p className="text-xs text-on-surface-variant">
-          <span className="font-mono text-on-surface">{activeTickets}</span>{" "}
-          active ·{" "}
-          <span className="font-mono text-on-surface">{pendingTickets}</span>{" "}
-          pending
+          <span className="font-mono text-on-surface">
+            {format.number(activeTickets)}
+          </span>{" "}
+          {t("active")} ·{" "}
+          <span className="font-mono text-on-surface">
+            {format.number(pendingTickets)}
+          </span>{" "}
+          {t("pending")}
         </p>
       </div>
 
@@ -118,12 +128,12 @@ export function PortfolioHeroRow({
             <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
           </svg>
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-            Lifetime Winnings
+            {t("lifetimeWinnings")}
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-gradient">
           ${formatTokenAmount(lifetimeWinnings, tokenDecimals)}
-          <span className="ml-1.5 text-base font-medium text-on-surface-variant bg-none [-webkit-text-fill-color:var(--on-surface-variant)]">
+          <span className="ms-1.5 text-base font-medium text-on-surface-variant bg-none [-webkit-text-fill-color:var(--on-surface-variant)]">
             {tokenSymbol}
           </span>
         </p>
@@ -131,11 +141,11 @@ export function PortfolioHeroRow({
           <span className="font-mono text-on-surface">
             ${formatTokenAmount(autoReinvestedTotal, tokenDecimals)}
           </span>{" "}
-          reinvested ·{" "}
+          {t("reinvested")} ·{" "}
           <span className="font-mono text-on-surface">
             ${formatTokenAmount(nonReinvestedWinnings, tokenDecimals)}
           </span>{" "}
-          non-reinvested
+          {t("nonReinvested")}
         </p>
       </div>
 
@@ -158,23 +168,25 @@ export function PortfolioHeroRow({
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-            Auto-Reinvested
+            {t("autoReinvested")}
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
           ${formatTokenAmount(autoReinvestedTotal, tokenDecimals)}
-          <span className="ml-1.5 text-base font-medium text-on-surface-variant">
+          <span className="ms-1.5 text-base font-medium text-on-surface-variant">
             {tokenSymbol}
           </span>
         </p>
         <p className="text-xs text-on-surface-variant">
           <span className="font-mono text-on-surface">
             {lifetimeWinnings > 0
-              ? ((autoReinvestedTotal / lifetimeWinnings) * 100).toFixed(1)
+              ? format.number((autoReinvestedTotal / lifetimeWinnings) * 100, {
+                  maximumFractionDigits: 1,
+                })
               : "0.0"}
             %
           </span>{" "}
-          reinvestment rate
+          {t("reinvestmentRate")}
         </p>
       </div>
     </div>

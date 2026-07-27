@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { useTranslations } from "next-intl";
 
 export interface PaginationControlsProps {
   /** The current 1-indexed page number. */
@@ -37,6 +38,7 @@ export function PaginationControls({
   showTotalCount = true,
   className = "",
 }: PaginationControlsProps) {
+  const t = useTranslations("Pagination");
   // Clamped page number ensuring no out-of-bounds rendering
   const safeTotalPages = Math.max(1, totalPages);
   const safeCurrentPage = Math.max(1, Math.min(currentPage, safeTotalPages));
@@ -82,19 +84,19 @@ export function PaginationControls({
       {/* Item range summary & Live Region */}
       <div className="text-xs text-on-surface-variant flex items-center gap-2">
         <span>
-          Showing{" "}
+          {t("showing")}{" "}
           <strong className="font-mono font-semibold text-on-surface">
             {startItem}–{endItem}
           </strong>{" "}
           {showTotalCount && (
             <>
-              of{" "}
+              {t("of")}{" "}
               <strong className="font-mono font-semibold text-on-surface">
                 {totalItems}
               </strong>{" "}
             </>
           )}
-          entries
+          {t("entries")}
         </span>
         <span aria-live="polite" className="sr-only">
           Page {safeCurrentPage} of {safeTotalPages}
@@ -117,7 +119,7 @@ export function PaginationControls({
             >
               {pageSizeOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option} / page
+                  {option} {t("perPage")}
                 </option>
               ))}
             </select>
@@ -146,7 +148,7 @@ export function PaginationControls({
                 d="M15 19l-7-7 7-7"
               />
             </svg>
-            <span className="hidden sm:inline">Prev</span>
+            <span className="hidden sm:inline">{t("prev")}</span>
           </button>
 
           {/* Mobile Page Badge / Compact View */}
@@ -191,7 +193,7 @@ export function PaginationControls({
             aria-label="Go to next page"
             className="rounded-lg border border-surface-bright/10 bg-surface-container/30 px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
           >
-            <span className="hidden sm:inline">Next</span>
+            <span className="hidden sm:inline">{t("next")}</span>
             <svg
               className="w-3.5 h-3.5"
               fill="none"

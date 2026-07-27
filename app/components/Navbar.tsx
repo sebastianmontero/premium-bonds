@@ -1,19 +1,22 @@
 "use client";
 
 import { ConnectWalletButton } from "./ConnectWalletButton";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { useWalletConnection } from "@solana/react-hooks";
-
-const NAV_LINKS = [
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Prizes", href: "#prizes" },
-];
+import { useTranslations } from "next-intl";
 
 export function Navbar() {
   const { status } = useWalletConnection();
   const [scrolled, setScrolled] = useState(false);
+  const t = useTranslations("Navbar");
+
+  const navLinks = [
+    { label: t("features"), href: "#features" },
+    { label: t("howItWorks"), href: "#how-it-works" },
+    { label: t("prizes"), href: "#prizes" },
+  ];
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -47,13 +50,13 @@ export function Navbar() {
             </svg>
           </div>
           <span className="font-display text-lg font-bold tracking-tight text-on-surface">
-            YieldBonds
+            {t("brandName")}
           </span>
         </Link>
 
         {/* Links */}
         <div className="hidden items-center gap-8 md:flex">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <a
               key={link.href}
               href={link.href}
@@ -64,14 +67,15 @@ export function Navbar() {
           ))}
         </div>
 
-        {/* CTA */}
-        <div className="flex items-center gap-4">
+        {/* CTA & Language Switcher */}
+        <div className="flex items-center gap-3 md:gap-4">
+          <LanguageSwitcher />
           {status === "connected" && (
             <Link
               href="/dashboard"
               className="btn-ghost rounded-xl px-4 py-2.5 text-sm font-medium transition cursor-pointer"
             >
-              Dashboard
+              {t("dashboard")}
             </Link>
           )}
           <ConnectWalletButton />

@@ -11,6 +11,8 @@ import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import type { ScanProgress } from "@/app/hooks/useActivityFeed";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
+import { useTranslations, useLocale } from "next-intl";
+import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 
 interface CompleteActivityModalProps {
   entries: ActivityEntry[];
@@ -153,6 +155,8 @@ export default function CompleteActivityModal({
   onLoadMore,
   onFetchUntilMatches,
 }: CompleteActivityModalProps) {
+  const t = useTranslations("Activity");
+  const locale = useLocale();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -186,7 +190,7 @@ export default function CompleteActivityModal({
   };
 
   const isMatch = useCallback(
-    (entry: ActivityEntry, term: string, type: string) => {
+    (entry: ActivityEntry, term: string, type: string): boolean => {
       const cleanTerm = term.trim().toLowerCase();
       if (!cleanTerm && type === "all") return true;
 
@@ -194,11 +198,10 @@ export default function CompleteActivityModal({
         cleanTerm === "" ||
         entry.description.toLowerCase().includes(cleanTerm) ||
         entry.id.toLowerCase().includes(cleanTerm) ||
-        (entry.txSignature &&
-          entry.txSignature.toLowerCase().includes(cleanTerm));
+        Boolean(entry.txSignature?.toLowerCase().includes(cleanTerm));
 
       const matchesType = type === "all" || entry.type === type;
-      return matchesSearch && matchesType;
+      return Boolean(matchesSearch && matchesType);
     },
     []
   );
@@ -212,44 +215,6 @@ export default function CompleteActivityModal({
   // Safe page clamping
   const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
   const safePage = Math.max(1, Math.min(currentPage, totalPages));
-
-  // Auto-trigger background batch scanning if filtered items are fewer than needed for current page
-  useEffect(() => {
-    if (
-      !isOpen ||
-      !onFetchUntilMatches ||
-      !hasMore ||
-      isFetchingMore ||
-      scanProgress !== null
-    ) {
-      return;
-    }
-
-    const needed = safePage * pageSize;
-    if (filteredEntries.length < needed) {
-      onFetchUntilMatches(
-        (entry) => isMatch(entry, debouncedSearchTerm, typeFilter),
-        needed
-      );
-    }
-  }, [
-    isOpen,
-    filteredEntries.length,
-    safePage,
-    pageSize,
-    hasMore,
-    isFetchingMore,
-    scanProgress,
-    debouncedSearchTerm,
-    typeFilter,
-    isMatch,
-    onFetchUntilMatches,
-  ]);
-
-  const paginatedEntries = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filteredEntries.slice(start, start + pageSize);
-  }, [filteredEntries, safePage, pageSize]);
 
   // Track attempted queries to prevent infinite background scanning loops
   const attemptedQueriesRef = useRef<Set<string>>(new Set());
@@ -295,6 +260,11 @@ export default function CompleteActivityModal({
     onFetchUntilMatches,
   ]);
 
+  const paginatedEntries = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredEntries.slice(start, start + pageSize);
+  }, [filteredEntries, safePage, pageSize]);
+
   if (!isOpen) return null;
 
   return (
@@ -311,16 +281,15 @@ export default function CompleteActivityModal({
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
           <div>
             <h3 className="text-xl font-bold font-display text-on-surface">
-              Activity Feed History
+              {t("modalTitle")}
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Complete audit log of all account transactions, prize claims, and
-              reinvestment events.
+              {t("modalSubtitle")}
             </p>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close modal"
+            aria-label={t("close")}
             className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
           >
             <svg
@@ -345,7 +314,7 @@ export default function CompleteActivityModal({
           <div className="relative col-span-1 sm:col-span-2">
             <input
               type="text"
-              placeholder="Search description or transaction ID..."
+              placeholder={t("searchPlaceholder")}
               value={searchTerm}
               disabled={isLoading}
               onChange={(e) => {
@@ -380,12 +349,12 @@ export default function CompleteActivityModal({
               }}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="all">All Event Types</option>
-              <option value="deposit">Deposits</option>
-              <option value="win">Prizes &amp; Claims</option>
-              <option value="auto-reinvest">Auto-Reinvest</option>
-              <option value="withdraw">Withdrawals</option>
-              <option value="claim-redemption">Redemptions</option>
+              <option value="all">{t("allTypes")}</option>
+              <option value="deposit">{t("deposits")}</option>
+              <option value="win">{t("prizesAndClaims")}</option>
+              <option value="auto-reinvest">{t("autoReinvest")}</option>
+              <option value="withdraw">{t("withdrawals")}</option>
+              <option value="claim-redemption">{t("redemptions")}</option>
             </select>
             {(searchTerm || typeFilter !== "all") && (
               <button
@@ -393,7 +362,7 @@ export default function CompleteActivityModal({
                 disabled={isLoading}
                 className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Clear
+                {t("clear")}
               </button>
             )}
           </div>
@@ -422,9 +391,10 @@ export default function CompleteActivityModal({
               />
             </svg>
             <span className="font-medium">
-              Scanning historical on-chain transactions... batch{" "}
-              <strong>{scanProgress.currentBatch}</strong> of{" "}
-              <strong>{scanProgress.maxBatches}</strong>
+              {t("scanningHistorical", {
+                currentBatch: scanProgress.currentBatch,
+                maxBatches: scanProgress.maxBatches,
+              })}
             </span>
           </div>
         )}
@@ -468,19 +438,19 @@ export default function CompleteActivityModal({
                 />
               </svg>
               <h4 className="text-sm font-semibold text-on-surface">
-                No Activity Records Found
+                {t("noRecordsFound")}
               </h4>
               <p className="text-xs text-on-surface-variant max-w-xs mt-1 leading-relaxed">
                 {isFetchingMore
-                  ? "Fetching historical records from Solana..."
-                  : "No activities matched your current search term or filter selection."}
+                  ? t("fetchingFromSolana")
+                  : t("noMatchesFilter")}
               </p>
               <div className="flex items-center gap-3 mt-4">
                 <button
                   onClick={resetFilters}
                   className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 transition cursor-pointer"
                 >
-                  Reset Filters
+                  {t("resetFilters")}
                 </button>
                 {hasMore && onLoadMore && (
                   <button
@@ -509,10 +479,10 @@ export default function CompleteActivityModal({
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                           />
                         </svg>
-                        <span>Scanning Older Transactions...</span>
+                        <span>{t("scanningOlder")}</span>
                       </>
                     ) : (
-                      <span>Scan Deeper for Matches ↓</span>
+                      <span>{t("scanDeeper")}</span>
                     )}
                   </button>
                 )}
@@ -534,7 +504,10 @@ export default function CompleteActivityModal({
                       <div className="mt-0.5">{typeIcon(entry.type)}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-on-surface font-medium leading-snug">
-                          {entry.description}
+                          {formatLocalizedActivityDescription(
+                            entry.description,
+                            locale
+                          )}
                         </p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span
@@ -592,10 +565,10 @@ export default function CompleteActivityModal({
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                           />
                         </svg>
-                        <span>Fetching Older Transactions...</span>
+                        <span>{t("scanningOlder")}</span>
                       </>
                     ) : (
-                      <span>Load More Historical Activity ↓</span>
+                      <span>{t("loadMore")}</span>
                     )}
                   </button>
                 </div>
@@ -624,13 +597,13 @@ export default function CompleteActivityModal({
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
-            YieldBonds Protocol Audit Log v1.0
+            {t("auditLogFooter")}
           </p>
           <button
             onClick={onClose}
             className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-5 py-2.5 transition cursor-pointer"
           >
-            Close
+            {t("close")}
           </button>
         </div>
       </div>

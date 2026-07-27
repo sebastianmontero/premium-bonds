@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore, useMemo } from "react";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import type { PoolInfo } from "@/app/types";
+import { useLocale, useTranslations } from "next-intl";
 
 export interface LiveYieldTickerProps {
   pool: PoolInfo;
@@ -28,6 +29,9 @@ export function LiveYieldTicker({
   className = "",
   valueClassName = "",
 }: LiveYieldTickerProps) {
+  const locale = useLocale();
+  const t = useTranslations("Dashboard");
+
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
     basePrizePot: pool.estimatedPrizePot,
     totalDepositedPrincipal: pool.totalDepositedPrincipal,
@@ -37,6 +41,16 @@ export function LiveYieldTicker({
   });
 
   const spanRef = useRef<HTMLSpanElement>(null);
+
+  // Cached Intl.NumberFormat for 60 FPS animation loop performance
+  const numberFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        minimumFractionDigits: precision,
+        maximumFractionDigits: precision,
+      }),
+    [locale, precision]
+  );
 
   // Hydration safety check via useSyncExternalStore (React 19 standard)
   const isMounted = useSyncExternalStore(
@@ -56,10 +70,7 @@ export function LiveYieldTicker({
       const currentVal = calculateCurrentValue(nowInSeconds);
 
       if (spanRef.current) {
-        const formatted = currentVal.toLocaleString("en-US", {
-          minimumFractionDigits: precision,
-          maximumFractionDigits: precision,
-        });
+        const formatted = numberFormatter.format(currentVal);
         spanRef.current.textContent = `$${formatted}`;
       }
 
@@ -71,13 +82,10 @@ export function LiveYieldTicker({
     return () => {
       cancelAnimationFrame(animFrameId);
     };
-  }, [isMounted, calculateCurrentValue, precision]);
+  }, [isMounted, calculateCurrentValue, numberFormatter]);
 
   // Initial SSR / pre-hydration display value
-  const initialFormatted = `$${baseUi.toLocaleString("en-US", {
-    minimumFractionDigits: precision,
-    maximumFractionDigits: precision,
-  })}`;
+  const initialFormatted = `$${numberFormatter.format(baseUi)}`;
 
   return (
     <div className={`inline-flex items-center gap-3 ${className}`}>
@@ -91,7 +99,7 @@ export function LiveYieldTicker({
       {showBadge && (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-xs font-semibold text-secondary animate-yield-pulse shrink-0">
           <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-          Live Yielding
+          {t("liveYielding")}
         </span>
       )}
     </div>

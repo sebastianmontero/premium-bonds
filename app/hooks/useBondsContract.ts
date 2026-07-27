@@ -79,11 +79,11 @@ export const HUMA_MODE_CONFIG = address(
 );
 export const HUMA_LENDER_STATE = address(
   process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-  "11111111111111111111111111111111"
+    "11111111111111111111111111111111"
 );
 export const HUMA_POOL_UNDERLYING_TOKEN = address(
   process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-  "11111111111111111111111111111111"
+    "11111111111111111111111111111111"
 );
 export const HUMA_MODE_MINT = address(
   process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
@@ -91,11 +91,11 @@ export const HUMA_MODE_MINT = address(
 
 export const HUMA_POOL_MODE_TOKEN = address(
   process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-  "11111111111111111111111111111111"
+    "11111111111111111111111111111111"
 );
 export const HUMA_REDEMPTION_REQUEST = address(
   process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-  "11111111111111111111111111111111"
+    "11111111111111111111111111111111"
 );
 
 const base64Encoder = getBase64Encoder();
@@ -883,13 +883,13 @@ export function useBondsContract(poolId: number = 1) {
     userTickets,
     userWinnings: userWinnings
       ? {
-        unclaimedNonReinvestedWinnings: Number(
-          userWinnings.unclaimedNonReinvestedWinnings
-        ),
-        totalClaimed: Number(userWinnings.totalClaimed),
-        totalReinvested: Number(userWinnings.totalReinvested),
-        registryEntryIndex: userWinnings.registryEntryIndex,
-      }
+          unclaimedNonReinvestedWinnings: Number(
+            userWinnings.unclaimedNonReinvestedWinnings
+          ),
+          totalClaimed: Number(userWinnings.totalClaimed),
+          totalReinvested: Number(userWinnings.totalReinvested),
+          registryEntryIndex: userWinnings.registryEntryIndex,
+        }
       : null,
     pendingRedemptions,
     walletBalance,

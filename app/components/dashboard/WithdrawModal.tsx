@@ -15,7 +15,11 @@ interface WithdrawModalProps {
   pool: PoolInfo;
   userTickets: UserTicketInfo;
   onClose: () => void;
-  onWithdrawSuccess: (tickets: number, value: number, signature?: string) => void;
+  onWithdrawSuccess: (
+    tickets: number,
+    value: number,
+    signature?: string
+  ) => void;
   onWithdraw?: (amount: number) => Promise<string>;
 }
 

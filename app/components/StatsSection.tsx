@@ -1,12 +1,17 @@
+"use client";
+
 import { LiveYieldTicker } from "./dashboard/LiveYieldTicker";
 import { MOCK_POOL } from "@/app/mock-data";
 import type { PoolInfo } from "@/app/types";
+import { useTranslations } from "next-intl";
 
 interface StatsSectionProps {
   pool?: PoolInfo;
 }
 
 export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
+  const t = useTranslations("Stats");
+
   return (
     <section id="prizes" className="relative px-6 py-24">
       <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2">
@@ -31,15 +36,13 @@ export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
               <path d="M7 11V7a5 5 0 0110 0v4" />
             </svg>
             <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-              Total Value Locked
+              {t("tvlLabel")}
             </p>
           </div>
           <p className="font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl">
             $12,450,230
           </p>
-          <p className="text-sm text-on-surface-variant">
-            Across all active pools
-          </p>
+          <p className="text-sm text-on-surface-variant">{t("tvlSub")}</p>
         </div>
 
         {/* Current Prize Pool */}
@@ -63,7 +66,7 @@ export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
               <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
             </svg>
             <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-              Current Prize Pool
+              {t("currentPrizePool")}
             </p>
           </div>
           <div>
@@ -77,10 +80,10 @@ export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
           <div className="flex items-center gap-3 pt-1">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-3 py-1 text-xs font-semibold text-secondary animate-yield-pulse">
               <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-              Live Yielding
+              {t("liveYielding")}
             </span>
             <span className="text-sm text-on-surface-variant">
-              Next draw in{" "}
+              {t("nextDrawIn")}{" "}
               <span className="font-semibold text-on-surface">2d 14h 36m</span>
             </span>
           </div>

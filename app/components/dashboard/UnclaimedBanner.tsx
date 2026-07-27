@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatTokenAmount } from "@/app/mock-data";
+import { useTranslations } from "next-intl";
 
 interface UnclaimedBannerProps {
   totalUnclaimed: number; // base units
@@ -17,6 +18,7 @@ export function UnclaimedBanner({
   onClaim,
 }: UnclaimedBannerProps) {
   const [dismissed, setDismissed] = useState(false);
+  const t = useTranslations("Unclaimed");
 
   if (dismissed || totalUnclaimed <= 0) return null;
 
@@ -52,14 +54,12 @@ export function UnclaimedBanner({
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-amber-200">
-              You have accumulated leftover winnings!
-            </p>
+            <p className="text-sm font-semibold text-amber-200">{t("title")}</p>
             <p className="mt-0.5 text-xs text-amber-200/70">
               <span className="font-mono font-semibold text-amber-300">
                 {formatTokenAmount(totalUnclaimed, tokenDecimals)} {tokenSymbol}
               </span>{" "}
-              of accumulated leftover dust ready to claim.
+              {t("description")}
             </p>
           </div>
         </div>
@@ -69,12 +69,12 @@ export function UnclaimedBanner({
             onClick={onClaim}
             className="shrink-0 rounded-xl bg-amber-500/90 px-5 py-2 text-sm font-semibold text-black transition hover:bg-amber-400 cursor-pointer"
           >
-            Claim Now
+            {t("claimNow")}
           </button>
           <button
             onClick={() => setDismissed(true)}
             className="shrink-0 rounded-lg p-1.5 text-amber-300/60 transition hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer"
-            aria-label="Dismiss"
+            aria-label={t("dismiss")}
           >
             <svg
               width="16"

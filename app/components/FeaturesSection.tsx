@@ -1,37 +1,6 @@
-const FEATURES = [
-  {
-    title: "Zero-Loss Protocol",
-    description:
-      "Your principal is never at risk. Withdraw your full deposit at any time.",
-    icon: "shield",
-    color: "text-tertiary",
-    bgColor: "bg-tertiary/10",
-  },
-  {
-    title: "Powered by Huma Finance",
-    description:
-      "Deposits are routed into Huma Finance for optimal yield generation.",
-    icon: "bolt",
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-  },
-  {
-    title: "No Fixed Lock-Ups",
-    description:
-      "Redeem your principal whenever you want. Unlike typical high-yield platforms, you are never locked into rigid 3- or 6-month cycles.",
-    icon: "clock",
-    color: "text-secondary",
-    bgColor: "bg-secondary/10",
-  },
-  {
-    title: "On-Chain Transparency",
-    description:
-      "Every draw, winner, and payout is recorded on-chain. Fully auditable.",
-    icon: "eye",
-    color: "text-tertiary",
-    bgColor: "bg-tertiary/10",
-  },
-];
+"use client";
+
+import { useTranslations } from "next-intl";
 
 function FeatureIcon({
   name,
@@ -84,23 +53,55 @@ function FeatureIcon({
 }
 
 export function FeaturesSection() {
+  const t = useTranslations("Features");
+
+  const features = [
+    {
+      title: t("feature1Title"),
+      description: t("feature1Desc"),
+      icon: "shield",
+      color: "text-tertiary",
+      bgColor: "bg-tertiary/10",
+    },
+    {
+      title: t("feature2Title"),
+      description: t("feature2Desc"),
+      icon: "bolt",
+      color: "text-primary",
+      bgColor: "bg-primary/10",
+    },
+    {
+      title: t("feature3Title"),
+      description: t("feature3Desc"),
+      icon: "clock",
+      color: "text-secondary",
+      bgColor: "bg-secondary/10",
+    },
+    {
+      title: t("feature4Title"),
+      description: t("feature4Desc"),
+      icon: "eye",
+      color: "text-tertiary",
+      bgColor: "bg-tertiary/10",
+    },
+  ];
+
   return (
     <section id="features" className="relative px-6 py-24">
       <div className="mx-auto max-w-2xl text-center space-y-4 mb-16">
         <p className="text-xs font-semibold uppercase tracking-widest text-secondary">
-          Features
+          {t("tag")}
         </p>
         <h2 className="font-display text-3xl font-bold tracking-tight text-on-surface sm:text-4xl">
-          Designed for trust and transparency
+          {t("title")}
         </h2>
         <p className="text-base text-on-surface-variant leading-relaxed">
-          Every element of the protocol protects your funds while maximizing
-          your chances to win.
+          {t("subtitle")}
         </p>
       </div>
 
       <div className="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2">
-        {FEATURES.map((f) => (
+        {features.map((f) => (
           <div
             key={f.title}
             className="group relative rounded-2xl bg-surface-container p-8 space-y-4 transition-all duration-300 hover:-translate-y-1 hover:bg-surface-container-high"

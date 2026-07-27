@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
+import { useTranslations } from "next-intl";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
 import {
   parseTransactionError,
@@ -42,6 +43,8 @@ import type {
 } from "@/app/types";
 
 export default function DashboardPage() {
+  const tPools = useTranslations("Pools");
+  const tActivity = useTranslations("Activity");
   const { status, wallet } = useWalletConnection();
   const isConnected = status === "connected";
   const userAddress = wallet?.account.address.toString();
@@ -177,7 +180,11 @@ export default function DashboardPage() {
   const netWorth = investedAmount + redeemingAmount + activeUnclaimedWinnings;
 
   // Handlers for Deposit/Withdraw Success
-  const handleDepositSuccess = (tickets: number, value: number, signature?: string) => {
+  const handleDepositSuccess = (
+    tickets: number,
+    value: number,
+    signature?: string
+  ) => {
     const newActivity: ActivityEntry = {
       id: `act-dep-${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
@@ -196,7 +203,11 @@ export default function DashboardPage() {
     }
   };
 
-  const handleWithdrawSuccess = (tickets: number, value: number, signature?: string) => {
+  const handleWithdrawSuccess = (
+    tickets: number,
+    value: number,
+    signature?: string
+  ) => {
     const newActivity: ActivityEntry = {
       id: `act-w-${Date.now()}`,
       date: new Date().toISOString().split("T")[0],
@@ -522,7 +533,7 @@ export default function DashboardPage() {
               <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
             </svg>
             <h2 className="font-display text-lg font-bold text-on-surface">
-              Active Pool
+              {tPools("activePool")}
             </h2>
           </div>
           <div className="flex-1 flex flex-col">
@@ -552,7 +563,7 @@ export default function DashboardPage() {
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
             </svg>
             <h2 className="font-display text-lg font-bold text-on-surface">
-              Activity Feed
+              {tActivity("title")}
             </h2>
           </div>
           <div className="flex-1 min-h-0 flex flex-col">

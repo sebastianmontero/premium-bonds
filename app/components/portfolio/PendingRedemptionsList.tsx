@@ -4,6 +4,7 @@ import type { PendingRedemption } from "@/app/types";
 import { formatTokenAmount } from "@/app/mock-data";
 import { useCallback, useState, useMemo } from "react";
 import { PaginationControls } from "./PaginationControls";
+import { useTranslations } from "next-intl";
 
 interface PendingRedemptionsListProps {
   redemptions: PendingRedemption[];
@@ -24,6 +25,7 @@ export function PendingRedemptionsList({
   showSimulation = true,
   isLoading = false,
 }: PendingRedemptionsListProps) {
+  const t = useTranslations("Redemptions");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 4;
 
@@ -94,17 +96,17 @@ export function PendingRedemptionsList({
           <div>
             <div className="flex items-center gap-2.5">
               <h3 className="font-display text-base font-bold text-on-surface">
-                Pending Redemptions
+                {t("title")}
               </h3>
               {isLoading && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary animate-pulse">
                   <span className="h-1.5 w-1.5 rounded-full bg-primary animate-spin" />
-                  Syncing on-chain...
+                  {t("syncing")}
                 </span>
               )}
             </div>
             <p className="text-xs text-on-surface-variant mt-0.5">
-              Retrieve settled funds from Huma Finance yield pools
+              {t("subtitle")}
             </p>
           </div>
         </div>
@@ -151,10 +153,10 @@ export function PendingRedemptionsList({
                 <path d="m9 12 2 2 4-4" />
               </svg>
               <p className="text-xs font-semibold text-on-surface-variant">
-                No Pending Redemptions
+                {t("noRedemptions")}
               </p>
               <p className="text-[10px] text-on-surface-variant/60 max-w-[200px] mt-0.5">
-                Redemptions from bond sales and claimed prizes will appear here.
+                {t("noRedemptionsSub")}
               </p>
             </div>
           ) : (
@@ -170,18 +172,18 @@ export function PendingRedemptionsList({
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-on-surface">
                           {item.type === "bond_sale"
-                            ? "Bond Redemption"
-                            : "Prize Settlement"}
+                            ? t("bondRedemption")
+                            : t("prizeSettlement")}
                         </p>
                         {item.status === "settling" ? (
                           <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                             <span className="mr-1 h-1 w-1 rounded-full bg-amber-400 animate-pulse" />
-                            Settling
+                            {t("settling")}
                           </span>
                         ) : (
                           <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                             <span className="mr-1 h-1 w-1 rounded-full bg-emerald-400" />
-                            Ready
+                            {t("ready")}
                           </span>
                         )}
                       </div>
@@ -189,7 +191,7 @@ export function PendingRedemptionsList({
                         className="text-[11px] text-on-surface-variant mt-0.5"
                         suppressHydrationWarning
                       >
-                        Requested {formatRequestedDate(item.requestedAt)}
+                        {t("requested")} {formatRequestedDate(item.requestedAt)}
                       </p>
                     </div>
                   </div>
@@ -214,7 +216,7 @@ export function PendingRedemptionsList({
                             className="rounded-lg border border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition cursor-pointer hover:bg-amber-500/10"
                             title="Simulate yield-bearing settlement in Huma Finance"
                           >
-                            Simulate Settled
+                            {t("simulateSettled")}
                           </button>
                         )
                       ) : (
@@ -222,7 +224,7 @@ export function PendingRedemptionsList({
                           onClick={() => onClaimRedemption(item.redemptionId)}
                           className="rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition cursor-pointer shadow-sm shadow-emerald-500/20"
                         >
-                          Claim USDC
+                          {t("claimUSDC")}
                         </button>
                       )}
                     </div>

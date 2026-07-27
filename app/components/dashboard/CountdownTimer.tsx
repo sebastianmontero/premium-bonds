@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
+import { useTranslations } from "next-intl";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
@@ -29,6 +30,7 @@ function calcTimeLeft(target: number, offset: number): TimeLeft {
 
 export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
   const client = useSolanaClient();
+  const t = useTranslations("Countdown");
   const [isMounted, setIsMounted] = useState(false);
   const [clockOffset, setClockOffset] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
@@ -90,13 +92,13 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
   if (!isMounted) {
     return (
       <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
-        <TimeUnit value={0} label="d" />
+        <TimeUnit value={0} label={t("days")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label="h" />
+        <TimeUnit value={0} label={t("hours")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label="m" />
+        <TimeUnit value={0} label={t("minutes")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label="s" />
+        <TimeUnit value={0} label={t("seconds")} />
       </div>
     );
   }
@@ -105,7 +107,7 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
     return (
       <span className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap">
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Awaiting draw
+        {t("awaitingDraw")}
       </span>
     );
   }
@@ -114,10 +116,11 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
     return (
       <span className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap">
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        Draw imminent!&nbsp;
+        {t("drawImminent")}&nbsp;
         <span className="font-mono">
-          {String(timeLeft.minutes).padStart(2, "0")}m{" "}
-          {String(timeLeft.seconds).padStart(2, "0")}s
+          {String(timeLeft.minutes).padStart(2, "0")}
+          {t("minutes")} {String(timeLeft.seconds).padStart(2, "0")}
+          {t("seconds")}
         </span>
       </span>
     );
@@ -125,13 +128,13 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
 
   return (
     <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0">
-      <TimeUnit value={timeLeft.days} label="d" />
+      <TimeUnit value={timeLeft.days} label={t("days")} />
       <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.hours} label="h" />
+      <TimeUnit value={timeLeft.hours} label={t("hours")} />
       <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.minutes} label="m" />
+      <TimeUnit value={timeLeft.minutes} label={t("minutes")} />
       <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.seconds} label="s" />
+      <TimeUnit value={timeLeft.seconds} label={t("seconds")} />
     </div>
   );
 }

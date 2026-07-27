@@ -2,6 +2,8 @@
 
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
+import { useTranslations, useLocale } from "next-intl";
+import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 
 interface ActivityFeedProps {
   entries: ActivityEntry[];
@@ -121,6 +123,8 @@ export function ActivityFeed({
   onViewCompleteFeed,
   isLoading = false,
 }: ActivityFeedProps) {
+  const t = useTranslations("Activity");
+  const locale = useLocale();
   const PREVIEW_LIMIT = 10;
   const previewEntries = entries.slice(0, PREVIEW_LIMIT);
 
@@ -163,11 +167,10 @@ export function ActivityFeed({
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
           </svg>
           <p className="text-xs font-semibold text-on-surface-variant">
-            No activity yet
+            {t("noActivity")}
           </p>
           <p className="text-[10px] text-on-surface-variant/60 max-w-[200px] mt-0.5">
-            Your transactions, prize claims, and reinvestment events will be
-            logged here.
+            {t("noActivitySub")}
           </p>
         </div>
       ) : (
@@ -189,7 +192,10 @@ export function ActivityFeed({
                       {formatFeedDate(entry.date)}
                     </p>
                     <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
-                      {entry.description}
+                      {formatLocalizedActivityDescription(
+                        entry.description,
+                        locale
+                      )}
                     </p>
                   </div>
                 </div>
@@ -225,7 +231,7 @@ export function ActivityFeed({
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
             </svg>
-            <span>Search &amp; Filter Full History →</span>
+            <span>{t("searchAndFilter")}</span>
           </button>
         </div>
       )}

@@ -445,7 +445,7 @@ async function handleInit(args: string[]) {
       `spl-token create-address ${usdcMintStr} --owner ${poolAuthority} --fee-payer ${keypairPath}`,
       { stdio: "inherit" }
     );
-  } catch { }
+  } catch {}
 
   // Create Huma Pool Mode Token account owned by pool_authority
   console.log("Creating Huma Pool Mode Token Account...");
@@ -456,7 +456,7 @@ async function handleInit(args: string[]) {
       `spl-token create-address ${pstMintStr} --owner ${poolAuthority} --fee-payer ${keypairPath}`,
       { stdio: "inherit" }
     );
-  } catch { }
+  } catch {}
 
   // Create Admin Fee Wallet (Associated USDC Token Account for Admin)
   console.log("Creating Admin Fee Wallet...");
@@ -467,7 +467,7 @@ async function handleInit(args: string[]) {
       `spl-token create-account ${usdcMintStr} --fee-payer ${keypairPath}`,
       { stdio: "inherit" }
     );
-  } catch { }
+  } catch {}
 
   // Create Huma Lender State account
   console.log("Creating Huma Lender State account...");
@@ -762,7 +762,7 @@ async function handleFund(args: string[]) {
       `spl-token create-account ${usdcMintStr} --owner ${walletStr} --url ${DEVNET_RPC_URL}`,
       { stdio: "inherit" }
     );
-  } catch { }
+  } catch {}
 
   // Mint USDC
   execSync(
@@ -936,7 +936,7 @@ async function handleSettle(args: string[]) {
         `spl-token mint ${usdcMint} 1000000 ${humaPoolUnderlying} --mint-authority ${usdcKeyPath} --url ${DEVNET_RPC_URL}`,
         { stdio: "inherit" }
       );
-    } catch { }
+    } catch {}
   }
 
   await sendTx(rpc, settleIx, adminSigner);
