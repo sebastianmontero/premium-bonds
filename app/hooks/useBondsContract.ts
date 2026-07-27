@@ -35,7 +35,6 @@ import {
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
-import { MOCK_POOL } from "../mock-data";
 import { sanitizeErrorMessage } from "../lib/errors";
 
 // ─── Extended Types ──────────────────────────────────────────────────────────
@@ -192,7 +191,7 @@ export function useBondsContract(poolId: number = 1) {
       const rpc = client.runtime.rpc;
 
       // 1. Fetch Prize Pool account
-      let poolInfo: ExtendedPoolInfo = { ...MOCK_POOL };
+      let poolInfo: ExtendedPoolInfo | null = null;
       try {
         const poolAcc = await rpc
           .getAccountInfo(poolPda, { encoding: "base64" })
@@ -202,9 +201,12 @@ export function useBondsContract(poolId: number = 1) {
             base64Encoder.encode(poolAcc.value.data[0])
           );
           const parsed = parsePrizePool(bytes);
-          poolInfo = {
-            ...poolInfo,
+          const currentPool: ExtendedPoolInfo = {
             ...parsed,
+            tokenSymbol: "USDC",
+            tokenDecimals: 6,
+            estimatedPrizePot: 0,
+            ticketRegistry: parsed.ticketRegistry.toString(),
           };
 
           // Fetch estimated prize pot from Huma pool state yield if available
@@ -217,16 +219,19 @@ export function useBondsContract(poolId: number = 1) {
                 base64Encoder.encode(humaAcc.value.data[0])
               );
               const { assets } = parseHumaPoolState(humaBytes);
-              const totalPrincipal = BigInt(poolInfo.totalDepositedPrincipal);
-              const totalPrizesAllocated = poolInfo.totalPrizesAllocated || 0n;
-              const totalFeesAccrued = poolInfo.totalFeesAccrued || 0n;
-              const totalFeesWithdrawn = poolInfo.totalFeesWithdrawn || 0n;
+              const totalPrincipal = BigInt(
+                currentPool.totalDepositedPrincipal
+              );
+              const totalPrizesAllocated =
+                currentPool.totalPrizesAllocated || 0n;
+              const totalFeesAccrued = currentPool.totalFeesAccrued || 0n;
+              const totalFeesWithdrawn = currentPool.totalFeesWithdrawn || 0n;
               const feesInVault =
                 totalFeesAccrued > totalFeesWithdrawn
                   ? totalFeesAccrued - totalFeesWithdrawn
                   : 0n;
               const totalPendingRedemptions =
-                poolInfo.totalPendingRedemptions || 0n;
+                currentPool.totalPendingRedemptions || 0n;
               const totalLiabilities =
                 totalPrincipal +
                 totalPrizesAllocated +
@@ -234,20 +239,20 @@ export function useBondsContract(poolId: number = 1) {
                 totalPendingRedemptions;
 
               if (assets > totalLiabilities) {
-                poolInfo.estimatedPrizePot = Number(assets - totalLiabilities);
+                currentPool.estimatedPrizePot = Number(
+                  assets - totalLiabilities
+                );
               } else {
-                poolInfo.estimatedPrizePot = 0;
+                currentPool.estimatedPrizePot = 0;
               }
             }
           } catch (err) {
             console.warn("Failed to fetch Huma pool state assets:", err);
           }
+          poolInfo = currentPool;
         }
       } catch (err) {
-        console.warn(
-          "PrizePool not found on-chain, using fallback mock data.",
-          err
-        );
+        console.warn("PrizePool not found on-chain.", err);
       }
       setPool(poolInfo);
 
@@ -320,7 +325,7 @@ export function useBondsContract(poolId: number = 1) {
 
         // Fetch user tickets from TicketRegistry
         try {
-          const registryAddrStr = poolInfo.ticketRegistry;
+          const registryAddrStr = poolInfo?.ticketRegistry;
           if (registryAddrStr && registryEntryIndex !== 0xffffffff) {
             const registryPda = address(registryAddrStr);
             const registryAcc = await rpc

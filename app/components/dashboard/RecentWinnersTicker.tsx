@@ -1,6 +1,6 @@
 "use client";
 
-import { formatTokenAmount, tierColor } from "@/app/mock-data";
+import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
 import type { RecentWinner } from "@/app/types";
 import { useTranslations } from "next-intl";
 

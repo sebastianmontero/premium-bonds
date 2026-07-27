@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import {
   parseTransactionError,

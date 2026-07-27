@@ -1,7 +1,9 @@
 "use client";
 
+import { useBondsContract } from "@/app/hooks/useBondsContract";
 import { LiveYieldTicker } from "./dashboard/LiveYieldTicker";
-import { MOCK_POOL } from "@/app/mock-data";
+import { CountdownTimer } from "./dashboard/CountdownTimer";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -9,8 +11,15 @@ interface StatsSectionProps {
   pool?: PoolInfo;
 }
 
-export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
+export function StatsSection({ pool: initialPool }: StatsSectionProps) {
   const t = useTranslations("Stats");
+  const { pool: fetchedPool, isLoading } = useBondsContract(1);
+
+  const activePool = initialPool ?? fetchedPool;
+
+  const formattedTvl = activePool
+    ? `$${formatTokenAmount(activePool.totalDepositedPrincipal, activePool.tokenDecimals, 0)}`
+    : "$0";
 
   return (
     <section id="prizes" className="relative px-6 py-24">
@@ -39,13 +48,17 @@ export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
               {t("tvlLabel")}
             </p>
           </div>
-          <p className="font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl">
-            $12,450,230
+          <p
+            className={`font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl ${
+              !activePool && isLoading ? "animate-pulse opacity-50" : ""
+            }`}
+          >
+            {formattedTvl}
           </p>
           <p className="text-sm text-on-surface-variant">{t("tvlSub")}</p>
         </div>
 
-        {/* Current Prize Pool */}
+        {/* Current Prize Pool & Countdown */}
         <div
           className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
           style={{ animationDelay: "1s" }}
@@ -71,21 +84,29 @@ export function StatsSection({ pool = MOCK_POOL }: StatsSectionProps) {
           </div>
           <div>
             <LiveYieldTicker
-              pool={pool}
+              pool={activePool ?? undefined}
               precision={4}
               showBadge={false}
               valueClassName="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl"
             />
           </div>
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-3 py-1 text-xs font-semibold text-secondary animate-yield-pulse">
               <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
               {t("liveYielding")}
             </span>
-            <span className="text-sm text-on-surface-variant">
-              {t("nextDrawIn")}{" "}
-              <span className="font-semibold text-on-surface">2d 14h 36m</span>
-            </span>
+            <div className="flex items-center gap-2 text-sm text-on-surface-variant">
+              <span>{t("nextDrawIn")}</span>
+              {activePool && activePool.currentCycleEndAt > 0 ? (
+                <CountdownTimer
+                  targetTimestamp={activePool.currentCycleEndAt}
+                />
+              ) : (
+                <span className="font-mono text-sm text-on-surface-variant opacity-50">
+                  --:--:--
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

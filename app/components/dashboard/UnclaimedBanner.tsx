@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import { useTranslations } from "next-intl";
 
 interface UnclaimedBannerProps {

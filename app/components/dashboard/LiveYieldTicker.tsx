@@ -6,7 +6,7 @@ import type { PoolInfo } from "@/app/types";
 import { useLocale, useTranslations } from "next-intl";
 
 export interface LiveYieldTickerProps {
-  pool: PoolInfo;
+  pool?: PoolInfo;
   /** Number of fraction digits to display (default 4 for sub-cent visual ticks) */
   precision?: number;
   /** APY percentage (default 0.08 = 8%) */
@@ -33,11 +33,11 @@ export function LiveYieldTicker({
   const t = useTranslations("Dashboard");
 
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
-    basePrizePot: pool.estimatedPrizePot,
-    totalDepositedPrincipal: pool.totalDepositedPrincipal,
-    tokenDecimals: pool.tokenDecimals,
+    basePrizePot: pool?.estimatedPrizePot ?? 0,
+    totalDepositedPrincipal: pool?.totalDepositedPrincipal ?? 0,
+    tokenDecimals: pool?.tokenDecimals ?? 6,
     apy,
-    isFrozenForDraw: pool.isFrozenForDraw,
+    isFrozenForDraw: pool?.isFrozenForDraw ?? false,
   });
 
   const spanRef = useRef<HTMLSpanElement>(null);

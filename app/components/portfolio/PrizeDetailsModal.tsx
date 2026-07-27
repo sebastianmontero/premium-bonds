@@ -2,7 +2,11 @@
 
 import React, { useState } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
-import { formatTokenAmount, tierLabel, tierBadgeClass } from "@/app/mock-data";
+import {
+  formatTokenAmount,
+  tierLabel,
+  tierBadgeClass,
+} from "@/app/lib/formatters";
 import { getExplorerUrl } from "@/app/lib/errors";
 import { useTranslations } from "next-intl";
 

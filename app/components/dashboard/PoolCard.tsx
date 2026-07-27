@@ -2,7 +2,7 @@
 
 import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useFormatter, useTranslations } from "next-intl";
 

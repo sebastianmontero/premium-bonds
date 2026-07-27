@@ -1,6 +1,6 @@
 "use client";
 
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import { useFormatter, useTranslations } from "next-intl";
 
 interface PortfolioHeroRowProps {

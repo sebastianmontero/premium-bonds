@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSolanaClient } from "@solana/react-hooks";
 import { useTranslations } from "next-intl";
+import { useOnChainClock } from "@/app/hooks/useOnChainClock";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
+  resyncIntervalMs?: number;
 }
 
 interface TimeLeft {
@@ -28,11 +29,13 @@ function calcTimeLeft(target: number, offset: number): TimeLeft {
   };
 }
 
-export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
-  const client = useSolanaClient();
+export function CountdownTimer({
+  targetTimestamp,
+  resyncIntervalMs,
+}: CountdownTimerProps) {
   const t = useTranslations("Countdown");
   const [isMounted, setIsMounted] = useState(false);
-  const [clockOffset, setClockOffset] = useState<number>(0);
+  const { clockOffset } = useOnChainClock({ resyncIntervalMs });
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -40,32 +43,6 @@ export function CountdownTimer({ targetTimestamp }: CountdownTimerProps) {
     seconds: 0,
     total: 999999, // default to a safe positive number to match the default layout
   });
-
-  useEffect(() => {
-    let active = true;
-    async function syncClock() {
-      try {
-        const rpc = client.runtime.rpc;
-        const slot = await rpc.getSlot().send();
-        const blockTime = await rpc.getBlockTime(slot).send();
-        if (blockTime !== null && active) {
-          const systemNow = Math.floor(Date.now() / 1000);
-          setClockOffset(Number(blockTime) - systemNow);
-        }
-      } catch {
-        // Silently catch and fallback to local system clock
-      }
-    }
-    syncClock();
-
-    // Periodically resync clock offset (every 10 seconds)
-    const intervalId = setInterval(syncClock, 10000);
-
-    return () => {
-      active = false;
-      clearInterval(intervalId);
-    };
-  }, [client]);
 
   useEffect(() => {
     let active = true;

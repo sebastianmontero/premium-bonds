@@ -20,6 +20,7 @@ import {
   findAtaAddress,
   findDrawCyclePda,
   parseDrawCycle,
+  parsePrizePool,
 } from "../app/lib/bonds-sdk";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 
@@ -1002,21 +1003,32 @@ async function handleWarp(args: string[]) {
   // 2. Fetch current clock state
   let currentBlockTime: number;
   try {
-    const slot = await rpc.getSlot().send();
-    const blockTimeResult = await rpc.getBlockTime(slot).send();
-    if (blockTimeResult === null) {
-      console.warn(
-        "Warning: getBlockTime returned null. Falling back to host system clock."
-      );
-      currentBlockTime = Math.floor(Date.now() / 1000);
+    const clockPda = address("SysvarC1ock11111111111111111111111111111111");
+    const clockAcc = await rpc
+      .getAccountInfo(clockPda, { encoding: "base64" })
+      .send();
+    if (clockAcc && clockAcc.value && clockAcc.value.data && clockAcc.value.data[0]) {
+      const bytes = new Uint8Array(Buffer.from(clockAcc.value.data[0], "base64"));
+      if (bytes.byteLength >= 40) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        currentBlockTime = Number(view.getBigInt64(32, true));
+      } else {
+        throw new Error("SysvarClock data too short");
+      }
     } else {
-      currentBlockTime = Number(blockTimeResult);
+      throw new Error("SysvarClock account missing");
     }
   } catch {
-    console.warn(
-      "Warning: Failed to fetch current slot/blockTime. Falling back to host system clock."
-    );
-    currentBlockTime = Math.floor(Date.now() / 1000);
+    try {
+      const slot = await rpc.getSlot().send();
+      const blockTimeResult = await rpc.getBlockTime(slot).send();
+      currentBlockTime =
+        blockTimeResult !== null
+          ? Number(blockTimeResult)
+          : Math.floor(Date.now() / 1000);
+    } catch {
+      currentBlockTime = Math.floor(Date.now() / 1000);
+    }
   }
 
   let warpSeconds = seconds;
@@ -1053,15 +1065,9 @@ async function handleWarp(args: string[]) {
       process.exit(1);
     }
 
-    const rawData = Buffer.from(acc.value.data[0], "base64");
-    if (rawData.length < 152) {
-      console.error(
-        `Error: PrizePool account data is too short (${rawData.length} bytes, expected at least 152 bytes).`
-      );
-      process.exit(1);
-    }
-
-    const currentCycleEndAt = rawData.readBigInt64LE(144);
+    const rawData = new Uint8Array(Buffer.from(acc.value.data[0], "base64"));
+    const parsedPool = parsePrizePool(rawData);
+    const currentCycleEndAt = BigInt(parsedPool.currentCycleEndAt);
     if (currentCycleEndAt === 0n) {
       console.error(
         `Error: PrizePool cycle end time is 0. The pool may not be fully initialized or active.`
@@ -2195,26 +2201,14 @@ async function handleYield(args: string[]) {
     process.exit(1);
   }
 
-  const poolBuffer = Buffer.from(poolInfo.value.data[0], "base64");
-  if (poolBuffer.length < 157) {
-    console.error("Error: PrizePool account data is too short.");
-    process.exit(1);
-  }
-
-  const totalDepositedPrincipal = poolBuffer.readBigUInt64LE(128);
-  const prizeTiersLen = poolBuffer.readUInt32LE(157);
-  const postTiersOffset = 161 + prizeTiersLen * 6;
-
-  if (poolBuffer.length < postTiersOffset + 32) {
-    console.error(
-      "Error: PrizePool account data is too short to read allocated prizes field."
-    );
-    process.exit(1);
-  }
-
-  const totalFeesAccrued = poolBuffer.readBigUInt64LE(postTiersOffset + 8);
-  const totalFeesWithdrawn = poolBuffer.readBigUInt64LE(postTiersOffset + 16);
-  const totalPrizesAllocated = poolBuffer.readBigUInt64LE(postTiersOffset + 24);
+  const poolBuffer = new Uint8Array(
+    Buffer.from(poolInfo.value.data[0], "base64")
+  );
+  const parsedPool = parsePrizePool(poolBuffer);
+  const totalDepositedPrincipal = BigInt(parsedPool.totalDepositedPrincipal);
+  const totalFeesAccrued = parsedPool.totalFeesAccrued;
+  const totalFeesWithdrawn = parsedPool.totalFeesWithdrawn;
+  const totalPrizesAllocated = parsedPool.totalPrizesAllocated;
 
   const feesInVault = totalFeesAccrued - totalFeesWithdrawn;
   const bookValue =
@@ -2409,28 +2403,42 @@ async function handleDraw(args: string[]) {
     process.exit(1);
   }
 
-  const rawData = Buffer.from(poolAcc.value.data[0], "base64");
-  if (rawData.length < 152) {
-    console.error("Error: PrizePool account data is too short.");
-    process.exit(1);
-  }
-
-  const currentCycleEndAt = rawData.readBigInt64LE(144);
-  const currentDrawCycleId = rawData.readUInt32LE(140);
+  const rawData = new Uint8Array(Buffer.from(poolAcc.value.data[0], "base64"));
+  const parsedPool = parsePrizePool(rawData);
+  const currentCycleEndAt = parsedPool.currentCycleEndAt;
+  const currentDrawCycleId = parsedPool.currentDrawCycleId;
 
   let currentBlockTime: number;
   try {
-    const slot = await rpc.getSlot().send();
-    const blockTimeResult = await rpc.getBlockTime(slot).send();
-    currentBlockTime =
-      blockTimeResult !== null
-        ? Number(blockTimeResult)
-        : Math.floor(Date.now() / 1000);
+    const clockPda = address("SysvarC1ock11111111111111111111111111111111");
+    const clockAcc = await rpc
+      .getAccountInfo(clockPda, { encoding: "base64" })
+      .send();
+    if (clockAcc && clockAcc.value && clockAcc.value.data && clockAcc.value.data[0]) {
+      const bytes = new Uint8Array(Buffer.from(clockAcc.value.data[0], "base64"));
+      if (bytes.byteLength >= 40) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        currentBlockTime = Number(view.getBigInt64(32, true));
+      } else {
+        throw new Error("SysvarClock data too short");
+      }
+    } else {
+      throw new Error("SysvarClock account missing");
+    }
   } catch {
-    currentBlockTime = Math.floor(Date.now() / 1000);
+    try {
+      const slot = await rpc.getSlot().send();
+      const blockTimeResult = await rpc.getBlockTime(slot).send();
+      currentBlockTime =
+        blockTimeResult !== null
+          ? Number(blockTimeResult)
+          : Math.floor(Date.now() / 1000);
+    } catch {
+      currentBlockTime = Math.floor(Date.now() / 1000);
+    }
   }
 
-  const warpSeconds = Number(currentCycleEndAt) - currentBlockTime;
+  const warpSeconds = currentCycleEndAt - currentBlockTime;
   if (warpSeconds > 0) {
     console.log(
       `Warping ${warpSeconds} seconds to pool ${poolId} cycle end timestamp (${currentCycleEndAt})...`
@@ -2438,8 +2446,23 @@ async function handleDraw(args: string[]) {
     await handleWarp(["--seconds", warpSeconds.toString()]);
   } else {
     console.log(
-      `Pool cycle end timestamp (${currentCycleEndAt}) already reached or past. Skipping clock warp.`
+      `Pool cycle end timestamp (${currentCycleEndAt}) already reached or past. Ensuring validator clock sync...`
     );
+    try {
+      const targetMs = (currentCycleEndAt + 1) * 1000;
+      await fetch(RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: Date.now(),
+          method: "surfnet_timeTravel",
+          params: [{ absoluteTimestamp: targetMs }],
+        }),
+      });
+    } catch {
+      // Ignore if validator clock is already past targetMs
+    }
   }
 
   const adminSigner = await loadOrGenerateAdminKey();

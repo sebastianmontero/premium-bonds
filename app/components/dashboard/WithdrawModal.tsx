@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import {
   parseTransactionError,

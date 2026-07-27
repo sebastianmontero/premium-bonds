@@ -1,7 +1,7 @@
 "use client";
 
 import type { PendingRedemption } from "@/app/types";
-import { formatTokenAmount } from "@/app/mock-data";
+import { formatTokenAmount } from "@/app/lib/formatters";
 import { useCallback, useState, useMemo } from "react";
 import { PaginationControls } from "./PaginationControls";
 import { useTranslations } from "next-intl";
