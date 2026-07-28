@@ -8,7 +8,7 @@ import {
   tierBadgeClass,
 } from "@/app/lib/formatters";
 import { PaginationControls } from "./PaginationControls";
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -36,6 +36,7 @@ export default function CompleteLedgerModal({
   isLoading = false,
 }: CompleteLedgerModalProps) {
   const t = useTranslations("Ledger");
+  const format = useFormatter();
   // Stateful Filtering
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -83,7 +84,7 @@ export default function CompleteLedgerModal({
 
   const formatDate = (isoDate: string): string => {
     const date = new Date(isoDate + "T00:00:00");
-    return date.toLocaleDateString("en-US", {
+    return format.dateTime(date, {
       month: "short",
       day: "numeric",
       year: "numeric",

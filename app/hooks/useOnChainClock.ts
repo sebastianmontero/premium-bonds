@@ -78,7 +78,11 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
   useEffect(() => {
     let active = true;
 
-    syncClock();
+    queueMicrotask(() => {
+      if (active) {
+        syncClock();
+      }
+    });
 
     // Re-sync immediately when tab becomes visible after being backgrounded
     function handleVisibilityChange() {
@@ -103,4 +107,3 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
   return { clockOffset, isSynced, resync: syncClock };
 }
-

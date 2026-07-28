@@ -4,7 +4,7 @@ import type { PendingRedemption } from "@/app/types";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import { useCallback, useState, useMemo } from "react";
 import { PaginationControls } from "./PaginationControls";
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
 
 interface PendingRedemptionsListProps {
   redemptions: PendingRedemption[];
@@ -26,6 +26,7 @@ export function PendingRedemptionsList({
   isLoading = false,
 }: PendingRedemptionsListProps) {
   const t = useTranslations("Redemptions");
+  const format = useFormatter();
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 4;
 
@@ -75,19 +76,22 @@ export function PendingRedemptionsList({
     );
   }, []);
 
-  const formatRequestedDate = useCallback((isoDateString: string) => {
-    try {
-      const date = new Date(isoDateString);
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return isoDateString;
-    }
-  }, []);
+  const formatRequestedDate = useCallback(
+    (isoDateString: string) => {
+      try {
+        const date = new Date(isoDateString);
+        return format.dateTime(date, {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      } catch {
+        return isoDateString;
+      }
+    },
+    [format]
+  );
 
   return (
     <div className="glass-strong rounded-2xl p-6 flex flex-col gap-4">

@@ -7,15 +7,15 @@ import {
   tierLabel,
   tierBadgeClass,
 } from "@/app/lib/formatters";
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
   tokenDecimals: number;
   tokenSymbol: string;
   ticketPrice?: number;
-  unclaimedTotal: number;
-  onClaim: () => void;
+  unclaimedTotal?: number;
+  onClaim?: () => void;
   onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails?: (entry: PrizeHistoryEntry) => void;
   onViewCompleteLedger?: () => void;
@@ -28,7 +28,7 @@ export function PrizeHistoryLedger({
   tokenDecimals,
   tokenSymbol,
   ticketPrice = 5_000_000,
-  unclaimedTotal,
+  unclaimedTotal = 0,
   onClaim,
   onSimulateCrank,
   onViewDetails,
@@ -38,6 +38,7 @@ export function PrizeHistoryLedger({
 }: PrizeHistoryLedgerProps) {
   const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
   const t = useTranslations("Ledger");
+  const format = useFormatter();
 
   const statusPill = (
     status: PrizeHistoryEntry["status"],
@@ -45,25 +46,26 @@ export function PrizeHistoryLedger({
   ) => {
     if (isCranking) {
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 animate-pulse">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
-          {t("cranking")}
+        <span className="pill pill-info animate-yield-pulse">
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {t("reinvesting")}
         </span>
       );
     }
+
     switch (status) {
       case "processing":
         return (
           <span className="pill pill-warning">
-            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-            {t("processing")}
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {t("pendingReinvest")}
           </span>
         );
       case "partial":
         return (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-            {t("reinvesting")}
+          <span className="pill pill-info">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            {t("partiallyReinvested")}
           </span>
         );
       case "reinvested":
@@ -78,7 +80,7 @@ export function PrizeHistoryLedger({
 
   const formatDate = (isoDate: string): string => {
     const date = new Date(isoDate + "T00:00:00");
-    return date.toLocaleDateString("en-US", {
+    return format.dateTime(date, {
       month: "short",
       day: "numeric",
       year: "numeric",

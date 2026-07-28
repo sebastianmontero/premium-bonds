@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useOnChainClock } from "@/app/hooks/useOnChainClock";
 
 interface CountdownTimerProps {
@@ -34,6 +34,7 @@ export function CountdownTimer({
   resyncIntervalMs,
 }: CountdownTimerProps) {
   const t = useTranslations("Countdown");
+  const format = useFormatter();
   const [isMounted, setIsMounted] = useState(false);
   const { clockOffset } = useOnChainClock({ resyncIntervalMs });
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
@@ -43,6 +44,14 @@ export function CountdownTimer({
     seconds: 0,
     total: 999999, // default to a safe positive number to match the default layout
   });
+
+  const formattedTargetDate =
+    targetTimestamp > 0
+      ? format.dateTime(new Date(targetTimestamp * 1000), {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : undefined;
 
   useEffect(() => {
     let active = true;
@@ -68,7 +77,10 @@ export function CountdownTimer({
 
   if (!isMounted) {
     return (
-      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
+      <div
+        className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0"
+        title={formattedTargetDate}
+      >
         <TimeUnit value={0} label={t("days")} />
         <span className="text-on-surface-variant/50">:</span>
         <TimeUnit value={0} label={t("hours")} />
@@ -82,7 +94,10 @@ export function CountdownTimer({
 
   if (timeLeft.total <= 0) {
     return (
-      <span className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap">
+      <span
+        className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap"
+        title={formattedTargetDate}
+      >
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
         {t("awaitingDraw")}
       </span>
@@ -91,7 +106,10 @@ export function CountdownTimer({
 
   if (timeLeft.total < 3600) {
     return (
-      <span className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap">
+      <span
+        className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap"
+        title={formattedTargetDate}
+      >
         <span className="h-1.5 w-1.5 rounded-full bg-current" />
         {t("drawImminent")}&nbsp;
         <span className="font-mono">
@@ -104,7 +122,10 @@ export function CountdownTimer({
   }
 
   return (
-    <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0">
+    <div
+      className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0"
+      title={formattedTargetDate}
+    >
       <TimeUnit value={timeLeft.days} label={t("days")} />
       <span className="text-on-surface-variant/50">:</span>
       <TimeUnit value={timeLeft.hours} label={t("hours")} />

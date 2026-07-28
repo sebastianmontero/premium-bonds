@@ -11,7 +11,7 @@ import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import type { ScanProgress } from "@/app/hooks/useActivityFeed";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 
 interface CompleteActivityModalProps {
@@ -131,19 +131,6 @@ function typeIcon(type: ActivityType) {
   }
 }
 
-function formatFeedDate(isoDate: string): string {
-  try {
-    const date = new Date(isoDate + "T00:00:00");
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return isoDate;
-  }
-}
-
 export default function CompleteActivityModal({
   entries,
   isOpen,
@@ -157,6 +144,21 @@ export default function CompleteActivityModal({
 }: CompleteActivityModalProps) {
   const t = useTranslations("Activity");
   const locale = useLocale();
+  const format = useFormatter();
+
+  const formatFeedDate = (isoDate: string): string => {
+    try {
+      const date = new Date(isoDate + "T00:00:00");
+      return format.dateTime(date, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return isoDate;
+    }
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");

@@ -8,7 +8,7 @@ import {
   tierBadgeClass,
 } from "@/app/lib/formatters";
 import { getExplorerUrl } from "@/app/lib/errors";
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeDetailsModalProps {
   entry: PrizeHistoryEntry | null;
@@ -47,6 +47,7 @@ export default function PrizeDetailsModal({
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
+  const format = useFormatter();
 
   if (!isOpen || !entry) return null;
 
@@ -69,14 +70,11 @@ export default function PrizeDetailsModal({
     setTimeout(() => setShareStatus(null), 3000);
   };
 
-  const formattedDate = new Date(entry.date + "T00:00:00").toLocaleDateString(
-    "en-US",
-    {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+  const formattedDate = format.dateTime(new Date(entry.date + "T00:00:00"), {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

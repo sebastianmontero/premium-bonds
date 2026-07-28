@@ -2,7 +2,7 @@
 
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 
 interface ActivityFeedProps {
@@ -113,11 +113,6 @@ function typeIcon(type: ActivityType) {
   }
 }
 
-function formatFeedDate(isoDate: string): string {
-  const date = new Date(isoDate + "T00:00:00");
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 export function ActivityFeed({
   entries,
   onViewCompleteFeed,
@@ -125,6 +120,13 @@ export function ActivityFeed({
 }: ActivityFeedProps) {
   const t = useTranslations("Activity");
   const locale = useLocale();
+  const format = useFormatter();
+
+  const formatFeedDate = (isoDate: string): string => {
+    const date = new Date(isoDate + "T00:00:00");
+    return format.dateTime(date, { month: "short", day: "numeric" });
+  };
+
   const PREVIEW_LIMIT = 10;
   const previewEntries = entries.slice(0, PREVIEW_LIMIT);
 

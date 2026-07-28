@@ -1007,10 +1007,21 @@ async function handleWarp(args: string[]) {
     const clockAcc = await rpc
       .getAccountInfo(clockPda, { encoding: "base64" })
       .send();
-    if (clockAcc && clockAcc.value && clockAcc.value.data && clockAcc.value.data[0]) {
-      const bytes = new Uint8Array(Buffer.from(clockAcc.value.data[0], "base64"));
+    if (
+      clockAcc &&
+      clockAcc.value &&
+      clockAcc.value.data &&
+      clockAcc.value.data[0]
+    ) {
+      const bytes = new Uint8Array(
+        Buffer.from(clockAcc.value.data[0], "base64")
+      );
       if (bytes.byteLength >= 40) {
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const view = new DataView(
+          bytes.buffer,
+          bytes.byteOffset,
+          bytes.byteLength
+        );
         currentBlockTime = Number(view.getBigInt64(32, true));
       } else {
         throw new Error("SysvarClock data too short");
@@ -2414,10 +2425,21 @@ async function handleDraw(args: string[]) {
     const clockAcc = await rpc
       .getAccountInfo(clockPda, { encoding: "base64" })
       .send();
-    if (clockAcc && clockAcc.value && clockAcc.value.data && clockAcc.value.data[0]) {
-      const bytes = new Uint8Array(Buffer.from(clockAcc.value.data[0], "base64"));
+    if (
+      clockAcc &&
+      clockAcc.value &&
+      clockAcc.value.data &&
+      clockAcc.value.data[0]
+    ) {
+      const bytes = new Uint8Array(
+        Buffer.from(clockAcc.value.data[0], "base64")
+      );
       if (bytes.byteLength >= 40) {
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const view = new DataView(
+          bytes.buffer,
+          bytes.byteOffset,
+          bytes.byteLength
+        );
         currentBlockTime = Number(view.getBigInt64(32, true));
       } else {
         throw new Error("SysvarClock data too short");
