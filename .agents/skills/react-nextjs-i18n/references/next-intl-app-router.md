@@ -22,7 +22,7 @@ my-app/
 │   ├── en.json                # English dictionary
 │   ├── es.json                # Spanish dictionary
 │   └── ar.json                # Arabic dictionary (RTL)
-├── middleware.ts              # Locale detection & routing middleware
+├── proxy.ts                   # Locale detection & routing proxy
 ├── next.config.mjs            # next-intl plugin integration
 └── global.d.ts                # TypeScript strict type definitions
 ```
@@ -89,7 +89,7 @@ const nextConfig = {
 export default withNextIntl(nextConfig);
 ```
 
-### Step 2.4: `middleware.ts`
+### Step 2.4: `proxy.ts`
 
 Intercept incoming requests to resolve locale prefixes and handle language negotiation.
 

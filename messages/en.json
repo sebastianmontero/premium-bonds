@@ -8,6 +8,7 @@
     "features": "Features",
     "howItWorks": "How It Works",
     "prizes": "Prizes",
+    "docs": "Docs",
     "dashboard": "Dashboard"
   },
   "Hero": {
@@ -72,6 +73,7 @@
     "features": "Features",
     "howItWorks": "How It Works",
     "prizes": "Prizes",
+    "docs": "Docs",
     "github": "GitHub"
   },
   "Wallet": {

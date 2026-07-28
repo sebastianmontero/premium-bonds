@@ -84,12 +84,12 @@ export function DashboardSidebar() {
           <p className="text-xs text-on-surface-variant leading-relaxed">
             {t("helpText")}
           </p>
-          <a
-            href="#"
+          <Link
+            href="/docs"
             className="inline-block text-xs font-semibold text-primary hover:underline"
           >
             {t("viewDocs")}
-          </a>
+          </Link>
         </div>
       </aside>
 

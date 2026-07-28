@@ -13,9 +13,9 @@ export function Navbar() {
   const t = useTranslations("Navbar");
 
   const navLinks = [
-    { label: t("features"), href: "#features" },
-    { label: t("howItWorks"), href: "#how-it-works" },
-    { label: t("prizes"), href: "#prizes" },
+    { label: t("features"), href: "/#features" },
+    { label: t("howItWorks"), href: "/#how-it-works" },
+    { label: t("prizes"), href: "/#prizes" },
   ];
 
   useEffect(() => {
@@ -57,14 +57,20 @@ export function Navbar() {
         {/* Links */}
         <div className="hidden items-center gap-8 md:flex">
           {navLinks.map((link) => (
-            <a
+            <Link
               key={link.href}
               href={link.href}
               className="text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
             >
               {link.label}
-            </a>
+            </Link>
           ))}
+          <Link
+            href="/docs"
+            className="text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+          >
+            {t("docs")}
+          </Link>
         </div>
 
         {/* CTA & Language Switcher */}

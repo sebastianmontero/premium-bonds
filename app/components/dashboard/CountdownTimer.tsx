@@ -77,10 +77,7 @@ export function CountdownTimer({
 
   if (!isMounted) {
     return (
-      <div
-        className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0"
-        title={formattedTargetDate}
-      >
+      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
         <TimeUnit value={0} label={t("days")} />
         <span className="text-on-surface-variant/50">:</span>
         <TimeUnit value={0} label={t("hours")} />

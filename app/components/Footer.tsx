@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/routing";
 
 export function Footer() {
   const t = useTranslations("Footer");
@@ -34,24 +35,30 @@ export function Footer() {
 
           {/* Links */}
           <div className="flex items-center gap-6 text-sm text-on-surface-variant">
-            <a
-              href="#features"
+            <Link
+              href="/#features"
               className="hover:text-on-surface transition-colors"
             >
               {t("features")}
-            </a>
-            <a
-              href="#how-it-works"
+            </Link>
+            <Link
+              href="/#how-it-works"
               className="hover:text-on-surface transition-colors"
             >
               {t("howItWorks")}
-            </a>
-            <a
-              href="#prizes"
+            </Link>
+            <Link
+              href="/#prizes"
               className="hover:text-on-surface transition-colors"
             >
               {t("prizes")}
-            </a>
+            </Link>
+            <Link
+              href="/docs"
+              className="hover:text-on-surface transition-colors"
+            >
+              {t("docs")}
+            </Link>
             <a
               href="https://github.com"
               target="_blank"

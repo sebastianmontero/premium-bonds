@@ -79,7 +79,7 @@ Every localized page must expose `alternates.languages` (`hreflang`) metadata in
 - `app/[locale]/page.tsx` $\rightarrow$ Localized page using `getTranslations`.
 - `i18n/routing.ts` $\rightarrow$ `defineRouting` and `createNavigation` export (`Link`, `useRouter`, `usePathname`).
 - `i18n/request.ts` $\rightarrow$ `getRequestConfig` loading `messages/${locale}.json`.
-- `middleware.ts` $\rightarrow$ `createMiddleware(routing)` matching `/[locale]/` paths.
+- `proxy.ts` $\rightarrow$ `createMiddleware(routing)` matching `/[locale]/` paths.
 - `global.d.ts` $\rightarrow$ `interface IntlMessages extends Messages {}`.
 
 ### 2. Next.js 15/16 Async Params Standard
