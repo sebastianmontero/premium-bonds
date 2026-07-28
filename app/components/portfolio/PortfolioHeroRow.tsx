@@ -1,7 +1,7 @@
 "use client";
 
 import { formatTokenAmount } from "@/app/lib/formatters";
-import { useFormatter, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 interface PortfolioHeroRowProps {
   netWorth: number;
@@ -28,7 +28,6 @@ export function PortfolioHeroRow({
   tokenSymbol,
   tokenDecimals,
 }: PortfolioHeroRowProps) {
-  const format = useFormatter();
   const t = useTranslations("Portfolio");
 
   const totalTickets = activeTickets + pendingTickets;
@@ -96,15 +95,15 @@ export function PortfolioHeroRow({
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-          {format.number(totalTickets)}
+          {totalTickets.toLocaleString("en-US")}
         </p>
         <p className="text-xs text-on-surface-variant">
           <span className="font-mono text-on-surface">
-            {format.number(activeTickets)}
+            {activeTickets.toLocaleString("en-US")}
           </span>{" "}
           {t("active")} ·{" "}
           <span className="font-mono text-on-surface">
-            {format.number(pendingTickets)}
+            {pendingTickets.toLocaleString("en-US")}
           </span>{" "}
           {t("pending")}
         </p>
@@ -180,9 +179,12 @@ export function PortfolioHeroRow({
         <p className="text-xs text-on-surface-variant">
           <span className="font-mono text-on-surface">
             {lifetimeWinnings > 0
-              ? format.number((autoReinvestedTotal / lifetimeWinnings) * 100, {
-                  maximumFractionDigits: 1,
-                })
+              ? ((autoReinvestedTotal / lifetimeWinnings) * 100).toLocaleString(
+                  "en-US",
+                  {
+                    maximumFractionDigits: 1,
+                  }
+                )
               : "0.0"}
             %
           </span>{" "}

@@ -235,7 +235,7 @@ export function WithdrawModal({
                   {pool.tokenSymbol}
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
-                  {maxTickets.toLocaleString()} tickets (
+                  {maxTickets.toLocaleString("en-US")} tickets (
                   {userTickets.activeTicketsCount} active ·{" "}
                   {userTickets.pendingTicketsCount} pending)
                 </p>
@@ -253,7 +253,7 @@ export function WithdrawModal({
                   disabled={pool.isFrozenForDraw}
                   className="text-[10px] font-semibold text-primary hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  MAX: {maxTickets.toLocaleString()}
+                  MAX: {maxTickets.toLocaleString("en-US")}
                 </button>
               </div>
               <input
@@ -321,7 +321,7 @@ export function WithdrawModal({
                 <div className="flex justify-between text-on-surface-variant">
                   <span>Remaining tickets</span>
                   <span className="font-mono text-on-surface">
-                    {(maxTickets - parsedTickets).toLocaleString()}
+                    {(maxTickets - parsedTickets).toLocaleString("en-US")}
                   </span>
                 </div>
               </div>
@@ -428,8 +428,8 @@ export function WithdrawModal({
                 Redemption Requested!
               </h3>
               <p className="text-xs text-on-surface-variant max-w-[280px]">
-                Your {parsedTickets.toLocaleString()} tickets have been burned.
-                The redemption request is now pending settlement.
+                Your {parsedTickets.toLocaleString("en-US")} tickets have been
+                burned. The redemption request is now pending settlement.
               </p>
             </div>
 

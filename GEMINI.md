@@ -20,6 +20,7 @@
 - Strictly use `async/await` for asynchronous flows. Do not use `.then()`.
 - Use functional React components exclusively. No class components.
 - Default to framework-kit and `@solana/kit` for connection and transaction building. Relegate `@solana/web3.js` legacy usage only to adapter boundaries when strictly necessary.
+- **Number Formatting**: Do not localize decimal numbers. Always format numbers using explicit `"en-US"` formatting with a period (`.`) as the decimal separator and a comma (`,`) as the thousands separator.
 - **Safety**: Never sign transactions automatically or prompt for private keys/seed phrases. Rely on wallet-standard signing flows and always dry-run with simulations when applicable.
 
 ### Smart Contracts (Rust / Anchor)

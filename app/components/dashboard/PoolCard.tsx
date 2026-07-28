@@ -4,7 +4,7 @@ import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
-import { useFormatter, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 interface PoolCardProps {
   pool: PoolInfo;
@@ -19,7 +19,6 @@ export function PoolCard({
   onDeposit,
   onWithdraw,
 }: PoolCardProps) {
-  const format = useFormatter();
   const t = useTranslations("Pools");
 
   const isFrozen = pool.isFrozenForDraw;
@@ -92,7 +91,7 @@ export function PoolCard({
         </div>
         <StatCell
           label={t("yourTickets")}
-          value={format.number(activeTicketsCount)}
+          value={activeTicketsCount.toLocaleString("en-US")}
           accent="text-primary"
         />
         <StatCell

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore, useMemo } from "react";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import type { PoolInfo } from "@/app/types";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 export interface LiveYieldTickerProps {
   pool?: PoolInfo;
@@ -29,7 +29,6 @@ export function LiveYieldTicker({
   className = "",
   valueClassName = "",
 }: LiveYieldTickerProps) {
-  const locale = useLocale();
   const t = useTranslations("Dashboard");
 
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
@@ -45,11 +44,11 @@ export function LiveYieldTicker({
   // Cached Intl.NumberFormat for 60 FPS animation loop performance
   const numberFormatter = useMemo(
     () =>
-      new Intl.NumberFormat(locale, {
+      new Intl.NumberFormat("en-US", {
         minimumFractionDigits: precision,
         maximumFractionDigits: precision,
       }),
-    [locale, precision]
+    [precision]
   );
 
   // Hydration safety check via useSyncExternalStore (React 19 standard)
