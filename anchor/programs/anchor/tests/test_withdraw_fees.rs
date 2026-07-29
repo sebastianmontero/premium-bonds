@@ -513,6 +513,56 @@ fn test_withdraw_fees_fails_wrong_global_config_pda() {
 }
 
 #[test]
+fn test_withdraw_fees_fails_frozen_for_draw() {
+    let mut ctx = setup_e2e(10);
+    let dummy = Keypair::new().pubkey();
+
+    // Set accrued fees and freeze the pool for draw
+    let (pool_pda_key, _) = pool_pda(1);
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_fees_accrued = 5_000_000;
+    pool.is_frozen_for_draw = true;
+
+    let mut serialized_pool = vec![];
+    pool.try_serialize(&mut serialized_pool).unwrap();
+    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    ctx.svm
+        .set_account(
+            pool_pda_key,
+            Account {
+                lamports: 1_000_000_000,
+                data: serialized_pool,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let ix = build_withdraw_fees_ix(
+        &ctx.svm,
+        ctx.admin.pubkey(),
+        1,
+        0,
+        pool_pst_vault_pda(1).0,
+        dummy,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        dummy,
+        1_000_000,
+    );
+
+    let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
+    assert!(res.is_err(), "Must fail when pool is frozen for draw");
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("AwaitingRandomnessFreeze"),
+        "Expected AwaitingRandomnessFreeze, got: {err}"
+    );
+}
+
+#[test]
 fn test_withdraw_fees_fails_wrong_pool_pda() {
     let mut ctx = setup_e2e(10);
     let dummy = Keypair::new().pubkey();

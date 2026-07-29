@@ -151,6 +151,11 @@ pub struct WithdrawFees<'info> {
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 
+    require!(
+        !pool.is_frozen_for_draw,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
+
     // Validate there are enough accrued fees to withdraw
     let available_fees = pool
         .total_fees_accrued
@@ -174,6 +179,21 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     // Read current last_request_id from the queue before Huma increments it
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+
+    // Store current redemption ID and update pool state before external CPI (CEI pattern)
+    let current_redemption_id = pool.next_redemption_id;
+    pool.total_fees_withdrawn = pool
+        .total_fees_withdrawn
+        .checked_add(amount)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    pool.next_redemption_id = pool
+        .next_redemption_id
+        .checked_add(1)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    pool.total_pending_redemptions = pool
+        .total_pending_redemptions
+        .checked_add(amount)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
@@ -204,7 +224,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     // Create PendingRedemption receipt — fee_wallet is the beneficiary
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool.pool_id;
-    pending.redemption_id = pool.next_redemption_id;
+    pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.fee_wallet.owner; // Fee wallet owner receives the USDC on disburse
     pending.amount = amount;
     pending.pst_shares_locked = pst_shares;
@@ -212,11 +232,6 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
-
-    // Update accounting
-    pool.total_fees_withdrawn = pool.total_fees_withdrawn.checked_add(amount).unwrap();
-    pool.next_redemption_id = pool.next_redemption_id.checked_add(1).unwrap();
-    pool.total_pending_redemptions = pool.total_pending_redemptions.checked_add(amount).unwrap();
 
     msg!(
         "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",

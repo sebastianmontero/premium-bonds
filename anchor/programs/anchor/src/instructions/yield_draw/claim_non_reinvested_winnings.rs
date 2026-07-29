@@ -176,6 +176,18 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
+    // Store current redemption ID and update pool state before external CPI (CEI pattern)
+    let current_redemption_id = pool.next_redemption_id;
+    pool.next_redemption_id = pool
+        .next_redemption_id
+        .checked_add(1)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    pool.total_pending_redemptions = pool
+        .total_pending_redemptions
+        .checked_add(claimable)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
@@ -205,7 +217,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     // Create PendingRedemption receipt
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool.pool_id;
-    pending.redemption_id = pool.next_redemption_id;
+    pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.user.key();
     pending.amount = claimable;
     pending.pst_shares_locked = pst_shares;
@@ -213,16 +225,6 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
-
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    pool.total_pending_redemptions = pool
-        .total_pending_redemptions
-        .checked_add(claimable)
-        .ok_or(PremiumBondsError::MathOverflow)?;
 
     msg!(
         "ClaimNonReinvestedWinnings: user={}, claimable={}, pst_shares={}, redemption_id={}",

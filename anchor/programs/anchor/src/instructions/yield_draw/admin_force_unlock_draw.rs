@@ -55,7 +55,8 @@ pub struct AdminForceUnlockDraw<'info> {
 ///
 /// If a draw process gets stuck (e.g. due to Switchboard randomness issues), the admin can call this
 /// instruction to unfreeze the pool (`is_frozen_for_draw` set to false) and mark the current draw cycle
-/// status as `Complete`. This allows normal deposits/withdrawals and subsequent harvests to proceed.
+/// status as `ForceUnlocked`. It also decrements `total_prizes_allocated` and `total_fees_accrued` by the
+/// amounts committed during harvest to prevent corrupting future yield calculations.
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     pool.is_frozen_for_draw = false;
@@ -65,7 +66,21 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
         draw_cycle.status == DrawStatus::AwaitingRandomness,
         PremiumBondsError::InvalidDrawStatus
     );
-    draw_cycle.status = DrawStatus::Complete;
+    draw_cycle.status = DrawStatus::ForceUnlocked;
+
+    if draw_cycle.prize_pot > 0 {
+        pool.total_prizes_allocated = pool
+            .total_prizes_allocated
+            .checked_sub(draw_cycle.prize_pot)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
+
+    if draw_cycle.cycle_fee_collected > 0 {
+        pool.total_fees_accrued = pool
+            .total_fees_accrued
+            .checked_sub(draw_cycle.cycle_fee_collected)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
 
     msg!(
         "AdminForceUnlockDraw: force unlocked pool_id={}, cycle_id={}",

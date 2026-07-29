@@ -11,6 +11,8 @@ pub enum DrawStatus {
     AwaitingRandomness,
     /// Randomness resolved and winners successfully drawn/payouts registered.
     Complete,
+    /// Draw was forcefully unlocked and cancelled by an admin due to stuck randomness.
+    ForceUnlocked,
 }
 
 /// State tracking a specific draw cycle's yields and randomness properties.

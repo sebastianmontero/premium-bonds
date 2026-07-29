@@ -219,8 +219,14 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
             PremiumBondsError::InsufficientPendingTickets
         );
 
-        entry.active -= active_to_sell;
-        entry.pending -= pending_to_sell;
+        entry.active = entry
+            .active
+            .checked_sub(active_to_sell)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        entry.pending = entry
+            .pending
+            .checked_sub(pending_to_sell)
+            .ok_or(PremiumBondsError::MathOverflow)?;
 
         will_exit = entry.active == 0 && entry.pending == 0;
 
@@ -244,8 +250,14 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     // 2. Second scope: update global counters, decrement user count, handle swapped winnings pda.
     {
         let mut registry = registry_loader.load_mut()?;
-        registry.total_active_tickets -= active_to_sell;
-        registry.total_pending_tickets -= pending_to_sell;
+        registry.total_active_tickets = registry
+            .total_active_tickets
+            .checked_sub(active_to_sell)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        registry.total_pending_tickets = registry
+            .total_pending_tickets
+            .checked_sub(pending_to_sell)
+            .ok_or(PremiumBondsError::MathOverflow)?;
 
         if will_exit {
             if user_entry_idx != last_entry_idx {
@@ -274,7 +286,10 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
                 swapped_winnings.registry_entry_index = user_entry_idx;
                 swapped_winnings.exit(ctx.program_id)?; // serialize changes back to account
             }
-            registry.user_count -= 1;
+            registry.user_count = registry
+                .user_count
+                .checked_sub(1)
+                .ok_or(PremiumBondsError::MathOverflow)?;
         }
     }
 
@@ -298,6 +313,18 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     // Read current last_request_id from the queue before Huma increments it
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+
+    // Store current redemption ID and update pool state before external CPI (CEI pattern)
+    let current_redemption_id = pool.next_redemption_id;
+    pool.next_redemption_id = pool
+        .next_redemption_id
+        .checked_add(1)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    pool.total_pending_redemptions = pool
+        .total_pending_redemptions
+        .checked_add(expected_principal)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     // CPI: request async redemption from Huma
     let pool_id_bytes = pool.pool_id.to_le_bytes();
@@ -328,7 +355,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     // Create PendingRedemption receipt
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool.pool_id;
-    pending.redemption_id = pool.next_redemption_id;
+    pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.user.key();
     pending.amount = expected_principal;
     pending.pst_shares_locked = pst_shares;
@@ -336,16 +363,6 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
-
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    pool.total_pending_redemptions = pool
-        .total_pending_redemptions
-        .checked_add(expected_principal)
-        .ok_or(PremiumBondsError::MathOverflow)?;
 
     msg!(
         "SellBonds: user={}, bonds={}, principal={}, pst_shares={}, redemption_id={}",

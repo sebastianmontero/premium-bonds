@@ -151,11 +151,17 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         eligible_locked_count = ticket_registry.total_active_tickets;
 
         // O(1) block merge: Pending → Active for NEXT cycle eligibility.
-        ticket_registry.total_active_tickets += ticket_registry.total_pending_tickets;
+        ticket_registry.total_active_tickets = ticket_registry
+            .total_active_tickets
+            .checked_add(ticket_registry.total_pending_tickets)
+            .ok_or(PremiumBondsError::MathOverflow)?;
         ticket_registry.total_pending_tickets = 0;
 
         // Increment draw cycle to trigger lazy merges, and reset preparation index
-        ticket_registry.draw_cycle_id += 1;
+        ticket_registry.draw_cycle_id = ticket_registry
+            .draw_cycle_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
         ticket_registry.draw_prepared_up_to = 0;
     }
 

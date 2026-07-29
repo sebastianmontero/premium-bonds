@@ -170,27 +170,27 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         PremiumBondsError::HumaRedemptionNotSettled
     );
 
-    // Prevent re-entrancy: zero out the redemption amount before token transfer CPI
+    // Prevent re-entrancy: zero out the redemption amount and update pool state before token transfer CPI
     ctx.accounts.pending_redemption.amount = 0;
-
-    // Transfer owed USDC to user
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.pool_vault_account.to_account_info(),
-        mint: ctx.accounts.token_mint.to_account_info(),
-        to: ctx.accounts.user_token_account.to_account_info(),
-        authority: ctx.accounts.pool.to_account_info(),
-    };
-    transfer_checked(
-        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-        redemption_amount,
-        ctx.accounts.token_mint.decimals,
-    )?;
 
     let pool_mut = &mut ctx.accounts.pool;
     pool_mut.total_pending_redemptions = pool_mut
         .total_pending_redemptions
         .checked_sub(redemption_amount)
         .ok_or(PremiumBondsError::MathOverflow)?;
+
+    // Transfer owed USDC to user
+    let cpi_accounts = TransferChecked {
+        from: ctx.accounts.pool_vault_account.to_account_info(),
+        mint: ctx.accounts.token_mint.to_account_info(),
+        to: ctx.accounts.user_token_account.to_account_info(),
+        authority: pool_mut.to_account_info(),
+    };
+    transfer_checked(
+        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+        redemption_amount,
+        ctx.accounts.token_mint.decimals,
+    )?;
 
     msg!(
         "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",

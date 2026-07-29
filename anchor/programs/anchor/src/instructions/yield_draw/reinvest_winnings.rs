@@ -210,11 +210,20 @@ pub fn handle(
             );
             user_entry_idx = registry.user_count;
             ctx.accounts.user_winnings.registry_entry_index = user_entry_idx;
-            registry.user_count += 1;
-            registry.total_pending_tickets += bonds_to_buy;
+            registry.user_count = registry
+                .user_count
+                .checked_add(1)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+            registry.total_pending_tickets = registry
+                .total_pending_tickets
+                .checked_add(bonds_to_buy)
+                .ok_or(PremiumBondsError::MathOverflow)?;
         } else {
             let mut registry = registry_loader.load_mut()?;
-            registry.total_pending_tickets += bonds_to_buy;
+            registry.total_pending_tickets = registry
+                .total_pending_tickets
+                .checked_add(bonds_to_buy)
+                .ok_or(PremiumBondsError::MathOverflow)?;
         }
 
         let registry_ai = registry_loader.to_account_info();
@@ -239,7 +248,10 @@ pub fn handle(
             );
 
             entry.lazy_merge(current_cycle)?;
-            entry.pending += bonds_to_buy;
+            entry.pending = entry
+                .pending
+                .checked_add(bonds_to_buy)
+                .ok_or(PremiumBondsError::MathOverflow)?;
 
             registry_set_entry(&mut data, user_entry_idx as usize, &entry);
         }
