@@ -178,7 +178,6 @@ fn inject_pool_custom(
         fee_basis_points,
         status,
         total_deposited_principal: principal,
-        total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,
@@ -589,7 +588,6 @@ fn test_harvest_happy_path_yield_no_eligible() {
 
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_fees_accrued, 0);
-    assert_eq!(pool.total_fees_collected, 0);
 }
 
 #[test]
@@ -630,7 +628,6 @@ fn test_harvest_happy_path_fee_exact() {
 
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_fees_accrued, expected_fee);
-    assert_eq!(pool.total_fees_collected, expected_fee);
 }
 
 #[test]

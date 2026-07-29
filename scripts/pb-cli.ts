@@ -871,7 +871,6 @@ async function main() {
   Fee Basis Points: ${state.feeBasisPoints}
   Status: ${state.status}
   Total Deposited Principal: ${formatAmount(state.totalDepositedPrincipal)}
-  Total Fees Collected: ${formatAmount(state.totalFeesCollected)}
   Current Cycle End At: ${new Date(state.currentCycleEndAt * 1000).toLocaleString()}
   Is Frozen For Draw: ${state.isFrozenForDraw}
   Current Draw Cycle ID: ${state.currentDrawCycleId}

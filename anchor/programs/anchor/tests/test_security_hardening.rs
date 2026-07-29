@@ -445,7 +445,6 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active,
         total_deposited_principal: 0,
-        total_fees_collected: 0,
         total_fees_accrued: 5_000_000, // 5 USDC accrued fees
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,

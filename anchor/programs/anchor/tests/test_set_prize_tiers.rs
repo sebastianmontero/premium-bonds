@@ -89,7 +89,6 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active,
         total_deposited_principal: 0,
-        total_fees_collected: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw,
         current_draw_cycle_id: 0,

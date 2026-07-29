@@ -57,8 +57,6 @@ pub struct PrizePool {
     pub status: PoolStatus,
     /// Total principal deposited by all users in this pool.
     pub total_deposited_principal: u64,
-    /// Total fees historically collected (deprecated or moved to accrued/withdrawn).
-    pub total_fees_collected: u64,
     /// Unix timestamp when the current yield cycle is scheduled to end.
     pub current_cycle_end_at: i64,
     /// Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation.
@@ -195,7 +193,6 @@ mod tests {
             fee_basis_points,
             status: PoolStatus::Active,
             total_deposited_principal: 0,
-            total_fees_collected: 0,
             current_cycle_end_at: 0,
             is_frozen_for_draw: false,
             current_draw_cycle_id: 0,

@@ -211,7 +211,6 @@ export interface PrizePoolInfo {
   feeBasisPoints: number;
   status: "Active" | "Paused" | "Closed";
   totalDepositedPrincipal: number;
-  totalFeesCollected: number;
   currentCycleEndAt: number;
   isFrozenForDraw: boolean;
   currentDrawCycleId: number;
@@ -279,22 +278,21 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
   else if (statusVal === 2) status = "Closed";
 
   const totalDepositedPrincipal = Number(view.getBigUint64(128, true));
-  const totalFeesCollected = Number(view.getBigUint64(136, true));
-  const currentCycleEndAt = Number(view.getBigInt64(144, true));
-  const isFrozenForDraw = view.getUint8(152) !== 0;
-  const currentDrawCycleId = view.getUint32(153, true);
+  const currentCycleEndAt = Number(view.getBigInt64(136, true));
+  const isFrozenForDraw = view.getUint8(144) !== 0;
+  const currentDrawCycleId = view.getUint32(145, true);
 
-  const tiersLength = view.getUint32(157, true);
+  const tiersLength = view.getUint32(149, true);
   const prizeTiers: PrizeTier[] = [];
   for (let i = 0; i < tiersLength; i++) {
-    const offset = 161 + i * 6;
+    const offset = 153 + i * 6;
     if (offset + 6 > data.byteLength) break;
     const basisPoints = view.getUint16(offset, true);
     const numWinners = view.getUint32(offset + 2, true);
     prizeTiers.push({ basisPoints, numWinners });
   }
 
-  const nextRedemptionIdOffset = 161 + tiersLength * 6;
+  const nextRedemptionIdOffset = 153 + tiersLength * 6;
   let nextRedemptionId = BigInt(0);
   let totalFeesAccrued = BigInt(0);
   let totalFeesWithdrawn = BigInt(0);
@@ -330,7 +328,6 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
     feeBasisPoints,
     status,
     totalDepositedPrincipal,
-    totalFeesCollected,
     currentCycleEndAt,
     isFrozenForDraw,
     currentDrawCycleId,

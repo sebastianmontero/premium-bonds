@@ -77,7 +77,6 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active,
         total_deposited_principal: 0,
-        total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,

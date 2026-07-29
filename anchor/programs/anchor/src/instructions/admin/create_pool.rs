@@ -137,7 +137,6 @@ pub fn handle(
     pool.fee_basis_points = fee_basis_points;
     pool.status = PoolStatus::Active;
     pool.total_deposited_principal = 0;
-    pool.total_fees_collected = 0;
     pool.is_frozen_for_draw = false;
     pool.current_draw_cycle_id = 0;
     pool.prize_tiers = vec![];

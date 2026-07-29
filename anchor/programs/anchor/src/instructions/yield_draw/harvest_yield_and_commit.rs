@@ -198,7 +198,6 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     // Accrue fee (accounting only — no token transfer)
     if fee > 0 {
         pool.total_fees_accrued = pool.total_fees_accrued.checked_add(fee).unwrap();
-        pool.total_fees_collected = pool.total_fees_collected.checked_add(fee).unwrap();
     }
 
     // ── Draw Cycle creation ─────────────────────────────────────────────────

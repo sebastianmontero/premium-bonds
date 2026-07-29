@@ -151,7 +151,6 @@ pub fn inject_pool(
         fee_basis_points: 100,
         status,
         total_deposited_principal: 0,
-        total_fees_collected: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,
