@@ -63,6 +63,8 @@ fn inject_pending_redemption(
         requested_at: 0,
         huma_request_id: 0,
         bump,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut data = vec![];
     pending.try_serialize(&mut data).unwrap();

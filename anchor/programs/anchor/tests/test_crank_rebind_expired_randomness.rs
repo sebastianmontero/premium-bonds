@@ -92,6 +92,8 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
         cycle_fee_collected: 0,
         randomness_account: Pubkey::default(),
         harvest_slot,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut data = vec![];
     dc.try_serialize(&mut data).unwrap();

@@ -87,6 +87,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         is_frozen_for_draw: false,
         current_draw_cycle_id: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
 
     let mut data = vec![];

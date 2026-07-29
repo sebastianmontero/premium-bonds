@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_user_entry_size_and_alignment() {
         use crate::state::UserEntry;
-        assert_eq!(std::mem::size_of::<UserEntry>(), 48);
+        assert_eq!(std::mem::size_of::<UserEntry>(), 64);
 
         // Check field offsets manually using raw pointers
         let entry = UserEntry::default();
@@ -260,12 +260,42 @@ mod tests {
         let pending_ptr = &entry.pending as *const u32 as usize;
         let merged_ptr = &entry.merged_through_cycle as *const u32 as usize;
         let cumulative_ptr = &entry.cumulative_active as *const u32 as usize;
+        let version_ptr = &entry.version as *const u8 as usize;
 
         assert_eq!(owner_ptr - base_ptr, 0);
         assert_eq!(active_ptr - base_ptr, 32);
         assert_eq!(pending_ptr - base_ptr, 36);
         assert_eq!(merged_ptr - base_ptr, 40);
         assert_eq!(cumulative_ptr - base_ptr, 44);
+        assert_eq!(version_ptr - base_ptr, 48);
+    }
+
+    #[test]
+    fn test_struct_sizes_are_locked() {
+        assert_eq!(std::mem::size_of::<crate::state::TicketRegistry>(), 96);
+        assert_eq!(std::mem::size_of::<crate::state::UserEntry>(), 64);
+        assert_eq!(
+            crate::state::GlobalConfig::INIT_SPACE,
+            32 + 32 + 4 + 1 + 64
+        );
+        assert_eq!(
+            crate::state::UserWinnings::INIT_SPACE,
+            4 + 32 + 8 + 8 + 8 + 4 + 1 + 1 + 64
+        );
+        assert_eq!(
+            crate::state::DrawCycle::INIT_SPACE,
+            4 + 4 + crate::state::DrawStatus::INIT_SPACE + 4 + 32 + 8 + 8 + 32 + 8 + 1 + 64
+        );
+        assert_eq!(
+            crate::state::PendingRedemption::INIT_SPACE,
+            4 + 8 + 32 + 8 + 8 + 8 + 16 + 1 + 1 + 64
+        );
+    }
+
+    #[test]
+    fn test_zero_copy_8_byte_alignment() {
+        assert_eq!(USER_ENTRY_REGISTRY_HEADER_SIZE % 8, 0);
+        assert_eq!(USER_ENTRY_SIZE % 8, 0);
     }
 
     #[test]
@@ -302,6 +332,8 @@ mod tests {
             pending: 5,
             merged_through_cycle: 2,
             cumulative_active: 15,
+            version: 1,
+            _reserved: [0; 15],
         };
         let entry2 = crate::state::UserEntry {
             owner: pk(2),
@@ -309,6 +341,8 @@ mod tests {
             pending: 50,
             merged_through_cycle: 4,
             cumulative_active: 150,
+            version: 1,
+            _reserved: [0; 15],
         };
 
         registry_set_entry(&mut data, 0, &entry1);
@@ -354,6 +388,8 @@ mod tests {
             pending: 5,
             merged_through_cycle: 2,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         };
 
         // Case 1: merged_through_cycle < current_cycle_id -> should merge

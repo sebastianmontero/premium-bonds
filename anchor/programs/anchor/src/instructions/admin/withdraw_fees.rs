@@ -211,6 +211,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.requested_at = Clock::get()?.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
+    pending.version = 1;
 
     // Update accounting
     pool.total_fees_withdrawn = pool.total_fees_withdrawn.checked_add(amount).unwrap();

@@ -99,6 +99,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
 
     let mut data = vec![];

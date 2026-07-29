@@ -161,6 +161,8 @@ pub fn inject_pool(
         is_frozen_for_draw: is_frozen,
         current_draw_cycle_id: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
 
     let mut data = vec![];
@@ -218,6 +220,7 @@ pub fn inject_registry_with_entries(
     data[24..28].copy_from_slice(&total_pending.to_le_bytes());
     data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
     data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
+    data[36] = 1; // version = 1
 
     svm.set_account(
         address,
@@ -249,6 +252,8 @@ pub fn inject_registry_with_tickets(
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         });
     }
     if tickets.is_empty() && (active > 0 || pending > 0) {
@@ -258,6 +263,8 @@ pub fn inject_registry_with_tickets(
             pending,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         });
     }
     inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
@@ -447,6 +454,8 @@ pub fn inject_user_winnings_with_index(
         total_reinvested,
         registry_entry_index,
         bump,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut d = vec![];
     uw.try_serialize(&mut d).unwrap();

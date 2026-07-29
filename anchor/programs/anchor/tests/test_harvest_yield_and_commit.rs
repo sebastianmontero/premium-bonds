@@ -108,6 +108,8 @@ fn inject_registry(
                 pending,
                 merged_through_cycle: 0,
                 cumulative_active: active,
+                version: 1,
+                _reserved: [0; 15],
             });
         }
     } else {
@@ -120,6 +122,8 @@ fn inject_registry(
                 pending: 0,
                 merged_through_cycle: 0,
                 cumulative_active: cum,
+                version: 1,
+                _reserved: [0; 15],
             });
         }
     }
@@ -184,6 +188,8 @@ fn inject_pool_custom(
         is_frozen_for_draw: is_frozen,
         current_draw_cycle_id: cycle_id,
         prize_tiers,
+        version: 1,
+        _reserved: [0; 128],
     };
     let mut data = vec![];
     pool.try_serialize(&mut data).unwrap();

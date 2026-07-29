@@ -431,7 +431,7 @@ fn test_buy_bonds_fails_registry_full() {
     // To trigger RegistryFull efficiently, we manually inject a small registry of capacity 2.
     let small_registry = Keypair::new().pubkey();
     {
-        let mut data = vec![0u8; 36 + 2 * 48]; // Header size (36) + 2 UserEntry (48)
+        let mut data = vec![0u8; 104 + 2 * 64]; // Header size (104) + 2 UserEntry (64)
         data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // Discriminator
         data[8..12].copy_from_slice(&1u32.to_le_bytes()); // pool_id
         data[12..16].copy_from_slice(&2u32.to_le_bytes()); // capacity = 2
@@ -440,6 +440,7 @@ fn test_buy_bonds_fails_registry_full() {
         data[24..28].copy_from_slice(&0u32.to_le_bytes()); // total_pending_tickets = 0
         data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
         data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
+        data[36] = 1; // version = 1
 
         ctx.svm
             .set_account(
@@ -720,6 +721,8 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
     }];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
 

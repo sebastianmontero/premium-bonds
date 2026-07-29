@@ -202,6 +202,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         user_winnings.user = user_key;
         user_winnings.bump = ctx.bumps.user_winnings;
         user_winnings.registry_entry_index = u32::MAX;
+        user_winnings.version = 1;
     }
 
     let registry_loader = &ctx.accounts.ticket_registry;
@@ -240,6 +241,8 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             pending: bonds_to_buy,
             merged_through_cycle: current_cycle,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         };
         crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
     } else {

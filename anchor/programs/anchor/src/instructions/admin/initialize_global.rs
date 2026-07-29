@@ -45,6 +45,7 @@ pub fn handle(ctx: Context<InitializeGlobal>, max_tickets_per_buy: u32) -> Resul
     global_config.admin = ctx.accounts.admin.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
     global_config.max_tickets_per_buy = max_tickets_per_buy;
+    global_config.version = 1;
 
     Ok(())
 }

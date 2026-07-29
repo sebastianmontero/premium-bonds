@@ -37,6 +37,10 @@ pub struct DrawCycle {
     pub randomness_account: Pubkey,
     /// The slot number when yield was frozen, preventing front-running randomness requests.
     pub harvest_slot: u64,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 64],
 }
 
 /// Registry of winners and payouts computed for a completed draw cycle.
@@ -53,6 +57,10 @@ pub struct PayoutRegistry {
     pub winners_count: u32,
     /// Number of payouts successfully processed (claimed or reinvested).
     pub payouts_completed: u32,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 64],
     /// List of winners and their allocation details.
     #[max_len(50)]
     pub winners: Vec<Winner>,
@@ -104,6 +112,10 @@ pub struct Winner {
     pub tier_index: u8,
     /// Tracks partial reinvestment progress across batched crank calls.
     pub amount_reinvested: u64,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 15],
 }
 
 impl Winner {

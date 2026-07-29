@@ -26,4 +26,8 @@ pub struct PendingRedemption {
     pub huma_request_id: u128,
     /// PDA bump seed.
     pub bump: u8,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 64],
 }

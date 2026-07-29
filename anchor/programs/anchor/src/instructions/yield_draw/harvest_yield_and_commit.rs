@@ -207,6 +207,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
     draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
     draw_cycle.harvest_slot = Clock::get()?.slot;
+    draw_cycle.version = 1;
 
     if yield_generated > 0 && eligible_locked_count > 0 {
         require!(

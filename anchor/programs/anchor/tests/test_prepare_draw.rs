@@ -72,6 +72,8 @@ fn setup(
         cycle_fee_collected: 0,
         randomness_account: Pubkey::default(),
         harvest_slot: 0,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut data = vec![];
     dc.try_serialize(&mut data).unwrap();
@@ -128,6 +130,8 @@ fn inject_pool_custom(
         is_frozen_for_draw: is_frozen,
         current_draw_cycle_id: 0,
         prize_tiers,
+        version: 1,
+        _reserved: [0; 128],
     };
 
     let mut data = vec![];
@@ -181,6 +185,8 @@ fn test_prepare_draw_happy_path() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         },
         anchor::state::UserEntry {
             owner: user_b,
@@ -188,6 +194,8 @@ fn test_prepare_draw_happy_path() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         },
     ];
 
@@ -232,6 +240,8 @@ fn test_prepare_draw_fails_math_overflow() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         },
         anchor::state::UserEntry {
             owner: Keypair::new().pubkey(),
@@ -239,6 +249,8 @@ fn test_prepare_draw_fails_math_overflow() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
+            version: 1,
+            _reserved: [0; 15],
         },
     ];
 
@@ -257,6 +269,8 @@ fn test_prepare_draw_excludes_pending_tickets() {
         pending: 5,
         merged_through_cycle: 0,
         cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
     }];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);

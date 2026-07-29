@@ -203,6 +203,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 processed: false,
                 tier_index: tier_idx as u8,
                 amount_reinvested: 0,
+                version: 1,
+                _reserved: [0; 15],
             });
 
             total_distributed = total_distributed
@@ -228,6 +230,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     payout_registry.winners_count = winners_vec.len() as u32;
     payout_registry.payouts_completed = 0;
     payout_registry.winners = winners_vec;
+    payout_registry.version = 1;
 
     emit!(DrawCompleted {
         pool_id: pool.pool_id,

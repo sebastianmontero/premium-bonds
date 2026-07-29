@@ -23,6 +23,10 @@ pub struct TicketRegistry {
     pub draw_cycle_id: u32,
     /// Counter to keep track of draw preparation progress across batched crank transactions.
     pub draw_prepared_up_to: u32,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades (96 bytes struct size total).
+    pub _reserved: [u8; 67],
 }
 
 /// Zero-copy representation of a user's ticket balance in the TicketRegistry.
@@ -40,6 +44,10 @@ pub struct UserEntry {
     pub merged_through_cycle: u32,
     /// Cumulative active tickets offset used for binary search draw winner resolution.
     pub cumulative_active: u32,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades (64 bytes struct size total).
+    pub _reserved: [u8; 15],
 }
 
 impl UserEntry {

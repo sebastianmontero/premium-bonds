@@ -26,13 +26,13 @@ pub const MAX_PRIZE_TIERS: usize = 10;
 /// Maximum number of total winners per draw.
 pub const MAX_TOTAL_WINNERS: usize = 50;
 
-/// Registry grows 10,080 bytes (210 user entry slots) per `resize_registry` crank call.
-pub const REGISTRY_REALLOC_STEP: usize = 10_080;
+/// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` crank call.
+pub const REGISTRY_REALLOC_STEP: usize = 10_240;
 /// Solana's hard account size cap.
 pub const REGISTRY_MAX_SIZE: usize = 10_485_760;
 /// Minimum account size the client must pre-allocate when calling create_pool.
-/// 36 byte header + 4096 initial user entries * 48 bytes.
-pub const REGISTRY_INITIAL_SIZE: usize = 196_644;
+/// 104 byte header + 4096 initial user entries * 64 bytes.
+pub const REGISTRY_INITIAL_SIZE: usize = 262_248;
 
 /// Huma Finance Program ID on mainnet.
 #[cfg(feature = "mainnet")]

@@ -126,6 +126,8 @@ fn inject_prize_pool_account(
         is_frozen_for_draw,
         current_draw_cycle_id: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
 
     let mut data = vec![];
@@ -227,6 +229,8 @@ fn test_resize_registry_succeeds() {
         pending: 3,
         merged_through_cycle: 0,
         cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
     };
     write_entry_at_idx(&mut svm, ticket_registry, 0, &entry);
 

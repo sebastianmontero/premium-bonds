@@ -212,6 +212,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.requested_at = Clock::get()?.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
+    pending.version = 1;
 
     pool.next_redemption_id = pool
         .next_redemption_id

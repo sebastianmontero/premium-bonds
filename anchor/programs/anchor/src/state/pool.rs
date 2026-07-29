@@ -65,9 +65,6 @@ pub struct PrizePool {
     pub is_frozen_for_draw: bool,
     /// The ID of the draw cycle currently being processed or the last completed cycle.
     pub current_draw_cycle_id: u32,
-    /// Configured prize tiers for this pool.
-    #[max_len(10)]
-    pub prize_tiers: Vec<PrizeTier>,
     /// Auto-incrementing counter for PendingRedemption PDA derivation.
     pub next_redemption_id: u64,
     /// Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn).
@@ -78,6 +75,13 @@ pub struct PrizePool {
     pub total_prizes_allocated: u64,
     /// Total outstanding pending redemptions (bond sales, winnings claims, fee withdrawals).
     pub total_pending_redemptions: u64,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 128],
+    /// Configured prize tiers for this pool.
+    #[max_len(10)]
+    pub prize_tiers: Vec<PrizeTier>,
 }
 
 use crate::error::PremiumBondsError;
@@ -158,6 +162,10 @@ pub struct UserWinnings {
     pub registry_entry_index: u32,
     /// PDA bump seed.
     pub bump: u8,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 64],
 }
 
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
@@ -197,6 +205,8 @@ mod tests {
             total_fees_withdrawn: 0,
             total_prizes_allocated: 0,
             total_pending_redemptions: 0,
+            version: 1,
+            _reserved: [0; 128],
         }
     }
 

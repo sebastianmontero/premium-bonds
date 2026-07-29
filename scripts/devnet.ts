@@ -532,7 +532,7 @@ async function handleInit(args: string[]) {
   console.log(`Ticket Registry address: ${ticketRegistryAddress}`);
 
   // Create Ticket Registry System Account with owner set to YieldBonds program
-  const space = 196644;
+  const space = 262248;
   const rentExempt = await rpc
     .getMinimumBalanceForRentExemption(BigInt(space))
     .send();

@@ -130,6 +130,8 @@ fn inject_pool_with_next_redemption_id(
         is_frozen_for_draw: false,
         current_draw_cycle_id: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
     let mut data = vec![];
     pool.try_serialize(&mut data).unwrap();

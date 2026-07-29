@@ -87,6 +87,8 @@ fn setup(admin: &Keypair, draw_status: anchor::DrawStatus) -> Ctx {
         cycle_fee_collected: 0,
         randomness_account: Pubkey::default(),
         harvest_slot: 0,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut data = vec![];
     dc.try_serialize(&mut data).unwrap();

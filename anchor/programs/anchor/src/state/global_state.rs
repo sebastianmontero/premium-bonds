@@ -15,4 +15,8 @@ pub struct GlobalConfig {
     pub jobs_account: Pubkey,
     /// Maximum number of bonds/tickets a user can buy in a single transaction.
     pub max_tickets_per_buy: u32,
+    /// Schema version of the struct.
+    pub version: u8,
+    /// Reserved space for future upgrades.
+    pub _reserved: [u8; 64],
 }

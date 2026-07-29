@@ -227,6 +227,8 @@ pub fn handle(
                 pending: bonds_to_buy,
                 merged_through_cycle: current_cycle,
                 cumulative_active: 0,
+                version: 1,
+                _reserved: [0; 15],
             };
             registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
         } else {

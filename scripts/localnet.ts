@@ -646,7 +646,7 @@ async function handleInit(dbName?: string) {
   );
 
   console.log("Injecting Ticket Registry account...");
-  const REGISTRY_INITIAL_SIZE = 196644;
+  const REGISTRY_INITIAL_SIZE = 262248;
   const ticketRegistryData = "00".repeat(REGISTRY_INITIAL_SIZE);
   await setAccount(
     addresses.ticketRegistry,

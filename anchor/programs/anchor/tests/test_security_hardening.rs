@@ -73,6 +73,8 @@ fn inject_pending_redemption(
         requested_at: 0,
         huma_request_id: 0,
         bump,
+        version: 1,
+        _reserved: [0; 64],
     };
     let mut data = vec![];
     pending.try_serialize(&mut data).unwrap();
@@ -453,6 +455,8 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         is_frozen_for_draw: false,
         current_draw_cycle_id: 0,
         prize_tiers: vec![],
+        version: 1,
+        _reserved: [0; 128],
     };
     let mut d = vec![];
     pool.try_serialize(&mut d).unwrap();

@@ -146,6 +146,7 @@ pub fn handle(
     pool.total_fees_withdrawn = 0;
     pool.total_prizes_allocated = 0;
     pool.total_pending_redemptions = 0;
+    pool.version = 1;
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp);
@@ -164,6 +165,7 @@ pub fn handle(
     ticket_registry.total_pending_tickets = 0;
     ticket_registry.draw_cycle_id = 0;
     ticket_registry.draw_prepared_up_to = 0;
+    ticket_registry.version = 1;
 
     Ok(())
 }
