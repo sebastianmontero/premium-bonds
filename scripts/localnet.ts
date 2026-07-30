@@ -456,7 +456,7 @@ function serializeCreatePoolData(
 function serializeSetPrizeTiersData(
   tiers: { basisPoints: number; numWinners: number }[]
 ): Uint8Array {
-  const data = new Uint8Array(8 + 4 + tiers.length * 6);
+  const data = new Uint8Array(8 + 4 + tiers.length * 8);
   const view = new DataView(data.buffer);
 
   const discriminator = [178, 68, 72, 164, 72, 226, 204, 158];
@@ -467,9 +467,9 @@ function serializeSetPrizeTiersData(
 
   let offset = 12;
   for (const tier of tiers) {
-    view.setUint16(offset, tier.basisPoints, true);
-    view.setUint32(offset + 2, tier.numWinners, true);
-    offset += 6;
+    view.setUint32(offset, tier.numWinners, true);
+    view.setUint16(offset + 4, tier.basisPoints, true);
+    offset += 8;
   }
   return data;
 }

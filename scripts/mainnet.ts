@@ -1,3 +1,4 @@
+import path from "path";
 import { createSolanaRpc, address } from "@solana/kit";
 import * as readline from "readline";
 import { checkRpcHealth } from "./utils";
