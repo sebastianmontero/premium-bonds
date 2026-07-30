@@ -19,11 +19,15 @@ pub struct BuyBonds<'info> {
     /// and accumulated winnings for this pool.
     ///
     /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
+    /// The user winnings/metadata PDA. It tracks the user's active/pending tickets
+    /// and accumulated winnings for this pool.
+    ///
+    /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
     #[account(
         init_if_needed,
         payer = user,
         space = 8 + crate::state::UserWinnings::INIT_SPACE,
-        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump
     )]
     pub user_winnings: Box<Account<'info, crate::state::UserWinnings>>,
@@ -43,11 +47,11 @@ pub struct BuyBonds<'info> {
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The zero-copy ticket registry storing all raffle ticket entries for this pool.
     #[account(mut)]
@@ -64,7 +68,7 @@ pub struct BuyBonds<'info> {
 
     /// The underlying token mint (e.g. USDC).
     #[account(
-        address = pool.token_mint,
+        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -74,7 +78,7 @@ pub struct BuyBonds<'info> {
     /// PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
     #[account(
         mut,
-        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_VAULT_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::mint = token_mint,
         token::token_program = token_program
@@ -86,7 +90,7 @@ pub struct BuyBonds<'info> {
     /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         mut,
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::token_program = pst_token_program
     )]
@@ -149,10 +153,15 @@ pub struct BuyBonds<'info> {
 /// * `ctx` - The context of the buy bonds instruction.
 /// * `bonds_to_buy` - The number of bonds/tickets the user wants to purchase.
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
-
-    let amount =
-        pool.validate_buy_bonds(bonds_to_buy, ctx.accounts.global_config.max_tickets_per_buy)?;
+    let (amount, pool_id, pool_id_bytes, authority_bump) = {
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        let amount =
+            pool.validate_buy_bonds(bonds_to_buy, ctx.accounts.global_config.max_tickets_per_buy)?;
+        let pool_id = pool.pool_id;
+        let pool_id_bytes = pool_id.to_le_bytes();
+        let authority_bump = pool.vault_authority_bump;
+        (amount, pool_id, pool_id_bytes, authority_bump)
+    };
 
     // 1. Transfer USDC from user → pool vault
     let cpi_accounts = TransferChecked {
@@ -168,14 +177,12 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     )?;
 
     // 2. CPI into Huma: deposit USDC → receive $PST
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     huma::deposit(
         ctx.accounts.huma_program.to_account_info(),
-        pool.to_account_info(), // depositor (pool PDA)
+        ctx.accounts.pool.to_account_info(), // depositor (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -193,12 +200,15 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     )?;
 
     // 3. Update State
-    pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
+    {
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
+    }
 
     let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
     if user_winnings.user == Pubkey::default() {
-        user_winnings.pool_id = pool.pool_id;
+        user_winnings.pool_id = pool_id;
         user_winnings.user = user_key;
         user_winnings.bump = ctx.bumps.user_winnings;
         user_winnings.registry_entry_index = u32::MAX;
@@ -270,7 +280,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
 
     emit!(BondsPurchased {
         user: ctx.accounts.user.key(),
-        pool_id: pool.pool_id,
+        pool_id,
         bonds: bonds_to_buy,
         amount,
         timestamp: Clock::get()?.unix_timestamp,

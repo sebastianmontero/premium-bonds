@@ -617,6 +617,19 @@ export async function executeReinvest({
   );
   const state = parsePayoutRegistry(bytes);
 
+  const registryAcc = await rpc
+    .getAccountInfo(address(poolState.ticketRegistry), { encoding: "base64" })
+    .send();
+  if (!registryAcc || !registryAcc.value) {
+    throw new Error(
+      `TicketRegistry account at ${poolState.ticketRegistry} not found on-chain.`
+    );
+  }
+  const registryBytes = new Uint8Array(
+    base64Encoder.encode(registryAcc.value.data[0])
+  );
+  const ticketRegistryState = parseTicketRegistry(registryBytes);
+
   let targetWinnerIndices: number[] = [];
 
   if (winnerOption) {
@@ -629,12 +642,20 @@ export async function executeReinvest({
       }
       targetWinnerIndices = [parsedIdx];
     } else {
+      const userIndexInRegistry = ticketRegistryState.entries.findIndex(
+        (e) => e.owner === winnerOption
+      );
+      if (userIndexInRegistry === -1) {
+        throw new Error(
+          `Winner address ${winnerOption} not found in TicketRegistry.`
+        );
+      }
       const index = state.winners.findIndex(
-        (w) => w.winnerPubkey === winnerOption
+        (w) => w.userIndex === userIndexInRegistry
       );
       if (index === -1) {
         throw new Error(
-          `Winner address ${winnerOption} not found in payout registry.`
+          `User index ${userIndexInRegistry} not found in payout registry winners.`
         );
       }
       targetWinnerIndices = [index];
@@ -668,17 +689,25 @@ export async function executeReinvest({
       );
       const currentRegistry = parsePayoutRegistry(currentBytes);
       const winnerEntry = currentRegistry.winners[winnerIndex];
+      const winnerOwner =
+        ticketRegistryState.entries[winnerEntry.userIndex]?.owner;
+
+      if (!winnerOwner) {
+        throw new Error(
+          `Owner address not found in TicketRegistry for user index ${winnerEntry.userIndex}`
+        );
+      }
 
       if (winnerEntry.processed) {
         console.log(
-          `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}) is fully processed.`
+          `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}) is fully processed.`
         );
         break;
       }
 
       const claimable = winnerEntry.amountOwed - winnerEntry.amountReinvested;
       console.log(
-        `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}): Owed: ${formatAmount(
+        `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}): Owed: ${formatAmount(
           winnerEntry.amountOwed
         )}, Reinvested: ${formatAmount(
           winnerEntry.amountReinvested
@@ -687,7 +716,7 @@ export async function executeReinvest({
 
       const ix = await buildReinvestWinningsInstruction({
         crank: signer.address,
-        winner: address(winnerEntry.winnerPubkey),
+        winner: winnerOwner,
         poolId,
         cycleId: targetCycleId,
         winnerIndex,
@@ -742,7 +771,6 @@ async function main() {
   const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
-  const stateAddresses = loadAddresses(isDevnet);
 
   // Load keypair if performing writes
   let signer: KeyPairSigner | null = null;
@@ -1012,7 +1040,7 @@ async function main() {
         totalReinvested += w.amountReinvested;
         totalClaimable += claimable;
 
-        console.log(`    [${idx}] Winner: ${w.winnerPubkey}
+        console.log(`    [${idx}] Winner User Index: ${w.userIndex}
         Tier Index: ${w.tierIndex}
         Amount Owed: ${formatAmount(w.amountOwed)}
         Amount Reinvested: ${formatAmount(w.amountReinvested)}
@@ -1083,6 +1111,20 @@ async function main() {
       );
       const state = parsePayoutRegistry(bytes);
 
+      // Fetch TicketRegistry to resolve winner addresses
+      const registryAcc = await rpc
+        .getAccountInfo(address(poolState.ticketRegistry), { encoding: "base64" })
+        .send();
+      if (!registryAcc || !registryAcc.value) {
+        throw new Error(
+          `TicketRegistry account at ${poolState.ticketRegistry} not found on-chain.`
+        );
+      }
+      const registryBytes = new Uint8Array(
+        base64Encoder.encode(registryAcc.value.data[0])
+      );
+      const ticketRegistryState = parseTicketRegistry(registryBytes);
+
       // Determine target winner(s)
       const winnerOption = options["--winner"] || positionals[0];
       let targetWinnerIndices: number[] = [];
@@ -1098,13 +1140,21 @@ async function main() {
           }
           targetWinnerIndices = [parsedIdx];
         } else {
-          // Check if it's a pubkey
+          // Resolve userIndex by owner pubkey string in TicketRegistry
+          const userIndexInRegistry = ticketRegistryState.entries.findIndex(
+            (e) => e.owner === winnerOption
+          );
+          if (userIndexInRegistry === -1) {
+            throw new Error(
+              `Winner address ${winnerOption} not found in TicketRegistry.`
+            );
+          }
           const index = state.winners.findIndex(
-            (w) => w.winnerPubkey === winnerOption
+            (w) => w.userIndex === userIndexInRegistry
           );
           if (index === -1) {
             throw new Error(
-              `Winner address ${winnerOption} not found in payout registry.`
+              `User index ${userIndexInRegistry} not found in payout registry.`
             );
           }
           targetWinnerIndices = [index];
@@ -1140,10 +1190,18 @@ async function main() {
           );
           const currentRegistry = parsePayoutRegistry(currentBytes);
           const winnerEntry = currentRegistry.winners[winnerIndex];
+          const winnerOwner =
+            ticketRegistryState.entries[winnerEntry.userIndex]?.owner;
+
+          if (!winnerOwner) {
+            throw new Error(
+              `Owner address not found in TicketRegistry for user index ${winnerEntry.userIndex}`
+            );
+          }
 
           if (winnerEntry.processed) {
             console.log(
-              `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}) is fully processed.`
+              `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}) is fully processed.`
             );
             break;
           }
@@ -1151,7 +1209,7 @@ async function main() {
           const claimable =
             winnerEntry.amountOwed - winnerEntry.amountReinvested;
           console.log(
-            `Winner ${winnerEntry.winnerPubkey} (index ${winnerIndex}): Owed: ${formatAmount(
+            `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}): Owed: ${formatAmount(
               winnerEntry.amountOwed
             )}, Reinvested: ${formatAmount(
               winnerEntry.amountReinvested
@@ -1160,7 +1218,7 @@ async function main() {
 
           const ix = await buildReinvestWinningsInstruction({
             crank: signer!.address,
-            winner: address(winnerEntry.winnerPubkey),
+            winner: winnerOwner,
             poolId,
             cycleId,
             winnerIndex,
@@ -1317,10 +1375,10 @@ async function main() {
         const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
 
         const filters = [
-          { dataSize: 93n },
+          { dataSize: 158n },
           {
             memcmp: {
-              offset: 8n,
+              offset: 88n,
               bytes: poolIdBase58 as Base58EncodedBytes,
               encoding: "base58" as const,
             },
@@ -1330,7 +1388,7 @@ async function main() {
         if (userOption) {
           filters.push({
             memcmp: {
-              offset: 20n,
+              offset: 56n,
               bytes: userOption as Base58EncodedBytes,
               encoding: "base58" as const,
             },

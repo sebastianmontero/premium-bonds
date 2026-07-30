@@ -32,6 +32,7 @@ import {
   parseUserWinnings,
   parseTicketRegistry,
   parseRegistryEntry,
+  parsePendingRedemption,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
@@ -52,13 +53,6 @@ interface ParsedHumaPool {
   assets: bigint;
   nextRequestId: bigint;
   lastRequestId: bigint;
-}
-
-interface ParsedRedemption {
-  redemptionId: string;
-  amount: number;
-  humaRequestId: bigint;
-  requestedAt: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -130,25 +124,6 @@ function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
   }
 
   return { assets, nextRequestId, lastRequestId };
-}
-
-function parsePendingRedemption(data: Uint8Array): ParsedRedemption {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const redemptionId = view.getBigUint64(12, true).toString();
-  const amount = Number(view.getBigUint64(52, true));
-  const requestedAt = Number(view.getBigInt64(68, true));
-
-  const low = view.getBigUint64(76, true);
-  const high = view.getBigUint64(76 + 8, true);
-  const humaRequestId = (high << BigInt(64)) | low;
-
-  return {
-    redemptionId,
-    amount,
-    humaRequestId,
-    requestedAt,
-  };
 }
 
 // ─── Main Hook ───────────────────────────────────────────────────────────────
@@ -391,10 +366,10 @@ export function useBondsContract(poolId: number = 1) {
           const redemptions = await rpc
             .getProgramAccounts(PROGRAM_ID, {
               filters: [
-                { dataSize: BigInt(93) },
+                { dataSize: BigInt(158) },
                 {
                   memcmp: {
-                    offset: BigInt(20),
+                    offset: BigInt(56),
                     bytes: userAddress as unknown as Base58EncodedBytes,
                     encoding: "base58",
                   },
@@ -433,10 +408,10 @@ export function useBondsContract(poolId: number = 1) {
               const status: "settling" | "ready" =
                 nextHumaRequestId > parsed.humaRequestId ? "ready" : "settling";
               return {
-                redemptionId: parsed.redemptionId,
-                amount: parsed.amount,
+                redemptionId: parsed.redemptionId.toString(),
+                amount: Number(parsed.amount),
                 status,
-                requestedAt: new Date(parsed.requestedAt * 1000).toISOString(),
+                requestedAt: new Date(Number(parsed.requestedAt) * 1000).toISOString(),
                 type: "bond_sale", // Defaulting to bond sale
               };
             }

@@ -1,7 +1,9 @@
 use anchor_lang::prelude::*;
 
 /// Represents the administrative and lifecycle state of a liquidity pool.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+/// Represents the administrative and lifecycle state of a liquidity pool.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+#[repr(u8)]
 pub enum PoolStatus {
     /// Active and accepting deposits, withdrawals, and draws.
     Active,
@@ -11,13 +13,29 @@ pub enum PoolStatus {
     Closed,
 }
 
+impl TryFrom<u8> for PoolStatus {
+    type Error = PremiumBondsError;
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(PoolStatus::Active),
+            1 => Ok(PoolStatus::Paused),
+            2 => Ok(PoolStatus::Closed),
+            _ => Err(PremiumBondsError::InvalidPoolStatus),
+        }
+    }
+}
+
 /// Defines the configuration for a single prize tier within a pool.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PrizeTier {
-    /// Share of the yield (in basis points) each winner in this tier receives.
-    pub basis_points: u16,
     /// Number of winners that can be selected for this tier in a single draw.
     pub num_winners: u32,
+    /// Share of the yield (in basis points) each winner in this tier receives.
+    pub basis_points: u16,
+    /// Explicit padding to ensure 8-byte alignment.
+    pub _padding: [u8; 2],
 }
 
 impl PrizeTier {
@@ -34,58 +52,86 @@ impl PrizeTier {
 /// The main state account tracking a specific prize bond pool.
 ///
 /// PDA seeds: [b"prize_pool", pool_id.to_le_bytes()]
-#[account]
-#[derive(InitSpace)]
+#[account(zero_copy(unsafe))]
+#[repr(C)]
 pub struct PrizePool {
-    /// Bump seed for the vault authority.
-    pub vault_authority_bump: u8,
-    /// Unique identifier for this prize pool.
-    pub pool_id: u32,
-    /// The mint of the underlying USDC token used for purchasing bonds.
-    pub token_mint: Pubkey,
-    /// Pointer to the massive zero-copy TicketRegistry account.
-    pub ticket_registry: Pubkey,
-    /// Public key of the token account that collects protocol fees.
-    pub fee_wallet: Pubkey,
     /// Price of a single bond/ticket in underlying token base units.
     pub bond_price: u64,
     /// Duration of each stake/yield cycle in hours.
     pub stake_cycle_duration_hrs: i64,
-    /// Protocol fee rate in basis points (e.g. 250 = 2.5%).
-    pub fee_basis_points: u16,
-    /// Administrative lifecycle status of the pool.
-    pub status: PoolStatus,
     /// Total principal deposited by all users in this pool.
     pub total_deposited_principal: u64,
     /// Unix timestamp when the current yield cycle is scheduled to end.
     pub current_cycle_end_at: i64,
-    /// Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation.
-    pub is_frozen_for_draw: bool,
-    /// The ID of the draw cycle currently being processed or the last completed cycle.
-    pub current_draw_cycle_id: u32,
     /// Auto-incrementing counter for PendingRedemption PDA derivation.
     pub next_redemption_id: u64,
     /// Lifetime fees accrued from yield harvests (accounting-only, not yet withdrawn).
     pub total_fees_accrued: u64,
     /// Fees already withdrawn by admin via withdraw_fees instruction.
     pub total_fees_withdrawn: u64,
-    /// Total prizes currently allocated/committed (waiting in payout registry or user winnings but not yet reinvested/claimed).
+    /// Total prizes currently allocated/committed.
     pub total_prizes_allocated: u64,
-    /// Total outstanding pending redemptions (bond sales, winnings claims, fee withdrawals).
+    /// Total outstanding pending redemptions.
     pub total_pending_redemptions: u64,
+
+    /// Unique identifier for this prize pool.
+    pub pool_id: u32,
+    /// The ID of the draw cycle currently being processed or the last completed cycle.
+    pub current_draw_cycle_id: u32,
+
+    /// Protocol fee rate in basis points (e.g. 250 = 2.5%).
+    pub fee_basis_points: u16,
+
+    /// Bump seed for the vault authority.
+    pub vault_authority_bump: u8,
+    /// Administrative lifecycle status of the pool (u8 representation of PoolStatus).
+    pub status: u8,
+    /// Flag indicating whether deposit/withdraw/sale actions are frozen for draw calculation (0 for false, 1 for true).
+    pub is_frozen_for_draw: u8,
     /// Schema version of the struct.
     pub version: u8,
+    /// Active prize tiers count in prize_tiers array.
+    pub prize_tiers_count: u8,
+    /// Explicit padding to maintain 8-byte boundary alignment.
+    pub _padding: [u8; 1],
+
+    /// The mint of the underlying USDC token used for purchasing bonds.
+    pub token_mint: Pubkey,
+    /// Pointer to the massive zero-copy TicketRegistry account.
+    pub ticket_registry: Pubkey,
+    /// Public key of the token account that collects protocol fees.
+    pub fee_wallet: Pubkey,
+
+    /// Configured prize tiers for this pool.
+    pub prize_tiers: [PrizeTier; 10],
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 128],
-    /// Configured prize tiers for this pool.
-    #[max_len(10)]
-    pub prize_tiers: Vec<PrizeTier>,
 }
 
 use crate::error::PremiumBondsError;
 use crate::utils::calculate_percentage_fee;
 
 impl PrizePool {
+    /// Gets the strongly-typed PoolStatus enum.
+    pub fn status(&self) -> PoolStatus {
+        PoolStatus::try_from(self.status).unwrap_or(PoolStatus::Closed)
+    }
+
+    /// Sets the PoolStatus enum safely.
+    pub fn set_status(&mut self, status: PoolStatus) {
+        self.status = status as u8;
+    }
+
+    /// Returns true if frozen for draw.
+    pub fn is_frozen(&self) -> bool {
+        self.is_frozen_for_draw != 0
+    }
+
+    /// Sets frozen status.
+    pub fn set_frozen(&mut self, frozen: bool) {
+        self.is_frozen_for_draw = if frozen { 1 } else { 0 };
+    }
+
     /// Calculates the protocol fee from a yield harvest.
     pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
         calculate_percentage_fee(yield_amount, self.fee_basis_points)
@@ -104,11 +150,11 @@ impl PrizePool {
     /// Extracted here so they can be unit-tested without a full Anchor context.
     pub fn validate_buy_bonds(&self, bonds_to_buy: u32, max_tickets_per_buy: u32) -> Result<u64> {
         require!(
-            self.status == PoolStatus::Active,
+            self.status == (PoolStatus::Active as u8),
             PremiumBondsError::PoolNotActive
         );
         require!(
-            !self.is_frozen_for_draw,
+            self.is_frozen_for_draw == 0,
             PremiumBondsError::AwaitingRandomnessFreeze
         );
         require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
@@ -146,18 +192,18 @@ impl PrizePool {
 #[account]
 #[derive(InitSpace)]
 pub struct UserWinnings {
-    /// Pool ID this winnings account belongs to.
-    pub pool_id: u32,
-    /// Public key of the user who owns these winnings.
-    pub user: Pubkey,
     /// Unclaimed non-reinvested cash-out winnings (in lamports).
     pub unclaimed_non_reinvested_winnings: u64,
     /// Total winnings claimed and disbursed to the user's wallet.
     pub total_claimed: u64,
     /// Total winnings auto-reinvested back into bonds.
     pub total_reinvested: u64,
+    /// Pool ID this winnings account belongs to.
+    pub pool_id: u32,
     /// User's index position in the pool's TicketRegistry.
     pub registry_entry_index: u32,
+    /// Public key of the user who owns these winnings.
+    pub user: Pubkey,
     /// PDA bump seed.
     pub bump: u8,
     /// Schema version of the struct.
@@ -178,6 +224,7 @@ mod tests {
         PrizeTier {
             basis_points,
             num_winners,
+            _padding: [0; 2],
         }
     }
 
@@ -191,12 +238,14 @@ mod tests {
             bond_price: 1_000_000,
             stake_cycle_duration_hrs,
             fee_basis_points,
-            status: PoolStatus::Active,
+            status: PoolStatus::Active as u8,
             total_deposited_principal: 0,
             current_cycle_end_at: 0,
-            is_frozen_for_draw: false,
+            is_frozen_for_draw: 0,
             current_draw_cycle_id: 0,
-            prize_tiers: vec![],
+            prize_tiers_count: 0,
+            _padding: [0; 1],
+            prize_tiers: [PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
             next_redemption_id: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
@@ -460,7 +509,7 @@ mod tests {
     #[test]
     fn buy_bonds_fails_pool_paused() {
         let mut pool = default_pool(500, 24);
-        pool.status = PoolStatus::Paused;
+        pool.status = PoolStatus::Paused as u8;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
@@ -468,7 +517,7 @@ mod tests {
     #[test]
     fn buy_bonds_fails_pool_closed() {
         let mut pool = default_pool(500, 24);
-        pool.status = PoolStatus::Closed;
+        pool.status = PoolStatus::Closed as u8;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
@@ -478,7 +527,7 @@ mod tests {
     #[test]
     fn buy_bonds_fails_frozen_for_draw() {
         let mut pool = default_pool(500, 24);
-        pool.is_frozen_for_draw = true;
+        pool.is_frozen_for_draw = 1;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
@@ -486,7 +535,7 @@ mod tests {
     #[test]
     fn buy_bonds_ok_not_frozen() {
         let mut pool = default_pool(500, 24);
-        pool.is_frozen_for_draw = false;
+        pool.is_frozen_for_draw = 0;
         assert!(pool.validate_buy_bonds(1, 10).is_ok());
     }
 
@@ -536,8 +585,8 @@ mod tests {
     #[test]
     fn buy_bonds_paused_and_frozen_yields_pool_not_active() {
         let mut pool = default_pool(500, 24);
-        pool.status = PoolStatus::Paused;
-        pool.is_frozen_for_draw = true;
+        pool.status = PoolStatus::Paused as u8;
+        pool.is_frozen_for_draw = 1;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         // PoolNotActive is checked first, so that's the error we get
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
@@ -546,8 +595,8 @@ mod tests {
     #[test]
     fn buy_bonds_active_but_frozen_yields_freeze_error() {
         let mut pool = default_pool(500, 24);
-        pool.status = PoolStatus::Active;
-        pool.is_frozen_for_draw = true;
+        pool.status = PoolStatus::Active as u8;
+        pool.is_frozen_for_draw = 1;
         let err = pool.validate_buy_bonds(1, 10).unwrap_err();
         assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }

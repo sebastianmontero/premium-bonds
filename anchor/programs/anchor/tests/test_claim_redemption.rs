@@ -340,7 +340,8 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
         err.contains("AccountNotFound")
             || err.contains("ConstraintSeeds")
             || err.contains("ConstraintRaw")
-            || err.contains("AccountNotInitialized"),
+            || err.contains("AccountNotInitialized")
+            || err.contains("AccountOwnedByWrongProgram"),
         "Expected constraint mismatch error, got: {err}"
     );
 }
@@ -557,9 +558,10 @@ fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
     let (pda, _) = pool_pda(pool_id);
     let mut pool = read_pool_state(svm, pool_id);
     pool.total_prizes_allocated = amount;
+    use anchor_lang::Discriminator;
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
     let mut account = svm.get_account(&pda).unwrap();
     account.data = data;
     svm.set_account(pda, account).unwrap();

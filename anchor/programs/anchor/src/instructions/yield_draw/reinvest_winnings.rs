@@ -48,24 +48,24 @@ pub struct ReinvestWinnings<'info> {
     /// The payout registry containing the winner lists.
     #[account(
         mut,
-        seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
+        seeds = [PAYOUT_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub payout_registry: Box<Account<'info, PayoutRegistry>>,
+    pub payout_registry: AccountLoader<'info, PayoutRegistry>,
 
     /// The prize pool state account.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The winner's user winnings state account.
     #[account(
         mut,
-        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
+        seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
         bump = user_winnings.bump,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
@@ -99,21 +99,21 @@ pub fn handle(
     require!(max_bonds > 0, PremiumBondsError::InvalidBondQuantity);
 
     // ── 1. Validate winner entry ─────────────────────────────────────────────
-    let payout_registry = &mut ctx.accounts.payout_registry;
-    let winner = payout_registry.validate_winner(winner_index, &ctx.accounts.winner.key())?;
+    let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
+    let user_winnings = &mut ctx.accounts.user_winnings;
+    let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
 
     // ── 2. Calculate remaining amount and bonds for this batch ────────────────
     let remaining_current = winner.claimable_amount();
     let already_reinvested = winner.amount_reinvested;
 
-    let user_winnings = &mut ctx.accounts.user_winnings;
     let accumulated = user_winnings.unclaimed_non_reinvested_winnings;
 
     let total_available = remaining_current
         .checked_add(accumulated)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    let pool = &mut ctx.accounts.pool;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
 
     // How many total bonds can be bought with the total available?
     let total_bonds_available = (total_available / pool.bond_price) as u32;
@@ -173,11 +173,11 @@ pub fn handle(
     // the winnings as principal and register new tickets.
     if bonds_to_buy > 0 {
         require!(
-            pool.status == PoolStatus::Active,
+            pool.status == (PoolStatus::Active as u8),
             PremiumBondsError::PoolNotActive
         );
         require!(
-            !pool.is_frozen_for_draw,
+            pool.is_frozen_for_draw == 0,
             PremiumBondsError::AwaitingRandomnessFreeze
         );
 

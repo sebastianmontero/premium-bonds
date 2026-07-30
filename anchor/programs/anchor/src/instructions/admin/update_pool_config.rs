@@ -25,10 +25,10 @@ pub struct UpdatePoolConfig<'info> {
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 }
 
 /// Updates a prize pool's configuration parameters.
@@ -46,7 +46,7 @@ pub fn handle(
     new_bond_price: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
 ) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
 
     if let Some(v) = new_fee_basis_points {
         require!(v <= 10000, PremiumBondsError::InvalidFeeConfig);

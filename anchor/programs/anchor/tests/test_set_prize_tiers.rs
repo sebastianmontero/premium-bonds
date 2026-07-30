@@ -78,6 +78,7 @@ fn setup_global_config() -> (LiteSVM, Keypair) {
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pubkey {
     let (pda, bump) = pool_pda(pool_id);
 
+    use anchor_lang::Discriminator;
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
         pool_id,
@@ -87,27 +88,26 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status: anchor::PoolStatus::Active,
+        status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         current_cycle_end_at: 0,
-        is_frozen_for_draw,
+        is_frozen_for_draw: if is_frozen_for_draw { 1 } else { 0 },
         current_draw_cycle_id: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
 
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-
-    // Pad the data to the full account size to prevent serialization errors when adding items to the Vec.
-    let full_size = 8 + anchor::PrizePool::INIT_SPACE;
-    data.resize(full_size, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
 
     svm.set_account(
         pda,
@@ -171,8 +171,7 @@ fn read_prize_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
         .get_account(&pda)
         .expect("prize_pool account must exist");
 
-    anchor_lang::AccountDeserialize::try_deserialize(&mut account.data.as_slice())
-        .expect("account data should deserialize as PrizePool")
+    *bytemuck::from_bytes::<anchor::PrizePool>(&account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -189,10 +188,12 @@ fn test_set_prize_tiers_succeeds() {
         anchor::PrizeTier {
             basis_points: 5000,
             num_winners: 1,
+            _padding: [0, 0],
         }, // 50% for 1 winner
         anchor::PrizeTier {
             basis_points: 1000,
             num_winners: 5,
+            _padding: [0, 0],
         }, // 50% split among 5 winners (10% each)
     ];
 
@@ -200,7 +201,7 @@ fn test_set_prize_tiers_succeeds() {
         .expect("Setting valid prize tiers should succeed");
 
     let pool = read_prize_pool(&svm, pool_id);
-    assert_eq!(pool.prize_tiers.len(), 2);
+    assert_eq!(pool.prize_tiers_count, 2);
     assert_eq!(pool.prize_tiers[0].basis_points, 5000);
     assert_eq!(pool.prize_tiers[0].num_winners, 1);
     assert_eq!(pool.prize_tiers[1].basis_points, 1000);
@@ -221,6 +222,7 @@ fn test_set_prize_tiers_fails_if_frozen() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
@@ -258,6 +260,7 @@ fn test_set_prize_tiers_fails_on_exceeding_max_tiers() {
         tiers.push(anchor::PrizeTier {
             basis_points: 100,
             num_winners: 1,
+            _padding: [0, 0],
         });
     }
 
@@ -278,6 +281,7 @@ fn test_set_prize_tiers_fails_on_invalid_basis_points_or_winners() {
     let tiers1 = vec![anchor::PrizeTier {
         basis_points: 0,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
     assert!(format!("{:?}", res1.unwrap_err()).contains("InvalidPrizeTierConfig"));
@@ -286,6 +290,7 @@ fn test_set_prize_tiers_fails_on_invalid_basis_points_or_winners() {
     let tiers2 = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 0,
+        _padding: [0, 0],
     }];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
     assert!(format!("{:?}", res2.unwrap_err()).contains("InvalidPrizeTierConfig"));
@@ -301,6 +306,7 @@ fn test_set_prize_tiers_fails_on_exceeding_total_winners() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 51,
+        _padding: [0, 0],
     }];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
@@ -323,6 +329,7 @@ fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
     let tiers1 = vec![anchor::PrizeTier {
         basis_points: 9999,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
     assert!(format!("{:?}", res1.unwrap_err()).contains("BasisPointsMustEqual10000"));
@@ -332,10 +339,12 @@ fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
         anchor::PrizeTier {
             basis_points: 5000,
             num_winners: 1,
+            _padding: [0, 0],
         },
         anchor::PrizeTier {
             basis_points: 5001,
             num_winners: 1,
+            _padding: [0, 0],
         },
     ];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
@@ -358,6 +367,7 @@ fn test_set_prize_tiers_unauthorized_admin() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
 
     let result = send_set_prize_tiers(
@@ -391,6 +401,7 @@ fn test_set_prize_tiers_requires_admin_signature() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
 
     // We pass `admin.pubkey()` as the admin account in the instruction,
@@ -420,6 +431,7 @@ fn test_set_prize_tiers_fails_on_math_overflow() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 2,
         num_winners: u32::MAX,
+        _padding: [0, 0],
     }];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);

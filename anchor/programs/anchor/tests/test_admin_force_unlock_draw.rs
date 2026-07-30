@@ -75,9 +75,9 @@ fn setup_with_amounts(
     svm.send_transaction(tx).unwrap();
 
     // Inject pool
-    let pool_key = pool_pda(1).0;
+    let (pool_key, bump) = pool_pda(1);
     let ticket_registry = Keypair::new().pubkey();
-    let (pda, bump) = pool_pda(1);
+    use anchor_lang::Discriminator;
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
         pool_id: 1,
@@ -87,7 +87,7 @@ fn setup_with_amounts(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status: anchor::PoolStatus::Active,
+        status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         total_fees_accrued,
         total_fees_withdrawn: 0,
@@ -95,16 +95,18 @@ fn setup_with_amounts(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: true,
+        is_frozen_for_draw: 1,
         current_draw_cycle_id: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
 
     let mut pool_data = vec![];
-    pool.try_serialize(&mut pool_data).unwrap();
-    pool_data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pool_key,
         Account {
@@ -195,8 +197,8 @@ fn test_admin_force_unlock_happy_path() {
 
     // Verify status is ForceUnlocked and pool is unfrozen and balances are decremented
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = anchor::PrizePool::try_deserialize(&mut pool_acct.data.as_slice()).unwrap();
-    assert!(!pool.is_frozen_for_draw);
+    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    assert_eq!(pool.is_frozen_for_draw, 0);
     assert_eq!(pool.total_prizes_allocated, 0);
     assert_eq!(pool.total_fees_accrued, 0);
 
@@ -220,7 +222,7 @@ fn test_admin_force_unlock_with_zero_fee() {
     send_force_unlock(&mut ctx, &admin).unwrap();
 
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = anchor::PrizePool::try_deserialize(&mut pool_acct.data.as_slice()).unwrap();
+    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
     assert_eq!(pool.total_prizes_allocated, 0);
     assert_eq!(pool.total_fees_accrued, 50_000);
 

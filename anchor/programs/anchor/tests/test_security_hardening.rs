@@ -301,9 +301,10 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     // Set total_deposited_principal to avoid subtraction overflow in handler
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_deposited_principal = 10_000_000;
+    use anchor_lang::Discriminator;
     let mut d = vec![];
-    pool.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pool_key,
         Account {
@@ -434,6 +435,7 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     // Setup PrizePool with accrued fees
+    use anchor_lang::Discriminator;
     let mut pool = anchor::PrizePool {
         vault_authority_bump: bump, // Use correct bump
         pool_id,
@@ -443,7 +445,7 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status: anchor::PoolStatus::Active,
+        status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 5_000_000, // 5 USDC accrued fees
         total_fees_withdrawn: 0,
@@ -451,15 +453,17 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: false,
+        is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
     let mut d = vec![];
-    pool.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pool_key,
         Account {
@@ -559,9 +563,10 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     // Set total_prizes_allocated on injected pool to avoid MathOverflow subtraction underflow
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_prizes_allocated = 5_000_000;
+    use anchor_lang::Discriminator;
     let mut d = vec![];
-    pool.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pool_key,
         Account {
@@ -824,9 +829,10 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     // Set total_deposited_principal to avoid subtraction overflow
     let mut pool = read_pool_state(&svm, pool_id);
     pool.total_deposited_principal = 10_000_000;
+    use anchor_lang::Discriminator;
     let mut d = vec![];
-    pool.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pool_key,
         Account {

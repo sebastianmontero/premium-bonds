@@ -145,9 +145,10 @@ fn test_withdraw_fees_succeeds() {
     pool.total_fees_withdrawn = 0;
     pool.next_redemption_id = 0;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -269,9 +270,10 @@ fn test_withdraw_fees_math_non_1_to_1() {
     pool.total_fees_withdrawn = 0;
     pool.next_redemption_id = 0;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -435,9 +437,10 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
     pool.total_fees_accrued = 5_000_000;
     pool.total_fees_withdrawn = 4_000_000; // Available = 1_000_000
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -521,11 +524,12 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
     let (pool_pda_key, _) = pool_pda(1);
     let mut pool = read_pool_state(&ctx.svm, 1);
     pool.total_fees_accrued = 5_000_000;
-    pool.is_frozen_for_draw = true;
+    pool.is_frozen_for_draw = 1;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda_key,
@@ -603,9 +607,10 @@ fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
     let mut pool = read_pool_state(&ctx.svm, 1);
     pool.vault_authority_bump ^= 1; // Corrupt bump
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -769,9 +774,10 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
     pool.total_fees_withdrawn = 0;
     pool.next_redemption_id = 0;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -836,9 +842,10 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
     pool.total_fees_withdrawn = 0;
     pool.next_redemption_id = 0;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,
@@ -901,9 +908,10 @@ fn test_withdraw_fees_and_claim_e2e() {
     pool.total_fees_withdrawn = 0;
     pool.next_redemption_id = 0;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,

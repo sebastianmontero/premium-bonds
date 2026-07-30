@@ -30,17 +30,17 @@ pub struct WithdrawFees<'info> {
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// Pool's $PST vault holding Huma shares. Protocol fees are redeemed from here.
     ///
     /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         mut,
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::token_program = pst_token_program
     )]
@@ -56,8 +56,8 @@ pub struct WithdrawFees<'info> {
         space = DISCRIMINATOR + PendingRedemption::INIT_SPACE,
         seeds = [
             PENDING_REDEMPTION_SEED,
-            pool.pool_id.to_le_bytes().as_ref(),
-            pool.next_redemption_id.to_le_bytes().as_ref()
+            pool.load()?.pool_id.to_le_bytes().as_ref(),
+            pool.load()?.next_redemption_id.to_le_bytes().as_ref()
         ],
         bump
     )]
@@ -117,7 +117,7 @@ pub struct WithdrawFees<'info> {
 
     /// The underlying token mint (e.g. USDC).
     #[account(
-        address = pool.token_mint,
+        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -126,7 +126,7 @@ pub struct WithdrawFees<'info> {
     #[account(
         token::mint = token_mint,
         token::token_program = token_program,
-        constraint = fee_wallet.key() == pool.fee_wallet @ PremiumBondsError::InvalidFeeWallet
+        constraint = fee_wallet.key() == pool.load()?.fee_wallet @ PremiumBondsError::InvalidFeeWallet
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -149,21 +149,43 @@ pub struct WithdrawFees<'info> {
 /// * `ctx` - The context of the withdraw fees instruction.
 /// * `amount` - The amount of accrued USDC fees to withdraw.
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet) = {
+        let mut pool = ctx.accounts.pool.load_mut()?;
 
-    require!(
-        !pool.is_frozen_for_draw,
-        PremiumBondsError::AwaitingRandomnessFreeze
-    );
+        require!(
+            pool.is_frozen_for_draw == 0,
+            PremiumBondsError::AwaitingRandomnessFreeze
+        );
 
-    // Validate there are enough accrued fees to withdraw
-    let available_fees = pool
-        .total_fees_accrued
-        .saturating_sub(pool.total_fees_withdrawn);
-    require!(
-        amount > 0 && amount <= available_fees,
-        PremiumBondsError::InsufficientFeeBalance
-    );
+        // Validate there are enough accrued fees to withdraw
+        let available_fees = pool
+            .total_fees_accrued
+            .saturating_sub(pool.total_fees_withdrawn);
+        require!(
+            amount > 0 && amount <= available_fees,
+            PremiumBondsError::InsufficientFeeBalance
+        );
+
+        let current_redemption_id = pool.next_redemption_id;
+        pool.total_fees_withdrawn = pool
+            .total_fees_withdrawn
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        pool.next_redemption_id = pool
+            .next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        pool.total_pending_redemptions = pool
+            .total_pending_redemptions
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        let pool_id = pool.pool_id;
+        let pool_id_bytes = pool_id.to_le_bytes();
+        let authority_bump = pool.vault_authority_bump;
+        let fee_wallet = pool.fee_wallet;
+        (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet)
+    };
 
     // Verify that the huma_mode_mint matches the pool_pst_vault mint
     require!(
@@ -180,31 +202,14 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
-    // Store current redemption ID and update pool state before external CPI (CEI pattern)
-    let current_redemption_id = pool.next_redemption_id;
-    pool.total_fees_withdrawn = pool
-        .total_fees_withdrawn
-        .checked_add(amount)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-    pool.total_pending_redemptions = pool
-        .total_pending_redemptions
-        .checked_add(amount)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
     // CPI: request async redemption from Huma
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     huma::add_redemption_request(
         ctx.accounts.huma_program.to_account_info(),
         ctx.accounts.admin.to_account_info(), // payer
-        pool.to_account_info(),               // lender (pool PDA)
+        ctx.accounts.pool.to_account_info(),  // lender (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -223,7 +228,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
 
     // Create PendingRedemption receipt — fee_wallet is the beneficiary
     let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool.pool_id;
+    pending.pool_id = pool_id;
     pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.fee_wallet.owner; // Fee wallet owner receives the USDC on disburse
     pending.amount = amount;
@@ -238,7 +243,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         amount,
         pst_shares,
         pending.redemption_id,
-        pool.fee_wallet,
+        fee_wallet,
     );
 
     Ok(())

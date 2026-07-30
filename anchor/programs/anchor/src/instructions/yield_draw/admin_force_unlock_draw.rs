@@ -37,15 +37,15 @@ pub struct AdminForceUnlockDraw<'info> {
     /// The prize pool state account to unlock.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The current draw cycle account, validated to be awaiting randomness.
     #[account(
         mut,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
@@ -58,8 +58,8 @@ pub struct AdminForceUnlockDraw<'info> {
 /// status as `ForceUnlocked`. It also decrements `total_prizes_allocated` and `total_fees_accrued` by the
 /// amounts committed during harvest to prevent corrupting future yield calculations.
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
-    pool.is_frozen_for_draw = false;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.is_frozen_for_draw = 0;
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     require!(

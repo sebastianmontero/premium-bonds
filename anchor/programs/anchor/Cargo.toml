@@ -26,6 +26,7 @@ anchor-lang = { version = "1.0.0", features = ["init-if-needed"] }
 anchor-spl = "1.0.0"
 solana-program = "^3"
 switchboard-on-demand = { version = "0.8.0" }
+bytemuck = { version = "1.24.0", features = ["derive"] }
 
 [dev-dependencies]
 litesvm = "0.10.0"

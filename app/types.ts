@@ -35,7 +35,8 @@ export interface UserTicketInfo {
 }
 
 export interface WinnerEntry {
-  winnerPubkey: string;
+  userIndex: number;
+  winnerPubkey?: string;
   amountOwed: number;
   paidOut: boolean;
   tierIndex: number;

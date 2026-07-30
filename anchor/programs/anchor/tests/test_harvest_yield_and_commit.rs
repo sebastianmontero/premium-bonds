@@ -166,7 +166,11 @@ fn inject_pool_custom(
     prize_tiers: Vec<anchor::PrizeTier>,
     principal: u64,
 ) -> Pubkey {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
+    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let count = prize_tiers.len().min(10);
+    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
         pool_id,
@@ -176,7 +180,7 @@ fn inject_pool_custom(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points,
-        status,
+        status: status as u8,
         total_deposited_principal: principal,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -184,15 +188,17 @@ fn inject_pool_custom(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: cycle_end_at,
-        is_frozen_for_draw: is_frozen,
+        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: cycle_id,
-        prize_tiers,
+        prize_tiers: fixed_tiers,
+        prize_tiers_count: count as u8,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pda,
         Account {
@@ -596,6 +602,7 @@ fn test_harvest_happy_path_yield_and_eligible() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     // 2M PST, 2M supply, 2.5M total_assets, 2M principal
     // yield = 2M * 2.5M / 2M - 2M = 500K
@@ -607,7 +614,7 @@ fn test_harvest_happy_path_yield_and_eligible() {
     assert_eq!(dc.locked_ticket_count, 2); // only active, not pending
 
     let pool = read_pool(&ctx.svm, 1);
-    assert!(pool.is_frozen_for_draw);
+    assert_eq!(pool.is_frozen_for_draw, 1);
 }
 
 #[test]
@@ -616,6 +623,7 @@ fn test_harvest_happy_path_fee_exact() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     // 1M PST, 1M supply, 2M total_assets, 1M principal → yield=1M
     let mut ctx = setup_happy(1, 0, 250, tiers, 1_000_000, 1_000_000, 2_000_000, 1_000_000);
@@ -635,6 +643,7 @@ fn test_harvest_happy_path_zero_fee_bps() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     // 1M PST, 1M supply, 1.5M total_assets, 1M principal → yield=500K, fee=0
     let mut ctx = setup_happy(1, 0, 0, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
@@ -748,6 +757,7 @@ fn test_harvest_fails_math_overflow() {
         vec![anchor::PrizeTier {
             basis_points: 10000,
             num_winners: 1,
+            _padding: [0, 0],
         }], // prize tiers not empty
         1_000_000, // pst_balance
         1_000_000, // pst_supply
@@ -757,11 +767,12 @@ fn test_harvest_fails_math_overflow() {
 
     let (pool_pda_key, _) = pool_pda(1);
     let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
-    let mut pool = anchor::PrizePool::try_deserialize(&mut pool_acct.data.as_slice()).unwrap();
+    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
     pool.total_prizes_allocated = u64::MAX;
+    use anchor_lang::Discriminator;
     let mut new_data = vec![];
-    pool.try_serialize(&mut new_data).unwrap();
-    new_data.resize(pool_acct.data.len(), 0);
+    new_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    new_data.extend_from_slice(bytemuck::bytes_of(&pool));
     pool_acct.data = new_data;
     ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
 

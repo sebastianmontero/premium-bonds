@@ -260,62 +260,45 @@ export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
  * @returns Deserialized PrizePool status and parameters.
  */
 export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
+  if (data.length < 192) {
+    throw new Error(`PrizePool data too short (${data.length} bytes)`);
+  }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const poolId = view.getUint32(9, true);
-  const tokenMint = base58Decoder.decode(data.slice(13, 13 + 32)) as Address;
-  const ticketRegistry = base58Decoder.decode(
-    data.slice(45, 45 + 32)
-  ) as Address;
-  const feeWallet = base58Decoder.decode(data.slice(77, 77 + 32)) as Address;
-  const bondPrice = Number(view.getBigUint64(109, true));
-  const stakeCycleDurationHrs = Number(view.getBigInt64(117, true));
-  const feeBasisPoints = view.getUint16(125, true);
+  const bondPrice = Number(view.getBigUint64(8, true));
+  const stakeCycleDurationHrs = Number(view.getBigInt64(16, true));
+  const totalDepositedPrincipal = Number(view.getBigUint64(24, true));
+  const currentCycleEndAt = Number(view.getBigInt64(32, true));
+  const nextRedemptionId = view.getBigUint64(40, true);
+  const totalFeesAccrued = view.getBigUint64(48, true);
+  const totalFeesWithdrawn = view.getBigUint64(56, true);
+  const totalPrizesAllocated = view.getBigUint64(64, true);
+  const totalPendingRedemptions = view.getBigUint64(72, true);
+  const poolId = view.getUint32(80, true);
+  const currentDrawCycleId = view.getUint32(84, true);
+  const feeBasisPoints = view.getUint16(88, true);
 
-  const statusVal = view.getUint8(127);
+  const statusVal = view.getUint8(91);
   let status: PrizePoolInfo["status"] = "Active";
   if (statusVal === 1) status = "Paused";
   else if (statusVal === 2) status = "Closed";
 
-  const totalDepositedPrincipal = Number(view.getBigUint64(128, true));
-  const currentCycleEndAt = Number(view.getBigInt64(136, true));
-  const isFrozenForDraw = view.getUint8(144) !== 0;
-  const currentDrawCycleId = view.getUint32(145, true);
+  const isFrozenForDraw = view.getUint8(92) !== 0;
+  const prizeTiersCount = view.getUint8(94);
 
-  const tiersLength = view.getUint32(149, true);
+  const tokenMint = base58Decoder.decode(data.slice(96, 96 + 32)) as Address;
+  const ticketRegistry = base58Decoder.decode(
+    data.slice(128, 128 + 32)
+  ) as Address;
+  const feeWallet = base58Decoder.decode(data.slice(160, 160 + 32)) as Address;
+
   const prizeTiers: PrizeTier[] = [];
-  for (let i = 0; i < tiersLength; i++) {
-    const offset = 153 + i * 6;
-    if (offset + 6 > data.byteLength) break;
-    const basisPoints = view.getUint16(offset, true);
-    const numWinners = view.getUint32(offset + 2, true);
+  for (let i = 0; i < Math.min(prizeTiersCount, 10); i++) {
+    const offset = 192 + i * 8;
+    if (offset + 8 > data.byteLength) break;
+    const numWinners = view.getUint32(offset, true);
+    const basisPoints = view.getUint16(offset + 4, true);
     prizeTiers.push({ basisPoints, numWinners });
-  }
-
-  const nextRedemptionIdOffset = 153 + tiersLength * 6;
-  let nextRedemptionId = BigInt(0);
-  let totalFeesAccrued = BigInt(0);
-  let totalFeesWithdrawn = BigInt(0);
-  let totalPrizesAllocated = BigInt(0);
-  let totalPendingRedemptions = BigInt(0);
-
-  if (nextRedemptionIdOffset + 8 <= data.byteLength) {
-    nextRedemptionId = view.getBigUint64(nextRedemptionIdOffset, true);
-  }
-  if (nextRedemptionIdOffset + 16 <= data.byteLength) {
-    totalFeesAccrued = view.getBigUint64(nextRedemptionIdOffset + 8, true);
-  }
-  if (nextRedemptionIdOffset + 24 <= data.byteLength) {
-    totalFeesWithdrawn = view.getBigUint64(nextRedemptionIdOffset + 16, true);
-  }
-  if (nextRedemptionIdOffset + 32 <= data.byteLength) {
-    totalPrizesAllocated = view.getBigUint64(nextRedemptionIdOffset + 24, true);
-  }
-  if (nextRedemptionIdOffset + 40 <= data.byteLength) {
-    totalPendingRedemptions = view.getBigUint64(
-      nextRedemptionIdOffset + 32,
-      true
-    );
   }
 
   return {
@@ -348,27 +331,28 @@ export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
  * @throws {Error} If data buffer length is shorter than expected size.
  */
 export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
-  if (data.length < 109) {
+  if (data.length < 110) {
     throw new Error(`DrawCycle data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const poolId = view.getUint32(8, true);
-  const cycleId = view.getUint32(12, true);
-  const statusVal = view.getUint8(16);
+  const prizePot = view.getBigUint64(8, true);
+  const cycleFeeCollected = view.getBigUint64(16, true);
+  const harvestSlot = view.getBigUint64(24, true);
+  const randomnessAccount = base58Decoder.decode(
+    data.slice(32, 32 + 32)
+  ) as Address;
+  const poolId = view.getUint32(64, true);
+  const cycleId = view.getUint32(68, true);
+  const lockedTicketCount = view.getUint32(72, true);
+  const statusVal = view.getUint8(76);
+
   let status: DrawCycleInfo["status"] = "Unknown";
   if (statusVal === 0) status = "AwaitingYield";
   else if (statusVal === 1) status = "AwaitingRandomness";
   else if (statusVal === 2) status = "Complete";
 
-  const lockedTicketCount = view.getUint32(17, true);
-  const randomnessSeed = new Uint8Array(data.slice(21, 21 + 32));
-  const prizePot = view.getBigUint64(53, true);
-  const cycleFeeCollected = view.getBigUint64(61, true);
-  const randomnessAccount = base58Decoder.decode(
-    data.slice(69, 69 + 32)
-  ) as Address;
-  const harvestSlot = view.getBigUint64(101, true);
+  const randomnessSeed = new Uint8Array(data.slice(78, 78 + 32));
 
   return {
     poolId,
@@ -384,11 +368,12 @@ export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
 }
 
 export interface WinnerInfo {
-  winnerPubkey: Address;
+  userIndex: number;
   amountOwed: bigint;
   processed: boolean;
   tierIndex: number;
   amountReinvested: bigint;
+  version?: number;
 }
 
 export interface PayoutRegistryInfo {
@@ -407,7 +392,7 @@ export interface PayoutRegistryInfo {
  * @throws {Error} If data buffer length is shorter than expected size.
  */
 export function parsePayoutRegistry(data: Uint8Array): PayoutRegistryInfo {
-  if (data.length < 28) {
+  if (data.length < 96) {
     throw new Error(`PayoutRegistry data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -417,28 +402,27 @@ export function parsePayoutRegistry(data: Uint8Array): PayoutRegistryInfo {
   const winnersCount = view.getUint32(16, true);
   const payoutsCompleted = view.getUint32(20, true);
 
-  const winnersLength = view.getUint32(24, true);
   const winners: WinnerInfo[] = [];
 
-  for (let i = 0; i < winnersLength; i++) {
-    const offset = 28 + i * 50;
-    if (offset + 50 > data.byteLength) {
+  for (let i = 0; i < winnersCount; i++) {
+    const offset = 96 + i * 32;
+    if (offset + 32 > data.byteLength) {
       break;
     }
-    const winnerPubkey = base58Decoder.decode(
-      data.slice(offset, offset + 32)
-    ) as Address;
-    const amountOwed = view.getBigUint64(offset + 32, true);
-    const processed = view.getUint8(offset + 40) !== 0;
-    const tierIndex = view.getUint8(offset + 41);
-    const amountReinvested = view.getBigUint64(offset + 42, true);
+    const amountOwed = view.getBigUint64(offset, true);
+    const amountReinvested = view.getBigUint64(offset + 8, true);
+    const userIndex = view.getUint32(offset + 16, true);
+    const processed = view.getUint8(offset + 20) !== 0;
+    const tierIndex = view.getUint8(offset + 21);
+    const version = view.getUint8(offset + 22);
 
     winners.push({
-      winnerPubkey,
+      userIndex,
       amountOwed,
       processed,
       tierIndex,
       amountReinvested,
+      version,
     });
   }
 
@@ -514,22 +498,21 @@ export interface PendingRedemptionInfo {
 export function parsePendingRedemption(
   data: Uint8Array
 ): PendingRedemptionInfo {
-  if (data.length < 93) {
+  if (data.length < 94) {
     throw new Error(`PendingRedemption data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const poolId = view.getUint32(8, true);
-  const redemptionId = view.getBigUint64(12, true);
-  const user = base58Decoder.decode(data.slice(20, 20 + 32)) as Address;
-  const amount = view.getBigUint64(52, true);
-  const pstSharesLocked = view.getBigUint64(60, true);
-  const requestedAt = view.getBigInt64(68, true);
-
-  const low = view.getBigUint64(76, true);
-  const high = view.getBigUint64(76 + 8, true);
+  const low = view.getBigUint64(8, true);
+  const high = view.getBigUint64(16, true);
   const humaRequestId = (high << BigInt(64)) | low;
 
+  const redemptionId = view.getBigUint64(24, true);
+  const amount = view.getBigUint64(32, true);
+  const pstSharesLocked = view.getBigUint64(40, true);
+  const requestedAt = view.getBigInt64(48, true);
+  const user = base58Decoder.decode(data.slice(56, 56 + 32)) as Address;
+  const poolId = view.getUint32(88, true);
   const bump = view.getUint8(92);
 
   return {
@@ -571,7 +554,7 @@ export interface TicketRegistryInfo {
  * @throws {Error} If data buffer length is shorter than expected size.
  */
 export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
-  if (data.length < 36) {
+  if (data.length < 104) {
     throw new Error(`TicketRegistry data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -586,11 +569,12 @@ export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
 
   const entries: UserEntryInfo[] = [];
 
-  for (let i = 0; i < userCount; i++) {
-    const offset = 36 + i * 48;
-    if (offset + 48 > data.byteLength) {
-      break;
-    }
+  const maxEntries = Math.min(
+    userCount,
+    Math.floor((data.byteLength - 104) / 64)
+  );
+  for (let i = 0; i < maxEntries; i++) {
+    const offset = 104 + i * 64;
     const ownerBytes = data.slice(offset, offset + 32);
     const owner = base58Decoder.decode(ownerBytes) as Address;
     const active = view.getUint32(offset + 32, true);
@@ -623,13 +607,13 @@ export function parseRegistryEntry(
   data: Uint8Array,
   index: number
 ): UserEntryInfo | null {
-  if (data.length < 36) return null;
+  if (data.length < 104) return null;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const userCount = view.getUint32(16, true);
   if (index >= userCount) return null;
 
-  const offset = 36 + index * 48;
-  if (offset + 48 > data.byteLength) return null;
+  const offset = 104 + index * 64;
+  if (offset + 64 > data.byteLength) return null;
 
   const ownerBytes = data.slice(offset, offset + 32);
   const owner = base58Decoder.decode(ownerBytes) as Address;

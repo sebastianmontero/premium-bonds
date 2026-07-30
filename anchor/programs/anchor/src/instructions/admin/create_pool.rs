@@ -32,11 +32,11 @@ pub struct CreatePool<'info> {
     #[account(
         init,
         payer = admin,
-        space = DISCRIMINATOR + PrizePool::INIT_SPACE,
+        space = 8 + std::mem::size_of::<PrizePool>(),
         seeds = [PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The zero-initialized ticket registry account that will hold user raffle entries.
     /// Must be pre-allocated by the client with sufficient space.
@@ -126,7 +126,7 @@ pub fn handle(
         PremiumBondsError::InvalidFeeConfig
     );
 
-    let pool = &mut ctx.accounts.pool;
+    let mut pool = ctx.accounts.pool.load_init()?;
     pool.vault_authority_bump = ctx.bumps.pool;
     pool.pool_id = pool_id;
     pool.token_mint = ctx.accounts.token_mint.key();
@@ -135,11 +135,13 @@ pub fn handle(
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
-    pool.status = PoolStatus::Active;
+    pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
-    pool.is_frozen_for_draw = false;
+    pool.is_frozen_for_draw = 0;
     pool.current_draw_cycle_id = 0;
-    pool.prize_tiers = vec![];
+    pool.prize_tiers_count = 0;
+    pool._padding = [0; 1];
+    pool.prize_tiers = [crate::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10];
     pool.next_redemption_id = 0;
     pool.total_fees_accrued = 0;
     pool.total_fees_withdrawn = 0;

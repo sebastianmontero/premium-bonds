@@ -51,15 +51,15 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     /// The prize pool state account, validated to match the vault authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The user's winnings metadata account.
     #[account(
         mut,
-        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump = user_winnings.bump,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
@@ -67,7 +67,7 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     /// Pool's $PST vault — shares are redeemed from here.
     #[account(
         mut,
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::token_program = pst_token_program
     )]
@@ -80,8 +80,8 @@ pub struct ClaimNonReinvestedWinnings<'info> {
         space = DISCRIMINATOR + PendingRedemption::INIT_SPACE,
         seeds = [
             PENDING_REDEMPTION_SEED,
-            pool.pool_id.to_le_bytes().as_ref(),
-            pool.next_redemption_id.to_le_bytes().as_ref()
+            pool.load()?.pool_id.to_le_bytes().as_ref(),
+            pool.load()?.next_redemption_id.to_le_bytes().as_ref()
         ],
         bump
     )]
@@ -137,13 +137,6 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// A `PendingRedemption` receipt is created on-chain to record this request and the Huma queue request ID,
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
-
-    require!(
-        pool.status == PoolStatus::Active,
-        PremiumBondsError::PoolNotActive
-    );
-
     let user_winnings = &mut ctx.accounts.user_winnings;
     let claimable = user_winnings.unclaimed_non_reinvested_winnings;
 
@@ -156,10 +149,35 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         .checked_add(claimable)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    pool.total_prizes_allocated = pool
-        .total_prizes_allocated
-        .checked_sub(claimable)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id) = {
+        let mut pool = ctx.accounts.pool.load_mut()?;
+
+        require!(
+            pool.status == (PoolStatus::Active as u8),
+            PremiumBondsError::PoolNotActive
+        );
+
+        pool.total_prizes_allocated = pool
+            .total_prizes_allocated
+            .checked_sub(claimable)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        let current_redemption_id = pool.next_redemption_id;
+        pool.next_redemption_id = pool
+            .next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        pool.total_pending_redemptions = pool
+            .total_pending_redemptions
+            .checked_add(claimable)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        let pool_id = pool.pool_id;
+        let pool_id_bytes = pool_id.to_le_bytes();
+        let authority_bump = pool.vault_authority_bump;
+        (pool_id, pool_id_bytes, authority_bump, current_redemption_id)
+    };
 
     // Verify that the huma_mode_mint matches the pool_pst_vault mint
     require!(
@@ -176,28 +194,14 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
-    // Store current redemption ID and update pool state before external CPI (CEI pattern)
-    let current_redemption_id = pool.next_redemption_id;
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    pool.total_pending_redemptions = pool
-        .total_pending_redemptions
-        .checked_add(claimable)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
     // CPI: request async redemption from Huma
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     huma::add_redemption_request(
         ctx.accounts.huma_program.to_account_info(),
         ctx.accounts.user.to_account_info(), // payer
-        pool.to_account_info(),              // lender (pool PDA)
+        ctx.accounts.pool.to_account_info(), // lender (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -216,7 +220,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     // Create PendingRedemption receipt
     let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool.pool_id;
+    pending.pool_id = pool_id;
     pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.user.key();
     pending.amount = claimable;
@@ -236,7 +240,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     emit!(WinningsClaimed {
         user: ctx.accounts.user.key(),
-        pool_id: pool.pool_id,
+        pool_id,
         amount: claimable,
         redemption_id: pending.redemption_id,
         timestamp: Clock::get()?.unix_timestamp,

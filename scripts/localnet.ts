@@ -1933,21 +1933,21 @@ async function handleSettle(args: string[]) {
     try {
       const redemptions = await rpc
         .getProgramAccounts(address(PROGRAM_ID_STR), {
-          filters: [{ dataSize: 93n }],
+          filters: [{ dataSize: 158n }],
           encoding: "base64",
         })
         .send();
 
       for (const acc of redemptions) {
         const buf = Buffer.from(acc.account.data[0], "base64");
-        if (buf.length < 93) continue;
+        if (buf.length < 158) continue;
 
-        const low = buf.readBigUInt64LE(76);
-        const high = buf.readBigUInt64LE(84);
+        const low = buf.readBigUInt64LE(8);
+        const high = buf.readBigUInt64LE(16);
         const humaRequestId = low | (high << 64n);
 
         if (humaRequestId >= startRequestId && humaRequestId <= endRequestId) {
-          const pstShares = buf.readBigUInt64LE(60);
+          const pstShares = buf.readBigUInt64LE(40);
           exactPstToBurn += pstShares;
           matchedCount++;
         }

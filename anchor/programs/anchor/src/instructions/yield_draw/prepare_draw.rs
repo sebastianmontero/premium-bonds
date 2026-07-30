@@ -29,17 +29,17 @@ pub struct PrepareDraw<'info> {
     /// The prize pool state account, validated to be frozen for draw.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry,
-        constraint = pool.is_frozen_for_draw @ PremiumBondsError::PoolNotFrozen,
+        constraint = pool.load()?.is_frozen_for_draw != 0 @ PremiumBondsError::PoolNotFrozen,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The current draw cycle account, validated to be awaiting randomness.
     #[account(
         mut,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
         constraint = draw_cycle.status == DrawStatus::AwaitingRandomness @ PremiumBondsError::InvalidDrawStatus
     )]

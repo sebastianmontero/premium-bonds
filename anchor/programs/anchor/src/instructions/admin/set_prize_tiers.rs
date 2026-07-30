@@ -23,13 +23,12 @@ pub struct SetPrizeTiers<'info> {
     /// The prize pool state account to update.
     ///
     /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-    /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 }
 
 /// Sets the prize tiers distribution config for a prize pool.
@@ -45,10 +44,10 @@ pub struct SetPrizeTiers<'info> {
 /// * `ctx` - The context of the set prize tiers instruction.
 /// * `tiers` - The list of prize tiers to configure.
 pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
 
     require!(
-        !pool.is_frozen_for_draw,
+        pool.is_frozen_for_draw == 0,
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
@@ -89,7 +88,10 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
         PremiumBondsError::BasisPointsMustEqual10000
     );
 
-    pool.prize_tiers = tiers;
+    pool.prize_tiers_count = tiers.len() as u8;
+    for (i, tier) in tiers.iter().enumerate() {
+        pool.prize_tiers[i] = *tier;
+    }
 
     Ok(())
 }

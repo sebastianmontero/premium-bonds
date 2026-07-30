@@ -273,9 +273,10 @@ fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
     let mut pool = read_pool_state(&ctx.svm, 1);
     pool.vault_authority_bump ^= 1; // Mismatch bump
 
+    use anchor_lang::Discriminator;
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
 
     ctx.svm
         .set_account(

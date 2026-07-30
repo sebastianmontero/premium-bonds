@@ -104,6 +104,7 @@ fn inject_prize_pool_account(
     ticket_registry: Pubkey,
     is_frozen_for_draw: bool,
 ) -> Pubkey {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
@@ -114,7 +115,7 @@ fn inject_prize_pool_account(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status: anchor::PoolStatus::Active,
+        status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -122,16 +123,18 @@ fn inject_prize_pool_account(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: 0,
-        is_frozen_for_draw,
+        is_frozen_for_draw: if is_frozen_for_draw { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
 
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
 
     svm.set_account(
         pda,

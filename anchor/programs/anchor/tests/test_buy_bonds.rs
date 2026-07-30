@@ -461,9 +461,10 @@ fn test_buy_bonds_fails_registry_full() {
     let mut pool = read_pool_state(&ctx.svm, 1);
     pool.ticket_registry = small_registry;
 
+    use anchor_lang::Discriminator;
     let mut serialized_pool = vec![];
-    pool.try_serialize(&mut serialized_pool).unwrap();
-    serialized_pool.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
     ctx.svm
         .set_account(
             pool_pda,

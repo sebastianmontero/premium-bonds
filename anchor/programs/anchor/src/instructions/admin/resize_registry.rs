@@ -33,12 +33,12 @@ pub struct ResizeRegistry<'info> {
     /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry @ PremiumBondsError::UnauthorizedTicket,
-        constraint = !pool.is_frozen_for_draw @ PremiumBondsError::AwaitingRandomnessFreeze
+        constraint = pool.load()?.is_frozen_for_draw == 0 @ PremiumBondsError::AwaitingRandomnessFreeze
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The zero-copy ticket registry account to be resized.
     /// Verified against the prize pool's registry reference.

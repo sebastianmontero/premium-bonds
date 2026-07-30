@@ -108,7 +108,11 @@ fn inject_pool_custom(
     prize_tiers: Vec<anchor::PrizeTier>,
     total_deposited_principal: u64,
 ) {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
+    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let count = prize_tiers.len().min(10);
+    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
         pool_id,
@@ -118,7 +122,7 @@ fn inject_pool_custom(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status,
+        status: status as u8,
         total_deposited_principal,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -126,16 +130,18 @@ fn inject_pool_custom(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: is_frozen,
+        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers,
+        prize_tiers: fixed_tiers,
+        prize_tiers_count: count as u8,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
 
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pda,
         Account {

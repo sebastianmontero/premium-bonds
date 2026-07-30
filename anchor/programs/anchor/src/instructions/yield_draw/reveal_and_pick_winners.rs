@@ -50,7 +50,7 @@ pub struct RevealAndPickWinners<'info> {
     /// The current draw cycle account, validated to match the randomness account.
     #[account(
         mut,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
         constraint = current_draw_cycle.randomness_account == randomness_account.key() @ PremiumBondsError::InvalidRandomnessAccount
     )]
@@ -59,11 +59,11 @@ pub struct RevealAndPickWinners<'info> {
     /// The prize pool state account, validated with has_one ticket_registry constraint.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         has_one = ticket_registry,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The ticket registry account loader holding all the user entries.
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
@@ -78,11 +78,11 @@ pub struct RevealAndPickWinners<'info> {
     #[account(
         init,
         payer = crank,
-        space = DISCRIMINATOR + PayoutRegistry::INIT_SPACE,
-        seeds = [PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        space = 8 + std::mem::size_of::<PayoutRegistry>(),
+        seeds = [PAYOUT_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump
     )]
-    pub payout_registry: Box<Account<'info, PayoutRegistry>>,
+    pub payout_registry: AccountLoader<'info, PayoutRegistry>,
 
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
@@ -102,14 +102,14 @@ use switchboard_on_demand::accounts::RandomnessAccountData;
 /// The winners are recorded in the new `payout_registry` account, and any dust resulting from rounding in the
 /// prize tiers is deducted from the pool's allocated prizes.
 pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
     require!(
-        pool.status == PoolStatus::Active,
+        pool.status == (PoolStatus::Active as u8),
         PremiumBondsError::PoolNotActive
     );
 
     require!(
-        !pool.prize_tiers.is_empty(),
+        pool.prize_tiers_count > 0,
         PremiumBondsError::PrizeTiersNotConfigured
     );
 
@@ -156,7 +156,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     draw_cycle.randomness_seed = random_seed;
     draw_cycle.status = DrawStatus::Complete;
-    pool.is_frozen_for_draw = false;
+    pool.is_frozen_for_draw = 0;
 
     // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
     let registry_ai = ctx.accounts.ticket_registry.to_account_info();
@@ -167,10 +167,17 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         PremiumBondsError::InvalidDrawState
     );
 
-    let mut winners_vec = Vec::new();
-    let mut total_distributed: u64 = 0;
+    let mut payout_registry = ctx.accounts.payout_registry.load_init()?;
+    payout_registry.pool_id = draw_cycle.pool_id;
+    payout_registry.cycle_id = draw_cycle.cycle_id;
+    payout_registry.version = 1;
+    payout_registry.payouts_completed = 0;
 
-    for (tier_idx, tier) in pool.prize_tiers.iter().enumerate() {
+    let mut total_distributed: u64 = 0;
+    let mut winner_count: usize = 0;
+
+    for tier_idx in 0..(pool.prize_tiers_count as usize) {
+        let tier = &pool.prize_tiers[tier_idx];
         let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot);
 
         for i in 0..tier.num_winners {
@@ -194,24 +201,25 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 }
             }
 
-            let winner_entry = registry_get_entry(&data, lo as usize);
-            let winner_pubkey = winner_entry.owner;
-
-            winners_vec.push(Winner {
-                winner_pubkey,
+            payout_registry.winners[winner_count] = Winner {
                 amount_owed: prize_per_winner,
-                processed: false,
-                tier_index: tier_idx as u8,
                 amount_reinvested: 0,
+                user_index: lo as u32,
+                processed: 0,
+                tier_index: tier_idx as u8,
                 version: 1,
-                _reserved: [0; 15],
-            });
+                _reserved: [0; 9],
+            };
+
+            winner_count += 1;
 
             total_distributed = total_distributed
                 .checked_add(prize_per_winner)
                 .ok_or(PremiumBondsError::MathOverflow)?;
         }
     }
+
+    payout_registry.winners_count = winner_count as u32;
 
     let dust = draw_cycle
         .prize_pot
@@ -223,14 +231,6 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
             .checked_sub(dust)
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
-
-    let payout_registry = &mut ctx.accounts.payout_registry;
-    payout_registry.pool_id = draw_cycle.pool_id;
-    payout_registry.cycle_id = draw_cycle.cycle_id;
-    payout_registry.winners_count = winners_vec.len() as u32;
-    payout_registry.payouts_completed = 0;
-    payout_registry.winners = winners_vec;
-    payout_registry.version = 1;
 
     emit!(DrawCompleted {
         pool_id: pool.pool_id,

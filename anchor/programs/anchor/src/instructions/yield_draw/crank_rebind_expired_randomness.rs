@@ -39,15 +39,15 @@ pub struct CrankRebindExpiredRandomness<'info> {
     /// The prize pool state account.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The current draw cycle account whose randomness is being rebound.
     #[account(
         mut,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
@@ -86,7 +86,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     msg!(
         "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}",
-        ctx.accounts.pool.pool_id,
+        ctx.accounts.pool.load()?.pool_id,
         draw_cycle.cycle_id,
         draw_cycle.randomness_account
     );

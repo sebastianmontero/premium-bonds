@@ -25,9 +25,12 @@ pub struct SellBonds<'info> {
     /// The user winnings/metadata PDA tracking the user's registry index and winnings.
     ///
     /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
+    /// The user winnings/metadata PDA tracking the user's registry index and winnings.
+    ///
+    /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
     #[account(
         mut,
-        seeds = [b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump = user_winnings.bump,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
@@ -38,11 +41,11 @@ pub struct SellBonds<'info> {
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The zero-copy ticket registry storing all raffle ticket entries for this pool.
     #[account(mut)]
@@ -50,7 +53,7 @@ pub struct SellBonds<'info> {
 
     /// The underlying token mint (e.g. USDC).
     #[account(
-        address = pool.token_mint,
+        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -60,7 +63,7 @@ pub struct SellBonds<'info> {
     /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
         mut,
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::token_program = pst_token_program
     )]
@@ -76,8 +79,8 @@ pub struct SellBonds<'info> {
         space = DISCRIMINATOR + PendingRedemption::INIT_SPACE,
         seeds = [
             PENDING_REDEMPTION_SEED,
-            pool.pool_id.to_le_bytes().as_ref(),
-            pool.next_redemption_id.to_le_bytes().as_ref()
+            pool.load()?.pool_id.to_le_bytes().as_ref(),
+            pool.load()?.next_redemption_id.to_le_bytes().as_ref()
         ],
         bump
     )]
@@ -160,18 +163,20 @@ pub struct SellBonds<'info> {
 /// * `active_to_sell` - The number of active tickets to sell.
 /// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
-
-    require!(
-        !pool.is_frozen_for_draw,
-        PremiumBondsError::AwaitingRandomnessFreeze
-    );
+    let (bond_price, pool_id_for_seeds) = {
+        let pool = ctx.accounts.pool.load()?;
+        require!(
+            pool.is_frozen_for_draw == 0,
+            PremiumBondsError::AwaitingRandomnessFreeze
+        );
+        (pool.bond_price, pool.pool_id)
+    };
 
     let bonds_to_sell = active_to_sell + pending_to_sell;
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
     let expected_principal = (bonds_to_sell as u64)
-        .checked_mul(pool.bond_price)
+        .checked_mul(bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     let user_key = ctx.accounts.user.key();
@@ -267,7 +272,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
                     .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
 
                 // Verify PDA seeds & ownership on remaining account
-                let pool_id_bytes = pool.pool_id.to_le_bytes();
+                let pool_id_bytes = pool_id_for_seeds.to_le_bytes();
                 let expected_seeds = &[
                     b"user_winnings",
                     pool_id_bytes.as_ref(),
@@ -293,11 +298,30 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         }
     }
 
-    // Update pool principal
-    pool.total_deposited_principal = pool
-        .total_deposited_principal
-        .checked_sub(expected_principal)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    // Update pool principal & redemption counter in a scoped borrow
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id) = {
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.total_deposited_principal = pool
+            .total_deposited_principal
+            .checked_sub(expected_principal)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        let current_redemption_id = pool.next_redemption_id;
+        pool.next_redemption_id = pool
+            .next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        pool.total_pending_redemptions = pool
+            .total_pending_redemptions
+            .checked_add(expected_principal)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        let pool_id = pool.pool_id;
+        let pool_id_bytes = pool_id.to_le_bytes();
+        let authority_bump = pool.vault_authority_bump;
+        (pool_id, pool_id_bytes, authority_bump, current_redemption_id)
+    };
 
     // Verify that the huma_mode_mint matches the pool_pst_vault mint
     require!(
@@ -314,28 +338,14 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 
-    // Store current redemption ID and update pool state before external CPI (CEI pattern)
-    let current_redemption_id = pool.next_redemption_id;
-    pool.next_redemption_id = pool
-        .next_redemption_id
-        .checked_add(1)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    pool.total_pending_redemptions = pool
-        .total_pending_redemptions
-        .checked_add(expected_principal)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
     // CPI: request async redemption from Huma
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
     huma::add_redemption_request(
         ctx.accounts.huma_program.to_account_info(),
         ctx.accounts.user.to_account_info(), // payer
-        pool.to_account_info(),              // lender (pool PDA)
+        ctx.accounts.pool.to_account_info(), // lender (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -354,7 +364,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
     // Create PendingRedemption receipt
     let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool.pool_id;
+    pending.pool_id = pool_id;
     pending.redemption_id = current_redemption_id;
     pending.user = ctx.accounts.user.key();
     pending.amount = expected_principal;
@@ -375,7 +385,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
     emit!(BondsSold {
         user: ctx.accounts.user.key(),
-        pool_id: pool.pool_id,
+        pool_id,
         bonds: bonds_to_sell,
         principal: expected_principal,
         redemption_id: pending.redemption_id,

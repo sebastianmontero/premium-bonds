@@ -57,11 +57,11 @@ pub struct HarvestYieldAndCommit<'info> {
     /// The prize pool state account, tracking deposit and prize status.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The ticket registry account loader, holding all active and pending tickets.
     #[account(mut)]
@@ -72,14 +72,14 @@ pub struct HarvestYieldAndCommit<'info> {
         init,
         payer = crank,
         space = DISCRIMINATOR + DrawCycle::INIT_SPACE,
-        seeds = [DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), pool.current_draw_cycle_id.to_le_bytes().as_ref()],
+        seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), pool.load()?.current_draw_cycle_id.to_le_bytes().as_ref()],
         bump
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
     /// Pool's $PST vault — read balance to calculate current value.
     #[account(
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::mint = pst_mint,
         token::token_program = pst_token_program
@@ -124,15 +124,15 @@ pub struct HarvestYieldAndCommit<'info> {
 /// Additionally, it performs a block merge on the ticket registry, converting all pending
 /// tickets from the previous cycle into active tickets for the next cycle.
 pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
-    let pool = &mut ctx.accounts.pool;
+    let pool = &mut ctx.accounts.pool.load_mut()?;
 
     require!(
-        pool.status == PoolStatus::Active,
+        pool.status == (PoolStatus::Active as u8),
         PremiumBondsError::PoolNotActive
     );
 
     require!(
-        !pool.is_frozen_for_draw,
+        pool.is_frozen_for_draw == 0,
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
@@ -216,11 +216,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
 
     if yield_generated > 0 && eligible_locked_count > 0 {
         require!(
-            !pool.prize_tiers.is_empty(),
+            pool.prize_tiers_count > 0,
             PremiumBondsError::PrizeTiersNotConfigured
         );
         draw_cycle.status = DrawStatus::AwaitingRandomness;
-        pool.is_frozen_for_draw = true;
+        pool.is_frozen_for_draw = 1;
 
         pool.total_prizes_allocated = pool
             .total_prizes_allocated

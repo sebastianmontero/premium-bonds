@@ -5,6 +5,9 @@ pub enum PremiumBondsError {
     /// The prize pool is not currently active.
     #[msg("The prize pool is not currently active.")]
     PoolNotActive,
+    /// Invalid pool status value.
+    #[msg("Invalid pool status value.")]
+    InvalidPoolStatus,
     /// The current stake cycle has not yet ended.
     #[msg("The current stake cycle has not yet ended.")]
     CycleNotEnded,

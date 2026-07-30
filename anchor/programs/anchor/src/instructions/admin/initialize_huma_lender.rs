@@ -28,16 +28,16 @@ pub struct InitializeHumaLender<'info> {
     /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// Pool's $PST vault — used as the lender's mode token account.
     ///
     /// PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
     #[account(
-        seeds = [POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_PST_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::token_program = pst_token_program
     )]
@@ -100,7 +100,7 @@ pub struct InitializeHumaLender<'info> {
 /// # Parameters
 /// * `ctx` - The context of the initialize Huma lender instruction.
 pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
-    let pool = &ctx.accounts.pool;
+    let pool = ctx.accounts.pool.load()?;
 
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;
@@ -110,7 +110,7 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
     huma::create_lender_accounts(
         ctx.accounts.huma_program.to_account_info(),
         ctx.accounts.admin.to_account_info(), // payer
-        pool.to_account_info(),               // lender (pool PDA)
+        ctx.accounts.pool.to_account_info(),  // lender (pool PDA)
         ctx.accounts.huma_config.to_account_info(),
         ctx.accounts.huma_pool_config.to_account_info(),
         ctx.accounts.huma_pool_state.to_account_info(),
@@ -127,7 +127,7 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
     msg!(
         "InitializeHumaLender: pool={}, pool_pda={}",
         pool.pool_id,
-        pool.key(),
+        ctx.accounts.pool.key(),
     );
 
     Ok(())

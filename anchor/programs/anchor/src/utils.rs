@@ -274,21 +274,25 @@ mod tests {
     fn test_struct_sizes_are_locked() {
         assert_eq!(std::mem::size_of::<crate::state::TicketRegistry>(), 96);
         assert_eq!(std::mem::size_of::<crate::state::UserEntry>(), 64);
+        assert_eq!(std::mem::size_of::<crate::state::PrizeTier>(), 8);
+        assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 392);
+        assert_eq!(std::mem::size_of::<crate::state::Winner>(), 32);
+        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 1688);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
             32 + 32 + 4 + 1 + 64
         );
         assert_eq!(
             crate::state::UserWinnings::INIT_SPACE,
-            4 + 32 + 8 + 8 + 8 + 4 + 1 + 1 + 64
+            8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 64
         );
         assert_eq!(
             crate::state::DrawCycle::INIT_SPACE,
-            4 + 4 + crate::state::DrawStatus::INIT_SPACE + 4 + 32 + 8 + 8 + 32 + 8 + 1 + 64
+            8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 32 + 64
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
-            4 + 8 + 32 + 8 + 8 + 8 + 16 + 1 + 1 + 64
+            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 64
         );
     }
 
@@ -296,6 +300,20 @@ mod tests {
     fn test_zero_copy_8_byte_alignment() {
         assert_eq!(USER_ENTRY_REGISTRY_HEADER_SIZE % 8, 0);
         assert_eq!(USER_ENTRY_SIZE % 8, 0);
+        assert_eq!(std::mem::size_of::<crate::state::PrizePool>() % 8, 0);
+        assert_eq!(std::mem::size_of::<crate::state::PrizeTier>() % 8, 0);
+        assert_eq!(std::mem::size_of::<crate::state::Winner>() % 8, 0);
+        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>() % 8, 0);
+    }
+
+    #[test]
+    fn test_pool_status_try_from() {
+        use crate::state::PoolStatus;
+        assert_eq!(PoolStatus::try_from(0).unwrap(), PoolStatus::Active);
+        assert_eq!(PoolStatus::try_from(1).unwrap(), PoolStatus::Paused);
+        assert_eq!(PoolStatus::try_from(2).unwrap(), PoolStatus::Closed);
+        assert!(PoolStatus::try_from(3).is_err());
+        assert!(PoolStatus::try_from(255).is_err());
     }
 
     #[test]

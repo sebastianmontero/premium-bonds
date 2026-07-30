@@ -139,6 +139,7 @@ pub fn inject_pool(
     status: anchor::PoolStatus,
     is_frozen: bool,
 ) -> Pubkey {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
@@ -149,7 +150,7 @@ pub fn inject_pool(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status,
+        status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -157,16 +158,22 @@ pub fn inject_pool(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: is_frozen,
+        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
 
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
 
     svm.set_account(
         pda,
@@ -415,10 +422,9 @@ pub fn read_token_balance(svm: &LiteSVM, address: Pubkey) -> u64 {
 // ─── State Readers ───────────────────────────────────────────────────────────
 
 pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
-    use anchor_lang::AccountDeserialize;
     let (pda, _) = pool_pda(pool_id);
     let acct = svm.get_account(&pda).expect("pool should exist");
-    anchor::PrizePool::try_deserialize(&mut &acct.data[..]).unwrap()
+    *bytemuck::from_bytes::<anchor::PrizePool>(&acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
 }
 
 pub fn read_user_winnings_state(

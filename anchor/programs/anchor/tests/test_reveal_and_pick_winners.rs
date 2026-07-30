@@ -121,7 +121,11 @@ fn inject_pool_custom(
     prize_tiers: Vec<anchor::PrizeTier>,
     cycle_id: u32,
 ) -> Pubkey {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
+    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let count = prize_tiers.len().min(10);
+    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
         vault_authority_bump: bump,
         pool_id,
@@ -131,7 +135,7 @@ fn inject_pool_custom(
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status,
+        status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -139,15 +143,17 @@ fn inject_pool_custom(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: 0,
-        is_frozen_for_draw: is_frozen,
+        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: cycle_id,
-        prize_tiers,
+        prize_tiers: fixed_tiers,
+        prize_tiers_count: count as u8,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
     let mut data = vec![];
-    pool.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
     svm.set_account(
         pda,
         Account {
@@ -336,7 +342,7 @@ fn send_reveal(
 fn read_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     let (pda, _) = pool_pda(pool_id);
     let account = svm.get_account(&pda).unwrap();
-    anchor::PrizePool::try_deserialize(&mut &account.data[..]).unwrap()
+    *bytemuck::from_bytes::<anchor::PrizePool>(&account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
 }
 
 fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCycle {
@@ -348,7 +354,7 @@ fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCy
 fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
     let account = svm.get_account(&pda).unwrap();
-    anchor::PayoutRegistry::try_deserialize(&mut &account.data[..]).unwrap()
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
 }
 
 /// Recompute derive_random_index locally (mirrors program logic).
@@ -420,6 +426,7 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let (mut svm, _admin, crank) = setup_global_with_crank(100);
 
@@ -462,6 +469,7 @@ fn test_reveal_fails_unauthorized_crank() {
         vec![anchor::PrizeTier {
             basis_points: 10000,
             num_winners: 1,
+            _padding: [0, 0],
         }],
         5,
         1_000_000,
@@ -482,6 +490,7 @@ fn test_reveal_fails_pool_not_active() {
         vec![anchor::PrizeTier {
             basis_points: 10000,
             num_winners: 1,
+            _padding: [0, 0],
         }],
         5,
         1_000_000,
@@ -524,6 +533,7 @@ fn test_reveal_fails_zero_locked_tickets() {
         vec![anchor::PrizeTier {
             basis_points: 10000,
             num_winners: 1,
+            _padding: [0, 0],
         }],
         0,
         1_000_000,
@@ -541,6 +551,7 @@ fn test_reveal_fails_zero_prize_pot() {
         vec![anchor::PrizeTier {
             basis_points: 10000,
             num_winners: 1,
+            _padding: [0, 0],
         }],
         5,
         0,
@@ -559,15 +570,15 @@ fn test_reveal_single_tier_single_winner() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 1);
-    assert_eq!(pr.winners.len(), 1);
     assert_eq!(pr.winners[0].amount_owed, 1_000_000); // 10000bps of 1M
-    assert!(!pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 0);
     assert_eq!(pr.winners[0].tier_index, 0);
 }
 
@@ -577,10 +588,12 @@ fn test_reveal_multi_tier_multi_winner() {
         anchor::PrizeTier {
             basis_points: 7000,
             num_winners: 1,
+            _padding: [0, 0],
         },
         anchor::PrizeTier {
             basis_points: 1000,
             num_winners: 3,
+            _padding: [0, 0],
         },
     ];
     let prize_pot = 1_000_000u64;
@@ -589,7 +602,6 @@ fn test_reveal_multi_tier_multi_winner() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 4); // 1 + 3
-    assert_eq!(pr.winners.len(), 4);
 
     // Tier 0: 7000bps of 1M = 700_000
     assert_eq!(pr.winners[0].amount_owed, 700_000);
@@ -608,10 +620,12 @@ fn test_reveal_winner_determinism() {
         anchor::PrizeTier {
             basis_points: 3000,
             num_winners: 2,
+            _padding: [0, 0],
         },
         anchor::PrizeTier {
             basis_points: 4000,
             num_winners: 1,
+            _padding: [0, 0],
         },
     ];
     let locked = 8u32;
@@ -627,16 +641,16 @@ fn test_reveal_winner_determinism() {
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners.len(), 3);
+    assert_eq!(pr.winners_count, 3);
 
     // Recompute expected winners
     let idx0 = local_derive_random_index(&seed, 0, 0, 0, locked) as usize;
     let idx1 = local_derive_random_index(&seed, 0, 1, 0, locked) as usize;
     let idx2 = local_derive_random_index(&seed, 1, 0, 0, locked) as usize;
 
-    assert_eq!(pr.winners[0].winner_pubkey, ctx.tickets[idx0]);
-    assert_eq!(pr.winners[1].winner_pubkey, ctx.tickets[idx1]);
-    assert_eq!(pr.winners[2].winner_pubkey, ctx.tickets[idx2]);
+    assert_eq!(pr.winners[0].user_index, idx0 as u32);
+    assert_eq!(pr.winners[1].user_index, idx1 as u32);
+    assert_eq!(pr.winners[2].user_index, idx2 as u32);
 }
 
 #[test]
@@ -644,6 +658,7 @@ fn test_reveal_payout_registry_fields() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 5000,
         num_winners: 2,
+        _padding: [0, 0],
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 800_000, 5);
     send_reveal(&mut ctx, 1, 0, [3u8; 32]).expect("reveal");
@@ -654,8 +669,8 @@ fn test_reveal_payout_registry_fields() {
     assert_eq!(pr.winners_count, 2);
     assert_eq!(pr.payouts_completed, 0);
 
-    for w in &pr.winners {
-        assert!(!w.processed);
+    for w in &pr.winners[..pr.winners_count as usize] {
+        assert_eq!(w.processed, 0);
         assert_eq!(w.amount_reinvested, 0);
     }
 }
@@ -665,19 +680,20 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let seed = [55u8; 32];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 3, 100_000, 3);
 
     // Before: frozen
     let pool_before = read_pool(&ctx.svm, 1);
-    assert!(pool_before.is_frozen_for_draw);
+    assert_eq!(pool_before.is_frozen_for_draw, 1);
 
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
     // After: unfrozen
     let pool_after = read_pool(&ctx.svm, 1);
-    assert!(!pool_after.is_frozen_for_draw);
+    assert_eq!(pool_after.is_frozen_for_draw, 0);
 
     // DrawCycle: Complete + seed stored
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
@@ -692,19 +708,21 @@ fn test_reveal_duplicate_winner_across_tiers() {
         anchor::PrizeTier {
             basis_points: 6000,
             num_winners: 1,
+            _padding: [0, 0],
         },
         anchor::PrizeTier {
             basis_points: 4000,
             num_winners: 1,
+            _padding: [0, 0],
         },
     ];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 1, 1_000_000, 1);
     send_reveal(&mut ctx, 1, 0, [10u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners.len(), 2);
-    assert_eq!(pr.winners[0].winner_pubkey, ctx.tickets[0]);
-    assert_eq!(pr.winners[1].winner_pubkey, ctx.tickets[0]);
+    assert_eq!(pr.winners_count, 2);
+    assert_eq!(pr.winners[0].user_index, 0);
+    assert_eq!(pr.winners[1].user_index, 0);
     assert_eq!(pr.winners[0].amount_owed, 600_000);
     assert_eq!(pr.winners[1].amount_owed, 400_000);
 }
@@ -718,6 +736,7 @@ fn test_reveal_fails_double_reveal() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     send_reveal(&mut ctx, 1, 0, [1u8; 32]).expect("first reveal");
@@ -732,6 +751,7 @@ fn test_reveal_fails_wrong_ticket_registry() {
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
+        _padding: [0, 0],
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
 
@@ -876,6 +896,7 @@ fn test_reveal_fails_math_overflow() {
         vec![anchor::PrizeTier {
             basis_points: 20000,
             num_winners: 1,
+            _padding: [0, 0],
         }],
         5,
         1_000_000,

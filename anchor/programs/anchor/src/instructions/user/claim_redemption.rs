@@ -21,10 +21,10 @@ pub struct ClaimRedemption<'info> {
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
-        seeds = [PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()],
-        bump = pool.vault_authority_bump,
+        seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
+        bump = pool.load()?.vault_authority_bump,
     )]
-    pub pool: Box<Account<'info, PrizePool>>,
+    pub pool: AccountLoader<'info, PrizePool>,
 
     /// The PendingRedemption PDA representing the user's withdrawal request.
     /// Closes and refunds its rent to `user` upon successful completion.
@@ -38,7 +38,7 @@ pub struct ClaimRedemption<'info> {
             pending_redemption.redemption_id.to_le_bytes().as_ref()
         ],
         bump = pending_redemption.bump,
-        constraint = pending_redemption.pool_id == pool.pool_id,
+        constraint = pending_redemption.pool_id == pool.load()?.pool_id,
         constraint = pending_redemption.user == user.key() @ PremiumBondsError::InvalidRedemptionOwner,
         close = user
     )]
@@ -46,7 +46,7 @@ pub struct ClaimRedemption<'info> {
 
     /// The underlying token mint (e.g. USDC).
     #[account(
-        address = pool.token_mint,
+        address = pool.load()?.token_mint,
         mint::token_program = token_program
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -56,7 +56,7 @@ pub struct ClaimRedemption<'info> {
     /// PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
     #[account(
         mut,
-        seeds = [POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()],
+        seeds = [POOL_VAULT_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump,
         token::mint = token_mint,
         token::token_program = token_program
@@ -130,7 +130,11 @@ pub struct ClaimRedemption<'info> {
 /// # Parameters
 /// * `ctx` - The context of the claim redemption instruction.
 pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
-    let pool = &ctx.accounts.pool;
+    let (pool_id_bytes, authority_bump, pool_id) = {
+        let pool = ctx.accounts.pool.load()?;
+        let id = pool.pool_id;
+        (id.to_le_bytes(), pool.vault_authority_bump, id)
+    };
 
     // Copy pending values locally to avoid borrow conflicts and correctly report amounts in events/logs
     let (redemption_amount, redemption_id, huma_request_id) = {
@@ -138,8 +142,6 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         (p.amount, p.redemption_id, p.huma_request_id)
     };
 
-    let pool_id_bytes = pool.pool_id.to_le_bytes();
-    let authority_bump = pool.vault_authority_bump;
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
@@ -173,18 +175,20 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     // Prevent re-entrancy: zero out the redemption amount and update pool state before token transfer CPI
     ctx.accounts.pending_redemption.amount = 0;
 
-    let pool_mut = &mut ctx.accounts.pool;
-    pool_mut.total_pending_redemptions = pool_mut
-        .total_pending_redemptions
-        .checked_sub(redemption_amount)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    {
+        let mut pool_mut = ctx.accounts.pool.load_mut()?;
+        pool_mut.total_pending_redemptions = pool_mut
+            .total_pending_redemptions
+            .checked_sub(redemption_amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
 
     // Transfer owed USDC to user
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.pool_vault_account.to_account_info(),
         mint: ctx.accounts.token_mint.to_account_info(),
         to: ctx.accounts.user_token_account.to_account_info(),
-        authority: pool_mut.to_account_info(),
+        authority: ctx.accounts.pool.to_account_info(),
     };
     transfer_checked(
         CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
@@ -202,7 +206,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
 
     emit!(RedemptionClaimed {
         user: ctx.accounts.user.key(),
-        pool_id: pool_mut.pool_id,
+        pool_id,
         amount: redemption_amount,
         redemption_id,
         timestamp: Clock::get()?.unix_timestamp,

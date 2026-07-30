@@ -81,6 +81,7 @@ fn inject_pool(
     frozen: bool,
     bond_price: u64,
 ) -> Pubkey {
+    use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(id);
     let p = anchor::PrizePool {
         vault_authority_bump: bump,
@@ -91,7 +92,7 @@ fn inject_pool(
         bond_price,
         stake_cycle_duration_hrs: 24,
         fee_basis_points: 100,
-        status,
+        status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -99,15 +100,17 @@ fn inject_pool(
         next_redemption_id: 0,
         total_pending_redemptions: 0,
         current_cycle_end_at: 0,
-        is_frozen_for_draw: frozen,
+        is_frozen_for_draw: if frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers: vec![],
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 1],
         version: 1,
         _reserved: [0; 128],
     };
     let mut d = vec![];
-    p.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PrizePool::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&p));
     svm.set_account(
         pda,
         Account {
@@ -123,19 +126,33 @@ fn inject_pool(
 }
 
 fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
+    use anchor_lang::Discriminator;
     let (pda, _) = payout_pda(pool_id, cycle_id);
+    let default_winner = anchor::Winner {
+        amount_owed: 0,
+        amount_reinvested: 0,
+        user_index: 0,
+        processed: 0,
+        tier_index: 0,
+        version: 1,
+        _reserved: [0; 9],
+    };
+    let mut fixed_winners = [default_winner; 50];
+    let count = winners.len().min(50);
+    fixed_winners[..count].copy_from_slice(&winners[..count]);
     let pr = anchor::PayoutRegistry {
         pool_id,
         cycle_id,
-        winners_count: winners.len() as u32,
+        winners_count: count as u32,
         payouts_completed: 0,
-        winners,
         version: 1,
+        _padding: [0; 7],
         _reserved: [0; 64],
+        winners: fixed_winners,
     };
     let mut d = vec![];
-    pr.try_serialize(&mut d).unwrap();
-    d.resize(8 + anchor::PayoutRegistry::INIT_SPACE, 0);
+    d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pr));
     svm.set_account(
         pda,
         Account {
@@ -151,15 +168,15 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
 
 use common::inject_user_winnings;
 
-fn w(pk: Pubkey, owed: u64, tier: u8, reinvested: u64, processed: bool) -> anchor::Winner {
+fn w(user_index: u32, owed: u64, tier: u8, reinvested: u64, processed: bool) -> anchor::Winner {
     anchor::Winner {
-        winner_pubkey: pk,
         amount_owed: owed,
-        processed,
-        tier_index: tier,
         amount_reinvested: reinvested,
+        user_index,
+        tier_index: tier,
+        processed: if processed { 1 } else { 0 },
         version: 1,
-        _reserved: [0; 15],
+        _reserved: [0; 9],
     }
 }
 
@@ -172,23 +189,23 @@ struct Ctx {
     registry: Pubkey,
 }
 
-fn build_ix(ctx: &Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Instruction {
+fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Result<(), String> {
     let (pool, _) = pool_pda(1);
-    let (payout, _) = payout_pda(1, cycle_id);
     let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
+    let (payout_registry, _) = payout_pda(1, cycle_id);
 
     let accounts = anchor::accounts::ReinvestWinnings {
         crank: ctx.crank.pubkey(),
         winner: ctx.winner,
-        payout_registry: payout,
+        payout_registry,
         pool,
         user_winnings,
         ticket_registry: ctx.registry,
-        system_program: anchor_lang::system_program::ID,
+        system_program: anchor_lang::solana_program::system_program::id(),
     }
     .to_account_metas(None);
 
-    Instruction {
+    let ix = Instruction {
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::ReinvestWinnings {
@@ -197,12 +214,8 @@ fn build_ix(ctx: &Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Inst
             max_bonds,
         }
         .data(),
-    }
-}
+    };
 
-fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Result<(), String> {
-    let ix = build_ix(ctx, cycle_id, winner_index, max_bonds);
-    ctx.svm.expire_blockhash();
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
@@ -216,13 +229,14 @@ fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Resu
 
 fn read_pool(svm: &LiteSVM) -> anchor::PrizePool {
     let (p, _) = pool_pda(1);
-    anchor::PrizePool::try_deserialize(&mut svm.get_account(&p).unwrap().data.as_slice()).unwrap()
+    let data = svm.get_account(&p).unwrap().data;
+    *bytemuck::from_bytes::<anchor::PrizePool>(&data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
 }
 
 fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
     let (p, _) = payout_pda(1, cid);
-    anchor::PayoutRegistry::try_deserialize(&mut svm.get_account(&p).unwrap().data.as_slice())
-        .unwrap()
+    let data = svm.get_account(&p).unwrap().data;
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
 }
 
 fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnings {
@@ -250,11 +264,8 @@ fn setup(
     amount_owed: u64,
     reinvested: u64,
 ) -> Ctx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
+    let (mut svm, _admin) = common::setup_global_config(100);
+
     let crank = Keypair::new();
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
 
@@ -264,7 +275,7 @@ fn setup(
 
     let entries = vec![anchor::state::UserEntry {
         owner: winner,
-        active: 0,
+        active: 10,
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
@@ -278,7 +289,7 @@ fn setup(
         &mut svm,
         1,
         0,
-        vec![w(winner, amount_owed, 0, reinvested, false)],
+        vec![w(0, amount_owed, 0, reinvested, false)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
@@ -305,9 +316,9 @@ fn test_reinvest_fails_max_bonds_zero() {
 fn test_reinvest_fails_wrong_winner() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
-    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 0);
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
-    assert!(err.contains("UnauthorizedTicket"), "got: {err}");
+    assert!(err.contains("InvalidWinnerIndex") || err.contains("UnauthorizedTicket"), "got: {err}");
 }
 
 #[test]
@@ -318,7 +329,7 @@ fn test_reinvest_fails_already_paid() {
         &mut ctx.svm,
         1,
         0,
-        vec![w(ctx.winner, 3_000_000, 0, 0, true)],
+        vec![w(0, 3_000_000, 0, 0, true)],
     );
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("AlreadyClaimed"), "got: {err}");
@@ -334,7 +345,7 @@ fn test_reinvest_single_batch_full() {
     send(&mut ctx, 0, 0, 10).expect("reinvest");
 
     let pr = read_payout(&ctx.svm, 0);
-    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 1);
     assert_eq!(pr.winners[0].amount_reinvested, 3_000_000);
     assert_eq!(pr.payouts_completed, 1);
 
@@ -354,7 +365,7 @@ fn test_reinvest_single_batch_with_dust() {
 
     let pr = read_payout(&ctx.svm, 0);
     // Dust stays, but winner is processed on final crank, remaining dust goes to UserWinnings PDA
-    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 1);
     assert_eq!(pr.winners[0].amount_reinvested, 3_000_000);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -369,19 +380,23 @@ fn test_reinvest_multi_batch() {
     // Batch 1: max_bonds=2
     send(&mut ctx, 0, 0, 2).expect("batch 1");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(!pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 0);
     assert_eq!(pr.winners[0].amount_reinvested, 2_000_000);
+
+    ctx.svm.expire_blockhash();
 
     // Batch 2: max_bonds=2
     send(&mut ctx, 0, 0, 2).expect("batch 2");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(!pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 0);
     assert_eq!(pr.winners[0].amount_reinvested, 4_000_000);
+
+    ctx.svm.expire_blockhash();
 
     // Batch 3: final (1 bond remaining)
     send(&mut ctx, 0, 0, 2).expect("batch 3");
     let pr = read_payout(&ctx.svm, 0);
-    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 1);
     assert_eq!(pr.winners[0].amount_reinvested, 5_000_000);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -421,7 +436,7 @@ fn test_reinvest_dust_only_no_bonds() {
 
     let pr = read_payout(&ctx.svm, 0);
     // Dust stays, processed is true
-    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 1);
     assert_eq!(pr.winners[0].amount_reinvested, 0);
 
     let pool = read_pool(&ctx.svm);
@@ -459,7 +474,7 @@ fn test_reinvest_using_accumulated_dust() {
     send(&mut ctx, 0, 0, 10).expect("reinvest");
 
     let pr = read_payout(&ctx.svm, 0);
-    assert!(pr.winners[0].processed);
+    assert_eq!(pr.winners[0].processed, 1);
     assert_eq!(pr.winners[0].amount_reinvested, 500_000); // the current winnings were fully used/reinvested
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -511,6 +526,7 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1000, &entries);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
+    inject_payout(&mut ctx.svm, 1, 0, vec![anchor::Winner { amount_owed: 3_000_000, amount_reinvested: 0, user_index: 1, processed: 0, tier_index: 0, version: 1, _reserved: [0; 9] }]);
 
     let err = send(&mut ctx, 0, 0, 10).unwrap_err();
     assert!(err.contains("InvalidUserEntryHint"), "got: {err}");
@@ -521,6 +537,7 @@ fn test_reinvest_fails_registry_full() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
+    inject_payout(&mut ctx.svm, 1, 0, vec![anchor::Winner { amount_owed: 3_000_000, amount_reinvested: 0, user_index: u32::MAX, processed: 0, tier_index: 0, version: 1, _reserved: [0; 9] }]);
 
     let entries = vec![anchor::state::UserEntry {
         owner: Keypair::new().pubkey(),
