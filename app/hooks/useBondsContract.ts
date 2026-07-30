@@ -411,7 +411,9 @@ export function useBondsContract(poolId: number = 1) {
                 redemptionId: parsed.redemptionId.toString(),
                 amount: Number(parsed.amount),
                 status,
-                requestedAt: new Date(Number(parsed.requestedAt) * 1000).toISOString(),
+                requestedAt: new Date(
+                  Number(parsed.requestedAt) * 1000
+                ).toISOString(),
                 type: "bond_sale", // Defaulting to bond sale
               };
             }

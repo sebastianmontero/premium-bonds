@@ -1,0 +1,16 @@
+name: Verify Build
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and Verify Solana Program
+        uses: ellipsislabs/solana-verifiable-build@v1
+        with:
+          program: premium_bonds

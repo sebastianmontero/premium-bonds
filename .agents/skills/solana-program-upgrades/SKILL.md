@@ -13,6 +13,7 @@ metadata:
 ## What this Skill is for
 
 Use this skill when:
+
 - **Evaluating architectural trade-offs** for Solana/Anchor program upgradeability (In-Place vs Dual Deployment, Struct Padding vs Realloc, Lazy vs Batch Migration).
 - **Designing upgradeable Anchor programs** in Rust with future-proof account layouts.
 - **Implementing state migration logic** using account versioning (`version: u8`), struct padding, or Anchor's `realloc` attribute.
@@ -27,31 +28,31 @@ Use this skill when:
 
 ### 1. Bytecode Deployment Architecture Trade-Offs
 
-| Pattern | Mechanism | Advantages | Disadvantages | Selection Guidelines |
-| :--- | :--- | :--- | :--- | :--- |
-| **Native In-Place Upgrade (Standard)** | Bytecode overwritten in `ProgramData` PDA (`BPFLoaderUpgradeable`). `ProgramID` unchanged. | • Preserves all PDAs, token mint authorities & CPI integrators.<br>• **0 Compute Unit penalty**.<br>• Simple CLI / Squads workflow. | • Hot-swap: immediate global effect.<br>• Requires strict backward compatibility in account layouts or active state migration. | **Default choice** for 95%+ of Solana programs. |
-| **Parallel Dual Deployment (V1 + V2)** | Deploy new code under a fresh `ProgramID`. Users migrate assets via bridge instruction (`drain_v1_into_v2`). | • Zero risk of corrupting V1 accounts.<br>• Complete freedom to redesign account layouts & instructions.<br>• Side-by-side canary testing on mainnet. | • **Breaks external integrators** (DEXs, wallets, SDKs).<br>• All derived PDAs change.<br>• Requires manual user action to migrate liquidity. | **Major architectural rewrites**, paradigm shifts in state models, or un-migratable legacy layouts. |
-| **Proxy / Dispatcher Pattern** | Light Proxy router holds state & PDAs, delegating logic via CPI to versioned implementation programs. | • Modular sub-module swapping.<br>• Per-market or per-user version routing. | • **High Compute Unit (CU) penalty** (~1,000+ CUs per CPI call).<br>• High transaction complexity & account stack limits.<br>• Increased attack surface (malicious implementation binding). | **Complex multi-tenant protocols** (e.g. modular DEX engines, isolated lending pools with custom risk models). |
-| **Immutable Transition (Authority Burning)** | Revoke upgrade authority (`solana program set-upgrade-authority <PROGRAM_ID> --final`). | • Maximum trustlessness & auditability.<br>• Eliminates admin rugpull / key compromise vectors completely. | • Unfixable bugs or vulnerabilities forever.<br>• Cannot adapt to Solana runtime breaking changes. | **Mature, audited core primitives** (e.g., Token Program, System Program, fixed pool invariants). |
+| Pattern                                      | Mechanism                                                                                                    | Advantages                                                                                                                                            | Disadvantages                                                                                                                                                                               | Selection Guidelines                                                                                           |
+| :------------------------------------------- | :----------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------- |
+| **Native In-Place Upgrade (Standard)**       | Bytecode overwritten in `ProgramData` PDA (`BPFLoaderUpgradeable`). `ProgramID` unchanged.                   | • Preserves all PDAs, token mint authorities & CPI integrators.<br>• **0 Compute Unit penalty**.<br>• Simple CLI / Squads workflow.                   | • Hot-swap: immediate global effect.<br>• Requires strict backward compatibility in account layouts or active state migration.                                                              | **Default choice** for 95%+ of Solana programs.                                                                |
+| **Parallel Dual Deployment (V1 + V2)**       | Deploy new code under a fresh `ProgramID`. Users migrate assets via bridge instruction (`drain_v1_into_v2`). | • Zero risk of corrupting V1 accounts.<br>• Complete freedom to redesign account layouts & instructions.<br>• Side-by-side canary testing on mainnet. | • **Breaks external integrators** (DEXs, wallets, SDKs).<br>• All derived PDAs change.<br>• Requires manual user action to migrate liquidity.                                               | **Major architectural rewrites**, paradigm shifts in state models, or un-migratable legacy layouts.            |
+| **Proxy / Dispatcher Pattern**               | Light Proxy router holds state & PDAs, delegating logic via CPI to versioned implementation programs.        | • Modular sub-module swapping.<br>• Per-market or per-user version routing.                                                                           | • **High Compute Unit (CU) penalty** (~1,000+ CUs per CPI call).<br>• High transaction complexity & account stack limits.<br>• Increased attack surface (malicious implementation binding). | **Complex multi-tenant protocols** (e.g. modular DEX engines, isolated lending pools with custom risk models). |
+| **Immutable Transition (Authority Burning)** | Revoke upgrade authority (`solana program set-upgrade-authority <PROGRAM_ID> --final`).                      | • Maximum trustlessness & auditability.<br>• Eliminates admin rugpull / key compromise vectors completely.                                            | • Unfixable bugs or vulnerabilities forever.<br>• Cannot adapt to Solana runtime breaking changes.                                                                                          | **Mature, audited core primitives** (e.g., Token Program, System Program, fixed pool invariants).              |
 
 ---
 
 ### 2. Account Layout & Schema Evolution Trade-Offs
 
-| Layout Strategy | Description | Pros | Cons | Selection Guidelines |
-| :--- | :--- | :--- | :--- | :--- |
-| **Struct Padding (`_reserved: [u8; N]`)** | Pre-allocate extra unused bytes in struct layout upfront. | • **0 CU cost** when adding new fields.<br>• Instant field carving without `realloc` instructions.<br>• Ideal for `#[account(zero_copy)]`. | • Users pay rent upfront for unallocated bytes.<br>• Wasteful if padding is never used. | **Mandatory** for zero-copy structs, high-frequency state, or predictable V1->V2 evolution. |
-| **Dynamic Reallocation (`realloc`)** | Expand account data size on demand via Anchor `#[account(realloc = ...)]`. | • **Pay-as-you-grow** rent model.<br>• Unconstrained long-term account growth. | • Consumes CUs for memory reallocation & rent transfers.<br>• Requires managing rent payer accounts.<br>• **10 KiB limit per instruction call**. | Variable-sized lists (`Vec<T>`), unpredictable growth, or post-padding expansion in non-zero-copy accounts. |
-| **Header-Only + Raw Byte Payload** | Fixed header struct + raw byte slice `[u8]` appended at end of account. | • Maximum memory efficiency & raw byte slicing.<br>• Bypasses Borsh struct limits.<br>• Lowest CU deserialization overhead. | • Manual byte offset calculations (`bytemuck`).<br>• High risk of developer alignment/out-of-bounds errors. | **Large registries** (e.g., orderbooks, ticket registries, bitmaps, liquidity pools). |
+| Layout Strategy                           | Description                                                                | Pros                                                                                                                                       | Cons                                                                                                                                             | Selection Guidelines                                                                                        |
+| :---------------------------------------- | :------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| **Struct Padding (`_reserved: [u8; N]`)** | Pre-allocate extra unused bytes in struct layout upfront.                  | • **0 CU cost** when adding new fields.<br>• Instant field carving without `realloc` instructions.<br>• Ideal for `#[account(zero_copy)]`. | • Users pay rent upfront for unallocated bytes.<br>• Wasteful if padding is never used.                                                          | **Mandatory** for zero-copy structs, high-frequency state, or predictable V1->V2 evolution.                 |
+| **Dynamic Reallocation (`realloc`)**      | Expand account data size on demand via Anchor `#[account(realloc = ...)]`. | • **Pay-as-you-grow** rent model.<br>• Unconstrained long-term account growth.                                                             | • Consumes CUs for memory reallocation & rent transfers.<br>• Requires managing rent payer accounts.<br>• **10 KiB limit per instruction call**. | Variable-sized lists (`Vec<T>`), unpredictable growth, or post-padding expansion in non-zero-copy accounts. |
+| **Header-Only + Raw Byte Payload**        | Fixed header struct + raw byte slice `[u8]` appended at end of account.    | • Maximum memory efficiency & raw byte slicing.<br>• Bypasses Borsh struct limits.<br>• Lowest CU deserialization overhead.                | • Manual byte offset calculations (`bytemuck`).<br>• High risk of developer alignment/out-of-bounds errors.                                      | **Large registries** (e.g., orderbooks, ticket registries, bitmaps, liquidity pools).                       |
 
 ---
 
 ### 3. State Migration Execution Models
 
-| Execution Model | Trigger Mechanism | Cost Distribution | UX Impact | Best Fit |
-| :--- | :--- | :--- | :--- | :--- |
-| **Lazy On-Demand Migration** | Check `if account.version < CURRENT_VERSION` on every instruction call; migrate in-place. | Users pay minimal realloc rent as they interact with the protocol. Protocol pays $0. | Users pay slightly higher CU cost on their first post-upgrade interaction. | Default for **User-Owned Accounts** (Vaults, User Positions, Profiles). |
-| **Admin Batch Migration** | Off-Chain script iterates through indexed accounts and invokes `migrate_v1_to_v2` in batches. | Protocol/Admin team pays 100% of transaction fees and realloc rent top-ups. | Zero CU penalty or surprise rent charges on users. Clean protocol-wide state boundary. | **Global Protocol State**, Market Pools, Liquidity Vaults, or when legacy code paths must be purged immediately. |
+| Execution Model              | Trigger Mechanism                                                                             | Cost Distribution                                                                    | UX Impact                                                                              | Best Fit                                                                                                         |
+| :--------------------------- | :-------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------- |
+| **Lazy On-Demand Migration** | Check `if account.version < CURRENT_VERSION` on every instruction call; migrate in-place.     | Users pay minimal realloc rent as they interact with the protocol. Protocol pays $0. | Users pay slightly higher CU cost on their first post-upgrade interaction.             | Default for **User-Owned Accounts** (Vaults, User Positions, Profiles).                                          |
+| **Admin Batch Migration**    | Off-Chain script iterates through indexed accounts and invokes `migrate_v1_to_v2` in batches. | Protocol/Admin team pays 100% of transaction fees and realloc rent top-ups.          | Zero CU penalty or surprise rent charges on users. Clean protocol-wide state boundary. | **Global Protocol State**, Market Pools, Liquidity Vaults, or when legacy code paths must be purged immediately. |
 
 ---
 
@@ -86,6 +87,7 @@ Use this skill when:
 ## Core Principles & Architecture
 
 ### 1. BPF Upgradeable Loader Storage Model
+
 Solana handles program code and program state separately. Executable code resides in a `ProgramData` PDA owned by `BPFLoaderUpgradeab1e11111111111111111111111`.
 
 ```
@@ -173,7 +175,7 @@ pub struct MigrateConfigV2<'info> {
         has_one = admin,
     )]
     pub config: Account<'info, GlobalConfig>,
-    
+
     #[account(mut)]
     pub payer: Signer<'info>,
     pub admin: Signer<'info>,
@@ -189,8 +191,8 @@ pub fn handler(ctx: Context<MigrateConfigV2>) -> Result<()> {
 }
 ```
 
-* **Max Realloc Limit**: 10,240 bytes (10 KiB) per instruction call. For larger expansions, execute multiple sequential realloc instructions.
-* **Rent Exemption**: `realloc::payer` must supply SOL lamports when expanding space. When shrinking space, excess lamports return to `realloc::payer`.
+- **Max Realloc Limit**: 10,240 bytes (10 KiB) per instruction call. For larger expansions, execute multiple sequential realloc instructions.
+- **Rent Exemption**: `realloc::payer` must supply SOL lamports when expanding space. When shrinking space, excess lamports return to `realloc::payer`.
 
 ---
 
@@ -209,7 +211,7 @@ pub fn handler(ctx: Context<MigrateConfigV2>) -> Result<()> {
        - Ideal for User Vaults / Accounts              - Ideal for Global Protocol Configs
 ```
 
-* **Lazy Migration Pattern**:
+- **Lazy Migration Pattern**:
   ```rust
   pub fn process_user_action(ctx: Context<UserAction>) -> Result<()> {
       let vault = &mut ctx.accounts.user_vault;
@@ -228,29 +230,29 @@ pub fn handler(ctx: Context<MigrateConfigV2>) -> Result<()> {
 
 ### 1. Essential Tooling Competencies
 
-| Tool / CLI | Purpose & Usage |
-| :--- | :--- |
-| `solana-verify` | Deterministic build verification against git commits using Docker containers. |
-| `solana program write-buffer` | Uploads binary ELF bytecode to an unexecutable buffer account. |
-| `solana program extend` | Expands `ProgramData` capacity if bytecode exceeds original allocation. |
-| `solana program close` | Reclaims temporary buffer SOL lamports back to fee payer treasury. |
-| `Squads Protocol (v3/v4)` | Multisig upgrade authority management and proposal signing. |
-| `LiteSVM` | Fast Rust in-process testing for program upgrades and migration verification. |
+| Tool / CLI                    | Purpose & Usage                                                               |
+| :---------------------------- | :---------------------------------------------------------------------------- |
+| `solana-verify`               | Deterministic build verification against git commits using Docker containers. |
+| `solana program write-buffer` | Uploads binary ELF bytecode to an unexecutable buffer account.                |
+| `solana program extend`       | Expands `ProgramData` capacity if bytecode exceeds original allocation.       |
+| `solana program close`        | Reclaims temporary buffer SOL lamports back to fee payer treasury.            |
+| `Squads Protocol (v3/v4)`     | Multisig upgrade authority management and proposal signing.                   |
+| `LiteSVM`                     | Fast Rust in-process testing for program upgrades and migration verification. |
 
 ### 2. Economic & Security Best Practices
 
-* **Calculate Buffer Capital Requirements**:
+- **Calculate Buffer Capital Requirements**:
   ```bash
   NO_DNA=1 solana rent <PROGRAM_ELF_SIZE_BYTES>
   ```
   Ensure the fee payer account has sufficient SOL for temporary buffer rent before deployment.
-* **Verifiable Build Check**:
+- **Verifiable Build Check**:
   Always verify binary hashes prior to proposal creation:
   ```bash
   solana-verify get-executable-hash target/deploy/my_program.so
   solana-verify get-program-hash -u m <BUFFER_PUBKEY>
   ```
-* **Circuit Breakers**:
+- **Circuit Breakers**:
   Pause protocol interactions (`is_paused = true`) during critical upgrades and state migrations.
 
 ---

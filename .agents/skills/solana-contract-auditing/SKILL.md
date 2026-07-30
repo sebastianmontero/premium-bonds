@@ -41,6 +41,7 @@ An expert auditor of Solana Anchor smart contracts must master four distinct tec
 ```
 
 ### 1. SVM Core Execution Architecture & Memory Model
+
 - **Account Ownership & Lamport Model**: Enforcing that only the program owning an account can modify its data or subtract lamports. Understanding System Program vs Custom Program capabilities.
 - **PDA & Canonical Bump Enforcement**: Deriving Program Derived Addresses (`find_program_address`) and ensuring non-canonical off-curve bump seeds cannot bypass uniqueness checks.
 - **Account Closing & Discriminator Clearing**: Understanding rent exemption, zero-lamport accounts, garbage collection, and preventing account revival by zeroing out data and setting `CLOSED_ACCOUNT_DISCRIMINATOR`.
@@ -48,6 +49,7 @@ An expert auditor of Solana Anchor smart contracts must master four distinct tec
 - **Cross-Program Invocations (CPI)**: Privilege propagation via `invoke` vs `invoke_signed`, CPI instruction account validation, sysvar clock/instructions validation.
 
 ### 2. Anchor Framework Constraint Machinery
+
 - **Declarative Account Constraints**: Deep knowledge of `#[derive(Accounts)]` attributes:
   - `#[account(init, payer = ..., space = ...)]`
   - `#[account(mut, has_one = authority)]`
@@ -62,6 +64,7 @@ An expert auditor of Solana Anchor smart contracts must master four distinct tec
   - `UncheckedAccount<'info>`: Raw AccountInfo bypass requiring manual validation and explicit `/// CHECK:` doc comments.
 
 ### 3. Vulnerability Categories & Edge Case Vectors
+
 - **Access Control & Account Validation**: Missing signer checks, missing owner checks, missing `has_one` checks, arbitrary account substitution.
 - **Type Confusion & Revival**: Passing one account type where another is expected, reading data from closed accounts in the same slot.
 - **CPI & Flash Loan Exploits**: Failing to validate third-party reserve, mint, or sysvar accounts during CPIs (e.g. Kamino, Solend, Raydium).
@@ -69,6 +72,7 @@ An expert auditor of Solana Anchor smart contracts must master four distinct tec
 - **Oracle Staleness & Manipulation**: Reading Pyth/Switchboard prices without checking price status, timestamp staleness, or confidence interval thresholds.
 
 ### 4. Verification & Testing Tooling
+
 - **LiteSVM**: High-performance, in-process Rust SVM harness for deterministic, fast unit/integration testing without running `solana-test-validator`.
 - **Trident / Fuzzing**: Fuzz testing instruction sequences and account state transitions.
 - **Cargo Test**: Integration testing with native Anchor IDL instruction encoders.
@@ -92,6 +96,7 @@ When an issue or vulnerability is suspected or reported, follow this 6-step life
 ```
 
 ### Step 1: Threat Modeling & Static Account Audit
+
 1. Audit every struct deriving `Accounts`:
    - Are all mutability requirements (`mut`) minimal and accurate?
    - Is every authority a `Signer<'info>`?
@@ -100,12 +105,16 @@ When an issue or vulnerability is suspected or reported, follow this 6-step life
 3. Audit all financial math for `checked_*` methods and correct order of operations.
 
 ### Step 2: Formulate Vulnerability Hypothesis
+
 Draft a precise statement of the vulnerability:
+
 - **Condition**: "In instruction `withdraw_fees`, `fee_vault` is an `UncheckedAccount` without `seeds` or `has_one` check."
 - **Impact**: "An attacker can pass their personal ATA as `fee_vault` and drain protocol fees."
 
 ### Step 3: Construct Deterministic LiteSVM PoC Test
-*Never attempt to patch code without first writing a reproducing test case!*
+
+_Never attempt to patch code without first writing a reproducing test case!_
+
 1. Refer to [litesvm-poc-template.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-contract-auditing/references/litesvm-poc-template.md) for setup boilerplate.
 2. Initialize LiteSVM environment and load compiled program binary (`.so`).
 3. Setup initial state with a victim account and an attacker keypair.
@@ -113,12 +122,15 @@ Draft a precise statement of the vulnerability:
 5. **Assert the vulnerability**: Confirm that the transaction succeeds on unpatched code (e.g. attacker succeeds in stealing funds or bypassing checks).
 
 ### Step 4: Conduct Root Cause Analysis (RCA)
+
 Determine the exact root cause:
+
 - Missing declarative constraint in Anchor account context (`#[derive(Accounts)]`).
 - Flawed math / precision loss in handler logic.
 - Misconfigured CPI account context or missing mint validation.
 
 ### Step 5: Implement Defensive Anchor-Idiomatic Fix
+
 1. Prefer declarative Anchor constraints over imperative Rust `if` checks in handler code:
    ```rust
    // Preferred: Declarative Anchor constraint
@@ -135,6 +147,7 @@ Determine the exact root cause:
 3. Replace raw math operators with `.checked_add()`, `.checked_sub()`, `.checked_mul()`, `.checked_div()`.
 
 ### Step 6: Verify Remediation & Non-Regression
+
 1. Run the LiteSVM PoC test:
    ```bash
    NO_DNA=1 cargo test test_poc_reproduce_... -- --nocapture
@@ -149,7 +162,7 @@ Determine the exact root cause:
 
 ## Core Audit & Engineering Rules
 
-1. **Always Test-First**: Write the LiteSVM PoC test that reproduces the bug *before* touching smart contract code.
+1. **Always Test-First**: Write the LiteSVM PoC test that reproduces the bug _before_ touching smart contract code.
 2. **Declarative Over Imperative**: Enforce checks in `#[derive(Accounts)]` constraints rather than writing manual `if` statements inside instruction handler bodies.
 3. **No Unchecked Silos**: Every `UncheckedAccount` MUST have a `/// CHECK:` comment and explicit validation.
 4. **Wipe on Close**: Always use Anchor's `close = destination` constraint to ensure account data is zeroed and discriminator cleared.

@@ -3,6 +3,7 @@
 ## 1. Micro-Optimizations (Storage & Field Layout)
 
 ### Field Ordering & Explicit Padding
+
 In Rust `repr(C)` structs, fields are laid out in memory in the exact order they are declared. Aligning fields from largest byte size to smallest byte size eliminates implicit compiler-inserted padding bytes.
 
 ```rust
@@ -30,6 +31,7 @@ pub struct EfficientLayout {
 ```
 
 ### Bit-Packing Flags
+
 Instead of allocating multiple 1-byte `bool` fields, pack up to 8 boolean flags into a single `u8` (or 64 flags into a `u64`) using bitwise masks.
 
 ```rust
@@ -48,7 +50,9 @@ user_state.flags &= !FLAG_ACTIVE;
 ```
 
 ### Pubkey Indexing (Replacing 32-Byte Keys with Integer IDs)
+
 If an account stores an array or list of referenced entities (e.g., token pools, whitelisted users, market assets), do NOT store repeated 32-byte `Pubkey`s. Instead:
+
 - Store a single master lookup array mapping `u16` or `u32` index IDs to `Pubkey`s.
 - Store `u16` (2 bytes) or `u32` (4 bytes) index IDs in item records.
 - **Savings**: Reduces storage overhead per record from 32 bytes down to 2 or 4 bytes (87.5% reduction!).
@@ -58,6 +62,7 @@ If an account stores an array or list of referenced entities (e.g., token pools,
 ## 2. Compute Unit (CU) Reduction Best Practices
 
 ### Lazy State Evaluation
+
 Do not process active state transitions or interest calculations for every user on every block. Instead, compute state delta lazily whenever a user initiates an instruction.
 
 ```rust
@@ -76,7 +81,9 @@ impl UserEntry {
 ```
 
 ### Cheap-Check Reordering & Fail-Fast Validation
+
 Arrange account checks and assertions in order of compute complexity:
+
 1. Cheap bitmask / signer / bump checks first.
 2. Moderate key matching and `has_one` constraints second.
 3. Heavy Borsh deserialization / zero-copy loads / math checks last.
@@ -92,6 +99,7 @@ state.process_transaction(amount)?;
 ```
 
 ### Log Stripping & Static Strings
+
 - Each `msg!("User balance: {}", balance)` call invokes dynamic string formatting engines, costing 100–300 CUs.
 - Use static string literals `msg!("TX_SUCCESS")` or strip logs in production builds using cargo features (`#[cfg(feature = "debug-logs")]`).
 
@@ -100,6 +108,7 @@ state.process_transaction(amount)?;
 ## 3. High-Throughput Macro Architectural Patterns
 
 ### Header-Only Struct + Raw Byte Dynamic Expansion
+
 For registry or ticket accounts that exceed 10 KB or grow dynamically, combine a zero-copy fixed header struct with raw byte slice access.
 
 ```rust
@@ -119,6 +128,8 @@ pub struct RegistryHeader {
 ```
 
 ### Batched Crank Transactions
+
 When updating global protocol state across thousands of users (e.g. prize distribution, liquidations, epoch yields), process updates in chunked crank transactions:
+
 - Define `draw_prepared_up_to` or `processed_index` state counters in the header.
 - Allow crank callers (bots/relayers) to process $N$ entries per instruction call within the 1.4M CU limit until the entire batch is completed.

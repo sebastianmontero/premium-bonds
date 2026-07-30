@@ -14,6 +14,7 @@ metadata:
 ## What this Skill is for
 
 Use this Skill when:
+
 - Designing or refactoring **Solana smart contracts** (Rust / Anchor) for maximum compute unit (CU) efficiency and minimal rent/storage footprint.
 - Evaluating architectural trade-offs such as **Monolithic Zero-Copy vs. Multi-PDA**, **Borsh Deserialization vs. Zero-Copy Pointer Casting**, or **Upfront Pre-Allocation vs. Dynamic Reallocation (`realloc`)**.
 - Resolving **SVM runtime bottlenecks**, BPF stack overflows (4 KB limit), heap pressure (32 KB limit), or unaligned memory access panics.

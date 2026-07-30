@@ -1,6 +1,7 @@
 # Solana Smart Contract Architectural Trade-Off Analysis
 
 When designing high-performance Solana smart contracts, every decision involves trade-offs across four key dimensions:
+
 1. **Compute Units (CU) Overhead**
 2. **Rent & SOL Storage Cost**
 3. **Transaction Write Concurrency (Account Lock Contention)**
@@ -31,6 +32,7 @@ When designing high-performance Solana smart contracts, every decision involves 
 ```
 
 ### Deep Analysis & Recommendations
+
 - **Use Monolithic Zero-Copy** when instructions require atomic cross-entry math (e.g. binary search winner selection across all ticket holders, central limit orderbooks like Serum/Phoenix).
 - **Use Multi-PDA** when operations are user-centric and high throughput is required (e.g. user staking vaults, individual user profiles, NFT minting). Independent PDAs can be modified in parallel across different slots by different validators simultaneously!
 
@@ -38,11 +40,11 @@ When designing high-performance Solana smart contracts, every decision involves 
 
 ## 2. Deserialization Framework Trade-Offs
 
-| Strategy | Compute Cost (CU) | Storage Flexibility | Type Safety & Ergonomics | Rent Cost Impact |
-| :--- | :--- | :--- | :--- | :--- |
-| **Borsh (`Account<'info, T>`)** | High (~5K–50K CUs) | High (Supports dynamic `Vec`, `String`, Enums) | High (Anchor native IDL generation) | Standard |
-| **Zero-Copy (`AccountLoader<'info, T>`)** | Very Low (~100 CUs) | Moderate (Fixed-size structs, `repr(C)`) | High (Direct struct field access) | Standard |
-| **Header-Only + Raw Byte Slicing** | Lowest (~20 CUs) | Maximum (Dynamic `realloc`, raw byte buffers) | Low (Manual offset indexing & slice casting) | Lowest (Pay-as-you-grow) |
+| Strategy                                  | Compute Cost (CU)   | Storage Flexibility                            | Type Safety & Ergonomics                     | Rent Cost Impact         |
+| :---------------------------------------- | :------------------ | :--------------------------------------------- | :------------------------------------------- | :----------------------- |
+| **Borsh (`Account<'info, T>`)**           | High (~5K–50K CUs)  | High (Supports dynamic `Vec`, `String`, Enums) | High (Anchor native IDL generation)          | Standard                 |
+| **Zero-Copy (`AccountLoader<'info, T>`)** | Very Low (~100 CUs) | Moderate (Fixed-size structs, `repr(C)`)       | High (Direct struct field access)            | Standard                 |
+| **Header-Only + Raw Byte Slicing**        | Lowest (~20 CUs)    | Maximum (Dynamic `realloc`, raw byte buffers)  | Low (Manual offset indexing & slice casting) | Lowest (Pay-as-you-grow) |
 
 ---
 

@@ -9,6 +9,7 @@
     "lint": "eslint",
     "localnet": "tsx scripts/localnet.ts",
     "devnet": "tsx scripts/devnet.ts",
+    "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "start": "next start"
   },

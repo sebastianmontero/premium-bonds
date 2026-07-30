@@ -1113,7 +1113,9 @@ async function main() {
 
       // Fetch TicketRegistry to resolve winner addresses
       const registryAcc = await rpc
-        .getAccountInfo(address(poolState.ticketRegistry), { encoding: "base64" })
+        .getAccountInfo(address(poolState.ticketRegistry), {
+          encoding: "base64",
+        })
         .send();
       if (!registryAcc || !registryAcc.value) {
         throw new Error(
