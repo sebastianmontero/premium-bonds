@@ -136,7 +136,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
-    let current_time = Clock::get()?.unix_timestamp;
+    let clock = Clock::get()?;
+    let current_time = clock.unix_timestamp;
     require!(
         current_time >= pool.current_cycle_end_at,
         PremiumBondsError::CycleNotEnded
@@ -211,7 +212,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
     draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
-    draw_cycle.harvest_slot = Clock::get()?.slot;
+    draw_cycle.harvest_slot = clock.slot;
     draw_cycle.version = 1;
 
     if yield_generated > 0 && eligible_locked_count > 0 {

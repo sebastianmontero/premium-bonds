@@ -237,7 +237,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         cycle_id: draw_cycle.cycle_id,
         prize_pot: draw_cycle.prize_pot,
         winners_count: payout_registry.winners_count,
-        timestamp: Clock::get()?.unix_timestamp,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

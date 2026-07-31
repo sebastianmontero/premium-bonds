@@ -218,6 +218,8 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         signer_seeds,
     )?;
 
+    let clock = Clock::get()?;
+
     // Create PendingRedemption receipt
     let pending = &mut ctx.accounts.pending_redemption;
     pending.pool_id = pool_id;
@@ -225,7 +227,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.user = ctx.accounts.user.key();
     pending.amount = claimable;
     pending.pst_shares_locked = pst_shares;
-    pending.requested_at = Clock::get()?.unix_timestamp;
+    pending.requested_at = clock.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
@@ -243,7 +245,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         pool_id,
         amount: claimable,
         redemption_id: pending.redemption_id,
-        timestamp: Clock::get()?.unix_timestamp,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())
