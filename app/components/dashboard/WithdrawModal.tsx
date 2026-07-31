@@ -53,9 +53,13 @@ export function WithdrawModal({
     setTxSignature(null);
 
     try {
+      let capturedSig: string | undefined;
       if (onWithdraw) {
         const sig = await onWithdraw(withdrawValue);
-        if (sig) setTxSignature(sig);
+        if (sig) {
+          capturedSig = sig;
+          setTxSignature(sig);
+        }
         setStep("confirming");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         setStep("success");
@@ -68,6 +72,7 @@ export function WithdrawModal({
         await new Promise((resolve) => setTimeout(resolve, 1500));
         setStep("success");
       }
+      onWithdrawSuccess(parsedTickets, withdrawValue, capturedSig);
     } catch (err) {
       const parsed = parseTransactionError(err);
       if (parsed.isCancellation) {
@@ -78,12 +83,11 @@ export function WithdrawModal({
       setParsedError(parsed);
       setStep("input");
     }
-  }, [canWithdraw, withdrawValue, onWithdraw]);
+  }, [canWithdraw, withdrawValue, onWithdraw, parsedTickets, onWithdrawSuccess]);
 
   const handleDone = useCallback(() => {
-    onWithdrawSuccess(parsedTickets, withdrawValue, txSignature || undefined);
     onClose();
-  }, [parsedTickets, withdrawValue, txSignature, onWithdrawSuccess, onClose]);
+  }, [onClose]);
 
   return (
     <div className="modal-backdrop animate-fade-in" onClick={onClose}>

@@ -204,6 +204,7 @@ export default function DashboardPage() {
       refetch();
       refetchDrawHistory();
       prependLocal(newActivity);
+      refetchActivity();
     }
   };
 
@@ -224,6 +225,7 @@ export default function DashboardPage() {
     if (isConnected) {
       refetch();
       prependLocal(newActivity);
+      refetchActivity();
     }
   };
 
@@ -276,6 +278,7 @@ export default function DashboardPage() {
         txSignature = await actions.claimNonReinvestedWinnings();
         refetch();
         refetchDrawHistory();
+        refetchActivity();
       }
 
       const newActivity: ActivityEntry = {
@@ -318,6 +321,7 @@ export default function DashboardPage() {
       if (isConnected) {
         txSignature = await actions.claimRedemption(id);
         refetch();
+        refetchActivity();
       }
 
       const newActivity: ActivityEntry = {

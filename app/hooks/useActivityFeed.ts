@@ -158,13 +158,16 @@ function mergeAndDeduplicate(
 
     // Check if item is optimistic act-* and is matched by an incoming evt-*
     if (item.id.startsWith("act-")) {
-      const matched = incoming.some(
-        (inc) =>
-          (item.txSignature && inc.txSignature === item.txSignature) ||
-          (inc.type === item.type &&
-            inc.amount === item.amount &&
-            inc.date === item.date)
-      );
+      const matched = incoming.some((inc) => {
+        if (item.txSignature && inc.txSignature) {
+          return item.txSignature === inc.txSignature;
+        }
+        return (
+          inc.type === item.type &&
+          inc.amount === item.amount &&
+          inc.date === item.date
+        );
+      });
       if (matched) continue; // Skip optimistic item as on-chain event is present
     }
 
@@ -212,11 +215,28 @@ export function useActivityFeed(
   const hasMoreRef = useRef(true);
   const isFetchingMoreRef = useRef(false);
   const entriesRef = useRef<ActivityEntry[]>([]);
+  const lastUserAddressRef = useRef<string | undefined>(userAddress);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep entriesRef in sync with state
   const updateEntriesState = useCallback((newEntries: ActivityEntry[]) => {
     entriesRef.current = newEntries;
     setEntries(newEntries);
+  }, []);
+
+  // Reset entries state on wallet address change to avoid cross-wallet contamination
+  useEffect(() => {
+    if (lastUserAddressRef.current !== userAddress) {
+      lastUserAddressRef.current = userAddress;
+      updateEntriesState([]);
+    }
+  }, [userAddress, updateEntriesState]);
+
+  // Cleanup pending background timers on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
   }, []);
 
   const fetchFeed = useCallback(async () => {
@@ -310,7 +330,11 @@ export function useActivityFeed(
       );
 
       if (fetchId === fetchIdRef.current) {
-        updateEntriesState(parsedEntries);
+        const mergedEntries = mergeAndDeduplicate(
+          entriesRef.current,
+          parsedEntries
+        );
+        updateEntriesState(mergedEntries);
       }
     } catch (err) {
       console.error("useActivityFeed initial fetch error:", err);
@@ -443,8 +467,13 @@ export function useActivityFeed(
     (entry: ActivityEntry) => {
       const updated = mergeAndDeduplicate(entriesRef.current, [entry]);
       updateEntriesState(updated);
+
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        fetchFeed();
+      }, 2500);
     },
-    [updateEntriesState]
+    [updateEntriesState, fetchFeed]
   );
 
   return {
