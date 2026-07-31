@@ -109,11 +109,11 @@ export function DepositModal({
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop animate-fade-in"
       onClick={() => txStage === null && onClose()}
     >
       <div
-        className="w-full max-w-md rounded-2xl glass-strong p-6 space-y-5 shadow-ambient mx-4 relative overflow-hidden"
+        className="w-full max-w-md rounded-2xl glass-strong p-6 space-y-5 shadow-ambient mx-4 relative overflow-hidden animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {txStage !== null ? (
@@ -339,9 +339,12 @@ export function DepositModal({
             {/* ── Summary ────────────────────────────────────────────────── */}
             {parsedTickets > 0 && (
               <div className="space-y-2 rounded-xl bg-surface-container/40 px-4 py-3 text-xs">
-                <div className="flex justify-between text-on-surface-variant">
+                <div className="flex justify-between items-center text-on-surface-variant">
                   <span>{t("ticketsReceived")}</span>
-                  <span className="font-semibold text-on-surface">
+                  <span
+                    key={parsedTickets > 0 ? parsedTickets : "zero"}
+                    className={`font-semibold text-on-surface ${parsedTickets > 0 ? "text-primary animate-scale-pop" : ""}`}
+                  >
                     {parsedTickets}
                   </span>
                 </div>

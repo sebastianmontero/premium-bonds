@@ -443,6 +443,7 @@ export interface UserWinningsInfo {
   totalReinvested: bigint;
   bump: number;
   registryEntryIndex: number;
+  version?: number;
 }
 
 /**
@@ -453,18 +454,19 @@ export interface UserWinningsInfo {
  * @throws {Error} If data buffer length is shorter than expected size.
  */
 export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
-  if (data.length < 73) {
+  if (data.length < 74) {
     throw new Error(`UserWinnings data too short (${data.length} bytes)`);
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  const poolId = view.getUint32(8, true);
-  const user = base58Decoder.decode(data.slice(12, 12 + 32)) as Address;
-  const unclaimedNonReinvestedWinnings = view.getBigUint64(44, true);
-  const totalClaimed = view.getBigUint64(52, true);
-  const totalReinvested = view.getBigUint64(60, true);
-  const registryEntryIndex = view.getUint32(68, true);
+  const unclaimedNonReinvestedWinnings = view.getBigUint64(8, true);
+  const totalClaimed = view.getBigUint64(16, true);
+  const totalReinvested = view.getBigUint64(24, true);
+  const poolId = view.getUint32(32, true);
+  const registryEntryIndex = view.getUint32(36, true);
+  const user = base58Decoder.decode(data.slice(40, 40 + 32)) as Address;
   const bump = view.getUint8(72);
+  const version = view.getUint8(73);
 
   return {
     poolId,
@@ -474,6 +476,7 @@ export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
     totalReinvested,
     bump,
     registryEntryIndex,
+    version,
   };
 }
 

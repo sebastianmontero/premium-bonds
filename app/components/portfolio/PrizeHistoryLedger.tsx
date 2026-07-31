@@ -99,7 +99,7 @@ export function PrizeHistoryLedger({
   };
 
   return (
-    <div className="glass-strong rounded-2xl p-6 space-y-5">
+    <div className="glass rounded-2xl p-6 space-y-5">
       {/* ── Section Header ────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

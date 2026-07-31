@@ -40,7 +40,7 @@ export function PoolCard({
 
   return (
     <div
-      className={`glass-strong relative overflow-hidden rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay" : ""}`}
+      className={`glass glass-hover relative overflow-hidden rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay" : ""}`}
     >
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">

@@ -9,6 +9,7 @@ import {
 } from "@/app/lib/formatters";
 import { PaginationControls } from "./PaginationControls";
 import { useTranslations, useFormatter } from "next-intl";
+import { CustomSelect } from "@/app/components/common/CustomSelect";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -276,39 +277,43 @@ export default function CompleteLedgerModal({
           </div>
 
           {/* Status Dropdown */}
-          <div>
-            <select
+          <div className="flex items-center">
+            <CustomSelect
               value={statusFilter}
               disabled={isLoading}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
+              onChange={(val) => {
+                setStatusFilter(val);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="all">{t("allStatuses")}</option>
-              <option value="processing">{t("processing")}</option>
-              <option value="partial">{t("reinvesting")}</option>
-              <option value="reinvested">{t("reinvested")}</option>
-            </select>
+              options={[
+                { value: "all", label: t("allStatuses") },
+                { value: "processing", label: t("processing") },
+                { value: "partial", label: t("reinvesting") },
+                { value: "reinvested", label: t("reinvested") },
+              ]}
+              ariaLabel="Filter ledger by status"
+              className="w-full"
+            />
           </div>
 
           {/* Tier Dropdown */}
-          <div>
-            <select
+          <div className="flex items-center">
+            <CustomSelect
               value={tierFilter}
               disabled={isLoading}
-              onChange={(e) => {
-                setTierFilter(e.target.value);
+              onChange={(val) => {
+                setTierFilter(val);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="all">{t("allTiers")}</option>
-              <option value="grand">{t("grandPrize")}</option>
-              <option value="runnerup">{t("runnerUp")}</option>
-              <option value="consolation">{t("consolation")}</option>
-            </select>
+              options={[
+                { value: "all", label: t("allTiers") },
+                { value: "grand", label: t("grandPrize") },
+                { value: "runnerup", label: t("runnerUp") },
+                { value: "consolation", label: t("consolation") },
+              ]}
+              ariaLabel="Filter ledger by tier"
+              className="w-full"
+            />
           </div>
 
           {/* Action Row */}

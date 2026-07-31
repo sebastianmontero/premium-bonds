@@ -22,6 +22,7 @@ import {
   loadKeypair,
   sendTx,
   updateFileContent,
+  safeStringify,
 } from "./utils";
 import { findHumaPoolAuthorityPda, findAtaAddress } from "../app/lib/bonds-sdk";
 
@@ -367,7 +368,7 @@ async function handleInit(args: string[]) {
       if (status?.value?.[0]) {
         if (status.value[0].err) {
           throw new Error(
-            `Transaction failed: ${JSON.stringify(status.value[0].err)}`
+            `Transaction failed: ${safeStringify(status.value[0].err)}`
           );
         }
         console.log("Confirmed!");

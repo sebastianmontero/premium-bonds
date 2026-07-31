@@ -2,6 +2,7 @@
 
 import React, { useMemo } from "react";
 import { useTranslations } from "next-intl";
+import { CustomSelect } from "@/app/components/common/CustomSelect";
 
 export interface PaginationControlsProps {
   /** The current 1-indexed page number. */
@@ -108,21 +109,16 @@ export function PaginationControls({
         {/* Optional Page Size Selector (Full variant on desktop) */}
         {variant === "full" && onPageSizeChange && (
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-on-surface-variant">
-            <label htmlFor="page-size-select" className="sr-only">
-              Items per page
-            </label>
-            <select
+            <CustomSelect
               id="page-size-select"
+              ariaLabel="Items per page"
               value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="rounded-lg border border-surface-bright/10 bg-[#08090E] py-1 px-2 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer"
-            >
-              {pageSizeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option} {t("perPage")}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => onPageSizeChange(val)}
+              options={pageSizeOptions.map((opt) => ({
+                value: opt,
+                label: `${opt} ${t("perPage")}`,
+              }))}
+            />
           </div>
         )}
 
@@ -144,47 +140,52 @@ export function PaginationControls({
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2.5}
+                strokeWidth={2}
                 d="M15 19l-7-7 7-7"
               />
             </svg>
-            <span className="hidden sm:inline">{t("prev")}</span>
+            <span className="hidden sm:inline">{t("previous")}</span>
           </button>
 
-          {/* Mobile Page Badge / Compact View */}
-          <div className="sm:hidden text-xs font-semibold font-mono text-on-surface px-2">
-            {safeCurrentPage} / {safeTotalPages}
-          </div>
-
-          {/* Desktop Page Number Pills (Full variant only) */}
+          {/* Numerical Page Buttons (Desktop layout only when variant is full) */}
           {variant === "full" && (
-            <div className="hidden sm:flex items-center gap-1">
-              {pageNumbers.map((page, idx) =>
-                page === "..." ? (
-                  <span
-                    key={`ellipsis-${idx}`}
-                    className="px-2 py-1 text-xs text-on-surface-variant/40"
-                  >
-                    …
-                  </span>
-                ) : (
+            <div className="hidden md:flex items-center gap-1 mx-1">
+              {pageNumbers.map((page, index) => {
+                if (page === "...") {
+                  return (
+                    <span
+                      key={`ellipsis-${index}`}
+                      className="px-2 py-1 text-xs text-on-surface-variant select-none"
+                    >
+                      …
+                    </span>
+                  );
+                }
+
+                const isCurrent = page === safeCurrentPage;
+                return (
                   <button
-                    key={`page-${page}`}
+                    key={page}
                     onClick={() => onPageChange(page)}
+                    aria-current={isCurrent ? "page" : undefined}
                     aria-label={`Go to page ${page}`}
-                    aria-current={safeCurrentPage === page ? "page" : undefined}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-mono font-semibold transition cursor-pointer ${
-                      safeCurrentPage === page
-                        ? "bg-primary text-black font-bold shadow-sm shadow-primary/20"
-                        : "border border-surface-bright/10 bg-surface-container/30 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/10"
+                    className={`rounded-lg px-3 py-1.5 text-xs font-mono font-semibold transition cursor-pointer ${
+                      isCurrent
+                        ? "bg-primary text-on-primary shadow-sm"
+                        : "bg-surface-container/30 text-on-surface hover:bg-surface-bright/10 border border-surface-bright/10"
                     }`}
                   >
                     {page}
                   </button>
-                )
-              )}
+                );
+              })}
             </div>
           )}
+
+          {/* Current Page indicator for Compact layout or Mobile */}
+          <span className="md:hidden text-xs font-mono font-semibold text-on-surface px-2">
+            {safeCurrentPage} / {safeTotalPages}
+          </span>
 
           {/* Next Page Button */}
           <button
@@ -203,7 +204,7 @@ export function PaginationControls({
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2.5}
+                strokeWidth={2}
                 d="M9 5l7 7-7 7"
               />
             </svg>

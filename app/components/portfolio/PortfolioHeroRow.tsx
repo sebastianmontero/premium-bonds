@@ -35,7 +35,11 @@ export function PortfolioHeroRow({
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {/* ── Net Worth ─────────────────────────────────────────────────── */}
-      <div className="glass-strong rounded-2xl p-6 space-y-1.5">
+      <div className="glass-strong rounded-2xl p-6 space-y-1.5 shadow-ambient relative overflow-hidden border-t-primary/50">
+        <div
+          aria-hidden="true"
+          className="absolute -top-10 -right-10 h-32 w-32 rounded-full bg-primary/15 blur-[32px] pointer-events-none"
+        />
         <div className="flex items-center gap-2">
           <svg
             width="18"
@@ -74,7 +78,7 @@ export function PortfolioHeroRow({
       </div>
 
       {/* ── Total Tickets ─────────────────────────────────────────────── */}
-      <div className="glass-strong rounded-2xl p-6 space-y-1.5">
+      <div className="glass glass-hover rounded-2xl p-6 space-y-1.5">
         <div className="flex items-center gap-2">
           <svg
             width="18"
@@ -110,7 +114,7 @@ export function PortfolioHeroRow({
       </div>
 
       {/* ── Lifetime Winnings ─────────────────────────────────────────── */}
-      <div className="glass-strong rounded-2xl p-6 space-y-1.5">
+      <div className="glass glass-hover rounded-2xl p-6 space-y-1.5">
         <div className="flex items-center gap-2">
           <svg
             width="18"
@@ -149,7 +153,7 @@ export function PortfolioHeroRow({
       </div>
 
       {/* ── Auto-Reinvested ───────────────────────────────────────────── */}
-      <div className="glass-strong rounded-2xl p-6 space-y-1.5">
+      <div className="glass glass-hover rounded-2xl p-6 space-y-1.5">
         <div className="flex items-center gap-2">
           <svg
             width="18"

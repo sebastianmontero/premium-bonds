@@ -56,6 +56,17 @@ export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {
 }
 
 /**
+ * Safely stringifies objects containing BigInt values without throwing a TypeError.
+ */
+export function safeStringify(obj: unknown, space?: string | number): string {
+  return JSON.stringify(
+    obj,
+    (_, value) => (typeof value === "bigint" ? value.toString() : value),
+    space
+  );
+}
+
+/**
  * Sends a transaction and polls for its confirmation status.
  */
 export async function sendTx(
@@ -92,7 +103,7 @@ export async function sendTx(
       if (status && status.value && status.value[0]) {
         const err = status.value[0].err;
         if (err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
+          throw new Error(`Transaction failed: ${safeStringify(err)}`);
         }
         console.log("Transaction confirmed successfully!");
         return signature;

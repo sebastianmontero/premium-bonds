@@ -13,6 +13,7 @@ import type { ScanProgress } from "@/app/hooks/useActivityFeed";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
+import { CustomSelect } from "@/app/components/common/CustomSelect";
 
 interface CompleteActivityModalProps {
   entries: ActivityEntry[];
@@ -341,23 +342,25 @@ export default function CompleteActivityModal({
           </div>
 
           {/* Type Filter & Reset */}
-          <div className="flex gap-2 items-center">
-            <select
+          <div className="flex gap-2 items-center min-w-0">
+            <CustomSelect
               value={typeFilter}
               disabled={isLoading}
-              onChange={(e) => {
-                setTypeFilter(e.target.value);
+              onChange={(val) => {
+                setTypeFilter(val);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 px-3 text-xs text-on-surface focus:border-primary focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="all">{t("allTypes")}</option>
-              <option value="deposit">{t("deposits")}</option>
-              <option value="win">{t("prizesAndClaims")}</option>
-              <option value="auto-reinvest">{t("autoReinvest")}</option>
-              <option value="withdraw">{t("withdrawals")}</option>
-              <option value="claim-redemption">{t("redemptions")}</option>
-            </select>
+              options={[
+                { value: "all", label: t("allTypes") },
+                { value: "deposit", label: t("deposits") },
+                { value: "win", label: t("prizesAndClaims") },
+                { value: "auto-reinvest", label: t("autoReinvest") },
+                { value: "withdraw", label: t("withdrawals") },
+                { value: "claim-redemption", label: t("redemptions") },
+              ]}
+              ariaLabel="Filter activity by type"
+              className="w-full sm:w-56"
+            />
             {(searchTerm || typeFilter !== "all") && (
               <button
                 onClick={resetFilters}

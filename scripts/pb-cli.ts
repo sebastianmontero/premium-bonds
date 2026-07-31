@@ -16,7 +16,7 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { sendTx } from "./utils";
+import { sendTx, safeStringify } from "./utils";
 import {
   findPrizePoolPda,
   findGlobalConfigPda,
@@ -169,7 +169,7 @@ async function setAccount(
   const json = (await res.json()) as { error?: unknown };
   if (json.error) {
     throw new Error(
-      `RPC Error setting account ${addr}: ${JSON.stringify(json.error)}`
+      `RPC Error setting account ${addr}: ${safeStringify(json.error)}`
     );
   }
 }
@@ -203,6 +203,12 @@ export async function executeHarvest({
   const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
+  if (poolState.prizeTiers.length === 0) {
+    throw new Error(
+      `Prize tiers have not been configured for pool ${poolId}. Please configure prize tiers before harvesting (e.g., 'npm run localnet set-prize-tiers').`
+    );
+  }
+
   const pstMintStr = stateAddresses.pstMint;
   const humaPoolStateStr = stateAddresses.humaPoolState;
   if (!pstMintStr || !humaPoolStateStr) {
@@ -220,6 +226,15 @@ export async function executeHarvest({
   }
 
   const targetCycleId = poolState.currentDrawCycleId;
+
+  if (poolState.isFrozenForDraw) {
+    const frozenCycleId =
+      poolState.currentDrawCycleId > 1 ? poolState.currentDrawCycleId - 1 : 1;
+    console.log(
+      `Notice: Pool ${poolId} is already frozen for draw cycle ${frozenCycleId}. Harvest yield has already been committed.`
+    );
+    return { drawCycleId: frozenCycleId };
+  }
 
   console.log(`Pool Details:
   Current Draw Cycle ID: ${targetCycleId}
@@ -514,7 +529,7 @@ export async function executeReveal({
           if (status && status.value && status.value[0]) {
             const err = status.value[0].err;
             if (err) {
-              throw new Error(`Transaction failed: ${JSON.stringify(err)}`);
+              throw new Error(`Transaction failed: ${safeStringify(err)}`);
             }
             txSuccess = true;
             break;
@@ -535,7 +550,13 @@ export async function executeReveal({
           !msg.includes("178d") &&
           !msg.includes("178e") &&
           !msg.includes("1790") &&
-          !msg.includes("SwitchboardRandomnessTooOld")
+          !msg.includes("6029") &&
+          !msg.includes("6030") &&
+          !msg.includes("6031") &&
+          !msg.includes("6032") &&
+          !msg.includes("SwitchboardRandomnessTooOld") &&
+          !msg.includes("InstructionError") &&
+          !msg.includes("Custom")
         ) {
           throw err;
         }
@@ -902,7 +923,7 @@ async function main() {
   Current Cycle End At: ${new Date(state.currentCycleEndAt * 1000).toLocaleString()}
   Is Frozen For Draw: ${state.isFrozenForDraw}
   Current Draw Cycle ID: ${state.currentDrawCycleId}
-  Prize Tiers: ${JSON.stringify(state.prizeTiers)}
+  Prize Tiers: ${safeStringify(state.prizeTiers)}
   Next Redemption ID: ${state.nextRedemptionId}
   Total Fees Accrued: ${formatAmount(state.totalFeesAccrued)}
   Total Fees Withdrawn: ${formatAmount(state.totalFeesWithdrawn)}
@@ -1285,10 +1306,10 @@ async function main() {
         const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
 
         const filters = [
-          { dataSize: 73n },
+          { dataSize: 138n },
           {
             memcmp: {
-              offset: 8n,
+              offset: 32n,
               bytes: poolIdBase58 as Base58EncodedBytes,
               encoding: "base58" as const,
             },
