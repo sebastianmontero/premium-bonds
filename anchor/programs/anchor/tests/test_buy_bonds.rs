@@ -741,3 +741,16 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
         "Expected InvalidUserEntryHint, got: {err}"
     );
 }
+
+#[test]
+fn test_buy_bonds_fails_math_overflow() {
+    let mut ctx = setup_e2e(10);
+    // Inject registry with u32::MAX pending tickets to trigger overflow on addition
+    common::inject_registry(&mut ctx.svm, ctx.ticket_registry, 1, 1000, 0, u32::MAX);
+
+    let err = send_e2e_buy_bonds(&mut ctx, 1).unwrap_err();
+    assert!(
+        err.contains("MathOverflow") || err.contains("0x177c"),
+        "Expected MathOverflow, got: {err}"
+    );
+}

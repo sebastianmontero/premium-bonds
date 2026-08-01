@@ -1088,3 +1088,40 @@ fn build_claim_redemption_ix(
         data: anchor::instruction::ClaimRedemption {}.data(),
     }
 }
+
+#[test]
+fn test_withdraw_fees_fails_invalid_fee_wallet() {
+    let mut ctx = setup_e2e(10);
+    let dummy = Keypair::new().pubkey();
+
+    let wrong_wallet = create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &ctx.admin.pubkey());
+
+    let mut ix = build_withdraw_fees_ix(
+        &ctx.svm,
+        ctx.admin.pubkey(),
+        1,
+        0,
+        pool_pst_vault_pda(1).0,
+        dummy,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        dummy,
+        1_000_000,
+    );
+
+    for meta in ix.accounts.iter_mut() {
+        if meta.pubkey == read_pool_state(&ctx.svm, 1).fee_wallet {
+            meta.pubkey = wrong_wallet;
+        }
+    }
+
+    let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
+    assert!(res.is_err(), "Must fail with incorrect fee wallet");
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(
+        err_str.contains("InvalidFeeWallet") || err_str.contains("Constraint"),
+        "Expected InvalidFeeWallet error, got: {}",
+        err_str
+    );
+}
