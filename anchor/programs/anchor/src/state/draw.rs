@@ -127,9 +127,9 @@ pub struct Winner {
 
 impl Winner {
     /// Returns the un-reinvested remainder of the prize.
-    pub fn claimable_amount(&self) -> u64 {
+    pub fn claimable_amount(&self) -> Result<u64> {
         self.amount_owed
             .checked_sub(self.amount_reinvested)
-            .unwrap()
+            .ok_or(PremiumBondsError::MathOverflow.into())
     }
 }

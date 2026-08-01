@@ -202,7 +202,10 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     // 3. Update State
     {
         let mut pool = ctx.accounts.pool.load_mut()?;
-        pool.total_deposited_principal = pool.total_deposited_principal.checked_add(amount).unwrap();
+        pool.total_deposited_principal = pool
+            .total_deposited_principal
+            .checked_add(amount)
+            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
     }
 
     let user_key = ctx.accounts.user.key();

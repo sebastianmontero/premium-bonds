@@ -104,7 +104,7 @@ pub fn handle(
     let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
 
     // ── 2. Calculate remaining amount and bonds for this batch ────────────────
-    let remaining_current = winner.claimable_amount();
+    let remaining_current = winner.claimable_amount()?;
     let already_reinvested = winner.amount_reinvested;
 
     let accumulated = user_winnings.unclaimed_non_reinvested_winnings;

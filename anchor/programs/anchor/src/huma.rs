@@ -88,14 +88,11 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
         return usdc_amount; // 1:1 if pool is empty
     }
     let numerator = (usdc_amount as u128)
-        .checked_mul(pst_supply as u128)
-        .unwrap()
-        .checked_add(total_assets)
-        .unwrap()
-        .checked_sub(1)
-        .unwrap();
-    let shares = numerator.checked_div(total_assets).unwrap();
-    shares.try_into().unwrap()
+        .saturating_mul(pst_supply as u128)
+        .saturating_add(total_assets)
+        .saturating_sub(1);
+    let shares = numerator / total_assets;
+    shares.try_into().unwrap_or(u64::MAX)
 }
 
 /// Calculates the USDC value of a given number of $PST shares.
@@ -115,11 +112,9 @@ pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) 
         return pst_amount; // 1:1 if no supply
     }
     let value = (pst_amount as u128)
-        .checked_mul(total_assets)
-        .unwrap()
-        .checked_div(pst_supply as u128)
-        .unwrap();
-    value.try_into().unwrap()
+        .saturating_mul(total_assets)
+        / (pst_supply as u128);
+    value.try_into().unwrap_or(u64::MAX)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

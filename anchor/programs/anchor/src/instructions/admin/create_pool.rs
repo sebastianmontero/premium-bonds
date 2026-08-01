@@ -150,7 +150,7 @@ pub fn handle(
     pool.version = 1;
 
     let clock = Clock::get()?;
-    pool.advance_cycle_end_at(clock.unix_timestamp);
+    pool.advance_cycle_end_at(clock.unix_timestamp)?;
 
     let initial_len = ctx.accounts.ticket_registry.to_account_info().data_len();
     require!(

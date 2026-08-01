@@ -178,7 +178,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     for tier_idx in 0..(pool.prize_tiers_count as usize) {
         let tier = &pool.prize_tiers[tier_idx];
-        let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot);
+        let prize_per_winner = tier.calculate_prize(draw_cycle.prize_pot)?;
 
         for i in 0..tier.num_winners {
             let winning_index = derive_random_index(

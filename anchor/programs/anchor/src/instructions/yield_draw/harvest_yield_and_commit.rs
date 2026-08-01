@@ -185,26 +185,31 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         let fees_in_vault = pool
             .total_fees_accrued
             .checked_sub(pool.total_fees_withdrawn)
-            .unwrap();
+            .ok_or(PremiumBondsError::MathOverflow)?;
 
         let book_value = pool
             .total_deposited_principal
             .checked_add(fees_in_vault)
-            .unwrap()
+            .ok_or(PremiumBondsError::MathOverflow)?
             .checked_add(pool.total_prizes_allocated)
-            .unwrap();
+            .ok_or(PremiumBondsError::MathOverflow)?;
 
         current_value.saturating_sub(book_value)
     } else {
         0
     };
 
-    let fee = pool.calculate_fee(yield_generated);
-    let net_yield = yield_generated.checked_sub(fee).unwrap();
+    let fee = pool.calculate_fee(yield_generated)?;
+    let net_yield = yield_generated
+        .checked_sub(fee)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     // Accrue fee (accounting only — no token transfer)
     if fee > 0 {
-        pool.total_fees_accrued = pool.total_fees_accrued.checked_add(fee).unwrap();
+        pool.total_fees_accrued = pool
+            .total_fees_accrued
+            .checked_add(fee)
+            .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
     // ── Draw Cycle creation ─────────────────────────────────────────────────
@@ -235,8 +240,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.prize_pot = net_yield;
     draw_cycle.cycle_fee_collected = fee;
 
-    pool.current_draw_cycle_id = pool.current_draw_cycle_id.checked_add(1).unwrap();
-    pool.advance_cycle_end_at(current_time);
+    pool.current_draw_cycle_id = pool
+        .current_draw_cycle_id
+        .checked_add(1)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    pool.advance_cycle_end_at(current_time)?;
 
     msg!(
         "HarvestYieldAndCommit: cycle={}, pst_balance={}, current_value={}, yield={}, fee={}, prize_pot={}",

@@ -92,6 +92,13 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
     for (i, tier) in tiers.iter().enumerate() {
         pool.prize_tiers[i] = *tier;
     }
+    for i in tiers.len()..MAX_PRIZE_TIERS {
+        pool.prize_tiers[i] = PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0; 2],
+        };
+    }
 
     Ok(())
 }

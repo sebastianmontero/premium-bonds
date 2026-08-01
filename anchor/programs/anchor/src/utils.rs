@@ -11,14 +11,14 @@ use std::convert::TryInto;
 ///
 /// # Returns
 /// * `u64` - The calculated fee.
-pub fn calculate_percentage_fee(amount: u64, fee_basis_points: u16) -> u64 {
-    (amount as u128)
+pub fn calculate_percentage_fee(amount: u64, fee_basis_points: u16) -> Result<u64> {
+    let fee = (amount as u128)
         .checked_mul(fee_basis_points as u128)
-        .unwrap()
+        .ok_or(PremiumBondsError::MathOverflow)?
         .checked_div(10000)
-        .unwrap()
-        .try_into()
-        .unwrap()
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    fee.try_into()
+        .map_err(|_| PremiumBondsError::MathOverflow.into())
 }
 
 /// Derive a deterministic random ticket index from a seed and contextual inputs.
@@ -131,44 +131,44 @@ mod tests {
 
     #[test]
     fn fee_zero_amount() {
-        assert_eq!(calculate_percentage_fee(0, 500), 0);
+        assert_eq!(calculate_percentage_fee(0, 500).unwrap(), 0);
     }
 
     #[test]
     fn fee_zero_bps() {
-        assert_eq!(calculate_percentage_fee(1_000_000, 0), 0);
+        assert_eq!(calculate_percentage_fee(1_000_000, 0).unwrap(), 0);
     }
 
     #[test]
     fn fee_full_100_percent() {
         // 10 000 bps == 100 %
-        assert_eq!(calculate_percentage_fee(500, 10_000), 500);
+        assert_eq!(calculate_percentage_fee(500, 10_000).unwrap(), 500);
     }
 
     #[test]
     fn fee_50_percent() {
-        assert_eq!(calculate_percentage_fee(1_000, 5_000), 500);
+        assert_eq!(calculate_percentage_fee(1_000, 5_000).unwrap(), 500);
     }
 
     #[test]
     fn fee_1_bps_rounds_down() {
         // 1 bps of 9_999 → 9_999 / 10_000 = 0 (integer truncation)
-        assert_eq!(calculate_percentage_fee(9_999, 1), 0);
+        assert_eq!(calculate_percentage_fee(9_999, 1).unwrap(), 0);
         // 1 bps of 10_000 → 1
-        assert_eq!(calculate_percentage_fee(10_000, 1), 1);
+        assert_eq!(calculate_percentage_fee(10_000, 1).unwrap(), 1);
     }
 
     #[test]
     fn fee_typical_protocol_fee() {
         // 250 bps (2.5%) of 1_000_000 lamports → 25_000
-        assert_eq!(calculate_percentage_fee(1_000_000, 250), 25_000);
+        assert_eq!(calculate_percentage_fee(1_000_000, 250).unwrap(), 25_000);
     }
 
     #[test]
     fn fee_large_amount() {
         // ensure no overflow for a large but realistic bond amount
         let amount: u64 = 1_000_000_000_000; // 1 trillion lamports
-        let fee = calculate_percentage_fee(amount, 100); // 1 %
+        let fee = calculate_percentage_fee(amount, 100).unwrap(); // 1 %
         assert_eq!(fee, 10_000_000_000);
     }
 
@@ -176,7 +176,7 @@ mod tests {
     fn fee_max_u64_with_1_bps() {
         // (u64::MAX as u128) * 1 / 10_000 must fit back in u64
         let amount = u64::MAX / 10_000; // keeps result within u64
-        let fee = calculate_percentage_fee(amount, 1);
+        let fee = calculate_percentage_fee(amount, 1).unwrap();
         assert_eq!(fee, amount / 10_000);
     }
 

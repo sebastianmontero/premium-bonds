@@ -40,12 +40,13 @@ pub struct PrizeTier {
 
 impl PrizeTier {
     /// Calculates the prize amount based on the pool's total prize pot and basis points.
-    pub fn calculate_prize(&self, prize_pot: u64) -> u64 {
-        (prize_pot as u128)
+    pub fn calculate_prize(&self, prize_pot: u64) -> Result<u64> {
+        let prize = (prize_pot as u128)
             .checked_mul(self.basis_points as u128)
-            .unwrap()
+            .ok_or(PremiumBondsError::MathOverflow)?
             .checked_div(10_000)
-            .unwrap() as u64
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        prize.try_into().map_err(|_| PremiumBondsError::MathOverflow.into())
     }
 }
 
@@ -133,15 +134,20 @@ impl PrizePool {
     }
 
     /// Calculates the protocol fee from a yield harvest.
-    pub fn calculate_fee(&self, yield_amount: u64) -> u64 {
+    pub fn calculate_fee(&self, yield_amount: u64) -> Result<u64> {
         calculate_percentage_fee(yield_amount, self.fee_basis_points)
     }
 
     /// Advances the current cycle end timestamp.
-    pub fn advance_cycle_end_at(&mut self, current_time: i64) {
+    pub fn advance_cycle_end_at(&mut self, current_time: i64) -> Result<()> {
+        let added_seconds = self
+            .stake_cycle_duration_hrs
+            .checked_mul(3600)
+            .ok_or(PremiumBondsError::MathOverflow)?;
         self.current_cycle_end_at = current_time
-            .checked_add(self.stake_cycle_duration_hrs.checked_mul(3600).unwrap())
-            .unwrap();
+            .checked_add(added_seconds)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
     }
 
     /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
@@ -177,9 +183,14 @@ impl PrizePool {
         pending_count: u32,
         capacity: u32,
     ) -> Result<()> {
-        let current_total = active_count + pending_count;
+        let current_total = active_count
+            .checked_add(pending_count)
+            .ok_or(PremiumBondsError::RegistryFull)?;
+        let new_total = current_total
+            .checked_add(bonds_to_buy)
+            .ok_or(PremiumBondsError::RegistryFull)?;
         require!(
-            current_total + bonds_to_buy <= capacity,
+            new_total <= capacity,
             PremiumBondsError::RegistryFull
         );
         Ok(())
@@ -264,12 +275,12 @@ mod tests {
 
     #[test]
     fn prize_zero_pot() {
-        assert_eq!(tier(5_000, 1).calculate_prize(0), 0);
+        assert_eq!(tier(5_000, 1).calculate_prize(0).unwrap(), 0);
     }
 
     #[test]
     fn prize_zero_basis_points() {
-        assert_eq!(tier(0, 1).calculate_prize(1_000_000), 0);
+        assert_eq!(tier(0, 1).calculate_prize(1_000_000).unwrap(), 0);
     }
 
     // ── Percentage correctness ────────────────────────────────────────────────
@@ -277,33 +288,33 @@ mod tests {
     #[test]
     fn prize_100_percent() {
         // 10 000 bps = 100 %: prize equals the full pot
-        assert_eq!(tier(10_000, 1).calculate_prize(500_000), 500_000);
+        assert_eq!(tier(10_000, 1).calculate_prize(500_000).unwrap(), 500_000);
     }
 
     #[test]
     fn prize_50_percent() {
-        assert_eq!(tier(5_000, 1).calculate_prize(1_000_000), 500_000);
+        assert_eq!(tier(5_000, 1).calculate_prize(1_000_000).unwrap(), 500_000);
     }
 
     #[test]
     fn prize_25_percent() {
-        assert_eq!(tier(2_500, 1).calculate_prize(1_000_000), 250_000);
+        assert_eq!(tier(2_500, 1).calculate_prize(1_000_000).unwrap(), 250_000);
     }
 
     #[test]
     fn prize_10_percent() {
-        assert_eq!(tier(1_000, 1).calculate_prize(1_000_000), 100_000);
+        assert_eq!(tier(1_000, 1).calculate_prize(1_000_000).unwrap(), 100_000);
     }
 
     #[test]
     fn prize_1_percent() {
-        assert_eq!(tier(100, 1).calculate_prize(1_000_000), 10_000);
+        assert_eq!(tier(100, 1).calculate_prize(1_000_000).unwrap(), 10_000);
     }
 
     #[test]
     fn prize_1_basis_point() {
         // 1 bps of 10 000 = 1
-        assert_eq!(tier(1, 1).calculate_prize(10_000), 1);
+        assert_eq!(tier(1, 1).calculate_prize(10_000).unwrap(), 1);
     }
 
     // ── Rounding (always truncates) ───────────────────────────────────────────
@@ -311,13 +322,13 @@ mod tests {
     #[test]
     fn prize_rounds_down_below_one() {
         // 1 bps of 9 999 = 0.9999 → 0
-        assert_eq!(tier(1, 1).calculate_prize(9_999), 0);
+        assert_eq!(tier(1, 1).calculate_prize(9_999).unwrap(), 0);
     }
 
     #[test]
     fn prize_rounds_down_fractional() {
         // 1 bps of 19 999 = 1.9999 → 1
-        assert_eq!(tier(1, 1).calculate_prize(19_999), 1);
+        assert_eq!(tier(1, 1).calculate_prize(19_999).unwrap(), 1);
     }
 
     // ── num_winners does not affect the per-winner prize amount ───────────────
@@ -326,9 +337,9 @@ mod tests {
     fn prize_independent_of_num_winners() {
         // calculate_prize returns the tier's total share; callers use it per winner.
         let pot = 2_000_000u64;
-        assert_eq!(tier(1_000, 1).calculate_prize(pot), 200_000);
-        assert_eq!(tier(1_000, 5).calculate_prize(pot), 200_000);
-        assert_eq!(tier(1_000, 50).calculate_prize(pot), 200_000);
+        assert_eq!(tier(1_000, 1).calculate_prize(pot).unwrap(), 200_000);
+        assert_eq!(tier(1_000, 5).calculate_prize(pot).unwrap(), 200_000);
+        assert_eq!(tier(1_000, 50).calculate_prize(pot).unwrap(), 200_000);
     }
 
     // ── Realistic scenarios ───────────────────────────────────────────────────
@@ -337,14 +348,14 @@ mod tests {
     fn prize_typical_jackpot_50_sol() {
         // Jackpot tier (50 %) of 50 SOL (50_000_000_000 lamports) = 25 SOL
         let pot: u64 = 50_000_000_000;
-        assert_eq!(tier(5_000, 1).calculate_prize(pot), 25_000_000_000);
+        assert_eq!(tier(5_000, 1).calculate_prize(pot).unwrap(), 25_000_000_000);
     }
 
     #[test]
     fn prize_consolation_tier_1pct_10_sol() {
         // 1 % of 10 SOL = 0.1 SOL = 100_000_000 lamports
         let pot: u64 = 10_000_000_000;
-        assert_eq!(tier(100, 10).calculate_prize(pot), 100_000_000);
+        assert_eq!(tier(100, 10).calculate_prize(pot).unwrap(), 100_000_000);
     }
 
     #[test]
@@ -352,15 +363,15 @@ mod tests {
         // u128 intermediate must absorb the multiplication without overflow
         let pot: u64 = u64::MAX / 10_000;
         // 10 000 bps returns the full pot
-        assert_eq!(tier(10_000, 1).calculate_prize(pot), pot);
+        assert_eq!(tier(10_000, 1).calculate_prize(pot).unwrap(), pot);
     }
 
     #[test]
     fn prize_multiple_tiers_sum_to_full_pot() {
         // A two-tier config where bps sums to 10 000 should cover the entire pot
         let pot: u64 = 1_000_000;
-        let jackpot = tier(7_000, 1).calculate_prize(pot); // 70 %
-        let consolation = tier(3_000, 5).calculate_prize(pot); // 30 %
+        let jackpot = tier(7_000, 1).calculate_prize(pot).unwrap(); // 70 %
+        let consolation = tier(3_000, 5).calculate_prize(pot).unwrap(); // 30 %
         assert_eq!(jackpot + consolation, pot);
     }
 
@@ -370,29 +381,29 @@ mod tests {
 
     #[test]
     fn fee_zero_yield() {
-        assert_eq!(default_pool(500, 24).calculate_fee(0), 0);
+        assert_eq!(default_pool(500, 24).calculate_fee(0).unwrap(), 0);
     }
 
     #[test]
     fn fee_zero_bps() {
-        assert_eq!(default_pool(0, 24).calculate_fee(1_000_000), 0);
+        assert_eq!(default_pool(0, 24).calculate_fee(1_000_000).unwrap(), 0);
     }
 
     #[test]
     fn fee_100_percent() {
-        assert_eq!(default_pool(10_000, 24).calculate_fee(888_888), 888_888);
+        assert_eq!(default_pool(10_000, 24).calculate_fee(888_888).unwrap(), 888_888);
     }
 
     #[test]
     fn fee_50_percent() {
-        assert_eq!(default_pool(5_000, 24).calculate_fee(1_000_000), 500_000);
+        assert_eq!(default_pool(5_000, 24).calculate_fee(1_000_000).unwrap(), 500_000);
     }
 
     #[test]
     fn fee_typical_250_bps() {
         // 2.5 % of 10 SOL (10_000_000_000 lamports) = 0.25 SOL
         assert_eq!(
-            default_pool(250, 24).calculate_fee(10_000_000_000),
+            default_pool(250, 24).calculate_fee(10_000_000_000).unwrap(),
             250_000_000
         );
     }
@@ -400,15 +411,15 @@ mod tests {
     #[test]
     fn fee_rounds_down() {
         // 1 bps of 9 999 = 0.9999 → 0; 10 000 → 1
-        assert_eq!(default_pool(1, 24).calculate_fee(9_999), 0);
-        assert_eq!(default_pool(1, 24).calculate_fee(10_000), 1);
+        assert_eq!(default_pool(1, 24).calculate_fee(9_999).unwrap(), 0);
+        assert_eq!(default_pool(1, 24).calculate_fee(10_000).unwrap(), 1);
     }
 
     #[test]
     fn fee_large_yield_no_overflow() {
         // 1 % of 1 trillion lamports = 10 billion
         assert_eq!(
-            default_pool(100, 24).calculate_fee(1_000_000_000_000),
+            default_pool(100, 24).calculate_fee(1_000_000_000_000).unwrap(),
             10_000_000_000
         );
     }
@@ -420,7 +431,7 @@ mod tests {
     #[test]
     fn advance_adds_hours_as_seconds() {
         let mut pool = default_pool(500, 24);
-        pool.advance_cycle_end_at(1_000_000_000);
+        pool.advance_cycle_end_at(1_000_000_000).unwrap();
         // 24 h × 3 600 s = 86 400 s
         assert_eq!(pool.current_cycle_end_at, 1_000_000_000 + 86_400);
     }
@@ -428,7 +439,7 @@ mod tests {
     #[test]
     fn advance_from_zero_timestamp() {
         let mut pool = default_pool(500, 48);
-        pool.advance_cycle_end_at(0);
+        pool.advance_cycle_end_at(0).unwrap();
         assert_eq!(pool.current_cycle_end_at, 48 * 3_600);
     }
 
@@ -436,7 +447,7 @@ mod tests {
     fn advance_one_hour_cycle() {
         let mut pool = default_pool(500, 1);
         let now = 1_700_000_000i64;
-        pool.advance_cycle_end_at(now);
+        pool.advance_cycle_end_at(now).unwrap();
         assert_eq!(pool.current_cycle_end_at, now + 3_600);
     }
 
@@ -444,7 +455,7 @@ mod tests {
     fn advance_weekly_cycle() {
         let mut pool = default_pool(500, 168); // 7 days = 168 h
         let now = 1_700_000_000i64;
-        pool.advance_cycle_end_at(now);
+        pool.advance_cycle_end_at(now).unwrap();
         assert_eq!(pool.current_cycle_end_at, now + 168 * 3_600);
     }
 
@@ -453,9 +464,9 @@ mod tests {
         // Each call uses the *supplied* current_time, not the stored value.
         let mut pool = default_pool(500, 24);
         let t1 = 1_000_000_000i64;
-        pool.advance_cycle_end_at(t1);
+        pool.advance_cycle_end_at(t1).unwrap();
         let t2 = pool.current_cycle_end_at; // t1 + 86 400
-        pool.advance_cycle_end_at(t2); // supplies t2 as current; adds another 86 400
+        pool.advance_cycle_end_at(t2).unwrap(); // supplies t2 as current; adds another 86 400
         assert_eq!(pool.current_cycle_end_at, t1 + 2 * 86_400);
     }
 
@@ -464,7 +475,7 @@ mod tests {
         // Year ~2100 (4 102 444 800 s) + 24 h must not overflow i64
         let far_future = 4_102_444_800i64;
         let mut pool = default_pool(500, 24);
-        pool.advance_cycle_end_at(far_future);
+        pool.advance_cycle_end_at(far_future).unwrap();
         assert_eq!(pool.current_cycle_end_at, far_future + 86_400);
     }
 
@@ -472,7 +483,7 @@ mod tests {
     fn advance_does_not_mutate_other_fields() {
         let mut pool = default_pool(250, 24);
         pool.total_deposited_principal = 1_234_567;
-        pool.advance_cycle_end_at(1_000_000);
+        pool.advance_cycle_end_at(1_000_000).unwrap();
         assert_eq!(pool.total_deposited_principal, 1_234_567);
         assert_eq!(pool.fee_basis_points, 250);
         assert_eq!(pool.stake_cycle_duration_hrs, 24);

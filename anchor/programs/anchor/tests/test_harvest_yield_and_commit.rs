@@ -778,7 +778,7 @@ fn test_harvest_fails_math_overflow() {
 
     let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
     assert!(
-        err.contains("ProgramFailedToComplete"),
-        "Expected ProgramFailedToComplete panic (MathOverflow), got: {err}"
+        err.contains("MathOverflow"),
+        "Expected MathOverflow error, got: {err}"
     );
 }
