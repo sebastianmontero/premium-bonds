@@ -335,6 +335,13 @@ fn test_reinvest_fails_already_paid() {
     assert!(err.contains("AlreadyClaimed"), "got: {err}");
 }
 
+#[test]
+fn test_reinvest_fails_winner_index_out_of_bounds() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let err = send(&mut ctx, 0, 1, 10).unwrap_err();
+    assert!(err.contains("InvalidIndices"), "got: {err}");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Happy-Path Tests (pure accounting — no CPI needed)
 // ═══════════════════════════════════════════════════════════════════════════════

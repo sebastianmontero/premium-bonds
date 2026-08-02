@@ -14,9 +14,6 @@ pub enum PremiumBondsError {
     /// Invalid bond quantity.
     #[msg("Invalid bond quanitity.")]
     InvalidBondQuantity,
-    /// Invalid collateral amount.
-    #[msg("Invalid collateral amount.")]
-    InvalidCollateralAmount,
     /// The prize pool registration capability has hit absolute capacity constraints.
     #[msg("The prize pool registration capability has hit absolute capacity constraints.")]
     RegistryFull,

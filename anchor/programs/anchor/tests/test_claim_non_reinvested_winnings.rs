@@ -370,3 +370,78 @@ fn test_claim_fails_invalid_mode_mint() {
         "Expected InvalidModeMint, got: {err}"
     );
 }
+
+fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
+    let (pda, _) = pool_pda(pool_id);
+    let mut pool = common::read_pool_state(svm, pool_id);
+    pool.total_prizes_allocated = amount;
+    use anchor_lang::Discriminator;
+    let mut data = vec![];
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
+    let mut account = svm.get_account(&pda).unwrap();
+    account.data = data;
+    svm.set_account(pda, account).unwrap();
+}
+
+#[test]
+fn test_claim_non_reinvested_winnings_e2e_happy_path() {
+    let mut ctx = common::setup_e2e(10);
+    let pool_pst_vault = pool_pst_vault_pda(1).0;
+
+    let huma_pool_mode_token = common::create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // Setup user winnings with 500_000 unclaimed winnings
+    let (user_winnings_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 500_000, 0, 0, 0);
+
+    // Update pool total_prizes_allocated = 1_000_000 to prevent MathOverflow underflow
+    set_pool_prizes_allocated(&mut ctx.svm, 1, 1_000_000);
+
+    // Fund pool_pst_vault with 1_000_000 PST tokens
+    inject_token_account(&mut ctx.svm, pool_pst_vault, ctx.pst_mint, pool_pda(1).0, 1_000_000);
+
+    // Send claim instruction
+    let ix = build_claim_ix_with_redemption_id(
+        ctx.user.pubkey(),
+        1,
+        ctx.pst_mint,
+        0,
+        ctx.huma_pool_state,
+        huma_pool_mode_token,
+    );
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings");
+
+    // Assert UserWinnings state updates
+    let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
+    let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(uw.total_claimed, 500_000);
+
+    // Assert PrizePool state updates
+    let pool_account = ctx.svm.get_account(&pool_pda(1).0).unwrap();
+    let pool = anchor::PrizePool::try_deserialize(&mut pool_account.data.as_slice()).unwrap();
+    assert_eq!(pool.total_prizes_allocated, 500_000); // 1_000_000 - 500_000
+    assert_eq!(pool.next_redemption_id, 1);
+    assert_eq!(pool.total_pending_redemptions, 500_000);
+
+    // Assert PendingRedemption PDA creation and all 7 fields
+    let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
+    let pr_account = ctx.svm.get_account(&pending_redemption_key).unwrap();
+    let pr = anchor::PendingRedemption::try_deserialize(&mut pr_account.data.as_slice()).unwrap();
+    assert_eq!(pr.pool_id, 1);
+    assert_eq!(pr.redemption_id, 0);
+    assert_eq!(pr.user, ctx.user.pubkey());
+    assert_eq!(pr.amount, 500_000);
+    assert!(pr.pst_shares_locked > 0);
+    assert_eq!(pr.huma_request_id, 0);
+    assert_eq!(pr.version, 1);
+}

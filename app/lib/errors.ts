@@ -45,19 +45,18 @@ const ANCHOR_CUSTOM_ERRORS: Record<
     actionable: "Please wait for the administrator to activate this pool.",
   },
   6001: {
+    name: "InvalidPoolStatus",
+    message: "Invalid pool status value.",
+  },
+  6002: {
     name: "CycleNotEnded",
     message: "The current stake cycle has not yet ended.",
     actionable: "Please wait until the current draw cycle completes.",
   },
-  6002: {
+  6003: {
     name: "InvalidBondQuantity",
     message: "Invalid bond quantity specified.",
     actionable: "Please enter a valid ticket quantity greater than zero.",
-  },
-  6003: {
-    name: "InvalidCollateralAmount",
-    message: "Invalid collateral amount.",
-    actionable: "Ensure your USDC deposit meets the minimum requirement.",
   },
   6004: {
     name: "RegistryFull",

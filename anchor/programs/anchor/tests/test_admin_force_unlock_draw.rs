@@ -191,16 +191,23 @@ fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<(), String> {
 #[test]
 fn test_admin_force_unlock_happy_path() {
     let admin = Keypair::new();
-    let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
+    let mut ctx = setup_with_amounts(
+        &admin,
+        anchor::DrawStatus::AwaitingRandomness,
+        1_000_000, // prize_pot
+        100_000,   // cycle_fee_collected
+        2_500_000, // total_prizes_allocated
+        300_000,   // total_fees_accrued
+    );
 
     send_force_unlock(&mut ctx, &admin).unwrap();
 
-    // Verify status is ForceUnlocked and pool is unfrozen and balances are decremented
+    // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
     let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
     assert_eq!(pool.is_frozen_for_draw, 0);
-    assert_eq!(pool.total_prizes_allocated, 0);
-    assert_eq!(pool.total_fees_accrued, 0);
+    assert_eq!(pool.total_prizes_allocated, 1_500_000); // 2_500_000 - 1_000_000
+    assert_eq!(pool.total_fees_accrued, 200_000);       // 300_000 - 100_000
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();

@@ -303,3 +303,36 @@ fn test_prepare_draw_excludes_pending_tickets() {
     assert_eq!(entry_after.cumulative_active, 10);
     assert_eq!(entry_after.merged_through_cycle, 0);
 }
+
+#[test]
+fn test_prepare_draw_idempotent_when_fully_prepared() {
+    let user_a = Keypair::new().pubkey();
+    let entries = vec![anchor::state::UserEntry {
+        owner: user_a,
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
+    }];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // First prepare_draw call: prepares user 0 up to 1
+    let res1 = send_prepare(&mut ctx, 1);
+    assert!(res1.is_ok(), "first prepare should succeed: {:?}", res1);
+
+    let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let draw_prepared_up_to1 = u32::from_le_bytes(reg_acct1.data[32..36].try_into().unwrap());
+    assert_eq!(draw_prepared_up_to1, 1);
+
+    // Second prepare_draw call when draw_prepared_up_to == user_count (1 == 1)
+    ctx.svm.expire_blockhash();
+    let res2 = send_prepare(&mut ctx, 1);
+    assert!(res2.is_ok(), "second prepare should be idempotent: {:?}", res2);
+
+    let reg_acct2 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let draw_prepared_up_to2 = u32::from_le_bytes(reg_acct2.data[32..36].try_into().unwrap());
+    assert_eq!(draw_prepared_up_to2, 1);
+}
