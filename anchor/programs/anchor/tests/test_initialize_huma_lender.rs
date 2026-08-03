@@ -109,7 +109,7 @@ fn send_initialize_huma_lender_unsigned(
 
 #[test]
 fn test_initialize_huma_lender_succeeds() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let ix = build_initialize_huma_lender_ix(
@@ -140,7 +140,7 @@ fn test_initialize_huma_lender_succeeds() {
 
 #[test]
 fn test_initialize_huma_lender_fails_unsigned_admin() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let ix = build_initialize_huma_lender_ix(
@@ -163,7 +163,7 @@ fn test_initialize_huma_lender_fails_unsigned_admin() {
 
 #[test]
 fn test_initialize_huma_lender_fails_unauthorized_admin() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let hacker = Keypair::new();
     ctx.svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
     let dummy = Keypair::new().pubkey();
@@ -199,7 +199,7 @@ fn test_initialize_huma_lender_fails_unauthorized_admin() {
 
 #[test]
 fn test_initialize_huma_lender_fails_wrong_global_config_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let wrong_global_config = Keypair::new().pubkey();
 
@@ -233,7 +233,7 @@ fn test_initialize_huma_lender_fails_wrong_global_config_pda() {
 
 #[test]
 fn test_initialize_huma_lender_fails_wrong_pool_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let wrong_pool = Keypair::new().pubkey();
     let (pool_pda_addr, _) = pool_pda(1);
@@ -265,7 +265,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
 
 #[test]
 fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let (pool_pda_addr, _) = pool_pda(1);
 
@@ -314,7 +314,7 @@ fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
 
 #[test]
 fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let wrong_pst_vault = Keypair::new().pubkey();
     let (pool_pst_vault_addr, _) = pool_pst_vault_pda(1);
@@ -353,7 +353,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
 
 #[test]
 fn test_initialize_huma_lender_fails_invalid_huma_program() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let wrong_huma_program = Keypair::new().pubkey();
 
@@ -390,7 +390,7 @@ fn test_initialize_huma_lender_fails_invalid_huma_program() {
 
 #[test]
 fn test_initialize_huma_lender_fails_invalid_pst_token_program() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
     let wrong_pst_token_program = anchor_spl::associated_token::ID; // Mismatched program
 
@@ -421,7 +421,7 @@ fn test_initialize_huma_lender_fails_invalid_pst_token_program() {
 
 #[test]
 fn test_initialize_huma_lender_fails_huma_cpi_error() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // Use FAIL_CREATE_LENDER_PUBKEY as the huma_config account to trigger simulated failure

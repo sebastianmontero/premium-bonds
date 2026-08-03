@@ -425,15 +425,12 @@ function serializeHumaPoolState(): string {
   return Buffer.from(data).toString("hex");
 }
 
-function serializeInitializeGlobalData(maxTicketsPerBuy: number): Uint8Array {
-  const data = new Uint8Array(8 + 4);
-  const view = new DataView(data.buffer);
-
+function serializeInitializeGlobalData(): Uint8Array {
+  const data = new Uint8Array(8);
   const discriminator = [47, 225, 15, 112, 86, 51, 190, 231];
   for (let i = 0; i < 8; i++) {
     data[i] = discriminator[i];
   }
-  view.setUint32(8, maxTicketsPerBuy, true);
   return data;
 }
 
@@ -763,7 +760,7 @@ async function handleInit(dbName?: string) {
 
   if (!globalInitialized) {
     console.log("Initializing GlobalConfig on-chain...");
-    const initGlobalData = serializeInitializeGlobalData(50_000_000);
+    const initGlobalData = serializeInitializeGlobalData();
     const instruction = {
       programAddress,
       accounts: [

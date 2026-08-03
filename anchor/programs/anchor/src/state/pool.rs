@@ -154,7 +154,7 @@ impl PrizePool {
     ///
     /// These checks run before any token transfers or Kamino CPI calls.
     /// Extracted here so they can be unit-tested without a full Anchor context.
-    pub fn validate_buy_bonds(&self, bonds_to_buy: u32, max_tickets_per_buy: u32) -> Result<u64> {
+    pub fn validate_buy_bonds(&self, bonds_to_buy: u32) -> Result<u64> {
         require!(
             self.status == (PoolStatus::Active as u8),
             PremiumBondsError::PoolNotActive
@@ -164,10 +164,6 @@ impl PrizePool {
             PremiumBondsError::AwaitingRandomnessFreeze
         );
         require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
-        require!(
-            bonds_to_buy <= max_tickets_per_buy,
-            PremiumBondsError::MaxTicketsPerBuyExceeded
-        );
         let amount = (bonds_to_buy as u64)
             .checked_mul(self.bond_price)
             .ok_or(PremiumBondsError::MathOverflow)?;
@@ -497,21 +493,21 @@ mod tests {
     #[test]
     fn buy_bonds_happy_path() {
         let pool = default_pool(500, 24);
-        let amount = pool.validate_buy_bonds(5, 10).unwrap();
+        let amount = pool.validate_buy_bonds(5).unwrap();
         assert_eq!(amount, 5 * 1_000_000);
     }
 
     #[test]
     fn buy_bonds_single_ticket() {
         let pool = default_pool(500, 24);
-        let amount = pool.validate_buy_bonds(1, 10).unwrap();
+        let amount = pool.validate_buy_bonds(1).unwrap();
         assert_eq!(amount, 1_000_000);
     }
 
     #[test]
     fn buy_bonds_at_max_boundary() {
         let pool = default_pool(500, 24);
-        let amount = pool.validate_buy_bonds(10, 10).unwrap();
+        let amount = pool.validate_buy_bonds(10).unwrap();
         assert_eq!(amount, 10 * 1_000_000);
     }
 
@@ -521,7 +517,7 @@ mod tests {
     fn buy_bonds_fails_pool_paused() {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Paused as u8;
-        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(1).unwrap_err();
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
 
@@ -529,7 +525,7 @@ mod tests {
     fn buy_bonds_fails_pool_closed() {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Closed as u8;
-        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(1).unwrap_err();
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
 
@@ -539,7 +535,7 @@ mod tests {
     fn buy_bonds_fails_frozen_for_draw() {
         let mut pool = default_pool(500, 24);
         pool.is_frozen_for_draw = 1;
-        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(1).unwrap_err();
         assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
 
@@ -547,7 +543,7 @@ mod tests {
     fn buy_bonds_ok_not_frozen() {
         let mut pool = default_pool(500, 24);
         pool.is_frozen_for_draw = 0;
-        assert!(pool.validate_buy_bonds(1, 10).is_ok());
+        assert!(pool.validate_buy_bonds(1).is_ok());
     }
 
     // ── Quantity guards ─────────────────────────────────────────────────────
@@ -555,22 +551,8 @@ mod tests {
     #[test]
     fn buy_bonds_fails_zero_quantity() {
         let pool = default_pool(500, 24);
-        let err = pool.validate_buy_bonds(0, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(0).unwrap_err();
         assert_eq!(err, PremiumBondsError::InvalidBondQuantity.into(),);
-    }
-
-    #[test]
-    fn buy_bonds_fails_exceeds_max_tickets() {
-        let pool = default_pool(500, 24);
-        let err = pool.validate_buy_bonds(11, 10).unwrap_err();
-        assert_eq!(err, PremiumBondsError::MaxTicketsPerBuyExceeded.into(),);
-    }
-
-    #[test]
-    fn buy_bonds_fails_way_over_max_tickets() {
-        let pool = default_pool(500, 24);
-        let err = pool.validate_buy_bonds(100, 5).unwrap_err();
-        assert_eq!(err, PremiumBondsError::MaxTicketsPerBuyExceeded.into(),);
     }
 
     // ── Amount calculation ───────────────────────────────────────────────────
@@ -579,7 +561,7 @@ mod tests {
     fn buy_bonds_amount_matches_price_times_quantity() {
         let mut pool = default_pool(500, 24);
         pool.bond_price = 2_500_000; // 2.5 USDC
-        let amount = pool.validate_buy_bonds(3, 10).unwrap();
+        let amount = pool.validate_buy_bonds(3).unwrap();
         assert_eq!(amount, 3 * 2_500_000);
     }
 
@@ -587,7 +569,7 @@ mod tests {
     fn buy_bonds_amount_large_price() {
         let mut pool = default_pool(500, 24);
         pool.bond_price = 1_000_000_000; // 1000 USDC
-        let amount = pool.validate_buy_bonds(10, 10).unwrap();
+        let amount = pool.validate_buy_bonds(10).unwrap();
         assert_eq!(amount, 10_000_000_000);
     }
 
@@ -598,7 +580,7 @@ mod tests {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Paused as u8;
         pool.is_frozen_for_draw = 1;
-        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(1).unwrap_err();
         // PoolNotActive is checked first, so that's the error we get
         assert_eq!(err, PremiumBondsError::PoolNotActive.into(),);
     }
@@ -608,7 +590,7 @@ mod tests {
         let mut pool = default_pool(500, 24);
         pool.status = PoolStatus::Active as u8;
         pool.is_frozen_for_draw = 1;
-        let err = pool.validate_buy_bonds(1, 10).unwrap_err();
+        let err = pool.validate_buy_bonds(1).unwrap_err();
         assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
 

@@ -264,7 +264,7 @@ fn setup(
     amount_owed: u64,
     reinvested: u64,
 ) -> Ctx {
-    let (mut svm, _admin) = common::setup_global_config(100);
+    let (mut svm, _admin) = common::setup_global_config();
 
     let crank = Keypair::new();
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();

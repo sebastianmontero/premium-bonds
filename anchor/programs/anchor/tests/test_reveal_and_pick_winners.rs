@@ -209,7 +209,7 @@ fn inject_draw_cycle(
 
 // ─── SVM bootstrap ───────────────────────────────────────────────────────────
 
-fn setup_global_with_crank(max_tickets: u32) -> (LiteSVM, Keypair, Keypair) {
+fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
@@ -231,10 +231,7 @@ fn setup_global_with_crank(max_tickets: u32) -> (LiteSVM, Keypair, Keypair) {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: max_tickets,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
@@ -391,7 +388,7 @@ fn setup_reveal(
     prize_pot: u64,
     num_tickets: usize,
 ) -> RevealCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank(100);
+    let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let tickets = make_tickets(num_tickets);
     let registry = Keypair::new().pubkey();
@@ -428,7 +425,7 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
         num_winners: 1,
         _padding: [0, 0],
     }];
-    let (mut svm, _admin, crank) = setup_global_with_crank(100);
+    let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let tickets = make_tickets(5);
     let registry = Keypair::new().pubkey();

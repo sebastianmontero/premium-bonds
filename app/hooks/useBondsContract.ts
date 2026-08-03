@@ -19,7 +19,6 @@ import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   USDC_MINT,
-  findGlobalConfigPda,
   findPrizePoolPda,
   findPoolVaultPda,
   findPoolPstVaultPda,
@@ -463,7 +462,6 @@ export function useBondsContract(poolId: number = 1) {
       const poolVault = await findPoolVaultPda(poolId);
       const poolPstVault = await findPoolPstVaultPda(poolId);
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
-      const globalConfig = await findGlobalConfigPda();
       const userTokenAccount = await findAtaAddress(userAddress, USDC_MINT);
       const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
@@ -480,7 +478,6 @@ export function useBondsContract(poolId: number = 1) {
       const accounts = [
         { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
         { address: userWinningsPda, role: AccountRole.WRITABLE },
-        { address: globalConfig, role: AccountRole.READONLY },
         { address: poolPda, role: AccountRole.WRITABLE },
         { address: registryAddr, role: AccountRole.WRITABLE },
         { address: userTokenAccount, role: AccountRole.WRITABLE },

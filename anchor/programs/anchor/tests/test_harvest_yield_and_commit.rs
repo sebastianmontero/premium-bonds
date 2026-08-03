@@ -249,7 +249,7 @@ fn warp_clock(svm: &mut LiteSVM, unix_ts: i64) {
 
 // ─── SVM bootstrap ───────────────────────────────────────────────────────────
 
-fn setup_global_with_crank(max_tickets: u32) -> (LiteSVM, Keypair, Keypair) {
+fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
@@ -273,10 +273,7 @@ fn setup_global_with_crank(max_tickets: u32) -> (LiteSVM, Keypair, Keypair) {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: max_tickets,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
@@ -379,7 +376,7 @@ fn read_registry_counts(svm: &LiteSVM, reg: Pubkey) -> (u32, u32) {
 
 /// Setup for guard tests — no yield, just validation checks.
 fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -> HarvestCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank(100);
+    let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();
@@ -443,7 +440,7 @@ fn setup_happy(
     total_assets: u128,
     principal: u64,
 ) -> HarvestCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank(100);
+    let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();

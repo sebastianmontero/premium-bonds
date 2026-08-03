@@ -136,79 +136,73 @@ const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Stake cycle duration must be greater than 0 hours.",
   },
   6021: {
-    name: "MaxTicketsPerBuyExceeded",
-    message:
-      "The maximum number of tickets per single transaction was exceeded.",
-    actionable: "Try purchasing a smaller quantity of tickets in this batch.",
-  },
-  6022: {
     name: "HumaRedemptionNotSettled",
     message: "Huma Protocol liquidity redemption is still settling on-chain.",
     actionable:
       "Please wait for the settlement window to expire before claiming.",
   },
-  6023: {
+  6022: {
     name: "InvalidRedemptionOwner",
     message: "This pending redemption belongs to a different wallet.",
   },
-  6024: {
+  6023: {
     name: "InsufficientFeeBalance",
     message: "Insufficient accrued protocol fee balance for withdrawal.",
   },
-  6025: {
+  6024: {
     name: "NoWinningsToClaim",
     message: "No unclaimed prize winnings available.",
   },
-  6026: {
+  6025: {
     name: "InvalidFeeConfig",
     message: "Fee basis points must be less than or equal to 100%.",
   },
-  6027: {
+  6026: {
     name: "InvalidModeMint",
     message: "The provided token mint does not match the pool configuration.",
   },
-  6028: {
+  6027: {
     name: "InvalidRandomnessAccount",
     message:
       "The provided randomness account is invalid or not owned by Switchboard.",
   },
-  6029: {
+  6028: {
     name: "RandomnessNotResolved",
     message: "The oracle randomness request has not yet been resolved.",
     actionable:
       "Please wait a moment for Switchboard oracle workers to fulfill the randomness request.",
   },
-  6030: {
+  6029: {
     name: "StaleRandomnessRequest",
     message: "The randomness request is stale or expired.",
     actionable: "Request a fresh randomness commitment.",
   },
-  6031: {
+  6030: {
     name: "RandomnessNotExpired",
     message: "The active randomness commitment has not expired yet.",
   },
-  6032: {
+  6031: {
     name: "InvalidUserEntryHint",
     message: "Invalid registry user entry hint provided.",
   },
-  6033: {
+  6032: {
     name: "InsufficientPendingTickets",
     message: "Insufficient pending tickets available.",
   },
-  6034: {
+  6033: {
     name: "InsufficientActiveTickets",
     message:
       "Insufficient active tickets available to complete this redemption.",
   },
-  6035: {
+  6034: {
     name: "PoolNotFrozen",
     message: "The prize pool must be frozen for draw snapshotting.",
   },
-  6036: {
+  6035: {
     name: "MissingSwappedUserWinnings",
     message: "Required user winnings account is missing.",
   },
-  6037: {
+  6036: {
     name: "InvalidFeeWallet",
     message: "The provided fee wallet account is invalid.",
   },

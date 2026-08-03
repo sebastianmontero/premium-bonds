@@ -177,9 +177,9 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
   "init-global": {
     command: "init-global",
     category: "Admin",
-    summary: "Initialize global configuration (admin, jobs account, max tickets)",
+    summary: "Initialize global configuration (admin, jobs account)",
     description:
-      "Initialize global program configuration specifying admin authority, jobs/crank account, and maximum tickets per buy.",
+      "Initialize global program configuration specifying admin authority and jobs/crank account.",
     requiresSigner: true,
     positionalArgs: "[jobs]",
     options: [
@@ -188,22 +188,17 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         description: "Crank bot/jobs account public key",
         required: true,
       },
-      {
-        flag: "--max-tickets <num>",
-        description: "Maximum tickets allowed per buy",
-        default: "1000",
-      },
     ],
     examples: [
-      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY> --max-tickets 1000",
+      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>",
     ],
   },
   "update-global-config": {
     command: "update-global-config",
     category: "Admin",
-    summary: "Update global config (admin, jobs account, max tickets)",
+    summary: "Update global config (admin, jobs account)",
     description:
-      "Update global configuration parameters including admin authority, jobs account, and max tickets per buy.",
+      "Update global configuration parameters including admin authority and jobs account.",
     requiresSigner: true,
     options: [
       {
@@ -215,15 +210,11 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         description: "New crank bot/jobs account public key",
       },
       {
-        flag: "--max-tickets <num>",
-        description: "New maximum tickets per buy limit",
-      },
-      {
         flag: "--confirm",
         description: "Explicit confirmation flag required for changing admin authority",
       },
     ],
-    examples: ["npm run pb-cli update-global-config -- --max-tickets 2000"],
+    examples: ["npm run pb-cli update-global-config -- --jobs <pubkey>"],
   },
   "create-pool": {
     command: "create-pool",
@@ -401,7 +392,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     category: "Query",
     summary: "Query and display the Global Config state",
     description:
-      "Query and display the on-chain GlobalConfig state (admin, jobs account, max tickets per buy).",
+      "Query and display the on-chain GlobalConfig state (admin, jobs account).",
     requiresSigner: false,
     examples: ["npm run pb-cli query-config"],
   },
@@ -1258,14 +1249,12 @@ export async function executeReinvest({
 
 export interface ExecuteInitGlobalParams {
   jobsAccount?: string;
-  maxTicketsPerBuy?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
 
 export async function executeInitGlobal({
   jobsAccount,
-  maxTicketsPerBuy = 1000,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecuteInitGlobalParams) {
@@ -1281,22 +1270,16 @@ export async function executeInitGlobal({
     );
   }
 
-  if (maxTicketsPerBuy <= 0) {
-    throw new Error("maxTicketsPerBuy must be a positive integer.");
-  }
-
   const jobs = jobsAccount ? address(jobsAccount) : signer.address;
   console.log(`Initializing Global Config:
   Admin: ${signer.address}
   Jobs Account (Crank): ${jobs}
-  Max Tickets Per Buy: ${maxTicketsPerBuy}
   PDA: ${configPda}
 `);
 
   const ix = await buildInitializeGlobalInstruction({
     admin: signer.address,
     jobsAccount: jobs,
-    maxTicketsPerBuy,
   });
 
   await sendTx(rpc, ix, signer);
@@ -1305,7 +1288,6 @@ export async function executeInitGlobal({
 export interface ExecuteUpdateGlobalConfigParams {
   newAdmin?: string;
   jobsAccount?: string;
-  maxTicketsPerBuy?: number;
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
@@ -1314,7 +1296,6 @@ export interface ExecuteUpdateGlobalConfigParams {
 export async function executeUpdateGlobalConfig({
   newAdmin,
   jobsAccount,
-  maxTicketsPerBuy,
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
@@ -1341,9 +1322,9 @@ export async function executeUpdateGlobalConfig({
     );
   }
 
-  if (!newAdmin && !jobsAccount && maxTicketsPerBuy === undefined) {
+  if (!newAdmin && !jobsAccount) {
     throw new Error(
-      "No update parameters specified. Pass --new-admin, --jobs, or --max-tickets."
+      "No update parameters specified. Pass --new-admin or --jobs."
     );
   }
 
@@ -1357,14 +1338,12 @@ export async function executeUpdateGlobalConfig({
   Current Admin: ${state.admin}
   ${newAdmin ? `New Admin: ${newAdmin}` : ""}
   ${jobsAccount ? `New Jobs Account: ${jobsAccount}` : ""}
-  ${maxTicketsPerBuy !== undefined ? `New Max Tickets Per Buy: ${maxTicketsPerBuy}` : ""}
 `);
 
   const ix = await buildUpdateGlobalConfigInstruction({
     admin: signer.address,
     newAdmin: newAdmin ? address(newAdmin) : undefined,
     newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
-    newMaxTicketsPerBuy: maxTicketsPerBuy,
   });
 
   await sendTx(rpc, ix, signer);
@@ -2076,12 +2055,8 @@ async function main() {
   switch (command) {
     case "init-global": {
       const jobsAccount = options["--jobs"] || positionals[0];
-      const maxTicketsPerBuy = options["--max-tickets"]
-        ? parseInt(options["--max-tickets"], 10)
-        : 1000;
       await executeInitGlobal({
         jobsAccount,
-        maxTicketsPerBuy,
         rpcUrl,
         signer: signer!,
       });
@@ -2091,14 +2066,10 @@ async function main() {
     case "update-global-config": {
       const newAdmin = options["--new-admin"];
       const jobsAccount = options["--jobs"];
-      const maxTicketsPerBuy = options["--max-tickets"]
-        ? parseInt(options["--max-tickets"], 10)
-        : undefined;
       const confirm = options["--confirm"] === "true";
       await executeUpdateGlobalConfig({
         newAdmin,
         jobsAccount,
-        maxTicketsPerBuy,
         confirm,
         rpcUrl,
         signer: signer!,
@@ -2327,7 +2298,6 @@ async function main() {
       console.log(`Global Config:
   Admin: ${state.admin}
   Jobs Account (Crank): ${state.jobsAccount}
-  Max Tickets Per Buy: ${state.maxTicketsPerBuy}
 `);
       break;
     }

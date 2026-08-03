@@ -41,12 +41,10 @@ console.log("Running SDK parser verification tests...");
 
 // 2. Test parseGlobalConfig
 {
-  const buffer = new Uint8Array(141);
-  const view = new DataView(buffer.buffer);
-  view.setUint32(72, 50_000, true);
-
+  const buffer = new Uint8Array(137);
   const parsed = parseGlobalConfig(buffer);
-  assert.strictEqual(parsed.maxTicketsPerBuy, 50_000);
+  assert.ok(parsed.admin);
+  assert.ok(parsed.jobsAccount);
   console.log("✓ parseGlobalConfig passed");
 }
 

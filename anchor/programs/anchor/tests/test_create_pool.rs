@@ -63,10 +63,7 @@ fn setup_global_config() -> (LiteSVM, Keypair) {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: 100,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();

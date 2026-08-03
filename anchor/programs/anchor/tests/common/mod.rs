@@ -276,7 +276,7 @@ pub fn inject_registry_with_tickets(
     inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
 }
 
-pub fn setup_global_config(max_tickets_per_buy: u32) -> (LiteSVM, Keypair) {
+pub fn setup_global_config() -> (LiteSVM, Keypair) {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
@@ -298,10 +298,7 @@ pub fn setup_global_config(max_tickets_per_buy: u32) -> (LiteSVM, Keypair) {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let bh = svm.latest_blockhash();
@@ -533,7 +530,7 @@ pub struct E2eContext {
     pub huma_pool_underlying_token: Pubkey,
 }
 
-pub fn setup_e2e(max_tickets: u32) -> E2eContext {
+pub fn setup_e2e() -> E2eContext {
     let mut svm = LiteSVM::new();
     // Load both programs
     let _ = svm.add_program(
@@ -562,10 +559,7 @@ pub fn setup_e2e(max_tickets: u32) -> E2eContext {
                 system_program: anchor_lang::system_program::ID,
             }
             .to_account_metas(None),
-            data: anchor::instruction::InitializeGlobal {
-                max_tickets_per_buy: max_tickets,
-            }
-            .data(),
+            data: anchor::instruction::InitializeGlobal {}.data(),
         };
         let bh = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
@@ -729,7 +723,6 @@ pub fn send_e2e_buy_bonds_for_user(
     let accounts = anchor::accounts::BuyBonds {
         user: user.pubkey(),
         user_winnings,
-        global_config,
         pool,
         ticket_registry: ctx.ticket_registry,
         user_token_account,

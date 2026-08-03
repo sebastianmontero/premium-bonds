@@ -386,7 +386,7 @@ fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
 
 #[test]
 fn test_claim_non_reinvested_winnings_e2e_happy_path() {
-    let mut ctx = common::setup_e2e(10);
+    let mut ctx = common::setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
     let huma_pool_mode_token = common::create_spl_token_account(

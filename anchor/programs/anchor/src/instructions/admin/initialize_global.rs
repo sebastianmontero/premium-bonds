@@ -32,19 +32,16 @@ pub struct InitializeGlobal<'info> {
 
 /// Initializes the global program configuration.
 ///
-/// This instruction sets the admin address, the jobs account address (cranking bot),
-/// and the maximum number of tickets allowed per single purchase.
+/// This instruction sets the admin address and the jobs account address (cranking bot).
 /// It can only be called once, as the `global_config` account is initialized as a PDA.
 ///
 /// # Parameters
 /// * `ctx` - The context of the initialize global instruction.
-/// * `max_tickets_per_buy` - The maximum number of tickets a user can buy in a single transaction.
-pub fn handle(ctx: Context<InitializeGlobal>, max_tickets_per_buy: u32) -> Result<()> {
+pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
 
     global_config.admin = ctx.accounts.admin.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
-    global_config.max_tickets_per_buy = max_tickets_per_buy;
     global_config.version = 1;
 
     Ok(())

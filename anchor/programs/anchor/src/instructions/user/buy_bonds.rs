@@ -1,7 +1,7 @@
-use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
+use crate::constants::{POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
 use crate::events::BondsPurchased;
 use crate::huma;
-use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
+use crate::state::{PrizePool, TicketRegistry};
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
@@ -31,15 +31,6 @@ pub struct BuyBonds<'info> {
         bump
     )]
     pub user_winnings: Box<Account<'info, crate::state::UserWinnings>>,
-
-    /// The global configuration state.
-    ///
-    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-    #[account(
-        seeds = [GLOBAL_CONFIG_SEED],
-        bump
-    )]
-    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     /// The prize pool state account.
     ///
@@ -155,8 +146,7 @@ pub struct BuyBonds<'info> {
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let (amount, pool_id, pool_id_bytes, authority_bump) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
-        let amount =
-            pool.validate_buy_bonds(bonds_to_buy, ctx.accounts.global_config.max_tickets_per_buy)?;
+        let amount = pool.validate_buy_bonds(bonds_to_buy)?;
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
         let authority_bump = pool.vault_authority_bump;

@@ -29,31 +29,20 @@ pub mod anchor {
 
     /// Initializes the protocol-wide global configuration.
     ///
-    /// Sets up the administrative wallet address, the cranking jobs bot wallet address,
-    /// and the protocol-wide limit on tickets purchased in a single transaction.
-    pub fn initialize_global(
-        ctx: Context<InitializeGlobal>,
-        max_tickets_per_buy: u32,
-    ) -> Result<()> {
-        instructions::admin::initialize_global::handle(ctx, max_tickets_per_buy)
+    /// Sets up the administrative wallet address and the cranking jobs bot wallet address.
+    pub fn initialize_global(ctx: Context<InitializeGlobal>) -> Result<()> {
+        instructions::admin::initialize_global::handle(ctx)
     }
 
     /// Updates the protocol-wide global configuration.
     ///
-    /// Allows the admin to change the admin wallet address, the cranking bot address,
-    /// or update purchase buy limits.
+    /// Allows the admin to change the admin wallet address or the cranking bot address.
     pub fn update_global_config(
         ctx: Context<UpdateGlobalConfig>,
         new_admin: Option<Pubkey>,
         new_jobs_account: Option<Pubkey>,
-        new_max_tickets_per_buy: Option<u32>,
     ) -> Result<()> {
-        instructions::admin::update_global_config::handle(
-            ctx,
-            new_admin,
-            new_jobs_account,
-            new_max_tickets_per_buy,
-        )
+        instructions::admin::update_global_config::handle(ctx, new_admin, new_jobs_account)
     }
 
     /// Creates a new prize pool and initializes its zero-copy TicketRegistry.

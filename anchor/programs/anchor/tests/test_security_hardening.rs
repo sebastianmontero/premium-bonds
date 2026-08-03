@@ -193,7 +193,7 @@ fn send_e2e_claim_redemption_for_user(
 
 #[test]
 fn test_resize_registry_zero_initialization() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
@@ -281,7 +281,7 @@ fn test_resize_registry_zero_initialization() {
 
 #[test]
 fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
@@ -405,7 +405,7 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
 
 #[test]
 fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, bump) = pool_pda(pool_id);
     let pst_mint = Keypair::new().pubkey();
@@ -523,7 +523,7 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
 
 #[test]
 fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, bump) = pool_pda(pool_id);
     let pst_mint = Keypair::new().pubkey();
@@ -624,7 +624,7 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
 
 #[test]
 fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let token_mint = Keypair::new().pubkey();
@@ -706,7 +706,7 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
 
 #[test]
 fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
@@ -809,7 +809,7 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
 
 #[test]
 fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config(10);
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
@@ -950,7 +950,7 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
 
 #[test]
 fn test_claim_redemption_reentrancy_protection() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,

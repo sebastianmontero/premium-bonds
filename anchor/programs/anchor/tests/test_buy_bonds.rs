@@ -37,7 +37,6 @@ fn build_buy_bonds_ix(
     let accounts = anchor::accounts::BuyBonds {
         user,
         user_winnings,
-        global_config,
         pool,
         ticket_registry,
         user_token_account,
@@ -80,14 +79,13 @@ struct BuyBondsCtx {
 }
 
 fn setup_buy_bonds(
-    max_tickets_per_buy: u32,
     pool_status: anchor::PoolStatus,
     is_frozen: bool,
     registry_capacity: u32,
     registry_active: u32,
     registry_pending: u32,
 ) -> BuyBondsCtx {
-    let (mut svm, _admin) = setup_global_config(max_tickets_per_buy);
+    let (mut svm, _admin) = setup_global_config();
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -171,7 +169,7 @@ fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String
 /// Pool in Paused state must be rejected with `PoolNotActive`.
 #[test]
 fn test_buy_bonds_fails_pool_paused() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Paused, false, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Paused, false, 1000, 0, 0);
     let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
     assert!(
         err.contains("PoolNotActive"),
@@ -182,7 +180,7 @@ fn test_buy_bonds_fails_pool_paused() {
 /// Pool in Closed state must be rejected with `PoolNotActive`.
 #[test]
 fn test_buy_bonds_fails_pool_closed() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Closed, false, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Closed, false, 1000, 0, 0);
     let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
     assert!(
         err.contains("PoolNotActive"),
@@ -193,7 +191,7 @@ fn test_buy_bonds_fails_pool_closed() {
 /// Pool frozen for draw must be rejected with `AwaitingRandomnessFreeze`.
 #[test]
 fn test_buy_bonds_fails_pool_frozen() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Active, true, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, true, 1000, 0, 0);
     let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
     assert!(
         err.contains("AwaitingRandomnessFreeze"),
@@ -204,7 +202,7 @@ fn test_buy_bonds_fails_pool_frozen() {
 /// `bonds_to_buy = 0` must be rejected with `InvalidBondQuantity`.
 #[test]
 fn test_buy_bonds_fails_zero_quantity() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Active, false, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let err = send_buy_bonds(&mut ctx, 0).unwrap_err();
     assert!(
         err.contains("InvalidBondQuantity"),
@@ -212,28 +210,16 @@ fn test_buy_bonds_fails_zero_quantity() {
     );
 }
 
-/// Buying more than `max_tickets_per_buy` must be rejected.
-#[test]
-fn test_buy_bonds_fails_exceeds_max_tickets_per_buy() {
-    let mut ctx = setup_buy_bonds(5, anchor::PoolStatus::Active, false, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 6).unwrap_err();
-    assert!(
-        err.contains("MaxTicketsPerBuyExceeded"),
-        "Expected MaxTicketsPerBuyExceeded, got: {err}"
-    );
-}
-
-/// Buying exactly `max_tickets_per_buy` passes all pre-CPI guards and reaches
+/// Valid ticket quantity passes all pre-CPI guards and reaches
 /// the token transfer / Huma CPI boundary (which fails in LiteSVM, but NOT
 /// with a business-logic error).
 #[test]
-fn test_buy_bonds_boundary_at_max_tickets_passes_guards() {
-    let mut ctx = setup_buy_bonds(5, anchor::PoolStatus::Active, false, 1000, 0, 0);
+fn test_buy_bonds_passes_guards() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let err = send_buy_bonds(&mut ctx, 5).unwrap_err();
     // Must NOT be a guard error — it should fail at the CPI/transfer boundary.
     assert!(
-        !err.contains("MaxTicketsPerBuyExceeded")
-            && !err.contains("PoolNotActive")
+        !err.contains("PoolNotActive")
             && !err.contains("AwaitingRandomnessFreeze")
             && !err.contains("InvalidBondQuantity")
             && !err.contains("RegistryFull"),
@@ -250,7 +236,7 @@ fn test_buy_bonds_boundary_at_max_tickets_passes_guards() {
 /// Happy path: buy 1 bond, verify USDC moves, PST minted, principal updated, ticket registered.
 #[test]
 fn test_buy_bonds_e2e_single_bond() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let pool_vault = pool_vault_pda(1).0;
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
@@ -298,7 +284,7 @@ fn test_buy_bonds_e2e_single_bond() {
 /// Buy multiple bonds in one transaction.
 #[test]
 fn test_buy_bonds_e2e_multiple_bonds() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
     send_e2e_buy_bonds(&mut ctx, 5).expect("buy 5 bonds should succeed");
@@ -329,7 +315,7 @@ fn test_buy_bonds_e2e_multiple_bonds() {
 /// Two sequential buy_bonds transactions accumulate correctly.
 #[test]
 fn test_buy_bonds_e2e_sequential_buys() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
     send_e2e_buy_bonds(&mut ctx, 2).expect("buy 2 bonds");
@@ -361,7 +347,7 @@ fn test_buy_bonds_e2e_sequential_buys() {
 /// E2E test verifying multiple users can buy bonds.
 #[test]
 fn test_buy_bonds_e2e_multiple_users() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
     // Create User 2
@@ -424,8 +410,7 @@ fn test_buy_bonds_e2e_multiple_users() {
 /// Buying bonds when the registry does not have enough slots remaining must fail.
 #[test]
 fn test_buy_bonds_fails_registry_full() {
-    let max_tickets = 10;
-    let mut ctx = setup_e2e(max_tickets);
+    let mut ctx = setup_e2e();
 
     // The default setup_e2e creates a pool with REGISTRY_INITIAL_SIZE capacity.
     // To trigger RegistryFull efficiently, we manually inject a small registry of capacity 2.
@@ -523,7 +508,7 @@ fn test_buy_bonds_fails_registry_full() {
 /// Passing a ticket registry account that doesn't match pool.ticket_registry must fail.
 #[test]
 fn test_buy_bonds_fails_invalid_registry_has_one() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Active, false, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let fake_registry = Keypair::new().pubkey();
     inject_registry(&mut ctx.svm, fake_registry, 1, 10, 0, 0);
 
@@ -552,7 +537,7 @@ fn test_buy_bonds_fails_invalid_registry_has_one() {
 /// Passing an invalid token mint must fail.
 #[test]
 fn test_buy_bonds_fails_invalid_token_mint() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Active, false, 1000, 0, 0);
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let fake_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, fake_mint, 6);
 
@@ -584,8 +569,7 @@ fn test_buy_bonds_fails_invalid_token_mint() {
 /// Attempting to use an incorrect program address for the Huma program constraint must fail.
 #[test]
 fn test_buy_bonds_fails_invalid_huma_program() {
-    let mut ctx = setup_buy_bonds(10, anchor::PoolStatus::Active, false, 1000, 0, 0);
-    let (global_config, _) = global_config_pda();
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let (pool, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -596,7 +580,6 @@ fn test_buy_bonds_fails_invalid_huma_program() {
     let accounts = anchor::accounts::BuyBonds {
         user: ctx.user.pubkey(),
         user_winnings,
-        global_config,
         pool,
         ticket_registry: ctx.ticket_registry,
         user_token_account: ctx.user_token_account,
@@ -638,7 +621,7 @@ fn test_buy_bonds_fails_invalid_huma_program() {
 /// Buying bonds when the user does not have enough token balance must fail.
 #[test]
 fn test_buy_bonds_fails_insufficient_user_balance() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     // Create a new user with 0 USDC balance
     let poor_user = Keypair::new();
@@ -673,7 +656,7 @@ fn test_buy_bonds_fails_insufficient_user_balance() {
 /// Buying bonds should fail if the Huma Finance CPI deposit call fails.
 #[test]
 fn test_buy_bonds_fails_huma_deposit_error() {
-    let mut ctx = setup_e2e(1000);
+    let mut ctx = setup_e2e();
 
     let bytes = ctx.user.to_bytes();
     let mut secret = [0u8; 32];
@@ -694,7 +677,7 @@ fn test_buy_bonds_fails_huma_deposit_error() {
 /// E2E test verifying that buying bonds initializes the `UserWinnings` account correctly.
 #[test]
 fn test_buy_bonds_initializes_user_winnings() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     // Before: user_winnings account should not exist
     let (user_winnings_pda, _) = user_winnings_pda(1, &ctx.user.pubkey());
@@ -713,7 +696,7 @@ fn test_buy_bonds_initializes_user_winnings() {
 
 #[test]
 fn test_buy_bonds_fails_invalid_user_entry_hint() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     let other_user = Keypair::new().pubkey();
     let entries = vec![anchor::state::UserEntry {
@@ -744,7 +727,7 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
 
 #[test]
 fn test_buy_bonds_fails_math_overflow() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     // Inject registry with u32::MAX pending tickets to trigger overflow on addition
     common::inject_registry(&mut ctx.svm, ctx.ticket_registry, 1, 1000, 0, u32::MAX);
 

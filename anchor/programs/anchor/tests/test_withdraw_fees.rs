@@ -114,7 +114,7 @@ fn send_withdraw_fees(svm: &mut LiteSVM, admin: &Keypair, ix: Instruction) -> Re
 
 #[test]
 fn test_withdraw_fees_succeeds() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // Initialize huma_pool_mode_token owned by huma_pool_authority
@@ -202,7 +202,7 @@ fn test_withdraw_fees_succeeds() {
 
 #[test]
 fn test_withdraw_fees_math_non_1_to_1() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // 1. Set huma_pool_state to total_assets = 20,000,000 USDC
@@ -324,7 +324,7 @@ fn test_withdraw_fees_math_non_1_to_1() {
 
 #[test]
 fn test_withdraw_fees_fails_unauthorized_admin() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let hacker = Keypair::new();
@@ -356,7 +356,7 @@ fn test_withdraw_fees_fails_unauthorized_admin() {
 
 #[test]
 fn test_withdraw_fees_fails_unsigned_admin() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
@@ -397,7 +397,7 @@ fn test_withdraw_fees_fails_unsigned_admin() {
 
 #[test]
 fn test_withdraw_fees_fails_zero_amount() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let ix = build_withdraw_fees_ix(
@@ -428,7 +428,7 @@ fn test_withdraw_fees_fails_zero_amount() {
 
 #[test]
 fn test_withdraw_fees_fails_exceeds_available_fees() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // Set up pool state
@@ -486,7 +486,7 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
 
 #[test]
 fn test_withdraw_fees_fails_wrong_global_config_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
@@ -517,7 +517,7 @@ fn test_withdraw_fees_fails_wrong_global_config_pda() {
 
 #[test]
 fn test_withdraw_fees_fails_frozen_for_draw() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // Set accrued fees and freeze the pool for draw
@@ -568,7 +568,7 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
 
 #[test]
 fn test_withdraw_fees_fails_wrong_pool_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
@@ -599,7 +599,7 @@ fn test_withdraw_fees_fails_wrong_pool_pda() {
 
 #[test]
 fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // Corrupt vault_authority_bump inside pool state
@@ -644,7 +644,7 @@ fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
 
 #[test]
 fn test_withdraw_fees_fails_wrong_pst_vault_pda() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
@@ -675,7 +675,7 @@ fn test_withdraw_fees_fails_wrong_pst_vault_pda() {
 
 #[test]
 fn test_withdraw_fees_fails_wrong_huma_program() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let mut ix = build_withdraw_fees_ix(
@@ -713,7 +713,7 @@ fn test_withdraw_fees_fails_wrong_huma_program() {
 
 #[test]
 fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     // 1. Corrupt huma_pool_state by writing an empty vector length prefix
@@ -765,7 +765,7 @@ fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
 
 #[test]
 fn test_withdraw_fees_fails_huma_redemption_error() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     // Set up pool state
     let (pool_pda, _) = pool_pda(1);
@@ -833,7 +833,7 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
 
 #[test]
 fn test_withdraw_fees_fails_invalid_mode_mint() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     // Set up pool state
     let (pool_pda, _) = pool_pda(1);
@@ -897,7 +897,7 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
 
 #[test]
 fn test_withdraw_fees_and_claim_e2e() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let (pool_pda, _) = pool_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
@@ -1091,7 +1091,7 @@ fn build_claim_redemption_ix(
 
 #[test]
 fn test_withdraw_fees_fails_invalid_fee_wallet() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
     let wrong_wallet = create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &ctx.admin.pubkey());

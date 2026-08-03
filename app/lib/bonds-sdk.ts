@@ -193,7 +193,6 @@ export async function findAtaAddress(
 export interface GlobalConfigInfo {
   admin: Address;
   jobsAccount: Address;
-  maxTicketsPerBuy: number;
 }
 
 export interface PrizeTier {
@@ -242,15 +241,13 @@ export interface DrawCycleInfo {
  * @throws {Error} If data buffer length is shorter than expected size.
  */
 export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
-  if (data.length < 76) {
+  if (data.length < 72) {
     throw new Error(`GlobalConfig data too short (${data.length} bytes)`);
   }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const admin = base58Decoder.decode(data.slice(8, 8 + 32)) as Address;
   const jobsAccount = base58Decoder.decode(data.slice(40, 40 + 32)) as Address;
-  const maxTicketsPerBuy = view.getUint32(72, true);
 
-  return { admin, jobsAccount, maxTicketsPerBuy };
+  return { admin, jobsAccount };
 }
 
 /**
@@ -827,7 +824,6 @@ export async function buildPrepareDrawInstruction(
 export interface InitializeGlobalParams {
   admin: Address;
   jobsAccount: Address;
-  maxTicketsPerBuy: number;
 }
 
 export async function buildInitializeGlobalInstruction(
@@ -837,10 +833,8 @@ export async function buildInitializeGlobalInstruction(
   const discriminator = new Uint8Array([
     206, 191, 149, 107, 100, 114, 184, 183,
   ]);
-  const data = new Uint8Array(8 + 4);
+  const data = new Uint8Array(8);
   data.set(discriminator, 0);
-  const view = new DataView(data.buffer);
-  view.setUint32(8, params.maxTicketsPerBuy, true);
 
   const accounts = [
     { address: globalConfig, role: AccountRole.WRITABLE },
@@ -860,7 +854,6 @@ export interface UpdateGlobalConfigParams {
   admin: Address;
   newAdmin?: Address;
   newJobsAccount?: Address;
-  newMaxTicketsPerBuy?: number;
 }
 
 export async function buildUpdateGlobalConfigInstruction(
@@ -872,7 +865,6 @@ export async function buildUpdateGlobalConfigInstruction(
   let len = 8;
   len += params.newAdmin ? 33 : 1;
   len += params.newJobsAccount ? 33 : 1;
-  len += params.newMaxTicketsPerBuy !== undefined ? 5 : 1;
 
   const data = new Uint8Array(len);
   data.set(discriminator, 0);
@@ -891,15 +883,6 @@ export async function buildUpdateGlobalConfigInstruction(
     data[offset++] = 1;
     data.set(base58Encoder.encode(address(params.newJobsAccount)), offset);
     offset += 32;
-  } else {
-    data[offset++] = 0;
-  }
-
-  if (params.newMaxTicketsPerBuy !== undefined) {
-    data[offset++] = 1;
-    const view = new DataView(data.buffer, offset, 4);
-    view.setUint32(0, params.newMaxTicketsPerBuy, true);
-    offset += 4;
   } else {
     data[offset++] = 0;
   }

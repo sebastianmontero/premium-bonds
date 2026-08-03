@@ -23,19 +23,16 @@ pub struct UpdateGlobalConfig<'info> {
 
 /// Updates the global program configuration parameters.
 ///
-/// Allows modifying the admin address, the jobs account address (cranking bot),
-/// and the maximum number of tickets allowed per single purchase.
+/// Allows modifying the admin address and the jobs account address (cranking bot).
 ///
 /// # Parameters
 /// * `ctx` - The context of the update global config instruction.
 /// * `new_admin` - Optional new admin authority public key.
 /// * `new_jobs_account` - Optional new cranking bot public key.
-/// * `new_max_tickets_per_buy` - Optional new limit for tickets purchased in a single transaction.
 pub fn handle(
     ctx: Context<UpdateGlobalConfig>,
     new_admin: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
-    new_max_tickets_per_buy: Option<u32>,
 ) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
 
@@ -45,10 +42,6 @@ pub fn handle(
 
     if let Some(jobs_account) = new_jobs_account {
         global_config.jobs_account = jobs_account;
-    }
-
-    if let Some(max_tickets_per_buy) = new_max_tickets_per_buy {
-        global_config.max_tickets_per_buy = max_tickets_per_buy;
     }
 
     Ok(())

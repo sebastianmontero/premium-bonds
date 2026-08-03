@@ -57,10 +57,7 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
     let init_ix = Instruction {
         program_id: anchor::id(),
         accounts: init_accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: 100,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let bh = svm.latest_blockhash();

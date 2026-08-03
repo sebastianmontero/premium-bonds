@@ -65,9 +65,6 @@ pub enum PremiumBondsError {
     /// Stake cycle duration must be greater than 0 hours.
     #[msg("Stake cycle duration must be greater than 0 hours.")]
     InvalidStakeCycleDuration,
-    /// The maximum number of tickets per transaction was exceeded.
-    #[msg("The maximum number of tickets per transaction was exceeded.")]
-    MaxTicketsPerBuyExceeded,
     /// Huma redemption has not been settled yet.
     #[msg("Huma redemption has not been settled yet.")]
     HumaRedemptionNotSettled,

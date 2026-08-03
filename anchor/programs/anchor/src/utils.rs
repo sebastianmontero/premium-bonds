@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 1688);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
-            32 + 32 + 4 + 1 + 64
+            32 + 32 + 1 + 64
         );
         assert_eq!(
             crate::state::UserWinnings::INIT_SPACE,

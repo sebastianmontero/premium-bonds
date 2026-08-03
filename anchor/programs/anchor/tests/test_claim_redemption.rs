@@ -374,7 +374,7 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
 
 #[test]
 fn test_claim_redemption_e2e_happy_path() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
@@ -439,7 +439,7 @@ fn test_claim_redemption_e2e_happy_path() {
 
 #[test]
 fn test_claim_redemption_fails_insufficient_settled_amount() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -494,7 +494,7 @@ fn test_claim_redemption_fails_insufficient_settled_amount() {
 
 #[test]
 fn test_claim_redemption_fails_simulated_disburse_failure() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -625,7 +625,7 @@ fn send_e2e_claim_winnings_for_user(
 
 #[test]
 fn test_claim_redemption_rounding_error_failure() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -701,7 +701,7 @@ fn test_claim_redemption_rounding_error_failure() {
 
 #[test]
 fn test_claim_redemption_case_a_1_to_1() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -761,7 +761,7 @@ fn test_claim_redemption_case_a_1_to_1() {
 
 #[test]
 fn test_claim_redemption_case_b_accrued_yield() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,

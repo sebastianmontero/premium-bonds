@@ -57,7 +57,6 @@ fn send_initialize_global(
     svm: &mut LiteSVM,
     admin: &Keypair,
     jobs_account: Pubkey,
-    max_tickets_per_buy: u32,
 ) -> litesvm::types::FailedTransactionMetadata {
     let (global_config, _bump) = global_config_pda();
 
@@ -72,10 +71,7 @@ fn send_initialize_global(
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -101,7 +97,6 @@ fn send_initialize_global_ok(
     svm: &mut LiteSVM,
     admin: &Keypair,
     jobs_account: Pubkey,
-    max_tickets_per_buy: u32,
 ) -> litesvm::types::TransactionMetadata {
     let (global_config, _bump) = global_config_pda();
 
@@ -116,10 +111,7 @@ fn send_initialize_global_ok(
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -152,7 +144,7 @@ fn test_initialize_global_succeeds() {
     let (mut svm, admin) = setup();
     let jobs = Keypair::new().pubkey();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, 10);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let (pda, _) = global_config_pda();
     assert!(
@@ -167,7 +159,7 @@ fn test_initialize_global_sets_admin() {
     let (mut svm, admin) = setup();
     let jobs = Keypair::new().pubkey();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, 5);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(
@@ -183,7 +175,7 @@ fn test_initialize_global_sets_jobs_account() {
     let (mut svm, admin) = setup();
     let jobs = Keypair::new().pubkey();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, 1);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(
@@ -192,53 +184,13 @@ fn test_initialize_global_sets_jobs_account() {
     );
 }
 
-/// The `max_tickets_per_buy` argument is stored exactly as supplied.
-#[test]
-fn test_initialize_global_sets_max_tickets_per_buy() {
-    let (mut svm, admin) = setup();
-    let jobs = Keypair::new().pubkey();
-    let expected: u32 = 42;
-
-    send_initialize_global_ok(&mut svm, &admin, jobs, expected);
-
-    let config = read_global_config(&svm);
-    assert_eq!(
-        config.max_tickets_per_buy, expected,
-        "GlobalConfig.max_tickets_per_buy must equal the argument"
-    );
-}
-
-/// Minimum boundary: max_tickets_per_buy = 0 is still valid at the instruction level.
-#[test]
-fn test_initialize_global_zero_max_tickets() {
-    let (mut svm, admin) = setup();
-    let jobs = Keypair::new().pubkey();
-
-    send_initialize_global_ok(&mut svm, &admin, jobs, 0);
-
-    let config = read_global_config(&svm);
-    assert_eq!(config.max_tickets_per_buy, 0);
-}
-
-/// Maximum boundary: u32::MAX is accepted without overflow.
-#[test]
-fn test_initialize_global_max_u32_tickets() {
-    let (mut svm, admin) = setup();
-    let jobs = Keypair::new().pubkey();
-
-    send_initialize_global_ok(&mut svm, &admin, jobs, u32::MAX);
-
-    let config = read_global_config(&svm);
-    assert_eq!(config.max_tickets_per_buy, u32::MAX);
-}
-
 /// `jobs_account` can be the same key as `admin` (no constraint forbids it).
 #[test]
 fn test_initialize_global_jobs_equals_admin() {
     let (mut svm, admin) = setup();
     let jobs = admin.pubkey(); // same key
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, 10);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey());
@@ -251,7 +203,7 @@ fn test_initialize_global_jobs_equals_admin() {
 fn test_initialize_global_jobs_default_pubkey() {
     let (mut svm, admin) = setup();
 
-    send_initialize_global_ok(&mut svm, &admin, Pubkey::default(), 1);
+    send_initialize_global_ok(&mut svm, &admin, Pubkey::default());
 
     let config = read_global_config(&svm);
     assert_eq!(config.jobs_account, Pubkey::default());
@@ -265,7 +217,7 @@ fn test_initialize_global_deducts_rent_from_payer() {
     let jobs = Keypair::new().pubkey();
     let balance_before = svm.get_balance(&admin.pubkey()).unwrap();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, 1);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let balance_after = svm.get_balance(&admin.pubkey()).unwrap();
     assert!(
@@ -280,7 +232,7 @@ fn test_initialize_global_deducts_rent_from_payer() {
 fn test_initialize_global_account_owned_by_program() {
     let (mut svm, admin) = setup();
     let jobs = Keypair::new().pubkey();
-    send_initialize_global_ok(&mut svm, &admin, jobs, 10);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let (pda, _) = global_config_pda();
     let account = svm.get_account(&pda).unwrap();
@@ -303,11 +255,11 @@ fn test_initialize_global_fails_on_double_init() {
     let jobs = Keypair::new().pubkey();
 
     // First call: must succeed.
-    send_initialize_global_ok(&mut svm, &admin, jobs, 10);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     // Second call: must fail (PDA already exists).
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        send_initialize_global_ok(&mut svm, &admin, jobs, 99)
+        send_initialize_global_ok(&mut svm, &admin, jobs)
     }));
     assert!(
         result.is_err(),
@@ -354,10 +306,7 @@ fn test_initialize_global_requires_admin_signature() {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: 10,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -397,10 +346,7 @@ fn test_initialize_global_rejects_wrong_pda() {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: 10,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -431,10 +377,7 @@ fn test_initialize_global_rejects_arbitrary_address() {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::InitializeGlobal {
-            max_tickets_per_buy: 5,
-        }
-        .data(),
+        data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
     let blockhash = svm.latest_blockhash();
@@ -451,18 +394,16 @@ fn test_initialize_global_rejects_arbitrary_address() {
 // Multi-field consistency check
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// All three mutable fields are set atomically in a single instruction.
+/// All mutable fields are set atomically in a single instruction.
 /// Vary all inputs simultaneously and verify every field independently.
 #[test]
 fn test_initialize_global_all_fields_consistent() {
     let (mut svm, admin) = setup();
     let jobs = Keypair::new().pubkey();
-    let max_tickets: u32 = 777;
 
-    send_initialize_global_ok(&mut svm, &admin, jobs, max_tickets);
+    send_initialize_global_ok(&mut svm, &admin, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey());
     assert_eq!(config.jobs_account, jobs);
-    assert_eq!(config.max_tickets_per_buy, max_tickets);
 }

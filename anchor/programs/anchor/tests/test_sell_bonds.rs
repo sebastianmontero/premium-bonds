@@ -245,7 +245,7 @@ struct GuardCtx {
 }
 
 fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -> GuardCtx {
-    let (mut svm, _admin) = setup_global_config(100);
+    let (mut svm, _admin) = setup_global_config();
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -398,7 +398,7 @@ fn test_sell_bonds_fails_missing_swapped_user_winnings() {
 
 #[test]
 fn test_sell_bonds_e2e_happy_path() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
     let huma_pool_mode_token = create_spl_token_account(
@@ -458,7 +458,7 @@ fn test_sell_bonds_e2e_happy_path() {
 
 #[test]
 fn test_claim_redemption_e2e_happy_path() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
 
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
@@ -526,7 +526,7 @@ fn test_claim_redemption_e2e_happy_path() {
 
 #[test]
 fn test_sell_bonds_multiple_users_and_sales() {
-    let mut ctx = setup_e2e(100);
+    let mut ctx = setup_e2e();
 
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
@@ -631,7 +631,7 @@ fn test_sell_bonds_multiple_users_and_sales() {
 
 #[test]
 fn test_sell_bonds_e2e_swap_and_pop() {
-    let mut ctx = setup_e2e(100);
+    let mut ctx = setup_e2e();
 
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
@@ -714,7 +714,7 @@ fn test_sell_bonds_e2e_swap_and_pop() {
 
 #[test]
 fn test_sell_bonds_fails_huma_redemption_error() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     let huma_pool_mode_token = create_spl_token_account(
         &mut ctx.svm,
         &ctx.admin,
@@ -743,7 +743,7 @@ fn test_sell_bonds_fails_huma_redemption_error() {
 
 #[test]
 fn test_claim_redemption_fails_huma_disburse_error() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -795,7 +795,7 @@ fn test_claim_redemption_fails_huma_disburse_error() {
 
 #[test]
 fn test_claim_redemption_fails_not_settled() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -846,7 +846,7 @@ fn test_claim_redemption_fails_not_settled() {
 
 #[test]
 fn test_claim_redemption_fails_wrong_owner() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
@@ -902,7 +902,7 @@ fn test_claim_redemption_fails_wrong_owner() {
 
 #[test]
 fn test_sell_bonds_fails_invalid_mode_mint() {
-    let mut ctx = setup_e2e(10);
+    let mut ctx = setup_e2e();
     mint_tokens(
         &mut ctx.svm,
         &ctx.admin,
