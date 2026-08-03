@@ -821,3 +821,444 @@ export async function buildPrepareDrawInstruction(
     data,
   };
 }
+
+// ─── Admin Instruction Builders ─────────────────────────────────────────────
+
+export interface InitializeGlobalParams {
+  admin: Address;
+  jobsAccount: Address;
+  maxTicketsPerBuy: number;
+}
+
+export async function buildInitializeGlobalInstruction(
+  params: InitializeGlobalParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const discriminator = new Uint8Array([
+    206, 191, 149, 107, 100, 114, 184, 183,
+  ]);
+  const data = new Uint8Array(8 + 4);
+  data.set(discriminator, 0);
+  const view = new DataView(data.buffer);
+  view.setUint32(8, params.maxTicketsPerBuy, true);
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.WRITABLE },
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: params.jobsAccount, role: AccountRole.READONLY },
+    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface UpdateGlobalConfigParams {
+  admin: Address;
+  newAdmin?: Address;
+  newJobsAccount?: Address;
+  newMaxTicketsPerBuy?: number;
+}
+
+export async function buildUpdateGlobalConfigInstruction(
+  params: UpdateGlobalConfigParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const discriminator = new Uint8Array([183, 18, 90, 80, 204, 12, 181, 120]);
+
+  let len = 8;
+  len += params.newAdmin ? 33 : 1;
+  len += params.newJobsAccount ? 33 : 1;
+  len += params.newMaxTicketsPerBuy !== undefined ? 5 : 1;
+
+  const data = new Uint8Array(len);
+  data.set(discriminator, 0);
+
+  let offset = 8;
+
+  if (params.newAdmin) {
+    data[offset++] = 1;
+    data.set(base58Encoder.encode(address(params.newAdmin)), offset);
+    offset += 32;
+  } else {
+    data[offset++] = 0;
+  }
+
+  if (params.newJobsAccount) {
+    data[offset++] = 1;
+    data.set(base58Encoder.encode(address(params.newJobsAccount)), offset);
+    offset += 32;
+  } else {
+    data[offset++] = 0;
+  }
+
+  if (params.newMaxTicketsPerBuy !== undefined) {
+    data[offset++] = 1;
+    const view = new DataView(data.buffer, offset, 4);
+    view.setUint32(0, params.newMaxTicketsPerBuy, true);
+    offset += 4;
+  } else {
+    data[offset++] = 0;
+  }
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.WRITABLE },
+    { address: params.admin, role: AccountRole.READONLY_SIGNER },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface CreatePoolParams {
+  admin: Address;
+  poolId: number;
+  bondPrice: bigint | number;
+  stakeCycleDurationHrs: bigint | number;
+  feeBasisPoints: number;
+  tokenMint: Address;
+  pstMint: Address;
+  ticketRegistry: Address;
+  feeWallet: Address;
+}
+
+export async function buildCreatePoolInstruction(params: CreatePoolParams) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolVault = await findPoolVaultPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+
+  const discriminator = new Uint8Array([233, 146, 209, 142, 207, 104, 64, 188]);
+  const data = new Uint8Array(8 + 4 + 8 + 8 + 2);
+  data.set(discriminator, 0);
+
+  const view = new DataView(data.buffer);
+  view.setUint32(8, params.poolId, true);
+  view.setBigUint64(12, BigInt(params.bondPrice), true);
+  view.setBigInt64(20, BigInt(params.stakeCycleDurationHrs), true);
+  view.setUint16(28, params.feeBasisPoints, true);
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: pool, role: AccountRole.WRITABLE },
+    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
+    { address: params.tokenMint, role: AccountRole.READONLY },
+    { address: params.pstMint, role: AccountRole.READONLY },
+    { address: poolVault, role: AccountRole.WRITABLE },
+    { address: poolPstVault, role: AccountRole.WRITABLE },
+    { address: params.feeWallet, role: AccountRole.READONLY },
+    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface InitializeHumaLenderParams {
+  admin: Address;
+  poolId: number;
+  humaStateAddresses: Record<string, string>;
+}
+
+export async function buildInitializeHumaLenderInstruction(
+  params: InitializeHumaLenderParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+
+  const discriminator = new Uint8Array([9, 137, 246, 12, 172, 102, 19, 188]);
+
+  const addrs = params.humaStateAddresses;
+  const accounts = [
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: pool, role: AccountRole.READONLY },
+    { address: poolPstVault, role: AccountRole.READONLY },
+    { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: address(addrs.humaConfig), role: AccountRole.READONLY },
+    { address: address(addrs.humaPoolConfig), role: AccountRole.READONLY },
+    { address: address(addrs.humaPoolState), role: AccountRole.READONLY },
+    { address: address(addrs.humaModeConfig), role: AccountRole.READONLY },
+    { address: address(addrs.pstMint), role: AccountRole.READONLY },
+    { address: address(addrs.humaLenderState), role: AccountRole.WRITABLE },
+    { address: address(addrs.humaLenderModeToken), role: AccountRole.WRITABLE },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: ATA_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data: discriminator,
+  };
+}
+
+export interface ResizeRegistryParams {
+  crank: Address;
+  payer: Address;
+  poolId: number;
+  ticketRegistry: Address;
+}
+
+export async function buildResizeRegistryInstruction(
+  params: ResizeRegistryParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+
+  const discriminator = new Uint8Array([227, 20, 198, 143, 113, 248, 179, 15]);
+
+  const accounts = [
+    { address: params.crank, role: AccountRole.READONLY_SIGNER },
+    { address: params.payer, role: AccountRole.WRITABLE_SIGNER },
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: pool, role: AccountRole.READONLY },
+    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
+    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data: discriminator,
+  };
+}
+
+export interface SetPrizeTiersParams {
+  admin: Address;
+  poolId: number;
+  tiers: Array<{ numWinners: number; basisPoints: number }>;
+}
+
+export async function buildSetPrizeTiersInstruction(
+  params: SetPrizeTiersParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+
+  const discriminator = new Uint8Array([230, 169, 137, 237, 252, 17, 108, 140]);
+  const data = new Uint8Array(8 + 4 + params.tiers.length * 8);
+  data.set(discriminator, 0);
+
+  const view = new DataView(data.buffer);
+  view.setUint32(8, params.tiers.length, true);
+
+  params.tiers.forEach((t, i) => {
+    const offset = 12 + i * 8;
+    view.setUint32(offset, t.numWinners, true);
+    view.setUint16(offset + 4, t.basisPoints, true);
+    view.setUint16(offset + 6, 0, true); // _padding
+  });
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: pool, role: AccountRole.WRITABLE },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface UpdatePoolConfigParams {
+  admin: Address;
+  poolId: number;
+  newFeeBasisPoints?: number;
+  newBondPrice?: bigint | number;
+  newFeeWallet?: Address;
+}
+
+export async function buildUpdatePoolConfigInstruction(
+  params: UpdatePoolConfigParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+
+  const discriminator = new Uint8Array([153, 237, 18, 59, 19, 149, 44, 2]);
+
+  let len = 8;
+  len += params.newFeeBasisPoints !== undefined ? 3 : 1;
+  len += params.newBondPrice !== undefined ? 9 : 1;
+  len += params.newFeeWallet ? 33 : 1;
+
+  const data = new Uint8Array(len);
+  data.set(discriminator, 0);
+
+  let offset = 8;
+
+  if (params.newFeeBasisPoints !== undefined) {
+    data[offset++] = 1;
+    const view = new DataView(data.buffer, offset, 2);
+    view.setUint16(0, params.newFeeBasisPoints, true);
+    offset += 2;
+  } else {
+    data[offset++] = 0;
+  }
+
+  if (params.newBondPrice !== undefined) {
+    data[offset++] = 1;
+    const view = new DataView(data.buffer, offset, 8);
+    view.setBigUint64(0, BigInt(params.newBondPrice), true);
+    offset += 8;
+  } else {
+    data[offset++] = 0;
+  }
+
+  if (params.newFeeWallet) {
+    data[offset++] = 1;
+    data.set(base58Encoder.encode(address(params.newFeeWallet)), offset);
+    offset += 32;
+  } else {
+    data[offset++] = 0;
+  }
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: params.admin, role: AccountRole.READONLY_SIGNER },
+    { address: pool, role: AccountRole.WRITABLE },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface WithdrawFeesParams {
+  admin: Address;
+  poolId: number;
+  amount: bigint | number;
+  tokenMint: Address;
+  feeWallet: Address;
+  nextRedemptionId: bigint | number;
+  humaStateAddresses: Record<string, string>;
+}
+
+export async function buildWithdrawFeesInstruction(params: WithdrawFeesParams) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const pendingRedemption = await findPendingRedemptionPda(
+    params.poolId,
+    params.nextRedemptionId
+  );
+
+  const discriminator = new Uint8Array([198, 212, 171, 109, 144, 215, 174, 89]);
+  const data = new Uint8Array(8 + 8);
+  data.set(discriminator, 0);
+
+  const view = new DataView(data.buffer);
+  view.setBigUint64(8, BigInt(params.amount), true);
+
+  const addrs = params.humaStateAddresses;
+  const accounts = [
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: pool, role: AccountRole.WRITABLE },
+    { address: poolPstVault, role: AccountRole.WRITABLE },
+    { address: pendingRedemption, role: AccountRole.WRITABLE },
+    { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: address(addrs.humaConfig), role: AccountRole.READONLY },
+    { address: address(addrs.humaPoolConfig), role: AccountRole.READONLY },
+    { address: address(addrs.humaPoolState), role: AccountRole.WRITABLE },
+    { address: address(addrs.humaModeConfig), role: AccountRole.READONLY },
+    { address: address(addrs.pstMint), role: AccountRole.READONLY },
+    {
+      address: address(addrs.humaRedemptionRequest),
+      role: AccountRole.WRITABLE,
+    },
+    { address: address(addrs.humaLenderState), role: AccountRole.WRITABLE },
+    { address: address(addrs.humaPoolAuthority), role: AccountRole.READONLY },
+    { address: address(addrs.humaPoolModeToken), role: AccountRole.WRITABLE },
+    { address: params.tokenMint, role: AccountRole.READONLY },
+    { address: params.feeWallet, role: AccountRole.READONLY },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
+    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data,
+  };
+}
+
+export interface AdminForceUnlockDrawParams {
+  admin: Address;
+  poolId: number;
+  cycleId: number;
+}
+
+export async function buildAdminForceUnlockDrawInstruction(
+  params: AdminForceUnlockDrawParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const drawCycle = await findDrawCyclePda(params.poolId, params.cycleId);
+
+  const discriminator = new Uint8Array([114, 96, 143, 140, 194, 26, 213, 61]);
+
+  const accounts = [
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
+    { address: pool, role: AccountRole.WRITABLE },
+    { address: drawCycle, role: AccountRole.WRITABLE },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data: discriminator,
+  };
+}
+
+export interface CrankRebindExpiredRandomnessParams {
+  crank: Address;
+  poolId: number;
+  cycleId: number;
+  newRandomnessAccount: Address;
+}
+
+export async function buildCrankRebindExpiredRandomnessInstruction(
+  params: CrankRebindExpiredRandomnessParams
+) {
+  const globalConfig = await findGlobalConfigPda();
+  const pool = await findPrizePoolPda(params.poolId);
+  const drawCycle = await findDrawCyclePda(params.poolId, params.cycleId);
+
+  const discriminator = new Uint8Array([48, 178, 171, 168, 77, 11, 46, 112]);
+
+  const accounts = [
+    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
+    { address: globalConfig, role: AccountRole.READONLY },
+    { address: pool, role: AccountRole.WRITABLE },
+    { address: drawCycle, role: AccountRole.WRITABLE },
+    { address: params.newRandomnessAccount, role: AccountRole.READONLY },
+  ];
+
+  return {
+    programAddress: PROGRAM_ID,
+    accounts,
+    data: discriminator,
+  };
+}

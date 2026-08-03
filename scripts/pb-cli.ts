@@ -7,11 +7,14 @@ import {
   appendTransactionMessageInstruction,
   signTransactionMessageWithSigners,
   createKeyPairSignerFromBytes,
+  generateKeyPairSigner,
   getBase64EncodedWireTransaction,
   getBase64Encoder,
   KeyPairSigner,
   getBase58Decoder,
+  getBase58Encoder,
   Base58EncodedBytes,
+  AccountRole,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -37,61 +40,87 @@ import {
   findPoolVaultPda,
   findPoolPstVaultPda,
   encodeU32,
+  encodeU64,
   PROGRAM_ID,
+  SYSTEM_PROGRAM_ID,
   buildPrepareDrawInstruction,
+  buildInitializeGlobalInstruction,
+  buildUpdateGlobalConfigInstruction,
+  buildCreatePoolInstruction,
+  buildInitializeHumaLenderInstruction,
+  buildResizeRegistryInstruction,
+  buildSetPrizeTiersInstruction,
+  buildUpdatePoolConfigInstruction,
+  buildWithdrawFeesInstruction,
+  buildAdminForceUnlockDrawInstruction,
+  buildCrankRebindExpiredRandomnessInstruction,
 } from "../app/lib/bonds-sdk";
 
 // ─── Help / Usage ────────────────────────────────────────────────────────────
 
 function showHelp() {
   console.log(`
-YieldBonds Crank CLI (pb-cli)
+YieldBonds CLI (pb-cli)
 
 Usage:
   pb-cli [command] [options]
 
-Commands:
-  harvest              Harvest yield from Huma and commit it to the current draw cycle
-  prepare-draw         Prepare tickets for the draw cycle in batches
-  reveal               Reveal the random seed and pick winners for the draw cycle
-  query-config         Query and display the Global Config state
-  query-pool           Query and display the Prize Pool state
-  query-draw           Query and display the current Draw Cycle state
-  query-payout         Query and display the Payout Registry state
-  query-winnings [usr] Query and display User Winnings (specify user pubkey or omit to list all)
-  query-redemption [id] Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)
-  query-registry       Query and display the Ticket Registry state (optionally filter with --user)
-  reinvest             Reinvest draw winnings back into principal/tickets
+Crank & Operations Commands:
+  harvest                Harvest yield from Huma and commit it to the current draw cycle
+  prepare-draw           Prepare tickets for the draw cycle in batches
+  reveal                 Reveal the random seed and pick winners for the draw cycle
+  reinvest               Reinvest draw winnings back into principal/tickets
+
+Admin Commands:
+  init-global            Initialize global configuration (admin, jobs account, max tickets)
+  update-global-config   Update global config (admin, jobs account, max tickets)
+  create-pool            Create a new prize pool and zero-initialize its ticket registry
+  initialize-huma-lender Initialize Huma lender state and $PST vault for a pool
+  resize-registry        Resize zero-copy ticket registry account to add user capacity
+  set-prize-tiers        Configure prize tier distribution rules for a pool
+  update-pool-config     Update pool config (fee bps, bond price, fee wallet)
+  withdraw-fees          Withdraw accrued protocol fees to designated fee wallet
+  force-unlock-draw      Emergency admin force unlock of a frozen/stuck draw cycle
+  rebind-randomness      Rebind an expired draw cycle to a new Switchboard randomness account
+
+Query Commands:
+  query-config           Query and display the Global Config state
+  query-pool             Query and display the Prize Pool state
+  query-draw             Query and display the current Draw Cycle state
+  query-payout           Query and display the Payout Registry state
+  query-winnings [usr]   Query and display User Winnings (specify user pubkey or omit to list all)
+  query-redemption [id]  Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)
+  query-registry         Query and display the Ticket Registry state (optionally filter with --user)
 
 Options:
-  --pool <number>      Pool ID (default: 1)
-  --keypair <path>     Path to the keypair file (default: scripts/admin-key.json)
-  --rpc <url>          Solana RPC URL (default: http://127.0.0.1:8899)
-  --seed <hex>         32-byte hex string seed for the reveal command (default: randomly generated)
-  --cycle <number>     Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
-  --winner <idx|addr>  Winner index or public key to reinvest (default: all unprocessed winners)
-  --max-bonds <number> Maximum bonds to buy per reinvest transaction (default: 1000)
-  --batch-size <num>   Maximum entries to process per prepare-draw transaction (default: 1000)
-  --user <pubkey>      User public key filter/target (for query-winnings, query-redemption, or query-registry)
-  --help, -h           Show this help message
+  --pool <number>        Pool ID (default: 1)
+  --keypair <path>       Path to the keypair file (default: scripts/admin-key.json)
+  --rpc <url>            Solana RPC URL (default: http://127.0.0.1:8899)
+  --jobs <pubkey>        Crank bot/jobs account public key
+  --max-tickets <num>    Maximum tickets per buy (default: 1000)
+  --new-admin <pubkey>   New admin authority address (requires --confirm)
+  --bond-price <num>     Bond price in base units (e.g. 1000000 = 1 USDC)
+  --stake-duration <hrs> Staking cycle duration in hours (default: 24)
+  --fee-bps <num>        Protocol fee rate in basis points (e.g. 100 = 1%)
+  --fee-wallet <pubkey>  Fee wallet token account address
+  --token-mint <pubkey>  Underlying token mint address (e.g. USDC)
+  --pst-mint <pubkey>    Huma PST token mint address
+  --tiers <json|str>     Prize tiers config (e.g. '1:5000,5:1000' or JSON array)
+  --amount <num|all>     Amount for withdraw-fees (USDC amount or 'all')
+  --new-randomness <pub> New Switchboard randomness account address
+  --confirm              Explicit confirmation flag for safety-restricted admin operations
+  --seed <hex>           32-byte hex string seed for the reveal command
+  --cycle <number>       Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
+  --winner <idx|addr>    Winner index or public key to reinvest
+  --max-bonds <number>   Maximum bonds to buy per reinvest transaction (default: 1000)
+  --batch-size <num>     Maximum entries to process per prepare-draw transaction (default: 1000)
+  --user <pubkey>        User public key filter/target
+  --help, -h             Show this help message
 
 Environments & Usage Examples:
-  The CLI dynamically resolves configuration state (e.g. program and vault addresses)
-  between localnet and devnet based on the '--rpc' URL.
-
-  Localnet (Default):
-    Runs against a local validator (http://127.0.0.1:8899) and defaults to the local
-    admin keypair:
-      npm run pb-cli query-pool
-
-  Devnet:
-    Runs against Solana Devnet. You must supply a devnet RPC URL and a funded,
-    authorized keypair file:
-      npm run pb-cli query-pool -- --rpc https://api.devnet.solana.com
-      npm run pb-cli harvest -- --rpc https://api.devnet.solana.com --keypair ~/.config/solana/id.json
-
-  Note: When running via 'npm run', always include '--' before specifying CLI options so
-  that npm forwards the arguments properly.
+  npm run pb-cli query-pool
+  npm run pb-cli set-prize-tiers -- --tiers "1:5000,5:1000" --pool 1
+  npm run pb-cli withdraw-fees -- --amount all --confirm --pool 1
 `);
 }
 
@@ -756,6 +785,767 @@ export async function executeReinvest({
   console.log("Reinvestment process completed successfully!");
 }
 
+// ─── Admin Action Handlers ───────────────────────────────────────────────────
+
+export interface ExecuteInitGlobalParams {
+  jobsAccount?: string;
+  maxTicketsPerBuy?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeInitGlobal({
+  jobsAccount,
+  maxTicketsPerBuy = 1000,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteInitGlobalParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const configPda = await findGlobalConfigPda();
+
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (acc && acc.value) {
+    throw new Error(
+      `GlobalConfig account already exists at ${configPda}. Use 'update-global-config' to modify settings.`
+    );
+  }
+
+  if (maxTicketsPerBuy <= 0) {
+    throw new Error("maxTicketsPerBuy must be a positive integer.");
+  }
+
+  const jobs = jobsAccount ? address(jobsAccount) : signer.address;
+  console.log(`Initializing Global Config:
+  Admin: ${signer.address}
+  Jobs Account (Crank): ${jobs}
+  Max Tickets Per Buy: ${maxTicketsPerBuy}
+  PDA: ${configPda}
+`);
+
+  const ix = await buildInitializeGlobalInstruction({
+    admin: signer.address,
+    jobsAccount: jobs,
+    maxTicketsPerBuy,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteUpdateGlobalConfigParams {
+  newAdmin?: string;
+  jobsAccount?: string;
+  maxTicketsPerBuy?: number;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeUpdateGlobalConfig({
+  newAdmin,
+  jobsAccount,
+  maxTicketsPerBuy,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteUpdateGlobalConfigParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const configPda = await findGlobalConfigPda();
+
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (!acc || !acc.value) {
+    throw new Error(
+      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
+    );
+  }
+
+  const state = parseGlobalConfig(
+    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
+  );
+  if (state.admin !== signer.address) {
+    throw new Error(
+      `Unauthorized: Keypair address (${signer.address}) does not match current admin (${state.admin}).`
+    );
+  }
+
+  if (!newAdmin && !jobsAccount && maxTicketsPerBuy === undefined) {
+    throw new Error(
+      "No update parameters specified. Pass --new-admin, --jobs, or --max-tickets."
+    );
+  }
+
+  if (newAdmin && !confirm) {
+    throw new Error(
+      `CAUTION: Transferring admin authority to "${newAdmin}" cannot be undone unless the new key signs future transactions. Pass --confirm to proceed.`
+    );
+  }
+
+  console.log(`Updating Global Config:
+  Current Admin: ${state.admin}
+  ${newAdmin ? `New Admin: ${newAdmin}` : ""}
+  ${jobsAccount ? `New Jobs Account: ${jobsAccount}` : ""}
+  ${maxTicketsPerBuy !== undefined ? `New Max Tickets Per Buy: ${maxTicketsPerBuy}` : ""}
+`);
+
+  const ix = await buildUpdateGlobalConfigInstruction({
+    admin: signer.address,
+    newAdmin: newAdmin ? address(newAdmin) : undefined,
+    newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
+    newMaxTicketsPerBuy: maxTicketsPerBuy,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteCreatePoolParams {
+  poolId?: number;
+  bondPrice?: bigint | number;
+  stakeCycleDurationHrs?: bigint | number;
+  feeBasisPoints?: number;
+  tokenMint?: string;
+  pstMint?: string;
+  feeWallet?: string;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeCreatePool({
+  poolId = 1,
+  bondPrice = 1_000_000,
+  stakeCycleDurationHrs = 24,
+  feeBasisPoints = 100,
+  tokenMint,
+  pstMint,
+  feeWallet,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteCreatePoolParams) {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (poolAcc && poolAcc.value) {
+    throw new Error(
+      `PrizePool account for pool ${poolId} already exists at ${poolPda}.`
+    );
+  }
+
+  if (BigInt(bondPrice) <= 0n) throw new Error("bondPrice must be > 0.");
+  if (BigInt(stakeCycleDurationHrs) <= 0n)
+    throw new Error("stakeCycleDurationHrs must be > 0.");
+  if (feeBasisPoints < 0 || feeBasisPoints > 10000)
+    throw new Error("feeBasisPoints must be between 0 and 10000.");
+
+  const resolvedTokenMint =
+    tokenMint ||
+    stateAddresses.usdcMint ||
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const resolvedPstMint = pstMint || stateAddresses.pstMint;
+  const resolvedFeeWallet =
+    feeWallet || stateAddresses.feeWallet || signer.address;
+
+  if (!resolvedPstMint) {
+    throw new Error(`Missing pstMint in state addresses or options.`);
+  }
+
+  const ticketRegistrySigner = await generateKeyPairSigner();
+
+  console.log(`Creating Prize Pool ${poolId}:
+  Pool PDA: ${poolPda}
+  Ticket Registry Account: ${ticketRegistrySigner.address}
+  Bond Price: ${formatAmount(bondPrice)}
+  Stake Cycle Duration (Hrs): ${stakeCycleDurationHrs}
+  Fee Basis Points: ${feeBasisPoints} (${feeBasisPoints / 100}%)
+  Token Mint: ${resolvedTokenMint}
+  PST Mint: ${resolvedPstMint}
+  Fee Wallet: ${resolvedFeeWallet}
+`);
+
+  const space = 100200n;
+  const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
+
+  const createRegistryIx = {
+    programAddress: SYSTEM_PROGRAM_ID,
+    accounts: [
+      { address: signer.address, role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: ticketRegistrySigner.address,
+        role: AccountRole.WRITABLE_SIGNER,
+      },
+    ],
+    data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
+  };
+
+  const createPoolIx = await buildCreatePoolInstruction({
+    admin: signer.address,
+    poolId,
+    bondPrice,
+    stakeCycleDurationHrs,
+    feeBasisPoints,
+    tokenMint: address(resolvedTokenMint),
+    pstMint: address(resolvedPstMint),
+    ticketRegistry: ticketRegistrySigner.address,
+    feeWallet: address(resolvedFeeWallet),
+  });
+
+  await sendTxWithSigners(rpc, [createRegistryIx, createPoolIx], signer, [
+    signer,
+    ticketRegistrySigner,
+  ]);
+}
+
+export interface ExecuteInitializeHumaLenderParams {
+  poolId?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeInitializeHumaLender({
+  poolId = 1,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteInitializeHumaLenderParams) {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+
+  console.log(`Initializing Huma Lender State for Pool ${poolId}...`);
+
+  const ix = await buildInitializeHumaLenderInstruction({
+    admin: signer.address,
+    poolId,
+    humaStateAddresses: stateAddresses,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteResizeRegistryParams {
+  poolId?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeResizeRegistry({
+  poolId = 1,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteResizeRegistryParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (poolState.isFrozenForDraw) {
+    throw new Error(
+      `Cannot resize registry while pool ${poolId} is frozen for draw.`
+    );
+  }
+
+  const registryAddr = poolState.ticketRegistry;
+  const registryAcc = await rpc
+    .getAccountInfo(address(registryAddr), { encoding: "base64" })
+    .send();
+  if (!registryAcc || !registryAcc.value) {
+    throw new Error(`TicketRegistry account at ${registryAddr} not found.`);
+  }
+  const registryState = parseTicketRegistry(
+    new Uint8Array(base64Encoder.encode(registryAcc.value.data[0]))
+  );
+
+  console.log(`Resizing Ticket Registry for Pool ${poolId} at ${registryAddr}:
+  Current Capacity: ${registryState.capacity} users
+  User Count: ${registryState.userCount} users
+  Current Space: ${registryAcc.value.data[0].length} bytes
+`);
+
+  const ix = await buildResizeRegistryInstruction({
+    crank: signer.address,
+    payer: signer.address,
+    poolId,
+    ticketRegistry: address(registryAddr),
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteSetPrizeTiersParams {
+  poolId?: number;
+  tiersString?: string;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeSetPrizeTiers({
+  poolId = 1,
+  tiersString,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteSetPrizeTiersParams) {
+  if (!tiersString) {
+    throw new Error(
+      `Missing --tiers argument. Format: "numWinners:basisPoints,..." (e.g. "1:5000,5:1000") or JSON array.`
+    );
+  }
+
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (poolState.isFrozenForDraw) {
+    throw new Error(
+      `Cannot update prize tiers while pool ${poolId} is frozen for draw.`
+    );
+  }
+
+  let parsedTiers: Array<{ numWinners: number; basisPoints: number }> = [];
+
+  if (tiersString.trim().startsWith("[")) {
+    parsedTiers = JSON.parse(tiersString);
+  } else {
+    parsedTiers = tiersString.split(",").map((part) => {
+      const [w, b] = part.split(":").map((v) => parseInt(v.trim(), 10));
+      if (isNaN(w) || isNaN(b)) {
+        throw new Error(
+          `Invalid tier format in "${part}". Expected "winners:basisPoints".`
+        );
+      }
+      return { numWinners: w, basisPoints: b };
+    });
+  }
+
+  if (parsedTiers.length === 0 || parsedTiers.length > 10) {
+    throw new Error(`Number of prize tiers must be between 1 and 10.`);
+  }
+
+  let totalWinners = 0;
+  let totalBps = 0;
+  parsedTiers.forEach((t, idx) => {
+    if (t.numWinners <= 0 || t.basisPoints <= 0) {
+      throw new Error(
+        `Tier ${idx} must have numWinners > 0 and basisPoints > 0.`
+      );
+    }
+    totalWinners += t.numWinners;
+    totalBps += t.numWinners * t.basisPoints;
+  });
+
+  if (totalWinners > 100) {
+    throw new Error(
+      `Total winners (${totalWinners}) exceeds maximum allowed (100).`
+    );
+  }
+
+  if (totalBps !== 10000) {
+    throw new Error(
+      `Total tier basis points product (${totalBps}) must equal exactly 10,000 (100.00%).`
+    );
+  }
+
+  console.log(`Setting Prize Tiers for Pool ${poolId}:`);
+  parsedTiers.forEach((t, i) => {
+    console.log(
+      `  Tier ${i + 1}: ${t.numWinners} winner(s) @ ${t.basisPoints} bps (${t.basisPoints / 100}% each)`
+    );
+  });
+  console.log(
+    `  Total Winners: ${totalWinners}, Total Basis Points: ${totalBps}`
+  );
+
+  const ix = await buildSetPrizeTiersInstruction({
+    admin: signer.address,
+    poolId,
+    tiers: parsedTiers,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteUpdatePoolConfigParams {
+  poolId?: number;
+  feeBasisPoints?: number;
+  bondPrice?: bigint | number;
+  feeWallet?: string;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeUpdatePoolConfig({
+  poolId = 1,
+  feeBasisPoints,
+  bondPrice,
+  feeWallet,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteUpdatePoolConfigParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (feeBasisPoints === undefined && bondPrice === undefined && !feeWallet) {
+    throw new Error(
+      "No update options provided. Pass --fee-bps, --bond-price, or --fee-wallet."
+    );
+  }
+
+  if (
+    feeBasisPoints !== undefined &&
+    (feeBasisPoints < 0 || feeBasisPoints > 10000)
+  ) {
+    throw new Error("feeBasisPoints must be between 0 and 10000.");
+  }
+  if (bondPrice !== undefined && BigInt(bondPrice) <= 0n) {
+    throw new Error("bondPrice must be a positive integer.");
+  }
+
+  console.log(`Updating Prize Pool ${poolId} Config:
+  Current Fee Basis Points: ${poolState.feeBasisPoints} ${feeBasisPoints !== undefined ? `-> New: ${feeBasisPoints}` : ""}
+  Current Bond Price: ${formatAmount(poolState.bondPrice)} ${bondPrice !== undefined ? `-> New: ${formatAmount(bondPrice)}` : ""}
+  Current Fee Wallet: ${poolState.feeWallet} ${feeWallet ? `-> New: ${feeWallet}` : ""}
+`);
+
+  const ix = await buildUpdatePoolConfigInstruction({
+    admin: signer.address,
+    poolId,
+    newFeeBasisPoints: feeBasisPoints,
+    newBondPrice: bondPrice,
+    newFeeWallet: feeWallet ? address(feeWallet) : undefined,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteWithdrawFeesParams {
+  poolId?: number;
+  amountOption?: string;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeWithdrawFees({
+  poolId = 1,
+  amountOption,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteWithdrawFeesParams) {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (poolState.isFrozenForDraw) {
+    throw new Error(
+      `Cannot withdraw fees while pool ${poolId} is frozen for draw.`
+    );
+  }
+
+  const availableFees =
+    poolState.totalFeesAccrued - poolState.totalFeesWithdrawn;
+  if (availableFees <= 0n) {
+    throw new Error(
+      `No accrued protocol fees available for withdrawal. Total Accrued: ${formatAmount(
+        poolState.totalFeesAccrued
+      )}, Withdrawn: ${formatAmount(poolState.totalFeesWithdrawn)}`
+    );
+  }
+
+  let withdrawAmount = availableFees;
+  if (amountOption && amountOption !== "all") {
+    const val = BigInt(amountOption);
+    if (val <= 0n || val > availableFees) {
+      throw new Error(
+        `Invalid withdrawal amount ${val}. Must be > 0 and <= available fees (${formatAmount(availableFees)}).`
+      );
+    }
+    withdrawAmount = val;
+  }
+
+  if (!confirm) {
+    console.log(`Withdraw Fees Details:
+  Pool ID: ${poolId}
+  Available Fees: ${formatAmount(availableFees)}
+  Requested Withdrawal: ${formatAmount(withdrawAmount)}
+  Fee Wallet: ${poolState.feeWallet}
+`);
+    throw new Error(
+      `Please re-run with --confirm to execute fee withdrawal transaction.`
+    );
+  }
+
+  console.log(
+    `Executing Fee Withdrawal of ${formatAmount(withdrawAmount)} for Pool ${poolId}...`
+  );
+
+  const ix = await buildWithdrawFeesInstruction({
+    admin: signer.address,
+    poolId,
+    amount: withdrawAmount,
+    tokenMint: address(poolState.tokenMint),
+    feeWallet: address(poolState.feeWallet),
+    nextRedemptionId: poolState.nextRedemptionId,
+    humaStateAddresses: stateAddresses,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteForceUnlockDrawParams {
+  poolId?: number;
+  cycleId?: number;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeForceUnlockDraw({
+  poolId = 1,
+  cycleId,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteForceUnlockDrawParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const targetCycleId =
+    cycleId !== undefined
+      ? cycleId
+      : poolState.currentDrawCycleId > 1
+        ? poolState.currentDrawCycleId - 1
+        : 1;
+
+  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+  const drawCycleAcc = await rpc
+    .getAccountInfo(drawCyclePda, { encoding: "base64" })
+    .send();
+  if (!drawCycleAcc || !drawCycleAcc.value) {
+    throw new Error(`DrawCycle account for cycle ${targetCycleId} not found.`);
+  }
+  const drawCycleState = parseDrawCycle(
+    new Uint8Array(base64Encoder.encode(drawCycleAcc.value.data[0]))
+  );
+
+  if (!confirm) {
+    console.log(`EMERGENCY FORCE UNLOCK PREVIEW:
+  Pool ID: ${poolId}
+  Cycle ID: ${targetCycleId}
+  Pool Frozen: ${poolState.isFrozenForDraw}
+  Draw Status: ${drawCycleState.status}
+  Committed Prize Pot: ${formatAmount(drawCycleState.prizePot)}
+  Committed Cycle Fee: ${formatAmount(drawCycleState.cycleFeeCollected)}
+`);
+    throw new Error(
+      `Force unlock resets draw status and unfreezes pool. Re-run with --confirm to proceed.`
+    );
+  }
+
+  console.log(
+    `Executing Emergency Force Unlock for Pool ${poolId}, Cycle ${targetCycleId}...`
+  );
+
+  const ix = await buildAdminForceUnlockDrawInstruction({
+    admin: signer.address,
+    poolId,
+    cycleId: targetCycleId,
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+export interface ExecuteRebindRandomnessParams {
+  poolId?: number;
+  cycleId?: number;
+  newRandomnessAccount: string;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeRebindRandomness({
+  poolId = 1,
+  cycleId,
+  newRandomnessAccount,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteRebindRandomnessParams) {
+  if (!newRandomnessAccount) {
+    throw new Error("Missing --new-randomness <pubkey> argument.");
+  }
+
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const targetCycleId =
+    cycleId !== undefined
+      ? cycleId
+      : poolState.currentDrawCycleId > 1
+        ? poolState.currentDrawCycleId - 1
+        : 1;
+
+  console.log(
+    `Rebinding Expired Randomness for Pool ${poolId}, Cycle ${targetCycleId} to ${newRandomnessAccount}...`
+  );
+
+  const ix = await buildCrankRebindExpiredRandomnessInstruction({
+    crank: signer.address,
+    poolId,
+    cycleId: targetCycleId,
+    newRandomnessAccount: address(newRandomnessAccount),
+  });
+
+  await sendTx(rpc, ix, signer);
+}
+
+function buildSystemCreateAccountData(
+  lamports: bigint,
+  space: bigint,
+  ownerProgramId: string
+): Uint8Array {
+  const data = new Uint8Array(4 + 8 + 8 + 32);
+  const view = new DataView(data.buffer);
+  view.setUint32(0, 0, true);
+  view.setBigUint64(4, lamports, true);
+  view.setBigUint64(12, space, true);
+  data.set(getBase58Encoder().encode(address(ownerProgramId)), 20);
+  return data;
+}
+
+export async function sendTxWithSigners(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  instructions: any[],
+  feePayer: KeyPairSigner,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _signers: KeyPairSigner[]
+): Promise<string> {
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let baseMsg: any = createTransactionMessage({ version: 0 });
+  for (const ix of instructions) {
+    baseMsg = appendTransactionMessageInstruction(ix, baseMsg);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const feePayerMsg: any = (setTransactionMessageFeePayerSigner as any)(
+    feePayer,
+    baseMsg
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message: any = (setTransactionMessageLifetimeUsingBlockhash as any)(
+    latestBlockhash,
+    feePayerMsg
+  );
+
+  const signedTx = await signTransactionMessageWithSigners(message);
+  const wireTx = getBase64EncodedWireTransaction(signedTx);
+  const signature = await rpc
+    .sendTransaction(wireTx, { encoding: "base64" })
+    .send();
+
+  console.log(`Transaction sent: ${signature}. Waiting for confirmation...`);
+
+  for (let i = 0; i < 15; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const status = await rpc.getSignatureStatuses([signature]).send();
+      if (status && status.value && status.value[0]) {
+        const err = status.value[0].err;
+        if (err) {
+          throw new Error(`Transaction failed: ${safeStringify(err)}`);
+        }
+        console.log("Transaction confirmed successfully!");
+        return signature;
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      console.warn("Failed checking signature status:", errMsg);
+    }
+  }
+
+  console.warn("Transaction signature status check timed out.");
+  return signature;
+}
+
 // ─── Main CLI Logic ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -795,12 +1585,24 @@ async function main() {
 
   // Load keypair if performing writes
   let signer: KeyPairSigner | null = null;
-  if (
-    command === "harvest" ||
-    command === "reveal" ||
-    command === "reinvest" ||
-    command === "prepare-draw"
-  ) {
+  const writeCommands = new Set([
+    "harvest",
+    "reveal",
+    "reinvest",
+    "prepare-draw",
+    "init-global",
+    "update-global-config",
+    "create-pool",
+    "initialize-huma-lender",
+    "resize-registry",
+    "set-prize-tiers",
+    "update-pool-config",
+    "withdraw-fees",
+    "force-unlock-draw",
+    "rebind-randomness",
+  ]);
+
+  if (writeCommands.has(command)) {
     if (!fs.existsSync(keypairPath)) {
       throw new Error(`Keypair file not found at ${keypairPath}`);
     }
@@ -810,6 +1612,162 @@ async function main() {
   }
 
   switch (command) {
+    case "init-global": {
+      const jobsAccount = options["--jobs"] || positionals[0];
+      const maxTicketsPerBuy = options["--max-tickets"]
+        ? parseInt(options["--max-tickets"], 10)
+        : 1000;
+      await executeInitGlobal({
+        jobsAccount,
+        maxTicketsPerBuy,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "update-global-config": {
+      const newAdmin = options["--new-admin"];
+      const jobsAccount = options["--jobs"];
+      const maxTicketsPerBuy = options["--max-tickets"]
+        ? parseInt(options["--max-tickets"], 10)
+        : undefined;
+      const confirm = options["--confirm"] === "true";
+      await executeUpdateGlobalConfig({
+        newAdmin,
+        jobsAccount,
+        maxTicketsPerBuy,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "create-pool": {
+      const bondPrice = options["--bond-price"]
+        ? BigInt(options["--bond-price"])
+        : 1_000_000n;
+      const stakeCycleDurationHrs = options["--stake-duration"]
+        ? parseInt(options["--stake-duration"], 10)
+        : 24;
+      const feeBasisPoints = options["--fee-bps"]
+        ? parseInt(options["--fee-bps"], 10)
+        : 100;
+      await executeCreatePool({
+        poolId,
+        bondPrice,
+        stakeCycleDurationHrs,
+        feeBasisPoints,
+        tokenMint: options["--token-mint"],
+        pstMint: options["--pst-mint"],
+        feeWallet: options["--fee-wallet"],
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "initialize-huma-lender": {
+      await executeInitializeHumaLender({
+        poolId,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "resize-registry": {
+      await executeResizeRegistry({
+        poolId,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "set-prize-tiers": {
+      const tiersString = options["--tiers"] || positionals[0];
+      await executeSetPrizeTiers({
+        poolId,
+        tiersString,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "update-pool-config": {
+      const feeBasisPoints = options["--fee-bps"]
+        ? parseInt(options["--fee-bps"], 10)
+        : undefined;
+      const bondPrice = options["--bond-price"]
+        ? BigInt(options["--bond-price"])
+        : undefined;
+      const feeWallet = options["--fee-wallet"];
+      await executeUpdatePoolConfig({
+        poolId,
+        feeBasisPoints,
+        bondPrice,
+        feeWallet,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "withdraw-fees": {
+      const amountOption = options["--amount"] || positionals[0];
+      const confirm = options["--confirm"] === "true";
+      await executeWithdrawFees({
+        poolId,
+        amountOption,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "force-unlock-draw": {
+      let cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
+      if (cycleId === undefined && positionals.length > 0) {
+        const val = parseInt(positionals[0], 10);
+        if (!isNaN(val)) cycleId = val;
+      }
+      const confirm = options["--confirm"] === "true";
+      await executeForceUnlockDraw({
+        poolId,
+        cycleId,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "rebind-randomness": {
+      let cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
+      if (cycleId === undefined && positionals.length > 0) {
+        const val = parseInt(positionals[0], 10);
+        if (!isNaN(val)) cycleId = val;
+      }
+      const newRandomnessAccount =
+        options["--new-randomness"] || positionals[1] || positionals[0];
+      await executeRebindRandomness({
+        poolId,
+        cycleId,
+        newRandomnessAccount,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
     case "harvest": {
       await executeHarvest({ poolId, rpcUrl, signer: signer! });
       break;

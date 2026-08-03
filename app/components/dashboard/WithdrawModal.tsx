@@ -83,7 +83,13 @@ export function WithdrawModal({
       setParsedError(parsed);
       setStep("input");
     }
-  }, [canWithdraw, withdrawValue, onWithdraw, parsedTickets, onWithdrawSuccess]);
+  }, [
+    canWithdraw,
+    withdrawValue,
+    onWithdraw,
+    parsedTickets,
+    onWithdrawSuccess,
+  ]);
 
   const handleDone = useCallback(() => {
     onClose();
