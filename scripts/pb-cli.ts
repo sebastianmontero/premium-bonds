@@ -40,7 +40,6 @@ import {
   findPoolVaultPda,
   findPoolPstVaultPda,
   encodeU32,
-  encodeU64,
   PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   buildPrepareDrawInstruction,
@@ -56,73 +55,543 @@ import {
   buildCrankRebindExpiredRandomnessInstruction,
 } from "../app/lib/bonds-sdk";
 
-// ─── Help / Usage ────────────────────────────────────────────────────────────
+// ─── Help / Usage & Command Registry ─────────────────────────────────────────
+
+export interface CommandOption {
+  flag: string;
+  description: string;
+  default?: string;
+  required?: boolean;
+}
+
+export interface CommandMetadata {
+  command: string;
+  category: "Crank & Operations" | "Admin" | "Query";
+  summary: string;
+  description: string;
+  options?: CommandOption[];
+  positionalArgs?: string;
+  examples?: string[];
+  requiresSigner?: boolean;
+}
+
+export const GLOBAL_OPTIONS: CommandOption[] = [
+  { flag: "--pool <number>", description: "Pool ID", default: "1" },
+  {
+    flag: "--keypair <path>",
+    description: "Path to keypair file",
+    default: "scripts/admin-key.json",
+  },
+  {
+    flag: "--rpc <url>",
+    description: "Solana RPC URL",
+    default: "http://127.0.0.1:8899",
+  },
+  { flag: "--help, -h", description: "Show help message" },
+];
+
+export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
+  // Crank & Operations
+  harvest: {
+    command: "harvest",
+    category: "Crank & Operations",
+    summary: "Harvest yield from Huma and commit it to the current draw cycle",
+    description:
+      "Harvest yield from Huma protocol for the specified prize pool and commit it to the current draw cycle, freezing the pool for draw processing.",
+    requiresSigner: true,
+    examples: ["npm run pb-cli harvest", "npm run pb-cli harvest -- --pool 1"],
+  },
+  "prepare-draw": {
+    command: "prepare-draw",
+    category: "Crank & Operations",
+    summary: "Prepare tickets for the draw cycle in batches",
+    description:
+      "Prepare tickets for the draw cycle in batches, merging pending tickets into active tickets and computing prefix sums across ticket registry entries.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--batch-size <num>",
+        description: "Maximum entries to process per transaction batch",
+        default: "1000",
+      },
+    ],
+    examples: [
+      "npm run pb-cli prepare-draw -- --pool 1",
+      "npm run pb-cli prepare-draw -- --batch-size 500",
+    ],
+  },
+  reveal: {
+    command: "reveal",
+    category: "Crank & Operations",
+    summary: "Reveal the random seed and pick winners for the draw cycle",
+    description:
+      "Reveal the random seed and pick winners for the draw cycle. Automatically runs batched prepare-draw if preparation is incomplete.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--seed <hex>",
+        description: "32-byte hex string seed for the reveal command",
+      },
+    ],
+    examples: ["npm run pb-cli reveal -- --pool 1"],
+  },
+  reinvest: {
+    command: "reinvest",
+    category: "Crank & Operations",
+    summary: "Reinvest draw winnings back into principal/tickets",
+    description:
+      "Reinvest draw winnings back into principal/tickets for unprocessed draw winners.",
+    requiresSigner: true,
+    positionalArgs: "[winner]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--winner <idx|addr>",
+        description:
+          "Winner index or user public key address to target (default: all unprocessed winners)",
+      },
+      {
+        flag: "--max-bonds <number>",
+        description: "Maximum bonds to buy per reinvest transaction",
+        default: "1000",
+      },
+    ],
+    examples: [
+      "npm run pb-cli reinvest -- --pool 1",
+      "npm run pb-cli reinvest -- --winner 0",
+    ],
+  },
+
+  // Admin Commands
+  "init-global": {
+    command: "init-global",
+    category: "Admin",
+    summary: "Initialize global configuration (admin, jobs account, max tickets)",
+    description:
+      "Initialize global program configuration specifying admin authority, jobs/crank account, and maximum tickets per buy.",
+    requiresSigner: true,
+    positionalArgs: "[jobs]",
+    options: [
+      {
+        flag: "--jobs <pubkey>",
+        description: "Crank bot/jobs account public key",
+        required: true,
+      },
+      {
+        flag: "--max-tickets <num>",
+        description: "Maximum tickets allowed per buy",
+        default: "1000",
+      },
+    ],
+    examples: [
+      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY> --max-tickets 1000",
+    ],
+  },
+  "update-global-config": {
+    command: "update-global-config",
+    category: "Admin",
+    summary: "Update global config (admin, jobs account, max tickets)",
+    description:
+      "Update global configuration parameters including admin authority, jobs account, and max tickets per buy.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--new-admin <pubkey>",
+        description: "New admin authority address (requires --confirm)",
+      },
+      {
+        flag: "--jobs <pubkey>",
+        description: "New crank bot/jobs account public key",
+      },
+      {
+        flag: "--max-tickets <num>",
+        description: "New maximum tickets per buy limit",
+      },
+      {
+        flag: "--confirm",
+        description: "Explicit confirmation flag required for changing admin authority",
+      },
+    ],
+    examples: ["npm run pb-cli update-global-config -- --max-tickets 2000"],
+  },
+  "create-pool": {
+    command: "create-pool",
+    category: "Admin",
+    summary: "Create a new prize pool and zero-initialize its ticket registry",
+    description:
+      "Create a new prize pool and zero-initialize its zero-copy ticket registry PDA.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--bond-price <num>",
+        description: "Bond price in base units (e.g. 1000000 = 1 USDC)",
+        default: "1000000",
+      },
+      {
+        flag: "--stake-duration <hrs>",
+        description: "Staking cycle duration in hours",
+        default: "24",
+      },
+      {
+        flag: "--fee-bps <num>",
+        description: "Protocol fee rate in basis points (e.g. 100 = 1%)",
+        default: "100",
+      },
+      {
+        flag: "--token-mint <pubkey>",
+        description: "Underlying token mint address (e.g. USDC)",
+      },
+      {
+        flag: "--pst-mint <pubkey>",
+        description: "Huma PST token mint address",
+      },
+      {
+        flag: "--fee-wallet <pubkey>",
+        description: "Fee wallet token account address",
+      },
+    ],
+    examples: [
+      "npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --fee-bps 100",
+    ],
+  },
+  "initialize-huma-lender": {
+    command: "initialize-huma-lender",
+    category: "Admin",
+    summary: "Initialize Huma lender state and $PST vault for a pool",
+    description:
+      "Initialize Huma lender state account and PST token vault for a pool.",
+    requiresSigner: true,
+    examples: ["npm run pb-cli initialize-huma-lender -- --pool 1"],
+  },
+  "resize-registry": {
+    command: "resize-registry",
+    category: "Admin",
+    summary: "Resize zero-copy ticket registry account to add user capacity",
+    description:
+      "Resize zero-copy ticket registry account to add user capacity.",
+    requiresSigner: true,
+    examples: ["npm run pb-cli resize-registry -- --pool 1"],
+  },
+  "set-prize-tiers": {
+    command: "set-prize-tiers",
+    category: "Admin",
+    summary: "Configure prize tier distribution rules for a pool",
+    description: "Configure prize tier distribution rules for a pool.",
+    requiresSigner: true,
+    positionalArgs: "[tiers]",
+    options: [
+      {
+        flag: "--tiers <json|str>",
+        description:
+          "Prize tiers config (e.g. '1:5000,5:1000' or JSON array)",
+        required: true,
+      },
+    ],
+    examples: [
+      "npm run pb-cli set-prize-tiers -- --tiers '1:5000,5:1000' --pool 1",
+    ],
+  },
+  "update-pool-config": {
+    command: "update-pool-config",
+    category: "Admin",
+    summary: "Update pool config (fee bps, bond price, fee wallet)",
+    description:
+      "Update pool config parameters (fee bps, bond price, fee wallet address).",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--fee-bps <num>",
+        description: "Protocol fee rate in basis points",
+      },
+      {
+        flag: "--bond-price <num>",
+        description: "Bond price in base units",
+      },
+      {
+        flag: "--fee-wallet <pubkey>",
+        description: "Fee wallet token account address",
+      },
+    ],
+    examples: ["npm run pb-cli update-pool-config -- --pool 1 --fee-bps 200"],
+  },
+  "withdraw-fees": {
+    command: "withdraw-fees",
+    category: "Admin",
+    summary: "Withdraw accrued protocol fees to designated fee wallet",
+    description:
+      "Withdraw accrued protocol fees from pool vault to designated fee wallet.",
+    requiresSigner: true,
+    positionalArgs: "[amount]",
+    options: [
+      {
+        flag: "--amount <num|all>",
+        description: "Amount to withdraw in token base units, or 'all'",
+        required: true,
+      },
+      {
+        flag: "--confirm",
+        description: "Explicit confirmation flag required for fee withdrawal",
+        required: true,
+      },
+    ],
+    examples: [
+      "npm run pb-cli withdraw-fees -- --amount all --confirm --pool 1",
+    ],
+  },
+  "force-unlock-draw": {
+    command: "force-unlock-draw",
+    category: "Admin",
+    summary: "Emergency admin force unlock of a frozen/stuck draw cycle",
+    description:
+      "Emergency admin force unlock of a frozen/stuck draw cycle, resetting pool freeze status.",
+    requiresSigner: true,
+    positionalArgs: "[cycle]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--confirm",
+        description: "Explicit confirmation flag required for force unlock",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli force-unlock-draw -- --pool 1 --confirm"],
+  },
+  "rebind-randomness": {
+    command: "rebind-randomness",
+    category: "Admin",
+    summary:
+      "Rebind an expired draw cycle to a new Switchboard randomness account",
+    description:
+      "Rebind an expired draw cycle to a new Switchboard randomness account.",
+    requiresSigner: true,
+    positionalArgs: "[cycle] [newRandomness]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--new-randomness <pubkey>",
+        description: "New Switchboard randomness account address",
+        required: true,
+      },
+    ],
+    examples: [
+      "npm run pb-cli rebind-randomness -- --pool 1 --new-randomness <PUBKEY>",
+    ],
+  },
+
+  // Query Commands
+  "query-config": {
+    command: "query-config",
+    category: "Query",
+    summary: "Query and display the Global Config state",
+    description:
+      "Query and display the on-chain GlobalConfig state (admin, jobs account, max tickets per buy).",
+    requiresSigner: false,
+    examples: ["npm run pb-cli query-config"],
+  },
+  "query-pool": {
+    command: "query-pool",
+    category: "Query",
+    summary: "Query and display the Prize Pool state",
+    description:
+      "Query and display the PrizePool state, vault PDAs, deposited principal, status, and fee stats.",
+    requiresSigner: false,
+    positionalArgs: "[poolId]",
+    examples: [
+      "npm run pb-cli query-pool",
+      "npm run pb-cli query-pool -- --pool 1",
+    ],
+  },
+  "query-draw": {
+    command: "query-draw",
+    category: "Query",
+    summary: "Query and display the current Draw Cycle state",
+    description:
+      "Query and display the DrawCycle state (status, locked ticket count, prize pot, randomness account, harvest slot).",
+    requiresSigner: false,
+    positionalArgs: "[cycleId]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+    ],
+    examples: ["npm run pb-cli query-draw -- --pool 1 --cycle 0"],
+  },
+  "query-payout": {
+    command: "query-payout",
+    category: "Query",
+    summary: "Query and display the Payout Registry state",
+    description:
+      "Query and display the PayoutRegistry state and winner list for a draw cycle.",
+    requiresSigner: false,
+    positionalArgs: "[cycleId]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+    ],
+    examples: ["npm run pb-cli query-payout -- --pool 1 --cycle 0"],
+  },
+  "query-winnings": {
+    command: "query-winnings",
+    category: "Query",
+    summary:
+      "Query and display User Winnings (specify user pubkey or omit to list all)",
+    description:
+      "Query and display User Winnings PDA state for a specific user or list all user winnings for a pool.",
+    requiresSigner: false,
+    positionalArgs: "[userPubkey]",
+    options: [{ flag: "--user <pubkey>", description: "User public key address" }],
+    examples: ["npm run pb-cli query-winnings -- --user <USER_PUBKEY>"],
+  },
+  "query-redemption": {
+    command: "query-redemption",
+    category: "Query",
+    summary:
+      "Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)",
+    description:
+      "Query Pending Redemption state for a specific redemption ID or list all redemptions.",
+    requiresSigner: false,
+    positionalArgs: "[redemptionId]",
+    options: [
+      { flag: "--id <number>", description: "Redemption ID to query" },
+      { flag: "--user <pubkey>", description: "User public key filter" },
+    ],
+    examples: ["npm run pb-cli query-redemption -- --id 1"],
+  },
+  "query-registry": {
+    command: "query-registry",
+    category: "Query",
+    summary:
+      "Query and display the Ticket Registry state (optionally filter with --user)",
+    description:
+      "Query and display the zero-copy TicketRegistry state and registered user entries.",
+    requiresSigner: false,
+    positionalArgs: "[userPubkey]",
+    options: [{ flag: "--user <pubkey>", description: "User public key filter" }],
+    examples: ["npm run pb-cli query-registry -- --pool 1"],
+  },
+};
+
+export function resolveHelpRequest(args: string[]): {
+  isHelp: boolean;
+  command?: string;
+} {
+  if (args.length === 0) return { isHelp: true };
+
+  if (args[0] === "help") {
+    return { isHelp: true, command: args[1] };
+  }
+
+  const hasHelpFlag = args.includes("--help") || args.includes("-h");
+  if (!hasHelpFlag) return { isHelp: false };
+
+  const command = args.find((arg) => !arg.startsWith("-"));
+  return { isHelp: true, command };
+}
 
 function showHelp() {
-  console.log(`
-YieldBonds CLI (pb-cli)
+  const categories: Array<CommandMetadata["category"]> = [
+    "Crank & Operations",
+    "Admin",
+    "Query",
+  ];
 
-Usage:
-  pb-cli [command] [options]
+  let helpTxt = `YieldBonds CLI (pb-cli)\n\nUsage:\n  pb-cli [command] [options]\n\n`;
 
-Crank & Operations Commands:
-  harvest                Harvest yield from Huma and commit it to the current draw cycle
-  prepare-draw           Prepare tickets for the draw cycle in batches
-  reveal                 Reveal the random seed and pick winners for the draw cycle
-  reinvest               Reinvest draw winnings back into principal/tickets
+  for (const cat of categories) {
+    helpTxt += `${cat} Commands:\n`;
+    const cmds = Object.values(COMMAND_REGISTRY).filter(
+      (c) => c.category === cat
+    );
+    for (const c of cmds) {
+      const positional = c.positionalArgs ? ` ${c.positionalArgs}` : "";
+      const cmdStr = `${c.command}${positional}`;
+      helpTxt += `  ${cmdStr.padEnd(24)} ${c.summary}\n`;
+    }
+    helpTxt += `\n`;
+  }
 
-Admin Commands:
-  init-global            Initialize global configuration (admin, jobs account, max tickets)
-  update-global-config   Update global config (admin, jobs account, max tickets)
-  create-pool            Create a new prize pool and zero-initialize its ticket registry
-  initialize-huma-lender Initialize Huma lender state and $PST vault for a pool
-  resize-registry        Resize zero-copy ticket registry account to add user capacity
-  set-prize-tiers        Configure prize tier distribution rules for a pool
-  update-pool-config     Update pool config (fee bps, bond price, fee wallet)
-  withdraw-fees          Withdraw accrued protocol fees to designated fee wallet
-  force-unlock-draw      Emergency admin force unlock of a frozen/stuck draw cycle
-  rebind-randomness      Rebind an expired draw cycle to a new Switchboard randomness account
+  helpTxt += `Global Options:\n`;
+  for (const opt of GLOBAL_OPTIONS) {
+    helpTxt += `  ${opt.flag.padEnd(24)} ${opt.description}${
+      opt.default ? ` (default: ${opt.default})` : ""
+    }\n`;
+  }
 
-Query Commands:
-  query-config           Query and display the Global Config state
-  query-pool             Query and display the Prize Pool state
-  query-draw             Query and display the current Draw Cycle state
-  query-payout           Query and display the Payout Registry state
-  query-winnings [usr]   Query and display User Winnings (specify user pubkey or omit to list all)
-  query-redemption [id]  Query Pending Redemption (specify ID or omit to list all, optionally filter with --user)
-  query-registry         Query and display the Ticket Registry state (optionally filter with --user)
+  helpTxt += `\nEnvironments & Usage Examples:\n`;
+  helpTxt += `  npm run pb-cli query-pool\n`;
+  helpTxt += `  npm run pb-cli set-prize-tiers -- --tiers "1:5000,5:1000" --pool 1\n`;
+  helpTxt += `  npm run pb-cli withdraw-fees -- --amount all --confirm --pool 1\n`;
+  helpTxt += `  npm run pb-cli harvest -- --help\n`;
 
-Options:
-  --pool <number>        Pool ID (default: 1)
-  --keypair <path>       Path to the keypair file (default: scripts/admin-key.json)
-  --rpc <url>            Solana RPC URL (default: http://127.0.0.1:8899)
-  --jobs <pubkey>        Crank bot/jobs account public key
-  --max-tickets <num>    Maximum tickets per buy (default: 1000)
-  --new-admin <pubkey>   New admin authority address (requires --confirm)
-  --bond-price <num>     Bond price in base units (e.g. 1000000 = 1 USDC)
-  --stake-duration <hrs> Staking cycle duration in hours (default: 24)
-  --fee-bps <num>        Protocol fee rate in basis points (e.g. 100 = 1%)
-  --fee-wallet <pubkey>  Fee wallet token account address
-  --token-mint <pubkey>  Underlying token mint address (e.g. USDC)
-  --pst-mint <pubkey>    Huma PST token mint address
-  --tiers <json|str>     Prize tiers config (e.g. '1:5000,5:1000' or JSON array)
-  --amount <num|all>     Amount for withdraw-fees (USDC amount or 'all')
-  --new-randomness <pub> New Switchboard randomness account address
-  --confirm              Explicit confirmation flag for safety-restricted admin operations
-  --seed <hex>           32-byte hex string seed for the reveal command
-  --cycle <number>       Draw Cycle ID to target or query (default: pool's currentDrawCycleId - 1)
-  --winner <idx|addr>    Winner index or public key to reinvest
-  --max-bonds <number>   Maximum bonds to buy per reinvest transaction (default: 1000)
-  --batch-size <num>     Maximum entries to process per prepare-draw transaction (default: 1000)
-  --user <pubkey>        User public key filter/target
-  --help, -h             Show this help message
-
-Environments & Usage Examples:
-  npm run pb-cli query-pool
-  npm run pb-cli set-prize-tiers -- --tiers "1:5000,5:1000" --pool 1
-  npm run pb-cli withdraw-fees -- --amount all --confirm --pool 1
-`);
+  console.log(helpTxt);
 }
+
+function showCommandHelp(commandName: string) {
+  const meta = COMMAND_REGISTRY[commandName];
+  if (!meta) {
+    console.error(`Error: Unknown command "${commandName}".\n`);
+    showHelp();
+    process.exit(1);
+  }
+
+  const positional = meta.positionalArgs ? ` ${meta.positionalArgs}` : "";
+  let helpTxt = `YieldBonds CLI (pb-cli) - Command Help: ${meta.command}\n\n`;
+  helpTxt += `Description:\n  ${meta.description}\n\n`;
+  helpTxt += `Category:\n  ${meta.category}\n\n`;
+  helpTxt += `Usage:\n  pb-cli ${meta.command}${positional} [options]\n\n`;
+
+  const allOptions = [...(meta.options || [])];
+  for (const gOpt of GLOBAL_OPTIONS) {
+    if (
+      !allOptions.some(
+        (o) => o.flag.split(" ")[0] === gOpt.flag.split(" ")[0]
+      )
+    ) {
+      allOptions.push(gOpt);
+    }
+  }
+
+  if (allOptions.length > 0) {
+    helpTxt += `Options:\n`;
+    for (const opt of allOptions) {
+      const reqTag = opt.required ? " [Required]" : "";
+      const defTag = opt.default ? ` (default: ${opt.default})` : "";
+      helpTxt += `  ${opt.flag.padEnd(26)} ${opt.description}${reqTag}${defTag}\n`;
+    }
+    helpTxt += `\n`;
+  }
+
+  if (meta.examples && meta.examples.length > 0) {
+    helpTxt += `Examples:\n`;
+    for (const ex of meta.examples) {
+      helpTxt += `  ${ex}\n`;
+    }
+    helpTxt += `\n`;
+  }
+
+  console.log(helpTxt);
+}
+
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
@@ -1550,8 +2019,13 @@ export async function sendTxWithSigners(
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes("-h") || args.includes("--help")) {
-    showHelp();
+  const helpReq = resolveHelpRequest(args);
+  if (helpReq.isHelp) {
+    if (helpReq.command) {
+      showCommandHelp(helpReq.command);
+    } else {
+      showHelp();
+    }
     return;
   }
 
@@ -1579,28 +2053,16 @@ async function main() {
   const keypairPath =
     options["--keypair"] || path.resolve(__dirname, "admin-key.json");
 
-  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
 
   // Load keypair if performing writes
   let signer: KeyPairSigner | null = null;
-  const writeCommands = new Set([
-    "harvest",
-    "reveal",
-    "reinvest",
-    "prepare-draw",
-    "init-global",
-    "update-global-config",
-    "create-pool",
-    "initialize-huma-lender",
-    "resize-registry",
-    "set-prize-tiers",
-    "update-pool-config",
-    "withdraw-fees",
-    "force-unlock-draw",
-    "rebind-randomness",
-  ]);
+  const writeCommands = new Set(
+    Object.values(COMMAND_REGISTRY)
+      .filter((c) => c.requiresSigner)
+      .map((c) => c.command)
+  );
 
   if (writeCommands.has(command)) {
     if (!fs.existsSync(keypairPath)) {
@@ -1688,6 +2150,11 @@ async function main() {
 
     case "set-prize-tiers": {
       const tiersString = options["--tiers"] || positionals[0];
+      if (!tiersString) {
+        console.error("Error: Missing required option --tiers\n");
+        showCommandHelp("set-prize-tiers");
+        process.exit(1);
+      }
       await executeSetPrizeTiers({
         poolId,
         tiersString,
@@ -1719,6 +2186,16 @@ async function main() {
     case "withdraw-fees": {
       const amountOption = options["--amount"] || positionals[0];
       const confirm = options["--confirm"] === "true";
+      if (!amountOption) {
+        console.error("Error: Missing required option --amount\n");
+        showCommandHelp("withdraw-fees");
+        process.exit(1);
+      }
+      if (!confirm) {
+        console.error("Error: Missing required flag --confirm\n");
+        showCommandHelp("withdraw-fees");
+        process.exit(1);
+      }
       await executeWithdrawFees({
         poolId,
         amountOption,
@@ -1738,6 +2215,11 @@ async function main() {
         if (!isNaN(val)) cycleId = val;
       }
       const confirm = options["--confirm"] === "true";
+      if (!confirm) {
+        console.error("Error: Missing required flag --confirm\n");
+        showCommandHelp("force-unlock-draw");
+        process.exit(1);
+      }
       await executeForceUnlockDraw({
         poolId,
         cycleId,
@@ -1758,6 +2240,11 @@ async function main() {
       }
       const newRandomnessAccount =
         options["--new-randomness"] || positionals[1] || positionals[0];
+      if (!newRandomnessAccount) {
+        console.error("Error: Missing required option --new-randomness\n");
+        showCommandHelp("rebind-randomness");
+        process.exit(1);
+      }
       await executeRebindRandomness({
         poolId,
         cycleId,
@@ -2035,190 +2522,7 @@ async function main() {
 `);
       break;
     }
-    case "reinvest": {
-      // 1. Fetch PrizePool state to get currentDrawCycleId and ticketRegistry
-      const poolPda = await findPrizePoolPda(poolId);
-      const poolAcc = await rpc
-        .getAccountInfo(poolPda, { encoding: "base64" })
-        .send();
-      if (!poolAcc || !poolAcc.value) {
-        throw new Error(
-          `PrizePool account for pool ${poolId} not found on-chain.`
-        );
-      }
-      const poolBytes = new Uint8Array(
-        base64Encoder.encode(poolAcc.value.data[0])
-      );
-      const poolState = parsePrizePool(poolBytes);
 
-      // Parse cycle option (default: latest completed cycle)
-      let cycleId = poolState.currentDrawCycleId - 1;
-      if (options["--cycle"]) {
-        cycleId = parseInt(options["--cycle"], 10);
-      }
-      if (cycleId < 0) {
-        throw new Error(
-          `Invalid Draw Cycle ID: ${cycleId}. No draw cycle has been created yet.`
-        );
-      }
-
-      // Parse max bonds
-      const maxBonds = parseInt(options["--max-bonds"] || "1000", 10);
-      if (isNaN(maxBonds) || maxBonds <= 0) {
-        throw new Error(
-          "Invalid --max-bonds value. Must be a positive integer."
-        );
-      }
-
-      const payoutRegistryPda = await findPayoutRegistryPda(poolId, cycleId);
-      console.log(
-        `Fetching Payout Registry ${cycleId} for Pool ${poolId} at ${payoutRegistryPda}...`
-      );
-
-      const payoutRegistryAcc = await rpc
-        .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
-        .send();
-      if (!payoutRegistryAcc || !payoutRegistryAcc.value) {
-        console.log(
-          `Payout Registry account for cycle ${cycleId} does not exist.`
-        );
-        return;
-      }
-
-      const bytes = new Uint8Array(
-        base64Encoder.encode(payoutRegistryAcc.value.data[0])
-      );
-      const state = parsePayoutRegistry(bytes);
-
-      // Fetch TicketRegistry to resolve winner addresses
-      const registryAcc = await rpc
-        .getAccountInfo(address(poolState.ticketRegistry), {
-          encoding: "base64",
-        })
-        .send();
-      if (!registryAcc || !registryAcc.value) {
-        throw new Error(
-          `TicketRegistry account at ${poolState.ticketRegistry} not found on-chain.`
-        );
-      }
-      const registryBytes = new Uint8Array(
-        base64Encoder.encode(registryAcc.value.data[0])
-      );
-      const ticketRegistryState = parseTicketRegistry(registryBytes);
-
-      // Determine target winner(s)
-      const winnerOption = options["--winner"] || positionals[0];
-      let targetWinnerIndices: number[] = [];
-
-      if (winnerOption) {
-        // Resolve target winner index
-        const parsedIdx = parseInt(winnerOption, 10);
-        if (!isNaN(parsedIdx)) {
-          if (parsedIdx < 0 || parsedIdx >= state.winners.length) {
-            throw new Error(
-              `Winner index ${parsedIdx} out of range (0-${state.winners.length - 1})`
-            );
-          }
-          targetWinnerIndices = [parsedIdx];
-        } else {
-          // Resolve userIndex by owner pubkey string in TicketRegistry
-          const userIndexInRegistry = ticketRegistryState.entries.findIndex(
-            (e) => e.owner === winnerOption
-          );
-          if (userIndexInRegistry === -1) {
-            throw new Error(
-              `Winner address ${winnerOption} not found in TicketRegistry.`
-            );
-          }
-          const index = state.winners.findIndex(
-            (w) => w.userIndex === userIndexInRegistry
-          );
-          if (index === -1) {
-            throw new Error(
-              `User index ${userIndexInRegistry} not found in payout registry.`
-            );
-          }
-          targetWinnerIndices = [index];
-        }
-      } else {
-        // Get all unprocessed winner indices
-        targetWinnerIndices = state.winners
-          .map((w, idx) => ({ ...w, idx }))
-          .filter((w) => !w.processed)
-          .map((w) => w.idx);
-      }
-
-      if (targetWinnerIndices.length === 0) {
-        console.log("No unprocessed winners found to reinvest.");
-        break;
-      }
-
-      console.log(
-        `Starting reinvestment for ${targetWinnerIndices.length} winner(s)...`
-      );
-
-      for (const winnerIndex of targetWinnerIndices) {
-        while (true) {
-          // Fetch the latest state of the payout registry to check processed status
-          const currentRegistryAcc = await rpc
-            .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
-            .send();
-          if (!currentRegistryAcc || !currentRegistryAcc.value) {
-            throw new Error("Payout Registry not found during loop execution.");
-          }
-          const currentBytes = new Uint8Array(
-            base64Encoder.encode(currentRegistryAcc.value.data[0])
-          );
-          const currentRegistry = parsePayoutRegistry(currentBytes);
-          const winnerEntry = currentRegistry.winners[winnerIndex];
-          const winnerOwner =
-            ticketRegistryState.entries[winnerEntry.userIndex]?.owner;
-
-          if (!winnerOwner) {
-            throw new Error(
-              `Owner address not found in TicketRegistry for user index ${winnerEntry.userIndex}`
-            );
-          }
-
-          if (winnerEntry.processed) {
-            console.log(
-              `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}) is fully processed.`
-            );
-            break;
-          }
-
-          const claimable =
-            winnerEntry.amountOwed - winnerEntry.amountReinvested;
-          console.log(
-            `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}): Owed: ${formatAmount(
-              winnerEntry.amountOwed
-            )}, Reinvested: ${formatAmount(
-              winnerEntry.amountReinvested
-            )}, Claimable: ${formatAmount(claimable)}`
-          );
-
-          const ix = await buildReinvestWinningsInstruction({
-            crank: signer!.address,
-            winner: winnerOwner,
-            poolId,
-            cycleId,
-            winnerIndex,
-            maxBonds,
-            ticketRegistry: address(poolState.ticketRegistry),
-          });
-
-          console.log(
-            `Submitting reinvestment transaction (maxBonds: ${maxBonds})...`
-          );
-          await sendTx(rpc, ix, signer!);
-
-          // Brief delay between batch checks
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      }
-      console.log("Reinvestment process completed successfully!");
-      break;
-    }
 
     case "query-winnings": {
       const userOption = options["--user"] || positionals[0];
@@ -2532,7 +2836,7 @@ Ticket Registry for Pool ${poolId}
     }
 
     default:
-      console.error(`Unknown command: ${command}`);
+      console.error(`Error: Unknown command "${command}".\n`);
       showHelp();
       process.exit(1);
   }
