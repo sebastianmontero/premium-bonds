@@ -13,6 +13,10 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     ".agents/**",
+    // Generated Codama client files - do not lint
+    "app/lib/generated/**",
+    // Build/codegen scripts - not part of the Next.js app
+    "scripts/**",
   ]),
 ]);
 

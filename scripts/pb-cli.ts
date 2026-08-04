@@ -111,7 +111,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
       {
         flag: "--batch-size <num>",
@@ -134,7 +135,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
       {
         flag: "--seed <hex>",
@@ -154,7 +156,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
       {
         flag: "--winner <idx|addr>",
@@ -189,9 +192,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         required: true,
       },
     ],
-    examples: [
-      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>",
-    ],
+    examples: ["npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>"],
   },
   "update-global-config": {
     command: "update-global-config",
@@ -211,7 +212,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       },
       {
         flag: "--confirm",
-        description: "Explicit confirmation flag required for changing admin authority",
+        description:
+          "Explicit confirmation flag required for changing admin authority",
       },
     ],
     examples: ["npm run pb-cli update-global-config -- --jobs <pubkey>"],
@@ -284,8 +286,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--tiers <json|str>",
-        description:
-          "Prize tiers config (e.g. '1:5000,5:1000' or JSON array)",
+        description: "Prize tiers config (e.g. '1:5000,5:1000' or JSON array)",
         required: true,
       },
     ],
@@ -351,7 +352,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
       {
         flag: "--confirm",
@@ -373,7 +375,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
       {
         flag: "--new-randomness <pubkey>",
@@ -420,7 +423,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
     ],
     examples: ["npm run pb-cli query-draw -- --pool 1 --cycle 0"],
@@ -436,7 +440,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     options: [
       {
         flag: "--cycle <number>",
-        description: "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
       },
     ],
     examples: ["npm run pb-cli query-payout -- --pool 1 --cycle 0"],
@@ -450,7 +455,9 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       "Query and display User Winnings PDA state for a specific user or list all user winnings for a pool.",
     requiresSigner: false,
     positionalArgs: "[userPubkey]",
-    options: [{ flag: "--user <pubkey>", description: "User public key address" }],
+    options: [
+      { flag: "--user <pubkey>", description: "User public key address" },
+    ],
     examples: ["npm run pb-cli query-winnings -- --user <USER_PUBKEY>"],
   },
   "query-redemption": {
@@ -477,7 +484,9 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       "Query and display the zero-copy TicketRegistry state and registered user entries.",
     requiresSigner: false,
     positionalArgs: "[userPubkey]",
-    options: [{ flag: "--user <pubkey>", description: "User public key filter" }],
+    options: [
+      { flag: "--user <pubkey>", description: "User public key filter" },
+    ],
     examples: ["npm run pb-cli query-registry -- --pool 1"],
   },
 };
@@ -554,9 +563,7 @@ function showCommandHelp(commandName: string) {
   const allOptions = [...(meta.options || [])];
   for (const gOpt of GLOBAL_OPTIONS) {
     if (
-      !allOptions.some(
-        (o) => o.flag.split(" ")[0] === gOpt.flag.split(" ")[0]
-      )
+      !allOptions.some((o) => o.flag.split(" ")[0] === gOpt.flag.split(" ")[0])
     ) {
       allOptions.push(gOpt);
     }
@@ -582,7 +589,6 @@ function showCommandHelp(commandName: string) {
 
   console.log(helpTxt);
 }
-
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
@@ -2492,7 +2498,6 @@ async function main() {
 `);
       break;
     }
-
 
     case "query-winnings": {
       const userOption = options["--user"] || positionals[0];

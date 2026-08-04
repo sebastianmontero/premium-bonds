@@ -8,7 +8,7 @@
  */
 
 import { Address, getBase58Decoder } from "@solana/kit";
-import { PROGRAM_ID } from "./bonds-sdk";
+import { ANCHOR_PROGRAM_ADDRESS as PROGRAM_ID } from "./generated/yield-bonds/src/generated/programs";
 
 // ─── Event Type Definitions ──────────────────────────────────────────────────
 

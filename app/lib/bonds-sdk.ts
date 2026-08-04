@@ -1,20 +1,47 @@
+/**
+ * Codama SDK Adapter for YieldBonds & MockHuma Programs.
+ *
+ * Account decoders, program addresses, and instruction builders are generated
+ * by Codama from Anchor IDLs and exported here.
+ */
+
 import {
   address,
   Address,
-  AccountRole,
   getProgramDerivedAddress,
-  getBase58Decoder,
   getBase58Encoder,
+  lamports,
 } from "@solana/kit";
+import {
+  ANCHOR_PROGRAM_ADDRESS,
+  decodeGlobalConfig,
+  decodePrizePool,
+  decodeDrawCycle,
+  decodePayoutRegistry,
+  decodeUserWinnings,
+  decodePendingRedemption,
+} from "./generated/yield-bonds/src/generated";
+import type {
+  GlobalConfig,
+  PrizePool,
+  DrawCycle,
+  PayoutRegistry,
+  UserWinnings,
+  PendingRedemption,
+} from "./generated/yield-bonds/src/generated";
+
+import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
+
+export {
+  parseTicketRegistry,
+  parseRegistryEntry,
+} from "./ticket-registry-helpers";
+export type { UserEntryInfo } from "./ticket-registry-helpers";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const PROGRAM_ID = address(
-  "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
-);
-export const HUMA_PROGRAM_ID = address(
-  "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw"
-);
+export const PROGRAM_ID = ANCHOR_PROGRAM_ADDRESS;
+export const HUMA_PROGRAM_ID = MOCK_HUMA_PROGRAM_ADDRESS;
 export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
 export const TOKEN_PROGRAM_ID = address(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -28,9 +55,6 @@ export const USDC_MINT = address(
 
 const textEncoder = new TextEncoder();
 const base58Encoder = getBase58Encoder();
-const base58Decoder = getBase58Decoder();
-
-// ─── Binary Helper encoders ──────────────────────────────────────────────────
 
 export function encodeU32(val: number): Uint8Array {
   const buf = new Uint8Array(4);
@@ -56,12 +80,6 @@ export async function findGlobalConfigPda(): Promise<Address> {
   return addr;
 }
 
-/**
- * Derives the PrizePool account PDA for a given pool ID.
- *
- * @param poolId - The unique ID of the pool.
- * @returns A promise resolving to the PDA Address.
- */
 export async function findPrizePoolPda(poolId: number): Promise<Address> {
   const [addr] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
@@ -86,16 +104,9 @@ export async function findPoolPstVaultPda(poolId: number): Promise<Address> {
   return addr;
 }
 
-/**
- * Derives the UserWinnings account PDA for a user in a specific pool.
- *
- * @param poolId - The unique ID of the pool.
- * @param user - Base58-encoded wallet address of the user.
- * @returns A promise resolving to the PDA Address.
- */
 export async function findUserWinningsPda(
   poolId: number,
-  user: string
+  user: string | Address
 ): Promise<Address> {
   const [addr] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
@@ -108,13 +119,6 @@ export async function findUserWinningsPda(
   return addr;
 }
 
-/**
- * Derives the PendingRedemption account PDA for a given redemption ID in a pool.
- *
- * @param poolId - The unique ID of the pool.
- * @param redemptionId - The sequential ID of the redemption request.
- * @returns A promise resolving to the PDA Address.
- */
 export async function findPendingRedemptionPda(
   poolId: number,
   redemptionId: bigint | number
@@ -188,1060 +192,87 @@ export async function findAtaAddress(
   return addr;
 }
 
-// ─── Decoders ───────────────────────────────────────────────────────────────
+// ─── Codama Account Decoders ─────────────────────────────────────────────────
 
-export interface GlobalConfigInfo {
-  admin: Address;
-  jobsAccount: Address;
-}
-
-export interface PrizeTier {
-  basisPoints: number;
-  numWinners: number;
-}
-
-export interface PrizePoolInfo {
-  poolId: number;
-  tokenMint: Address;
-  ticketRegistry: Address;
-  feeWallet: Address;
-  bondPrice: number;
-  stakeCycleDurationHrs: number;
-  feeBasisPoints: number;
-  status: "Active" | "Paused" | "Closed";
-  totalDepositedPrincipal: number;
-  currentCycleEndAt: number;
-  isFrozenForDraw: boolean;
-  currentDrawCycleId: number;
-  prizeTiers: PrizeTier[];
-  nextRedemptionId: number;
-  totalFeesAccrued: bigint;
-  totalFeesWithdrawn: bigint;
-  totalPrizesAllocated: bigint;
-  totalPendingRedemptions: bigint;
-}
-
-export interface DrawCycleInfo {
-  poolId: number;
-  cycleId: number;
-  status: "AwaitingYield" | "AwaitingRandomness" | "Complete" | "Unknown";
-  lockedTicketCount: number;
-  randomnessSeed: Uint8Array;
-  prizePot: bigint;
-  cycleFeeCollected: bigint;
-  randomnessAccount: Address;
-  harvestSlot: bigint;
-}
-
-/**
- * Parses and deserializes a GlobalConfig account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized GlobalConfig configuration parameters.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parseGlobalConfig(data: Uint8Array): GlobalConfigInfo {
-  if (data.length < 72) {
-    throw new Error(`GlobalConfig data too short (${data.length} bytes)`);
-  }
-  const admin = base58Decoder.decode(data.slice(8, 8 + 32)) as Address;
-  const jobsAccount = base58Decoder.decode(data.slice(40, 40 + 32)) as Address;
-
-  return { admin, jobsAccount };
-}
-
-/**
- * Parses and deserializes a PrizePool account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized PrizePool status and parameters.
- */
-export function parsePrizePool(data: Uint8Array): PrizePoolInfo {
-  if (data.length < 192) {
-    throw new Error(`PrizePool data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const bondPrice = Number(view.getBigUint64(8, true));
-  const stakeCycleDurationHrs = Number(view.getBigInt64(16, true));
-  const totalDepositedPrincipal = Number(view.getBigUint64(24, true));
-  const currentCycleEndAt = Number(view.getBigInt64(32, true));
-  const nextRedemptionId = view.getBigUint64(40, true);
-  const totalFeesAccrued = view.getBigUint64(48, true);
-  const totalFeesWithdrawn = view.getBigUint64(56, true);
-  const totalPrizesAllocated = view.getBigUint64(64, true);
-  const totalPendingRedemptions = view.getBigUint64(72, true);
-  const poolId = view.getUint32(80, true);
-  const currentDrawCycleId = view.getUint32(84, true);
-  const feeBasisPoints = view.getUint16(88, true);
-
-  const statusVal = view.getUint8(91);
-  let status: PrizePoolInfo["status"] = "Active";
-  if (statusVal === 1) status = "Paused";
-  else if (statusVal === 2) status = "Closed";
-
-  const isFrozenForDraw = view.getUint8(92) !== 0;
-  const prizeTiersCount = view.getUint8(94);
-
-  const tokenMint = base58Decoder.decode(data.slice(96, 96 + 32)) as Address;
-  const ticketRegistry = base58Decoder.decode(
-    data.slice(128, 128 + 32)
-  ) as Address;
-  const feeWallet = base58Decoder.decode(data.slice(160, 160 + 32)) as Address;
-
-  const prizeTiers: PrizeTier[] = [];
-  for (let i = 0; i < Math.min(prizeTiersCount, 10); i++) {
-    const offset = 192 + i * 8;
-    if (offset + 8 > data.byteLength) break;
-    const numWinners = view.getUint32(offset, true);
-    const basisPoints = view.getUint16(offset + 4, true);
-    prizeTiers.push({ basisPoints, numWinners });
-  }
-
+function mockAccount(data: Uint8Array) {
   return {
-    poolId,
-    tokenMint,
-    ticketRegistry,
-    feeWallet,
-    bondPrice,
-    stakeCycleDurationHrs,
-    feeBasisPoints,
-    status,
-    totalDepositedPrincipal,
-    currentCycleEndAt,
-    isFrozenForDraw,
-    currentDrawCycleId,
-    prizeTiers,
-    nextRedemptionId: Number(nextRedemptionId),
-    totalFeesAccrued,
-    totalFeesWithdrawn,
-    totalPrizesAllocated,
-    totalPendingRedemptions,
+    address: PROGRAM_ID,
+    programAddress: PROGRAM_ID,
+    executable: false,
+    lamports: lamports(0n),
+    space: BigInt(data.byteLength),
+    exists: true,
+    data,
+  } as const;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function decodedData<T>(result: any): T {
+  if (!result.exists) throw new Error("Account decode failed");
+  return result.data as T;
+}
+
+export function parseGlobalConfig(data: Uint8Array): GlobalConfig {
+  return decodedData<GlobalConfig>(decodeGlobalConfig(mockAccount(data)));
+}
+
+export function parsePrizePool(data: Uint8Array) {
+  const decoded = decodedData<PrizePool>(decodePrizePool(mockAccount(data)));
+  const statusMap = ["Active", "Paused", "Closed"];
+  return {
+    ...decoded,
+    status: (statusMap[decoded.status] || "Active") as
+      | "Active"
+      | "Paused"
+      | "Closed",
+    bondPrice: Number(decoded.bondPrice),
+    stakeCycleDurationHrs: Number(decoded.stakeCycleDurationHrs),
+    totalDepositedPrincipal: Number(decoded.totalDepositedPrincipal),
+    currentCycleEndAt: Number(decoded.currentCycleEndAt),
+    nextRedemptionId: Number(decoded.nextRedemptionId),
+    isFrozenForDraw: Boolean(decoded.isFrozenForDraw),
+    ticketRegistry: decoded.ticketRegistry,
   };
 }
 
-/**
- * Parses and deserializes a DrawCycle account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized DrawCycle details.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parseDrawCycle(data: Uint8Array): DrawCycleInfo {
-  if (data.length < 110) {
-    throw new Error(`DrawCycle data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const prizePot = view.getBigUint64(8, true);
-  const cycleFeeCollected = view.getBigUint64(16, true);
-  const harvestSlot = view.getBigUint64(24, true);
-  const randomnessAccount = base58Decoder.decode(
-    data.slice(32, 32 + 32)
-  ) as Address;
-  const poolId = view.getUint32(64, true);
-  const cycleId = view.getUint32(68, true);
-  const lockedTicketCount = view.getUint32(72, true);
-  const statusVal = view.getUint8(76);
-
-  let status: DrawCycleInfo["status"] = "Unknown";
-  if (statusVal === 0) status = "AwaitingYield";
-  else if (statusVal === 1) status = "AwaitingRandomness";
-  else if (statusVal === 2) status = "Complete";
-
-  const randomnessSeed = new Uint8Array(data.slice(78, 78 + 32));
-
+export function parseDrawCycle(data: Uint8Array) {
+  const decoded = decodedData<DrawCycle>(decodeDrawCycle(mockAccount(data)));
+  const statusMap = ["AwaitingYield", "AwaitingRandomness", "Complete"];
   return {
-    poolId,
-    cycleId,
-    status,
-    lockedTicketCount,
-    randomnessSeed,
-    prizePot,
-    cycleFeeCollected,
-    randomnessAccount,
-    harvestSlot,
+    ...decoded,
+    status: (statusMap[decoded.status] || "AwaitingYield") as
+      | "AwaitingYield"
+      | "AwaitingRandomness"
+      | "Complete",
+    randomnessSeed: new Uint8Array(decoded.randomnessSeed),
   };
 }
 
-export interface WinnerInfo {
-  userIndex: number;
-  amountOwed: bigint;
-  processed: boolean;
-  tierIndex: number;
-  amountReinvested: bigint;
-  version?: number;
-}
-
-export interface PayoutRegistryInfo {
-  poolId: number;
-  cycleId: number;
-  winnersCount: number;
-  payoutsCompleted: number;
-  winners: WinnerInfo[];
-}
-
-/**
- * Parses and deserializes a PayoutRegistry account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized PayoutRegistry list of winners.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parsePayoutRegistry(data: Uint8Array): PayoutRegistryInfo {
-  if (data.length < 96) {
-    throw new Error(`PayoutRegistry data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const poolId = view.getUint32(8, true);
-  const cycleId = view.getUint32(12, true);
-  const winnersCount = view.getUint32(16, true);
-  const payoutsCompleted = view.getUint32(20, true);
-
-  const winners: WinnerInfo[] = [];
-
-  for (let i = 0; i < winnersCount; i++) {
-    const offset = 96 + i * 32;
-    if (offset + 32 > data.byteLength) {
-      break;
-    }
-    const amountOwed = view.getBigUint64(offset, true);
-    const amountReinvested = view.getBigUint64(offset + 8, true);
-    const userIndex = view.getUint32(offset + 16, true);
-    const processed = view.getUint8(offset + 20) !== 0;
-    const tierIndex = view.getUint8(offset + 21);
-    const version = view.getUint8(offset + 22);
-
-    winners.push({
-      userIndex,
-      amountOwed,
-      processed,
-      tierIndex,
-      amountReinvested,
-      version,
-    });
-  }
-
-  return {
-    poolId,
-    cycleId,
-    winnersCount,
-    payoutsCompleted,
-    winners,
-  };
-}
-
-export interface UserWinningsInfo {
-  poolId: number;
-  user: Address;
-  unclaimedNonReinvestedWinnings: bigint;
-  totalClaimed: bigint;
-  totalReinvested: bigint;
-  bump: number;
-  registryEntryIndex: number;
-  version?: number;
-}
-
-/**
- * Parses and deserializes a UserWinnings account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized UserWinnings tracking statistics.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parseUserWinnings(data: Uint8Array): UserWinningsInfo {
-  if (data.length < 74) {
-    throw new Error(`UserWinnings data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const unclaimedNonReinvestedWinnings = view.getBigUint64(8, true);
-  const totalClaimed = view.getBigUint64(16, true);
-  const totalReinvested = view.getBigUint64(24, true);
-  const poolId = view.getUint32(32, true);
-  const registryEntryIndex = view.getUint32(36, true);
-  const user = base58Decoder.decode(data.slice(40, 40 + 32)) as Address;
-  const bump = view.getUint8(72);
-  const version = view.getUint8(73);
-
-  return {
-    poolId,
-    user,
-    unclaimedNonReinvestedWinnings,
-    totalClaimed,
-    totalReinvested,
-    bump,
-    registryEntryIndex,
-    version,
-  };
-}
-
-export interface PendingRedemptionInfo {
-  poolId: number;
-  redemptionId: bigint;
-  user: Address;
-  amount: bigint;
-  pstSharesLocked: bigint;
-  requestedAt: bigint;
-  humaRequestId: bigint;
-  bump: number;
-}
-
-/**
- * Parses and deserializes a PendingRedemption account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized PendingRedemption tracking details.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parsePendingRedemption(
-  data: Uint8Array
-): PendingRedemptionInfo {
-  if (data.length < 94) {
-    throw new Error(`PendingRedemption data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const low = view.getBigUint64(8, true);
-  const high = view.getBigUint64(16, true);
-  const humaRequestId = (high << BigInt(64)) | low;
-
-  const redemptionId = view.getBigUint64(24, true);
-  const amount = view.getBigUint64(32, true);
-  const pstSharesLocked = view.getBigUint64(40, true);
-  const requestedAt = view.getBigInt64(48, true);
-  const user = base58Decoder.decode(data.slice(56, 56 + 32)) as Address;
-  const poolId = view.getUint32(88, true);
-  const bump = view.getUint8(92);
-
-  return {
-    poolId,
-    redemptionId,
-    user,
-    amount,
-    pstSharesLocked,
-    requestedAt,
-    humaRequestId,
-    bump,
-  };
-}
-
-export interface UserEntryInfo {
-  owner: Address;
-  active: number;
-  pending: number;
-  mergedThroughCycle: number;
-  cumulativeActive: number;
-}
-
-export interface TicketRegistryInfo {
-  poolId: number;
-  capacity: number;
-  userCount: number;
-  totalActiveTickets: number;
-  totalPendingTickets: number;
-  drawCycleId: number;
-  drawPreparedUpTo: number;
-  entries: UserEntryInfo[];
-}
-
-/**
- * Parses and deserializes a zero-copy TicketRegistry account from raw bytes.
- *
- * @param data - Raw byte array of the account data.
- * @returns Deserialized TicketRegistry header and user entries array.
- * @throws {Error} If data buffer length is shorter than expected size.
- */
-export function parseTicketRegistry(data: Uint8Array): TicketRegistryInfo {
-  if (data.length < 104) {
-    throw new Error(`TicketRegistry data too short (${data.length} bytes)`);
-  }
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  const poolId = view.getUint32(8, true);
-  const capacity = view.getUint32(12, true);
-  const userCount = view.getUint32(16, true);
-  const totalActiveTickets = view.getUint32(20, true);
-  const totalPendingTickets = view.getUint32(24, true);
-  const drawCycleId = view.getUint32(28, true);
-  const drawPreparedUpTo = view.getUint32(32, true);
-
-  const entries: UserEntryInfo[] = [];
-
-  const maxEntries = Math.min(
-    userCount,
-    Math.floor((data.byteLength - 104) / 64)
+export function parsePayoutRegistry(data: Uint8Array) {
+  const decoded = decodedData<PayoutRegistry>(
+    decodePayoutRegistry(mockAccount(data))
   );
-  for (let i = 0; i < maxEntries; i++) {
-    const offset = 104 + i * 64;
-    const ownerBytes = data.slice(offset, offset + 32);
-    const owner = base58Decoder.decode(ownerBytes) as Address;
-    const active = view.getUint32(offset + 32, true);
-    const pending = view.getUint32(offset + 36, true);
-    const mergedThroughCycle = view.getUint32(offset + 40, true);
-    const cumulativeActive = view.getUint32(offset + 44, true);
-
-    entries.push({
-      owner,
-      active,
-      pending,
-      mergedThroughCycle,
-      cumulativeActive,
-    });
-  }
-
   return {
-    poolId,
-    capacity,
-    userCount,
-    totalActiveTickets,
-    totalPendingTickets,
-    drawCycleId,
-    drawPreparedUpTo,
-    entries,
+    ...decoded,
+    winnersCount: decoded.winners.length,
+    payoutsCompleted: decoded.winners.filter((w) => w.processed).length,
   };
 }
 
-export function parseRegistryEntry(
-  data: Uint8Array,
-  index: number
-): UserEntryInfo | null {
-  if (data.length < 104) return null;
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const userCount = view.getUint32(16, true);
-  if (index >= userCount) return null;
-
-  const offset = 104 + index * 64;
-  if (offset + 64 > data.byteLength) return null;
-
-  const ownerBytes = data.slice(offset, offset + 32);
-  const owner = base58Decoder.decode(ownerBytes) as Address;
-  const active = view.getUint32(offset + 32, true);
-  const pending = view.getUint32(offset + 36, true);
-  const mergedThroughCycle = view.getUint32(offset + 40, true);
-  const cumulativeActive = view.getUint32(offset + 44, true);
-
-  return {
-    owner,
-    active,
-    pending,
-    mergedThroughCycle,
-    cumulativeActive,
-  };
+export function parseUserWinnings(data: Uint8Array): UserWinnings {
+  return decodedData<UserWinnings>(decodeUserWinnings(mockAccount(data)));
 }
 
-// ─── Instruction Builders ────────────────────────────────────────────────────
-
-export interface HarvestInstructionParams {
-  crank: Address;
-  poolId: number;
-  ticketRegistry: Address;
-  currentDrawCycleId: number;
-  pstMint: Address;
-  humaPoolState: Address;
-  randomnessAccount: Address;
-}
-
-/**
- * Builds a transaction instruction to freeze the yield and trigger draw cycle randomness.
- *
- * @param params - The harvest parameters including accounts and IDs.
- * @returns The structured transaction instruction.
- */
-export async function buildHarvestYieldAndCommitInstruction(
-  params: HarvestInstructionParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
-  const drawCycle = await findDrawCyclePda(
-    params.poolId,
-    params.currentDrawCycleId
+export function parsePendingRedemption(data: Uint8Array): PendingRedemption {
+  return decodedData<PendingRedemption>(
+    decodePendingRedemption(mockAccount(data))
   );
-
-  const discriminator = new Uint8Array([120, 243, 237, 229, 49, 117, 139, 107]);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
-    { address: drawCycle, role: AccountRole.WRITABLE },
-    { address: poolPstVault, role: AccountRole.READONLY },
-    { address: params.pstMint, role: AccountRole.READONLY },
-    { address: params.humaPoolState, role: AccountRole.READONLY },
-    { address: params.randomnessAccount, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
 }
 
-export interface RevealInstructionParams {
-  crank: Address;
-  poolId: number;
-  currentDrawCycleId: number;
-  ticketRegistry: Address;
-  randomnessAccount: Address;
-}
-
-/**
- * Builds a transaction instruction to reveal randomness and draw winners deterministically.
- *
- * @param params - The reveal parameters.
- * @returns The structured transaction instruction.
- */
-export async function buildRevealAndPickWinnersInstruction(
-  params: RevealInstructionParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const drawCycle = await findDrawCyclePda(
-    params.poolId,
-    params.currentDrawCycleId
-  );
-  const payoutRegistry = await findPayoutRegistryPda(
-    params.poolId,
-    params.currentDrawCycleId
-  );
-
-  const discriminator = new Uint8Array([70, 108, 21, 126, 214, 41, 209, 144]);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: drawCycle, role: AccountRole.WRITABLE },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: params.ticketRegistry, role: AccountRole.READONLY },
-    { address: params.randomnessAccount, role: AccountRole.READONLY },
-    { address: payoutRegistry, role: AccountRole.WRITABLE },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
-}
-
-export interface ReinvestWinningsInstructionParams {
-  crank: Address;
-  winner: Address;
-  poolId: number;
-  cycleId: number;
-  winnerIndex: number;
-  maxBonds: number;
-  ticketRegistry: Address;
-}
-
-export async function buildReinvestWinningsInstruction(
-  params: ReinvestWinningsInstructionParams
-) {
-  const pool = await findPrizePoolPda(params.poolId);
-  const payoutRegistry = await findPayoutRegistryPda(
-    params.poolId,
-    params.cycleId
-  );
-  const userWinnings = await findUserWinningsPda(params.poolId, params.winner);
-
-  const data = new Uint8Array(8 + 4 + 4 + 4);
-  const discriminator = [29, 223, 229, 116, 101, 111, 58, 26];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  view.setUint32(8, params.cycleId, true);
-  view.setUint32(12, params.winnerIndex, true);
-  view.setUint32(16, params.maxBonds, true);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
-    { address: params.winner, role: AccountRole.READONLY },
-    { address: payoutRegistry, role: AccountRole.WRITABLE },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: userWinnings, role: AccountRole.WRITABLE },
-    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface PrepareDrawInstructionParams {
-  crank: Address;
-  poolId: number;
-  currentDrawCycleId: number;
-  ticketRegistry: Address;
-  batchSize: number;
-}
-
-export async function buildPrepareDrawInstruction(
-  params: PrepareDrawInstructionParams
-) {
-  const pool = await findPrizePoolPda(params.poolId);
-  const drawCycle = await findDrawCyclePda(
-    params.poolId,
-    params.currentDrawCycleId
-  );
-
-  const data = new Uint8Array(8 + 4);
-  const discriminator = [1, 48, 179, 57, 145, 28, 26, 131];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  view.setUint32(8, params.batchSize, true);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: drawCycle, role: AccountRole.WRITABLE },
-    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-// ─── Admin Instruction Builders ─────────────────────────────────────────────
-
-export interface InitializeGlobalParams {
-  admin: Address;
-  jobsAccount: Address;
-}
-
-export async function buildInitializeGlobalInstruction(
-  params: InitializeGlobalParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const discriminator = new Uint8Array([
-    206, 191, 149, 107, 100, 114, 184, 183,
-  ]);
-  const data = new Uint8Array(8);
-  data.set(discriminator, 0);
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.WRITABLE },
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: params.jobsAccount, role: AccountRole.READONLY },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface UpdateGlobalConfigParams {
-  admin: Address;
-  newAdmin?: Address;
-  newJobsAccount?: Address;
-}
-
-export async function buildUpdateGlobalConfigInstruction(
-  params: UpdateGlobalConfigParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const discriminator = new Uint8Array([183, 18, 90, 80, 204, 12, 181, 120]);
-
-  let len = 8;
-  len += params.newAdmin ? 33 : 1;
-  len += params.newJobsAccount ? 33 : 1;
-
-  const data = new Uint8Array(len);
-  data.set(discriminator, 0);
-
-  let offset = 8;
-
-  if (params.newAdmin) {
-    data[offset++] = 1;
-    data.set(base58Encoder.encode(address(params.newAdmin)), offset);
-    offset += 32;
-  } else {
-    data[offset++] = 0;
-  }
-
-  if (params.newJobsAccount) {
-    data[offset++] = 1;
-    data.set(base58Encoder.encode(address(params.newJobsAccount)), offset);
-    offset += 32;
-  } else {
-    data[offset++] = 0;
-  }
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.WRITABLE },
-    { address: params.admin, role: AccountRole.READONLY_SIGNER },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface CreatePoolParams {
-  admin: Address;
-  poolId: number;
-  bondPrice: bigint | number;
-  stakeCycleDurationHrs: bigint | number;
-  feeBasisPoints: number;
-  tokenMint: Address;
-  pstMint: Address;
-  ticketRegistry: Address;
-  feeWallet: Address;
-}
-
-export async function buildCreatePoolInstruction(params: CreatePoolParams) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const poolVault = await findPoolVaultPda(params.poolId);
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
-
-  const discriminator = new Uint8Array([233, 146, 209, 142, 207, 104, 64, 188]);
-  const data = new Uint8Array(8 + 4 + 8 + 8 + 2);
-  data.set(discriminator, 0);
-
-  const view = new DataView(data.buffer);
-  view.setUint32(8, params.poolId, true);
-  view.setBigUint64(12, BigInt(params.bondPrice), true);
-  view.setBigInt64(20, BigInt(params.stakeCycleDurationHrs), true);
-  view.setUint16(28, params.feeBasisPoints, true);
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
-    { address: params.tokenMint, role: AccountRole.READONLY },
-    { address: params.pstMint, role: AccountRole.READONLY },
-    { address: poolVault, role: AccountRole.WRITABLE },
-    { address: poolPstVault, role: AccountRole.WRITABLE },
-    { address: params.feeWallet, role: AccountRole.READONLY },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface InitializeHumaLenderParams {
-  admin: Address;
-  poolId: number;
-  humaStateAddresses: Record<string, string>;
-}
-
-export async function buildInitializeHumaLenderInstruction(
-  params: InitializeHumaLenderParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
-
-  const discriminator = new Uint8Array([9, 137, 246, 12, 172, 102, 19, 188]);
-
-  const addrs = params.humaStateAddresses;
-  const accounts = [
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: pool, role: AccountRole.READONLY },
-    { address: poolPstVault, role: AccountRole.READONLY },
-    { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: address(addrs.humaConfig), role: AccountRole.READONLY },
-    { address: address(addrs.humaPoolConfig), role: AccountRole.READONLY },
-    { address: address(addrs.humaPoolState), role: AccountRole.READONLY },
-    { address: address(addrs.humaModeConfig), role: AccountRole.READONLY },
-    { address: address(addrs.pstMint), role: AccountRole.READONLY },
-    { address: address(addrs.humaLenderState), role: AccountRole.WRITABLE },
-    { address: address(addrs.humaLenderModeToken), role: AccountRole.WRITABLE },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: ATA_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
-}
-
-export interface ResizeRegistryParams {
-  crank: Address;
-  payer: Address;
-  poolId: number;
-  ticketRegistry: Address;
-}
-
-export async function buildResizeRegistryInstruction(
-  params: ResizeRegistryParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-
-  const discriminator = new Uint8Array([227, 20, 198, 143, 113, 248, 179, 15]);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.READONLY_SIGNER },
-    { address: params.payer, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: pool, role: AccountRole.READONLY },
-    { address: params.ticketRegistry, role: AccountRole.WRITABLE },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
-}
-
-export interface SetPrizeTiersParams {
-  admin: Address;
-  poolId: number;
-  tiers: Array<{ numWinners: number; basisPoints: number }>;
-}
-
-export async function buildSetPrizeTiersInstruction(
-  params: SetPrizeTiersParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-
-  const discriminator = new Uint8Array([230, 169, 137, 237, 252, 17, 108, 140]);
-  const data = new Uint8Array(8 + 4 + params.tiers.length * 8);
-  data.set(discriminator, 0);
-
-  const view = new DataView(data.buffer);
-  view.setUint32(8, params.tiers.length, true);
-
-  params.tiers.forEach((t, i) => {
-    const offset = 12 + i * 8;
-    view.setUint32(offset, t.numWinners, true);
-    view.setUint16(offset + 4, t.basisPoints, true);
-    view.setUint16(offset + 6, 0, true); // _padding
-  });
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: pool, role: AccountRole.WRITABLE },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface UpdatePoolConfigParams {
-  admin: Address;
-  poolId: number;
-  newFeeBasisPoints?: number;
-  newBondPrice?: bigint | number;
-  newFeeWallet?: Address;
-}
-
-export async function buildUpdatePoolConfigInstruction(
-  params: UpdatePoolConfigParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-
-  const discriminator = new Uint8Array([153, 237, 18, 59, 19, 149, 44, 2]);
-
-  let len = 8;
-  len += params.newFeeBasisPoints !== undefined ? 3 : 1;
-  len += params.newBondPrice !== undefined ? 9 : 1;
-  len += params.newFeeWallet ? 33 : 1;
-
-  const data = new Uint8Array(len);
-  data.set(discriminator, 0);
-
-  let offset = 8;
-
-  if (params.newFeeBasisPoints !== undefined) {
-    data[offset++] = 1;
-    const view = new DataView(data.buffer, offset, 2);
-    view.setUint16(0, params.newFeeBasisPoints, true);
-    offset += 2;
-  } else {
-    data[offset++] = 0;
-  }
-
-  if (params.newBondPrice !== undefined) {
-    data[offset++] = 1;
-    const view = new DataView(data.buffer, offset, 8);
-    view.setBigUint64(0, BigInt(params.newBondPrice), true);
-    offset += 8;
-  } else {
-    data[offset++] = 0;
-  }
-
-  if (params.newFeeWallet) {
-    data[offset++] = 1;
-    data.set(base58Encoder.encode(address(params.newFeeWallet)), offset);
-    offset += 32;
-  } else {
-    data[offset++] = 0;
-  }
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: params.admin, role: AccountRole.READONLY_SIGNER },
-    { address: pool, role: AccountRole.WRITABLE },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface WithdrawFeesParams {
-  admin: Address;
-  poolId: number;
-  amount: bigint | number;
-  tokenMint: Address;
-  feeWallet: Address;
-  nextRedemptionId: bigint | number;
-  humaStateAddresses: Record<string, string>;
-}
-
-export async function buildWithdrawFeesInstruction(params: WithdrawFeesParams) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const poolPstVault = await findPoolPstVaultPda(params.poolId);
-  const pendingRedemption = await findPendingRedemptionPda(
-    params.poolId,
-    params.nextRedemptionId
-  );
-
-  const discriminator = new Uint8Array([198, 212, 171, 109, 144, 215, 174, 89]);
-  const data = new Uint8Array(8 + 8);
-  data.set(discriminator, 0);
-
-  const view = new DataView(data.buffer);
-  view.setBigUint64(8, BigInt(params.amount), true);
-
-  const addrs = params.humaStateAddresses;
-  const accounts = [
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: poolPstVault, role: AccountRole.WRITABLE },
-    { address: pendingRedemption, role: AccountRole.WRITABLE },
-    { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: address(addrs.humaConfig), role: AccountRole.READONLY },
-    { address: address(addrs.humaPoolConfig), role: AccountRole.READONLY },
-    { address: address(addrs.humaPoolState), role: AccountRole.WRITABLE },
-    { address: address(addrs.humaModeConfig), role: AccountRole.READONLY },
-    { address: address(addrs.pstMint), role: AccountRole.READONLY },
-    {
-      address: address(addrs.humaRedemptionRequest),
-      role: AccountRole.WRITABLE,
-    },
-    { address: address(addrs.humaLenderState), role: AccountRole.WRITABLE },
-    { address: address(addrs.humaPoolAuthority), role: AccountRole.READONLY },
-    { address: address(addrs.humaPoolModeToken), role: AccountRole.WRITABLE },
-    { address: params.tokenMint, role: AccountRole.READONLY },
-    { address: params.feeWallet, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
-    { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data,
-  };
-}
-
-export interface AdminForceUnlockDrawParams {
-  admin: Address;
-  poolId: number;
-  cycleId: number;
-}
-
-export async function buildAdminForceUnlockDrawInstruction(
-  params: AdminForceUnlockDrawParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const drawCycle = await findDrawCyclePda(params.poolId, params.cycleId);
-
-  const discriminator = new Uint8Array([114, 96, 143, 140, 194, 26, 213, 61]);
-
-  const accounts = [
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: params.admin, role: AccountRole.WRITABLE_SIGNER },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: drawCycle, role: AccountRole.WRITABLE },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
-}
-
-export interface CrankRebindExpiredRandomnessParams {
-  crank: Address;
-  poolId: number;
-  cycleId: number;
-  newRandomnessAccount: Address;
-}
-
-export async function buildCrankRebindExpiredRandomnessInstruction(
-  params: CrankRebindExpiredRandomnessParams
-) {
-  const globalConfig = await findGlobalConfigPda();
-  const pool = await findPrizePoolPda(params.poolId);
-  const drawCycle = await findDrawCyclePda(params.poolId, params.cycleId);
-
-  const discriminator = new Uint8Array([48, 178, 171, 168, 77, 11, 46, 112]);
-
-  const accounts = [
-    { address: params.crank, role: AccountRole.WRITABLE_SIGNER },
-    { address: globalConfig, role: AccountRole.READONLY },
-    { address: pool, role: AccountRole.WRITABLE },
-    { address: drawCycle, role: AccountRole.WRITABLE },
-    { address: params.newRandomnessAccount, role: AccountRole.READONLY },
-  ];
-
-  return {
-    programAddress: PROGRAM_ID,
-    accounts,
-    data: discriminator,
-  };
-}
+// Re-export Codama generated types
+export type UserWinningsInfo = ReturnType<typeof parseUserWinnings>;
+export type PrizePoolInfo = ReturnType<typeof parsePrizePool>;
+export type DrawCycleInfo = ReturnType<typeof parseDrawCycle>;
+export type PayoutRegistryInfo = ReturnType<typeof parsePayoutRegistry>;
+export type PendingRedemptionInfo = ReturnType<typeof parsePendingRedemption>;
+export type GlobalConfigInfo = ReturnType<typeof parseGlobalConfig>;

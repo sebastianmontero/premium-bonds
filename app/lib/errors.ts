@@ -35,7 +35,7 @@ export interface ParsedTransactionError {
 /**
  * Anchor custom error codes map for YieldBonds Program (offset 6000 / 0x1770)
  */
-const ANCHOR_CUSTOM_ERRORS: Record<
+export const ANCHOR_CUSTOM_ERRORS: Record<
   number,
   { name: string; message: string; actionable?: string }
 > = {
@@ -211,7 +211,7 @@ const ANCHOR_CUSTOM_ERRORS: Record<
 /**
  * Anchor internal framework constraint errors map
  */
-const ANCHOR_FRAMEWORK_ERRORS: Record<
+export const ANCHOR_FRAMEWORK_ERRORS: Record<
   number,
   { name: string; message: string }
 > = {

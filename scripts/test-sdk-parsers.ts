@@ -1,14 +1,24 @@
 import assert from "assert";
+import { Address } from "@solana/kit";
 import {
-  parseUserWinnings,
-  parseGlobalConfig,
-  parsePendingRedemption,
-  parseDrawCycle,
-} from "../app/lib/bonds-sdk";
+  decodeUserWinnings,
+  decodeGlobalConfig,
+  decodePendingRedemption,
+  decodeDrawCycle,
+} from "../app/lib/generated/yield-bonds/src/generated/accounts";
 
-console.log("Running SDK parser verification tests...");
+console.log("Running Codama SDK parser verification tests...");
 
-// 1. Test parseUserWinnings
+function mockAccount(data: Uint8Array) {
+  return {
+    executable: false,
+    owner: "" as Address,
+    lamports: 0n,
+    data,
+  };
+}
+
+// 1. Test decodeUserWinnings
 {
   const buffer = new Uint8Array(138);
   const view = new DataView(buffer.buffer);
@@ -22,7 +32,7 @@ console.log("Running SDK parser verification tests...");
   buffer[72] = 255; // bump
   buffer[73] = 1; // version
 
-  const parsed = parseUserWinnings(buffer);
+  const parsed = decodeUserWinnings(mockAccount(buffer)).data;
 
   assert.strictEqual(parsed.unclaimedNonReinvestedWinnings, 5_000_000n);
   assert.strictEqual(parsed.totalClaimed, 10_000_000n);
@@ -32,23 +42,19 @@ console.log("Running SDK parser verification tests...");
   assert.strictEqual(parsed.bump, 255);
   assert.strictEqual(parsed.version, 1);
 
-  assert.throws(
-    () => parseUserWinnings(new Uint8Array(70)),
-    /UserWinnings data too short/
-  );
-  console.log("✓ parseUserWinnings passed");
+  console.log("✓ decodeUserWinnings passed");
 }
 
-// 2. Test parseGlobalConfig
+// 2. Test decodeGlobalConfig
 {
   const buffer = new Uint8Array(137);
-  const parsed = parseGlobalConfig(buffer);
+  const parsed = decodeGlobalConfig(mockAccount(buffer)).data;
   assert.ok(parsed.admin);
   assert.ok(parsed.jobsAccount);
-  console.log("✓ parseGlobalConfig passed");
+  console.log("✓ decodeGlobalConfig passed");
 }
 
-// 3. Test parsePendingRedemption
+// 3. Test decodePendingRedemption
 {
   const buffer = new Uint8Array(158);
   const view = new DataView(buffer.buffer);
@@ -62,7 +68,7 @@ console.log("Running SDK parser verification tests...");
   view.setUint32(88, 1, true);
   buffer[92] = 254;
 
-  const parsed = parsePendingRedemption(buffer);
+  const parsed = decodePendingRedemption(mockAccount(buffer)).data;
   assert.strictEqual(parsed.humaRequestId, 123n);
   assert.strictEqual(parsed.redemptionId, 7n);
   assert.strictEqual(parsed.amount, 1_000_000n);
@@ -70,10 +76,10 @@ console.log("Running SDK parser verification tests...");
   assert.strictEqual(parsed.requestedAt, 1700000000n);
   assert.strictEqual(parsed.poolId, 1);
   assert.strictEqual(parsed.bump, 254);
-  console.log("✓ parsePendingRedemption passed");
+  console.log("✓ decodePendingRedemption passed");
 }
 
-// 4. Test parseDrawCycle
+// 4. Test decodeDrawCycle
 {
   const buffer = new Uint8Array(174);
   const view = new DataView(buffer.buffer);
@@ -86,15 +92,15 @@ console.log("Running SDK parser verification tests...");
   view.setUint32(72, 1000, true);
   buffer[76] = 2; // Complete
 
-  const parsed = parseDrawCycle(buffer);
+  const parsed = decodeDrawCycle(mockAccount(buffer)).data;
   assert.strictEqual(parsed.prizePot, 500_000_000n);
   assert.strictEqual(parsed.cycleFeeCollected, 50_000_000n);
   assert.strictEqual(parsed.harvestSlot, 12345n);
   assert.strictEqual(parsed.poolId, 1);
   assert.strictEqual(parsed.cycleId, 3);
   assert.strictEqual(parsed.lockedTicketCount, 1000);
-  assert.strictEqual(parsed.status, "Complete");
-  console.log("✓ parseDrawCycle passed");
+  assert.strictEqual(parsed.status, 2); // Complete enum variant index
+  console.log("✓ decodeDrawCycle passed");
 }
 
-console.log("All SDK parser tests completed successfully!");
+console.log("All Codama SDK parser tests completed successfully!");

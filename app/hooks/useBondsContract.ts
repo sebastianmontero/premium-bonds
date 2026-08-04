@@ -275,6 +275,9 @@ export function useBondsContract(poolId: number = 1) {
             registryEntryIndex = parsed.registryEntryIndex;
           } else {
             setUserWinnings({
+              discriminator: new Uint8Array([
+                226, 146, 3, 214, 100, 252, 221, 32,
+              ]),
               poolId,
               user: address(userAddress),
               unclaimedNonReinvestedWinnings: 0n,
@@ -282,11 +285,16 @@ export function useBondsContract(poolId: number = 1) {
               totalReinvested: 0n,
               bump: 0,
               registryEntryIndex: 0xffffffff,
+              version: 1,
+              reserved: new Uint8Array(32),
             });
           }
         } catch (err) {
           console.warn("UserWinnings account not found, defaulting.", err);
           setUserWinnings({
+            discriminator: new Uint8Array([
+              226, 146, 3, 214, 100, 252, 221, 32,
+            ]),
             poolId,
             user: address(userAddress),
             unclaimedNonReinvestedWinnings: 0n,
@@ -294,6 +302,8 @@ export function useBondsContract(poolId: number = 1) {
             totalReinvested: 0n,
             bump: 0,
             registryEntryIndex: 0xffffffff,
+            version: 1,
+            reserved: new Uint8Array(32),
           });
         }
 

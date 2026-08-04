@@ -2,3 +2,5 @@
 node_modules
 pnpm-lock.yaml
 anchor/
+# Codama-generated client files - formatting managed by codegen script
+app/lib/generated/
