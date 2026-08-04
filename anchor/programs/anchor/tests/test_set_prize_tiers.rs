@@ -84,6 +84,7 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         fee_wallet: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,

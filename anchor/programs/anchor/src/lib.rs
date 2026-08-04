@@ -55,6 +55,7 @@ pub mod anchor {
         bond_price: u64,
         stake_cycle_duration_hrs: i64,
         fee_basis_points: u16,
+        min_yield_threshold: u64,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -62,6 +63,7 @@ pub mod anchor {
             bond_price,
             stake_cycle_duration_hrs,
             fee_basis_points,
+            min_yield_threshold,
         )
     }
 
@@ -163,12 +165,14 @@ pub mod anchor {
         new_fee_basis_points: Option<u16>,
         new_bond_price: Option<u64>,
         new_fee_wallet: Option<Pubkey>,
+        new_min_yield_threshold: Option<u64>,
     ) -> Result<()> {
         instructions::admin::update_pool_config::handle(
             ctx,
             new_fee_basis_points,
             new_bond_price,
             new_fee_wallet,
+            new_min_yield_threshold,
         )
     }
 

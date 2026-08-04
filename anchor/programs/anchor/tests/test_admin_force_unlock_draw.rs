@@ -83,6 +83,7 @@ fn setup_with_amounts(
         fee_wallet: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
@@ -160,7 +161,7 @@ fn clone_keypair(keypair: &Keypair) -> Keypair {
     Keypair::new_from_array(seed)
 }
 
-fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<(), String> {
+fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::AdminForceUnlockDraw {
         global_config,
@@ -181,7 +182,6 @@ fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<(), String> {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -197,7 +197,11 @@ fn test_admin_force_unlock_happy_path() {
         300_000,   // total_fees_accrued
     );
 
-    send_force_unlock(&mut ctx, &admin).unwrap();
+    let meta = send_force_unlock(&mut ctx, &admin).unwrap();
+    assert!(
+        meta.logs.iter().any(|log| log.contains("Program data:")),
+        "Expected event emission log in transaction metadata"
+    );
 
     // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();

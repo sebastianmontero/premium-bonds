@@ -179,6 +179,7 @@ fn inject_pool_custom(
         fee_wallet,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
         fee_basis_points,
         status: status as u8,
         total_deposited_principal: principal,
@@ -554,7 +555,7 @@ fn test_harvest_happy_path_zero_yield() {
     send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Complete);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
     assert_eq!(dc.prize_pot, 0);
     assert_eq!(dc.cycle_fee_collected, 0);
     assert_eq!(dc.locked_ticket_count, 0); // no active before merge
@@ -584,7 +585,7 @@ fn test_harvest_happy_path_yield_no_eligible() {
     send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Complete);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
     assert_eq!(dc.cycle_fee_collected, 0);
     assert_eq!(dc.prize_pot, 0);
     assert_eq!(dc.locked_ticket_count, 0);
@@ -666,7 +667,7 @@ fn test_harvest_happy_path_pending_merge() {
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.locked_ticket_count, 2); // only pre-merge active count
-    assert_eq!(dc.status, anchor::DrawStatus::Complete);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
 }
 
 #[test]
@@ -778,4 +779,37 @@ fn test_harvest_fails_math_overflow() {
         err.contains("MathOverflow"),
         "Expected MathOverflow error, got: {err}"
     );
+}
+
+#[test]
+fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 1,
+        _padding: [0, 0],
+    }];
+    // 1M PST, 1M supply, 1.5M total_assets, 1M principal → raw yield = 500k
+    let mut ctx = setup_happy(5, 0, 100, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
+
+    // Set min_yield_threshold to 1M (1,000,000 > 500,000 raw yield)
+    let (pool_pda_key, _) = pool_pda(1);
+    let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
+    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    pool.min_yield_threshold = 1_000_000;
+    let mut new_data = vec![];
+    new_data.extend_from_slice(&<anchor::PrizePool as anchor_lang::Discriminator>::DISCRIMINATOR);
+    new_data.extend_from_slice(bytemuck::bytes_of(&pool));
+    pool_acct.data = new_data;
+    ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
+
+    // Execute harvest
+    send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
+
+    let dc = read_draw_cycle(&ctx.svm, 1, 0);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+
+    let pool_state = read_pool(&ctx.svm, 1);
+    assert_eq!(pool_state.is_frozen_for_draw, 0);
+    assert_eq!(pool_state.total_fees_accrued, 0);
+    assert_eq!(pool_state.total_prizes_allocated, 0);
 }

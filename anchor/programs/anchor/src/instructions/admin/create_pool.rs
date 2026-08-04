@@ -109,12 +109,14 @@ pub struct CreatePool<'info> {
 /// * `bond_price` - The price of a single bond/ticket in underlying tokens.
 /// * `stake_cycle_duration_hrs` - The duration of each staking/draw cycle in hours.
 /// * `fee_basis_points` - Protocol fee rate in basis points (e.g., 50 = 0.5%).
+/// * `min_yield_threshold` - Minimum yield required (in base units) to execute a draw cycle.
 pub fn handle(
     ctx: Context<CreatePool>,
     pool_id: u32,
     bond_price: u64,
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
+    min_yield_threshold: u64,
 ) -> Result<()> {
     require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
     require!(
@@ -135,6 +137,7 @@ pub fn handle(
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
+    pool.min_yield_threshold = min_yield_threshold;
     pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
     pool.is_frozen_for_draw = 0;

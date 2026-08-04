@@ -72,6 +72,7 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         fee_wallet: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
         fee_basis_points: 100,
         status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
@@ -115,6 +116,7 @@ fn build_update_pool_config_ix(
     new_fee_basis_points: Option<u16>,
     new_bond_price: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
+    new_min_yield_threshold: Option<u64>,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
@@ -133,6 +135,7 @@ fn build_update_pool_config_ix(
             new_fee_basis_points,
             new_bond_price,
             new_fee_wallet,
+            new_min_yield_threshold,
         }
         .data(),
     }
@@ -143,7 +146,7 @@ fn test_update_pool_config_succeeds_empty() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -161,7 +164,7 @@ fn test_update_pool_config_succeeds_one_field() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -194,6 +197,7 @@ fn test_update_pool_config_succeeds_all_fields() {
         Some(50),
         Some(2_000_000),
         Some(new_fee_wallet),
+        Some(1_000_000),
     );
 
     let blockhash = svm.latest_blockhash();
@@ -213,6 +217,7 @@ fn test_update_pool_config_succeeds_all_fields() {
     assert_eq!(pool_state.fee_basis_points, 50);
     assert_eq!(pool_state.bond_price, 2_000_000);
     assert_eq!(pool_state.fee_wallet, new_fee_wallet);
+    assert_eq!(pool_state.min_yield_threshold, 1_000_000);
 }
 
 #[test]
@@ -220,7 +225,7 @@ fn test_update_pool_config_fails_invalid_bond_price() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(0), None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(0), None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -240,7 +245,7 @@ fn test_update_pool_config_unauthorized_admin() {
     let hacker = Keypair::new();
     svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
-    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, Some(0), None, None);
+    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, Some(0), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&hacker.pubkey()), &blockhash);
@@ -257,7 +262,7 @@ fn test_update_pool_config_fails_invalid_fee() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(10_001), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(10_001), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);

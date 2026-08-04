@@ -95,3 +95,36 @@ pub struct DrawCompleted {
     /// Unix timestamp of the draw completion.
     pub timestamp: i64,
 }
+
+/// Emitted when a draw cycle is skipped (due to insufficient yield or zero active tickets).
+#[event]
+pub struct DrawSkipped {
+    /// Pool ID where the draw was skipped.
+    pub pool_id: u32,
+    /// Draw cycle ID that was skipped.
+    pub cycle_id: u32,
+    /// Yield generated in base units.
+    pub raw_yield: u64,
+    /// Pool's minimum yield threshold.
+    pub threshold: u64,
+    /// Unix timestamp when skipped.
+    pub timestamp: i64,
+}
+
+/// Emitted when an admin force unlocks a stuck draw cycle.
+#[event]
+pub struct DrawForceUnlocked {
+    /// Pool ID where the draw was force unlocked.
+    pub pool_id: u32,
+    /// Draw cycle ID that was force unlocked.
+    pub cycle_id: u32,
+    /// Public key of the admin who executed the force unlock.
+    pub admin: Pubkey,
+    /// Prize pot amount (in base units) that was reversed during unlock.
+    pub prize_pot: u64,
+    /// Protocol cycle fee amount (in base units) that was reversed during unlock.
+    pub cycle_fee_collected: u64,
+    /// Unix timestamp of the force unlock.
+    pub timestamp: i64,
+}
+

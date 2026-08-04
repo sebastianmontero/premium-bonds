@@ -60,6 +60,8 @@ pub struct PrizePool {
     pub bond_price: u64,
     /// Duration of each stake/yield cycle in hours.
     pub stake_cycle_duration_hrs: i64,
+    /// Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over.
+    pub min_yield_threshold: u64,
     /// Total principal deposited by all users in this pool.
     pub total_deposited_principal: u64,
     /// Unix timestamp when the current yield cycle is scheduled to end.
@@ -244,6 +246,7 @@ mod tests {
             fee_wallet: Pubkey::default(),
             bond_price: 1_000_000,
             stake_cycle_duration_hrs,
+            min_yield_threshold: 0,
             fee_basis_points,
             status: PoolStatus::Active as u8,
             total_deposited_principal: 0,

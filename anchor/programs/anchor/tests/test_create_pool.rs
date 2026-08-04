@@ -167,6 +167,7 @@ fn build_create_pool_ix(
     bond_price: u64,
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
+    min_yield_threshold: u64,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
@@ -197,6 +198,7 @@ fn build_create_pool_ix(
             bond_price,
             stake_cycle_duration_hrs,
             fee_basis_points,
+            min_yield_threshold,
         }
         .data(),
     }
@@ -205,7 +207,7 @@ fn build_create_pool_ix(
 #[test]
 fn test_create_pool_succeeds() {
     let mut ctx = setup_create_pool_context();
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -219,7 +221,7 @@ fn test_create_pool_succeeds() {
 fn test_create_pool_fails_on_invalid_bond_price() {
     let mut ctx = setup_create_pool_context();
     // bond_price = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100);
+    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100, 0);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -235,7 +237,7 @@ fn test_create_pool_fails_on_invalid_bond_price() {
 fn test_create_pool_fails_on_invalid_stake_duration() {
     let mut ctx = setup_create_pool_context();
     // stake_cycle_duration_hrs = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100, 0);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -260,7 +262,7 @@ fn test_create_pool_fails_on_registry_too_small() {
     );
     ctx.ticket_registry = too_small_registry;
 
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -308,6 +310,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
             bond_price: 1_000_000,
             stake_cycle_duration_hrs: 24,
             fee_basis_points: 100,
+            min_yield_threshold: 0,
         }
         .data(),
     };
@@ -326,7 +329,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
 fn test_create_pool_fails_on_invalid_fee_config() {
     let mut ctx = setup_create_pool_context();
     // fee_basis_points = 10001 (exceeds 10000 / 100%) should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10001);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10001, 0);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);

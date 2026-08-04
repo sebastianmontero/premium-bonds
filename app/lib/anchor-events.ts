@@ -63,6 +63,15 @@ export interface DrawCompletedEvent {
   timestamp: bigint;
 }
 
+export interface DrawForceUnlockedEvent {
+  poolId: number;
+  cycleId: number;
+  admin: string;
+  prizePot: bigint;
+  cycleFeeCollected: bigint;
+  timestamp: bigint;
+}
+
 export type ProgramEvent =
   | {
       type: "BondsPurchased";
@@ -99,6 +108,12 @@ export type ProgramEvent =
       data: DrawCompletedEvent;
       signature: string;
       blockTime: number;
+    }
+  | {
+      type: "DrawForceUnlocked";
+      data: DrawForceUnlockedEvent;
+      signature: string;
+      blockTime: number;
     };
 
 // ─── Discriminator computation ───────────────────────────────────────────────
@@ -129,6 +144,7 @@ async function getDiscriminators(): Promise<DiscriminatorMap> {
     "WinningsClaimed",
     "RedemptionClaimed",
     "DrawCompleted",
+    "DrawForceUnlocked",
   ];
 
   const map: DiscriminatorMap = {};
@@ -250,6 +266,18 @@ function decodeEventData(
         winnersCount: readU32(view, 16),
         timestamp: readI64(view, 20),
       } as DrawCompletedEvent;
+    }
+    case "DrawForceUnlocked": {
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + i64(8) = 64
+      if (payload.length < 64) return null;
+      return {
+        poolId: readU32(view, 0),
+        cycleId: readU32(view, 4),
+        admin: readPubkey(view, payload, 8),
+        prizePot: readU64(view, 40),
+        cycleFeeCollected: readU64(view, 48),
+        timestamp: readI64(view, 56),
+      } as DrawForceUnlockedEvent;
     }
     default:
       return null;

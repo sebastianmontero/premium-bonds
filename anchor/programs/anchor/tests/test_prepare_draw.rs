@@ -121,6 +121,7 @@ fn inject_pool_custom(
         fee_wallet: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
         fee_basis_points: 100,
         status: status as u8,
         total_deposited_principal,

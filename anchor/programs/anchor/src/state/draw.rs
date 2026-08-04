@@ -13,6 +13,8 @@ pub enum DrawStatus {
     Complete,
     /// Draw was forcefully unlocked and cancelled by an admin due to stuck randomness.
     ForceUnlocked,
+    /// Draw was skipped because the generated yield was below the pool's min_yield_threshold or there were no active tickets.
+    Skipped,
 }
 
 /// State tracking a specific draw cycle's yields and randomness properties.

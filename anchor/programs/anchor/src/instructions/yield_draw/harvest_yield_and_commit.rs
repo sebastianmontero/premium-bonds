@@ -204,14 +204,6 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         .checked_sub(fee)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // Accrue fee (accounting only — no token transfer)
-    if fee > 0 {
-        pool.total_fees_accrued = pool
-            .total_fees_accrued
-            .checked_add(fee)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
-
     // ── Draw Cycle creation ─────────────────────────────────────────────────
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
@@ -220,7 +212,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.harvest_slot = clock.slot;
     draw_cycle.version = 1;
 
-    if yield_generated > 0 && eligible_locked_count > 0 {
+    if yield_generated > 0 && yield_generated >= pool.min_yield_threshold && eligible_locked_count > 0 {
         require!(
             pool.prize_tiers_count > 0,
             PremiumBondsError::PrizeTiersNotConfigured
@@ -228,12 +220,27 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         draw_cycle.status = DrawStatus::AwaitingRandomness;
         pool.is_frozen_for_draw = 1;
 
+        // Accrue fee (accounting only — no token transfer)
+        if fee > 0 {
+            pool.total_fees_accrued = pool
+                .total_fees_accrued
+                .checked_add(fee)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+        }
+
         pool.total_prizes_allocated = pool
             .total_prizes_allocated
             .checked_add(net_yield)
             .ok_or(PremiumBondsError::MathOverflow)?;
     } else {
-        draw_cycle.status = DrawStatus::Complete;
+        draw_cycle.status = DrawStatus::Skipped;
+        emit!(crate::events::DrawSkipped {
+            pool_id: pool.pool_id,
+            cycle_id: pool.current_draw_cycle_id,
+            raw_yield: yield_generated,
+            threshold: pool.min_yield_threshold,
+            timestamp: current_time,
+        });
     }
 
     draw_cycle.locked_ticket_count = eligible_locked_count;

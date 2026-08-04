@@ -1,5 +1,6 @@
 use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::DrawForceUnlocked;
 use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
@@ -82,6 +83,17 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
+    let clock = Clock::get()?;
+
+    emit!(DrawForceUnlocked {
+        pool_id: pool.pool_id,
+        cycle_id: draw_cycle.cycle_id,
+        admin: ctx.accounts.admin.key(),
+        prize_pot: draw_cycle.prize_pot,
+        cycle_fee_collected: draw_cycle.cycle_fee_collected,
+        timestamp: clock.unix_timestamp,
+    });
+
     msg!(
         "AdminForceUnlockDraw: force unlocked pool_id={}, cycle_id={}",
         pool.pool_id,
@@ -89,3 +101,4 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     );
     Ok(())
 }
+

@@ -33,18 +33,20 @@ pub struct UpdatePoolConfig<'info> {
 
 /// Updates a prize pool's configuration parameters.
 ///
-/// Allows modifying the fee rate (basis points), the bond price, and the fee wallet address.
+/// Allows modifying the fee rate (basis points), the bond price, the fee wallet address, and the minimum yield threshold.
 ///
 /// # Parameters
 /// * `ctx` - The context of the update pool config instruction.
 /// * `new_fee_basis_points` - Optional new fee rate in basis points.
 /// * `new_bond_price` - Optional new price of a single bond.
 /// * `new_fee_wallet` - Optional new fee wallet address.
+/// * `new_min_yield_threshold` - Optional new minimum yield threshold.
 pub fn handle(
     ctx: Context<UpdatePoolConfig>,
     new_fee_basis_points: Option<u16>,
     new_bond_price: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
+    new_min_yield_threshold: Option<u64>,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
@@ -58,6 +60,9 @@ pub fn handle(
     }
     if let Some(v) = new_fee_wallet {
         pool.fee_wallet = v;
+    }
+    if let Some(v) = new_min_yield_threshold {
+        pool.min_yield_threshold = v;
     }
 
     Ok(())
