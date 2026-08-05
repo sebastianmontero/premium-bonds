@@ -126,6 +126,12 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     pub pst_token_program: Interface<'info, TokenInterface>,
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Initiates an asynchronous redemption of non-reinvested winnings.
@@ -240,12 +246,11 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         pending.redemption_id,
     );
 
-    emit!(WinningsClaimed {
+    emit_cpi!(WinningsClaimed {
         user: ctx.accounts.user.key(),
         pool_id,
         amount: claimable,
         redemption_id: pending.redemption_id,
-        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

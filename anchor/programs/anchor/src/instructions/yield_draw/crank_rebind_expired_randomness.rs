@@ -1,5 +1,6 @@
 use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::RandomnessRebound;
 use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
@@ -57,6 +58,13 @@ pub struct CrankRebindExpiredRandomness<'info> {
         constraint = new_randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub new_randomness_account: UncheckedAccount<'info>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Rebinds the current draw cycle to a new Switchboard randomness account.
@@ -79,16 +87,29 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
         PremiumBondsError::RandomnessNotExpired
     );
 
+    let old_randomness = draw_cycle.randomness_account;
+
     // Rebind our contract state to the new randomness account and reset harvest slot.
     // The crank bot must have already created this new randomness account on Switchboard and committed it.
     draw_cycle.randomness_account = ctx.accounts.new_randomness_account.key();
     draw_cycle.harvest_slot = clock.slot;
 
+    let pool_id = ctx.accounts.pool.load()?.pool_id;
+
     msg!(
         "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}",
-        ctx.accounts.pool.load()?.pool_id,
+        pool_id,
         draw_cycle.cycle_id,
         draw_cycle.randomness_account
     );
+
+    emit_cpi!(RandomnessRebound {
+        pool_id,
+        cycle_id: draw_cycle.cycle_id,
+        old_randomness_account: old_randomness,
+        new_randomness_account: draw_cycle.randomness_account,
+        harvest_slot: clock.slot,
+    });
+
     Ok(())
 }

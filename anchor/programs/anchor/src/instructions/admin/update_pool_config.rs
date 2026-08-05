@@ -1,5 +1,6 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::PoolConfigUpdated;
 use crate::state::{GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
@@ -64,6 +65,15 @@ pub fn handle(
     if let Some(v) = new_min_yield_threshold {
         pool.min_yield_threshold = v;
     }
+
+    emit!(PoolConfigUpdated {
+        pool_id: pool.pool_id,
+        admin: ctx.accounts.admin.key(),
+        fee_basis_points: pool.fee_basis_points,
+        bond_price: pool.bond_price,
+        fee_wallet: pool.fee_wallet,
+        min_yield_threshold: pool.min_yield_threshold,
+    });
 
     Ok(())
 }

@@ -2,6 +2,7 @@ use crate::constants::{
     GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, REGISTRY_MAX_SIZE, REGISTRY_REALLOC_STEP,
 };
 use crate::error::PremiumBondsError;
+use crate::events::RegistryResized;
 use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
 use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
@@ -73,7 +74,15 @@ pub fn handle(ctx: Context<ResizeRegistry>) -> Result<()> {
     let new_capacity = registry_capacity_from_len(new_len);
 
     let mut registry = ctx.accounts.ticket_registry.load_mut()?;
+    let old_capacity = registry.capacity;
     registry.capacity = new_capacity;
+
+    emit!(RegistryResized {
+        pool_id: registry.pool_id,
+        admin: ctx.accounts.crank.key(),
+        old_capacity,
+        new_capacity,
+    });
 
     Ok(())
 }

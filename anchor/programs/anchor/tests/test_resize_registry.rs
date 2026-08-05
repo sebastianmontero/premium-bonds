@@ -238,12 +238,18 @@ fn test_resize_registry_succeeds() {
 
     let rent_before = svm.get_account(&ticket_registry).unwrap().lamports;
 
+    let expected_new_size = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
+    let expected_new_capacity = anchor::utils::registry_capacity_from_len(expected_new_size);
+
     // Execute the resize
-    let res = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry);
-    assert!(res.is_ok(), "Resize should succeed: {:?}", res);
+    let meta = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry).expect("Resize should succeed");
+    let event = assert_log_event::<anchor::events::RegistryResized>(&meta);
+    assert_eq!(event.pool_id, pool_id);
+    assert_eq!(event.admin, crank.pubkey());
+    assert_eq!(event.old_capacity, initial_capacity);
+    assert_eq!(event.new_capacity, expected_new_capacity);
 
     let registry_acct = svm.get_account(&ticket_registry).unwrap();
-    let expected_new_size = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
     assert_eq!(registry_acct.data.len(), expected_new_size);
 
     // Verify double-sided rent flow: registry lamports should increase by exactly the rent difference

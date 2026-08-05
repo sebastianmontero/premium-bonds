@@ -1,7 +1,9 @@
 use crate::constants::{
-    DISCRIMINATOR, GLOBAL_CONFIG_SEED, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PRIZE_POOL_SEED,
+    DISCRIMINATOR, GLOBAL_CONFIG_SEED, HUMA_PROGRAM_ID, PENDING_REDEMPTION_SEED, POOL_PST_SEED,
+    POOL_VAULT_SEED, PRIZE_POOL_SEED,
 };
 use crate::error::PremiumBondsError;
+use crate::events::FeesWithdrawn;
 use crate::huma;
 use crate::state::{GlobalConfig, PendingRedemption, PrizePool};
 use anchor_lang::prelude::*;
@@ -138,6 +140,13 @@ pub struct WithdrawFees<'info> {
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Admin instruction to withdraw accrued protocol fees via Huma async redemption.
@@ -245,6 +254,15 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         pending.redemption_id,
         fee_wallet,
     );
+
+    emit_cpi!(FeesWithdrawn {
+        pool_id,
+        admin: ctx.accounts.admin.key(),
+        fee_wallet,
+        amount,
+        pst_shares,
+        redemption_id: current_redemption_id,
+    });
 
     Ok(())
 }

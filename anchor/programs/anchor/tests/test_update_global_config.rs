@@ -14,6 +14,9 @@ use {
     solana_transaction::versioned::VersionedTransaction,
 };
 
+mod common;
+use common::*;
+
 // ─── Constants mirrored from the program ────────────────────────────────────
 
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
@@ -153,7 +156,7 @@ fn test_update_global_config_admin_only() {
 
     let new_admin = Keypair::new().pubkey();
 
-    send_update_global_config(
+    let meta = send_update_global_config(
         &mut svm,
         &admin,
         global_config,
@@ -163,6 +166,9 @@ fn test_update_global_config_admin_only() {
         None,
     )
     .expect("Updating admin should succeed");
+    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.admin, new_admin);
+    assert_eq!(event.jobs_account, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, new_admin);

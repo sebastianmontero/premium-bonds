@@ -119,6 +119,8 @@ fn build_claim_redemption_ix(
         huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -138,11 +140,16 @@ fn send_e2e_claim_redemption_for_user(
     redemption_id: u64,
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
-) -> Result<(), String> {
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (pool_pda_key, _) = pool_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
     let (pool_vault, _) = pool_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
     let dummy = Keypair::new().pubkey();
+    let huma_lender_state = if huma_lender_state == Pubkey::default() {
+        Keypair::new().pubkey()
+    } else {
+        huma_lender_state
+    };
 
     let accounts = anchor::accounts::ClaimRedemption {
         user: user.pubkey(),
@@ -161,6 +168,8 @@ fn send_e2e_claim_redemption_for_user(
         huma_pool_underlying_token: ctx.huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -175,7 +184,6 @@ fn send_e2e_claim_redemption_for_user(
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -605,6 +613,8 @@ fn send_e2e_claim_winnings_for_user(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -812,7 +822,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim redemption 0
-    send_e2e_claim_redemption_for_user(
+    let meta = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
@@ -821,6 +831,11 @@ fn test_claim_redemption_case_b_accrued_yield() {
         huma_lender_state0,
     )
     .expect("Redemption 0 should succeed");
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(event.user, user_a.pubkey());
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.amount, 3_000_000);
+    assert_eq!(event.redemption_id, 0);
 
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
 

@@ -54,6 +54,8 @@ fn build_buy_bonds_ix(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -597,6 +599,8 @@ fn test_buy_bonds_fails_invalid_huma_program() {
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -683,7 +687,12 @@ fn test_buy_bonds_initializes_user_winnings() {
     let (user_winnings_pda, _) = user_winnings_pda(1, &ctx.user.pubkey());
     assert!(ctx.svm.get_account(&user_winnings_pda).is_none());
 
-    send_e2e_buy_bonds(&mut ctx, 1).expect("buy 1 bond should succeed");
+    let meta = send_e2e_buy_bonds(&mut ctx, 1).expect("buy 1 bond should succeed");
+    let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
+    assert_eq!(event.user, ctx.user.pubkey());
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.bonds, 1);
+    assert_eq!(event.amount, 1_000_000);
 
     // After: user_winnings account should exist and be initialized
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());

@@ -16,6 +16,9 @@ use {
     solana_transaction::versioned::VersionedTransaction,
 };
 
+mod common;
+use common::*;
+
 // ─── Constants mirrored from the program ────────────────────────────────────
 
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
@@ -195,8 +198,13 @@ fn test_set_prize_tiers_succeeds() {
         }, // 50% split among 5 winners (10% each)
     ];
 
-    send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone(), None, None)
+    let meta = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone(), None, None)
         .expect("Setting valid prize tiers should succeed");
+    let event = assert_log_event::<anchor::events::PrizeTiersUpdated>(&meta);
+    assert_eq!(event.pool_id, pool_id);
+    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.tiers_count, 2);
+    assert_eq!(event.total_winners, 6);
 
     let pool = read_prize_pool(&svm, pool_id);
     assert_eq!(pool.prize_tiers_count, 2);

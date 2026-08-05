@@ -10,6 +10,9 @@ use solana_sdk::{
 };
 use solana_transaction::versioned::VersionedTransaction;
 
+mod common;
+use common::*;
+
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 
@@ -170,11 +173,11 @@ fn test_update_pool_config_succeeds_one_field() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let res = svm.send_transaction(tx);
-    assert!(
-        res.is_ok(),
-        "update_pool_config should succeed updating one field"
-    );
+    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating one field");
+    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.fee_basis_points, 200);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;

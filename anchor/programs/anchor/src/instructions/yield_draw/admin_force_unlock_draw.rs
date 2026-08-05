@@ -83,15 +83,12 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    let clock = Clock::get()?;
-
     emit!(DrawForceUnlocked {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         admin: ctx.accounts.admin.key(),
         prize_pot: draw_cycle.prize_pot,
         cycle_fee_collected: draw_cycle.cycle_fee_collected,
-        timestamp: clock.unix_timestamp,
     });
 
     msg!(

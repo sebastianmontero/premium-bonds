@@ -167,7 +167,7 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
     .unwrap();
 }
 
-use common::inject_user_winnings;
+use common::*;
 
 fn w(user_index: u32, owed: u64, tier: u8, reinvested: u64, processed: bool) -> anchor::Winner {
     anchor::Winner {
@@ -190,7 +190,7 @@ struct Ctx {
     registry: Pubkey,
 }
 
-fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Result<(), String> {
+fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Result<litesvm::types::TransactionMetadata, String> {
     let (pool, _) = pool_pda(1);
     let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
     let (payout_registry, _) = payout_pda(1, cycle_id);
@@ -203,6 +203,8 @@ fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Resu
         user_winnings,
         ticket_registry: ctx.registry,
         system_program: anchor_lang::solana_program::system_program::id(),
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -222,7 +224,6 @@ fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32, max_bonds: u32) -> Resu
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -350,7 +351,14 @@ fn test_reinvest_fails_winner_index_out_of_bounds() {
 #[test]
 fn test_reinvest_single_batch_full() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
-    send(&mut ctx, 0, 0, 10).expect("reinvest");
+    let meta = send(&mut ctx, 0, 0, 10).expect("reinvest");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.winner, ctx.winner);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.bonds_bought, 3);
+    assert_eq!(event.amount_reinvested, 3_000_000);
+    assert!(event.is_final_batch);
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);

@@ -22,7 +22,7 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = { version = "1.0.0", features = ["init-if-needed"] }
+anchor-lang = { version = "1.0.0", features = ["init-if-needed", "event-cpi"] }
 anchor-spl = "1.0.0"
 solana-program = "^3"
 switchboard-on-demand = { version = "0.8.0" }

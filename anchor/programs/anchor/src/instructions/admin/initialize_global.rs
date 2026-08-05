@@ -1,4 +1,5 @@
 use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED};
+use crate::events::GlobalConfigUpdated;
 use crate::state::GlobalConfig;
 use anchor_lang::prelude::*;
 
@@ -43,6 +44,11 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
     global_config.admin = ctx.accounts.admin.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
     global_config.version = 1;
+
+    emit!(GlobalConfigUpdated {
+        admin: global_config.admin,
+        jobs_account: global_config.jobs_account,
+    });
 
     Ok(())
 }

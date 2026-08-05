@@ -1,5 +1,6 @@
 use crate::constants::GLOBAL_CONFIG_SEED;
 use crate::error::PremiumBondsError;
+use crate::events::GlobalConfigUpdated;
 use crate::state::GlobalConfig;
 use anchor_lang::prelude::*;
 
@@ -43,6 +44,11 @@ pub fn handle(
     if let Some(jobs_account) = new_jobs_account {
         global_config.jobs_account = jobs_account;
     }
+
+    emit!(GlobalConfigUpdated {
+        admin: global_config.admin,
+        jobs_account: global_config.jobs_account,
+    });
 
     Ok(())
 }

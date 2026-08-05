@@ -107,6 +107,12 @@ pub struct HarvestYieldAndCommit<'info> {
     pub pst_token_program: Interface<'info, TokenInterface>,
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Handles the yield harvest and draw cycle commitment.
@@ -232,14 +238,23 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             .total_prizes_allocated
             .checked_add(net_yield)
             .ok_or(PremiumBondsError::MathOverflow)?;
+
+        emit_cpi!(crate::events::YieldHarvested {
+            pool_id: pool.pool_id,
+            cycle_id: pool.current_draw_cycle_id,
+            raw_yield: yield_generated,
+            fee,
+            prize_pot: net_yield,
+            locked_ticket_count: eligible_locked_count,
+            randomness_account: ctx.accounts.randomness_account.key(),
+        });
     } else {
         draw_cycle.status = DrawStatus::Skipped;
-        emit!(crate::events::DrawSkipped {
+        emit_cpi!(crate::events::DrawSkipped {
             pool_id: pool.pool_id,
             cycle_id: pool.current_draw_cycle_id,
             raw_yield: yield_generated,
             threshold: pool.min_yield_threshold,
-            timestamp: current_time,
         });
     }
 

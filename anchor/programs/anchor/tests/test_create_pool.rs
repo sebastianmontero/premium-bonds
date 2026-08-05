@@ -10,6 +10,9 @@ use solana_sdk::{
 };
 use solana_transaction::versioned::VersionedTransaction;
 
+mod common;
+use common::*;
+
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 const POOL_VAULT_SEED: &[u8] = b"pool_vault";
@@ -213,8 +216,12 @@ fn test_create_pool_succeeds() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
-    let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_ok(), "create_pool should succeed");
+    let meta = ctx.svm.send_transaction(tx).expect("create_pool should succeed");
+    let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.admin, ctx.admin.pubkey());
+    assert_eq!(event.token_mint, ctx.token_mint);
+    assert_eq!(event.pst_mint, Pubkey::default());
 }
 
 #[test]

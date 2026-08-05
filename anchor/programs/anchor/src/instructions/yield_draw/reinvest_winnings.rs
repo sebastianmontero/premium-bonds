@@ -76,6 +76,12 @@ pub struct ReinvestWinnings<'info> {
 
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Reinvests a winner's claimable prize to purchase new bonds.
@@ -268,14 +274,13 @@ pub fn handle(
         is_final_batch,
     );
 
-    emit!(WinningsReinvested {
+    emit_cpi!(WinningsReinvested {
         winner: ctx.accounts.winner.key(),
         pool_id: pool.pool_id,
         cycle_id: _cycle_id,
         bonds_bought: bonds_to_buy,
         amount_reinvested: cost,
         is_final_batch,
-        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

@@ -3,6 +3,7 @@ use crate::constants::{
     REGISTRY_INITIAL_SIZE,
 };
 use crate::error::PremiumBondsError;
+use crate::events::PoolCreated;
 use crate::state::{GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
 use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
@@ -170,6 +171,19 @@ pub fn handle(
     ticket_registry.draw_cycle_id = 0;
     ticket_registry.draw_prepared_up_to = 0;
     ticket_registry.version = 1;
+
+    emit!(PoolCreated {
+        pool_id,
+        admin: ctx.accounts.admin.key(),
+        token_mint: ctx.accounts.token_mint.key(),
+        pst_mint: Pubkey::default(),
+        fee_wallet: ctx.accounts.fee_wallet.key(),
+        ticket_registry: ctx.accounts.ticket_registry.key(),
+        bond_price,
+        stake_cycle_duration_hrs,
+        fee_basis_points,
+        min_yield_threshold,
+    });
 
     Ok(())
 }

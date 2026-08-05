@@ -118,6 +118,12 @@ pub struct ClaimRedemption<'info> {
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Claims settled USDC from a completed Huma redemption request.
@@ -204,12 +210,11 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         huma_request_id,
     );
 
-    emit!(RedemptionClaimed {
+    emit_cpi!(RedemptionClaimed {
         user: ctx.accounts.user.key(),
         pool_id,
         amount: redemption_amount,
         redemption_id,
-        timestamp: Clock::get()?.unix_timestamp,
     });
 
     // PendingRedemption is closed automatically via `close = user` constraint

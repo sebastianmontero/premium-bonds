@@ -86,6 +86,12 @@ pub struct RevealAndPickWinners<'info> {
 
     /// The Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 use switchboard_on_demand::accounts::RandomnessAccountData;
@@ -232,12 +238,11 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    emit!(DrawCompleted {
+    emit_cpi!(DrawCompleted {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         prize_pot: draw_cycle.prize_pot,
         winners_count: payout_registry.winners_count,
-        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

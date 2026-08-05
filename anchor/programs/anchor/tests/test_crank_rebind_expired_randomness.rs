@@ -132,14 +132,16 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
     }
 }
 
-fn send_rebind(ctx: &mut Ctx, signer: &Keypair) -> Result<(), String> {
+fn send_rebind(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        crank: signer.pubkey(),
         global_config,
+        crank: signer.pubkey(),
         pool: ctx.pool_key,
         current_draw_cycle: ctx.current_draw_cycle,
         new_randomness_account: ctx.new_randomness_account,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -154,7 +156,6 @@ fn send_rebind(ctx: &mut Ctx, signer: &Keypair) -> Result<(), String> {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -168,7 +169,13 @@ fn test_rebind_happy_path() {
     ctx.svm.set_sysvar(&clock);
 
     let crank = clone_keypair(&ctx.crank);
-    send_rebind(&mut ctx, &crank).unwrap();
+    let meta = send_rebind(&mut ctx, &crank).unwrap();
+    let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.old_randomness_account, Pubkey::default());
+    assert_eq!(event.new_randomness_account, ctx.new_randomness_account);
+    assert_eq!(event.harvest_slot, 1001);
 
     // Verify draw cycle randomness account is updated and harvest slot reset
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();

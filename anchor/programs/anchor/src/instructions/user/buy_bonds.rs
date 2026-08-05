@@ -132,6 +132,13 @@ pub struct BuyBonds<'info> {
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Allows a user to buy bonds by depositing underlying tokens (e.g., USDC).
@@ -271,12 +278,11 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry);
     }
 
-    emit!(BondsPurchased {
+    emit_cpi!(BondsPurchased {
         user: ctx.accounts.user.key(),
         pool_id,
         bonds: bonds_to_buy,
         amount,
-        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

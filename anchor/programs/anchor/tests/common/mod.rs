@@ -87,6 +87,96 @@ pub fn huma_pool_authority_pda(pool_state: &Pubkey) -> (Pubkey, u8) {
     )
 }
 
+pub fn event_authority_pda() -> Pubkey {
+    let (event_authority, _) = Pubkey::find_program_address(&[b"__event_authority"], &anchor::id());
+    event_authority
+}
+
+// ─── Event Verification Helpers ──────────────────────────────────────────────
+
+/// Self-CPI Event instruction tag emitted by Anchor's `emit_cpi!` macro: sha256("anchor:event")[0..8]
+pub const ANCHOR_EVENT_IX_TAG: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+
+/// Extract and decode all CPI events of type T (emitted via `emit_cpi!`) from transaction metadata.
+pub fn parse_all_cpi_events<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> Vec<T> {
+    let disc = T::DISCRIMINATOR;
+    meta.inner_instructions
+        .iter()
+        .flat_map(|set| set.iter())
+        .filter_map(|inner| {
+            let data = &inner.instruction.data;
+            if data.len() >= 16 && data[0..8] == ANCHOR_EVENT_IX_TAG && data[8..16] == disc[..] {
+                let mut slice = &data[16..];
+                T::deserialize(&mut slice).ok()
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Extract and decode the first CPI event of type T from transaction metadata.
+pub fn parse_cpi_event<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> Option<T> {
+    parse_all_cpi_events::<T>(meta).into_iter().next()
+}
+
+/// Extract and decode all log events of type T (emitted via `emit!`) from transaction metadata.
+pub fn parse_all_log_events<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> Vec<T> {
+    let disc = T::DISCRIMINATOR;
+    meta.logs
+        .iter()
+        .filter_map(|log| log.strip_prefix("Program data: "))
+        .filter_map(|b64| anchor_lang::__private::base64::decode(b64.trim()).ok())
+        .filter_map(|bytes| {
+            if bytes.len() >= 8 && bytes[0..8] == disc[..] {
+                let mut slice = &bytes[8..];
+                T::deserialize(&mut slice).ok()
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Extract and decode the first log event of type T from transaction metadata.
+pub fn parse_log_event<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> Option<T> {
+    parse_all_log_events::<T>(meta).into_iter().next()
+}
+
+/// Assert that a CPI event of type T was emitted and return its deserialized payload.
+pub fn assert_cpi_event<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> T {
+    parse_cpi_event::<T>(meta).unwrap_or_else(|| {
+        panic!(
+            "Expected CPI event '{}' in transaction metadata, but none was found.\nTransaction logs:\n{:#?}",
+            std::any::type_name::<T>(),
+            meta.logs
+        )
+    })
+}
+
+/// Assert that a Log event of type T was emitted and return its deserialized payload.
+pub fn assert_log_event<T: anchor_lang::Discriminator + AnchorDeserialize>(
+    meta: &litesvm::types::TransactionMetadata,
+) -> T {
+    parse_log_event::<T>(meta).unwrap_or_else(|| {
+        panic!(
+            "Expected Log event '{}' in transaction metadata, but none was found.\nTransaction logs:\n{:#?}",
+            std::any::type_name::<T>(),
+            meta.logs
+        )
+    })
+}
+
 // ─── Account/Mint Injectors ──────────────────────────────────────────────────
 
 pub fn inject_mint(svm: &mut LiteSVM, address: Pubkey, decimals: u8) {
@@ -715,7 +805,7 @@ pub fn send_e2e_buy_bonds_for_user(
     user_token_account: Pubkey,
     bonds: u32,
     huma_config: Pubkey,
-) -> Result<(), String> {
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
@@ -742,6 +832,8 @@ pub fn send_e2e_buy_bonds_for_user(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -759,11 +851,10 @@ pub fn send_e2e_buy_bonds_for_user(
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
-pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> Result<(), String> {
+pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> Result<litesvm::types::TransactionMetadata, String> {
     let bytes = ctx.user.to_bytes();
     let mut secret = [0u8; 32];
     secret.copy_from_slice(&bytes[0..32]);
@@ -780,7 +871,7 @@ pub fn send_e2e_sell_bonds_for_user(
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
-) -> Result<(), String> {
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (pool_pda_key, _) = pool_pda(1);
     let pool = read_pool_state(&ctx.svm, 1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -841,6 +932,8 @@ pub fn send_e2e_sell_bonds_for_user(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -863,7 +956,6 @@ pub fn send_e2e_sell_bonds_for_user(
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 

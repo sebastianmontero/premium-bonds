@@ -72,12 +72,11 @@ fn send_initialize_huma_lender(
     svm: &mut LiteSVM,
     admin: &Keypair,
     ix: Instruction,
-) -> Result<(), String> {
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
     svm.send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -85,11 +84,12 @@ fn send_initialize_huma_lender(
 fn send_initialize_huma_lender_unsigned(
     svm: &mut LiteSVM,
     admin_pubkey: Pubkey,
-    mut ix: Instruction,
-) -> Result<(), String> {
+    ix: Instruction,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let payer = Keypair::new();
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
+    let mut ix = ix;
     for meta in ix.accounts.iter_mut() {
         if meta.pubkey == admin_pubkey {
             meta.is_signer = false;
@@ -99,7 +99,6 @@ fn send_initialize_huma_lender_unsigned(
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     svm.send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -126,12 +125,10 @@ fn test_initialize_huma_lender_succeeds() {
         dummy,
     );
 
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_ok(),
-        "initialize_huma_lender should succeed: {:?}",
-        res
-    );
+    let meta = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix).expect("initialize_huma_lender should succeed");
+    let event = assert_log_event::<anchor::events::HumaLenderInitialized>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.admin, ctx.admin.pubkey());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

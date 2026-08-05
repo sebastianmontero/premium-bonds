@@ -129,6 +129,8 @@ fn build_claim_redemption_ix(
         huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -169,6 +171,8 @@ fn send_e2e_claim_redemption_for_user(
         huma_pool_underlying_token: ctx.huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -381,6 +385,8 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::SellBonds {
@@ -504,6 +510,8 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
@@ -605,6 +613,8 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
@@ -790,6 +800,8 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
             randomness_account,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::HarvestYieldAndCommit {}.data(),
@@ -926,6 +938,8 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
             token_program: anchor_spl::token::ID,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
         }
         .to_account_metas(None),
         data: anchor::instruction::SellBonds {

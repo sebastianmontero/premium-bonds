@@ -94,6 +94,8 @@ fn send_e2e_claim_redemption_for_user(
         huma_pool_underlying_token: ctx.huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -162,6 +164,8 @@ fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String>
         randomness_account,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -219,6 +223,8 @@ fn build_sell_bonds_ix(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -583,7 +589,7 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), 0);
 
     // User A sells active ticket count = 1
-    send_e2e_sell_bonds_for_user(
+    let meta_a = send_e2e_sell_bonds_for_user(
         &mut ctx,
         &user_a,
         1,
@@ -593,6 +599,12 @@ fn test_sell_bonds_multiple_users_and_sales() {
         huma_pool_mode_token,
     )
     .unwrap();
+    let event_a = assert_cpi_event::<anchor::events::BondsSold>(&meta_a);
+    assert_eq!(event_a.user, user_a.pubkey());
+    assert_eq!(event_a.pool_id, 1);
+    assert_eq!(event_a.bonds, 1);
+    assert_eq!(event_a.principal, 1_000_000);
+    assert_eq!(event_a.redemption_id, 0);
 
     // Verify active count and entry updates
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 4);

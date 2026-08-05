@@ -11,6 +11,9 @@ use solana_sdk::{
 };
 use solana_transaction::versioned::VersionedTransaction;
 
+mod common;
+use common::*;
+
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 const DRAW_CYCLE_SEED: &[u8] = b"draw_cycle";
@@ -308,6 +311,8 @@ fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32) -> Instruction 
         randomness_account: ctx.randomness_account,
         payout_registry: payout,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -323,7 +328,7 @@ fn send_reveal(
     pool_id: u32,
     cycle_id: u32,
     seed: [u8; 32],
-) -> Result<(), String> {
+) -> Result<litesvm::types::TransactionMetadata, String> {
     update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 0, 0, seed);
     let ix = build_reveal_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
@@ -331,7 +336,6 @@ fn send_reveal(
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -571,7 +575,12 @@ fn test_reveal_single_tier_single_winner() {
         _padding: [0, 0],
     }];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
-    send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
+    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
+    let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.prize_pot, 1_000_000);
+    assert_eq!(event.winners_count, 1);
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 1);

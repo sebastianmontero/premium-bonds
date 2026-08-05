@@ -15,6 +15,9 @@ use solana_sdk::{
 };
 use solana_transaction::versioned::VersionedTransaction;
 
+mod common;
+use common::*;
+
 const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
 const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
 const POOL_PST_SEED: &[u8] = b"pool_pst";
@@ -331,6 +334,8 @@ fn build_harvest_ix(ctx: &HarvestCtx, pool_id: u32, _cycle_id: u32) -> Instructi
         randomness_account: ctx.randomness_account,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -341,14 +346,17 @@ fn build_harvest_ix(ctx: &HarvestCtx, pool_id: u32, _cycle_id: u32) -> Instructi
     }
 }
 
-fn send_harvest(ctx: &mut HarvestCtx, pool_id: u32, cycle_id: u32) -> Result<(), String> {
+fn send_harvest(
+    ctx: &mut HarvestCtx,
+    pool_id: u32,
+    cycle_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let ix = build_harvest_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -552,7 +560,11 @@ fn test_harvest_fails_cycle_not_ended() {
 fn test_harvest_happy_path_zero_yield() {
     // PST balance=0 → current_value=0, yield=0, DrawCycle Complete
     let mut ctx = setup_happy(0, 3, 100, vec![], 0, 0, 0, 0);
-    send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
+    let meta = send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
+    let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.raw_yield, 0);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -605,7 +617,14 @@ fn test_harvest_happy_path_yield_and_eligible() {
     // 2M PST, 2M supply, 2.5M total_assets, 2M principal
     // yield = 2M * 2.5M / 2M - 2M = 500K
     let mut ctx = setup_happy(2, 1, 100, tiers, 2_000_000, 2_000_000, 2_500_000, 2_000_000);
-    send_harvest(&mut ctx, 1, 0).expect("yield + eligible harvest");
+    let meta = send_harvest(&mut ctx, 1, 0).expect("yield + eligible harvest");
+    let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.raw_yield, 500_000);
+    assert_eq!(event.fee, 5_000);
+    assert_eq!(event.prize_pot, 495_000);
+    assert_eq!(event.locked_ticket_count, 2);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);

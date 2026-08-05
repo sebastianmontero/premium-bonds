@@ -198,10 +198,12 @@ fn test_admin_force_unlock_happy_path() {
     );
 
     let meta = send_force_unlock(&mut ctx, &admin).unwrap();
-    assert!(
-        meta.logs.iter().any(|log| log.contains("Program data:")),
-        "Expected event emission log in transaction metadata"
-    );
+    let event = assert_log_event::<anchor::events::DrawForceUnlocked>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.prize_pot, 1_000_000);
+    assert_eq!(event.cycle_fee_collected, 100_000);
 
     // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();

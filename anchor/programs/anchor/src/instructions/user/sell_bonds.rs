@@ -31,7 +31,7 @@ pub struct SellBonds<'info> {
     #[account(
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
-        bump = user_winnings.bump,
+        bump,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 
@@ -146,6 +146,12 @@ pub struct SellBonds<'info> {
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Allows a user to sell/redeem their active and/or pending tickets.
@@ -266,12 +272,6 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
         if will_exit {
             if user_entry_idx != last_entry_idx {
-                let swapped_user_winnings_info = ctx
-                    .remaining_accounts
-                    .first()
-                    .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
-
-                // Verify PDA seeds & ownership on remaining account
                 let pool_id_bytes = pool_id_for_seeds.to_le_bytes();
                 let expected_seeds = &[
                     b"user_winnings",
@@ -280,11 +280,12 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
                 ];
                 let (expected_pda, _) =
                     Pubkey::find_program_address(expected_seeds, ctx.program_id);
-                require_keys_eq!(
-                    swapped_user_winnings_info.key(),
-                    expected_pda,
-                    PremiumBondsError::InvalidUserEntryHint
-                );
+
+                let swapped_user_winnings_info = ctx
+                    .remaining_accounts
+                    .iter()
+                    .find(|acc| acc.key() == expected_pda)
+                    .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
 
                 let mut swapped_winnings =
                     Account::<UserWinnings>::try_from(swapped_user_winnings_info)?;
@@ -385,13 +386,12 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         pending.redemption_id,
     );
 
-    emit!(BondsSold {
+    emit_cpi!(BondsSold {
         user: ctx.accounts.user.key(),
         pool_id,
         bonds: bonds_to_sell,
         principal: expected_principal,
         redemption_id: pending.redemption_id,
-        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

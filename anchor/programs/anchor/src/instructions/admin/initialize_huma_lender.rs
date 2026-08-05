@@ -1,5 +1,6 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::HumaLenderInitialized;
 use crate::huma;
 use crate::state::{GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
@@ -129,6 +130,11 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
         pool.pool_id,
         ctx.accounts.pool.key(),
     );
+
+    emit!(HumaLenderInitialized {
+        pool_id: pool.pool_id,
+        admin: ctx.accounts.admin.key(),
+    });
 
     Ok(())
 }

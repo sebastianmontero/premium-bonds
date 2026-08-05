@@ -153,7 +153,7 @@ fn inject_pool_with_next_redemption_id(
     pda
 }
 
-use common::inject_user_winnings;
+use common::*;
 
 fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
     let mut huma_pool_state_data = vec![0u8; 512];
@@ -217,6 +217,8 @@ fn build_claim_ix_with_redemption_id(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -419,7 +421,12 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings");
+    let meta = ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings");
+    let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
+    assert_eq!(event.user, ctx.user.pubkey());
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.amount, 500_000);
+    assert_eq!(event.redemption_id, 0);
 
     // Assert UserWinnings state updates
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();

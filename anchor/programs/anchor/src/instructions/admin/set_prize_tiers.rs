@@ -1,5 +1,6 @@
 use crate::constants::{GLOBAL_CONFIG_SEED, MAX_PRIZE_TIERS, MAX_TOTAL_WINNERS, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::PrizeTiersUpdated;
 use crate::state::{GlobalConfig, PrizePool, PrizeTier};
 use anchor_lang::prelude::*;
 
@@ -99,6 +100,13 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
             _padding: [0; 2],
         };
     }
+
+    emit!(PrizeTiersUpdated {
+        pool_id: pool.pool_id,
+        admin: ctx.accounts.admin.key(),
+        tiers_count: pool.prize_tiers_count,
+        total_winners,
+    });
 
     Ok(())
 }

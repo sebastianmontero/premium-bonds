@@ -88,6 +88,8 @@ fn build_withdraw_fees_ix(
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -99,12 +101,15 @@ fn build_withdraw_fees_ix(
 }
 
 /// Send a `WithdrawFees` instruction.
-fn send_withdraw_fees(svm: &mut LiteSVM, admin: &Keypair, ix: Instruction) -> Result<(), String> {
+fn send_withdraw_fees(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    ix: Instruction,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
     svm.send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -961,12 +966,12 @@ fn test_withdraw_fees_and_claim_e2e() {
         2_000_000, // withdraw 2 USDC
     );
 
-    let res_withdraw = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw);
-    assert!(
-        res_withdraw.is_ok(),
-        "withdraw_fees should succeed: {:?}",
-        res_withdraw
-    );
+    let meta = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw).expect("withdraw_fees should succeed");
+    let event = assert_cpi_event::<anchor::events::FeesWithdrawn>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.admin, ctx.admin.pubkey());
+    assert_eq!(event.amount, 2_000_000);
+    assert_eq!(event.redemption_id, 0);
 
     // Verify PendingRedemption was created with admin (fee wallet owner) as the user
     let pending_pda = pending_redemption_pda(1, 0).0;
@@ -1079,6 +1084,8 @@ fn build_claim_redemption_ix(
         huma_pool_underlying_token,
         token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
