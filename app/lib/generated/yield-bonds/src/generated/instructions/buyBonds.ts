@@ -47,6 +47,7 @@ import {
   type TransactionSigner,
 } from "@solana/signers";
 import {
+  findEventAuthorityPda,
   findPoolPstVaultPda,
   findPoolVaultAccountPda,
   findUserWinningsPda,
@@ -85,6 +86,9 @@ export type BuyBondsInstruction<
   TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -147,6 +151,12 @@ export type BuyBondsInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -205,6 +215,8 @@ export type BuyBondsAsyncInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user purchasing the bonds, who signs and pays for the transaction. */
   user: TransactionSigner<TAccountUser>;
@@ -266,6 +278,9 @@ export type BuyBondsAsyncInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   ticketsToBuy: BuyBondsInstructionDataArgs["ticketsToBuy"];
 };
 
@@ -289,6 +304,8 @@ export async function getBuyBondsInstructionAsync<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: BuyBondsAsyncInput<
@@ -310,7 +327,9 @@ export async function getBuyBondsInstructionAsync<
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -334,7 +353,9 @@ export async function getBuyBondsInstructionAsync<
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -376,6 +397,8 @@ export async function getBuyBondsInstructionAsync<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -426,6 +449,13 @@ export async function getBuyBondsInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -452,6 +482,8 @@ export async function getBuyBondsInstructionAsync<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getBuyBondsInstructionDataEncoder().encode(
       args as BuyBondsInstructionDataArgs
@@ -477,7 +509,9 @@ export async function getBuyBondsInstructionAsync<
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -501,6 +535,8 @@ export type BuyBondsInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user purchasing the bonds, who signs and pays for the transaction. */
   user: TransactionSigner<TAccountUser>;
@@ -562,6 +598,9 @@ export type BuyBondsInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   ticketsToBuy: BuyBondsInstructionDataArgs["ticketsToBuy"];
 };
 
@@ -585,6 +624,8 @@ export function getBuyBondsInstruction<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: BuyBondsInput<
@@ -606,7 +647,9 @@ export function getBuyBondsInstruction<
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): BuyBondsInstruction<
@@ -629,7 +672,9 @@ export function getBuyBondsInstruction<
   TAccountHumaPoolUnderlyingToken,
   TAccountTokenProgram,
   TAccountPstTokenProgram,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -670,6 +715,8 @@ export function getBuyBondsInstruction<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -691,6 +738,10 @@ export function getBuyBondsInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -718,6 +769,8 @@ export function getBuyBondsInstruction<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getBuyBondsInstructionDataEncoder().encode(
       args as BuyBondsInstructionDataArgs
@@ -743,7 +796,9 @@ export function getBuyBondsInstruction<
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -813,6 +868,9 @@ export type ParsedBuyBondsInstruction<
     pstTokenProgram: TAccountMetas[17];
     /** Solana System Program. */
     systemProgram: TAccountMetas[18];
+    eventAuthority: TAccountMetas[19];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[20];
   };
   data: BuyBondsInstructionData;
 };
@@ -825,12 +883,12 @@ export function parseBuyBondsInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedBuyBondsInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 19) {
+  if (instruction.accounts.length < 21) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 19,
+        expectedAccountMetas: 21,
       }
     );
   }
@@ -862,6 +920,8 @@ export function parseBuyBondsInstruction<
       tokenProgram: getNextAccount(),
       pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getBuyBondsInstructionDataDecoder().decode(instruction.data),
   };

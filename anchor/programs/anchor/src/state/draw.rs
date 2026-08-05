@@ -74,7 +74,7 @@ pub struct PayoutRegistry {
 impl PayoutRegistry {
     /// Validates the winner entry at `winner_index`:
     /// - index is in bounds
-    /// - user_index matches the user_winnings registry entry index
+    /// - winner pubkey matches the user_winnings user key
     /// - not already paid out
     ///
     /// Returns a mutable reference to the validated `Winner`.
@@ -89,7 +89,7 @@ impl PayoutRegistry {
             PremiumBondsError::InvalidIndices
         );
         require!(
-            self.winners[idx].user_index == user_winnings.registry_entry_index,
+            self.winners[idx].winner == user_winnings.user,
             PremiumBondsError::UnauthorizedTicket
         );
         require!(
@@ -115,16 +115,16 @@ pub struct Winner {
     pub amount_owed: u64,
     /// Tracks partial reinvestment progress across batched crank calls.
     pub amount_reinvested: u64,
-    /// User index position in TicketRegistry.
-    pub user_index: u32,
+    /// Public key of the winning user.
+    pub winner: Pubkey,
     /// Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true).
     pub processed: u8,
     /// The index of the PrizeTier from which this prize was calculated.
     pub tier_index: u8,
     /// Schema version of the struct.
     pub version: u8,
-    /// Reserved space for future upgrades (packed to 32 bytes).
-    pub _reserved: [u8; 9],
+    /// Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size).
+    pub _reserved: [u8; 5],
 }
 
 impl Winner {

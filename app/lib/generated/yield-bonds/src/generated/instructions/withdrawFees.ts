@@ -47,6 +47,7 @@ import {
   type TransactionSigner,
 } from "@solana/signers";
 import {
+  findEventAuthorityPda,
   findGlobalConfigPda,
   findPendingRedemptionPda,
   findPoolPstVaultPda,
@@ -88,6 +89,9 @@ export type WithdrawFeesInstruction<
   TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -154,6 +158,12 @@ export type WithdrawFeesInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -213,6 +223,8 @@ export type WithdrawFeesAsyncInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The admin authority executing the fee withdrawal. */
   admin: TransactionSigner<TAccountAdmin>;
@@ -275,6 +287,9 @@ export type WithdrawFeesAsyncInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   amount: WithdrawFeesInstructionDataArgs["amount"];
 };
 
@@ -299,6 +314,8 @@ export async function getWithdrawFeesInstructionAsync<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: WithdrawFeesAsyncInput<
@@ -321,7 +338,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountFeeWallet,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -346,7 +365,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountFeeWallet,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -389,6 +410,8 @@ export async function getWithdrawFeesInstructionAsync<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -430,6 +453,13 @@ export async function getWithdrawFeesInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -454,6 +484,8 @@ export async function getWithdrawFeesInstructionAsync<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getWithdrawFeesInstructionDataEncoder().encode(
       args as WithdrawFeesInstructionDataArgs
@@ -480,7 +512,9 @@ export async function getWithdrawFeesInstructionAsync<
     TAccountFeeWallet,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -505,6 +539,8 @@ export type WithdrawFeesInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The admin authority executing the fee withdrawal. */
   admin: TransactionSigner<TAccountAdmin>;
@@ -567,6 +603,9 @@ export type WithdrawFeesInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   amount: WithdrawFeesInstructionDataArgs["amount"];
 };
 
@@ -591,6 +630,8 @@ export function getWithdrawFeesInstruction<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: WithdrawFeesInput<
@@ -613,7 +654,9 @@ export function getWithdrawFeesInstruction<
     TAccountFeeWallet,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): WithdrawFeesInstruction<
@@ -637,7 +680,9 @@ export function getWithdrawFeesInstruction<
   TAccountFeeWallet,
   TAccountTokenProgram,
   TAccountPstTokenProgram,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -679,6 +724,8 @@ export function getWithdrawFeesInstruction<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -700,6 +747,10 @@ export function getWithdrawFeesInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -725,6 +776,8 @@ export function getWithdrawFeesInstruction<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getWithdrawFeesInstructionDataEncoder().encode(
       args as WithdrawFeesInstructionDataArgs
@@ -751,7 +804,9 @@ export function getWithdrawFeesInstruction<
     TAccountFeeWallet,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -822,6 +877,9 @@ export type ParsedWithdrawFeesInstruction<
     pstTokenProgram: TAccountMetas[18];
     /** Solana System Program. */
     systemProgram: TAccountMetas[19];
+    eventAuthority: TAccountMetas[20];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[21];
   };
   data: WithdrawFeesInstructionData;
 };
@@ -834,12 +892,12 @@ export function parseWithdrawFeesInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedWithdrawFeesInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 20) {
+  if (instruction.accounts.length < 22) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 20,
+        expectedAccountMetas: 22,
       }
     );
   }
@@ -872,6 +930,8 @@ export function parseWithdrawFeesInstruction<
       tokenProgram: getNextAccount(),
       pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getWithdrawFeesInstructionDataDecoder().decode(instruction.data),
   };

@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const REVEAL_AND_PICK_WINNERS_DISCRIMINATOR: ReadonlyUint8Array =
@@ -66,6 +66,9 @@ export type RevealAndPickWinnersInstruction<
   TAccountPayoutRegistry extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -96,6 +99,12 @@ export type RevealAndPickWinnersInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -141,6 +150,8 @@ export type RevealAndPickWinnersAsyncInput<
   TAccountRandomnessAccount extends string = string,
   TAccountPayoutRegistry extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the instruction. Must match the jobs_account. */
   crank: TransactionSigner<TAccountCrank>;
@@ -157,6 +168,9 @@ export type RevealAndPickWinnersAsyncInput<
   payoutRegistry: Address<TAccountPayoutRegistry>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getRevealAndPickWinnersInstructionAsync<
@@ -168,6 +182,8 @@ export async function getRevealAndPickWinnersInstructionAsync<
   TAccountRandomnessAccount extends string,
   TAccountPayoutRegistry extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: RevealAndPickWinnersAsyncInput<
@@ -178,7 +194,9 @@ export async function getRevealAndPickWinnersInstructionAsync<
     TAccountTicketRegistry,
     TAccountRandomnessAccount,
     TAccountPayoutRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -191,7 +209,9 @@ export async function getRevealAndPickWinnersInstructionAsync<
     TAccountTicketRegistry,
     TAccountRandomnessAccount,
     TAccountPayoutRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -213,6 +233,8 @@ export async function getRevealAndPickWinnersInstructionAsync<
     },
     payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -227,6 +249,13 @@ export async function getRevealAndPickWinnersInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -239,6 +268,8 @@ export async function getRevealAndPickWinnersInstructionAsync<
       getAccountMeta("randomnessAccount", accounts.randomnessAccount),
       getAccountMeta("payoutRegistry", accounts.payoutRegistry),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getRevealAndPickWinnersInstructionDataEncoder().encode({}),
     programAddress,
@@ -251,7 +282,9 @@ export async function getRevealAndPickWinnersInstructionAsync<
     TAccountTicketRegistry,
     TAccountRandomnessAccount,
     TAccountPayoutRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -264,6 +297,8 @@ export type RevealAndPickWinnersInput<
   TAccountRandomnessAccount extends string = string,
   TAccountPayoutRegistry extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the instruction. Must match the jobs_account. */
   crank: TransactionSigner<TAccountCrank>;
@@ -280,6 +315,9 @@ export type RevealAndPickWinnersInput<
   payoutRegistry: Address<TAccountPayoutRegistry>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getRevealAndPickWinnersInstruction<
@@ -291,6 +329,8 @@ export function getRevealAndPickWinnersInstruction<
   TAccountRandomnessAccount extends string,
   TAccountPayoutRegistry extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: RevealAndPickWinnersInput<
@@ -301,7 +341,9 @@ export function getRevealAndPickWinnersInstruction<
     TAccountTicketRegistry,
     TAccountRandomnessAccount,
     TAccountPayoutRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): RevealAndPickWinnersInstruction<
@@ -313,7 +355,9 @@ export function getRevealAndPickWinnersInstruction<
   TAccountTicketRegistry,
   TAccountRandomnessAccount,
   TAccountPayoutRegistry,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -334,6 +378,8 @@ export function getRevealAndPickWinnersInstruction<
     },
     payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -344,6 +390,10 @@ export function getRevealAndPickWinnersInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -357,6 +407,8 @@ export function getRevealAndPickWinnersInstruction<
       getAccountMeta("randomnessAccount", accounts.randomnessAccount),
       getAccountMeta("payoutRegistry", accounts.payoutRegistry),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getRevealAndPickWinnersInstructionDataEncoder().encode({}),
     programAddress,
@@ -369,7 +421,9 @@ export function getRevealAndPickWinnersInstruction<
     TAccountTicketRegistry,
     TAccountRandomnessAccount,
     TAccountPayoutRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -394,6 +448,9 @@ export type ParsedRevealAndPickWinnersInstruction<
     payoutRegistry: TAccountMetas[6];
     /** The Solana System Program. */
     systemProgram: TAccountMetas[7];
+    eventAuthority: TAccountMetas[8];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[9];
   };
   data: RevealAndPickWinnersInstructionData;
 };
@@ -406,12 +463,12 @@ export function parseRevealAndPickWinnersInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedRevealAndPickWinnersInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 8) {
+  if (instruction.accounts.length < 10) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 8,
+        expectedAccountMetas: 10,
       }
     );
   }
@@ -432,6 +489,8 @@ export function parseRevealAndPickWinnersInstruction<
       randomnessAccount: getNextAccount(),
       payoutRegistry: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getRevealAndPickWinnersInstructionDataDecoder().decode(
       instruction.data

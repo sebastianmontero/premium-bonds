@@ -1158,20 +1158,12 @@ export async function executeReinvest({
       }
       targetWinnerIndices = [parsedIdx];
     } else {
-      const userIndexInRegistry = ticketRegistryState.entries.findIndex(
-        (e) => e.owner === winnerOption
-      );
-      if (userIndexInRegistry === -1) {
-        throw new Error(
-          `Winner address ${winnerOption} not found in TicketRegistry.`
-        );
-      }
       const index = state.winners.findIndex(
-        (w) => w.userIndex === userIndexInRegistry
+        (w) => w.winner === winnerOption
       );
       if (index === -1) {
         throw new Error(
-          `User index ${userIndexInRegistry} not found in payout registry winners.`
+          `Winner address ${winnerOption} not found in payout registry winners.`
         );
       }
       targetWinnerIndices = [index];

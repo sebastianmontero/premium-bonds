@@ -144,6 +144,7 @@ import {
   findCreatePoolPoolPstVaultPda,
   findCreatePoolPoolVaultAccountPda,
   findCurrentDrawCyclePda,
+  findEventAuthorityPda,
   findGlobalConfigPda,
   findPayoutRegistryPda,
   findPendingRedemptionPda,
@@ -785,6 +786,7 @@ export type AnchorPluginPdas = {
   userWinnings: typeof findUserWinningsPda;
   poolVaultAccount: typeof findPoolVaultAccountPda;
   poolPstVault: typeof findPoolPstVaultPda;
+  eventAuthority: typeof findEventAuthorityPda;
   pendingRedemption: typeof findPendingRedemptionPda;
   pool: typeof findPoolPda;
   createPoolPoolVaultAccount: typeof findCreatePoolPoolVaultAccountPda;
@@ -925,6 +927,7 @@ export function anchorProgram() {
           userWinnings: findUserWinningsPda,
           poolVaultAccount: findPoolVaultAccountPda,
           poolPstVault: findPoolPstVaultPda,
+          eventAuthority: findEventAuthorityPda,
           pendingRedemption: findPendingRedemptionPda,
           pool: findPoolPda,
           createPoolPoolVaultAccount: findCreatePoolPoolVaultAccountPda,

@@ -9,6 +9,7 @@
 export * from "./createPoolPoolPstVault";
 export * from "./createPoolPoolVaultAccount";
 export * from "./currentDrawCycle";
+export * from "./eventAuthority";
 export * from "./globalConfig";
 export * from "./payoutRegistry";
 export * from "./pendingRedemption";

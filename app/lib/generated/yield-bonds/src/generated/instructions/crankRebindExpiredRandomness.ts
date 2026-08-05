@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const CRANK_REBIND_EXPIRED_RANDOMNESS_DISCRIMINATOR: ReadonlyUint8Array =
@@ -62,6 +62,9 @@ export type CrankRebindExpiredRandomnessInstruction<
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
   TAccountNewRandomnessAccount extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -83,6 +86,12 @@ export type CrankRebindExpiredRandomnessInstruction<
       TAccountNewRandomnessAccount extends string
         ? ReadonlyAccount<TAccountNewRandomnessAccount>
         : TAccountNewRandomnessAccount,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -125,6 +134,8 @@ export type CrankRebindExpiredRandomnessAsyncInput<
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountNewRandomnessAccount extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the instruction. Must match the jobs_account. */
   crank: TransactionSigner<TAccountCrank>;
@@ -135,6 +146,9 @@ export type CrankRebindExpiredRandomnessAsyncInput<
   /** The current draw cycle account whose randomness is being rebound. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   newRandomnessAccount: Address<TAccountNewRandomnessAccount>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getCrankRebindExpiredRandomnessInstructionAsync<
@@ -143,6 +157,8 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountNewRandomnessAccount extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: CrankRebindExpiredRandomnessAsyncInput<
@@ -150,7 +166,9 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountNewRandomnessAccount
+    TAccountNewRandomnessAccount,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -160,7 +178,9 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountNewRandomnessAccount
+    TAccountNewRandomnessAccount,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -179,6 +199,8 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
       value: input.newRandomnessAccount ?? null,
       isWritable: false,
     },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -189,6 +211,13 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -198,6 +227,8 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("newRandomnessAccount", accounts.newRandomnessAccount),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getCrankRebindExpiredRandomnessInstructionDataEncoder().encode({}),
     programAddress,
@@ -207,7 +238,9 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountNewRandomnessAccount
+    TAccountNewRandomnessAccount,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -217,6 +250,8 @@ export type CrankRebindExpiredRandomnessInput<
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountNewRandomnessAccount extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the instruction. Must match the jobs_account. */
   crank: TransactionSigner<TAccountCrank>;
@@ -227,6 +262,9 @@ export type CrankRebindExpiredRandomnessInput<
   /** The current draw cycle account whose randomness is being rebound. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   newRandomnessAccount: Address<TAccountNewRandomnessAccount>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getCrankRebindExpiredRandomnessInstruction<
@@ -235,6 +273,8 @@ export function getCrankRebindExpiredRandomnessInstruction<
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountNewRandomnessAccount extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: CrankRebindExpiredRandomnessInput<
@@ -242,7 +282,9 @@ export function getCrankRebindExpiredRandomnessInstruction<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountNewRandomnessAccount
+    TAccountNewRandomnessAccount,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): CrankRebindExpiredRandomnessInstruction<
@@ -251,7 +293,9 @@ export function getCrankRebindExpiredRandomnessInstruction<
   TAccountGlobalConfig,
   TAccountPool,
   TAccountCurrentDrawCycle,
-  TAccountNewRandomnessAccount
+  TAccountNewRandomnessAccount,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -269,11 +313,19 @@ export function getCrankRebindExpiredRandomnessInstruction<
       value: input.newRandomnessAccount ?? null,
       isWritable: false,
     },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
+
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -283,6 +335,8 @@ export function getCrankRebindExpiredRandomnessInstruction<
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("newRandomnessAccount", accounts.newRandomnessAccount),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getCrankRebindExpiredRandomnessInstructionDataEncoder().encode({}),
     programAddress,
@@ -292,7 +346,9 @@ export function getCrankRebindExpiredRandomnessInstruction<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountNewRandomnessAccount
+    TAccountNewRandomnessAccount,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -311,6 +367,9 @@ export type ParsedCrankRebindExpiredRandomnessInstruction<
     /** The current draw cycle account whose randomness is being rebound. */
     currentDrawCycle: TAccountMetas[3];
     newRandomnessAccount: TAccountMetas[4];
+    eventAuthority: TAccountMetas[5];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[6];
   };
   data: CrankRebindExpiredRandomnessInstructionData;
 };
@@ -323,12 +382,12 @@ export function parseCrankRebindExpiredRandomnessInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedCrankRebindExpiredRandomnessInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 5) {
+  if (instruction.accounts.length < 7) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 5,
+        expectedAccountMetas: 7,
       }
     );
   }
@@ -346,6 +405,8 @@ export function parseCrankRebindExpiredRandomnessInstruction<
       pool: getNextAccount(),
       currentDrawCycle: getNextAccount(),
       newRandomnessAccount: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getCrankRebindExpiredRandomnessInstructionDataDecoder().decode(
       instruction.data

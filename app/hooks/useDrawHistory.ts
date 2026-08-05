@@ -6,14 +6,10 @@ import { Address, getBase64Encoder } from "@solana/kit";
 import {
   findDrawCyclePda,
   findPayoutRegistryPda,
-  findPrizePoolPda,
   parseDrawCycle,
   parsePayoutRegistry,
-  parsePrizePool,
-  parseTicketRegistry,
   DrawCycleInfo,
   PayoutRegistryInfo,
-  UserEntryInfo,
 } from "../lib/bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "../lib/vrf-utils";
 import type { PrizeHistoryEntry, RecentWinner, PrizeStatus } from "../types";
@@ -84,39 +80,6 @@ export function useDrawHistory(
       const userPrizes: PrizeHistoryEntry[] = [];
       const latestWinners: RecentWinner[] = [];
       let latestCompleteCycleFound = false;
-
-      // 1. Fetch PrizePool and TicketRegistry for owner pubkey resolution
-      let registryEntries: UserEntryInfo[] = [];
-      let currentUserIndex: number = -1;
-      try {
-        const poolPda = await findPrizePoolPda(poolId);
-        const poolAcc = await rpc
-          .getAccountInfo(poolPda, { encoding: "base64" })
-          .send();
-        if (poolAcc?.value?.data) {
-          const poolBytes = new Uint8Array(
-            base64Encoder.encode(poolAcc.value.data[0])
-          );
-          const poolState = parsePrizePool(poolBytes);
-          const registryAcc = await rpc
-            .getAccountInfo(poolState.ticketRegistry, { encoding: "base64" })
-            .send();
-          if (registryAcc?.value?.data) {
-            const regBytes = new Uint8Array(
-              base64Encoder.encode(registryAcc.value.data[0])
-            );
-            const regState = parseTicketRegistry(regBytes);
-            registryEntries = regState.entries;
-            if (userAddress) {
-              currentUserIndex = registryEntries.findIndex(
-                (e) => e.owner.toString() === userAddress
-              );
-            }
-          }
-        }
-      } catch {
-        // Fallback if TicketRegistry resolution fails
-      }
 
       // Build range of historical cycle IDs (newest first)
       const cycleIds: number[] = [];
@@ -194,10 +157,7 @@ export function useDrawHistory(
         if (!latestCompleteCycleFound) {
           latestCompleteCycleFound = true;
           for (const winner of payout.winners) {
-            const ownerAddr = registryEntries[winner.userIndex]?.owner;
-            const addressStr = ownerAddr
-              ? ownerAddr.toString()
-              : `User #${winner.userIndex}`;
+            const addressStr = winner.winner ? winner.winner.toString() : "Unknown";
             latestWinners.push({
               address: addressStr,
               amount: Number(winner.amountOwed),
@@ -209,10 +169,10 @@ export function useDrawHistory(
         }
 
         // Extract user's prizes from this payout
-        if (userAddress && currentUserIndex !== -1) {
+        if (userAddress) {
           for (let wi = 0; wi < payout.winners.length; wi++) {
             const winner = payout.winners[wi];
-            if (winner.userIndex !== currentUserIndex) continue;
+            if (winner.winner !== userAddress) continue;
 
             // Determine status
             let status: PrizeStatus = "processing";

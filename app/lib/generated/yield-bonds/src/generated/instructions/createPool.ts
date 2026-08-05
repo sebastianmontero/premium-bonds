@@ -136,6 +136,7 @@ export type CreatePoolInstructionData = {
   bondPrice: bigint;
   stakeCycleDurationHrs: bigint;
   feeBasisPoints: number;
+  minYieldThreshold: bigint;
 };
 
 export type CreatePoolInstructionDataArgs = {
@@ -143,6 +144,7 @@ export type CreatePoolInstructionDataArgs = {
   bondPrice: number | bigint;
   stakeCycleDurationHrs: number | bigint;
   feeBasisPoints: number;
+  minYieldThreshold: number | bigint;
 };
 
 export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePoolInstructionDataArgs> {
@@ -153,6 +155,7 @@ export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePo
       ["bondPrice", getU64Encoder()],
       ["stakeCycleDurationHrs", getI64Encoder()],
       ["feeBasisPoints", getU16Encoder()],
+      ["minYieldThreshold", getU64Encoder()],
     ]),
     (value) => ({ ...value, discriminator: CREATE_POOL_DISCRIMINATOR })
   );
@@ -165,6 +168,7 @@ export function getCreatePoolInstructionDataDecoder(): FixedSizeDecoder<CreatePo
     ["bondPrice", getU64Decoder()],
     ["stakeCycleDurationHrs", getI64Decoder()],
     ["feeBasisPoints", getU16Decoder()],
+    ["minYieldThreshold", getU64Decoder()],
   ]);
 }
 
@@ -239,6 +243,7 @@ export type CreatePoolAsyncInput<
   bondPrice: CreatePoolInstructionDataArgs["bondPrice"];
   stakeCycleDurationHrs: CreatePoolInstructionDataArgs["stakeCycleDurationHrs"];
   feeBasisPoints: CreatePoolInstructionDataArgs["feeBasisPoints"];
+  minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
 };
 
 export async function getCreatePoolInstructionAsync<
@@ -446,6 +451,7 @@ export type CreatePoolInput<
   bondPrice: CreatePoolInstructionDataArgs["bondPrice"];
   stakeCycleDurationHrs: CreatePoolInstructionDataArgs["stakeCycleDurationHrs"];
   feeBasisPoints: CreatePoolInstructionDataArgs["feeBasisPoints"];
+  minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
 };
 
 export function getCreatePoolInstruction<

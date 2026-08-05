@@ -655,9 +655,9 @@ fn test_reveal_winner_determinism() {
     let idx1 = local_derive_random_index(&seed, 0, 1, 0, locked) as usize;
     let idx2 = local_derive_random_index(&seed, 1, 0, 0, locked) as usize;
 
-    assert_eq!(pr.winners[0].user_index, idx0 as u32);
-    assert_eq!(pr.winners[1].user_index, idx1 as u32);
-    assert_eq!(pr.winners[2].user_index, idx2 as u32);
+    assert_eq!(pr.winners[0].winner, ctx.tickets[idx0]);
+    assert_eq!(pr.winners[1].winner, ctx.tickets[idx1]);
+    assert_eq!(pr.winners[2].winner, ctx.tickets[idx2]);
 }
 
 #[test]
@@ -728,8 +728,8 @@ fn test_reveal_duplicate_winner_across_tiers() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 2);
-    assert_eq!(pr.winners[0].user_index, 0);
-    assert_eq!(pr.winners[1].user_index, 0);
+    assert_eq!(pr.winners[0].winner, ctx.tickets[0]);
+    assert_eq!(pr.winners[1].winner, ctx.tickets[0]);
     assert_eq!(pr.winners[0].amount_owed, 600_000);
     assert_eq!(pr.winners[1].amount_owed, 400_000);
 }

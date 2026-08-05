@@ -122,18 +122,32 @@ pub fn handle(
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
     // How many total bonds can be bought with the total available?
-    let total_bonds_available = (total_available / pool.bond_price) as u32;
+    let total_bonds_available = (total_available
+        .checked_div(pool.bond_price)
+        .ok_or(PremiumBondsError::MathOverflow)?) as u32;
+
     // Cap this batch at max_bonds
-    let bonds_to_buy = total_bonds_available.min(max_bonds);
+    let mut bonds_to_buy = total_bonds_available.min(max_bonds);
+    let mut is_final_batch = total_bonds_available <= bonds_to_buy;
+
+    // Graceful fallback for exited users when registry is full:
+    // If an exited user (registry_entry_index == u32::MAX) wins a prize and reinvest_winnings is called
+    // while TicketRegistry is at 100% capacity, set bonds_to_buy = 0 and is_final_batch = true.
+    // This routes 100% of their prize to unclaimed_non_reinvested_winnings (dust) and marks the winner as processed
+    // so crank operations complete cleanly without reverting with RegistryFull.
+    let user_entry_idx = user_winnings.registry_entry_index;
+    let is_new = user_entry_idx == u32::MAX;
+    if is_new {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        if registry.user_count >= registry.capacity {
+            bonds_to_buy = 0;
+            is_final_batch = true;
+        }
+    }
+
     let cost = (bonds_to_buy as u64)
         .checked_mul(pool.bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
-
-    // Determine if we're done (is this the final batch for current winnings?)
-    // If total_bonds_available <= bonds_to_buy, then after this batch, the remaining total_available
-    // will be less than pool.bond_price, which means we can't buy any more bonds.
-    // So this is the final batch!
-    let is_final_batch = total_bonds_available <= bonds_to_buy;
 
     // How much of the cost is paid from the current winnings vs accumulated?
     let from_current = cost.min(remaining_current);

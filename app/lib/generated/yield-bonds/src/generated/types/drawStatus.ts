@@ -21,6 +21,7 @@ export enum DrawStatus {
   AwaitingRandomness,
   Complete,
   ForceUnlocked,
+  Skipped,
 }
 
 export type DrawStatusArgs = DrawStatus;

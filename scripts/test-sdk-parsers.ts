@@ -5,6 +5,7 @@ import {
   decodeGlobalConfig,
   decodePendingRedemption,
   decodeDrawCycle,
+  decodePayoutRegistry,
 } from "../app/lib/generated/yield-bonds/src/generated/accounts";
 
 console.log("Running Codama SDK parser verification tests...");
@@ -101,6 +102,36 @@ function mockAccount(data: Uint8Array) {
   assert.strictEqual(parsed.lockedTicketCount, 1000);
   assert.strictEqual(parsed.status, 2); // Complete enum variant index
   console.log("✓ decodeDrawCycle passed");
+}
+
+// 5. Test decodePayoutRegistry
+{
+  const buffer = new Uint8Array(8 + 2888);
+  const view = new DataView(buffer.buffer);
+
+  view.setUint32(8, 1, true); // pool_id
+  view.setUint32(12, 0, true); // cycle_id
+  view.setUint32(16, 1, true); // winners_count
+  view.setUint32(20, 0, true); // payouts_completed
+  buffer[24] = 1; // version
+
+  // Winner 0 at offset 8 + 88 = 96
+  const wOffset = 96;
+  view.setBigUint64(wOffset, 5_000_000n, true); // amount_owed
+  view.setBigUint64(wOffset + 8, 1_000_000n, true); // amount_reinvested
+  buffer.fill(2, wOffset + 16, wOffset + 48); // winner Pubkey
+  buffer[wOffset + 48] = 0; // processed
+  buffer[wOffset + 49] = 0; // tier_index
+  buffer[wOffset + 50] = 1; // version
+
+  const parsed = decodePayoutRegistry(mockAccount(buffer)).data;
+  assert.strictEqual(parsed.poolId, 1);
+  assert.strictEqual(parsed.cycleId, 0);
+  assert.strictEqual(parsed.winnersCount, 1);
+  assert.strictEqual(parsed.winners[0].amountOwed, 5_000_000n);
+  assert.strictEqual(parsed.winners[0].amountReinvested, 1_000_000n);
+  assert.ok(parsed.winners[0].winner);
+  console.log("✓ decodePayoutRegistry passed");
 }
 
 console.log("All Codama SDK parser tests completed successfully!");

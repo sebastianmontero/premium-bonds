@@ -7,6 +7,11 @@
  */
 
 import {
+  getAddressDecoder,
+  getAddressEncoder,
+  type Address,
+} from "@solana/addresses";
+import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
@@ -14,8 +19,6 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU32Decoder,
-  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -32,15 +35,15 @@ export type Winner = {
   amountOwed: bigint;
   /** Tracks partial reinvestment progress across batched crank calls. */
   amountReinvested: bigint;
-  /** User index position in TicketRegistry. */
-  userIndex: number;
+  /** Public key of the winning user. */
+  winner: Address;
   /** Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true). */
   processed: number;
   /** The index of the PrizeTier from which this prize was calculated. */
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (packed to 32 bytes). */
+  /** Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -49,15 +52,15 @@ export type WinnerArgs = {
   amountOwed: number | bigint;
   /** Tracks partial reinvestment progress across batched crank calls. */
   amountReinvested: number | bigint;
-  /** User index position in TicketRegistry. */
-  userIndex: number;
+  /** Public key of the winning user. */
+  winner: Address;
   /** Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true). */
   processed: number;
   /** The index of the PrizeTier from which this prize was calculated. */
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (packed to 32 bytes). */
+  /** Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -65,11 +68,11 @@ export function getWinnerEncoder(): FixedSizeEncoder<WinnerArgs> {
   return getStructEncoder([
     ["amountOwed", getU64Encoder()],
     ["amountReinvested", getU64Encoder()],
-    ["userIndex", getU32Encoder()],
+    ["winner", getAddressEncoder()],
     ["processed", getU8Encoder()],
     ["tierIndex", getU8Encoder()],
     ["version", getU8Encoder()],
-    ["reserved", fixEncoderSize(getBytesEncoder(), 9)],
+    ["reserved", fixEncoderSize(getBytesEncoder(), 5)],
   ]);
 }
 
@@ -77,11 +80,11 @@ export function getWinnerDecoder(): FixedSizeDecoder<Winner> {
   return getStructDecoder([
     ["amountOwed", getU64Decoder()],
     ["amountReinvested", getU64Decoder()],
-    ["userIndex", getU32Decoder()],
+    ["winner", getAddressDecoder()],
     ["processed", getU8Decoder()],
     ["tierIndex", getU8Decoder()],
     ["version", getU8Decoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 9)],
+    ["reserved", fixDecoderSize(getBytesDecoder(), 5)],
   ]);
 }
 

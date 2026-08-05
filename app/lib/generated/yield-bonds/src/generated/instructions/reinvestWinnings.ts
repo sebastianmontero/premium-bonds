@@ -48,6 +48,7 @@ import {
   type TransactionSigner,
 } from "@solana/signers";
 import {
+  findEventAuthorityPda,
   findPayoutRegistryPda,
   findReinvestWinningsUserWinningsPda,
 } from "../pdas";
@@ -72,6 +73,9 @@ export type ReinvestWinningsInstruction<
   TAccountTicketRegistry extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -99,6 +103,12 @@ export type ReinvestWinningsInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -155,6 +165,8 @@ export type ReinvestWinningsAsyncInput<
   TAccountUserWinnings extends string = string,
   TAccountTicketRegistry extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** Permissionless crank — any signer can execute this instruction. */
   crank: TransactionSigner<TAccountCrank>;
@@ -169,6 +181,9 @@ export type ReinvestWinningsAsyncInput<
   ticketRegistry: Address<TAccountTicketRegistry>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   cycleId: ReinvestWinningsInstructionDataArgs["cycleId"];
   winnerIndex: ReinvestWinningsInstructionDataArgs["winnerIndex"];
   maxBonds: ReinvestWinningsInstructionDataArgs["maxBonds"];
@@ -182,6 +197,8 @@ export async function getReinvestWinningsInstructionAsync<
   TAccountUserWinnings extends string,
   TAccountTicketRegistry extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ReinvestWinningsAsyncInput<
@@ -191,7 +208,9 @@ export async function getReinvestWinningsInstructionAsync<
     TAccountPool,
     TAccountUserWinnings,
     TAccountTicketRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -203,7 +222,9 @@ export async function getReinvestWinningsInstructionAsync<
     TAccountPool,
     TAccountUserWinnings,
     TAccountTicketRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -218,6 +239,8 @@ export async function getReinvestWinningsInstructionAsync<
     userWinnings: { value: input.userWinnings ?? null, isWritable: true },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -253,6 +276,13 @@ export async function getReinvestWinningsInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -264,6 +294,8 @@ export async function getReinvestWinningsInstructionAsync<
       getAccountMeta("userWinnings", accounts.userWinnings),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getReinvestWinningsInstructionDataEncoder().encode(
       args as ReinvestWinningsInstructionDataArgs
@@ -277,7 +309,9 @@ export async function getReinvestWinningsInstructionAsync<
     TAccountPool,
     TAccountUserWinnings,
     TAccountTicketRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -289,6 +323,8 @@ export type ReinvestWinningsInput<
   TAccountUserWinnings extends string = string,
   TAccountTicketRegistry extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** Permissionless crank — any signer can execute this instruction. */
   crank: TransactionSigner<TAccountCrank>;
@@ -303,6 +339,9 @@ export type ReinvestWinningsInput<
   ticketRegistry: Address<TAccountTicketRegistry>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   cycleId: ReinvestWinningsInstructionDataArgs["cycleId"];
   winnerIndex: ReinvestWinningsInstructionDataArgs["winnerIndex"];
   maxBonds: ReinvestWinningsInstructionDataArgs["maxBonds"];
@@ -316,6 +355,8 @@ export function getReinvestWinningsInstruction<
   TAccountUserWinnings extends string,
   TAccountTicketRegistry extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ReinvestWinningsInput<
@@ -325,7 +366,9 @@ export function getReinvestWinningsInstruction<
     TAccountPool,
     TAccountUserWinnings,
     TAccountTicketRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): ReinvestWinningsInstruction<
@@ -336,7 +379,9 @@ export function getReinvestWinningsInstruction<
   TAccountPool,
   TAccountUserWinnings,
   TAccountTicketRegistry,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -350,6 +395,8 @@ export function getReinvestWinningsInstruction<
     userWinnings: { value: input.userWinnings ?? null, isWritable: true },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -364,6 +411,10 @@ export function getReinvestWinningsInstruction<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -375,6 +426,8 @@ export function getReinvestWinningsInstruction<
       getAccountMeta("userWinnings", accounts.userWinnings),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getReinvestWinningsInstructionDataEncoder().encode(
       args as ReinvestWinningsInstructionDataArgs
@@ -388,7 +441,9 @@ export function getReinvestWinningsInstruction<
     TAccountPool,
     TAccountUserWinnings,
     TAccountTicketRegistry,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -411,6 +466,9 @@ export type ParsedReinvestWinningsInstruction<
     ticketRegistry: TAccountMetas[5];
     /** The Solana System Program. */
     systemProgram: TAccountMetas[6];
+    eventAuthority: TAccountMetas[7];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[8];
   };
   data: ReinvestWinningsInstructionData;
 };
@@ -423,12 +481,12 @@ export function parseReinvestWinningsInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedReinvestWinningsInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+  if (instruction.accounts.length < 9) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 7,
+        expectedAccountMetas: 9,
       }
     );
   }
@@ -448,6 +506,8 @@ export function parseReinvestWinningsInstruction<
       userWinnings: getNextAccount(),
       ticketRegistry: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getReinvestWinningsInstructionDataDecoder().decode(instruction.data),
   };

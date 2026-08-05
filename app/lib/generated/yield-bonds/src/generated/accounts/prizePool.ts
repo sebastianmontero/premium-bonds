@@ -71,6 +71,8 @@ export type PrizePool = {
   bondPrice: bigint;
   /** Duration of each stake/yield cycle in hours. */
   stakeCycleDurationHrs: bigint;
+  /** Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over. */
+  minYieldThreshold: bigint;
   /** Total principal deposited by all users in this pool. */
   totalDepositedPrincipal: bigint;
   /** Unix timestamp when the current yield cycle is scheduled to end. */
@@ -120,6 +122,8 @@ export type PrizePoolArgs = {
   bondPrice: number | bigint;
   /** Duration of each stake/yield cycle in hours. */
   stakeCycleDurationHrs: number | bigint;
+  /** Minimum yield required (in USDC lamports) to trigger a draw. If not met, the draw is skipped and yield rolls over. */
+  minYieldThreshold: number | bigint;
   /** Total principal deposited by all users in this pool. */
   totalDepositedPrincipal: number | bigint;
   /** Unix timestamp when the current yield cycle is scheduled to end. */
@@ -171,6 +175,7 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["bondPrice", getU64Encoder()],
       ["stakeCycleDurationHrs", getI64Encoder()],
+      ["minYieldThreshold", getU64Encoder()],
       ["totalDepositedPrincipal", getU64Encoder()],
       ["currentCycleEndAt", getI64Encoder()],
       ["nextRedemptionId", getU64Encoder()],
@@ -203,6 +208,7 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["bondPrice", getU64Decoder()],
     ["stakeCycleDurationHrs", getI64Decoder()],
+    ["minYieldThreshold", getU64Decoder()],
     ["totalDepositedPrincipal", getU64Decoder()],
     ["currentCycleEndAt", getI64Decoder()],
     ["nextRedemptionId", getU64Decoder()],
@@ -286,5 +292,5 @@ export async function fetchAllMaybePrizePool(
 }
 
 export function getPrizePoolSize(): number {
-  return 400;
+  return 408;
 }

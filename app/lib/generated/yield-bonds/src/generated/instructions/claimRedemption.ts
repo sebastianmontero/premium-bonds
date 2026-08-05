@@ -44,7 +44,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findPoolVaultAccountPda } from "../pdas";
+import { findEventAuthorityPda, findPoolVaultAccountPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const CLAIM_REDEMPTION_DISCRIMINATOR: ReadonlyUint8Array =
@@ -77,6 +77,9 @@ export type ClaimRedemptionInstruction<
     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -130,6 +133,12 @@ export type ClaimRedemptionInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -180,6 +189,8 @@ export type ClaimRedemptionAsyncInput<
   TAccountHumaPoolUnderlyingToken extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA. */
   user: TransactionSigner<TAccountUser>;
@@ -230,6 +241,9 @@ export type ClaimRedemptionAsyncInput<
   tokenProgram?: Address<TAccountTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getClaimRedemptionInstructionAsync<
@@ -249,6 +263,8 @@ export async function getClaimRedemptionInstructionAsync<
   TAccountHumaPoolUnderlyingToken extends string,
   TAccountTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimRedemptionAsyncInput<
@@ -267,7 +283,9 @@ export async function getClaimRedemptionInstructionAsync<
     TAccountHumaPoolAuthority,
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -288,7 +306,9 @@ export async function getClaimRedemptionInstructionAsync<
     TAccountHumaPoolAuthority,
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -327,6 +347,8 @@ export async function getClaimRedemptionInstructionAsync<
     },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -354,6 +376,13 @@ export async function getClaimRedemptionInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -377,6 +406,8 @@ export async function getClaimRedemptionInstructionAsync<
       ),
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getClaimRedemptionInstructionDataEncoder().encode({}),
     programAddress,
@@ -397,7 +428,9 @@ export async function getClaimRedemptionInstructionAsync<
     TAccountHumaPoolAuthority,
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -418,6 +451,8 @@ export type ClaimRedemptionInput<
   TAccountHumaPoolUnderlyingToken extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA. */
   user: TransactionSigner<TAccountUser>;
@@ -468,6 +503,9 @@ export type ClaimRedemptionInput<
   tokenProgram?: Address<TAccountTokenProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getClaimRedemptionInstruction<
@@ -487,6 +525,8 @@ export function getClaimRedemptionInstruction<
   TAccountHumaPoolUnderlyingToken extends string,
   TAccountTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimRedemptionInput<
@@ -505,7 +545,9 @@ export function getClaimRedemptionInstruction<
     TAccountHumaPoolAuthority,
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): ClaimRedemptionInstruction<
@@ -525,7 +567,9 @@ export function getClaimRedemptionInstruction<
   TAccountHumaPoolAuthority,
   TAccountHumaPoolUnderlyingToken,
   TAccountTokenProgram,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -563,6 +607,8 @@ export function getClaimRedemptionInstruction<
     },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -581,6 +627,10 @@ export function getClaimRedemptionInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -605,6 +655,8 @@ export function getClaimRedemptionInstruction<
       ),
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getClaimRedemptionInstructionDataEncoder().encode({}),
     programAddress,
@@ -625,7 +677,9 @@ export function getClaimRedemptionInstruction<
     TAccountHumaPoolAuthority,
     TAccountHumaPoolUnderlyingToken,
     TAccountTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -684,6 +738,9 @@ export type ParsedClaimRedemptionInstruction<
     tokenProgram: TAccountMetas[14];
     /** Solana System Program. */
     systemProgram: TAccountMetas[15];
+    eventAuthority: TAccountMetas[16];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[17];
   };
   data: ClaimRedemptionInstructionData;
 };
@@ -696,12 +753,12 @@ export function parseClaimRedemptionInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedClaimRedemptionInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 16) {
+  if (instruction.accounts.length < 18) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 16,
+        expectedAccountMetas: 18,
       }
     );
   }
@@ -730,6 +787,8 @@ export function parseClaimRedemptionInstruction<
       humaPoolUnderlyingToken: getNextAccount(),
       tokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getClaimRedemptionInstructionDataDecoder().decode(instruction.data),
   };

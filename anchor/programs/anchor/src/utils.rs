@@ -276,8 +276,8 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::UserEntry>(), 64);
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>(), 8);
         assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 400);
-        assert_eq!(std::mem::size_of::<crate::state::Winner>(), 32);
-        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 1688);
+        assert_eq!(std::mem::size_of::<crate::state::Winner>(), 56);
+        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 2888);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
             32 + 32 + 1 + 64

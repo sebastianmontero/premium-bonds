@@ -45,6 +45,7 @@ import {
   type TransactionSigner,
 } from "@solana/signers";
 import {
+  findEventAuthorityPda,
   findPendingRedemptionPda,
   findPoolPstVaultPda,
   findUserWinningsPda,
@@ -83,6 +84,9 @@ export type ClaimNonReinvestedWinningsInstruction<
   TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -142,6 +146,12 @@ export type ClaimNonReinvestedWinningsInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -197,6 +207,8 @@ export type ClaimNonReinvestedWinningsAsyncInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user claiming the non-reinvested winnings. Must be signer and payer. */
   user: TransactionSigner<TAccountUser>;
@@ -225,6 +237,9 @@ export type ClaimNonReinvestedWinningsAsyncInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getClaimNonReinvestedWinningsInstructionAsync<
@@ -246,6 +261,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimNonReinvestedWinningsAsyncInput<
@@ -266,7 +283,9 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountHumaPoolModeToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -289,7 +308,9 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountHumaPoolModeToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -330,6 +351,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -377,6 +400,13 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -399,6 +429,8 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getClaimNonReinvestedWinningsInstructionDataEncoder().encode({}),
     programAddress,
@@ -421,7 +453,9 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
     TAccountHumaPoolModeToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -444,6 +478,8 @@ export type ClaimNonReinvestedWinningsInput<
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The user claiming the non-reinvested winnings. Must be signer and payer. */
   user: TransactionSigner<TAccountUser>;
@@ -472,6 +508,9 @@ export type ClaimNonReinvestedWinningsInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getClaimNonReinvestedWinningsInstruction<
@@ -493,6 +532,8 @@ export function getClaimNonReinvestedWinningsInstruction<
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimNonReinvestedWinningsInput<
@@ -513,7 +554,9 @@ export function getClaimNonReinvestedWinningsInstruction<
     TAccountHumaPoolModeToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): ClaimNonReinvestedWinningsInstruction<
@@ -535,7 +578,9 @@ export function getClaimNonReinvestedWinningsInstruction<
   TAccountHumaPoolModeToken,
   TAccountTokenProgram,
   TAccountPstTokenProgram,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -575,6 +620,8 @@ export function getClaimNonReinvestedWinningsInstruction<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -593,6 +640,10 @@ export function getClaimNonReinvestedWinningsInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -616,6 +667,8 @@ export function getClaimNonReinvestedWinningsInstruction<
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getClaimNonReinvestedWinningsInstructionDataEncoder().encode({}),
     programAddress,
@@ -638,7 +691,9 @@ export function getClaimNonReinvestedWinningsInstruction<
     TAccountHumaPoolModeToken,
     TAccountTokenProgram,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -675,6 +730,9 @@ export type ParsedClaimNonReinvestedWinningsInstruction<
     pstTokenProgram: TAccountMetas[16];
     /** The Solana System Program. */
     systemProgram: TAccountMetas[17];
+    eventAuthority: TAccountMetas[18];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[19];
   };
   data: ClaimNonReinvestedWinningsInstructionData;
 };
@@ -687,12 +745,12 @@ export function parseClaimNonReinvestedWinningsInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedClaimNonReinvestedWinningsInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 18) {
+  if (instruction.accounts.length < 20) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 18,
+        expectedAccountMetas: 20,
       }
     );
   }
@@ -723,6 +781,8 @@ export function parseClaimNonReinvestedWinningsInstruction<
       tokenProgram: getNextAccount(),
       pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getClaimNonReinvestedWinningsInstructionDataDecoder().decode(
       instruction.data

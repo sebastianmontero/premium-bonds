@@ -46,6 +46,7 @@ import {
 } from "@solana/signers";
 import {
   findCurrentDrawCyclePda,
+  findEventAuthorityPda,
   findGlobalConfigPda,
   findPoolPstVaultPda,
 } from "../pdas";
@@ -74,6 +75,9 @@ export type HarvestYieldAndCommitInstruction<
   TAccountPstTokenProgram extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -113,6 +117,12 @@ export type HarvestYieldAndCommitInstruction<
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -161,6 +171,8 @@ export type HarvestYieldAndCommitAsyncInput<
   TAccountRandomnessAccount extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the harvest. Must match the `jobs_account` in the global configuration. */
   crank: TransactionSigner<TAccountCrank>;
@@ -182,6 +194,9 @@ export type HarvestYieldAndCommitAsyncInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getHarvestYieldAndCommitInstructionAsync<
@@ -196,6 +211,8 @@ export async function getHarvestYieldAndCommitInstructionAsync<
   TAccountRandomnessAccount extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: HarvestYieldAndCommitAsyncInput<
@@ -209,7 +226,9 @@ export async function getHarvestYieldAndCommitInstructionAsync<
     TAccountHumaPoolState,
     TAccountRandomnessAccount,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -225,7 +244,9 @@ export async function getHarvestYieldAndCommitInstructionAsync<
     TAccountHumaPoolState,
     TAccountRandomnessAccount,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -253,6 +274,8 @@ export async function getHarvestYieldAndCommitInstructionAsync<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -283,6 +306,13 @@ export async function getHarvestYieldAndCommitInstructionAsync<
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -298,6 +328,8 @@ export async function getHarvestYieldAndCommitInstructionAsync<
       getAccountMeta("randomnessAccount", accounts.randomnessAccount),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getHarvestYieldAndCommitInstructionDataEncoder().encode({}),
     programAddress,
@@ -313,7 +345,9 @@ export async function getHarvestYieldAndCommitInstructionAsync<
     TAccountHumaPoolState,
     TAccountRandomnessAccount,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -329,6 +363,8 @@ export type HarvestYieldAndCommitInput<
   TAccountRandomnessAccount extends string = string,
   TAccountPstTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The crank signer executing the harvest. Must match the `jobs_account` in the global configuration. */
   crank: TransactionSigner<TAccountCrank>;
@@ -350,6 +386,9 @@ export type HarvestYieldAndCommitInput<
   pstTokenProgram: Address<TAccountPstTokenProgram>;
   /** The Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getHarvestYieldAndCommitInstruction<
@@ -364,6 +403,8 @@ export function getHarvestYieldAndCommitInstruction<
   TAccountRandomnessAccount extends string,
   TAccountPstTokenProgram extends string,
   TAccountSystemProgram extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: HarvestYieldAndCommitInput<
@@ -377,7 +418,9 @@ export function getHarvestYieldAndCommitInstruction<
     TAccountHumaPoolState,
     TAccountRandomnessAccount,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): HarvestYieldAndCommitInstruction<
@@ -392,7 +435,9 @@ export function getHarvestYieldAndCommitInstruction<
   TAccountHumaPoolState,
   TAccountRandomnessAccount,
   TAccountPstTokenProgram,
-  TAccountSystemProgram
+  TAccountSystemProgram,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -419,6 +464,8 @@ export function getHarvestYieldAndCommitInstruction<
       isWritable: false,
     },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -429,6 +476,10 @@ export function getHarvestYieldAndCommitInstruction<
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -445,6 +496,8 @@ export function getHarvestYieldAndCommitInstruction<
       getAccountMeta("randomnessAccount", accounts.randomnessAccount),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
       getAccountMeta("systemProgram", accounts.systemProgram),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getHarvestYieldAndCommitInstructionDataEncoder().encode({}),
     programAddress,
@@ -460,7 +513,9 @@ export function getHarvestYieldAndCommitInstruction<
     TAccountHumaPoolState,
     TAccountRandomnessAccount,
     TAccountPstTokenProgram,
-    TAccountSystemProgram
+    TAccountSystemProgram,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -490,6 +545,9 @@ export type ParsedHarvestYieldAndCommitInstruction<
     pstTokenProgram: TAccountMetas[9];
     /** The Solana System Program. */
     systemProgram: TAccountMetas[10];
+    eventAuthority: TAccountMetas[11];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[12];
   };
   data: HarvestYieldAndCommitInstructionData;
 };
@@ -502,12 +560,12 @@ export function parseHarvestYieldAndCommitInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedHarvestYieldAndCommitInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 11) {
+  if (instruction.accounts.length < 13) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 11,
+        expectedAccountMetas: 13,
       }
     );
   }
@@ -531,6 +589,8 @@ export function parseHarvestYieldAndCommitInstruction<
       randomnessAccount: getNextAccount(),
       pstTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getHarvestYieldAndCommitInstructionDataDecoder().decode(
       instruction.data

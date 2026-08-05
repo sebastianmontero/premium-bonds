@@ -199,5 +199,5 @@ export async function fetchAllMaybePayoutRegistry(
 }
 
 export function getPayoutRegistrySize(): number {
-  return 1696;
+  return 2896;
 }

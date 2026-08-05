@@ -95,12 +95,14 @@ export type UpdatePoolConfigInstructionData = {
   newFeeBasisPoints: Option<number>;
   newBondPrice: Option<bigint>;
   newFeeWallet: Option<Address>;
+  newMinYieldThreshold: Option<bigint>;
 };
 
 export type UpdatePoolConfigInstructionDataArgs = {
   newFeeBasisPoints: OptionOrNullable<number>;
   newBondPrice: OptionOrNullable<number | bigint>;
   newFeeWallet: OptionOrNullable<Address>;
+  newMinYieldThreshold: OptionOrNullable<number | bigint>;
 };
 
 export function getUpdatePoolConfigInstructionDataEncoder(): Encoder<UpdatePoolConfigInstructionDataArgs> {
@@ -110,6 +112,7 @@ export function getUpdatePoolConfigInstructionDataEncoder(): Encoder<UpdatePoolC
       ["newFeeBasisPoints", getOptionEncoder(getU16Encoder())],
       ["newBondPrice", getOptionEncoder(getU64Encoder())],
       ["newFeeWallet", getOptionEncoder(getAddressEncoder())],
+      ["newMinYieldThreshold", getOptionEncoder(getU64Encoder())],
     ]),
     (value) => ({ ...value, discriminator: UPDATE_POOL_CONFIG_DISCRIMINATOR })
   );
@@ -121,6 +124,7 @@ export function getUpdatePoolConfigInstructionDataDecoder(): Decoder<UpdatePoolC
     ["newFeeBasisPoints", getOptionDecoder(getU16Decoder())],
     ["newBondPrice", getOptionDecoder(getU64Decoder())],
     ["newFeeWallet", getOptionDecoder(getAddressDecoder())],
+    ["newMinYieldThreshold", getOptionDecoder(getU64Decoder())],
   ]);
 }
 
@@ -157,6 +161,7 @@ export type UpdatePoolConfigAsyncInput<
   newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
+  newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
 };
 
 export async function getUpdatePoolConfigInstructionAsync<
@@ -243,6 +248,7 @@ export type UpdatePoolConfigInput<
   newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
+  newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
 };
 
 export function getUpdatePoolConfigInstruction<
