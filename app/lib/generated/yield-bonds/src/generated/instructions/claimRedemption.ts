@@ -37,14 +37,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findEventAuthorityPda, findPoolVaultAccountPda } from "../pdas";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const CLAIM_REDEMPTION_DISCRIMINATOR: ReadonlyUint8Array =
@@ -215,7 +214,7 @@ export type ClaimRedemptionAsyncInput<
    *
    * PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
    */
-  poolVaultAccount?: Address<TAccountPoolVaultAccount>;
+  poolVaultAccount: Address<TAccountPoolVaultAccount>;
   /** The user's underlying token account (receives the claimed USDC). */
   userTokenAccount: Address<TAccountUserTokenAccount>;
   /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
@@ -356,14 +355,6 @@ export async function getClaimRedemptionInstructionAsync<
   >;
 
   // Resolve default values.
-  if (!accounts.poolVaultAccount.value) {
-    accounts.poolVaultAccount.value = await findPoolVaultAccountPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
       "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;

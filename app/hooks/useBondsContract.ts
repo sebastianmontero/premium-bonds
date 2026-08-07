@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   useWalletConnection,
   useSendTransaction,
@@ -26,6 +26,7 @@ import {
   findPendingRedemptionPda,
   findHumaPoolAuthorityPda,
   findPayoutRegistryPda,
+  findEventAuthorityPda,
   findAtaAddress,
   parsePrizePool,
   parseUserWinnings,
@@ -156,8 +157,32 @@ export function useBondsContract(poolId: number = 1) {
 
   const userAddress = wallet?.account.address.toString();
 
+  const hasLoadedRef = useRef<boolean>(false);
+  const fetchIdRef = useRef<number>(0);
+  const lastUserAddressRef = useRef<string | undefined>(userAddress);
+  const lastPoolIdRef = useRef<number>(poolId);
+
+  useEffect(() => {
+    if (
+      lastUserAddressRef.current !== userAddress ||
+      lastPoolIdRef.current !== poolId
+    ) {
+      lastUserAddressRef.current = userAddress;
+      lastPoolIdRef.current = poolId;
+      hasLoadedRef.current = false;
+      setPool(null);
+      setUserTickets(null);
+      setUserWinnings(null);
+      setPendingRedemptions([]);
+      setWalletBalance(0);
+    }
+  }, [userAddress, poolId]);
+
   const refetch = useCallback(async () => {
-    setIsLoading(true);
+    const fetchId = ++fetchIdRef.current;
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -446,7 +471,10 @@ export function useBondsContract(poolId: number = 1) {
       const errMsg = err instanceof Error ? err.message : String(err);
       setError(sanitizeErrorMessage(errMsg) || "Failed to load contract data.");
     } finally {
-      setIsLoading(false);
+      if (fetchId === fetchIdRef.current) {
+        hasLoadedRef.current = true;
+        setIsLoading(false);
+      }
     }
   }, [poolId, userAddress, client]);
 
@@ -474,6 +502,7 @@ export function useBondsContract(poolId: number = 1) {
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
       const userTokenAccount = await findAtaAddress(userAddress, USDC_MINT);
       const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+      const eventAuthorityPda = await findEventAuthorityPda();
 
       const registryAddr = pool.ticketRegistry
         ? address(pool.ticketRegistry)
@@ -505,6 +534,8 @@ export function useBondsContract(poolId: number = 1) {
         { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
         { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
         { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: eventAuthorityPda, role: AccountRole.READONLY },
+        { address: PROGRAM_ID, role: AccountRole.READONLY },
       ];
 
       const signature = await send({
@@ -623,6 +654,7 @@ export function useBondsContract(poolId: number = 1) {
         const poolPstVault = await findPoolPstVaultPda(poolId);
         const humaPoolAuthority =
           await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+        const eventAuthorityPda = await findEventAuthorityPda();
 
         const nextRedemptionId = pool.nextRedemptionId || 0;
         const pendingRedemptionPda = await findPendingRedemptionPda(
@@ -658,6 +690,8 @@ export function useBondsContract(poolId: number = 1) {
           { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
           { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
           { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+          { address: eventAuthorityPda, role: AccountRole.READONLY },
+          { address: PROGRAM_ID, role: AccountRole.READONLY },
         ];
 
         if (swappedUserWinningsPda) {
@@ -713,6 +747,7 @@ export function useBondsContract(poolId: number = 1) {
       const poolVault = await findPoolVaultPda(poolId);
       const userTokenAccount = await findAtaAddress(userAddress, USDC_MINT);
       const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+      const eventAuthorityPda = await findEventAuthorityPda();
       const pendingRedemptionPda = await findPendingRedemptionPda(
         poolId,
         BigInt(redemptionId)
@@ -738,6 +773,8 @@ export function useBondsContract(poolId: number = 1) {
         { address: HUMA_POOL_UNDERLYING_TOKEN, role: AccountRole.WRITABLE },
         { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
         { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: eventAuthorityPda, role: AccountRole.READONLY },
+        { address: PROGRAM_ID, role: AccountRole.READONLY },
       ];
 
       const signature = await send({
@@ -769,6 +806,7 @@ export function useBondsContract(poolId: number = 1) {
     const poolPstVault = await findPoolPstVaultPda(poolId);
     const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
     const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+    const eventAuthorityPda = await findEventAuthorityPda();
 
     const nextRedemptionId = pool.nextRedemptionId || 0;
     const pendingRedemptionPda = await findPendingRedemptionPda(
@@ -798,6 +836,8 @@ export function useBondsContract(poolId: number = 1) {
       { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY },
       { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // pst_token_program
       { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      { address: eventAuthorityPda, role: AccountRole.READONLY },
+      { address: PROGRAM_ID, role: AccountRole.READONLY },
     ];
 
     const signature = await send({
@@ -830,6 +870,7 @@ export function useBondsContract(poolId: number = 1) {
       const poolPda = await findPrizePoolPda(poolId);
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
       const payoutRegistry = await findPayoutRegistryPda(poolId, cycleId);
+      const eventAuthorityPda = await findEventAuthorityPda();
       const registryAddr = pool.ticketRegistry
         ? address(pool.ticketRegistry)
         : poolPda;
@@ -849,6 +890,8 @@ export function useBondsContract(poolId: number = 1) {
         { address: userWinningsPda, role: AccountRole.WRITABLE },
         { address: registryAddr, role: AccountRole.WRITABLE },
         { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+        { address: eventAuthorityPda, role: AccountRole.READONLY },
+        { address: PROGRAM_ID, role: AccountRole.READONLY },
       ];
 
       const signature = await send({

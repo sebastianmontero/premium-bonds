@@ -3,7 +3,9 @@
 ## 1. The Event Spoofing Vulnerability Vector
 
 ### How Log Spoofing Works
+
 On Solana, any program executed within a transaction can invoke `sol_log_data` or print arbitrary text to the execution log. Standard Anchor `emit!` log outputs appear in the RPC log stream as:
+
 ```text
 Program 11111111111111111111111111111111 invoke [1]
 Program log: Instruction: Deposit
@@ -12,6 +14,7 @@ Program 11111111111111111111111111111111 success
 ```
 
 #### The Exploit Scenario:
+
 1. An attacker deploys a malicious program (`EvilProgram`).
 2. `EvilProgram` calculates the exact 8-byte Anchor event discriminator for your program's `TokensDeposited` event (`sha256("event:TokensDeposited")[..8]`).
 3. `EvilProgram` constructs a fake `TokensDeposited { user: attacker, amount: 1_000_000_USDC }` event, base64-encodes it, and logs `Program data: <fake_payload>`.
@@ -26,6 +29,7 @@ Program 11111111111111111111111111111111 success
 Anchor's `emit_cpi!` macro provides native, runtime-enforced event verification via an **Event Authority PDA**.
 
 #### Architectural Mechanics:
+
 1. **Event Authority PDA Derivation**:
    ```rust
    // Seed constraint enforced by Anchor compiler
@@ -44,6 +48,7 @@ Anchor's `emit_cpi!` macro provides native, runtime-enforced event verification 
    The Solana runtime runtime system populates `inner_instructions` directly from the call stack. An attacker program `EvilProgram` **cannot** generate an inner instruction trace where the invoking program is reported as `YourProgram`. Indexers filtering by `inner_instructions` targeting `YourProgram` are 100% immune to log spoofing.
 
 #### Anchor Rust Implementation:
+
 ```rust
 use anchor_lang::prelude::*;
 
@@ -84,6 +89,7 @@ pub struct Deposit<'info> {
 If `emit!` is used due to account constraints or CU budget limits, off-chain indexers **MUST** implement stateful log context parsing:
 
 #### Defensive Log Parsing Logic (TypeScript / Node.js):
+
 ```typescript
 interface LogContext {
   currentProgramId: string | null;
@@ -105,14 +111,21 @@ function parseVerifiedEvents(logs: string[], targetProgramId: string) {
     }
 
     // 2. Track Program Exit/Success
-    if (log.startsWith("Program ") && (log.includes("success") || log.includes("failed"))) {
+    if (
+      log.startsWith("Program ") &&
+      (log.includes("success") || log.includes("failed"))
+    ) {
       context.programStack.pop();
-      context.currentProgramId = context.programStack[context.programStack.length - 1] || null;
+      context.currentProgramId =
+        context.programStack[context.programStack.length - 1] || null;
       continue;
     }
 
     // 3. Process Program Data ONLY if top of execution stack matches target program
-    if (log.startsWith("Program data: ") && context.currentProgramId === targetProgramId) {
+    if (
+      log.startsWith("Program data: ") &&
+      context.currentProgramId === targetProgramId
+    ) {
       const base64Data = log.replace("Program data: ", "").trim();
       verifiedEvents.push(base64Data);
     }
@@ -130,11 +143,15 @@ function parseVerifiedEvents(logs: string[], targetProgramId: string) {
 ## 3. Data Privacy & Confidentiality Best Practices
 
 ### Rule 1: Never Log PII or Unhashed Secrets
+
 On-chain events are immutably stored across hundreds of validator nodes and RPC archival providers.
+
 - **Never log**: Private keys, recovery phrases, user email addresses, IP hashes, or unhashed passwords.
 - **Commit-Reveal Schemes**: When generating randomness or executing private draws (e.g., yield draw lotteries), emit only the **hash of the commitment** (`sha256(secret || seed)`) in preliminary events. Emit the unmasked seed only AFTER the commitment window has closed.
 
 ### Rule 2: Precision & Numeric Safe Boundaries
+
 JavaScript numbers lose precision above $2^{53} - 1$ (`9,007,199,254,740,991`).
+
 - When emitting `u64` or `u128` amounts in events (e.g. SPL Token base units), off-chain indexers and client SDKs must parse them as `BigInt` or `BN` strings.
 - Never cast `u64` token amounts to standard JSON numbers in events; ensure IDL parsers treat integer fields as 64-bit unsigned representations.

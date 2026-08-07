@@ -37,19 +37,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import {
-  findEventAuthorityPda,
-  findPendingRedemptionPda,
-  findPoolPstVaultPda,
-  findUserWinningsPda,
-} from "../pdas";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const CLAIM_NON_REINVESTED_WINNINGS_DISCRIMINATOR: ReadonlyUint8Array =
@@ -215,11 +209,11 @@ export type ClaimNonReinvestedWinningsAsyncInput<
   /** The prize pool state account, validated to match the vault authority bump. */
   pool: Address<TAccountPool>;
   /** The user's winnings metadata account. */
-  userWinnings?: Address<TAccountUserWinnings>;
+  userWinnings: Address<TAccountUserWinnings>;
   /** Pool's $PST vault — shares are redeemed from here. */
-  poolPstVault?: Address<TAccountPoolPstVault>;
+  poolPstVault: Address<TAccountPoolPstVault>;
   /** PendingRedemption PDA created for this async withdrawal. */
-  pendingRedemption?: Address<TAccountPendingRedemption>;
+  pendingRedemption: Address<TAccountPendingRedemption>;
   humaProgram?: Address<TAccountHumaProgram>;
   humaConfig: Address<TAccountHumaConfig>;
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
@@ -360,34 +354,6 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   >;
 
   // Resolve default values.
-  if (!accounts.userWinnings.value) {
-    accounts.userWinnings.value = await findUserWinningsPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-      user: getAddressFromResolvedInstructionAccount(
-        "user",
-        accounts.user.value
-      ),
-    });
-  }
-  if (!accounts.poolPstVault.value) {
-    accounts.poolPstVault.value = await findPoolPstVaultPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
-  if (!accounts.pendingRedemption.value) {
-    accounts.pendingRedemption.value = await findPendingRedemptionPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
       "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;

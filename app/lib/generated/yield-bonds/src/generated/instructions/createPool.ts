@@ -53,10 +53,10 @@ import {
   type TransactionSigner,
 } from "@solana/signers";
 import {
-  findCreatePoolPoolPstVaultPda,
-  findCreatePoolPoolVaultAccountPda,
   findGlobalConfigPda,
   findPoolPda,
+  findPoolPstVaultPda,
+  findPoolVaultAccountPda,
 } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
@@ -335,12 +335,12 @@ export async function getCreatePoolInstructionAsync<
     });
   }
   if (!accounts.poolVaultAccount.value) {
-    accounts.poolVaultAccount.value = await findCreatePoolPoolVaultAccountPda({
+    accounts.poolVaultAccount.value = await findPoolVaultAccountPda({
       poolId: getNonNullResolvedInstructionInput("poolId", args.poolId),
     });
   }
   if (!accounts.poolPstVault.value) {
-    accounts.poolPstVault.value = await findCreatePoolPoolPstVaultPda({
+    accounts.poolPstVault.value = await findPoolPstVaultPda({
       poolId: getNonNullResolvedInstructionInput("poolId", args.poolId),
     });
   }

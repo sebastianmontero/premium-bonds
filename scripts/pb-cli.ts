@@ -19,7 +19,14 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { sendTx, safeStringify } from "./utils";
+import { sendTx, safeStringify, printErrorDetails } from "./utils";
+
+export class CliArgumentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliArgumentError";
+  }
+}
 import {
   findPrizePoolPda,
   findGlobalConfigPda,
@@ -1158,9 +1165,7 @@ export async function executeReinvest({
       }
       targetWinnerIndices = [parsedIdx];
     } else {
-      const index = state.winners.findIndex(
-        (w) => w.winner === winnerOption
-      );
+      const index = state.winners.findIndex((w) => w.winner === winnerOption);
       if (index === -1) {
         throw new Error(
           `Winner address ${winnerOption} not found in payout registry winners.`
@@ -1436,6 +1441,7 @@ export async function executeCreatePool({
     bondPrice,
     stakeCycleDurationHrs,
     feeBasisPoints,
+    minYieldThreshold: 0n,
     tokenMint: address(resolvedTokenMint),
     pstMint: address(resolvedPstMint),
     ticketRegistry: ticketRegistrySigner.address,
@@ -1582,13 +1588,21 @@ export async function executeSetPrizeTiers({
   let parsedTiers: Array<{ numWinners: number; basisPoints: number }> = [];
 
   if (tiersString.trim().startsWith("[")) {
-    parsedTiers = JSON.parse(tiersString);
+    const raw = JSON.parse(tiersString);
+    parsedTiers = raw.map((item: Record<string, unknown>) => ({
+      numWinners: Number(
+        item.numWinners ?? item.num_winners ?? item.winners ?? 0
+      ),
+      basisPoints: Number(
+        item.basisPoints ?? item.basis_points ?? item.bps ?? 0
+      ),
+    }));
   } else {
     parsedTiers = tiersString.split(",").map((part) => {
       const [w, b] = part.split(":").map((v) => parseInt(v.trim(), 10));
       if (isNaN(w) || isNaN(b)) {
         throw new Error(
-          `Invalid tier format in "${part}". Expected "winners:basisPoints".`
+          `Invalid tier format in "${part}". Expected "numWinners:basisPoints".`
         );
       }
       return { numWinners: w, basisPoints: b };
@@ -1602,18 +1616,23 @@ export async function executeSetPrizeTiers({
   let totalWinners = 0;
   let totalBps = 0;
   parsedTiers.forEach((t, idx) => {
-    if (t.numWinners <= 0 || t.basisPoints <= 0) {
+    if (
+      !t.numWinners ||
+      !t.basisPoints ||
+      t.numWinners <= 0 ||
+      t.basisPoints <= 0
+    ) {
       throw new Error(
-        `Tier ${idx} must have numWinners > 0 and basisPoints > 0.`
+        `Tier ${idx + 1} must have numWinners > 0 and basisPoints > 0.`
       );
     }
     totalWinners += t.numWinners;
     totalBps += t.numWinners * t.basisPoints;
   });
 
-  if (totalWinners > 100) {
+  if (totalWinners > 50) {
     throw new Error(
-      `Total winners (${totalWinners}) exceeds maximum allowed (100).`
+      `Total winners (${totalWinners}) exceeds maximum allowed on-chain limit (50).`
     );
   }
 
@@ -2811,7 +2830,11 @@ Ticket Registry for Pool ${poolId}
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error("CLI Execution Error:", err.message || err);
+    if (err instanceof CliArgumentError) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+    printErrorDetails(err, "CLI Execution Error");
     process.exit(1);
   });
 }

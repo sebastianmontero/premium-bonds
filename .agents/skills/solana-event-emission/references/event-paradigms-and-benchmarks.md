@@ -20,6 +20,7 @@ There are four main paradigms for emitting events in Solana smart contracts:
 Anchor's standard `emit!` macro serializes event structs using Borsh, prepends an 8-byte discriminator computed via `sha256("event:<EventName>")[..8]`, base64-encodes the buffer, and outputs a formatted string via `sol_log_data`.
 
 #### Emission Pipeline:
+
 ```
 ┌──────────────┐    Borsh     ┌──────────────┐   Base64    ┌─────────────────┐   Syscall   ┌────────────────────────┐
 │ Event Struct │ ───────────► │ 8-Byte Disc  │ ──────────► │ Base64 String   │ ───────────►│ Log Buffer             │
@@ -37,6 +38,7 @@ Anchor's standard `emit!` macro serializes event structs using Borsh, prepends a
 Anchor 0.29 introduced `emit_cpi!`. Instead of printing base64 text to program logs, the program executes a Self-CPI (or CPI to an Event Authority PDA `__event_authority`), passing the raw Borsh-serialized event directly inside instruction data.
 
 #### Emission Pipeline:
+
 ```
 ┌──────────────┐    Borsh     ┌────────────────────────────┐    Self-CPI    ┌───────────────────────────┐
 │ Event Struct │ ───────────► │ 8-Byte Disc + Raw Payload   │ ─────────────► │ Inner Instruction Trace   │
@@ -69,15 +71,15 @@ Direct call to the Solana SVM native C-binding syscall `sol_log_data(&[&binary_s
 
 ## 2. Comprehensive Benchmark & Feature Matrix
 
-| Feature / Metric | `emit!` (Anchor Log) | `emit_cpi!` (Anchor CPI) | `spl-noop` CPI | `sol_log_data` (Native) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Compute Units (CU)** | 1,200 – 2,200 CUs | 2,500 – 4,500 CUs | 1,800 – 2,800 CUs | 600 – 1,200 CUs |
-| **Log Buffer Limit (10 KB)**| Consumes log buffer | **Bypasses log buffer** | **Bypasses log buffer**| Consumes log buffer |
-| **Payload Encoding** | Base64 (+33% bloat) | Raw Binary (0% bloat) | Raw Binary (0% bloat) | Base64 (+33% bloat) |
-| **Instruction Accounts Needed** | 0 extra accounts | 2 extra accounts (`event_authority`, `program`) | 1 extra account (`noop_program`) | 0 extra accounts |
-| **Spoofing Resistance** | Low (Text parsing ambiguity) | **Cryptographically High** (CPI Program ID check) | **High** (CPI Target Program check) | Low (Text parsing ambiguity) |
-| **IDL Auto-Generation** | Fully Supported | Fully Supported | Manual Schema | Manual Schema |
-| **Geyser gRPC Filter** | Log Filter (`Program data:`) | Inner Instruction Filter | Inner Instruction Filter | Log Filter (`Program data:`) |
+| Feature / Metric                | `emit!` (Anchor Log)         | `emit_cpi!` (Anchor CPI)                          | `spl-noop` CPI                      | `sol_log_data` (Native)      |
+| :------------------------------ | :--------------------------- | :------------------------------------------------ | :---------------------------------- | :--------------------------- |
+| **Compute Units (CU)**          | 1,200 – 2,200 CUs            | 2,500 – 4,500 CUs                                 | 1,800 – 2,800 CUs                   | 600 – 1,200 CUs              |
+| **Log Buffer Limit (10 KB)**    | Consumes log buffer          | **Bypasses log buffer**                           | **Bypasses log buffer**             | Consumes log buffer          |
+| **Payload Encoding**            | Base64 (+33% bloat)          | Raw Binary (0% bloat)                             | Raw Binary (0% bloat)               | Base64 (+33% bloat)          |
+| **Instruction Accounts Needed** | 0 extra accounts             | 2 extra accounts (`event_authority`, `program`)   | 1 extra account (`noop_program`)    | 0 extra accounts             |
+| **Spoofing Resistance**         | Low (Text parsing ambiguity) | **Cryptographically High** (CPI Program ID check) | **High** (CPI Target Program check) | Low (Text parsing ambiguity) |
+| **IDL Auto-Generation**         | Fully Supported              | Fully Supported                                   | Manual Schema                       | Manual Schema                |
+| **Geyser gRPC Filter**          | Log Filter (`Program data:`) | Inner Instruction Filter                          | Inner Instruction Filter            | Log Filter (`Program data:`) |
 
 ---
 
@@ -88,6 +90,7 @@ When emitting events inside high-frequency loops (such as DEX order fills, crank
 ### Pattern 1: Event Aggregation (Vector Batching)
 
 Instead of emitting N separate events:
+
 ```rust
 // ❌ BAD: Emitting in a loop consumes N * 2,000 CUs and hits 10KB log limit
 for fill in fills {
@@ -96,6 +99,7 @@ for fill in fills {
 ```
 
 Aggregate into a single vector-backed event:
+
 ```rust
 // ✅ GOOD: Emits 1 event with single discriminator and batch payload
 #[event]

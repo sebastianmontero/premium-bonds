@@ -139,7 +139,15 @@
     "grand": "Grand",
     "runnerUp": "Runner-up",
     "consolation": "Consolation",
-    "drawInProgress": "Draw in progress"
+    "tierN": "Tier {tier}",
+    "drawInProgress": "Draw in progress",
+    "viewMoreTiers": "+{count} more",
+    "allPrizeTiersTitle": "All Prize Tiers ({count})",
+    "tierColumn": "Tier",
+    "shareColumn": "Share %",
+    "winnersColumn": "Winners",
+    "estPerWinnerColumn": "Est. per Winner",
+    "totalTierShareColumn": "Total Share"
   },
   "Modals": {
     "depositTitle": "Deposit Funds",

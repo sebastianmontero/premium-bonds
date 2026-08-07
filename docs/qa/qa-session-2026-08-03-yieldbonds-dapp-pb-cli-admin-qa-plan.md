@@ -1,6 +1,7 @@
 # QA Session Plan: YieldBonds dApp & pb-cli Admin Suite
 
 ## 📋 Session Metadata
+
 - **Date:** 2026-08-03
 - **Session Lead:** Senior Staff QA & Solana Developer Agent
 - **Target Environment:** Localnet (`http://127.0.0.1:8899`) / Devnet
@@ -37,6 +38,7 @@
 ## 🎯 Test Charters & Scenarios
 
 ### Charter #1: Web App Wallet Connection & Account Context
+
 - **Objective / Focus:** Validate wallet onboarding, connection state synchronization, error alerts, theme toggling, and internationalization (i18n).
 - **Target Components:** [`ConnectWalletButton.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/ConnectWalletButton.tsx), [`Navbar.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/Navbar.tsx), [`LanguageSwitcher.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/LanguageSwitcher.tsx), [`SolanaErrorAlert.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/SolanaErrorAlert.tsx).
 - **Test Scenarios & Edge Cases:**
@@ -47,6 +49,7 @@
   - [ ] **Number Formatting Audit:** Verify all numbers strictly follow `"en-US"` format (period `.` as decimal separator, comma `,` as thousands separator, e.g., `$1,234.50`).
 
 ### Charter #2: Web App Deposit & Ticket Issuance
+
 - **Objective / Focus:** Validate bond purchasing, principal token deposits, zero-copy ticket registry indexing, and ticket calculation logic.
 - **Target Components:** [`PoolCard.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/dashboard/PoolCard.tsx), [`DepositModal.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/dashboard/DepositModal.tsx), [`LiveYieldTicker.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/dashboard/LiveYieldTicker.tsx), [`StatsSection.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/StatsSection.tsx).
 - **Test Scenarios & Edge Cases:**
@@ -58,6 +61,7 @@
   - [ ] **Transaction User Rejection:** Trigger deposit transaction and reject/cancel in wallet popup (Error code `4001`). Verify `SolanaErrorAlert` displays clean error feedback without hanging loading state.
 
 ### Charter #3: Web App Draw Timeline, Yield Claiming & Redemption
+
 - **Objective / Focus:** Validate cycle drawdown notifications, yield accumulation, winning claim/reinvestment, and principal redemption cool-down periods.
 - **Target Components:** [`WithdrawModal.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/dashboard/WithdrawModal.tsx), [`UnclaimedBanner.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/dashboard/UnclaimedBanner.tsx), [`PrizeDetailsModal.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/portfolio/PrizeDetailsModal.tsx), [`PrizeHistoryLedger.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/portfolio/PrizeHistoryLedger.tsx), [`PendingRedemptionsList.tsx`](file:///home/sebastian/vsc-workspace/premium-bonds/app/components/portfolio/PendingRedemptionsList.tsx).
 - **Test Scenarios & Edge Cases:**
@@ -70,6 +74,7 @@
   - [ ] **Claim Settled Redemption:** Complete cool-down period and claim pending redemption. Verify principal tokens return to user wallet and pending redemption state clears.
 
 ### Charter #4: pb-cli Global & Pool Setup Admin Commands
+
 - **Objective / Focus:** Verify administrative setup, pool creation, tier configuration, and registry capacity resizing via `pb-cli.ts`.
 - **Target Commands:** `init-global`, `update-global-config`, `create-pool`, `initialize-huma-lender`, `resize-registry`, `set-prize-tiers`, `update-pool-config`.
 - **Test Scenarios & Guardrails:**
@@ -82,6 +87,7 @@
   - [ ] **Pool Update (`update-pool-config`):** Update `--fee-bps 200` on Pool 1. Query pool state to verify fee rate changed from 100 to 200 bps.
 
 ### Charter #5: pb-cli Protocol Maintenance & Emergency Admin Commands
+
 - **Objective / Focus:** Validate high-security protocol maintenance, fee extraction, emergency draw unlocking, and VRF randomness account rebinding.
 - **Target Commands:** `withdraw-fees`, `force-unlock-draw`, `rebind-randomness`.
 - **Test Scenarios & Security Rules:**
@@ -91,6 +97,7 @@
   - [ ] **VRF Randomness Rebinding (`rebind-randomness`):** Simulate an expired Switchboard VRF account, run `rebind-randomness --pool 1 --new-randomness <pubkey>`. Verify `DrawCycle` randomness account pointer updates seamlessly.
 
 ### Charter #6: pb-cli Crank & Draw Pipeline Commands
+
 - **Objective / Focus:** Test execution of the automated draw cycle pipeline via command line.
 - **Target Commands:** `harvest`, `prepare-draw`, `reveal`, `reinvest`.
 - **Test Scenarios & Workflow:**
@@ -100,6 +107,7 @@
   - [ ] **Winnings Reinvestment (`reinvest`):** Run `reinvest --pool 1 --max-bonds 1000`. Verify winnings are reinvested into tickets for unprocessed draw winners.
 
 ### Charter #7: pb-cli On-Chain State Inspection & Queries
+
 - **Objective / Focus:** Verify read-only query commands produce accurate, formatted JSON and human-readable terminal output.
 - **Target Commands:** `query-config`, `query-pool`, `query-draw`, `query-payout`, `query-winnings`, `query-redemption`, `query-registry`.
 - **Test Scenarios & Formatting:**
@@ -111,39 +119,40 @@
 
 ## 🧪 Admin & CLI Test Command Execution Matrix
 
-| Test ID | Command | Required Flags | Optional / Test Arguments | Expected Result / Output |
-| :--- | :--- | :--- | :--- | :--- |
-| **CLI-01** | `init-global` | `--jobs <pubkey>` | `--keypair scripts/admin-key.json` | `GlobalConfig` initialized on-chain. |
-| **CLI-02** | `update-global-config` | `--jobs <pubkey>` | `--new-admin <pubkey> --confirm` | Admin or jobs pubkey updated. Fails if `--confirm` omitted when changing admin. |
-| **CLI-03** | `create-pool` | None (uses defaults) | `--pool 1 --bond-price 1000000 --fee-bps 100` | `PrizePool` & `TicketRegistry` created. |
-| **CLI-04** | `initialize-huma-lender` | None | `--pool 1` | Huma lender state & PST vault initialized. |
-| **CLI-05** | `resize-registry` | None | `--pool 1` | Ticket registry account reallocated. |
-| **CLI-06** | `set-prize-tiers` | `--tiers <str>` | `--tiers "1:5000,5:1000" --pool 1` | Prize tiers configured on pool state. |
-| **CLI-07** | `update-pool-config` | At least 1 config option | `--fee-bps 200 --pool 1` | Fee bps updated from 100 to 200. |
-| **CLI-08** | `withdraw-fees` | `--amount <num>` & `--confirm` | `--amount all --confirm --pool 1` | Protocol fees transferred to fee wallet. Fails without `--confirm`. |
-| **CLI-09** | `force-unlock-draw` | `--confirm` | `--pool 1 --confirm` | Frozen draw state cleared; `isFrozenForDraw` set to `false`. |
-| **CLI-10** | `rebind-randomness` | `--new-randomness <pubkey>` | `--pool 1 --new-randomness <PUBKEY>` | Draw cycle randomness account rebound. |
-| **CLI-11** | `harvest` | None | `--pool 1` | Yield committed, pool frozen for draw. |
-| **CLI-12** | `prepare-draw` | None | `--pool 1 --batch-size 500` | Batched ticket registry calculation finished. |
-| **CLI-13** | `reveal` | None | `--pool 1` | Winners selected and recorded in `PayoutRegistry`. |
-| **CLI-14** | `reinvest` | None | `--pool 1 --winner 0` | Winner payouts converted back into tickets. |
-| **CLI-15** | `query-config` | None | None | Prints `GlobalConfig` state. |
-| **CLI-16** | `query-pool` | None | `--pool 1` | Prints `PrizePool` state & vault balances. |
-| **CLI-17** | `query-draw` | None | `--pool 1 --cycle 0` | Prints target `DrawCycle` state. |
-| **CLI-18** | `query-payout` | None | `--pool 1 --cycle 0` | Prints winner payout distribution. |
-| **CLI-19** | `query-winnings` | None | `--user <pubkey>` | Prints user winnings PDA. |
-| **CLI-20** | `query-redemption` | None | `--id 1 --user <pubkey>` | Prints pending redemption record. |
-| **CLI-21** | `query-registry` | None | `--user <pubkey>` | Prints user ticket registry entries. |
+| Test ID    | Command                  | Required Flags                 | Optional / Test Arguments                     | Expected Result / Output                                                        |
+| :--------- | :----------------------- | :----------------------------- | :-------------------------------------------- | :------------------------------------------------------------------------------ |
+| **CLI-01** | `init-global`            | `--jobs <pubkey>`              | `--keypair scripts/admin-key.json`            | `GlobalConfig` initialized on-chain.                                            |
+| **CLI-02** | `update-global-config`   | `--jobs <pubkey>`              | `--new-admin <pubkey> --confirm`              | Admin or jobs pubkey updated. Fails if `--confirm` omitted when changing admin. |
+| **CLI-03** | `create-pool`            | None (uses defaults)           | `--pool 1 --bond-price 1000000 --fee-bps 100` | `PrizePool` & `TicketRegistry` created.                                         |
+| **CLI-04** | `initialize-huma-lender` | None                           | `--pool 1`                                    | Huma lender state & PST vault initialized.                                      |
+| **CLI-05** | `resize-registry`        | None                           | `--pool 1`                                    | Ticket registry account reallocated.                                            |
+| **CLI-06** | `set-prize-tiers`        | `--tiers <str>`                | `--tiers "1:5000,5:1000" --pool 1`            | Prize tiers configured on pool state.                                           |
+| **CLI-07** | `update-pool-config`     | At least 1 config option       | `--fee-bps 200 --pool 1`                      | Fee bps updated from 100 to 200.                                                |
+| **CLI-08** | `withdraw-fees`          | `--amount <num>` & `--confirm` | `--amount all --confirm --pool 1`             | Protocol fees transferred to fee wallet. Fails without `--confirm`.             |
+| **CLI-09** | `force-unlock-draw`      | `--confirm`                    | `--pool 1 --confirm`                          | Frozen draw state cleared; `isFrozenForDraw` set to `false`.                    |
+| **CLI-10** | `rebind-randomness`      | `--new-randomness <pubkey>`    | `--pool 1 --new-randomness <PUBKEY>`          | Draw cycle randomness account rebound.                                          |
+| **CLI-11** | `harvest`                | None                           | `--pool 1`                                    | Yield committed, pool frozen for draw.                                          |
+| **CLI-12** | `prepare-draw`           | None                           | `--pool 1 --batch-size 500`                   | Batched ticket registry calculation finished.                                   |
+| **CLI-13** | `reveal`                 | None                           | `--pool 1`                                    | Winners selected and recorded in `PayoutRegistry`.                              |
+| **CLI-14** | `reinvest`               | None                           | `--pool 1 --winner 0`                         | Winner payouts converted back into tickets.                                     |
+| **CLI-15** | `query-config`           | None                           | None                                          | Prints `GlobalConfig` state.                                                    |
+| **CLI-16** | `query-pool`             | None                           | `--pool 1`                                    | Prints `PrizePool` state & vault balances.                                      |
+| **CLI-17** | `query-draw`             | None                           | `--pool 1 --cycle 0`                          | Prints target `DrawCycle` state.                                                |
+| **CLI-18** | `query-payout`           | None                           | `--pool 1 --cycle 0`                          | Prints winner payout distribution.                                              |
+| **CLI-19** | `query-winnings`         | None                           | `--user <pubkey>`                             | Prints user winnings PDA.                                                       |
+| **CLI-20** | `query-redemption`       | None                           | `--id 1 --user <pubkey>`                      | Prints pending redemption record.                                               |
+| **CLI-21** | `query-registry`         | None                           | `--user <pubkey>`                             | Prints user ticket registry entries.                                            |
 
 ---
 
 ## 🐛 Logged Bugs & Issues
 
-| ID | Title / Summary | Charter / Tool | Severity | Environment | Steps to Reproduce | Expected vs. Actual | Evidence / Notes | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Bug-01 | [Sample] Missing validation for negative bond price in CLI | Charter #4 (`create-pool`) | Major | Localnet | Run `create-pool --bond-price -50` | Exp: Error prompt<br>Act: CLI accepts negative value | Issue #000 | Draft |
+| ID     | Title / Summary                                            | Charter / Tool             | Severity | Environment | Steps to Reproduce                 | Expected vs. Actual                                  | Evidence / Notes | Status |
+| :----- | :--------------------------------------------------------- | :------------------------- | :------- | :---------- | :--------------------------------- | :--------------------------------------------------- | :--------------- | :----- |
+| Bug-01 | [Sample] Missing validation for negative bond price in CLI | Charter #4 (`create-pool`) | Major    | Localnet    | Run `create-pool --bond-price -50` | Exp: Error prompt<br>Act: CLI accepts negative value | Issue #000       | Draft  |
 
 > **Severity Scale:**
+>
 > - **Critical:** Blocks core flows, crashes application, security vulnerability, funds at risk.
 > - **Major:** Broken feature or admin command with no reasonable workaround.
 > - **Minor:** UI layout issues, visual alignment, terminal formatting flaws, cosmetic bugs.
@@ -163,5 +172,6 @@
 ---
 
 ## 📝 Follow-up Notes & Maintenance
+
 - Ensure LiteSVM integration tests (`cargo test` inside `/anchor`) pass prior to running live localnet QA sweeps.
 - When executing CLI commands, ensure local validator is active or specified `--rpc` target is reachable.

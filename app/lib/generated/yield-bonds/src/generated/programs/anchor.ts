@@ -141,18 +141,11 @@ import {
   type WithdrawFeesAsyncInput,
 } from "../instructions";
 import {
-  findCreatePoolPoolPstVaultPda,
-  findCreatePoolPoolVaultAccountPda,
-  findCurrentDrawCyclePda,
   findEventAuthorityPda,
   findGlobalConfigPda,
-  findPayoutRegistryPda,
-  findPendingRedemptionPda,
   findPoolPda,
   findPoolPstVaultPda,
   findPoolVaultAccountPda,
-  findReinvestWinningsUserWinningsPda,
-  findUserWinningsPda,
 } from "../pdas";
 
 export const ANCHOR_PROGRAM_ADDRESS =
@@ -783,17 +776,10 @@ export type AnchorPluginInstructions = {
 
 export type AnchorPluginPdas = {
   globalConfig: typeof findGlobalConfigPda;
-  userWinnings: typeof findUserWinningsPda;
+  eventAuthority: typeof findEventAuthorityPda;
+  pool: typeof findPoolPda;
   poolVaultAccount: typeof findPoolVaultAccountPda;
   poolPstVault: typeof findPoolPstVaultPda;
-  eventAuthority: typeof findEventAuthorityPda;
-  pendingRedemption: typeof findPendingRedemptionPda;
-  pool: typeof findPoolPda;
-  createPoolPoolVaultAccount: typeof findCreatePoolPoolVaultAccountPda;
-  createPoolPoolPstVault: typeof findCreatePoolPoolPstVaultPda;
-  currentDrawCycle: typeof findCurrentDrawCyclePda;
-  payoutRegistry: typeof findPayoutRegistryPda;
-  reinvestWinningsUserWinnings: typeof findReinvestWinningsUserWinningsPda;
 };
 
 export type AnchorPluginRequirements = ClientWithRpc<
@@ -924,17 +910,10 @@ export function anchorProgram() {
         },
         pdas: {
           globalConfig: findGlobalConfigPda,
-          userWinnings: findUserWinningsPda,
+          eventAuthority: findEventAuthorityPda,
+          pool: findPoolPda,
           poolVaultAccount: findPoolVaultAccountPda,
           poolPstVault: findPoolPstVaultPda,
-          eventAuthority: findEventAuthorityPda,
-          pendingRedemption: findPendingRedemptionPda,
-          pool: findPoolPda,
-          createPoolPoolVaultAccount: findCreatePoolPoolVaultAccountPda,
-          createPoolPoolPstVault: findCreatePoolPoolPstVaultPda,
-          currentDrawCycle: findCurrentDrawCyclePda,
-          payoutRegistry: findPayoutRegistryPda,
-          reinvestWinningsUserWinnings: findReinvestWinningsUserWinningsPda,
         },
         identifyAccount: identifyAnchorAccount,
         identifyInstruction: identifyAnchorInstruction,

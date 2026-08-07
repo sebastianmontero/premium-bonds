@@ -11,6 +11,7 @@ import {
   getProgramDerivedAddress,
   getBase58Encoder,
   lamports,
+  TransactionSigner,
 } from "@solana/kit";
 import {
   ANCHOR_PROGRAM_ADDRESS,
@@ -177,6 +178,14 @@ export async function findDrawCyclePda(
   return addr;
 }
 
+export async function findEventAuthorityPda(): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: PROGRAM_ID,
+    seeds: [textEncoder.encode("__event_authority")],
+  });
+  return addr;
+}
+
 export async function findAtaAddress(
   owner: string,
   mint: string
@@ -219,6 +228,16 @@ export function parseGlobalConfig(data: Uint8Array): GlobalConfig {
 export function parsePrizePool(data: Uint8Array) {
   const decoded = decodedData<PrizePool>(decodePrizePool(mockAccount(data)));
   const statusMap = ["Active", "Paused", "Closed"];
+  const prizeTiersCount = Number(decoded.prizeTiersCount);
+
+  const prizeTiers = decoded.prizeTiers
+    .slice(0, prizeTiersCount)
+    .filter((tier) => tier.basisPoints > 0 && tier.numWinners > 0)
+    .map((tier) => ({
+      basisPoints: tier.basisPoints,
+      numWinners: tier.numWinners,
+    }));
+
   return {
     ...decoded,
     status: (statusMap[decoded.status] || "Active") as
@@ -232,6 +251,8 @@ export function parsePrizePool(data: Uint8Array) {
     nextRedemptionId: Number(decoded.nextRedemptionId),
     isFrozenForDraw: Boolean(decoded.isFrozenForDraw),
     ticketRegistry: decoded.ticketRegistry,
+    prizeTiersCount,
+    prizeTiers,
   };
 }
 
@@ -276,3 +297,374 @@ export type DrawCycleInfo = ReturnType<typeof parseDrawCycle>;
 export type PayoutRegistryInfo = ReturnType<typeof parsePayoutRegistry>;
 export type PendingRedemptionInfo = ReturnType<typeof parsePendingRedemption>;
 export type GlobalConfigInfo = ReturnType<typeof parseGlobalConfig>;
+
+// ─── Re-exported Encoders & Codama Instructions ────────────────────────────
+
+import {
+  getInitializeGlobalInstructionDataEncoder,
+  getCreatePoolInstructionDataEncoder,
+  getSetPrizeTiersInstructionDataEncoder,
+  getInitializeGlobalInstructionAsync,
+  getCreatePoolInstructionAsync,
+  getSetPrizeTiersInstructionAsync,
+  getHarvestYieldAndCommitInstructionAsync,
+  getRevealAndPickWinnersInstructionAsync,
+  getReinvestWinningsInstructionAsync,
+  getPrepareDrawInstruction,
+  getInitializeHumaLenderInstructionAsync,
+  getResizeRegistryInstructionAsync,
+  getUpdatePoolConfigInstructionAsync,
+  getUpdateGlobalConfigInstructionAsync,
+  getWithdrawFeesInstructionAsync,
+  getAdminForceUnlockDrawInstructionAsync,
+  getCrankRebindExpiredRandomnessInstructionAsync,
+} from "./generated/yield-bonds/src/generated/instructions";
+
+import {
+  getSimulateYieldInstructionDataEncoder,
+  getSettleRequestsInstructionDataEncoder,
+  getInitializeMockPoolStateInstructionDataEncoder,
+  getCreateLenderAccountsV2InstructionDataEncoder,
+} from "./generated/mock-huma/src/generated/instructions";
+
+export {
+  getInitializeGlobalInstructionDataEncoder,
+  getCreatePoolInstructionDataEncoder,
+  getSetPrizeTiersInstructionDataEncoder,
+  getInitializeGlobalInstructionAsync,
+  getCreatePoolInstructionAsync,
+  getSetPrizeTiersInstructionAsync,
+  getHarvestYieldAndCommitInstructionAsync,
+  getRevealAndPickWinnersInstructionAsync,
+  getReinvestWinningsInstructionAsync,
+  getPrepareDrawInstruction,
+  getInitializeHumaLenderInstructionAsync,
+  getResizeRegistryInstructionAsync,
+  getUpdatePoolConfigInstructionAsync,
+  getUpdateGlobalConfigInstructionAsync,
+  getWithdrawFeesInstructionAsync,
+  getAdminForceUnlockDrawInstructionAsync,
+  getCrankRebindExpiredRandomnessInstructionAsync,
+  getSimulateYieldInstructionDataEncoder,
+  getSettleRequestsInstructionDataEncoder,
+  getInitializeMockPoolStateInstructionDataEncoder,
+  getCreateLenderAccountsV2InstructionDataEncoder,
+};
+
+// ─── High-Level SDK Instruction Builder Wrappers for CLI & Scripts ─────────
+
+export async function buildInitializeGlobalInstruction(params: {
+  admin: Address | TransactionSigner;
+  jobsAccount?: Address;
+}) {
+  return getInitializeGlobalInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    jobsAccount: params.jobsAccount ?? (params.admin as Address),
+  });
+}
+
+export async function buildUpdateGlobalConfigInstruction(params: {
+  admin: Address | TransactionSigner;
+  newAdmin?: Address;
+  newJobsAccount?: Address;
+}) {
+  return getUpdateGlobalConfigInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    newAdmin: params.newAdmin ?? null,
+    newJobsAccount: params.newJobsAccount ?? null,
+  });
+}
+
+export async function buildCreatePoolInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  bondPrice: bigint | number;
+  stakeCycleDurationHrs: bigint | number;
+  feeBasisPoints: number;
+  minYieldThreshold?: bigint | number;
+  tokenMint: Address;
+  pstMint: Address;
+  ticketRegistry: Address;
+  feeWallet: Address;
+  pstTokenProgram?: Address;
+}) {
+  return getCreatePoolInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    poolId: params.poolId,
+    bondPrice: BigInt(params.bondPrice),
+    stakeCycleDurationHrs: BigInt(params.stakeCycleDurationHrs),
+    feeBasisPoints: params.feeBasisPoints,
+    minYieldThreshold:
+      params.minYieldThreshold !== undefined
+        ? BigInt(params.minYieldThreshold)
+        : 0n,
+    tokenMint: params.tokenMint,
+    pstMint: params.pstMint,
+    ticketRegistry: params.ticketRegistry,
+    feeWallet: params.feeWallet,
+    pstTokenProgram: params.pstTokenProgram ?? TOKEN_PROGRAM_ID,
+  });
+}
+
+export async function buildSetPrizeTiersInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  tiers: Array<{ numWinners: number; basisPoints: number }>;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getSetPrizeTiersInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    tiers: params.tiers.map((t) => ({
+      numWinners: t.numWinners,
+      basisPoints: t.basisPoints,
+      padding: new Uint8Array(2),
+    })),
+  });
+}
+
+export async function buildUpdatePoolConfigInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  newFeeBasisPoints?: number;
+  newBondPrice?: bigint | number;
+  newFeeWallet?: Address;
+  newMinYieldThreshold?: bigint | number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getUpdatePoolConfigInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    newFeeBasisPoints: params.newFeeBasisPoints ?? null,
+    newBondPrice:
+      params.newBondPrice !== undefined ? BigInt(params.newBondPrice) : null,
+    newFeeWallet: params.newFeeWallet ?? null,
+    newMinYieldThreshold:
+      params.newMinYieldThreshold !== undefined
+        ? BigInt(params.newMinYieldThreshold)
+        : null,
+  });
+}
+
+export async function buildPrepareDrawInstruction(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  currentDrawCycleId: number;
+  ticketRegistry: Address;
+  batchSize: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const drawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.currentDrawCycleId
+  );
+  return getPrepareDrawInstruction({
+    crank: params.crank as TransactionSigner,
+    pool,
+    drawCycle,
+    ticketRegistry: params.ticketRegistry,
+    batchSize: params.batchSize,
+  });
+}
+
+export async function buildHarvestYieldAndCommitInstruction(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  ticketRegistry: Address;
+  currentDrawCycleId: number;
+  pstMint: Address;
+  humaPoolState: Address;
+  randomnessAccount: Address;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const currentDrawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.currentDrawCycleId
+  );
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+
+  return getHarvestYieldAndCommitInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    pool,
+    ticketRegistry: params.ticketRegistry,
+    currentDrawCycle,
+    poolPstVault,
+    pstMint: params.pstMint,
+    humaPoolState: params.humaPoolState,
+    randomnessAccount: params.randomnessAccount,
+    pstTokenProgram: TOKEN_PROGRAM_ID,
+  });
+}
+
+export async function buildRevealAndPickWinnersInstruction(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  currentDrawCycleId: number;
+  ticketRegistry: Address;
+  randomnessAccount: Address;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const currentDrawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.currentDrawCycleId
+  );
+  const payoutRegistry = await findPayoutRegistryPda(
+    params.poolId,
+    params.currentDrawCycleId
+  );
+
+  return getRevealAndPickWinnersInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    pool,
+    currentDrawCycle,
+    payoutRegistry,
+    ticketRegistry: params.ticketRegistry,
+    randomnessAccount: params.randomnessAccount,
+  });
+}
+
+export async function buildReinvestWinningsInstruction(params: {
+  crank: Address | TransactionSigner;
+  winner: Address;
+  poolId: number;
+  cycleId: number;
+  winnerIndex: number;
+  maxBonds: bigint | number;
+  ticketRegistry: Address;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const payoutRegistry = await findPayoutRegistryPda(
+    params.poolId,
+    params.cycleId
+  );
+  const userWinnings = await findUserWinningsPda(params.poolId, params.winner);
+
+  return getReinvestWinningsInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    winner: params.winner,
+    pool,
+    payoutRegistry,
+    userWinnings,
+    ticketRegistry: params.ticketRegistry,
+    cycleId: params.cycleId,
+    winnerIndex: params.winnerIndex,
+    maxBonds: Number(params.maxBonds),
+  });
+}
+
+export async function buildInitializeHumaLenderInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  humaStateAddresses: Record<string, string>;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+
+  return getInitializeHumaLenderInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    poolPstVault,
+    humaConfig: address(params.humaStateAddresses.humaConfig),
+    humaPoolConfig: address(params.humaStateAddresses.humaPoolConfig),
+    humaPoolState: address(params.humaStateAddresses.humaPoolState),
+    humaModeConfig: address(params.humaStateAddresses.humaModeConfig),
+    humaModeMint: address(params.humaStateAddresses.humaModeMint),
+    humaLenderState: address(params.humaStateAddresses.humaLenderState),
+    humaLenderModeToken: address(params.humaStateAddresses.humaLenderModeToken),
+    pstTokenProgram: TOKEN_PROGRAM_ID,
+  });
+}
+
+export async function buildResizeRegistryInstruction(params: {
+  crank: Address | TransactionSigner;
+  payer: Address | TransactionSigner;
+  poolId: number;
+  ticketRegistry: Address;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getResizeRegistryInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    payer: params.payer as TransactionSigner,
+    pool,
+    ticketRegistry: params.ticketRegistry,
+  });
+}
+
+export async function buildWithdrawFeesInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  amount: bigint | number;
+  tokenMint: Address;
+  feeWallet: Address;
+  nextRedemptionId: bigint | number;
+  humaStateAddresses: Record<string, string>;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    params.humaStateAddresses.humaPoolState
+  );
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const pendingRedemption = await findPendingRedemptionPda(
+    params.poolId,
+    params.nextRedemptionId
+  );
+
+  return getWithdrawFeesInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    poolPstVault,
+    pendingRedemption,
+    feeWallet: params.feeWallet,
+    tokenMint: params.tokenMint,
+    amount: BigInt(params.amount),
+    humaConfig: address(params.humaStateAddresses.humaConfig),
+    humaPoolConfig: address(params.humaStateAddresses.humaPoolConfig),
+    humaPoolState: address(params.humaStateAddresses.humaPoolState),
+    humaModeConfig: address(params.humaStateAddresses.humaModeConfig),
+    humaModeMint: address(params.humaStateAddresses.humaModeMint),
+    humaRedemptionRequest: address(
+      params.humaStateAddresses.humaRedemptionRequest ??
+        params.humaStateAddresses.humaPoolState
+    ),
+    humaLenderState: address(params.humaStateAddresses.humaLenderState),
+    humaPoolAuthority,
+    humaPoolModeToken: address(params.humaStateAddresses.humaLenderModeToken),
+    pstTokenProgram: TOKEN_PROGRAM_ID,
+  });
+}
+
+export async function buildAdminForceUnlockDrawInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  cycleId: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const currentDrawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.cycleId
+  );
+  return getAdminForceUnlockDrawInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    currentDrawCycle,
+  });
+}
+
+export async function buildCrankRebindExpiredRandomnessInstruction(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  cycleId: number;
+  newRandomnessAccount: Address;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const currentDrawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.cycleId
+  );
+  return getCrankRebindExpiredRandomnessInstructionAsync({
+    crank: params.crank as TransactionSigner,
+    pool,
+    currentDrawCycle,
+    newRandomnessAccount: params.newRandomnessAccount,
+  });
+}

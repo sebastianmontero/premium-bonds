@@ -127,7 +127,7 @@
     "monthlyUSDC": "Mega Fondo Mensual",
     "weeklyDraw": "Sorteo #{cycleId} · Semanal",
     "totalDeposited": "Total Depositado",
-    "estimatedPot": "Bolsa Estimado de Premios",
+    "estimatedPot": "Bolsa Estimada de Premios",
     "currentAPY": "APY Actual",
     "drawIn": "Próximo Sorteo En",
     "depositButton": "Depositar",
@@ -139,7 +139,15 @@
     "grand": "Principal",
     "runnerUp": "Segundo Lugar",
     "consolation": "Consolación",
-    "drawInProgress": "Sorteo en progreso"
+    "tierN": "Nivel {tier}",
+    "drawInProgress": "Sorteo en progreso",
+    "viewMoreTiers": "+{count} más",
+    "allPrizeTiersTitle": "Todos los Niveles de Premios ({count})",
+    "tierColumn": "Nivel",
+    "shareColumn": "Porcentaje %",
+    "winnersColumn": "Ganadores",
+    "estPerWinnerColumn": "Est. por Ganador",
+    "totalTierShareColumn": "Fondo Total"
   },
   "Modals": {
     "depositTitle": "Depositar Fondos",

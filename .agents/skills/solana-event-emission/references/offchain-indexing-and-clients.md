@@ -28,17 +28,21 @@ Off-chain clients and indexers process Solana smart contract events through thre
 Anchor provides built-in mechanisms for subscribing to real-time events over WebSocket or parsing historic events from transaction signatures.
 
 #### 1. Real-time Event Listener (`program.addEventListener`)
+
 ```typescript
 import { Program } from "@coral-xyz/anchor";
 import { MyProtocol } from "../target/types/my_protocol";
 
 export function setupEventListener(program: Program<MyProtocol>) {
-  const listenerId = program.addEventListener("BondsPurchased", (event, slot, signature) => {
-    console.log(`[Slot ${slot}] Purchase detected! Tx: ${signature}`);
-    console.log(`User: ${event.user.toBase58()}`);
-    console.log(`Amount: ${event.amount.toString()} USDC`);
-    console.log(`Bonds Purchased: ${event.bonds}`);
-  });
+  const listenerId = program.addEventListener(
+    "BondsPurchased",
+    (event, slot, signature) => {
+      console.log(`[Slot ${slot}] Purchase detected! Tx: ${signature}`);
+      console.log(`User: ${event.user.toBase58()}`);
+      console.log(`Amount: ${event.amount.toString()} USDC`);
+      console.log(`Bonds Purchased: ${event.bonds}`);
+    }
+  );
 
   return async () => {
     await program.removeEventListener(listenerId);
@@ -47,6 +51,7 @@ export function setupEventListener(program: Program<MyProtocol>) {
 ```
 
 #### 2. Historic Transaction Log Parser (`EventParser`)
+
 ```typescript
 import { EventParser, Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -86,7 +91,7 @@ import { getBase64Decoder, getBytesEncoder } from "@solana/kit";
 // Anchor event discriminator: sha256("event:BondsPurchased")[0..8]
 const BONDS_PURCHASED_DISCRIMINATOR = new Uint8Array([
   // First 8 bytes of SHA-256 hash of "event:BondsPurchased"
-  0x8d, 0x48, 0xb7, 0x05, 0x82, 0x89, 0xa1, 0x4b
+  0x8d, 0x48, 0xb7, 0x05, 0x82, 0x89, 0xa1, 0x4b,
 ]);
 
 export function isBondsPurchasedEvent(dataBuffer: Uint8Array): boolean {
@@ -105,6 +110,7 @@ export function isBondsPurchasedEvent(dataBuffer: Uint8Array): boolean {
 Yellowstone Geyser provides sub-millisecond gRPC streams directly from Solana validator nodes.
 
 #### Filtering Strategy for `emit_cpi!` (CPI Events):
+
 ```rust
 // Rust Geyser gRPC Subscription Filter Configuration
 use yellowstone_grpc_proto::geyser::SubscribeRequestFilterTransactions;
@@ -120,6 +126,7 @@ pub function get_cpi_event_filter(program_id: String) -> SubscribeRequestFilterT
     }
 }
 ```
+
 When a transaction update arrives via gRPC, iterate through `tx.meta.inner_instructions`. Filter for inner calls where `instruction.program_id == YOUR_PROGRAM_ID` and check the first 8 bytes of `instruction.data` against your event discriminator table.
 
 ---

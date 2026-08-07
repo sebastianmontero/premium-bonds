@@ -64,16 +64,36 @@ export function useDrawHistory(
   const [recentWinners, setRecentWinners] = useState<RecentWinner[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const fetchIdRef = useRef(0);
+  const hasLoadedRef = useRef(false);
+  const lastUserAddressRef = useRef<string | undefined>(userAddress);
+  const lastPoolIdRef = useRef<number>(poolId);
+  const lastDrawCycleIdRef = useRef<number | undefined>(currentDrawCycleId);
+
+  useEffect(() => {
+    if (
+      lastUserAddressRef.current !== userAddress ||
+      lastPoolIdRef.current !== poolId ||
+      lastDrawCycleIdRef.current !== currentDrawCycleId
+    ) {
+      lastUserAddressRef.current = userAddress;
+      lastPoolIdRef.current = poolId;
+      lastDrawCycleIdRef.current = currentDrawCycleId;
+      hasLoadedRef.current = false;
+    }
+  }, [userAddress, poolId, currentDrawCycleId]);
 
   const fetchHistory = useCallback(async () => {
     if (currentDrawCycleId === undefined || currentDrawCycleId < 1) {
       setPrizeHistory([]);
       setRecentWinners([]);
+      hasLoadedRef.current = false;
       return;
     }
 
     const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
 
     try {
       const rpc = client.runtime.rpc;
@@ -95,6 +115,7 @@ export function useDrawHistory(
         if (fetchId === fetchIdRef.current) {
           setPrizeHistory([]);
           setRecentWinners([]);
+          hasLoadedRef.current = true;
           setIsLoading(false);
         }
         return;
@@ -157,7 +178,9 @@ export function useDrawHistory(
         if (!latestCompleteCycleFound) {
           latestCompleteCycleFound = true;
           for (const winner of payout.winners) {
-            const addressStr = winner.winner ? winner.winner.toString() : "Unknown";
+            const addressStr = winner.winner
+              ? winner.winner.toString()
+              : "Unknown";
             latestWinners.push({
               address: addressStr,
               amount: Number(winner.amountOwed),

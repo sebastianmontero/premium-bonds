@@ -14,13 +14,21 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as readline from "readline";
-import { checkRpcHealth, sendTx, safeStringify } from "./utils";
+import {
+  checkRpcHealth,
+  sendTx,
+  safeStringify,
+  printErrorDetails,
+} from "./utils";
 import {
   findHumaPoolAuthorityPda,
   findAtaAddress,
   findDrawCyclePda,
   parseDrawCycle,
   parsePrizePool,
+  getInitializeGlobalInstructionDataEncoder,
+  getCreatePoolInstructionDataEncoder,
+  getSetPrizeTiersInstructionDataEncoder,
 } from "../app/lib/bonds-sdk";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 
@@ -426,53 +434,35 @@ function serializeHumaPoolState(): string {
 }
 
 function serializeInitializeGlobalData(): Uint8Array {
-  const data = new Uint8Array(8);
-  const discriminator = [47, 225, 15, 112, 86, 51, 190, 231];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-  return data;
+  return getInitializeGlobalInstructionDataEncoder().encode({});
 }
 
 function serializeCreatePoolData(
   poolId: number,
   bondPrice: bigint,
   stakeCycleDurationHrs: bigint,
-  feeBasisPoints: number
+  feeBasisPoints: number,
+  minYieldThreshold: bigint = 0n
 ): Uint8Array {
-  const data = new Uint8Array(8 + 4 + 8 + 8 + 2);
-  const view = new DataView(data.buffer);
-
-  const discriminator = [233, 146, 209, 142, 207, 104, 64, 188];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-  view.setUint32(8, poolId, true);
-  view.setBigUint64(12, bondPrice, true);
-  view.setBigInt64(20, stakeCycleDurationHrs, true);
-  view.setUint16(28, feeBasisPoints, true);
-  return data;
+  return getCreatePoolInstructionDataEncoder().encode({
+    poolId,
+    bondPrice,
+    stakeCycleDurationHrs,
+    feeBasisPoints,
+    minYieldThreshold,
+  });
 }
 
 function serializeSetPrizeTiersData(
   tiers: { basisPoints: number; numWinners: number }[]
 ): Uint8Array {
-  const data = new Uint8Array(8 + 4 + tiers.length * 8);
-  const view = new DataView(data.buffer);
-
-  const discriminator = [178, 68, 72, 164, 72, 226, 204, 158];
-  for (let i = 0; i < 8; i++) {
-    data[i] = discriminator[i];
-  }
-  view.setUint32(8, tiers.length, true);
-
-  let offset = 12;
-  for (const tier of tiers) {
-    view.setUint32(offset, tier.numWinners, true);
-    view.setUint16(offset + 4, tier.basisPoints, true);
-    offset += 8;
-  }
-  return data;
+  return getSetPrizeTiersInstructionDataEncoder().encode({
+    tiers: tiers.map((t) => ({
+      numWinners: t.numWinners,
+      basisPoints: t.basisPoints,
+      padding: new Uint8Array(2),
+    })),
+  });
 }
 
 async function ensurePrizeTiersConfigured(
@@ -811,7 +801,8 @@ async function handleInit(dbName?: string) {
       1,
       1_000_000n, // bond_price = 1 USDC (decimals 6)
       24n, // stake_cycle_duration_hrs = 24
-      100 // fee_basis_points = 100 (1%)
+      100, // fee_basis_points = 100 (1%)
+      0n // min_yield_threshold = 0
     );
 
     const instruction = {
@@ -1389,6 +1380,11 @@ async function handleStart(args: string[] = []) {
     console.log("Solana RPC is not running. Spawning Surfpool...");
     surfpoolProcess = spawn("surfpool", surfpoolArgs, { stdio: "inherit" });
 
+    surfpoolProcess.on("error", (err) => {
+      console.error("Failed to spawn Surfpool process:", err);
+      cleanupAndExit(1);
+    });
+
     surfpoolProcess.on("exit", (code) => {
       if (code !== 0 && surfpoolProcess !== null) {
         console.error(`Surfpool exited with code ${code}`);
@@ -1460,6 +1456,11 @@ async function handleStart(args: string[] = []) {
     stdio: "inherit",
     shell: true,
     detached: true,
+  });
+
+  nextProcess.on("error", (err) => {
+    console.error("Failed to spawn Next.js process:", err);
+    cleanupAndExit(1);
   });
 
   nextProcess.on("exit", (code) => {
@@ -2630,6 +2631,6 @@ async function handleDraw(args: string[]) {
 }
 
 main().catch((err) => {
-  console.error("Unhandled error in orchestrator:", err);
+  printErrorDetails(err, "Unhandled error in localnet orchestrator");
   cleanupAndExit(1);
 });

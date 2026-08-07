@@ -7,8 +7,7 @@
  * followed by Borsh-serialized fields.
  */
 
-import { Address, getBase58Decoder } from "@solana/kit";
-import { ANCHOR_PROGRAM_ADDRESS as PROGRAM_ID } from "./generated/yield-bonds/src/generated/programs";
+import { Address, getBase58Decoder, getBase58Encoder } from "@solana/kit";
 
 // ─── Event Type Definitions ──────────────────────────────────────────────────
 
@@ -17,7 +16,6 @@ export interface BondsPurchasedEvent {
   poolId: number;
   bonds: number;
   amount: bigint;
-  timestamp: bigint;
 }
 
 export interface BondsSoldEvent {
@@ -26,7 +24,6 @@ export interface BondsSoldEvent {
   bonds: number;
   principal: bigint;
   redemptionId: bigint;
-  timestamp: bigint;
 }
 
 export interface WinningsReinvestedEvent {
@@ -36,7 +33,6 @@ export interface WinningsReinvestedEvent {
   bondsBought: number;
   amountReinvested: bigint;
   isFinalBatch: boolean;
-  timestamp: bigint;
 }
 
 export interface WinningsClaimedEvent {
@@ -44,7 +40,6 @@ export interface WinningsClaimedEvent {
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
-  timestamp: bigint;
 }
 
 export interface RedemptionClaimedEvent {
@@ -52,7 +47,6 @@ export interface RedemptionClaimedEvent {
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
-  timestamp: bigint;
 }
 
 export interface DrawCompletedEvent {
@@ -60,7 +54,6 @@ export interface DrawCompletedEvent {
   cycleId: number;
   prizePot: bigint;
   winnersCount: number;
-  timestamp: bigint;
 }
 
 export interface DrawForceUnlockedEvent {
@@ -69,7 +62,6 @@ export interface DrawForceUnlockedEvent {
   admin: string;
   prizePot: bigint;
   cycleFeeCollected: bigint;
-  timestamp: bigint;
 }
 
 export type ProgramEvent =
@@ -118,47 +110,20 @@ export type ProgramEvent =
 
 // ─── Discriminator computation ───────────────────────────────────────────────
 // Anchor event discriminators: SHA-256("event:<EventName>")[..8]
-// Pre-computed at module load.
-
 const base58Decoder = getBase58Decoder();
+const base58Encoder = getBase58Encoder();
 
-async function computeDiscriminator(eventName: string): Promise<Uint8Array> {
-  const encoded = new TextEncoder().encode(`event:${eventName}`);
-  const hash = await crypto.subtle.digest("SHA-256", encoded);
-  return new Uint8Array(hash).slice(0, 8);
-}
+const ANCHOR_EVENT_IX_TAG_HEX = "e445a52e51cb9a1d";
 
-interface DiscriminatorMap {
-  [hex: string]: string;
-}
-
-let discriminators: DiscriminatorMap | null = null;
-
-async function getDiscriminators(): Promise<DiscriminatorMap> {
-  if (discriminators) return discriminators;
-
-  const eventNames = [
-    "BondsPurchased",
-    "BondsSold",
-    "WinningsReinvested",
-    "WinningsClaimed",
-    "RedemptionClaimed",
-    "DrawCompleted",
-    "DrawForceUnlocked",
-  ];
-
-  const map: DiscriminatorMap = {};
-  for (const name of eventNames) {
-    const disc = await computeDiscriminator(name);
-    const hex = Array.from(disc)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    map[hex] = name;
-  }
-
-  discriminators = map;
-  return map;
-}
+const DISCRIMINATOR_MAP: Record<string, string> = {
+  "98577bdd8fc92b0f": "BondsPurchased",
+  "0aa460b294f9dc2a": "BondsSold",
+  aeeb2097b9e63e6e: "WinningsReinvested",
+  bbb81dc436754696: "WinningsClaimed",
+  "6bfbc7d53bad35bd": "RedemptionClaimed",
+  c1882558b47c6014: "DrawCompleted",
+  "1a1dc53ce504de2d": "DrawForceUnlocked",
+};
 
 // ─── Borsh Decoders ──────────────────────────────────────────────────────────
 
@@ -173,10 +138,6 @@ function readU32(view: DataView, offset: number): number {
 
 function readU64(view: DataView, offset: number): bigint {
   return view.getBigUint64(offset, true);
-}
-
-function readI64(view: DataView, offset: number): bigint {
-  return view.getBigInt64(offset, true);
 }
 
 function readBool(view: DataView, offset: number): boolean {
@@ -199,31 +160,29 @@ function decodeEventData(
 
   switch (eventName) {
     case "BondsPurchased": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) + i64(8) = 56
-      if (payload.length < 56) return null;
+      // Pubkey(32) + u32(4) + u32(4) + u64(8) = 48
+      if (payload.length < 48) return null;
       return {
         user: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
         bonds: readU32(view, 36),
         amount: readU64(view, 40),
-        timestamp: readI64(view, 48),
       } as BondsPurchasedEvent;
     }
     case "BondsSold": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) + i64(8) = 64
-      if (payload.length < 64) return null;
+      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) = 56
+      if (payload.length < 56) return null;
       return {
         user: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
         bonds: readU32(view, 36),
         principal: readU64(view, 40),
         redemptionId: readU64(view, 48),
-        timestamp: readI64(view, 56),
       } as BondsSoldEvent;
     }
     case "WinningsReinvested": {
-      // Pubkey(32) + u32(4) + u32(4) + u32(4) + u64(8) + bool(1) + i64(8) = 61
-      if (payload.length < 61) return null;
+      // Pubkey(32) + u32(4) + u32(4) + u32(4) + u64(8) + bool(1) = 53
+      if (payload.length < 53) return null;
       return {
         winner: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
@@ -231,52 +190,47 @@ function decodeEventData(
         bondsBought: readU32(view, 40),
         amountReinvested: readU64(view, 44),
         isFinalBatch: readBool(view, 52),
-        timestamp: readI64(view, 53),
       } as WinningsReinvestedEvent;
     }
     case "WinningsClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) + i64(8) = 60
-      if (payload.length < 60) return null;
+      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52
+      if (payload.length < 52) return null;
       return {
         user: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
         amount: readU64(view, 36),
         redemptionId: readU64(view, 44),
-        timestamp: readI64(view, 52),
       } as WinningsClaimedEvent;
     }
     case "RedemptionClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) + i64(8) = 60
-      if (payload.length < 60) return null;
+      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52
+      if (payload.length < 52) return null;
       return {
         user: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
         amount: readU64(view, 36),
         redemptionId: readU64(view, 44),
-        timestamp: readI64(view, 52),
       } as RedemptionClaimedEvent;
     }
     case "DrawCompleted": {
-      // u32(4) + u32(4) + u64(8) + u32(4) + i64(8) = 28
-      if (payload.length < 28) return null;
+      // u32(4) + u32(4) + u64(8) + u32(4) = 20
+      if (payload.length < 20) return null;
       return {
         poolId: readU32(view, 0),
         cycleId: readU32(view, 4),
         prizePot: readU64(view, 8),
         winnersCount: readU32(view, 16),
-        timestamp: readI64(view, 20),
       } as DrawCompletedEvent;
     }
     case "DrawForceUnlocked": {
-      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + i64(8) = 64
-      if (payload.length < 64) return null;
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) = 56
+      if (payload.length < 56) return null;
       return {
         poolId: readU32(view, 0),
         cycleId: readU32(view, 4),
         admin: readPubkey(view, payload, 8),
         prizePot: readU64(view, 40),
         cycleFeeCollected: readU64(view, 48),
-        timestamp: readI64(view, 56),
       } as DrawForceUnlockedEvent;
     }
     default:
@@ -284,41 +238,89 @@ function decodeEventData(
   }
 }
 
-// ─── Log Parser ──────────────────────────────────────────────────────────────
+// ─── Transaction Parser (Logs + Inner Instructions) ──────────────────────────
 
 /**
- * Parse Anchor events from transaction log messages.
- * Anchor emits events as `Program data: <base64>` log entries.
+ * Parse Anchor events from transaction log messages and inner instructions.
+ * Anchor emits events as `Program data: <base64>` log entries (emit!)
+ * and as inner instructions (emit_cpi!).
  */
-async function parseEventsFromLogs(
-  logs: readonly string[]
-): Promise<Array<{ type: string; data: ProgramEvent["data"] }>> {
-  const discMap = await getDiscriminators();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseEventsFromTxMeta(
+  meta: any
+): Array<{ type: string; data: ProgramEvent["data"] }> {
   const events: Array<{ type: string; data: ProgramEvent["data"] }> = [];
+  if (!meta) return events;
 
-  for (const log of logs) {
-    if (!log.startsWith("Program data: ")) continue;
+  // 1. Parse log events (emit!)
+  if (Array.isArray(meta.logMessages)) {
+    for (const log of meta.logMessages) {
+      if (typeof log !== "string" || !log.startsWith("Program data: "))
+        continue;
 
-    const b64 = log.slice("Program data: ".length);
-    let bytes: Uint8Array;
-    try {
-      bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    } catch {
-      continue;
+      const b64 = log.slice("Program data: ".length);
+      let bytes: Uint8Array;
+      try {
+        bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      } catch {
+        continue;
+      }
+
+      if (bytes.length < 8) continue;
+
+      const discHex = Array.from(bytes.slice(0, 8))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      const eventName = DISCRIMINATOR_MAP[discHex];
+      if (!eventName) continue;
+
+      const decoded = decodeEventData(eventName, bytes);
+      if (decoded) {
+        events.push({ type: eventName, data: decoded });
+      }
     }
+  }
 
-    if (bytes.length < 8) continue;
+  // 2. Parse CPI inner instruction events (emit_cpi!)
+  if (Array.isArray(meta.innerInstructions)) {
+    for (const set of meta.innerInstructions) {
+      if (!set || !Array.isArray(set.instructions)) continue;
+      for (const ix of set.instructions) {
+        if (!ix || !ix.data) continue;
+        let bytes: Uint8Array;
+        try {
+          if (typeof ix.data === "string") {
+            bytes = base58Encoder.encode(ix.data);
+          } else if (ix.data instanceof Uint8Array) {
+            bytes = ix.data;
+          } else {
+            continue;
+          }
+        } catch {
+          continue;
+        }
 
-    const discHex = Array.from(bytes.slice(0, 8))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+        if (bytes.length < 16) continue;
 
-    const eventName = discMap[discHex];
-    if (!eventName) continue;
+        const tagHex = Array.from(bytes.slice(0, 8))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
 
-    const decoded = decodeEventData(eventName, bytes);
-    if (decoded) {
-      events.push({ type: eventName, data: decoded });
+        if (tagHex !== ANCHOR_EVENT_IX_TAG_HEX) continue;
+
+        const discHex = Array.from(bytes.slice(8, 16))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        const eventName = DISCRIMINATOR_MAP[discHex];
+        if (!eventName) continue;
+
+        const decoded = decodeEventData(eventName, bytes.slice(8));
+        if (decoded) {
+          events.push({ type: eventName, data: decoded });
+        }
+      }
     }
   }
 
@@ -406,18 +408,9 @@ export async function fetchProgramEvents(
             })
             .send();
 
-          if (!tx?.meta?.logMessages) return [];
+          if (!tx?.meta) return [];
 
-          // Check if this transaction involves our program
-          const logs: string[] = tx.meta.logMessages;
-          const involvesProgram = logs.some(
-            (l: string) =>
-              l.includes(`Program ${PROGRAM_ID}`) ||
-              l.startsWith("Program data: ")
-          );
-          if (!involvesProgram) return [];
-
-          const parsed = await parseEventsFromLogs(logs);
+          const parsed = parseEventsFromTxMeta(tx.meta);
           return parsed.map(
             (e) =>
               ({

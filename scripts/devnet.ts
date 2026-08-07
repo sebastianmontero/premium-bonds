@@ -24,7 +24,17 @@ import {
   updateFileContent,
   safeStringify,
 } from "./utils";
-import { findHumaPoolAuthorityPda, findAtaAddress } from "../app/lib/bonds-sdk";
+import {
+  findHumaPoolAuthorityPda,
+  findAtaAddress,
+  getInitializeGlobalInstructionDataEncoder,
+  getCreatePoolInstructionDataEncoder,
+  getSetPrizeTiersInstructionDataEncoder,
+  getSimulateYieldInstructionDataEncoder,
+  getSettleRequestsInstructionDataEncoder,
+  getInitializeMockPoolStateInstructionDataEncoder,
+  getCreateLenderAccountsV2InstructionDataEncoder,
+} from "../app/lib/bonds-sdk";
 
 function generateRandomAddress(): string {
   const keyPair = crypto.generateKeyPairSync("ed25519");
@@ -61,67 +71,47 @@ function getInstructionDiscriminator(name: string): Uint8Array {
 }
 
 function serializeSimulateYieldData(yieldAmount: bigint): Uint8Array {
-  const data = new Uint8Array(8 + 8);
-  const view = new DataView(data.buffer);
-  data.set(getInstructionDiscriminator("simulate_yield"), 0);
-  view.setBigUint64(8, yieldAmount, true);
-  return data;
+  return getSimulateYieldInstructionDataEncoder().encode({ yieldAmount });
 }
 
 function serializeSettleRequestsData(count: number): Uint8Array {
-  const data = new Uint8Array(8 + 4);
-  const view = new DataView(data.buffer);
-  data.set(getInstructionDiscriminator("settle_requests"), 0);
-  view.setUint32(8, count, true);
-  return data;
+  return getSettleRequestsInstructionDataEncoder().encode({ count });
 }
 
 function serializeInitializeMockPoolState(): Uint8Array {
-  const data = new Uint8Array(8);
-  data.set(getInstructionDiscriminator("initialize_mock_pool_state"), 0);
-  return data;
+  return getInitializeMockPoolStateInstructionDataEncoder().encode({});
 }
 
 function serializeInitializeGlobalData(): Uint8Array {
-  const data = new Uint8Array(8);
-  const discriminator = [47, 225, 15, 112, 86, 51, 190, 231];
-  for (let i = 0; i < 8; i++) data[i] = discriminator[i];
-  return data;
+  return getInitializeGlobalInstructionDataEncoder().encode({});
 }
 
 function serializeCreatePoolData(
   poolId: number,
   bondPrice: bigint,
   stakeCycleDurationHrs: bigint,
-  feeBasisPoints: number
+  feeBasisPoints: number,
+  minYieldThreshold: bigint = 0n
 ): Uint8Array {
-  const data = new Uint8Array(8 + 4 + 8 + 8 + 2);
-  const view = new DataView(data.buffer);
-  const discriminator = [233, 146, 209, 142, 207, 104, 64, 188];
-  for (let i = 0; i < 8; i++) data[i] = discriminator[i];
-  view.setUint32(8, poolId, true);
-  view.setBigUint64(12, bondPrice, true);
-  view.setBigInt64(20, stakeCycleDurationHrs, true);
-  view.setUint16(28, feeBasisPoints, true);
-  return data;
+  return getCreatePoolInstructionDataEncoder().encode({
+    poolId,
+    bondPrice,
+    stakeCycleDurationHrs,
+    feeBasisPoints,
+    minYieldThreshold,
+  });
 }
 
 function serializeSetPrizeTiersData(
   tiers: { basisPoints: number; numWinners: number }[]
 ): Uint8Array {
-  const data = new Uint8Array(8 + 4 + tiers.length * 8);
-  const view = new DataView(data.buffer);
-  const discriminator = [178, 68, 72, 164, 72, 226, 204, 158];
-  for (let i = 0; i < 8; i++) data[i] = discriminator[i];
-  view.setUint32(8, tiers.length, true);
-
-  let offset = 12;
-  for (const tier of tiers) {
-    view.setUint32(offset, tier.numWinners, true);
-    view.setUint16(offset + 4, tier.basisPoints, true);
-    offset += 8;
-  }
-  return data;
+  return getSetPrizeTiersInstructionDataEncoder().encode({
+    tiers: tiers.map((t) => ({
+      numWinners: t.numWinners,
+      basisPoints: t.basisPoints,
+      padding: new Uint8Array(2),
+    })),
+  });
 }
 
 async function handleDeploy() {
@@ -512,7 +502,7 @@ async function handleInit(args: string[]) {
         role: AccountRole.READONLY,
       },
     ],
-    data: getInstructionDiscriminator("create_lender_accounts_v2"),
+    data: getCreateLenderAccountsV2InstructionDataEncoder().encode({}),
   };
   await sendMultiSignedTx(initLenderIx, [adminSigner, humaLenderStateSigner]);
 
@@ -633,7 +623,8 @@ async function handleInit(args: string[]) {
       poolId,
       1_000_000n, // bond price = 1 USDC
       24n, // stake duration = 24 hrs
-      100 // fee = 1%
+      100, // fee = 1%
+      0n // min_yield_threshold = 0
     ),
   };
   await sendTx(rpc, createPoolIx, adminSigner);

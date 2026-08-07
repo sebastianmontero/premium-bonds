@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { PrizeTiersModal } from "./PrizeTiersModal";
+import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -13,6 +15,19 @@ interface PoolCardProps {
   onWithdraw: () => void;
 }
 
+const TIER_GRID_LAYOUTS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-2 sm:grid-cols-4",
+  5: "grid-cols-2 sm:grid-cols-5",
+  6: "grid-cols-2 sm:grid-cols-3",
+  7: "grid-cols-2 sm:grid-cols-4",
+  8: "grid-cols-2 sm:grid-cols-4",
+  9: "grid-cols-2 sm:grid-cols-3",
+  10: "grid-cols-2 sm:grid-cols-5",
+};
+
 export function PoolCard({
   pool,
   userTickets,
@@ -20,21 +35,24 @@ export function PoolCard({
   onWithdraw,
 }: PoolCardProps) {
   const t = useTranslations("Pools");
+  const [showAllTiersModal, setShowAllTiersModal] = useState(false);
 
   const isFrozen = pool.isFrozenForDraw;
   const activeTicketsCount = userTickets?.activeTicketsCount ?? 0;
   const totalTicketsCount =
     activeTicketsCount + (userTickets?.pendingTicketsCount ?? 0);
 
-  const getTierLabel = (tierIndex: number) => {
+  const getTierLabel = (tierIndex: number, totalCount: number) => {
     switch (tierIndex) {
       case 0:
         return t("grand");
       case 1:
         return t("runnerUp");
-      case 2:
       default:
-        return t("consolation");
+        if (totalCount <= 3) {
+          return t("consolation");
+        }
+        return t("tierN", { tier: tierIndex + 1 });
     }
   };
 
@@ -126,29 +144,79 @@ export function PoolCard({
       </div>
 
       {/* ── Prize Tiers ──────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-          {t("prizeTiers")}
-        </p>
-        <div className="flex gap-2">
-          {pool.prizeTiers.map((tier, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-lg bg-surface-container/60 px-3 py-2 text-center"
-            >
-              <p className="text-[10px] font-medium text-on-surface-variant">
-                {getTierLabel(i)}
+      {(() => {
+        const activeTiers = (pool.prizeTiers || []).filter(
+          (tier) => tier.basisPoints > 0 && tier.numWinners > 0
+        );
+
+        if (activeTiers.length === 0) return null;
+
+        const featuredTiers = activeTiers.slice(0, 3);
+        const gridColsClass =
+          TIER_GRID_LAYOUTS[featuredTiers.length] || "grid-cols-3";
+
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+                {t("prizeTiers")}
               </p>
-              <p className="mt-0.5 font-mono text-sm font-semibold text-on-surface">
-                {(tier.basisPoints / 100).toFixed(0)}%
-              </p>
-              <p className="text-[10px] text-on-surface-variant">
-                ×{tier.numWinners}
-              </p>
+              {activeTiers.length > 3 && (
+                <button
+                  onClick={() => setShowAllTiersModal(true)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition cursor-pointer"
+                >
+                  <span>
+                    {t("viewMoreTiers", { count: activeTiers.length - 3 })}
+                  </span>
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
+              )}
             </div>
-          ))}
-        </div>
-      </div>
+            <div className={`grid ${gridColsClass} gap-2.5`}>
+              {featuredTiers.map((tier, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg bg-surface-container/60 px-3 py-2 text-center border border-surface-container-high/40 hover:bg-surface-container-high/50 transition-colors"
+                >
+                  <p
+                    className={`text-[10px] font-semibold truncate ${tierColor(i)}`}
+                  >
+                    {getTierLabel(i, activeTiers.length)}
+                  </p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-on-surface">
+                    {(tier.basisPoints / 100).toLocaleString("en-US", {
+                      maximumFractionDigits: 1,
+                    })}
+                    %
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant">
+                    ×{tier.numWinners}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <PrizeTiersModal
+              isOpen={showAllTiersModal}
+              onClose={() => setShowAllTiersModal(false)}
+              pool={pool}
+            />
+          </div>
+        );
+      })()}
 
       {/* ── Actions ──────────────────────────────────────────────────── */}
       <div className="flex gap-3 relative z-0">

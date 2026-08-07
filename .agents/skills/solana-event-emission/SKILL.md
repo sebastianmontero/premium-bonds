@@ -51,13 +51,13 @@ Use this Skill when:
 
 ### Paradigm Comparison Summary
 
-| Metric / Requirement | `emit!` (Anchor Log) | `emit_cpi!` (Anchor CPI) | `spl-noop` (No-Op CPI) | `sol_log_data` (Syscall) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Compute Units (CU)** | ~1,200 – 2,200 CUs | ~2,500 – 4,500 CUs | ~1,800 – 2,800 CUs | ~600 – 1,200 CUs |
-| **Log Buffer (10 KB Limit)** | Consumes log buffer | **Bypasses log buffer** | **Bypasses log buffer** | Consumes log buffer |
-| **Extra Accounts Needed** | 0 extra accounts | 2 extra accounts (`event_authority`, `program`) | 1 extra account (`noop_program`) | 0 extra accounts |
-| **Anti-Spoofing Immunity** | Low (Text parsing) | **Cryptographic (Event PDA)** | **High (CPI Target Check)** | Low (Text parsing) |
-| **Off-Chain Indexability** | Log Filter / IDL | Inner Instructions / gRPC | Inner Instructions / gRPC | Log Filter |
+| Metric / Requirement         | `emit!` (Anchor Log) | `emit_cpi!` (Anchor CPI)                        | `spl-noop` (No-Op CPI)           | `sol_log_data` (Syscall) |
+| :--------------------------- | :------------------- | :---------------------------------------------- | :------------------------------- | :----------------------- |
+| **Compute Units (CU)**       | ~1,200 – 2,200 CUs   | ~2,500 – 4,500 CUs                              | ~1,800 – 2,800 CUs               | ~600 – 1,200 CUs         |
+| **Log Buffer (10 KB Limit)** | Consumes log buffer  | **Bypasses log buffer**                         | **Bypasses log buffer**          | Consumes log buffer      |
+| **Extra Accounts Needed**    | 0 extra accounts     | 2 extra accounts (`event_authority`, `program`) | 1 extra account (`noop_program`) | 0 extra accounts         |
+| **Anti-Spoofing Immunity**   | Low (Text parsing)   | **Cryptographic (Event PDA)**                   | **High (CPI Target Check)**      | Low (Text parsing)       |
+| **Off-Chain Indexability**   | Log Filter / IDL     | Inner Instructions / gRPC                       | Inner Instructions / gRPC        | Log Filter               |
 
 ---
 

@@ -39,19 +39,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
-  getNonNullResolvedInstructionInput,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import {
-  findEventAuthorityPda,
-  findPayoutRegistryPda,
-  findReinvestWinningsUserWinningsPda,
-} from "../pdas";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const REINVEST_WINNINGS_DISCRIMINATOR: ReadonlyUint8Array =
@@ -172,11 +166,11 @@ export type ReinvestWinningsAsyncInput<
   crank: TransactionSigner<TAccountCrank>;
   winner: Address<TAccountWinner>;
   /** The payout registry containing the winner lists. */
-  payoutRegistry?: Address<TAccountPayoutRegistry>;
+  payoutRegistry: Address<TAccountPayoutRegistry>;
   /** The prize pool state account. */
   pool: Address<TAccountPool>;
   /** The winner's user winnings state account. */
-  userWinnings?: Address<TAccountUserWinnings>;
+  userWinnings: Address<TAccountUserWinnings>;
   /** The ticket registry account loader. */
   ticketRegistry: Address<TAccountTicketRegistry>;
   /** The Solana System Program. */
@@ -251,27 +245,6 @@ export async function getReinvestWinningsInstructionAsync<
   const args = { ...input };
 
   // Resolve default values.
-  if (!accounts.payoutRegistry.value) {
-    accounts.payoutRegistry.value = await findPayoutRegistryPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-      cycleId: getNonNullResolvedInstructionInput("cycleId", args.cycleId),
-    });
-  }
-  if (!accounts.userWinnings.value) {
-    accounts.userWinnings.value = await findReinvestWinningsUserWinningsPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-      winner: getAddressFromResolvedInstructionAccount(
-        "winner",
-        accounts.winner.value
-      ),
-    });
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;

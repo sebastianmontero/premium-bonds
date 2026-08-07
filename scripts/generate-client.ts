@@ -91,7 +91,7 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const yieldBondsIdl = JSON.parse(fs.readFileSync(yieldBondsPath, "utf-8"));
 
-  // Clean self-referential PDA seeds from IDL accounts before building Codama AST
+  // Clean self-referential or account-field PDA seeds from IDL accounts before building Codama AST
   if (Array.isArray(yieldBondsIdl.instructions)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const ix of yieldBondsIdl.instructions) {
@@ -100,10 +100,10 @@ async function main() {
         for (const acc of ix.accounts) {
           if (acc.pda && Array.isArray(acc.pda.seeds)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const isSelfReferential = acc.pda.seeds.some(
-              (seed: any) => seed.kind === "account" && seed.path === acc.name
+            const isFlawedSeed = acc.pda.seeds.some(
+              (seed: any) => seed.kind === "account"
             );
-            if (isSelfReferential) {
+            if (isFlawedSeed) {
               delete acc.pda;
             }
           }

@@ -217,6 +217,7 @@ export function useActivityFeed(
   const entriesRef = useRef<ActivityEntry[]>([]);
   const lastUserAddressRef = useRef<string | undefined>(userAddress);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // Keep entriesRef in sync with state
   const updateEntriesState = useCallback((newEntries: ActivityEntry[]) => {
@@ -228,6 +229,7 @@ export function useActivityFeed(
   useEffect(() => {
     if (lastUserAddressRef.current !== userAddress) {
       lastUserAddressRef.current = userAddress;
+      hasLoadedRef.current = false;
       updateEntriesState([]);
     }
   }, [userAddress, updateEntriesState]);
@@ -245,11 +247,14 @@ export function useActivityFeed(
       setHasMore(false);
       hasMoreRef.current = false;
       oldestSignatureRef.current = null;
+      hasLoadedRef.current = false;
       return;
     }
 
     const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
 
     try {
       const rpc = client.runtime.rpc;
@@ -259,7 +264,7 @@ export function useActivityFeed(
       // Check localStorage cache for incremental fetching
       const cached = getCachedEvents(cacheKey);
 
-      if (cached) {
+      if (cached && cached.events.length > 0) {
         if (cached.oldestSignature !== undefined) {
           oldestSignatureRef.current = cached.oldestSignature;
         }
@@ -269,9 +274,10 @@ export function useActivityFeed(
         }
       }
 
-      const fetchOpts = cached?.lastSignature
-        ? { limit: 15, until: cached.lastSignature }
-        : { limit: 15 };
+      const fetchOpts =
+        cached?.lastSignature && cached.events.length > 0
+          ? { limit: 15, until: cached.lastSignature }
+          : { limit: 15 };
 
       // Fetch initial batch from RPC
       const result = await fetchProgramEvents(rpc, walletAddr, fetchOpts);
@@ -340,6 +346,7 @@ export function useActivityFeed(
       console.error("useActivityFeed initial fetch error:", err);
     } finally {
       if (fetchId === fetchIdRef.current) {
+        hasLoadedRef.current = true;
         setIsLoading(false);
       }
     }

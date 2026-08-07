@@ -209,31 +209,181 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
 };
 
 /**
- * Anchor internal framework constraint errors map
+ * Anchor internal framework constraint & require/account errors map
  */
 export const ANCHOR_FRAMEWORK_ERRORS: Record<
   number,
-  { name: string; message: string }
+  { name: string; message: string; actionable?: string }
 > = {
+  // Constraint Violations (2000-2021)
   2000: {
     name: "ConstraintMut",
     message: "Account mutability constraint check failed.",
+    actionable: "Ensure the required account is marked mutable.",
   },
   2001: {
     name: "ConstraintHasOne",
     message: "Account ownership / has_one constraint check failed.",
   },
-  2003: {
-    name: "ConstraintSeeds",
-    message: "Program Derived Address (PDA) seed mismatch.",
-  },
-  2008: {
+  2002: {
     name: "ConstraintSigner",
     message: "Required account did not sign transaction.",
+    actionable: "Ensure all required signers have signed the transaction.",
+  },
+  2003: { name: "ConstraintRaw", message: "Raw constraint check failed." },
+  2004: {
+    name: "ConstraintOwner",
+    message: "Account owner constraint check failed.",
+  },
+  2005: {
+    name: "ConstraintRentExempt",
+    message: "Account rent exemption check failed.",
+  },
+  2006: {
+    name: "ConstraintSeeds",
+    message: "Program Derived Address (PDA) seed mismatch.",
+    actionable: "Verify the PDA seeds and bump match the program expectations.",
+  },
+  2007: {
+    name: "ConstraintExecutable",
+    message: "Executable constraint check failed.",
+  },
+  2008: { name: "ConstraintState", message: "State constraint check failed." },
+  2009: {
+    name: "ConstraintAssociated",
+    message: "Associated account constraint check failed.",
+  },
+  2010: {
+    name: "ConstraintAssociatedInit",
+    message: "Associated account initialization check failed.",
+  },
+  2011: {
+    name: "ConstraintClose",
+    message: "Account close constraint check failed.",
+  },
+  2012: {
+    name: "ConstraintAddress",
+    message: "Account address constraint check failed.",
+  },
+  2013: {
+    name: "ConstraintZero",
+    message: "Account zero constraint check failed.",
+  },
+  2014: {
+    name: "ConstraintTokenMint",
+    message: "Token mint constraint check failed.",
+  },
+  2015: {
+    name: "ConstraintTokenAccount",
+    message: "Token account constraint check failed.",
+  },
+  2016: {
+    name: "ConstraintTokenProgram",
+    message: "Token program constraint check failed.",
+  },
+  2017: {
+    name: "ConstraintMintMintAuthority",
+    message: "Mint authority constraint check failed.",
+  },
+  2018: {
+    name: "ConstraintMintFreezeAuthority",
+    message: "Freeze authority constraint check failed.",
+  },
+  2019: {
+    name: "ConstraintMintDecimals",
+    message: "Mint decimals constraint check failed.",
+  },
+  2020: { name: "ConstraintSpace", message: "Space constraint check failed." },
+  2021: {
+    name: "ConstraintAccountIsHeader",
+    message: "Account is header constraint check failed.",
+  },
+
+  // Require & Account Errors (3000-3020)
+  3000: {
+    name: "RequireViolated",
+    message: "Require constraint check failed.",
+  },
+  3001: {
+    name: "RequireEqViolated",
+    message: "Require eq constraint check failed.",
+  },
+  3002: {
+    name: "RequireKeysEqViolated",
+    message: "Require keys eq constraint check failed.",
+  },
+  3003: {
+    name: "RequireNeqViolated",
+    message: "Require neq constraint check failed.",
+  },
+  3004: {
+    name: "RequireGtViolated",
+    message: "Require gt constraint check failed.",
+  },
+  3005: {
+    name: "RequireGteViolated",
+    message: "Require gte constraint check failed (0xbbd).",
+  },
+  3006: {
+    name: "RequireLtViolated",
+    message: "Require lt constraint check failed.",
+  },
+  3007: {
+    name: "RequireLteViolated",
+    message: "Require lte constraint check failed.",
+  },
+  3008: {
+    name: "AccountDiscriminatorAlreadySet",
+    message: "Account discriminator already set.",
+  },
+  3009: {
+    name: "AccountDiscriminatorNotFound",
+    message: "Account discriminator not found.",
   },
   3010: {
+    name: "AccountDiscriminatorMismatch",
+    message: "Account discriminator mismatch.",
+  },
+  3011: {
+    name: "AccountDidNotDeserialize",
+    message: "Account deserialization failed.",
+  },
+  3012: {
+    name: "AccountDidNotSerialize",
+    message: "Account serialization failed.",
+  },
+  3013: {
+    name: "AccountNotEnoughKeys",
+    message: "Not enough account keys provided for instruction (0xbc5).",
+    actionable:
+      "Ensure all required instruction accounts (including event_authority and program ID) are provided.",
+  },
+  3014: {
+    name: "AccountNotMutable",
+    message: "Account is required to be mutable.",
+  },
+  3015: {
+    name: "AccountOwnedByWrongProgram",
+    message: "Account owned by wrong program.",
+  },
+  3016: { name: "InvalidProgramId", message: "Invalid program ID provided." },
+  3017: {
+    name: "InvalidProgramExecutable",
+    message: "Invalid program executable provided.",
+  },
+  3018: {
+    name: "AccountNotSigner",
+    message: "Account is required to sign transaction.",
+  },
+  3019: {
+    name: "AccountNotSystemOwned",
+    message: "Account is not system owned.",
+  },
+  3020: {
     name: "AccountNotInitialized",
     message: "Required program account is not initialized.",
+    actionable:
+      "Ensure the account has been initialized before invoking this instruction.",
   },
 };
 
@@ -285,10 +435,120 @@ function extractLogs(err: unknown): string[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = err as any;
   if (Array.isArray(e?.logs)) return e.logs;
+  if (Array.isArray(e?.context?.logs)) return e.context.logs;
+  if (Array.isArray(e?.context?.data?.logs)) return e.context.data.logs;
   if (Array.isArray(e?.simulationResponse?.logs))
     return e.simulationResponse.logs;
   if (Array.isArray(e?.cause?.logs)) return e.cause.logs;
+  if (Array.isArray(e?.cause?.context?.logs)) return e.cause.context.logs;
+
+  if (Array.isArray(e?.transactionPlanResult?.results)) {
+    for (const res of e.transactionPlanResult.results) {
+      if (Array.isArray(res?.logs)) return res.logs;
+    }
+  }
   return [];
+}
+
+/**
+ * Flexible helper to match Anchor custom or framework errors from structured error objects,
+ * numeric codes, hex codes, or error log text.
+ */
+export function matchAnchorError(input: unknown): {
+  code: number;
+  info: { name: string; message: string; actionable?: string };
+  isFramework?: boolean;
+} | null {
+  if (!input) return null;
+
+  // 1. Direct object inspection (e.g. err.context?.code, err.cause?.context?.code, err.code)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const errObj = input as any;
+  const directCode =
+    errObj?.context?.code ??
+    errObj?.cause?.context?.code ??
+    errObj?.code ??
+    (typeof input === "number" ? input : null);
+
+  if (typeof directCode === "number") {
+    if (ANCHOR_CUSTOM_ERRORS[directCode]) {
+      return {
+        code: directCode,
+        info: ANCHOR_CUSTOM_ERRORS[directCode],
+        isFramework: false,
+      };
+    }
+    if (ANCHOR_FRAMEWORK_ERRORS[directCode]) {
+      return {
+        code: directCode,
+        info: ANCHOR_FRAMEWORK_ERRORS[directCode],
+        isFramework: true,
+      };
+    }
+  }
+
+  const text = typeof input === "string" ? input : String(input);
+
+  // 2. Hex or decimal error pattern matching in string/logs
+  const match =
+    text.match(/"Custom"\s*:\s*(\d+)/i) ||
+    text.match(/Custom\s*:\s*(\d+)/i) ||
+    text.match(
+      /(?:Custom error|code|InstructionError):\s*(0x[0-9a-fA-F]+|\d+)/i
+    ) ||
+    text.match(/custom program error:\s*(0x[0-9a-fA-F]+|\d+)/i);
+
+  if (match) {
+    const val = match[1];
+    const decCode = val.startsWith("0x")
+      ? parseInt(val, 16)
+      : parseInt(val, 10);
+    if (ANCHOR_CUSTOM_ERRORS[decCode]) {
+      return {
+        code: decCode,
+        info: ANCHOR_CUSTOM_ERRORS[decCode],
+        isFramework: false,
+      };
+    }
+    if (ANCHOR_FRAMEWORK_ERRORS[decCode]) {
+      return {
+        code: decCode,
+        info: ANCHOR_FRAMEWORK_ERRORS[decCode],
+        isFramework: true,
+      };
+    }
+  }
+
+  // 3. Name or error string matching
+  for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
+    const code = Number(codeStr);
+    const hexCode = `0x${code.toString(16)}`;
+    if (
+      text.includes(info.name) ||
+      text.includes(`Error Number: ${code}`) ||
+      text.includes(`custom program error: ${hexCode}`) ||
+      text.includes(`Custom error: ${code}`) ||
+      text.includes(`Custom error: ${hexCode}`)
+    ) {
+      return { code, info, isFramework: false };
+    }
+  }
+
+  for (const [codeStr, info] of Object.entries(ANCHOR_FRAMEWORK_ERRORS)) {
+    const code = Number(codeStr);
+    const hexCode = `0x${code.toString(16)}`;
+    if (
+      text.includes(info.name) ||
+      text.includes(`Error Number: ${code}`) ||
+      text.includes(`custom program error: ${hexCode}`) ||
+      text.includes(`Custom error: ${code}`) ||
+      text.includes(`Custom error: ${hexCode}`)
+    ) {
+      return { code, info, isFramework: true };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -396,59 +656,56 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const errorObj = err as any;
   const rawMsg = errorObj.message || errorObj.cause?.message || String(err);
+  const innerPlanErr = extractPlanErrorMessage(err);
+  const combinedSearchText = [rawMsg, innerPlanErr, ...logs]
+    .filter(Boolean)
+    .join(" ");
 
-  // 2. Check for @solana/kit Transaction Plan Failure or Blockhash Expiration
-  if (
-    rawMsg.includes("provided transaction plan failed to execute") ||
-    errorObj.transactionPlanResult ||
-    rawMsg.includes("BlockheightExceeded") ||
-    rawMsg.includes("blockhash not found") ||
-    rawMsg.includes("Transaction expired")
-  ) {
-    const innerPlanErr = extractPlanErrorMessage(err);
-    const innerStr = innerPlanErr ? innerPlanErr : rawMsg;
-
-    // Check if inner error is actually a custom program error
-    for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
-      const code = Number(codeStr);
-      const hexCode = `0x${code.toString(16)}`;
-      if (
-        innerStr.includes(info.name) ||
-        innerStr.includes(`Error Number: ${code}`) ||
-        innerStr.includes(`custom program error: ${hexCode}`) ||
-        innerStr.includes(`Custom error: ${code}`)
-      ) {
-        return {
-          isCancellation: false,
-          layer: "anchor",
-          category: "anchor_custom",
-          title: `Program Error: ${info.name}`,
-          message: info.message,
-          code,
-          actionableStep:
-            info.actionable || "Check input values and try again.",
-          logs,
-          rawError: err,
-        };
-      }
-    }
-
+  // 2. Check for Anchor Custom / Framework Errors in error object, message, inner errors, or logs
+  const anchorMatch =
+    matchAnchorError(err) || matchAnchorError(combinedSearchText);
+  if (anchorMatch) {
+    const isFramework = anchorMatch.isFramework;
     return {
       isCancellation: false,
-      layer: "rpc",
-      category: "blockhash_expired",
-      title: "Transaction Expired",
-      message:
-        "Approval took too long or the network was busy, causing the transaction blockhash to expire.",
-      code: "EXPIRED_BLOCKHASH",
+      layer: "anchor",
+      category: isFramework ? "anchor_constraint" : "anchor_custom",
+      title: isFramework
+        ? `Constraint Error: ${anchorMatch.info.name}`
+        : `Program Error: ${anchorMatch.info.name}`,
+      message: anchorMatch.info.message,
+      code: anchorMatch.code,
       actionableStep:
-        "Please try again and approve the prompt in your wallet promptly.",
+        anchorMatch.info.actionable || "Check input values and try again.",
       logs,
       rawError: err,
     };
   }
 
-  // 3. RPC Rate Limit (429) & Network Disconnections
+  // 3. Scan logs/messages for System Program Insufficient Funds
+  for (const log of [rawMsg, ...logs]) {
+    if (
+      log.includes("custom program error: 0x1") ||
+      log.includes("Insufficient funds") ||
+      log.includes("insufficient lamports") ||
+      log.includes("insufficient funds for fee")
+    ) {
+      return {
+        isCancellation: false,
+        layer: "system",
+        category: "insufficient_sol",
+        title: "Insufficient SOL",
+        message:
+          "Your wallet balance is too low to cover network gas fees or account rent.",
+        code: "0x1",
+        actionableStep: "Add SOL to your wallet to pay for transaction fees.",
+        logs,
+        rawError: err,
+      };
+    }
+  }
+
+  // 4. RPC Rate Limit (429) & Network Disconnections
   if (
     rawMsg.includes("429") ||
     rawMsg.toLowerCase().includes("too many requests")
@@ -485,115 +742,35 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
     };
   }
 
-  // 4. Check for Anchor Error Name in message or cause
-  for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
-    const code = Number(codeStr);
-    const hexCode = `0x${code.toString(16)}`;
-    if (
-      rawMsg.includes(info.name) ||
-      rawMsg.includes(`Error Number: ${code}`) ||
-      rawMsg.includes(`custom program error: ${hexCode}`) ||
-      rawMsg.includes(`Custom error: ${code}`) ||
-      rawMsg.includes(`Custom error: ${hexCode}`)
-    ) {
-      return {
-        isCancellation: false,
-        layer: "anchor",
-        category: "anchor_custom",
-        title: `Program Error: ${info.name}`,
-        message: info.message,
-        code,
-        actionableStep: info.actionable || "Check input values and try again.",
-        logs,
-        rawError: err,
-      };
-    }
-  }
-
-  // 5. Scan logs for Anchor Custom Error codes or System Insufficient Funds
-  for (const log of logs) {
-    // Insufficient SOL / Lamports
-    if (
-      log.includes("custom program error: 0x1") ||
-      log.includes("Insufficient funds") ||
-      log.includes("insufficient lamports")
-    ) {
-      return {
-        isCancellation: false,
-        layer: "system",
-        category: "insufficient_sol",
-        title: "Insufficient SOL",
-        message:
-          "Your wallet does not have enough SOL to cover network gas fees or account rent.",
-        code: "0x1",
-        actionableStep: "Add SOL to your wallet to pay for transaction fees.",
-        logs,
-        rawError: err,
-      };
-    }
-
-    // Custom Error hex / dec regex in logs
-    const customMatch =
-      log.match(/Custom error: (0x[0-9a-fA-F]+|\d+)/i) ||
-      log.match(/custom program error: (0x[0-9a-fA-F]+|\d+)/i);
-    if (customMatch) {
-      const matchVal = customMatch[1];
-      const decCode = matchVal.startsWith("0x")
-        ? parseInt(matchVal, 16)
-        : parseInt(matchVal, 10);
-
-      if (ANCHOR_CUSTOM_ERRORS[decCode]) {
-        const info = ANCHOR_CUSTOM_ERRORS[decCode];
-        return {
-          isCancellation: false,
-          layer: "anchor",
-          category: "anchor_custom",
-          title: `Program Error: ${info.name}`,
-          message: info.message,
-          code: decCode,
-          actionableStep:
-            info.actionable || "Check input values and try again.",
-          logs,
-          rawError: err,
-        };
-      }
-
-      if (ANCHOR_FRAMEWORK_ERRORS[decCode]) {
-        const info = ANCHOR_FRAMEWORK_ERRORS[decCode];
-        return {
-          isCancellation: false,
-          layer: "anchor",
-          category: "anchor_constraint",
-          title: `Constraint Error: ${info.name}`,
-          message: info.message,
-          code: decCode,
-          logs,
-          rawError: err,
-        };
-      }
-    }
-  }
-
+  // 5. Strict Check for Blockhash / Blockheight Expiration
   if (
-    rawMsg.toLowerCase().includes("insufficient lamports") ||
-    rawMsg.toLowerCase().includes("insufficient funds for fee")
+    rawMsg.includes("BlockheightExceeded") ||
+    rawMsg.includes("blockhash not found") ||
+    rawMsg.includes("Transaction expired") ||
+    rawMsg.includes("BlockhashExpired") ||
+    (innerPlanErr &&
+      (innerPlanErr.includes("BlockheightExceeded") ||
+        innerPlanErr.includes("blockhash not found") ||
+        innerPlanErr.includes("Transaction expired")))
   ) {
     return {
       isCancellation: false,
-      layer: "system",
-      category: "insufficient_sol",
-      title: "Insufficient SOL",
+      layer: "rpc",
+      category: "blockhash_expired",
+      title: "Transaction Expired",
       message:
-        "Your wallet balance is too low to pay for Solana transaction gas fees.",
-      code: "INSUFFICIENT_SOL",
-      actionableStep: "Add SOL to your wallet and try again.",
+        "Approval took too long or the network was busy, causing the transaction blockhash to expire.",
+      code: "EXPIRED_BLOCKHASH",
+      actionableStep:
+        "Please try again and approve the prompt in your wallet promptly.",
       logs,
       rawError: err,
     };
   }
 
   // 6. Fallback for general errors (using sanitizeErrorMessage)
-  const sanitized = sanitizeErrorMessage(rawMsg);
+  const displayMsg = innerPlanErr ? innerPlanErr : rawMsg;
+  const sanitized = sanitizeErrorMessage(displayMsg);
   return {
     isCancellation: false,
     layer: "unknown",

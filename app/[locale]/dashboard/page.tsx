@@ -204,7 +204,6 @@ export default function DashboardPage() {
       refetch();
       refetchDrawHistory();
       prependLocal(newActivity);
-      refetchActivity();
     }
   };
 
@@ -225,7 +224,6 @@ export default function DashboardPage() {
     if (isConnected) {
       refetch();
       prependLocal(newActivity);
-      refetchActivity();
     }
   };
 

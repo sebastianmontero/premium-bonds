@@ -37,19 +37,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import {
-  findCurrentDrawCyclePda,
-  findEventAuthorityPda,
-  findGlobalConfigPda,
-  findPoolPstVaultPda,
-} from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const HARVEST_YIELD_AND_COMMIT_DISCRIMINATOR: ReadonlyUint8Array =
@@ -183,9 +177,9 @@ export type HarvestYieldAndCommitAsyncInput<
   /** The ticket registry account loader, holding all active and pending tickets. */
   ticketRegistry: Address<TAccountTicketRegistry>;
   /** The draw cycle account initialized for the current draw. */
-  currentDrawCycle?: Address<TAccountCurrentDrawCycle>;
+  currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   /** Pool's $PST vault — read balance to calculate current value. */
-  poolPstVault?: Address<TAccountPoolPstVault>;
+  poolPstVault: Address<TAccountPoolPstVault>;
   /** Huma $PST mint — read supply for price calculation. */
   pstMint: Address<TAccountPstMint>;
   humaPoolState: Address<TAccountHumaPoolState>;
@@ -285,22 +279,6 @@ export async function getHarvestYieldAndCommitInstructionAsync<
   // Resolve default values.
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
-  }
-  if (!accounts.currentDrawCycle.value) {
-    accounts.currentDrawCycle.value = await findCurrentDrawCyclePda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
-  if (!accounts.poolPstVault.value) {
-    accounts.poolPstVault.value = await findPoolPstVaultPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =

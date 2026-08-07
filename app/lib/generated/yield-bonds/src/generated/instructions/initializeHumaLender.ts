@@ -37,14 +37,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda, findPoolPstVaultPda } from "../pdas";
+import { findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const INITIALIZE_HUMA_LENDER_DISCRIMINATOR: ReadonlyUint8Array =
@@ -206,7 +205,7 @@ export type InitializeHumaLenderAsyncInput<
    *
    * PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
    */
-  poolPstVault?: Address<TAccountPoolPstVault>;
+  poolPstVault: Address<TAccountPoolPstVault>;
   /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
   humaProgram?: Address<TAccountHumaProgram>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
@@ -331,14 +330,6 @@ export async function getInitializeHumaLenderInstructionAsync<
   // Resolve default values.
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
-  }
-  if (!accounts.poolPstVault.value) {
-    accounts.poolPstVault.value = await findPoolPstVaultPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
   }
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =

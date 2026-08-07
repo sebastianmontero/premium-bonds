@@ -39,19 +39,13 @@ import {
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
-  getAddressFromResolvedInstructionAccount,
   type ResolvedInstructionAccount,
 } from "@solana/program-client-core";
 import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import {
-  findEventAuthorityPda,
-  findPoolPstVaultPda,
-  findPoolVaultAccountPda,
-  findUserWinningsPda,
-} from "../pdas";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const BUY_BONDS_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -230,7 +224,7 @@ export type BuyBondsAsyncInput<
    *
    * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
    */
-  userWinnings?: Address<TAccountUserWinnings>;
+  userWinnings: Address<TAccountUserWinnings>;
   /**
    * The prize pool state account.
    *
@@ -249,13 +243,13 @@ export type BuyBondsAsyncInput<
    *
    * PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
    */
-  poolVaultAccount?: Address<TAccountPoolVaultAccount>;
+  poolVaultAccount: Address<TAccountPoolVaultAccount>;
   /**
    * Pool's $PST vault — receives minted $PST from Huma deposit.
    *
    * PDA seeds: `[POOL_PST_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_pst"` + pool_id).
    */
-  poolPstVault?: Address<TAccountPoolPstVault>;
+  poolPstVault: Address<TAccountPoolPstVault>;
   /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
   humaProgram?: Address<TAccountHumaProgram>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
@@ -409,34 +403,6 @@ export async function getBuyBondsInstructionAsync<
   const args = { ...input };
 
   // Resolve default values.
-  if (!accounts.userWinnings.value) {
-    accounts.userWinnings.value = await findUserWinningsPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-      user: getAddressFromResolvedInstructionAccount(
-        "user",
-        accounts.user.value
-      ),
-    });
-  }
-  if (!accounts.poolVaultAccount.value) {
-    accounts.poolVaultAccount.value = await findPoolVaultAccountPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
-  if (!accounts.poolPstVault.value) {
-    accounts.poolPstVault.value = await findPoolPstVaultPda({
-      pool: getAddressFromResolvedInstructionAccount(
-        "pool",
-        accounts.pool.value
-      ),
-    });
-  }
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
       "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;

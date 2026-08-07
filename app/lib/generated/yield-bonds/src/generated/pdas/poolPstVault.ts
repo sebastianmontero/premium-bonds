@@ -7,15 +7,14 @@
  */
 
 import {
-  getAddressEncoder,
   getProgramDerivedAddress,
   type Address,
   type ProgramDerivedAddress,
 } from "@solana/addresses";
-import { getBytesEncoder } from "@solana/codecs";
+import { getBytesEncoder, getU32Encoder } from "@solana/codecs";
 
 export type PoolPstVaultSeeds = {
-  pool: Address;
+  poolId: number;
 };
 
 export async function findPoolPstVaultPda(
@@ -31,7 +30,7 @@ export async function findPoolPstVaultPda(
       getBytesEncoder().encode(
         new Uint8Array([112, 111, 111, 108, 95, 112, 115, 116])
       ),
-      getAddressEncoder().encode(seeds.pool),
+      getU32Encoder().encode(seeds.poolId),
     ],
   });
 }

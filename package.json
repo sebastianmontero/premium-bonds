@@ -13,7 +13,7 @@
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "start": "next start",
-    "test": "tsx scripts/test-sdk-parsers.ts && tsx scripts/test-error-mapping.ts",
+    "test": "tsx scripts/test-sdk-parsers.ts && tsx scripts/test-anchor-events.ts && tsx scripts/test-error-mapping.ts",
     "test:errors": "tsx scripts/test-error-mapping.ts"
   },
   "description": "Next.js, Tailwind, @solana/react-hooks",
