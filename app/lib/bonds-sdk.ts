@@ -275,8 +275,8 @@ export function parsePayoutRegistry(data: Uint8Array) {
   );
   return {
     ...decoded,
-    winnersCount: decoded.winners.length,
-    payoutsCompleted: decoded.winners.filter((w) => w.processed).length,
+    winnersCount: Number(decoded.winnersCount),
+    payoutsCompleted: Number(decoded.payoutsCompleted),
   };
 }
 

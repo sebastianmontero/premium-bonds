@@ -175,7 +175,7 @@ export function useDrawHistory(
         // Extract Recent Winners from the latest completed cycle
         if (!latestCompleteCycleFound) {
           latestCompleteCycleFound = true;
-          for (const winner of payout.winners) {
+          for (const winner of payout.winners.slice(0, payout.winnersCount)) {
             const addressStr = winner.winner
               ? winner.winner.toString()
               : "Unknown";
@@ -191,7 +191,7 @@ export function useDrawHistory(
 
         // Extract user's prizes from this payout
         if (userAddress) {
-          for (let wi = 0; wi < payout.winners.length; wi++) {
+          for (let wi = 0; wi < payout.winnersCount; wi++) {
             const winner = payout.winners[wi];
             if (winner.winner !== userAddress) continue;
 

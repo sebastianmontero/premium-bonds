@@ -1145,14 +1145,16 @@ export async function executeReinvest({
   if (winnerOption) {
     const parsedIdx = parseInt(winnerOption, 10);
     if (!isNaN(parsedIdx)) {
-      if (parsedIdx < 0 || parsedIdx >= state.winners.length) {
+      if (parsedIdx < 0 || parsedIdx >= state.winnersCount) {
         throw new Error(
-          `Winner index ${parsedIdx} out of range (0-${state.winners.length - 1})`
+          `Winner index ${parsedIdx} out of range (0-${state.winnersCount - 1})`
         );
       }
       targetWinnerIndices = [parsedIdx];
     } else {
-      const index = state.winners.findIndex((w) => w.winner === winnerOption);
+      const index = state.winners
+        .slice(0, state.winnersCount)
+        .findIndex((w) => w.winner === winnerOption);
       if (index === -1) {
         throw new Error(
           `Winner address ${winnerOption} not found in payout registry winners.`
@@ -1162,6 +1164,7 @@ export async function executeReinvest({
     }
   } else {
     targetWinnerIndices = state.winners
+      .slice(0, state.winnersCount)
       .map((w, idx) => ({ ...w, idx }))
       .filter((w) => !w.processed)
       .map((w) => w.idx);
@@ -2473,7 +2476,7 @@ async function main() {
   Payout Progress: ${state.payoutsCompleted} / ${state.winnersCount} processed
   Winners:`);
 
-      state.winners.forEach((w, idx) => {
+      state.winners.slice(0, state.winnersCount).forEach((w, idx) => {
         const claimable = w.amountOwed - w.amountReinvested;
         totalOwed += w.amountOwed;
         totalReinvested += w.amountReinvested;
