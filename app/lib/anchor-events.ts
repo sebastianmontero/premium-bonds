@@ -245,9 +245,8 @@ function decodeEventData(
  * Anchor emits events as `Program data: <base64>` log entries (emit!)
  * and as inner instructions (emit_cpi!).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseEventsFromTxMeta(
-  meta: any
+  meta: Record<string, unknown> | null | undefined
 ): Array<{ type: string; data: ProgramEvent["data"] }> {
   const events: Array<{ type: string; data: ProgramEvent["data"] }> = [];
   if (!meta) return events;
@@ -291,7 +290,7 @@ function parseEventsFromTxMeta(
         let bytes: Uint8Array;
         try {
           if (typeof ix.data === "string") {
-            bytes = base58Encoder.encode(ix.data);
+            bytes = new Uint8Array(base58Encoder.encode(ix.data));
           } else if (ix.data instanceof Uint8Array) {
             bytes = ix.data;
           } else {

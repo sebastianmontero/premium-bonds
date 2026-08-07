@@ -36,9 +36,7 @@ interface DrawHistoryResult {
  * for the connected user + recent winners for the global ticker.
  *
  * Strategy:
- * 1. Calculate PDAs for up to `maxCyclesToFetch` (defaults to 50) past draw cycles.
- * 2. Fetch TicketRegistry to resolve `winner.userIndex` to owner wallet addresses.
- * 3. Fetch all DrawCycle and PayoutRegistry accounts in a single batch `getMultipleAccounts` RPC request.
+ * 2. Fetch all DrawCycle and PayoutRegistry accounts in a single batch `getMultipleAccounts` RPC request.
  * 4. In memory, locate the latest completed cycle to populate `recentWinners` for the ticker widget.
  * 5. Filter all `PayoutRegistry` winner entries matching `userAddress` across all past cycles.
  * 6. Use client-side VRF to derive winning ticket indices for provable fairness.

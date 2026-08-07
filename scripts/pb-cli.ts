@@ -1140,19 +1140,6 @@ export async function executeReinvest({
   );
   const state = parsePayoutRegistry(bytes);
 
-  const registryAcc = await rpc
-    .getAccountInfo(address(poolState.ticketRegistry), { encoding: "base64" })
-    .send();
-  if (!registryAcc || !registryAcc.value) {
-    throw new Error(
-      `TicketRegistry account at ${poolState.ticketRegistry} not found on-chain.`
-    );
-  }
-  const registryBytes = new Uint8Array(
-    base64Encoder.encode(registryAcc.value.data[0])
-  );
-  const ticketRegistryState = parseTicketRegistry(registryBytes);
-
   let targetWinnerIndices: number[] = [];
 
   if (winnerOption) {
@@ -1202,25 +1189,24 @@ export async function executeReinvest({
       );
       const currentRegistry = parsePayoutRegistry(currentBytes);
       const winnerEntry = currentRegistry.winners[winnerIndex];
-      const winnerOwner =
-        ticketRegistryState.entries[winnerEntry.userIndex]?.owner;
+      const winnerOwner = winnerEntry.winner;
 
       if (!winnerOwner) {
         throw new Error(
-          `Owner address not found in TicketRegistry for user index ${winnerEntry.userIndex}`
+          `Winner address not found in PayoutRegistry for winner index ${winnerIndex}`
         );
       }
 
       if (winnerEntry.processed) {
         console.log(
-          `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}) is fully processed.`
+          `Winner ${winnerOwner} (index ${winnerIndex}) is fully processed.`
         );
         break;
       }
 
       const claimable = winnerEntry.amountOwed - winnerEntry.amountReinvested;
       console.log(
-        `Winner User Index ${winnerEntry.userIndex} (${winnerOwner}) (index ${winnerIndex}): Owed: ${formatAmount(
+        `Winner ${winnerOwner} (index ${winnerIndex}): Owed: ${formatAmount(
           winnerEntry.amountOwed
         )}, Reinvested: ${formatAmount(
           winnerEntry.amountReinvested
@@ -2493,7 +2479,7 @@ async function main() {
         totalReinvested += w.amountReinvested;
         totalClaimable += claimable;
 
-        console.log(`    [${idx}] Winner User Index: ${w.userIndex}
+        console.log(`    [${idx}] Winner: ${w.winner}
         Tier Index: ${w.tierIndex}
         Amount Owed: ${formatAmount(w.amountOwed)}
         Amount Reinvested: ${formatAmount(w.amountReinvested)}
