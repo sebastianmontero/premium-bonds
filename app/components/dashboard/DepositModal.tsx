@@ -285,14 +285,25 @@ export function DepositModal({
                 </div>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={tokenDisplay}
-                  onChange={(e) => {
-                    setActiveInput("token");
-                    setInputValue(e.target.value);
+                  onKeyDown={(e) => {
+                    if (["e", "E", "+", "-", ".", ","].includes(e.key)) {
+                      e.preventDefault();
+                    }
                   }}
-                  placeholder="0.00"
+                  onChange={(e) => {
+                    const val = e.target.value
+                      .split(".")[0]
+                      .split(",")[0]
+                      .replace(/[^0-9]/g, "");
+                    setActiveInput("token");
+                    setInputValue(val);
+                  }}
+                  placeholder="0"
                   min="0"
-                  step={bondPriceHuman}
+                  step="1"
                   className="w-full rounded-xl bg-surface-container px-4 py-3 font-mono text-lg text-on-surface placeholder:text-on-surface-variant/40 ghost-border ghost-border-focus outline-none transition"
                 />
               </div>
@@ -323,10 +334,21 @@ export function DepositModal({
                 </label>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={ticketDisplay}
+                  onKeyDown={(e) => {
+                    if (["e", "E", "+", "-", ".", ","].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
                   onChange={(e) => {
+                    const val = e.target.value
+                      .split(".")[0]
+                      .split(",")[0]
+                      .replace(/[^0-9]/g, "");
                     setActiveInput("ticket");
-                    setInputValue(e.target.value);
+                    setInputValue(val);
                   }}
                   placeholder="0"
                   min="0"

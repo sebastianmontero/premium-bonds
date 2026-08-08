@@ -268,8 +268,21 @@ export function WithdrawModal({
               </div>
               <input
                 type="number"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={ticketAmount}
-                onChange={(e) => setTicketAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (["e", "E", "+", "-", ".", ","].includes(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+                onChange={(e) => {
+                  const val = e.target.value
+                    .split(".")[0]
+                    .split(",")[0]
+                    .replace(/[^0-9]/g, "");
+                  setTicketAmount(val);
+                }}
                 placeholder="0"
                 min="0"
                 max={maxTickets}

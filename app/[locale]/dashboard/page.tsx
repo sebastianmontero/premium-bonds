@@ -122,6 +122,7 @@ export default function DashboardPage() {
   const [txError, setTxError] = useState<
     ParsedTransactionError | string | null
   >(null);
+  const [lastTxAction, setLastTxAction] = useState<(() => void) | null>(null);
   const [selectedPrizeDetails, setSelectedPrizeDetails] =
     useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
@@ -260,6 +261,7 @@ export default function DashboardPage() {
         console.error("Reinvest crank failed:", err);
       }
       setTxError(parsed);
+      setLastTxAction(() => () => handleReinvestCrank(entry));
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
@@ -299,6 +301,7 @@ export default function DashboardPage() {
         console.error("Failed to claim dust on-chain:", err);
       }
       setTxError(parsed);
+      setLastTxAction(() => () => handleClaimNonReinvestedWinnings());
     }
   };
 
@@ -344,6 +347,7 @@ export default function DashboardPage() {
         console.error("Failed to claim redemption on-chain:", err);
       }
       setTxError(parsed);
+      setLastTxAction(() => () => handleClaimRedemption(id));
     }
   };
 
@@ -351,7 +355,21 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Transaction Error Alert */}
       {txError && (
-        <SolanaErrorAlert error={txError} onDismiss={() => setTxError(null)} />
+        <SolanaErrorAlert
+          error={txError}
+          onDismiss={() => {
+            setTxError(null);
+            setLastTxAction(null);
+          }}
+          onRetry={
+            lastTxAction
+              ? () => {
+                  setTxError(null);
+                  lastTxAction();
+                }
+              : undefined
+          }
+        />
       )}
 
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}
@@ -412,7 +430,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Activity Feed — takes 2 of 5 columns */}
-        <div className="lg:col-span-2 flex flex-col min-h-0 transition-all duration-300">
+        <div className="lg:col-span-2 flex flex-col min-h-0 transition-all duration-300 lg:h-0 lg:min-h-full">
           <div className="flex items-center gap-2 mb-4 px-1 shrink-0">
             <svg
               width="18"

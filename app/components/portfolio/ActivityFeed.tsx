@@ -131,7 +131,7 @@ export function ActivityFeed({
   const previewEntries = entries.slice(0, PREVIEW_LIMIT);
 
   return (
-    <div className="glass rounded-2xl p-6 h-full min-h-[440px] flex flex-col min-h-0">
+    <div className="glass rounded-2xl p-6 h-[460px] lg:h-full flex flex-col min-h-0">
       {isLoading ? (
         <div
           className="flex-1 min-h-0 space-y-3 pointer-events-none select-none"

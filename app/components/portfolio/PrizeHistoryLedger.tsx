@@ -58,14 +58,14 @@ export function PrizeHistoryLedger({
         return (
           <span className="pill pill-warning">
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {t("pendingReinvest")}
+            {t("processing")}
           </span>
         );
       case "partial":
         return (
           <span className="pill pill-info">
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {t("partiallyReinvested")}
+            {t("reinvesting")}
           </span>
         );
       case "reinvested":

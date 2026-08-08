@@ -139,6 +139,101 @@ function runTests() {
     console.log("✓ Passed Test 6\n");
   }
 
+  // Test 7: Uppercase prefix blockhash expiration (ERROR Transaction simulation failed: Blockhash not found)
+  {
+    console.log(
+      "Test 7: Uppercase prefix blockhash expiration parsing"
+    );
+    const rawErr = new Error(
+      "ERROR Transaction simulation failed: Blockhash not found"
+    );
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "blockhash_expired",
+      `Expected category blockhash_expired, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Expired",
+      `Expected title Transaction Expired, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 7\n");
+  }
+
+  // Test 8: @solana/kit object-wrapped error containing Blockhash not found
+  {
+    console.log("Test 8: @solana/kit object-wrapped Blockhash not found error");
+    const kitObjErr = {
+      message: "The provided transaction plan failed to execute.",
+      transactionPlanResult: {
+        error: {
+          message: "Transaction simulation failed: Blockhash not found",
+        },
+      },
+    };
+    const parsed = parseTransactionError(kitObjErr);
+    assert(
+      parsed.category === "blockhash_expired",
+      `Expected category blockhash_expired, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Expired",
+      `Expected title Transaction Expired, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 8\n");
+  }
+
+  // Test 9: American spelling cancellation (canceled)
+  {
+    console.log("Test 9: American spelling cancellation parsing (canceled)");
+    const cancelErr = { message: "User canceled the request in Phantom." };
+    const parsed = parseTransactionError(cancelErr);
+    assert(parsed.isCancellation === true, "Should be marked cancellation");
+    assert(
+      parsed.category === "wallet_cancellation",
+      `Expected wallet_cancellation, got ${parsed.category}`
+    );
+    console.log("✓ Passed Test 9\n");
+  }
+
+  // Test 10: Confirmation timeout error string
+  {
+    console.log("Test 10: Confirmation timeout parsing");
+    const timeoutErr = new Error(
+      "Transaction was not confirmed in 60.00 seconds. Check your RPC."
+    );
+    const parsed = parseTransactionError(timeoutErr);
+    assert(
+      parsed.category === "blockhash_expired",
+      `Expected category blockhash_expired, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Expired",
+      `Expected title Transaction Expired, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 10\n");
+  }
+
+  // Test 11: Generic error message wrapper with nested blockhash expiration cause
+  {
+    console.log(
+      "Test 11: Generic wrapper with nested cause containing Blockhash not found"
+    );
+    const nestedErr = new Error("Transaction execution failed", {
+      cause: new Error("Transaction simulation failed: Blockhash not found"),
+    });
+    const parsed = parseTransactionError(nestedErr);
+    assert(
+      parsed.category === "blockhash_expired",
+      `Expected category blockhash_expired, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Expired",
+      `Expected title Transaction Expired, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 11\n");
+  }
+
   console.log(
     "All app/lib/__tests__/errors.test.ts tests completed successfully!"
   );

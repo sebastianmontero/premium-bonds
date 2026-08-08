@@ -414,17 +414,11 @@ function isWalletCancellation(err: unknown): boolean {
     }
   }
 
-  const fullText = msgParts.join(" ").toLowerCase();
+  const fullText = msgParts.join(" ");
+  const isCancelPattern =
+    /user (rejected|cancell?ed|declined|denied)|transaction (cancell?ed|rejected)|cancell?ed by user|rejected the request/i;
 
-  return (
-    fullText.includes("user rejected") ||
-    fullText.includes("user cancelled") ||
-    fullText.includes("user denied") ||
-    fullText.includes("rejected the request") ||
-    fullText.includes("user declined") ||
-    fullText.includes("transaction cancelled") ||
-    fullText.includes("cancelled by user")
-  );
+  return isCancelPattern.test(fullText);
 }
 
 /**
@@ -558,12 +552,15 @@ function extractPlanErrorMessage(err: unknown): string | null {
   if (!err) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = err as any;
-  if (e?.transactionPlanResult?.error) {
-    return String(e.transactionPlanResult.error);
-  }
-  if (Array.isArray(e?.transactionPlanResult?.results)) {
-    for (const res of e.transactionPlanResult.results) {
-      if (res?.error) return String(res.error);
+  const target =
+    e?.transactionPlanResult?.error ??
+    e?.transactionPlanResult?.results?.[0]?.error;
+
+  if (target) {
+    if (typeof target === "string") return target;
+    if (typeof target === "object" && target !== null) {
+      const obj = target as Record<string, unknown>;
+      return typeof obj.message === "string" ? obj.message : JSON.stringify(target);
     }
   }
   if (e?.cause) {
@@ -599,8 +596,11 @@ export function sanitizeErrorMessage(rawMsg: string): string {
     ""
   );
 
-  // 3. Strip RPC simulation wrappers & stack traces
-  clean = clean.replace(/^Transaction simulation failed:\s*/i, "");
+  // 3. Strip RPC simulation wrappers, log prefixes & stack traces
+  clean = clean.replace(
+    /^(?:\w{3}\s+\d{2}\s+[\d:.]+\s+)?(?:ERROR|Error|[A-Z_]+)?\s*Transaction simulation failed:\s*/i,
+    ""
+  );
   clean = clean.replace(/^Error processing Instruction \d+:\s*/i, "");
   clean = clean.replace(/\s*at\s+.*:\d+:\d+.*/g, "");
 
@@ -627,6 +627,63 @@ export function sanitizeErrorMessage(rawMsg: string): string {
  * @param err - The raw error object caught from a transaction sending process.
  * @returns A structured `ParsedTransactionError` object.
  */
+function extractAllErrorText(err: unknown): string {
+  if (!err) return "";
+  const parts: string[] = [];
+
+  const visit = (obj: unknown, depth = 0) => {
+    if (!obj || depth > 6) return;
+    if (typeof obj === "string") {
+      parts.push(obj);
+      return;
+    }
+    if (typeof obj === "object" && obj !== null) {
+      const o = obj as Record<string, unknown>;
+      if (typeof o.message === "string") parts.push(o.message);
+      if (typeof o.name === "string") parts.push(o.name);
+      if (typeof o.code === "string" || typeof o.code === "number") {
+        parts.push(String(o.code));
+      }
+      if (o.cause) visit(o.cause, depth + 1);
+      if (o.error) visit(o.error, depth + 1);
+      if (o.context) visit(o.context, depth + 1);
+      if (o.transactionPlanResult) visit(o.transactionPlanResult, depth + 1);
+      if (Array.isArray(o.results)) {
+        for (const res of o.results) visit(res, depth + 1);
+      }
+      if (Array.isArray(o.logs)) {
+        for (const log of o.logs) {
+          if (typeof log === "string") parts.push(log);
+        }
+      }
+    }
+  };
+
+  visit(err);
+  try {
+    parts.push(String(err));
+  } catch {
+    // Ignored
+  }
+
+  return parts.filter(Boolean).join(" ");
+}
+
+function isGenericBoilerplate(msg: string): boolean {
+  if (!msg) return true;
+  const lower = msg.toLowerCase().trim();
+  return (
+    lower === "transaction execution failed" ||
+    lower === "transaction execution failed." ||
+    lower === "the provided transaction plan failed to execute" ||
+    lower === "the provided transaction plan failed to execute." ||
+    lower === "transaction failed" ||
+    lower === "transaction failed." ||
+    lower === "an error occurred" ||
+    lower === "unknown error"
+  );
+}
+
 export function parseTransactionError(err: unknown): ParsedTransactionError {
   if (!err) {
     return {
@@ -657,7 +714,8 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
   const errorObj = err as any;
   const rawMsg = errorObj.message || errorObj.cause?.message || String(err);
   const innerPlanErr = extractPlanErrorMessage(err);
-  const combinedSearchText = [rawMsg, innerPlanErr, ...logs]
+  const allExtractedText = extractAllErrorText(err);
+  const combinedSearchText = [rawMsg, innerPlanErr, allExtractedText, ...logs]
     .filter(Boolean)
     .join(" ");
 
@@ -743,16 +801,12 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
   }
 
   // 5. Strict Check for Blockhash / Blockheight Expiration
-  if (
-    rawMsg.includes("BlockheightExceeded") ||
-    rawMsg.includes("blockhash not found") ||
-    rawMsg.includes("Transaction expired") ||
-    rawMsg.includes("BlockhashExpired") ||
-    (innerPlanErr &&
-      (innerPlanErr.includes("BlockheightExceeded") ||
-        innerPlanErr.includes("blockhash not found") ||
-        innerPlanErr.includes("Transaction expired")))
-  ) {
+  const isExpiredBlockhash =
+    /blockhash (not found|expired|invalid)|blockheightexceeded|block height exceeded|transaction expired|was not confirmed|timed out/i.test(
+      combinedSearchText.toLowerCase()
+    );
+
+  if (isExpiredBlockhash) {
     return {
       isCancellation: false,
       layer: "rpc",
@@ -769,7 +823,15 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
   }
 
   // 6. Fallback for general errors (using sanitizeErrorMessage)
-  const displayMsg = innerPlanErr ? innerPlanErr : rawMsg;
+  let displayMsg = innerPlanErr || rawMsg;
+  if (isGenericBoilerplate(displayMsg)) {
+    if (
+      errorObj?.cause?.message &&
+      !isGenericBoilerplate(String(errorObj.cause.message))
+    ) {
+      displayMsg = String(errorObj.cause.message);
+    }
+  }
   const sanitized = sanitizeErrorMessage(displayMsg);
   return {
     isCancellation: false,
