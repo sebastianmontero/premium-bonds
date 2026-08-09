@@ -33,6 +33,7 @@ import {
   parseTicketRegistry,
   parseRegistryEntry,
   parsePendingRedemption,
+  RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
@@ -400,7 +401,7 @@ export function useBondsContract(poolId: number = 1) {
           const redemptions = await rpc
             .getProgramAccounts(PROGRAM_ID, {
               filters: [
-                { dataSize: BigInt(158) },
+                { dataSize: BigInt(159) },
                 {
                   memcmp: {
                     offset: BigInt(56),
@@ -441,6 +442,8 @@ export function useBondsContract(poolId: number = 1) {
               const parsed = parsePendingRedemption(bytes);
               const status: "settling" | "ready" =
                 nextHumaRequestId > parsed.humaRequestId ? "ready" : "settling";
+              const isPrizeClaim =
+                parsed.redemptionType === RedemptionType.PrizeClaim;
               return {
                 redemptionId: parsed.redemptionId.toString(),
                 amount: Number(parsed.amount),
@@ -448,7 +451,7 @@ export function useBondsContract(poolId: number = 1) {
                 requestedAt: new Date(
                   Number(parsed.requestedAt) * 1000
                 ).toISOString(),
-                type: "bond_sale", // Defaulting to bond sale
+                type: isPrizeClaim ? "prize_claim" : "bond_sale",
               };
             }
           );

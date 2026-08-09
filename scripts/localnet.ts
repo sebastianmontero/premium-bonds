@@ -1979,14 +1979,14 @@ async function handleSettle(args: string[]) {
     try {
       const redemptions = await rpc
         .getProgramAccounts(address(PROGRAM_ID_STR), {
-          filters: [{ dataSize: 158n }],
+          filters: [{ dataSize: 159n }],
           encoding: "base64",
         })
         .send();
 
       for (const acc of redemptions) {
         const buf = Buffer.from(acc.account.data[0], "base64");
-        if (buf.length < 158) continue;
+        if (buf.length < 159) continue;
 
         const low = buf.readBigUInt64LE(8);
         const high = buf.readBigUInt64LE(16);
@@ -2598,9 +2598,13 @@ async function handleDraw(args: string[]) {
       base64Encoder.encode(drawCycleAcc.value.data[0])
     );
     const drawCycleState = parseDrawCycle(drawCycleBytes);
-    if (drawCycleState.status === "Complete") {
+    if (
+      drawCycleState.status === "Complete" ||
+      drawCycleState.status === "Skipped" ||
+      drawCycleState.status === "ForceUnlocked"
+    ) {
       console.log(
-        `Notice: Draw cycle ${targetCycleId} completed immediately (0 prize pot or 0 active tickets). Skipping reveal and reinvestment.`
+        `Notice: Draw cycle ${targetCycleId} status is '${drawCycleState.status}' (0 prize pot or 0 active tickets). Skipping reveal and reinvestment.`
       );
       return;
     }

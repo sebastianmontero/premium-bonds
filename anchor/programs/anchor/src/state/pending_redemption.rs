@@ -1,5 +1,17 @@
 use anchor_lang::prelude::*;
 
+/// Describes the origin of a pending redemption request.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+#[repr(u8)]
+pub enum RedemptionType {
+    /// Originated from a user selling bonds (principal redemption).
+    BondSale,
+    /// Originated from a user claiming non-reinvested prize winnings.
+    PrizeClaim,
+    /// Originated from an admin withdrawing protocol fees.
+    FeeWithdrawal,
+}
+
 /// Tracks an in-flight Huma Finance redemption request.
 ///
 /// Created when a user sells bonds or claims a prize (or admin withdraws fees).
@@ -28,6 +40,8 @@ pub struct PendingRedemption {
     pub bump: u8,
     /// Schema version of the struct.
     pub version: u8,
+    /// Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal).
+    pub redemption_type: RedemptionType,
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
 }

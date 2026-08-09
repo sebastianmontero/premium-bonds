@@ -441,7 +441,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(pool.next_redemption_id, 1);
     assert_eq!(pool.total_pending_redemptions, 500_000);
 
-    // Assert PendingRedemption PDA creation and all 7 fields
+    // Assert PendingRedemption PDA creation and all fields
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     let pr_account = ctx.svm.get_account(&pending_redemption_key).unwrap();
     let pr = anchor::PendingRedemption::try_deserialize(&mut pr_account.data.as_slice()).unwrap();
@@ -452,4 +452,5 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert!(pr.pst_shares_locked > 0);
     assert_eq!(pr.huma_request_id, 0);
     assert_eq!(pr.version, 1);
+    assert_eq!(pr.redemption_type, anchor::state::RedemptionType::PrizeClaim);
 }

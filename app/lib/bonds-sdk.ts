@@ -33,6 +33,24 @@ import type {
 
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
+import { DrawStatus } from "./generated/yield-bonds/src/generated";
+
+export { RedemptionType, DrawStatus } from "./generated/yield-bonds/src/generated";
+
+export enum PoolStatus {
+  Active = 0,
+  Paused = 1,
+  Closed = 2,
+}
+
+export type PoolStatusName = "Active" | "Paused" | "Closed";
+export type DrawStatusName =
+  | "AwaitingYield"
+  | "AwaitingRandomness"
+  | "Complete"
+  | "ForceUnlocked"
+  | "Skipped";
+
 export {
   parseTicketRegistry,
   parseRegistryEntry,
@@ -227,7 +245,12 @@ export function parseGlobalConfig(data: Uint8Array): GlobalConfig {
 
 export function parsePrizePool(data: Uint8Array) {
   const decoded = decodedData<PrizePool>(decodePrizePool(mockAccount(data)));
-  const statusMap = ["Active", "Paused", "Closed"];
+  const statusName = PoolStatus[decoded.status] as PoolStatusName | undefined;
+  if (!statusName) {
+    throw new Error(
+      `Invalid PoolStatus byte '${decoded.status}' decoded from PrizePool account data.`
+    );
+  }
   const prizeTiersCount = Number(decoded.prizeTiersCount);
 
   const prizeTiers = decoded.prizeTiers
@@ -240,10 +263,7 @@ export function parsePrizePool(data: Uint8Array) {
 
   return {
     ...decoded,
-    status: (statusMap[decoded.status] || "Active") as
-      | "Active"
-      | "Paused"
-      | "Closed",
+    status: statusName,
     bondPrice: Number(decoded.bondPrice),
     stakeCycleDurationHrs: Number(decoded.stakeCycleDurationHrs),
     totalDepositedPrincipal: Number(decoded.totalDepositedPrincipal),
@@ -258,13 +278,15 @@ export function parsePrizePool(data: Uint8Array) {
 
 export function parseDrawCycle(data: Uint8Array) {
   const decoded = decodedData<DrawCycle>(decodeDrawCycle(mockAccount(data)));
-  const statusMap = ["AwaitingYield", "AwaitingRandomness", "Complete"];
+  const statusName = DrawStatus[decoded.status] as DrawStatusName | undefined;
+  if (!statusName) {
+    throw new Error(
+      `Invalid DrawStatus byte '${decoded.status}' decoded from DrawCycle account data.`
+    );
+  }
   return {
     ...decoded,
-    status: (statusMap[decoded.status] || "AwaitingYield") as
-      | "AwaitingYield"
-      | "AwaitingRandomness"
-      | "Complete",
+    status: statusName,
     randomnessSeed: new Uint8Array(decoded.randomnessSeed),
   };
 }

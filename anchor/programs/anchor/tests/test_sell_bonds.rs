@@ -456,6 +456,10 @@ fn test_sell_bonds_e2e_happy_path() {
     assert_eq!(pending_redemption.redemption_id, 0);
     assert_eq!(pending_redemption.amount, 3_000_000);
     assert_eq!(pending_redemption.pst_shares_locked, 3_000_000);
+    assert_eq!(
+        pending_redemption.redemption_type,
+        anchor::state::RedemptionType::BondSale
+    );
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.next_redemption_id, 1);

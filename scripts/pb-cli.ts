@@ -43,6 +43,7 @@ import {
   findPendingRedemptionPda,
   parseUserWinnings,
   parsePendingRedemption,
+  RedemptionType,
   parseTicketRegistry,
   findPoolVaultPda,
   findPoolPstVaultPda,
@@ -795,6 +796,34 @@ export async function executePrepareDraw({
   const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
   const poolState = parsePrizePool(poolBytes);
 
+  if (!poolState.isFrozenForDraw) {
+    console.log(
+      `Notice: PrizePool ${poolId} is not frozen for draw (isFrozenForDraw is false). Skipping draw preparation.`
+    );
+    return;
+  }
+
+  const targetCycleId =
+    cycleId !== undefined ? cycleId : poolState.currentDrawCycleId - 1;
+  if (targetCycleId >= 0) {
+    const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+    const drawCycleAcc = await rpc
+      .getAccountInfo(drawCyclePda, { encoding: "base64" })
+      .send();
+    if (drawCycleAcc && drawCycleAcc.value) {
+      const drawCycleBytes = new Uint8Array(
+        base64Encoder.encode(drawCycleAcc.value.data[0])
+      );
+      const drawCycleState = parseDrawCycle(drawCycleBytes);
+      if (drawCycleState.status !== "AwaitingRandomness") {
+        console.log(
+          `Notice: Draw cycle ${targetCycleId} status is '${drawCycleState.status}' (expected 'AwaitingRandomness'). Skipping draw preparation.`
+        );
+        return;
+      }
+    }
+  }
+
   const registryAddr = poolState.ticketRegistry;
   console.log(`Registry address: ${registryAddr}`);
 
@@ -817,9 +846,6 @@ export async function executePrepareDraw({
     console.log("Draw preparation is already complete.");
     return;
   }
-
-  const targetCycleId =
-    cycleId !== undefined ? cycleId : poolState.currentDrawCycleId - 1;
 
   while (registryState.drawPreparedUpTo < registryState.userCount) {
     console.log(
@@ -894,6 +920,27 @@ export async function executeReveal({
     );
   }
 
+  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+  const drawCycleAcc = await rpc
+    .getAccountInfo(drawCyclePda, { encoding: "base64" })
+    .send();
+  if (!drawCycleAcc || !drawCycleAcc.value) {
+    throw new Error(
+      `Draw Cycle account for ID ${targetCycleId} not found on-chain.`
+    );
+  }
+  const drawCycleBytes = new Uint8Array(
+    base64Encoder.encode(drawCycleAcc.value.data[0])
+  );
+  const drawCycleState = parseDrawCycle(drawCycleBytes);
+
+  if (drawCycleState.status !== "AwaitingRandomness") {
+    console.log(
+      `Notice: Draw cycle ${targetCycleId} status is '${drawCycleState.status}' (expected 'AwaitingRandomness'). Skipping reveal.`
+    );
+    return;
+  }
+
   // Check and prepare draw if needed
   const registryAddr = poolState.ticketRegistry;
   const registryAcc = await rpc
@@ -930,20 +977,6 @@ export async function executeReveal({
 
   console.log(`Using Random Seed (hex): ${seed.toString("hex")}`);
   console.log(`Targeting Draw Cycle ID: ${targetCycleId}`);
-
-  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
-  const drawCycleAcc = await rpc
-    .getAccountInfo(drawCyclePda, { encoding: "base64" })
-    .send();
-  if (!drawCycleAcc || !drawCycleAcc.value) {
-    throw new Error(
-      `Draw Cycle account for ID ${targetCycleId} not found on-chain.`
-    );
-  }
-  const drawCycleBytes = new Uint8Array(
-    base64Encoder.encode(drawCycleAcc.value.data[0])
-  );
-  const drawCycleState = parseDrawCycle(drawCycleBytes);
   const randomnessAccountStr = drawCycleState.randomnessAccount;
   console.log(`Extracted locked randomness account: ${randomnessAccountStr}`);
 
@@ -2620,6 +2653,7 @@ async function main() {
   Redemption ID: ${state.redemptionId.toString()}
   PDA: ${redemptionPda}
   User/Beneficiary: ${state.user}
+  Type: ${RedemptionType[state.redemptionType] ?? state.redemptionType}
   Amount (USD/USDC): ${formatAmount(state.amount)}
   PST Shares Locked: ${formatAmount(state.pstSharesLocked)}
   Requested At: ${new Date(Number(state.requestedAt) * 1000).toLocaleString()}
@@ -2635,7 +2669,7 @@ async function main() {
         const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
 
         const filters = [
-          { dataSize: 158n },
+          { dataSize: 159n },
           {
             memcmp: {
               offset: 88n,
@@ -2684,6 +2718,9 @@ async function main() {
           console.log(`  Redemption ID: ${state.redemptionId.toString()}`);
           console.log(`    PDA: ${pubkey}`);
           console.log(`    User/Beneficiary: ${state.user}`);
+          console.log(
+            `    Type: ${RedemptionType[state.redemptionType] ?? state.redemptionType}`
+          );
           console.log(`    Amount (USD/USDC): ${formatAmount(state.amount)}`);
           console.log(
             `    PST Shares Locked: ${formatAmount(state.pstSharesLocked)}`

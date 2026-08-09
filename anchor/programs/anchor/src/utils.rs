@@ -292,7 +292,7 @@ mod tests {
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
-            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 64
+            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1 + 64
         );
     }
 

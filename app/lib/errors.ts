@@ -1,3 +1,43 @@
+import {
+  ANCHOR_ERROR__POOL_NOT_ACTIVE,
+  ANCHOR_ERROR__INVALID_POOL_STATUS,
+  ANCHOR_ERROR__CYCLE_NOT_ENDED,
+  ANCHOR_ERROR__INVALID_BOND_QUANTITY,
+  ANCHOR_ERROR__REGISTRY_FULL,
+  ANCHOR_ERROR__REGISTRY_TOO_SMALL,
+  ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE,
+  ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE,
+  ANCHOR_ERROR__UNAUTHORIZED_TICKET,
+  ANCHOR_ERROR__ALREADY_CLAIMED,
+  ANCHOR_ERROR__MATH_OVERFLOW,
+  ANCHOR_ERROR__INVALID_INDICES,
+  ANCHOR_ERROR__UNAUTHORIZED_CRANK,
+  ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG,
+  ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED,
+  ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000,
+  ANCHOR_ERROR__INVALID_DRAW_STATUS,
+  ANCHOR_ERROR__INVALID_DRAW_STATE,
+  ANCHOR_ERROR__UNAUTHORIZED_ADMIN,
+  ANCHOR_ERROR__INVALID_BOND_PRICE,
+  ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION,
+  ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED,
+  ANCHOR_ERROR__INVALID_REDEMPTION_OWNER,
+  ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE,
+  ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM,
+  ANCHOR_ERROR__INVALID_FEE_CONFIG,
+  ANCHOR_ERROR__INVALID_MODE_MINT,
+  ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT,
+  ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED,
+  ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST,
+  ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED,
+  ANCHOR_ERROR__INVALID_USER_ENTRY_HINT,
+  ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS,
+  ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS,
+  ANCHOR_ERROR__POOL_NOT_FROZEN,
+  ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS,
+  ANCHOR_ERROR__INVALID_FEE_WALLET,
+} from "./generated/yield-bonds/src/generated";
+
 export type ErrorCategory =
   | "wallet_cancellation"
   | "insufficient_sol"
@@ -39,170 +79,170 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   number,
   { name: string; message: string; actionable?: string }
 > = {
-  6000: {
+  [ANCHOR_ERROR__POOL_NOT_ACTIVE]: {
     name: "PoolNotActive",
     message: "The prize pool is not currently active.",
     actionable: "Please wait for the administrator to activate this pool.",
   },
-  6001: {
+  [ANCHOR_ERROR__INVALID_POOL_STATUS]: {
     name: "InvalidPoolStatus",
     message: "Invalid pool status value.",
   },
-  6002: {
+  [ANCHOR_ERROR__CYCLE_NOT_ENDED]: {
     name: "CycleNotEnded",
     message: "The current stake cycle has not yet ended.",
     actionable: "Please wait until the current draw cycle completes.",
   },
-  6003: {
+  [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: {
     name: "InvalidBondQuantity",
     message: "Invalid bond quantity specified.",
     actionable: "Please enter a valid ticket quantity greater than zero.",
   },
-  6004: {
+  [ANCHOR_ERROR__REGISTRY_FULL]: {
     name: "RegistryFull",
     message: "The prize pool ticket registry is at maximum capacity.",
     actionable:
       "Contact pool administrators to resize or reallocate registry storage.",
   },
-  6005: {
+  [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: {
     name: "RegistryTooSmall",
     message: "The ticket registry account pre-allocation is too small.",
     actionable: "Pre-allocate sufficient byte size for ticket entries.",
   },
-  6006: {
+  [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: {
     name: "RegistryAtMaxSize",
     message:
       "The ticket registry has reached Solana's 10 MB maximum account size.",
   },
-  6007: {
+  [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: {
     name: "AwaitingRandomnessFreeze",
     message:
       "Withdrawals and deposits are momentarily paused during draw snapshotting.",
     actionable:
       "Please try your request again in a few seconds after the draw snapshot resolves.",
   },
-  6008: {
+  [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: {
     name: "UnauthorizedTicket",
     message:
       "You are trying to perform an action on tickets that do not belong to your wallet.",
   },
-  6009: {
+  [ANCHOR_ERROR__ALREADY_CLAIMED]: {
     name: "AlreadyClaimed",
     message: "This prize has already been claimed.",
   },
-  6010: {
+  [ANCHOR_ERROR__MATH_OVERFLOW]: {
     name: "MathOverflow",
     message: "A numerical overflow occurred during calculations.",
   },
-  6011: {
+  [ANCHOR_ERROR__INVALID_INDICES]: {
     name: "InvalidIndices",
     message: "Invalid ticket indices provided.",
   },
-  6012: {
+  [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: {
     name: "UnauthorizedCrank",
     message: "Only designated oracle crank bots can execute this operation.",
   },
-  6013: {
+  [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: {
     name: "InvalidPrizeTierConfig",
     message: "Invalid prize tier configuration.",
   },
-  6014: {
+  [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: {
     name: "PrizeTiersNotConfigured",
     message: "Prize tiers have not been configured for this pool.",
   },
-  6015: {
+  [ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000]: {
     name: "BasisPointsMustEqual10000",
     message:
       "Prize tier allocations must total exactly 100% (10,000 basis points).",
   },
-  6016: {
+  [ANCHOR_ERROR__INVALID_DRAW_STATUS]: {
     name: "InvalidDrawStatus",
     message: "The draw cycle is in an invalid phase for this operation.",
   },
-  6017: {
+  [ANCHOR_ERROR__INVALID_DRAW_STATE]: {
     name: "InvalidDrawState",
     message: "The draw cycle has an invalid locked ticket count or prize pot.",
   },
-  6018: {
+  [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: {
     name: "UnauthorizedAdmin",
     message: "Only the designated pool administrator can perform this action.",
   },
-  6019: {
+  [ANCHOR_ERROR__INVALID_BOND_PRICE]: {
     name: "InvalidBondPrice",
     message: "Bond price must be greater than 0.",
   },
-  6020: {
+  [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: {
     name: "InvalidStakeCycleDuration",
     message: "Stake cycle duration must be greater than 0 hours.",
   },
-  6021: {
+  [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: {
     name: "HumaRedemptionNotSettled",
     message: "Huma Protocol liquidity redemption is still settling on-chain.",
     actionable:
       "Please wait for the settlement window to expire before claiming.",
   },
-  6022: {
+  [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: {
     name: "InvalidRedemptionOwner",
     message: "This pending redemption belongs to a different wallet.",
   },
-  6023: {
+  [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: {
     name: "InsufficientFeeBalance",
     message: "Insufficient accrued protocol fee balance for withdrawal.",
   },
-  6024: {
+  [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: {
     name: "NoWinningsToClaim",
     message: "No unclaimed prize winnings available.",
   },
-  6025: {
+  [ANCHOR_ERROR__INVALID_FEE_CONFIG]: {
     name: "InvalidFeeConfig",
     message: "Fee basis points must be less than or equal to 100%.",
   },
-  6026: {
+  [ANCHOR_ERROR__INVALID_MODE_MINT]: {
     name: "InvalidModeMint",
     message: "The provided token mint does not match the pool configuration.",
   },
-  6027: {
+  [ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT]: {
     name: "InvalidRandomnessAccount",
     message:
       "The provided randomness account is invalid or not owned by Switchboard.",
   },
-  6028: {
+  [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: {
     name: "RandomnessNotResolved",
     message: "The oracle randomness request has not yet been resolved.",
     actionable:
       "Please wait a moment for Switchboard oracle workers to fulfill the randomness request.",
   },
-  6029: {
+  [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: {
     name: "StaleRandomnessRequest",
     message: "The randomness request is stale or expired.",
     actionable: "Request a fresh randomness commitment.",
   },
-  6030: {
+  [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: {
     name: "RandomnessNotExpired",
     message: "The active randomness commitment has not expired yet.",
   },
-  6031: {
+  [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: {
     name: "InvalidUserEntryHint",
     message: "Invalid registry user entry hint provided.",
   },
-  6032: {
+  [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: {
     name: "InsufficientPendingTickets",
     message: "Insufficient pending tickets available.",
   },
-  6033: {
+  [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: {
     name: "InsufficientActiveTickets",
     message:
       "Insufficient active tickets available to complete this redemption.",
   },
-  6034: {
+  [ANCHOR_ERROR__POOL_NOT_FROZEN]: {
     name: "PoolNotFrozen",
     message: "The prize pool must be frozen for draw snapshotting.",
   },
-  6035: {
+  [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: {
     name: "MissingSwappedUserWinnings",
     message: "Required user winnings account is missing.",
   },
-  6036: {
+  [ANCHOR_ERROR__INVALID_FEE_WALLET]: {
     name: "InvalidFeeWallet",
     message: "The provided fee wallet account is invalid.",
   },
@@ -560,7 +600,9 @@ function extractPlanErrorMessage(err: unknown): string | null {
     if (typeof target === "string") return target;
     if (typeof target === "object" && target !== null) {
       const obj = target as Record<string, unknown>;
-      return typeof obj.message === "string" ? obj.message : JSON.stringify(target);
+      return typeof obj.message === "string"
+        ? obj.message
+        : JSON.stringify(target);
     }
   }
   if (e?.cause) {

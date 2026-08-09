@@ -64,6 +64,7 @@ fn inject_pending_redemption(
         huma_request_id: 0,
         bump,
         version: 1,
+        redemption_type: anchor::state::RedemptionType::BondSale,
         _reserved: [0; 64],
     };
     let mut data = vec![];

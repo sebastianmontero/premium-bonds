@@ -48,6 +48,12 @@ import {
   type FixedSizeEncoder,
   type ReadonlyUint8Array,
 } from "@solana/codecs";
+import {
+  getRedemptionTypeDecoder,
+  getRedemptionTypeEncoder,
+  type RedemptionType,
+  type RedemptionTypeArgs,
+} from "../types";
 
 export const PENDING_REDEMPTION_DISCRIMINATOR: ReadonlyUint8Array =
   new Uint8Array([171, 110, 36, 47, 113, 146, 29, 25]);
@@ -78,6 +84,8 @@ export type PendingRedemption = {
   bump: number;
   /** Schema version of the struct. */
   version: number;
+  /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
+  redemptionType: RedemptionType;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -101,6 +109,8 @@ export type PendingRedemptionArgs = {
   bump: number;
   /** Schema version of the struct. */
   version: number;
+  /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
+  redemptionType: RedemptionTypeArgs;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
 };
@@ -119,6 +129,7 @@ export function getPendingRedemptionEncoder(): FixedSizeEncoder<PendingRedemptio
       ["poolId", getU32Encoder()],
       ["bump", getU8Encoder()],
       ["version", getU8Encoder()],
+      ["redemptionType", getRedemptionTypeEncoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({ ...value, discriminator: PENDING_REDEMPTION_DISCRIMINATOR })
@@ -138,6 +149,7 @@ export function getPendingRedemptionDecoder(): FixedSizeDecoder<PendingRedemptio
     ["poolId", getU32Decoder()],
     ["bump", getU8Decoder()],
     ["version", getU8Decoder()],
+    ["redemptionType", getRedemptionTypeDecoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
@@ -217,5 +229,5 @@ export async function fetchAllMaybePendingRedemption(
 }
 
 export function getPendingRedemptionSize(): number {
-  return 158;
+  return 159;
 }

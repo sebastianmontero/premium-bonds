@@ -5,7 +5,7 @@ use crate::constants::{
 use crate::error::PremiumBondsError;
 use crate::events::FeesWithdrawn;
 use crate::huma;
-use crate::state::{GlobalConfig, PendingRedemption, PrizePool};
+use crate::state::{GlobalConfig, PendingRedemption, PrizePool, RedemptionType};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -246,6 +246,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
+    pending.redemption_type = RedemptionType::FeeWithdrawal;
 
     msg!(
         "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",

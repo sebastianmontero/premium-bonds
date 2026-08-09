@@ -610,4 +610,44 @@
     border: 2px solid;
     background: var(--surface);
   }
+
+  /* ── Toast Slide-Up Animation ────────────────────────────────────────── */
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* ── Toast Progress Countdown Bar Animation ─────────────────────────── */
+  @keyframes toastProgress {
+    from {
+      width: 100%;
+    }
+    to {
+      width: 0%;
+    }
+  }
+
+  .animate-toast-progress {
+    animation: toastProgress 4s linear forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-slide-up {
+      animation: none;
+    }
+    .animate-toast-progress {
+      animation: none !important;
+      width: 100% !important;
+    }
+  }
 }

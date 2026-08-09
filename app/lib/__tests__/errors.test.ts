@@ -141,9 +141,7 @@ function runTests() {
 
   // Test 7: Uppercase prefix blockhash expiration (ERROR Transaction simulation failed: Blockhash not found)
   {
-    console.log(
-      "Test 7: Uppercase prefix blockhash expiration parsing"
-    );
+    console.log("Test 7: Uppercase prefix blockhash expiration parsing");
     const rawErr = new Error(
       "ERROR Transaction simulation failed: Blockhash not found"
     );

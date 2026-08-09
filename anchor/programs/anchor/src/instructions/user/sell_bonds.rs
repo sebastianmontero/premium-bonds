@@ -2,7 +2,7 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::BondsSold;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, TicketRegistry, UserWinnings};
+use crate::state::{PendingRedemption, PrizePool, RedemptionType, TicketRegistry, UserWinnings};
 use crate::utils::{registry_get_entry, registry_set_entry};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -376,6 +376,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
+    pending.redemption_type = RedemptionType::BondSale;
 
     msg!(
         "SellBonds: user={}, bonds={}, principal={}, pst_shares={}, redemption_id={}",

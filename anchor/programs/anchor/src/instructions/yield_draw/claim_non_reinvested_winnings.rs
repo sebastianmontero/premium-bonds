@@ -2,7 +2,7 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::WinningsClaimed;
 use crate::huma;
-use crate::state::{PendingRedemption, PoolStatus, PrizePool, UserWinnings};
+use crate::state::{PendingRedemption, PoolStatus, PrizePool, RedemptionType, UserWinnings};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -237,6 +237,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
     pending.version = 1;
+    pending.redemption_type = RedemptionType::PrizeClaim;
 
     msg!(
         "ClaimNonReinvestedWinnings: user={}, claimable={}, pst_shares={}, redemption_id={}",

@@ -228,6 +228,24 @@ export default function DashboardPage() {
     }
   };
 
+  // Unified Transaction Error Helper (DRY logging and retry setup)
+  const handleTxError = (
+    err: unknown,
+    actionName: string,
+    retryAction?: () => void
+  ) => {
+    const parsed = parseTransactionError(err);
+    if (parsed.isCancellation) {
+      console.warn(`${actionName} cancelled by user.`);
+    } else {
+      console.error(`${actionName} failed:`, err);
+    }
+    setTxError(parsed);
+    if (retryAction) {
+      setLastTxAction(() => retryAction);
+    }
+  };
+
   // Handlers for Prize Crank Reinvestment & Dust Claiming
   const handleSimulateCrank = async (
     drawCycleId: number,
@@ -254,14 +272,9 @@ export default function DashboardPage() {
         refetchActivity();
       }
     } catch (err) {
-      const parsed = parseTransactionError(err);
-      if (parsed.isCancellation) {
-        console.warn("Reinvest crank cancelled by user.");
-      } else {
-        console.error("Reinvest crank failed:", err);
-      }
-      setTxError(parsed);
-      setLastTxAction(() => () => handleReinvestCrank(entry));
+      handleTxError(err, "Reinvest crank", () =>
+        handleSimulateCrank(drawCycleId, winnerIndex)
+      );
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
@@ -294,14 +307,9 @@ export default function DashboardPage() {
         prependLocal(newActivity);
       }
     } catch (err) {
-      const parsed = parseTransactionError(err);
-      if (parsed.isCancellation) {
-        console.warn("Claim non-reinvested winnings cancelled by user.");
-      } else {
-        console.error("Failed to claim dust on-chain:", err);
-      }
-      setTxError(parsed);
-      setLastTxAction(() => () => handleClaimNonReinvestedWinnings());
+      handleTxError(err, "Claim dust winnings", () =>
+        handleClaimNonReinvestedWinnings()
+      );
     }
   };
 
@@ -340,38 +348,12 @@ export default function DashboardPage() {
         prependLocal(newActivity);
       }
     } catch (err) {
-      const parsed = parseTransactionError(err);
-      if (parsed.isCancellation) {
-        console.warn("Claim redemption cancelled by user.");
-      } else {
-        console.error("Failed to claim redemption on-chain:", err);
-      }
-      setTxError(parsed);
-      setLastTxAction(() => () => handleClaimRedemption(id));
+      handleTxError(err, "Claim redemption", () => handleClaimRedemption(id));
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Transaction Error Alert */}
-      {txError && (
-        <SolanaErrorAlert
-          error={txError}
-          onDismiss={() => {
-            setTxError(null);
-            setLastTxAction(null);
-          }}
-          onRetry={
-            lastTxAction
-              ? () => {
-                  setTxError(null);
-                  lastTxAction();
-                }
-              : undefined
-          }
-        />
-      )}
-
       {/* ── Unclaimed Winnings Banner ──────────────────────────────── */}
       {activeUnclaimedWinnings > 0 && (
         <UnclaimedBanner
@@ -554,6 +536,29 @@ export default function DashboardPage() {
         onLoadMore={loadMoreActivity}
         onFetchUntilMatches={fetchUntilMatchesActivity}
       />
+
+      {/* Floating Transaction Error Toast (Bottom-Right Viewport Overlay) */}
+      {txError && (
+        <SolanaErrorAlert
+          key={
+            typeof txError === "string" ? txError : txError.message + Date.now()
+          }
+          error={txError}
+          variant="toast"
+          onDismiss={() => {
+            setTxError(null);
+            setLastTxAction(null);
+          }}
+          onRetry={
+            lastTxAction
+              ? () => {
+                  setTxError(null);
+                  lastTxAction();
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }

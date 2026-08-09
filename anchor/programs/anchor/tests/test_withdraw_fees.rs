@@ -314,6 +314,10 @@ fn test_withdraw_fees_math_non_1_to_1() {
     let pending = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pending.amount, 2_000_000);
     assert_eq!(pending.pst_shares_locked, 1_000_000);
+    assert_eq!(
+        pending.redemption_type,
+        anchor::state::RedemptionType::FeeWithdrawal
+    );
 
     // Verify token transfers
     assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 9_000_000);
