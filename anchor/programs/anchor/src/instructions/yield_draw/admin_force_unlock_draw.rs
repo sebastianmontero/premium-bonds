@@ -91,6 +91,7 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
         cycle_fee_collected: draw_cycle.cycle_fee_collected,
     });
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "AdminForceUnlockDraw: force unlocked pool_id={}, cycle_id={}",
         pool.pool_id,

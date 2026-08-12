@@ -202,6 +202,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         ctx.accounts.token_mint.decimals,
     )?;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",
         ctx.accounts.user.key(),

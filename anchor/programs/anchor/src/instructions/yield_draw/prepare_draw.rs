@@ -94,6 +94,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
 
     let mut registry = registry_loader.load_mut()?;
     registry.draw_prepared_up_to = end;
+    #[cfg(feature = "debug-logs")]
     msg!(
         "Prepared entries from index {} to {}. Cumulative active: {}",
         start,

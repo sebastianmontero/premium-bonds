@@ -248,6 +248,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.version = 1;
     pending.redemption_type = RedemptionType::FeeWithdrawal;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",
         amount,

@@ -268,6 +268,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         .ok_or(PremiumBondsError::MathOverflow)?;
     pool.advance_cycle_end_at(current_time)?;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "HarvestYieldAndCommit: cycle={}, pst_balance={}, current_value={}, yield={}, fee={}, prize_pot={}",
         draw_cycle.cycle_id,

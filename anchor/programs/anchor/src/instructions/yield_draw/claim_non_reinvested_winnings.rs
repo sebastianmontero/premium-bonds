@@ -239,6 +239,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.version = 1;
     pending.redemption_type = RedemptionType::PrizeClaim;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "ClaimNonReinvestedWinnings: user={}, claimable={}, pst_shares={}, redemption_id={}",
         ctx.accounts.user.key(),

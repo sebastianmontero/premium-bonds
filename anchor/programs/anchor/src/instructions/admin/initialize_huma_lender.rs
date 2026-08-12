@@ -125,6 +125,7 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
         signer_seeds,
     )?;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "InitializeHumaLender: pool={}, pool_pda={}",
         pool.pool_id,

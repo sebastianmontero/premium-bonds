@@ -378,6 +378,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     pending.version = 1;
     pending.redemption_type = RedemptionType::BondSale;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "SellBonds: user={}, bonds={}, principal={}, pst_shares={}, redemption_id={}",
         ctx.accounts.user.key(),

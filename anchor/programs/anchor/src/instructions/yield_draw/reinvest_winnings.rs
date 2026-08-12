@@ -256,6 +256,7 @@ pub fn handle(
     }
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────
+    #[cfg(feature = "debug-logs")]
     msg!(
         "ReinvestWinnings: winner={}, bonds={}, amount_reinvested={}",
         ctx.accounts.winner.key(),

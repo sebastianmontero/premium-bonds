@@ -96,6 +96,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     let pool_id = ctx.accounts.pool.load()?.pool_id;
 
+    #[cfg(feature = "debug-logs")]
     msg!(
         "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}",
         pool_id,
