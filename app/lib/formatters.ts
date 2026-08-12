@@ -67,3 +67,94 @@ export function tierBadgeClass(tierIndex: number): string {
       return "inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant px-2.5 py-0.5 text-xs font-medium text-on-surface-variant rounded-full";
   }
 }
+
+/**
+ * Get the user's local IANA timezone identifier (e.g. "America/Denver", "Europe/London").
+ * Defaults to "UTC" if Intl is unavailable or fails.
+ */
+export function getUserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/**
+ * Safely parse an ISO date string, date-only string ("YYYY-MM-DD"), timestamp, or Date object.
+ * Date-only strings ("YYYY-MM-DD") are parsed as local midnight to prevent unwanted timezone shifts.
+ */
+export function parseDate(isoDateOrTimestamp: string | number | Date): Date {
+  if (isoDateOrTimestamp instanceof Date) return isoDateOrTimestamp;
+  if (typeof isoDateOrTimestamp === "number")
+    return new Date(isoDateOrTimestamp);
+
+  if (typeof isoDateOrTimestamp === "string") {
+    const trimmed = isoDateOrTimestamp.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return new Date(`${trimmed}T00:00:00`);
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      return d;
+    }
+  }
+
+  return new Date();
+}
+
+export interface FormatLocalDateOptions extends Intl.DateTimeFormatOptions {
+  includeTimeIfPresent?: boolean;
+}
+
+/**
+ * Safely formats any date input (ISO string, timestamp, or Date) in the user's local timezone.
+ * Abstracts timezone resolution, parsing, and formatting logic across the application.
+ */
+export function formatLocalDate<T extends object = Intl.DateTimeFormatOptions>(
+  isoDateOrTimestamp: string | number | Date | null | undefined,
+  options?: FormatLocalDateOptions,
+  formatFn?: (date: Date, options: T) => string
+): string {
+  if (isoDateOrTimestamp === null || isoDateOrTimestamp === undefined) {
+    return "";
+  }
+
+  try {
+    const date = parseDate(isoDateOrTimestamp);
+    const userTimeZone = getUserTimeZone();
+
+    let hasTime = false;
+    if (typeof isoDateOrTimestamp === "string") {
+      hasTime =
+        isoDateOrTimestamp.includes("T") &&
+        !isoDateOrTimestamp.endsWith("T00:00:00");
+    } else if (
+      typeof isoDateOrTimestamp === "number" ||
+      isoDateOrTimestamp instanceof Date
+    ) {
+      hasTime = true;
+    }
+
+    const { includeTimeIfPresent = true, ...dateTimeOpts } = options || {};
+
+    const finalOpts: Intl.DateTimeFormatOptions = {
+      ...dateTimeOpts,
+      ...(includeTimeIfPresent &&
+      hasTime &&
+      !dateTimeOpts.hour &&
+      !dateTimeOpts.dateStyle
+        ? { hour: "2-digit", minute: "2-digit" }
+        : {}),
+      timeZone: userTimeZone,
+    };
+
+    if (formatFn) {
+      return formatFn(date, finalOpts as unknown as T);
+    }
+
+    return new Intl.DateTimeFormat("en-US", finalOpts).format(date);
+  } catch {
+    return String(isoDateOrTimestamp);
+  }
+}

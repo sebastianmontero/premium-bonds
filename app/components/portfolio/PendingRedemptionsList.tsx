@@ -1,7 +1,7 @@
 "use client";
 
 import type { PendingRedemption } from "@/app/types";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatTokenAmount, formatLocalDate } from "@/app/lib/formatters";
 import { useCallback, useState, useMemo } from "react";
 import { PaginationControls } from "./PaginationControls";
 import { useTranslations, useFormatter } from "next-intl";
@@ -78,17 +78,11 @@ export function PendingRedemptionsList({
 
   const formatRequestedDate = useCallback(
     (isoDateString: string) => {
-      try {
-        const date = new Date(isoDateString);
-        return format.dateTime(date, {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch {
-        return isoDateString;
-      }
+      return formatLocalDate(
+        isoDateString,
+        { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+        format.dateTime
+      );
     },
     [format]
   );

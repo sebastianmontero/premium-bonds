@@ -4,6 +4,7 @@ import type { ActivityEntry, ActivityType } from "@/app/types";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
+import { formatLocalDate } from "@/app/lib/formatters";
 
 interface ActivityFeedProps {
   entries: ActivityEntry[];
@@ -14,15 +15,15 @@ interface ActivityFeedProps {
 function dotColor(type: ActivityType): string {
   switch (type) {
     case "deposit":
-      return "border-primary";
-    case "win":
-      return "border-secondary";
-    case "auto-reinvest":
-      return "border-tertiary";
+      return "bg-primary shadow-[0_0_8px_rgba(79,140,255,0.5)]";
     case "withdraw":
-      return "border-error";
+      return "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]";
+    case "win":
+      return "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]";
+    case "auto-reinvest":
+      return "bg-tertiary shadow-[0_0_8px_rgba(167,139,250,0.5)]";
     case "claim-redemption":
-      return "border-primary-dim";
+      return "bg-secondary shadow-[0_0_8px_rgba(56,189,248,0.5)]";
   }
 }
 
@@ -89,7 +90,7 @@ function typeIcon(type: ActivityType) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-error"
+          className="text-amber-400"
         >
           <path d="M12 19V5M5 12l7-7 7 7" />
         </svg>
@@ -105,7 +106,7 @@ function typeIcon(type: ActivityType) {
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-primary-dim"
+          className="text-secondary"
         >
           <polyline points="20 6 9 17 4 12" />
         </svg>
@@ -123,8 +124,11 @@ export function ActivityFeed({
   const format = useFormatter();
 
   const formatFeedDate = (isoDate: string): string => {
-    const date = new Date(isoDate + "T00:00:00");
-    return format.dateTime(date, { month: "short", day: "numeric" });
+    return formatLocalDate(
+      isoDate,
+      { month: "short", day: "numeric" },
+      format.dateTime
+    );
   };
 
   const PREVIEW_LIMIT = 10;

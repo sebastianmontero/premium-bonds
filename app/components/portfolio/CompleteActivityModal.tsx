@@ -14,6 +14,7 @@ import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
+import { formatLocalDate } from "@/app/lib/formatters";
 
 interface CompleteActivityModalProps {
   entries: ActivityEntry[];
@@ -148,16 +149,11 @@ export default function CompleteActivityModal({
   const format = useFormatter();
 
   const formatFeedDate = (isoDate: string): string => {
-    try {
-      const date = new Date(isoDate + "T00:00:00");
-      return format.dateTime(date, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch {
-      return isoDate;
-    }
+    return formatLocalDate(
+      isoDate,
+      { month: "short", day: "numeric", year: "numeric" },
+      format.dateTime
+    );
   };
 
   const [searchTerm, setSearchTerm] = useState("");

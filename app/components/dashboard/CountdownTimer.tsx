@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useOnChainClock } from "@/app/hooks/useOnChainClock";
+import { formatLocalDate } from "@/app/lib/formatters";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
@@ -47,10 +48,11 @@ export function CountdownTimer({
 
   const formattedTargetDate =
     targetTimestamp > 0
-      ? format.dateTime(new Date(targetTimestamp * 1000), {
-          dateStyle: "medium",
-          timeStyle: "short",
-        })
+      ? formatLocalDate(
+          targetTimestamp * 1000,
+          { dateStyle: "medium", timeStyle: "short" },
+          format.dateTime
+        )
       : undefined;
 
   useEffect(() => {

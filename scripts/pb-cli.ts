@@ -608,6 +608,11 @@ function formatAmount(amount: bigint | number): string {
   });
 }
 
+function formatTimestamp(seconds: number | bigint): string {
+  const date = new Date(Number(seconds) * 1000);
+  return `${date.toLocaleString()} (Local) | ${date.toISOString()} (UTC)`;
+}
+
 function loadAddresses(isDevnet: boolean): Record<string, string> {
   const stateDir = isDevnet ? "devnet-state" : "localnet-state";
   const filePath = path.resolve(__dirname, stateDir, "addresses.json");
@@ -1233,20 +1238,67 @@ export async function executeReinvest({
         );
       }
 
+      // Fetch UserWinnings account for winner to retrieve prior dust
+      const userWinningsPda = await findUserWinningsPda(poolId, winnerOwner);
+      const userWinningsAcc = await rpc
+        .getAccountInfo(userWinningsPda, { encoding: "base64" })
+        .send();
+
+      let priorDust = 0n;
+      if (userWinningsAcc && userWinningsAcc.value) {
+        const uwBytes = new Uint8Array(
+          base64Encoder.encode(userWinningsAcc.value.data[0])
+        );
+        const uwState = parseUserWinnings(uwBytes);
+        priorDust = uwState.unclaimedNonReinvestedWinnings;
+      }
+
+      const bondPrice = BigInt(poolState.bondPrice);
+
       if (winnerEntry.processed) {
+        let reinvestedTickets = 0n;
+        let usedPriorDust = 0n;
+
+        if (winnerEntry.amountReinvested > 0n) {
+          if (winnerEntry.amountReinvested % bondPrice !== 0n) {
+            reinvestedTickets = winnerEntry.amountReinvested / bondPrice + 1n;
+            usedPriorDust =
+              reinvestedTickets * bondPrice - winnerEntry.amountReinvested;
+          } else {
+            reinvestedTickets = winnerEntry.amountReinvested / bondPrice;
+          }
+        }
+
+        const priorDustStr =
+          usedPriorDust > 0n
+            ? `, using ${formatAmount(usedPriorDust)} prior dust`
+            : "";
+
         console.log(
           `Winner ${winnerOwner} (index ${winnerIndex}) is fully processed.`
+        );
+        console.log(
+          `  Final state: Owed: ${formatAmount(
+            winnerEntry.amountOwed
+          )}, Reinvested: ${formatAmount(
+            winnerEntry.amountReinvested
+          )} (${reinvestedTickets} ticket${
+            reinvestedTickets === 1n ? "" : "s"
+          }${priorDustStr}), Claimable Dust: ${formatAmount(priorDust)}`
         );
         break;
       }
 
       const claimable = winnerEntry.amountOwed - winnerEntry.amountReinvested;
+      console.log(`Processing Winner ${winnerOwner} (index ${winnerIndex})...`);
       console.log(
-        `Winner ${winnerOwner} (index ${winnerIndex}): Owed: ${formatAmount(
+        `  Current state: Owed: ${formatAmount(
           winnerEntry.amountOwed
         )}, Reinvested: ${formatAmount(
           winnerEntry.amountReinvested
-        )}, Claimable: ${formatAmount(claimable)}`
+        )}, Claimable: ${formatAmount(claimable)}, Available Prior Dust: ${formatAmount(
+          priorDust
+        )}`
       );
 
       const ix = await buildReinvestWinningsInstruction({
@@ -2374,7 +2426,7 @@ async function main() {
   Fee Basis Points: ${state.feeBasisPoints}
   Status: ${state.status}
   Total Deposited Principal: ${formatAmount(state.totalDepositedPrincipal)}
-  Current Cycle End At: ${new Date(state.currentCycleEndAt * 1000).toLocaleString()}
+  Current Cycle End At: ${formatTimestamp(state.currentCycleEndAt)}
   Is Frozen For Draw: ${state.isFrozenForDraw}
   Current Draw Cycle ID: ${state.currentDrawCycleId}
   Prize Tiers: ${safeStringify(state.prizeTiers)}
@@ -2656,7 +2708,7 @@ async function main() {
   Type: ${RedemptionType[state.redemptionType] ?? state.redemptionType}
   Amount (USD/USDC): ${formatAmount(state.amount)}
   PST Shares Locked: ${formatAmount(state.pstSharesLocked)}
-  Requested At: ${new Date(Number(state.requestedAt) * 1000).toLocaleString()}
+  Requested At: ${formatTimestamp(state.requestedAt)}
   Huma Request ID: ${state.humaRequestId.toString()}
   Bump: ${state.bump}
 `);
@@ -2726,7 +2778,7 @@ async function main() {
             `    PST Shares Locked: ${formatAmount(state.pstSharesLocked)}`
           );
           console.log(
-            `    Requested At: ${new Date(Number(state.requestedAt) * 1000).toLocaleString()}`
+            `    Requested At: ${formatTimestamp(state.requestedAt)}`
           );
           console.log(`    Huma Request ID: ${state.humaRequestId.toString()}`);
           console.log(`    Bump: ${state.bump}`);

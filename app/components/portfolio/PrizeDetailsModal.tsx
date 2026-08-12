@@ -6,6 +6,7 @@ import {
   formatTokenAmount,
   tierLabel,
   tierBadgeClass,
+  formatLocalDate,
 } from "@/app/lib/formatters";
 import { getExplorerUrl } from "@/app/lib/errors";
 import { useTranslations, useFormatter } from "next-intl";
@@ -70,11 +71,11 @@ export default function PrizeDetailsModal({
     setTimeout(() => setShareStatus(null), 3000);
   };
 
-  const formattedDate = format.dateTime(new Date(entry.date + "T00:00:00"), {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const formattedDate = formatLocalDate(
+    entry.date,
+    { month: "long", day: "numeric", year: "numeric" },
+    format.dateTime
+  );
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

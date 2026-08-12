@@ -92,7 +92,12 @@ export default function DashboardPage() {
     onChainPool ? onChainPool.currentDrawCycleId : undefined,
     isConnected ? userAddress : undefined,
     activePool.tokenSymbol,
-    activePool.bondPrice
+    activePool.bondPrice,
+    50,
+    activePool.currentCycleEndAt,
+    activePool.stakeCycleDurationHrs
+      ? activePool.stakeCycleDurationHrs * 3600
+      : 604800
   );
 
   const {
@@ -194,7 +199,7 @@ export default function DashboardPage() {
   ) => {
     const newActivity: ActivityEntry = {
       id: `act-dep-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
+      date: new Date().toISOString(),
       type: "deposit",
       description: `Deposited ${value / 1_000_000} USDC → +${tickets} tickets`,
       amount: value,
@@ -215,7 +220,7 @@ export default function DashboardPage() {
   ) => {
     const newActivity: ActivityEntry = {
       id: `act-w-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
+      date: new Date().toISOString(),
       type: "withdraw",
       description: `Requested withdrawal of ${tickets} bonds (${value / 1_000_000} USDC) · Pending settle`,
       amount: value,
@@ -296,7 +301,7 @@ export default function DashboardPage() {
 
       const newActivity: ActivityEntry = {
         id: `act-claim-dust-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString(),
         type: "win",
         description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
         amount: claimAmount,
@@ -335,7 +340,7 @@ export default function DashboardPage() {
 
       const newActivity: ActivityEntry = {
         id: `act-claim-red-${id}-${Date.now()}`,
-        date: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString(),
         type: "claim-redemption",
         description: `Claimed settled ${
           redemption.type === "bond_sale" ? "bond principal" : "prize winnings"

@@ -62,8 +62,8 @@ function eventToActivity(
   decimals: number = 6
 ): ActivityEntry | null {
   const date = event.blockTime
-    ? new Date(Number(event.blockTime) * 1000).toISOString().split("T")[0]
-    : new Date().toISOString().split("T")[0];
+    ? new Date(Number(event.blockTime) * 1000).toISOString()
+    : new Date().toISOString();
 
   const signature = event.signature;
 
@@ -164,8 +164,7 @@ function mergeAndDeduplicate(
         }
         return (
           inc.type === item.type &&
-          inc.amount === item.amount &&
-          inc.date === item.date
+          (item.amount === undefined || inc.amount === item.amount)
         );
       });
       if (matched) continue; // Skip optimistic item as on-chain event is present

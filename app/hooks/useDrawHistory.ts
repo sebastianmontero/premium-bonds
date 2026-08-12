@@ -55,7 +55,9 @@ export function useDrawHistory(
   userAddress: string | undefined,
   tokenSymbol: string = "USDC",
   bondPrice: number = 5_000_000,
-  maxCyclesToFetch: number = 50
+  maxCyclesToFetch: number = 50,
+  currentCycleEndAt?: number,
+  cycleDurationSeconds: number = 604800
 ): DrawHistoryResult {
   const client = useSolanaClient();
   const [prizeHistory, setPrizeHistory] = useState<PrizeHistoryEntry[]>([]);
@@ -250,9 +252,15 @@ export function useDrawHistory(
               }
             }
 
+            const drawDateTimestamp =
+              currentCycleEndAt && currentDrawCycleId !== undefined
+                ? currentCycleEndAt -
+                  (currentDrawCycleId - cycleId) * cycleDurationSeconds
+                : Math.floor(Date.now() / 1000);
+
             userPrizes.push({
               drawCycleId: cycleId,
-              date: new Date().toISOString().split("T")[0],
+              date: new Date(drawDateTimestamp * 1000).toISOString(),
               tierIndex: winner.tierIndex,
               amount: amountOwed,
               winnerIndex: wi,
@@ -290,6 +298,8 @@ export function useDrawHistory(
     tokenSymbol,
     bondPrice,
     maxCyclesToFetch,
+    currentCycleEndAt,
+    cycleDurationSeconds,
   ]);
 
   useEffect(() => {

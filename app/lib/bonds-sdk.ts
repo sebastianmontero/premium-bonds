@@ -35,7 +35,10 @@ import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
 import { DrawStatus } from "./generated/yield-bonds/src/generated";
 
-export { RedemptionType, DrawStatus } from "./generated/yield-bonds/src/generated";
+export {
+  RedemptionType,
+  DrawStatus,
+} from "./generated/yield-bonds/src/generated";
 
 export enum PoolStatus {
   Active = 0,

@@ -6,6 +6,7 @@ import {
   formatTokenAmount,
   tierLabel,
   tierBadgeClass,
+  formatLocalDate,
 } from "@/app/lib/formatters";
 import { PaginationControls } from "./PaginationControls";
 import { useTranslations, useFormatter } from "next-intl";
@@ -84,12 +85,11 @@ export default function CompleteLedgerModal({
   };
 
   const formatDate = (isoDate: string): string => {
-    const date = new Date(isoDate + "T00:00:00");
-    return format.dateTime(date, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    return formatLocalDate(
+      isoDate,
+      { month: "short", day: "numeric", year: "numeric" },
+      format.dateTime
+    );
   };
 
   // Close on Escape key press
@@ -386,7 +386,7 @@ export default function CompleteLedgerModal({
               className="space-y-3 pointer-events-none select-none"
               aria-hidden="true"
             >
-              <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
+              <div className="hidden md:grid md:grid-cols-[50px_150px_100px_110px_150px_1fr] lg:grid-cols-[60px_160px_110px_130px_170px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
                 <div>{t("draw")}</div>
                 <div>{t("date")}</div>
                 <div>{t("tier")}</div>
@@ -397,10 +397,10 @@ export default function CompleteLedgerModal({
               {[1, 2, 3, 4, 5].map((i) => (
                 <div
                   key={i}
-                  className="flex flex-col md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/10"
+                  className="flex flex-col md:grid md:grid-cols-[50px_150px_100px_110px_150px_1fr] lg:grid-cols-[60px_160px_110px_130px_170px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/10"
                 >
                   <div className="h-5 w-12 rounded-md skeleton-box" />
-                  <div className="h-3.5 w-20 rounded-md skeleton-box" />
+                  <div className="h-3.5 w-28 rounded-md skeleton-box" />
                   <div className="h-6 w-24 rounded-full skeleton-box" />
                   <div className="h-4 w-20 rounded-md skeleton-box" />
                   <div className="h-6 w-28 rounded-full skeleton-box" />
@@ -439,7 +439,7 @@ export default function CompleteLedgerModal({
           ) : (
             <>
               {/* ── Ledger Headers (Desktop Only) ─────────────────────────────── */}
-              <div className="hidden md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
+              <div className="hidden md:grid md:grid-cols-[50px_150px_100px_110px_150px_1fr] lg:grid-cols-[60px_160px_110px_130px_170px_1fr] items-center gap-4 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5 mb-2 shrink-0">
                 <div>{t("draw")}</div>
                 <div>{t("date")}</div>
                 <div>{t("tier")}</div>
@@ -452,7 +452,7 @@ export default function CompleteLedgerModal({
                 <div
                   key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
                   onClick={() => onViewDetails(entry)}
-                  className="flex flex-col md:grid md:grid-cols-[50px_90px_100px_100px_150px_1fr] lg:grid-cols-[60px_110px_110px_120px_180px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group"
+                  className="flex flex-col md:grid md:grid-cols-[50px_150px_100px_110px_150px_1fr] lg:grid-cols-[60px_160px_110px_130px_170px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group"
                 >
                   {/* Draw ID & Date (grouped for mobile, split for desktop) */}
                   <div className="flex items-center gap-4">
@@ -464,7 +464,7 @@ export default function CompleteLedgerModal({
                         {t("date")}
                       </p>
                       <p
-                        className="text-xs text-on-surface font-semibold mt-0.5"
+                        className="text-xs text-on-surface font-semibold mt-0.5 whitespace-nowrap"
                         suppressHydrationWarning
                       >
                         {formatDate(entry.date)}
@@ -475,7 +475,7 @@ export default function CompleteLedgerModal({
                   {/* Date (Desktop Only) */}
                   <div className="hidden md:block">
                     <p
-                      className="text-xs text-on-surface font-medium"
+                      className="text-xs text-on-surface font-medium whitespace-nowrap"
                       suppressHydrationWarning
                     >
                       {formatDate(entry.date)}
