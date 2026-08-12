@@ -210,13 +210,13 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
             let winning_entry = registry_get_entry(&data, lo as usize);
 
             payout_registry.winners[winner_count] = Winner {
-                amount_owed: prize_per_winner,
-                amount_reinvested: 0,
                 winner: winning_entry.owner,
+                amount_owed: prize_per_winner,
+                bonds_bought: 0,
                 processed: 0,
                 tier_index: tier_idx as u8,
                 version: 1,
-                _reserved: [0; 5],
+                _reserved: [0; 9],
             };
 
             winner_count += 1;

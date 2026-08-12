@@ -45,13 +45,13 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
     use anchor_lang::Discriminator;
     let (pda, _) = payout_pda(pool_id, cycle_id);
     let default_winner = anchor::Winner {
-        amount_owed: 0,
-        amount_reinvested: 0,
         winner: Pubkey::default(),
+        amount_owed: 0,
+        bonds_bought: 0,
         processed: 0,
         tier_index: 0,
         version: 1,
-        _reserved: [0; 5],
+        _reserved: [0; 9],
     };
     let mut fixed_winners = [default_winner; 50];
     let count = winners.len().min(50);
@@ -181,13 +181,13 @@ fn test_reinvest_after_user_index_swap() {
 
     // Draw Cycle 0 completes: User B wins a prize!
     let winner_b = anchor::Winner {
-        amount_owed: 5_000_000,
-        amount_reinvested: 0,
         winner: user_b,
+        amount_owed: 5_000_000,
+        bonds_bought: 0,
         processed: 0,
         tier_index: 0,
         version: 1,
-        _reserved: [0; 5],
+        _reserved: [0; 9],
     };
     inject_payout(&mut svm, 1, 0, vec![winner_b]);
 
@@ -231,7 +231,6 @@ fn test_reinvest_after_user_index_swap() {
         data: anchor::instruction::ReinvestWinnings {
             cycle_id: 0,
             winner_index: 0,
-            max_bonds: 10,
         }
         .data(),
     };

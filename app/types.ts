@@ -40,7 +40,7 @@ export interface WinnerEntry {
   amountOwed: number;
   paidOut: boolean;
   tierIndex: number;
-  amountReinvested: number;
+  bondsBought?: number;
 }
 
 export interface PayoutInfo {
@@ -61,7 +61,7 @@ export interface RecentWinner {
   tokenSymbol: string;
 }
 
-export type PrizeStatus = "processing" | "partial" | "reinvested";
+export type PrizeStatus = "processing" | "reinvested";
 
 /** A single entry in the Prize History Ledger */
 export interface PrizeHistoryEntry {
@@ -71,10 +71,10 @@ export interface PrizeHistoryEntry {
   amount: number; // base units (total amount won in this draw)
   winnerIndex: number; // index in PayoutRegistry.winners[] — needed for crank
   status: PrizeStatus;
-  amountReinvested: number; // how much has been reinvested so far
+  bondsBought?: number; // count of bonds bought via reinvestment
   dustAccumulated?: number; // dust accumulated from this draw (when finalized)
   usedPriorDust?: number; // base units of previously accumulated dust applied to purchase tickets
-  reinvestedTickets?: number; // present when status is "reinvested" or "partial"
+  reinvestedTickets?: number; // present when status is "reinvested"
   winningTicket?: string;
   vrfSeed?: string;
   txSignature?: string;

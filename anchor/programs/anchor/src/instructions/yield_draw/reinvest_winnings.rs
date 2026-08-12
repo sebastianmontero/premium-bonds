@@ -88,7 +88,7 @@ pub struct ReinvestWinnings<'info> {
 ///
 /// The handler validates the winner's key against the payout registry entry. It calculates the total
 /// available winnings (including any previously accumulated non-reinvested winnings), and uses them to
-/// buy up to `max_bonds` bonds.
+/// buy new bonds atomically.
 ///
 /// Because yield is tracked on-chain via $PST token balance and is not materialized into USDC, reinvesting
 /// does not require moving tokens or making external CPI calls. The pool simply registers the new tickets in
@@ -100,19 +100,14 @@ pub fn handle(
     ctx: Context<ReinvestWinnings>,
     _cycle_id: u32,
     winner_index: u32,
-    max_bonds: u32,
 ) -> Result<()> {
-    require!(max_bonds > 0, PremiumBondsError::InvalidBondQuantity);
-
     // ── 1. Validate winner entry ─────────────────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
     let user_winnings = &mut ctx.accounts.user_winnings;
     let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
 
-    // ── 2. Calculate remaining amount and bonds for this batch ────────────────
-    let remaining_current = winner.claimable_amount()?;
-    let already_reinvested = winner.amount_reinvested;
-
+    // ── 2. Calculate remaining amount and bonds for atomic reinvestment ──────
+    let remaining_current = winner.amount_owed;
     let accumulated = user_winnings.unclaimed_non_reinvested_winnings;
 
     let total_available = remaining_current
@@ -122,17 +117,13 @@ pub fn handle(
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
     // How many total bonds can be bought with the total available?
-    let total_bonds_available = (total_available
+    let mut bonds_to_buy = (total_available
         .checked_div(pool.bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?) as u32;
 
-    // Cap this batch at max_bonds
-    let mut bonds_to_buy = total_bonds_available.min(max_bonds);
-    let mut is_final_batch = total_bonds_available <= bonds_to_buy;
-
     // Graceful fallback for exited users when registry is full:
     // If an exited user (registry_entry_index == u32::MAX) wins a prize and reinvest_winnings is called
-    // while TicketRegistry is at 100% capacity, set bonds_to_buy = 0 and is_final_batch = true.
+    // while TicketRegistry is at 100% capacity, set bonds_to_buy = 0.
     // This routes 100% of their prize to unclaimed_non_reinvested_winnings (dust) and marks the winner as processed
     // so crank operations complete cleanly without reverting with RegistryFull.
     let user_entry_idx = user_winnings.registry_entry_index;
@@ -141,7 +132,6 @@ pub fn handle(
         let registry = ctx.accounts.ticket_registry.load()?;
         if registry.user_count >= registry.capacity {
             bonds_to_buy = 0;
-            is_final_batch = true;
         }
     }
 
@@ -155,14 +145,13 @@ pub fn handle(
         .checked_sub(from_current)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // Update winner and user_winnings accounting
-    let new_amount_reinvested = already_reinvested
-        .checked_add(from_current)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-    payout_registry.winners[winner_index as usize].amount_reinvested = new_amount_reinvested;
+    // Set bonds_bought and update user_winnings dust accounting
+    payout_registry.winners[winner_index as usize].bonds_bought = bonds_to_buy;
 
     user_winnings.unclaimed_non_reinvested_winnings = accumulated
         .checked_sub(from_accumulated)
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .checked_add(remaining_current.checked_sub(from_current).ok_or(PremiumBondsError::MathOverflow)?)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     if bonds_to_buy > 0 {
@@ -172,19 +161,8 @@ pub fn handle(
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    // If final batch, mark winner as processed, and transfer any remaining dust from current winnings
-    if is_final_batch {
-        let dust = remaining_current
-            .checked_sub(from_current)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        if dust > 0 {
-            user_winnings.unclaimed_non_reinvested_winnings = user_winnings
-                .unclaimed_non_reinvested_winnings
-                .checked_add(dust)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-        }
-        payout_registry.mark_processed(winner_index);
-    }
+    // Mark winner as processed
+    payout_registry.mark_processed(winner_index);
 
     // ── 3. Reinvest: accounting-only bond registration ──────────────────────
     //
@@ -279,13 +257,10 @@ pub fn handle(
 
     // ── 5. Log for off-chain indexing ─────────────────────────────────────────
     msg!(
-        "ReinvestWinnings: winner={}, bonds={}, reinvested_this_batch={}, total_reinvested={}, dust={}, final={}",
+        "ReinvestWinnings: winner={}, bonds={}, amount_reinvested={}",
         ctx.accounts.winner.key(),
         bonds_to_buy,
         cost,
-        new_amount_reinvested,
-        if is_final_batch { remaining_current.checked_sub(from_current).unwrap_or(0) } else { 0 },
-        is_final_batch,
     );
 
     emit_cpi!(WinningsReinvested {
@@ -294,7 +269,6 @@ pub fn handle(
         cycle_id: _cycle_id,
         bonds_bought: bonds_to_buy,
         amount_reinvested: cost,
-        is_final_batch,
     });
 
     Ok(())

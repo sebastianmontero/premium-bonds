@@ -35,9 +35,9 @@ pub enum PremiumBondsError {
     /// Calculation overflow occurred natively.
     #[msg("Calculation overflow occurred natively.")]
     MathOverflow,
-    /// Invalid indices ordering. Please provide deduplicated descending indices.
-    #[msg("Invalid indices ordering. Please provide deduplicated descending indices.")]
-    InvalidIndices,
+    /// Winner index is out of bounds.
+    #[msg("Winner index is out of bounds.")]
+    InvalidWinnerIndex,
     /// Only the designated Switchboard Jobs Account can execute this crank.
     #[msg("Only the designated Switchboard Jobs Account can execute this crank.")]
     UnauthorizedCrank,

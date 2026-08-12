@@ -86,7 +86,7 @@ impl PayoutRegistry {
         let idx = winner_index as usize;
         require!(
             idx < (self.winners_count as usize),
-            PremiumBondsError::InvalidIndices
+            PremiumBondsError::InvalidWinnerIndex
         );
         require!(
             self.winners[idx].winner == user_winnings.user,
@@ -111,27 +111,18 @@ impl PayoutRegistry {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Winner {
-    /// Total prize amount (USDC in lamports/base units) owed to the winner.
-    pub amount_owed: u64,
-    /// Tracks partial reinvestment progress across batched crank calls.
-    pub amount_reinvested: u64,
     /// Public key of the winning user.
     pub winner: Pubkey,
+    /// Total prize amount (USDC in lamports/base units) owed to the winner.
+    pub amount_owed: u64,
+    /// Exact count of bonds purchased via reinvestment.
+    pub bonds_bought: u32,
     /// Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true).
     pub processed: u8,
     /// The index of the PrizeTier from which this prize was calculated.
     pub tier_index: u8,
     /// Schema version of the struct.
     pub version: u8,
-    /// Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size).
-    pub _reserved: [u8; 5],
-}
-
-impl Winner {
-    /// Returns the un-reinvested remainder of the prize.
-    pub fn claimable_amount(&self) -> Result<u64> {
-        self.amount_owed
-            .checked_sub(self.amount_reinvested)
-            .ok_or(PremiumBondsError::MathOverflow.into())
-    }
+    /// Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size).
+    pub _reserved: [u8; 9],
 }

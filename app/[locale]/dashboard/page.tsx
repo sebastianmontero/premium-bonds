@@ -33,7 +33,6 @@ import type {
   ActivityEntry,
   PendingRedemption,
   PrizeHistoryEntry,
-  PrizeStatus,
   PoolInfo,
   UserTicketInfo,
   RecentWinner,
@@ -270,8 +269,8 @@ export default function DashboardPage() {
     setTxError(null);
     try {
       if (isConnected) {
-        // Run contract reinvest crank (max 5 bonds batch)
-        await actions.reinvestWinnings(drawCycleId, entry.winnerIndex, 5);
+        // Run contract reinvest crank
+        await actions.reinvestWinnings(drawCycleId, entry.winnerIndex);
         refetch();
         refetchDrawHistory();
         refetchActivity();

@@ -198,15 +198,11 @@ export function useDrawHistory(
             if (winner.winner !== userAddress) continue;
 
             // Determine status
-            let status: PrizeStatus = "processing";
+            const status: PrizeStatus = winner.processed
+              ? "reinvested"
+              : "processing";
             const amountOwed = Number(winner.amountOwed);
-            const amountReinvested = Number(winner.amountReinvested);
-
-            if (winner.processed) {
-              status = "reinvested";
-            } else if (amountReinvested > 0) {
-              status = "partial";
-            }
+            const bondsBought = winner.bondsBought ?? 0;
 
             // Derive winning ticket index via client-side VRF
             let winningTicketIdx: number | undefined;
@@ -228,27 +224,19 @@ export function useDrawHistory(
             }
 
             // Compute reinvested tickets count, used prior dust, and leftover dust:
-            // On-chain, when prior dust is combined with current winnings to purchase an extra ticket,
-            // 100% of current winnings (amountOwed) is recorded in amountReinvested.
-            // If amountReinvested % bondPrice !== 0 for a processed winner, Math.ceil gives the true tickets purchased.
             let reinvestedTickets: number | undefined;
             let usedPriorDust: number | undefined;
             let dustAccumulated: number | undefined;
 
-            if (amountReinvested > 0) {
-              if (amountReinvested % bondPrice !== 0 && winner.processed) {
-                reinvestedTickets = Math.ceil(amountReinvested / bondPrice);
-                const totalTicketValue = reinvestedTickets * bondPrice;
-                usedPriorDust =
-                  totalTicketValue > amountOwed
-                    ? totalTicketValue - amountOwed
-                    : undefined;
+            if (winner.processed) {
+              reinvestedTickets = bondsBought;
+              const totalTicketValue = bondsBought * bondPrice;
+
+              if (totalTicketValue > amountOwed) {
+                usedPriorDust = totalTicketValue - amountOwed;
                 dustAccumulated = 0;
               } else {
-                reinvestedTickets = Math.floor(amountReinvested / bondPrice);
-                if (winner.processed && amountOwed > amountReinvested) {
-                  dustAccumulated = amountOwed - amountReinvested;
-                }
+                dustAccumulated = amountOwed - totalTicketValue;
               }
             }
 
@@ -265,7 +253,7 @@ export function useDrawHistory(
               amount: amountOwed,
               winnerIndex: wi,
               status,
-              amountReinvested,
+              bondsBought,
               dustAccumulated,
               usedPriorDust,
               reinvestedTickets,

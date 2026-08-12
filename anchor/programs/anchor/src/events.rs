@@ -41,8 +41,6 @@ pub struct WinningsReinvested {
     pub bonds_bought: u32,
     /// Amount of USDC reinvested (in base units).
     pub amount_reinvested: u64,
-    /// Whether this was the final batch of reinvestments for this winner.
-    pub is_final_batch: bool,
 }
 
 /// Emitted when a user claims non-reinvested winnings (initiates async redemption).

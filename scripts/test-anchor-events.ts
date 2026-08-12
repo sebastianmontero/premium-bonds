@@ -138,8 +138,8 @@ async function runTests() {
 
   // 3. Mock CPI Inner Instruction event parsing
   {
-    // Payload for WinningsReinvested: Pubkey(32) + u32 pool_id(4) + u32 cycle_id(4) + u32 bonds_bought(4) + u64 amount_reinvested(8) + bool is_final_batch(1) = 53 bytes
-    const fields = new Uint8Array(53);
+    // Payload for WinningsReinvested: Pubkey(32) + u32 pool_id(4) + u32 cycle_id(4) + u32 bonds_bought(4) + u64 amount_reinvested(8) = 52 bytes
+    const fields = new Uint8Array(52);
     fields.set(dummyPubkeyBytes, 0);
     const view = new DataView(
       fields.buffer,
@@ -150,7 +150,6 @@ async function runTests() {
     view.setUint32(36, 3, true); // cycle_id
     view.setUint32(40, 2, true); // bonds_bought
     view.setBigUint64(44, 10_000_000n, true); // amount_reinvested
-    fields[52] = 1; // is_final_batch = true
 
     const disc = DISCRIMINATORS.WinningsReinvested;
     const cpiBytes = new Uint8Array(
@@ -193,7 +192,6 @@ async function runTests() {
     assert.strictEqual(res.events[0].data.cycleId, 3);
     assert.strictEqual(res.events[0].data.bondsBought, 2);
     assert.strictEqual(res.events[0].data.amountReinvested, 10_000_000n);
-    assert.strictEqual(res.events[0].data.isFinalBatch, true);
     console.log(
       "✓ CPI WinningsReinvested inner instruction event decoded successfully!"
     );

@@ -32,7 +32,6 @@ export interface WinningsReinvestedEvent {
   cycleId: number;
   bondsBought: number;
   amountReinvested: bigint;
-  isFinalBatch: boolean;
 }
 
 export interface WinningsClaimedEvent {
@@ -140,10 +139,6 @@ function readU64(view: DataView, offset: number): bigint {
   return view.getBigUint64(offset, true);
 }
 
-function readBool(view: DataView, offset: number): boolean {
-  return view.getUint8(offset) !== 0;
-}
-
 function decodeEventData(
   eventName: string,
   data: Uint8Array
@@ -181,15 +176,14 @@ function decodeEventData(
       } as BondsSoldEvent;
     }
     case "WinningsReinvested": {
-      // Pubkey(32) + u32(4) + u32(4) + u32(4) + u64(8) + bool(1) = 53
-      if (payload.length < 53) return null;
+      // Pubkey(32) + u32(4) + u32(4) + u32(4) + u64(8) = 52
+      if (payload.length < 52) return null;
       return {
         winner: readPubkey(view, payload, 0),
         poolId: readU32(view, 32),
         cycleId: readU32(view, 36),
         bondsBought: readU32(view, 40),
         amountReinvested: readU64(view, 44),
-        isFinalBatch: readBool(view, 52),
       } as WinningsReinvestedEvent;
     }
     case "WinningsClaimed": {

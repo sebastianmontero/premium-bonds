@@ -62,13 +62,6 @@ export function PrizeHistoryLedger({
             {t("processing")}
           </span>
         );
-      case "partial":
-        return (
-          <span className="pill pill-info">
-            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {t("reinvesting")}
-          </span>
-        );
       case "reinvested":
         return (
           <span className="pill pill-success">
@@ -350,53 +343,51 @@ export function PrizeHistoryLedger({
 
                 {/* Actions */}
                 <div className="flex items-center justify-start md:justify-end gap-3 md:pl-0 w-full font-sans">
-                  {(entry.status === "processing" ||
-                    entry.status === "partial") &&
-                    onSimulateCrank && (
-                      <button
-                        disabled={
-                          !!crankingCycles[
-                            `${entry.drawCycleId}-${entry.winnerIndex}`
-                          ]
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
-                        }}
-                        className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                  {entry.status === "processing" && onSimulateCrank && (
+                    <button
+                      disabled={
+                        !!crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
+                      }}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                        crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
+                          ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                          : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+                      }`}
+                    >
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`animate-spin ${
                           crankingCycles[
                             `${entry.drawCycleId}-${entry.winnerIndex}`
                           ]
-                            ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                            : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+                            ? "duration-1000 text-on-surface-variant/40"
+                            : "duration-3000"
                         }`}
                       >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={`animate-spin ${
-                            crankingCycles[
-                              `${entry.drawCycleId}-${entry.winnerIndex}`
-                            ]
-                              ? "duration-1000 text-on-surface-variant/40"
-                              : "duration-3000"
-                          }`}
-                        >
-                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-                        </svg>
-                        {crankingCycles[
-                          `${entry.drawCycleId}-${entry.winnerIndex}`
-                        ]
-                          ? t("cranking")
-                          : `${t("runCrank")} ${entry.status === "partial" ? t("batch") : ""}`}
-                      </button>
-                    )}
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                      </svg>
+                      {crankingCycles[
+                        `${entry.drawCycleId}-${entry.winnerIndex}`
+                      ]
+                        ? t("cranking")
+                        : t("runCrank")}
+                    </button>
+                  )}
 
                   {/* Monospace/truncated VRF indicator to reassure users of fairness */}
                   {entry.vrfSeed && (

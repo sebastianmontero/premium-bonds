@@ -36,8 +36,8 @@ export const ANCHOR_ERROR__UNAUTHORIZED_TICKET = 0x1778; // 6008
 export const ANCHOR_ERROR__ALREADY_CLAIMED = 0x1779; // 6009
 /** MathOverflow: Calculation overflow occurred natively. */
 export const ANCHOR_ERROR__MATH_OVERFLOW = 0x177a; // 6010
-/** InvalidIndices: Invalid indices ordering. Please provide deduplicated descending indices. */
-export const ANCHOR_ERROR__INVALID_INDICES = 0x177b; // 6011
+/** InvalidWinnerIndex: Winner index is out of bounds. */
+export const ANCHOR_ERROR__INVALID_WINNER_INDEX = 0x177b; // 6011
 /** UnauthorizedCrank: Only the designated Switchboard Jobs Account can execute this crank. */
 export const ANCHOR_ERROR__UNAUTHORIZED_CRANK = 0x177c; // 6012
 /** InvalidPrizeTierConfig: Invalid prize tier configuration. */
@@ -104,7 +104,6 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATUS
   | typeof ANCHOR_ERROR__INVALID_FEE_CONFIG
   | typeof ANCHOR_ERROR__INVALID_FEE_WALLET
-  | typeof ANCHOR_ERROR__INVALID_INDICES
   | typeof ANCHOR_ERROR__INVALID_MODE_MINT
   | typeof ANCHOR_ERROR__INVALID_POOL_STATUS
   | typeof ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG
@@ -112,6 +111,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_OWNER
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
+  | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
   | typeof ANCHOR_ERROR__MATH_OVERFLOW
   | typeof ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS
   | typeof ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM
@@ -145,7 +145,6 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_DRAW_STATUS]: `The draw cycle is in an invalid phase for this operation`,
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_FEE_WALLET]: `The provided fee wallet account is invalid or does not match the pool configuration`,
-    [ANCHOR_ERROR__INVALID_INDICES]: `Invalid indices ordering. Please provide deduplicated descending indices.`,
     [ANCHOR_ERROR__INVALID_MODE_MINT]: `The mode mint does not match the pool's mode mint.`,
     [ANCHOR_ERROR__INVALID_POOL_STATUS]: `Invalid pool status value.`,
     [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: `Invalid prize tier configuration.`,
@@ -153,6 +152,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `This pending redemption does not belong to the signer.`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
+    [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,
     [ANCHOR_ERROR__MATH_OVERFLOW]: `Calculation overflow occurred natively.`,
     [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: `Required remaining account for swapped user's UserWinnings is missing`,
     [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: `No unclaimed non-reinvested winnings to claim.`,

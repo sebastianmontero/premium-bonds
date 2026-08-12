@@ -233,12 +233,6 @@ export default function PrizeDetailsModal({
                         {tLedger("processing")}
                       </span>
                     )}
-                    {entry.status === "partial" && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        {tLedger("reinvesting")}
-                      </span>
-                    )}
                     {entry.status === "reinvested" && (
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -252,7 +246,7 @@ export default function PrizeDetailsModal({
           </div>
 
           {/* Auto-Reinvestment Detail Section */}
-          {(entry.status === "reinvested" || entry.status === "partial") && (
+          {entry.status === "reinvested" && (
             <div className="p-5 rounded-xl border border-emerald-500/10 bg-emerald-500/[0.02] space-y-3">
               <h4 className="text-sm font-semibold text-emerald-300 flex items-center gap-1.5">
                 <svg
@@ -382,9 +376,7 @@ export default function PrizeDetailsModal({
                 );
               })()}
               <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
-                {entry.status === "partial"
-                  ? t("partialReinvestNote")
-                  : t("reinvestedNote")}
+                {t("reinvestedNote")}
               </p>
             </div>
           )}
@@ -595,7 +587,7 @@ export default function PrizeDetailsModal({
               {t("close")}
             </button>
 
-            {(entry.status === "processing" || entry.status === "partial") && (
+            {entry.status === "processing" && (
               <button
                 disabled={
                   !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
@@ -628,7 +620,7 @@ export default function PrizeDetailsModal({
                 </svg>
                 {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
                   ? tLedger("cranking")
-                  : `${tLedger("runCrank")} ${entry.status === "partial" ? tLedger("batch") : ""}`}
+                  : tLedger("runCrank")}
               </button>
             )}
           </div>

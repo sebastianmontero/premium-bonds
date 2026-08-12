@@ -97,9 +97,7 @@ function eventToActivity(
         id: `evt-reinvest-${signature.slice(0, 8)}`,
         date,
         type: "auto-reinvest" as ActivityType,
-        description: d.isFinalBatch
-          ? `Draw #${d.cycleId} reinvestment finalized: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested, decimals)} USDC`
-          : `Draw #${d.cycleId} batch reinvest: +${d.bondsBought} tickets (${formatAmount(d.amountReinvested, decimals)} USDC)`,
+        description: `Draw #${d.cycleId} reinvested: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested, decimals)} USDC`,
         amount: Number(d.amountReinvested),
         txSignature: signature,
       };

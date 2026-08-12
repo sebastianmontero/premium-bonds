@@ -866,7 +866,7 @@ export function useBondsContract(poolId: number = 1) {
    * @returns The transaction signature.
    */
   const reinvestWinnings = useCallback(
-    async (cycleId: number, winnerIndex: number, maxBonds: number) => {
+    async (cycleId: number, winnerIndex: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
 
@@ -878,12 +878,11 @@ export function useBondsContract(poolId: number = 1) {
         ? address(pool.ticketRegistry)
         : poolPda;
 
-      const ixData = new Uint8Array(20);
+      const ixData = new Uint8Array(16);
       ixData.set([29, 223, 229, 116, 101, 111, 58, 26], 0);
       const view = new DataView(ixData.buffer);
       view.setUint32(8, cycleId, true);
       view.setUint32(12, winnerIndex, true);
-      view.setUint32(16, maxBonds, true);
 
       const accounts = [
         { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },

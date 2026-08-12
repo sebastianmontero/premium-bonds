@@ -111,13 +111,11 @@ export type ReinvestWinningsInstructionData = {
   discriminator: ReadonlyUint8Array;
   cycleId: number;
   winnerIndex: number;
-  maxBonds: number;
 };
 
 export type ReinvestWinningsInstructionDataArgs = {
   cycleId: number;
   winnerIndex: number;
-  maxBonds: number;
 };
 
 export function getReinvestWinningsInstructionDataEncoder(): FixedSizeEncoder<ReinvestWinningsInstructionDataArgs> {
@@ -126,7 +124,6 @@ export function getReinvestWinningsInstructionDataEncoder(): FixedSizeEncoder<Re
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["cycleId", getU32Encoder()],
       ["winnerIndex", getU32Encoder()],
-      ["maxBonds", getU32Encoder()],
     ]),
     (value) => ({ ...value, discriminator: REINVEST_WINNINGS_DISCRIMINATOR })
   );
@@ -137,7 +134,6 @@ export function getReinvestWinningsInstructionDataDecoder(): FixedSizeDecoder<Re
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["cycleId", getU32Decoder()],
     ["winnerIndex", getU32Decoder()],
-    ["maxBonds", getU32Decoder()],
   ]);
 }
 
@@ -180,7 +176,6 @@ export type ReinvestWinningsAsyncInput<
   program?: Address<TAccountProgram>;
   cycleId: ReinvestWinningsInstructionDataArgs["cycleId"];
   winnerIndex: ReinvestWinningsInstructionDataArgs["winnerIndex"];
-  maxBonds: ReinvestWinningsInstructionDataArgs["maxBonds"];
 };
 
 export async function getReinvestWinningsInstructionAsync<
@@ -317,7 +312,6 @@ export type ReinvestWinningsInput<
   program?: Address<TAccountProgram>;
   cycleId: ReinvestWinningsInstructionDataArgs["cycleId"];
   winnerIndex: ReinvestWinningsInstructionDataArgs["winnerIndex"];
-  maxBonds: ReinvestWinningsInstructionDataArgs["maxBonds"];
 };
 
 export function getReinvestWinningsInstruction<

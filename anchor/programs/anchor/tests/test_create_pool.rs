@@ -221,7 +221,7 @@ fn test_create_pool_succeeds() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
     assert_eq!(event.token_mint, ctx.token_mint);
-    assert_eq!(event.pst_mint, Pubkey::default());
+    assert_eq!(event.pst_mint, ctx.pst_mint);
 }
 
 #[test]

@@ -19,6 +19,8 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU32Decoder,
+  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -31,60 +33,60 @@ import {
 
 /** Details of an individual winner's allocation within a draw cycle. */
 export type Winner = {
-  /** Total prize amount (USDC in lamports/base units) owed to the winner. */
-  amountOwed: bigint;
-  /** Tracks partial reinvestment progress across batched crank calls. */
-  amountReinvested: bigint;
   /** Public key of the winning user. */
   winner: Address;
+  /** Total prize amount (USDC in lamports/base units) owed to the winner. */
+  amountOwed: bigint;
+  /** Exact count of bonds purchased via reinvestment. */
+  bondsBought: number;
   /** Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true). */
   processed: number;
   /** The index of the PrizeTier from which this prize was calculated. */
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size). */
+  /** Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size). */
   reserved: ReadonlyUint8Array;
 };
 
 export type WinnerArgs = {
-  /** Total prize amount (USDC in lamports/base units) owed to the winner. */
-  amountOwed: number | bigint;
-  /** Tracks partial reinvestment progress across batched crank calls. */
-  amountReinvested: number | bigint;
   /** Public key of the winning user. */
   winner: Address;
+  /** Total prize amount (USDC in lamports/base units) owed to the winner. */
+  amountOwed: number | bigint;
+  /** Exact count of bonds purchased via reinvestment. */
+  bondsBought: number;
   /** Whether the prize has been fully disbursed or reinvested (0 for false, 1 for true). */
   processed: number;
   /** The index of the PrizeTier from which this prize was calculated. */
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (5 bytes to maintain 8-byte alignment, 56 bytes struct size). */
+  /** Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size). */
   reserved: ReadonlyUint8Array;
 };
 
 export function getWinnerEncoder(): FixedSizeEncoder<WinnerArgs> {
   return getStructEncoder([
-    ["amountOwed", getU64Encoder()],
-    ["amountReinvested", getU64Encoder()],
     ["winner", getAddressEncoder()],
+    ["amountOwed", getU64Encoder()],
+    ["bondsBought", getU32Encoder()],
     ["processed", getU8Encoder()],
     ["tierIndex", getU8Encoder()],
     ["version", getU8Encoder()],
-    ["reserved", fixEncoderSize(getBytesEncoder(), 5)],
+    ["reserved", fixEncoderSize(getBytesEncoder(), 9)],
   ]);
 }
 
 export function getWinnerDecoder(): FixedSizeDecoder<Winner> {
   return getStructDecoder([
-    ["amountOwed", getU64Decoder()],
-    ["amountReinvested", getU64Decoder()],
     ["winner", getAddressDecoder()],
+    ["amountOwed", getU64Decoder()],
+    ["bondsBought", getU32Decoder()],
     ["processed", getU8Decoder()],
     ["tierIndex", getU8Decoder()],
     ["version", getU8Decoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 5)],
+    ["reserved", fixDecoderSize(getBytesDecoder(), 9)],
   ]);
 }
 

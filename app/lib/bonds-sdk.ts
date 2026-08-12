@@ -554,7 +554,6 @@ export async function buildReinvestWinningsInstruction(params: {
   poolId: number;
   cycleId: number;
   winnerIndex: number;
-  maxBonds: bigint | number;
   ticketRegistry: Address;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
@@ -573,7 +572,6 @@ export async function buildReinvestWinningsInstruction(params: {
     ticketRegistry: params.ticketRegistry,
     cycleId: params.cycleId,
     winnerIndex: params.winnerIndex,
-    maxBonds: Number(params.maxBonds),
   });
 }
 

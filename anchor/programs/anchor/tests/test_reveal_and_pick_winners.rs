@@ -678,7 +678,7 @@ fn test_reveal_payout_registry_fields() {
 
     for w in &pr.winners[..pr.winners_count as usize] {
         assert_eq!(w.processed, 0);
-        assert_eq!(w.amount_reinvested, 0);
+        assert_eq!(w.bonds_bought, 0);
     }
 }
 

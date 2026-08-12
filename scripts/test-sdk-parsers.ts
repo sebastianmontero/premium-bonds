@@ -139,19 +139,19 @@ function mockAccount(data: Uint8Array) {
 
   // Winner 0 at offset 8 + 88 = 96
   const wOffset = 96;
-  view.setBigUint64(wOffset, 5_000_000n, true); // amount_owed
-  view.setBigUint64(wOffset + 8, 1_000_000n, true); // amount_reinvested
-  buffer.fill(2, wOffset + 16, wOffset + 48); // winner Pubkey
-  buffer[wOffset + 48] = 0; // processed
-  buffer[wOffset + 49] = 0; // tier_index
-  buffer[wOffset + 50] = 1; // version
+  buffer.fill(2, wOffset, wOffset + 32); // winner Pubkey (32 bytes: 0..32)
+  view.setBigUint64(wOffset + 32, 5_000_000n, true); // amount_owed (8 bytes: 32..40)
+  view.setUint32(wOffset + 40, 2, true); // bonds_bought (4 bytes: 40..44)
+  buffer[wOffset + 44] = 0; // processed (44..45)
+  buffer[wOffset + 45] = 0; // tier_index (45..46)
+  buffer[wOffset + 46] = 1; // version (46..47)
 
   const parsed = decodePayoutRegistry(mockAccount(buffer)).data;
   assert.strictEqual(parsed.poolId, 1);
   assert.strictEqual(parsed.cycleId, 0);
   assert.strictEqual(parsed.winnersCount, 1);
   assert.strictEqual(parsed.winners[0].amountOwed, 5_000_000n);
-  assert.strictEqual(parsed.winners[0].amountReinvested, 1_000_000n);
+  assert.strictEqual(parsed.winners[0].bondsBought, 2);
   assert.ok(parsed.winners[0].winner);
   console.log("✓ decodePayoutRegistry passed");
 }

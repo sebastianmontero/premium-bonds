@@ -67,13 +67,6 @@ export default function CompleteLedgerModal({
             {t("processing")}
           </span>
         );
-      case "partial":
-        return (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-            {t("reinvesting")}
-          </span>
-        );
       case "reinvested":
         return (
           <span className="pill pill-success">
@@ -288,7 +281,6 @@ export default function CompleteLedgerModal({
               options={[
                 { value: "all", label: t("allStatuses") },
                 { value: "processing", label: t("processing") },
-                { value: "partial", label: t("reinvesting") },
                 { value: "reinvested", label: t("reinvested") },
               ]}
               ariaLabel="Filter ledger by status"
@@ -606,8 +598,7 @@ export default function CompleteLedgerModal({
 
                   {/* Actions */}
                   <div className="flex items-center justify-start md:justify-end gap-3 md:pl-0 w-full font-sans">
-                    {(entry.status === "processing" ||
-                      entry.status === "partial") && (
+                    {entry.status === "processing" && (
                       <button
                         disabled={
                           !!crankingCycles[
@@ -649,7 +640,7 @@ export default function CompleteLedgerModal({
                           `${entry.drawCycleId}-${entry.winnerIndex}`
                         ]
                           ? t("cranking")
-                          : `${t("runCrank")} ${entry.status === "partial" ? t("batch") : ""}`}
+                          : t("runCrank")}
                       </button>
                     )}
 

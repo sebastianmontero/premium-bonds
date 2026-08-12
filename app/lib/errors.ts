@@ -10,7 +10,7 @@ import {
   ANCHOR_ERROR__UNAUTHORIZED_TICKET,
   ANCHOR_ERROR__ALREADY_CLAIMED,
   ANCHOR_ERROR__MATH_OVERFLOW,
-  ANCHOR_ERROR__INVALID_INDICES,
+  ANCHOR_ERROR__INVALID_WINNER_INDEX,
   ANCHOR_ERROR__UNAUTHORIZED_CRANK,
   ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG,
   ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED,
@@ -134,9 +134,9 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     name: "MathOverflow",
     message: "A numerical overflow occurred during calculations.",
   },
-  [ANCHOR_ERROR__INVALID_INDICES]: {
-    name: "InvalidIndices",
-    message: "Invalid ticket indices provided.",
+  [ANCHOR_ERROR__INVALID_WINNER_INDEX]: {
+    name: "InvalidWinnerIndex",
+    message: "Winner index is out of bounds.",
   },
   [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: {
     name: "UnauthorizedCrank",

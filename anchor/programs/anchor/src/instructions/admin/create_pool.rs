@@ -176,7 +176,7 @@ pub fn handle(
         pool_id,
         admin: ctx.accounts.admin.key(),
         token_mint: ctx.accounts.token_mint.key(),
-        pst_mint: Pubkey::default(),
+        pst_mint: ctx.accounts.pst_mint.key(),
         fee_wallet: ctx.accounts.fee_wallet.key(),
         ticket_registry: ctx.accounts.ticket_registry.key(),
         bond_price,

@@ -172,11 +172,6 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         description:
           "Winner index or user public key address to target (default: all unprocessed winners)",
       },
-      {
-        flag: "--max-bonds <number>",
-        description: "Maximum bonds to buy per reinvest transaction",
-        default: "1000",
-      },
     ],
     examples: [
       "npm run pb-cli reinvest -- --pool 1",
@@ -1120,7 +1115,6 @@ export interface ExecuteReinvestParams {
   poolId?: number;
   cycleId?: number;
   winnerOption?: string;
-  maxBonds?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
@@ -1129,7 +1123,6 @@ export async function executeReinvest({
   poolId = 1,
   cycleId,
   winnerOption,
-  maxBonds = 1000,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecuteReinvestParams) {
@@ -1152,10 +1145,6 @@ export async function executeReinvest({
     throw new Error(
       `Invalid Draw Cycle ID: ${targetCycleId}. No draw cycle has been created yet.`
     );
-  }
-
-  if (isNaN(maxBonds) || maxBonds <= 0) {
-    throw new Error("Invalid maxBonds value. Must be a positive integer.");
   }
 
   const payoutRegistryPda = await findPayoutRegistryPda(poolId, targetCycleId);
@@ -1218,106 +1207,49 @@ export async function executeReinvest({
   );
 
   for (const winnerIndex of targetWinnerIndices) {
-    while (true) {
-      const currentRegistryAcc = await rpc
-        .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
-        .send();
-      if (!currentRegistryAcc || !currentRegistryAcc.value) {
-        throw new Error("Payout Registry not found during loop execution.");
-      }
-      const currentBytes = new Uint8Array(
-        base64Encoder.encode(currentRegistryAcc.value.data[0])
-      );
-      const currentRegistry = parsePayoutRegistry(currentBytes);
-      const winnerEntry = currentRegistry.winners[winnerIndex];
-      const winnerOwner = winnerEntry.winner;
-
-      if (!winnerOwner) {
-        throw new Error(
-          `Winner address not found in PayoutRegistry for winner index ${winnerIndex}`
-        );
-      }
-
-      // Fetch UserWinnings account for winner to retrieve prior dust
-      const userWinningsPda = await findUserWinningsPda(poolId, winnerOwner);
-      const userWinningsAcc = await rpc
-        .getAccountInfo(userWinningsPda, { encoding: "base64" })
-        .send();
-
-      let priorDust = 0n;
-      if (userWinningsAcc && userWinningsAcc.value) {
-        const uwBytes = new Uint8Array(
-          base64Encoder.encode(userWinningsAcc.value.data[0])
-        );
-        const uwState = parseUserWinnings(uwBytes);
-        priorDust = uwState.unclaimedNonReinvestedWinnings;
-      }
-
-      const bondPrice = BigInt(poolState.bondPrice);
-
-      if (winnerEntry.processed) {
-        let reinvestedTickets = 0n;
-        let usedPriorDust = 0n;
-
-        if (winnerEntry.amountReinvested > 0n) {
-          if (winnerEntry.amountReinvested % bondPrice !== 0n) {
-            reinvestedTickets = winnerEntry.amountReinvested / bondPrice + 1n;
-            usedPriorDust =
-              reinvestedTickets * bondPrice - winnerEntry.amountReinvested;
-          } else {
-            reinvestedTickets = winnerEntry.amountReinvested / bondPrice;
-          }
-        }
-
-        const priorDustStr =
-          usedPriorDust > 0n
-            ? `, using ${formatAmount(usedPriorDust)} prior dust`
-            : "";
-
-        console.log(
-          `Winner ${winnerOwner} (index ${winnerIndex}) is fully processed.`
-        );
-        console.log(
-          `  Final state: Owed: ${formatAmount(
-            winnerEntry.amountOwed
-          )}, Reinvested: ${formatAmount(
-            winnerEntry.amountReinvested
-          )} (${reinvestedTickets} ticket${
-            reinvestedTickets === 1n ? "" : "s"
-          }${priorDustStr}), Claimable Dust: ${formatAmount(priorDust)}`
-        );
-        break;
-      }
-
-      const claimable = winnerEntry.amountOwed - winnerEntry.amountReinvested;
-      console.log(`Processing Winner ${winnerOwner} (index ${winnerIndex})...`);
-      console.log(
-        `  Current state: Owed: ${formatAmount(
-          winnerEntry.amountOwed
-        )}, Reinvested: ${formatAmount(
-          winnerEntry.amountReinvested
-        )}, Claimable: ${formatAmount(claimable)}, Available Prior Dust: ${formatAmount(
-          priorDust
-        )}`
-      );
-
-      const ix = await buildReinvestWinningsInstruction({
-        crank: signer.address,
-        winner: winnerOwner,
-        poolId,
-        cycleId: targetCycleId,
-        winnerIndex,
-        maxBonds,
-        ticketRegistry: address(poolState.ticketRegistry),
-      });
-
-      console.log(
-        `Submitting reinvestment transaction (maxBonds: ${maxBonds})...`
-      );
-      await sendTx(rpc, ix, signer);
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    const currentRegistryAcc = await rpc
+      .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
+      .send();
+    if (!currentRegistryAcc || !currentRegistryAcc.value) {
+      throw new Error("Payout Registry not found during execution.");
     }
+    const currentBytes = new Uint8Array(
+      base64Encoder.encode(currentRegistryAcc.value.data[0])
+    );
+    const currentRegistry = parsePayoutRegistry(currentBytes);
+    const winnerEntry = currentRegistry.winners[winnerIndex];
+    const winnerOwner = winnerEntry.winner;
+
+    if (!winnerOwner) {
+      throw new Error(
+        `Winner address not found in PayoutRegistry for winner index ${winnerIndex}`
+      );
+    }
+
+    if (winnerEntry.processed) {
+      console.log(
+        `Winner ${winnerOwner} (index ${winnerIndex}) is already processed (+${winnerEntry.bondsBought} bonds bought).`
+      );
+      continue;
+    }
+
+    console.log(
+      `Processing atomic reinvestment for Winner ${winnerOwner} (index ${winnerIndex}, Owed: ${formatAmount(
+        winnerEntry.amountOwed
+      )})...`
+    );
+
+    const ix = await buildReinvestWinningsInstruction({
+      crank: signer.address,
+      winner: winnerOwner,
+      poolId,
+      cycleId: targetCycleId,
+      winnerIndex,
+      ticketRegistry: address(poolState.ticketRegistry),
+    });
+
+    console.log("Submitting reinvestment transaction...");
+    await sendTx(rpc, ix, signer);
   }
   console.log("Reinvestment process completed successfully!");
 }
