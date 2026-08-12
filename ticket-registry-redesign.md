@@ -217,7 +217,7 @@ Safety Invariants & Limits:
     1. Load winner's UserWinnings PDA.
     2. Retrieve user_entry_index = user_winnings.registry_entry_index.
     3. Lazy-merge the entry if stale.
-    4. Increment entry.pending += reinvested_bonds.
+    4. Increment entry.active += reinvested_bonds.
 
 • Accounts: Signer (Crank), UserWinnings (PDA, mut), TicketRegistry (mut)  
  • Uses the winner's UserWinnings.registry_entry_index to find the user entry in O(1). No linear scan or client-side index hint needed.
@@ -323,7 +323,7 @@ sell_bonds │ ✅ │ Load UserWinnings index, decrement counts, execute swap-a
 harvest_yield_and_commit │ ✅ │ O(1) — bump cycle counter only
 prepare_draw │ 🆕 │ Batched lazy merge + prefix sum computation
 reveal_and_pick_winners │ ✅ │ Binary search on prefix sums instead of direct index
-reinvest_winnings │ ✅ │ Read winner's entry index from UserWinnings, increment pending
+reinvest_winnings │ ✅ │ Read winner's entry index from UserWinnings, increment active
 resize_registry │ ✅ │ Same logic, grows by 48-byte entries
 
 TicketRegistry Redesign: Weighted User Entries Technical Specification
@@ -765,12 +765,12 @@ Verify the winner entry is updated directly without search scans:
     require!(entry.owner == ctx.accounts.winner.key(), PremiumBondsError::InvalidUserEntryHint);
 
     entry.lazy_merge(current_cycle)?;
-    entry.pending += bonds_to_buy;
+    entry.active += bonds_to_buy;
 
     registry_set_entry(&mut data, user_entry_idx as usize, &entry);
 
     let mut registry = registry_loader.load_mut()?;
-    registry.total_pending_tickets += bonds_to_buy;
+    registry.total_active_tickets += bonds_to_buy;
 
 ### G. resize_registry.rs
 

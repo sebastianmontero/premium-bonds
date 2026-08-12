@@ -221,6 +221,14 @@ fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnin
     .unwrap()
 }
 
+fn read_reg_active(svm: &LiteSVM, reg: Pubkey) -> u32 {
+    u32::from_le_bytes(
+        svm.get_account(&reg).unwrap().data[20..24]
+            .try_into()
+            .unwrap(),
+    )
+}
+
 fn read_reg_pending(svm: &LiteSVM, reg: Pubkey) -> u32 {
     u32::from_le_bytes(
         svm.get_account(&reg).unwrap().data[24..28]
@@ -357,10 +365,13 @@ fn test_reinvest_tickets_written() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 2_000_000, 0);
     send(&mut ctx, 0, 0).expect("reinvest");
 
-    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 2);
+    // Reinvested tickets are added directly to total_active_tickets (starts at 10 + 2 = 12)
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 12);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
     let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
     assert_eq!(entry.owner, ctx.winner);
-    assert_eq!(entry.pending, 2);
+    assert_eq!(entry.active, 12);
+    assert_eq!(entry.pending, 0);
 }
 
 #[test]
@@ -538,4 +549,152 @@ fn test_reinvest_exited_user_full_registry_fallback() {
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
+}
+
+#[test]
+fn test_reinvest_immediate_draw_eligibility() {
+    // Verify that reinvesting prize money immediately increases total_active_tickets and entry.active
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000, 0);
+
+    // Initial state: entry.active = 10, total_active = 10, pending = 0
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 10);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+
+    // Reinvest 5 bonds
+    send(&mut ctx, 0, 0).expect("reinvest");
+
+    // Immediately active: total_active becomes 15, pending remains 0
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 15);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+
+    let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
+    assert_eq!(entry.active, 15);
+    assert_eq!(entry.pending, 0);
+}
+
+#[test]
+fn test_reinvest_preserves_existing_pending_tickets() {
+    // Verify that a user with pending tickets (from buy_bonds) retains pending tickets while reinvestment adds active tickets directly
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner = Keypair::new().pubkey();
+    let mint = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    // User has 10 active tickets and 5 pending tickets in cycle 1
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 10,
+        pending: 5,
+        merged_through_cycle: 1,
+        cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
+    }];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+    // Manually set total_pending_tickets = 5
+    let mut reg_acc = svm.get_account(&reg).unwrap();
+    reg_acc.data[24..28].copy_from_slice(&5u32.to_le_bytes());
+    svm.set_account(reg, reg_acc).unwrap();
+
+    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_payout(&mut svm, 1, 1, vec![w(winner, 3_000_000, 0, 0, false)]);
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+
+    send(&mut ctx, 1, 0).expect("reinvest");
+
+    // Total active: 10 (initial active) + 3 (reinvested) = 13
+    // Total pending: 5 (from cash deposit) remains unchanged
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 13);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 5);
+
+    let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
+    assert_eq!(entry.active, 13);
+    assert_eq!(entry.pending, 5);
+}
+
+#[test]
+fn test_reinvest_exited_user_creates_active_entry() {
+    // Verify that an exited user (index = u32::MAX) gets a newly allocated entry with active = bonds_to_buy and pending = 0
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner = Keypair::new().pubkey();
+    let mint = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    // Registry is empty
+    let entries: Vec<anchor::state::UserEntry> = vec![];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_payout(&mut svm, 1, 0, vec![w(winner, 4_000_000, 0, 0, false)]);
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, u32::MAX);
+
+    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+
+    send(&mut ctx, 0, 0).expect("reinvest exited user");
+
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 4);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+
+    let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
+    assert_eq!(entry.owner, winner);
+    assert_eq!(entry.active, 4);
+    assert_eq!(entry.pending, 0);
+}
+
+#[test]
+fn test_reinvest_with_lazy_merge_from_past_cycle() {
+    // Verify that lazy_merge runs first on stale user entries, converting past pending into active before adding new reinvested active tickets
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner = Keypair::new().pubkey();
+    let mint = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    // User entry in cycle 1 has active = 10, pending = 6 from cycle 0 (merged_through_cycle = 0)
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 10,
+        pending: 6,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
+    }];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+    // Set registry total_active_tickets = 16, total_pending_tickets = 0, draw_cycle_id = 1
+    let mut reg_acc = svm.get_account(&reg).unwrap();
+    reg_acc.data[20..24].copy_from_slice(&16u32.to_le_bytes());
+    reg_acc.data[24..28].copy_from_slice(&0u32.to_le_bytes());
+    reg_acc.data[28..32].copy_from_slice(&1u32.to_le_bytes()); // draw_cycle_id = 1
+    svm.set_account(reg, reg_acc).unwrap();
+
+    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_payout(&mut svm, 1, 1, vec![w(winner, 2_000_000, 0, 0, false)]);
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+
+    send(&mut ctx, 1, 0).expect("reinvest with lazy merge");
+
+    // lazy_merge(1) merges pending (6) into active (10 -> 16), pending -> 0
+    // Then reinvest adds 2 to active (16 -> 18)
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 18);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+
+    let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
+    assert_eq!(entry.active, 18);
+    assert_eq!(entry.pending, 0);
+    assert_eq!(entry.merged_through_cycle, 1);
 }

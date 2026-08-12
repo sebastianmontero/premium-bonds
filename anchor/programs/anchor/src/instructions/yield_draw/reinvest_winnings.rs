@@ -212,14 +212,14 @@ pub fn handle(
                 .user_count
                 .checked_add(1)
                 .ok_or(PremiumBondsError::MathOverflow)?;
-            registry.total_pending_tickets = registry
-                .total_pending_tickets
+            registry.total_active_tickets = registry
+                .total_active_tickets
                 .checked_add(bonds_to_buy)
                 .ok_or(PremiumBondsError::MathOverflow)?;
         } else {
             let mut registry = registry_loader.load_mut()?;
-            registry.total_pending_tickets = registry
-                .total_pending_tickets
+            registry.total_active_tickets = registry
+                .total_active_tickets
                 .checked_add(bonds_to_buy)
                 .ok_or(PremiumBondsError::MathOverflow)?;
         }
@@ -230,8 +230,8 @@ pub fn handle(
         if is_new {
             let new_entry = crate::state::UserEntry {
                 owner: ctx.accounts.winner.key(),
-                active: 0,
-                pending: bonds_to_buy,
+                active: bonds_to_buy,
+                pending: 0,
                 merged_through_cycle: current_cycle,
                 cumulative_active: 0,
                 version: 1,
@@ -246,8 +246,8 @@ pub fn handle(
             );
 
             entry.lazy_merge(current_cycle)?;
-            entry.pending = entry
-                .pending
+            entry.active = entry
+                .active
                 .checked_add(bonds_to_buy)
                 .ok_or(PremiumBondsError::MathOverflow)?;
 
