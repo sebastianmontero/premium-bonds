@@ -20,6 +20,8 @@ import { PendingRedemptionsList } from "@/app/components/portfolio/PendingRedemp
 import { RecentWinnersTicker } from "@/app/components/dashboard/RecentWinnersTicker";
 import { DepositModal } from "@/app/components/dashboard/DepositModal";
 import { WithdrawModal } from "@/app/components/dashboard/WithdrawModal";
+import { TransactionProgressModal } from "@/app/components/dashboard/TransactionProgressModal";
+import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
 import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
 import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
 import CompleteActivityModal from "@/app/components/portfolio/CompleteActivityModal";
@@ -72,6 +74,7 @@ export default function DashboardPage() {
     userWinnings: onChainWinnings,
     pendingRedemptions: onChainPendingRedemptions,
     walletBalance,
+    isFirstDeposit,
     isLoading: isBondsLoading,
     refetch,
     actions,
@@ -134,6 +137,14 @@ export default function DashboardPage() {
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
     {}
   );
+  const {
+    stage: actionStage,
+    txSignature: actionTxSignature,
+    runTransaction: runActionTx,
+    reset: resetActionRunner,
+  } = useTransactionRunner();
+  const [actionModalTitle, setActionModalTitle] = useState<string>("");
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string>("");
 
   /** Composite key for crankingCycles to disambiguate entries in the same draw cycle */
   const crankKey = (drawCycleId: number, winnerIndex: number) =>
@@ -263,17 +274,21 @@ export default function DashboardPage() {
     const key = crankKey(drawCycleId, winnerIndex);
     if (crankingCycles[key]) return;
 
-    // Set status to cranking
     setCrankingCycles((prev) => ({ ...prev, [key]: true }));
-
     setTxError(null);
+    setActionModalTitle("Run Reinvestment Crank");
+    setActionSuccessMsg("Prize draw winnings successfully reinvested!");
+
     try {
       if (isConnected) {
-        // Run contract reinvest crank
-        await actions.reinvestWinnings(drawCycleId, entry.winnerIndex);
-        refetch();
-        refetchDrawHistory();
-        refetchActivity();
+        await runActionTx(
+          () => actions.reinvestWinnings(drawCycleId, entry.winnerIndex),
+          () => {
+            refetch();
+            refetchDrawHistory();
+            refetchActivity();
+          }
+        );
       }
     } catch (err) {
       handleTxError(err, "Reinvest crank", () =>
@@ -289,26 +304,30 @@ export default function DashboardPage() {
 
     const claimAmount = activeUnclaimedWinnings;
     setTxError(null);
+    setActionModalTitle("Claim Dust Winnings");
+    setActionSuccessMsg(
+      `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC.`
+    );
+
     try {
-      let txSignature: string | undefined;
       if (isConnected) {
-        txSignature = await actions.claimNonReinvestedWinnings();
-        refetch();
-        refetchDrawHistory();
-        refetchActivity();
-      }
-
-      const newActivity: ActivityEntry = {
-        id: `act-claim-dust-${Date.now()}`,
-        date: new Date().toISOString(),
-        type: "win",
-        description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
-        amount: claimAmount,
-        txSignature,
-      };
-
-      if (isConnected) {
-        prependLocal(newActivity);
+        await runActionTx(
+          () => actions.claimNonReinvestedWinnings(),
+          (capturedSig) => {
+            refetch();
+            refetchDrawHistory();
+            refetchActivity();
+            const newActivity: ActivityEntry = {
+              id: `act-claim-dust-${Date.now()}`,
+              date: new Date().toISOString(),
+              type: "win",
+              description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
+              amount: claimAmount,
+              txSignature: capturedSig,
+            };
+            prependLocal(newActivity);
+          }
+        );
       }
     } catch (err) {
       handleTxError(err, "Claim dust winnings", () =>
@@ -329,27 +348,35 @@ export default function DashboardPage() {
     if (!redemption) return;
 
     setTxError(null);
+    setActionModalTitle("Claim Settled Redemption");
+    setActionSuccessMsg(
+      `Successfully claimed settled ${
+        redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
+      } of $${redemption.amount / 1_000_000} USDC to wallet.`
+    );
+
     try {
-      let txSignature: string | undefined;
       if (isConnected) {
-        txSignature = await actions.claimRedemption(id);
-        refetch();
-        refetchActivity();
-      }
-
-      const newActivity: ActivityEntry = {
-        id: `act-claim-red-${id}-${Date.now()}`,
-        date: new Date().toISOString(),
-        type: "claim-redemption",
-        description: `Claimed settled ${
-          redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
-        } of $${redemption.amount / 1_000_000} USDC to wallet`,
-        amount: redemption.amount,
-        txSignature,
-      };
-
-      if (isConnected) {
-        prependLocal(newActivity);
+        await runActionTx(
+          () => actions.claimRedemption(id),
+          (capturedSig) => {
+            refetch();
+            refetchActivity();
+            const newActivity: ActivityEntry = {
+              id: `act-claim-red-${id}-${Date.now()}`,
+              date: new Date().toISOString(),
+              type: "claim-redemption",
+              description: `Claimed settled ${
+                redemption.type === "bond_sale"
+                  ? "bond principal"
+                  : "prize winnings"
+              } of $${redemption.amount / 1_000_000} USDC to wallet`,
+              amount: redemption.amount,
+              txSignature: capturedSig,
+            };
+            prependLocal(newActivity);
+          }
+        );
       }
     } catch (err) {
       handleTxError(err, "Claim redemption", () => handleClaimRedemption(id));
@@ -484,6 +511,7 @@ export default function DashboardPage() {
         <DepositModal
           pool={activePool}
           walletBalance={isConnected ? walletBalance : 0}
+          isFirstDeposit={isConnected ? isFirstDeposit : true}
           onClose={() => setShowDeposit(false)}
           onDepositSuccess={handleDepositSuccess}
           onDeposit={isConnected ? actions.buyBonds : undefined}
@@ -499,6 +527,16 @@ export default function DashboardPage() {
           onWithdraw={isConnected ? actions.sellBonds : undefined}
         />
       )}
+
+      {/* Background Action Stage Modal */}
+      <TransactionProgressModal
+        isOpen={actionStage !== null}
+        stage={actionStage}
+        title={actionModalTitle}
+        customSuccessMessage={actionSuccessMsg}
+        txSignature={actionTxSignature}
+        onClose={resetActionRunner}
+      />
 
       <PrizeDetailsModal
         key={

@@ -153,6 +153,8 @@ export function useBondsContract(poolId: number = 1) {
     PendingRedemption[]
   >([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [hasUserWinningsAccount, setHasUserWinningsAccount] =
+    useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +176,7 @@ export function useBondsContract(poolId: number = 1) {
       setPool(null);
       setUserTickets(null);
       setUserWinnings(null);
+      setHasUserWinningsAccount(false);
       setPendingRedemptions([]);
       setWalletBalance(0);
     }
@@ -298,8 +301,10 @@ export function useBondsContract(poolId: number = 1) {
             );
             const parsed = parseUserWinnings(bytes);
             setUserWinnings(parsed);
+            setHasUserWinningsAccount(true);
             registryEntryIndex = parsed.registryEntryIndex;
           } else {
+            setHasUserWinningsAccount(false);
             setUserWinnings({
               discriminator: new Uint8Array([
                 226, 146, 3, 214, 100, 252, 221, 32,
@@ -927,6 +932,8 @@ export function useBondsContract(poolId: number = 1) {
       : null,
     pendingRedemptions,
     walletBalance,
+    hasUserWinningsAccount,
+    isFirstDeposit: !hasUserWinningsAccount,
     isLoading,
     error,
     refetch,
