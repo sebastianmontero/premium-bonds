@@ -4,7 +4,11 @@ import { useEffect, useRef, useSyncExternalStore, useMemo } from "react";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
-import { DEFAULT_LIVE_YIELD_PRECISION } from "@/app/lib/formatters";
+import {
+  DEFAULT_LIVE_YIELD_PRECISION,
+  DEFAULT_APY,
+  getLiveYieldFormatter,
+} from "@/app/lib/formatters";
 
 export interface LiveYieldTickerProps {
   pool?: PoolInfo;
@@ -27,7 +31,7 @@ const emptySubscribe = () => () => {};
 export function LiveYieldTicker({
   pool,
   precision = DEFAULT_LIVE_YIELD_PRECISION,
-  apy = 0.08,
+  apy = DEFAULT_APY,
   showBadge = true,
   className = "",
   valueClassName = "",
@@ -38,23 +42,16 @@ export function LiveYieldTicker({
   const resolvedDebugLabel = debugLabel ?? pool?.tokenSymbol ?? "Global";
 
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
-    basePrizePot: pool?.estimatedPrizePot ?? 0,
-    totalDepositedPrincipal: pool?.totalDepositedPrincipal ?? 0,
-    tokenDecimals: pool?.tokenDecimals ?? 6,
+    pool,
     apy,
-    isFrozenForDraw: pool?.isFrozenForDraw ?? false,
     debugLabel: resolvedDebugLabel,
   });
 
   const spanRef = useRef<HTMLSpanElement>(null);
 
-  // Cached Intl.NumberFormat for 60 FPS animation loop performance
+  // Cached Intl.NumberFormat from module cache for 60 FPS animation loop performance
   const numberFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: precision,
-        maximumFractionDigits: precision,
-      }),
+    () => getLiveYieldFormatter(precision),
     [precision]
   );
 

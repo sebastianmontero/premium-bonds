@@ -3,6 +3,28 @@
 export const USDC_DECIMALS = 6;
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const DEFAULT_LIVE_YIELD_PRECISION = 6;
+export const SECONDS_PER_YEAR = 365.25 * 86400; // 31,557,600
+export const DEFAULT_APY = 0.08;
+
+const liveYieldFormatterCache = new Map<number, Intl.NumberFormat>();
+
+/**
+ * Returns a cached Intl.NumberFormat instance with explicit 'en-US' locale.
+ * Reused across all live ticker components to avoid GC churn in 60/120 FPS loops.
+ */
+export function getLiveYieldFormatter(
+  precision: number = DEFAULT_LIVE_YIELD_PRECISION
+): Intl.NumberFormat {
+  let fmt = liveYieldFormatterCache.get(precision);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
+    });
+    liveYieldFormatterCache.set(precision, fmt);
+  }
+  return fmt;
+}
 
 /** Convert a human-readable USDC amount to on-chain base units. */
 export function usdc(amount: number): number {

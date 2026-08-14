@@ -1,3 +1,5 @@
+import { USDC_DECIMALS, USDC_MINT, usdc } from "./lib/formatters";
+
 // ─── On-chain state mirrors ───────────────────────────────────────────────────
 // These interfaces mirror the Anchor account structs in
 // anchor/programs/anchor/src/state/*.rs
@@ -26,6 +28,35 @@ export interface PoolInfo {
   prizeTiers: PrizeTier[];
   /** Estimated prize pot for the current cycle (off-chain calc) */
   estimatedPrizePot: number;
+  /** Unix timestamp (in seconds) when the on-chain yield snapshot was fetched */
+  lastSyncedAt?: number;
+}
+
+/**
+ * Creates a default fallback PoolInfo structure for initial hydration and testing.
+ */
+export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
+  return {
+    poolId,
+    tokenMint: USDC_MINT,
+    tokenSymbol: "USDC",
+    tokenDecimals: USDC_DECIMALS,
+    bondPrice: usdc(5),
+    stakeCycleDurationHrs: 168,
+    feeBasisPoints: 250,
+    status: "Active",
+    totalDepositedPrincipal: 0,
+    currentCycleEndAt: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+    isFrozenForDraw: false,
+    currentDrawCycleId: 1,
+    prizeTiers: [
+      { basisPoints: 5000, numWinners: 1 },
+      { basisPoints: 3000, numWinners: 3 },
+      { basisPoints: 2000, numWinners: 10 },
+    ],
+    estimatedPrizePot: 0,
+    lastSyncedAt: Math.floor(Date.now() / 1000),
+  };
 }
 
 export interface UserTicketInfo {

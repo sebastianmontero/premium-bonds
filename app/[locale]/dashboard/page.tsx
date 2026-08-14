@@ -25,12 +25,8 @@ import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
 import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
 import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
 import CompleteActivityModal from "@/app/components/portfolio/CompleteActivityModal";
-import {
-  formatTokenAmount,
-  USDC_DECIMALS,
-  USDC_MINT,
-  usdc,
-} from "@/app/lib/formatters";
+import { formatTokenAmount } from "@/app/lib/formatters";
+import { createDefaultPoolFallback } from "@/app/types";
 import type {
   ActivityEntry,
   PendingRedemption,
@@ -40,26 +36,7 @@ import type {
   RecentWinner,
 } from "@/app/types";
 
-const DEFAULT_POOL_FALLBACK: PoolInfo = {
-  poolId: 1,
-  tokenMint: USDC_MINT,
-  tokenSymbol: "USDC",
-  tokenDecimals: USDC_DECIMALS,
-  bondPrice: usdc(5),
-  stakeCycleDurationHrs: 168,
-  feeBasisPoints: 250,
-  status: "Active",
-  totalDepositedPrincipal: 0,
-  currentCycleEndAt: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
-  isFrozenForDraw: false,
-  currentDrawCycleId: 1,
-  prizeTiers: [
-    { basisPoints: 5000, numWinners: 1 },
-    { basisPoints: 3000, numWinners: 3 },
-    { basisPoints: 2000, numWinners: 10 },
-  ],
-  estimatedPrizePot: 0,
-};
+const DEFAULT_POOL_FALLBACK: PoolInfo = createDefaultPoolFallback(1);
 
 export default function DashboardPage() {
   const tPools = useTranslations("Pools");

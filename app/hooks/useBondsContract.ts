@@ -272,6 +272,8 @@ export function useBondsContract(poolId: number = 1) {
               );
             }
             currentPool.estimatedPrizePot = 0;
+          } finally {
+            currentPool.lastSyncedAt = Date.now() / 1000;
           }
           poolInfo = currentPool;
         }
