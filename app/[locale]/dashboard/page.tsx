@@ -400,6 +400,7 @@ export default function DashboardPage() {
         netWorth={netWorth}
         investedAmount={investedAmount}
         redeemingAmount={redeemingAmount}
+        unclaimedAmount={activeUnclaimedWinnings}
         activeTickets={activeTickets.activeTicketsCount}
         pendingTickets={activeTickets.pendingTicketsCount}
         lifetimeWinnings={activeLifetimeWinnings}

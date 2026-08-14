@@ -200,6 +200,7 @@
     "nonReinvested": "non-reinvested",
     "bonds": "bonds",
     "redeeming": "redeeming",
+    "unclaimed": "unclaimed",
     "active": "active",
     "pending": "pending"
   },

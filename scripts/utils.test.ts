@@ -1,6 +1,9 @@
 import { formatErrorDetails, extractAllLogs, formatStackTrace } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
-import { DEFAULT_LIVE_YIELD_PRECISION } from "../app/lib/formatters";
+import {
+  DEFAULT_LIVE_YIELD_PRECISION,
+  formatTokenAmount,
+} from "../app/lib/formatters";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -165,6 +168,38 @@ function runTests() {
       `Expected '0.000025', got '${formattedSubCent}'`
     );
     console.log("✓ Passed Test 6\n");
+  }
+
+  // Test 7: Portfolio Value Reconciliation and formatTokenAmount
+  {
+    console.log("Test 7: Portfolio Value Reconciliation and formatTokenAmount");
+    const investedAmount = 650_000_000; // $650.00
+    const redeemingAmount = 500_000; // $0.50
+    const unclaimedAmount = 810_000; // $0.81
+    const netWorth = investedAmount + redeemingAmount + unclaimedAmount; // 651_310_000 ($651.31)
+
+    const formattedInvested = formatTokenAmount(investedAmount, 6);
+    const formattedRedeeming = formatTokenAmount(redeemingAmount, 6);
+    const formattedUnclaimed = formatTokenAmount(unclaimedAmount, 6);
+    const formattedNetWorth = formatTokenAmount(netWorth, 6);
+
+    assert(
+      formattedInvested === "650.00",
+      `Expected '650.00', got '${formattedInvested}'`
+    );
+    assert(
+      formattedRedeeming === "0.50",
+      `Expected '0.50', got '${formattedRedeeming}'`
+    );
+    assert(
+      formattedUnclaimed === "0.81",
+      `Expected '0.81', got '${formattedUnclaimed}'`
+    );
+    assert(
+      formattedNetWorth === "651.31",
+      `Expected '651.31', got '${formattedNetWorth}'`
+    );
+    console.log("✓ Passed Test 7\n");
   }
 
   console.log("All unit tests completed successfully!");
