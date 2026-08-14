@@ -2,6 +2,7 @@
 
 export const USDC_DECIMALS = 6;
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const DEFAULT_LIVE_YIELD_PRECISION = 6;
 
 /** Convert a human-readable USDC amount to on-chain base units. */
 export function usdc(amount: number): number {

@@ -106,7 +106,7 @@ export function WithdrawModal({
         stage={stage}
         customSuccessMessage={
           stage === "success"
-            ? `Your ${parsedTickets.toLocaleString("en-US")} tickets have been burned. Redemption request for ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol} is now pending settlement.`
+            ? `Your ${parsedTickets.toLocaleString("en-US")} bonds have been burned. Redemption request for ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol} is now pending settlement.`
             : undefined
         }
         txSignature={txSignature}
@@ -219,7 +219,7 @@ export function WithdrawModal({
               {pool.tokenSymbol}
             </p>
             <p className="text-[10px] text-on-surface-variant">
-              {maxTickets.toLocaleString("en-US")} tickets (
+              {maxTickets.toLocaleString("en-US")} bonds (
               {userTickets.activeTicketsCount} active ·{" "}
               {userTickets.pendingTicketsCount} pending)
             </p>

@@ -44,8 +44,8 @@ export const DOC_CATEGORIES: DocCategory[] = [
       es: "Mecánica del Protocolo",
     },
     description: {
-      en: "Understand Huma Finance yield generation, ticket allocation, VRF randomness, and risk disclosures.",
-      es: "Entiende la generación de rendimiento con Huma Finance, asignación de boletos y aleatoriedad VRF.",
+      en: "Understand Huma Finance yield generation, bond allocation, VRF randomness, and risk disclosures.",
+      es: "Entiende la generación de rendimiento con Huma Finance, asignación de bonos y aleatoriedad VRF.",
     },
   },
   {
@@ -101,7 +101,7 @@ YieldBonds is a **prize-linked savings protocol** built on the high-speed Solana
 
 Unlike a lottery where your ticket money is spent forever, YieldBonds uses a **Zero-Loss Model**:
 
-1. **Deposit USDC**: You deposit USDC into a YieldBonds pool. Every 1.00 USDC deposited grants you 1 Prize Ticket.
+1. **Deposit USDC**: You deposit USDC into a YieldBonds pool. Every 1.00 USDC deposited grants you 1 Prize Bond.
 2. **Earn Yield**: Your deposited principal is automatically routed to **Huma Finance** to generate institutional real-world asset (RWA) credit yield.
 3. **Win Prizes**: The total accumulated yield generated across the pool is pooled together and awarded to lucky winner(s) during weekly draws powered by verifiable random functions (VRF).
 4. **100% Principal Protection**: You can withdraw your full USDC deposit at any time.
@@ -128,7 +128,7 @@ YieldBonds es un **protocolo de ahorro con premios** creado en la blockchain de 
 
 A diferencia de una lotería tradicional donde el dinero del boleto se pierde, YieldBonds utiliza un **Modelo Sin Pérdidas**:
 
-1. **Deposita USDC**: Depositas USDC en un fondo de YieldBonds. Cada 1.00 USDC depositado te otorga 1 Boleto de Premio.
+1. **Deposita USDC**: Depositas USDC en un fondo de YieldBonds. Cada 1.00 USDC depositado te otorga 1 Bono de Premio.
 2. **Genera Rendimiento**: Tu capital depositado se canaliza automáticamente a **Huma Finance** para generar rendimiento a través de créditos de activos del mundo real (RWA).
 3. **Gana Premios**: Todo el rendimiento acumulado en el fondo se agrupa y se distribuye a ganadores mediante sorteos semanales con aleatoriedad verificable en cadena (VRF).
 4. **Protección del 100% del Principal**: Puedes retirar todo tu depósito de USDC en cualquier momento.
@@ -245,8 +245,8 @@ Para interactuar con YieldBonds, necesitas una billetera web3 compatible con la 
       es: "Obtención de SOL y USDC",
     },
     summary: {
-      en: "How to get SOL for network fees and USDC for purchasing prize bond tickets.",
-      es: "Cómo obtener SOL para comisiones de red y USDC para adquirir boletos de depósito.",
+      en: "How to get SOL for network fees and USDC for purchasing prize bonds.",
+      es: "Cómo obtener SOL para comisiones de red y USDC para adquirir bonos de depósito.",
     },
     tags: ["sol", "usdc", "network fee", "gas", "deposit"],
     content: {
@@ -255,7 +255,7 @@ Para interactuar con YieldBonds, necesitas una billetera web3 compatible con la 
 
 To participate in YieldBonds, your wallet needs two assets:
 1. **SOL**: Solana's native cryptocurrency used to pay minimal **Network Fees** (gas fees) for transactions (usually $< 0.005 USD$ per transaction).
-2. **USDC**: A 1:1 USD-pegged stablecoin used to purchase tickets and earn yields.
+2. **USDC**: A 1:1 USD-pegged stablecoin used to purchase bonds and earn yields.
 
 ---
 
@@ -283,7 +283,7 @@ YieldBonds operates primarily using **USDC on Solana** (SPL Token).
 
 Para participar en YieldBonds, tu billetera necesita dos activos:
 1. **SOL**: La criptomoneda nativa de Solana utilizada para pagar **Comisiones de Red** (gas) (usualmente $< 0.005 USD$ por transacción).
-2. **USDC**: Una moneda estable vinculada 1:1 al dólar utilizada para comprar boletos y generar rendimientos.
+2. **USDC**: Una moneda estable vinculada 1:1 al dólar utilizada para comprar bonos y generar rendimientos.
 
 ---
 
@@ -473,33 +473,33 @@ Dado que solo los *intereses generados* por Huma Finance se colocan en el bote d
     categorySlug: "2-protocol-mechanics",
     categoryTitle: { en: "Protocol Mechanics", es: "Mecánica del Protocolo" },
     title: {
-      en: "Tickets & Deposit Mechanics",
-      es: "Mecánica de Boletos y Depósitos",
+      en: "Bonds & Deposit Mechanics",
+      es: "Mecánica de Bonos y Depósitos",
     },
     summary: {
-      en: "1 USDC = 1 Ticket ratio, ticket registries, and withdrawal liquidity options.",
-      es: "Relación 1 USDC = 1 Boleto, registros de boletos y opciones de liquidez de retiro.",
+      en: "1 USDC = 1 Bond ratio, bond registries, and withdrawal liquidity options.",
+      es: "Relación 1 USDC = 1 Bono, registros de bonos y opciones de liquidez de retiro.",
     },
-    tags: ["tickets", "deposit", "withdraw", "usdc", "registry"],
+    tags: ["bonds", "deposit", "withdraw", "usdc", "registry"],
     content: {
       en: `
-# Tickets & Deposit Mechanics
+# Bonds & Deposit Mechanics
 
-YieldBonds uses an efficient ticket registry model to track prize draw eligibility.
-
----
-
-## 1 USDC = 1 Prize Ticket
-
-- For every **1.00 USDC** you deposit into a pool, you receive **1 Prize Ticket**.
-- Your tickets remain active for every weekly prize draw as long as your USDC stays deposited.
-- The more tickets you hold, the higher your statistical probability of winning the weekly draw.
+YieldBonds uses an efficient bond registry model to track prize draw eligibility.
 
 ---
 
-## Ticket Registries & On-Chain Storage
+## 1 USDC = 1 Prize Bond
 
-Tickets are recorded in your account's \`TicketRegistry\` Program Derived Address (PDA). YieldBonds uses an optimized dynamic byte allocation system on Solana to minimize rent storage costs while supporting millions of active tickets.
+- For every **1.00 USDC** you deposit into a pool, you receive **1 Prize Bond**.
+- Your bonds remain active for every weekly prize draw as long as your USDC stays deposited.
+- The more bonds you hold, the higher your statistical probability of winning the weekly draw.
+
+---
+
+## Bond Registries & On-Chain Storage
+
+Bonds are recorded in your account's \`TicketRegistry\` Program Derived Address (PDA). YieldBonds uses an optimized dynamic byte allocation system on Solana to minimize rent storage costs while supporting millions of active bonds.
 
 ---
 
@@ -510,23 +510,23 @@ You can withdraw your USDC deposits at any time:
 2. **Huma Settlement Redemptions**: If funds are deployed in Huma Finance credit pools, redemptions settle as liquidity cycles refresh.
       `,
       es: `
-# Mecánica de Boletos y Depósitos
+# Mecánica de Bonos y Depósitos
 
-YieldBonds utiliza un registro eficiente de boletos para realizar el seguimiento de elegibilidad en los sorteos.
-
----
-
-## 1 USDC = 1 Boleto de Premio
-
-- Por cada **1.00 USDC** depositado, recibes **1 Boleto de Premio**.
-- Tus boletos permanecen activos en cada sorteo semanal mientras tu USDC permanezca depositado.
-- Cuantos más boletos poseas, mayor será tu probabilidad estadística de ganar.
+YieldBonds utiliza un registro eficiente de bonos para realizar el seguimiento de elegibilidad en los sorteos.
 
 ---
 
-## Registro de Boletos y Almacenamiento
+## 1 USDC = 1 Bono de Premio
 
-Los boletos se registran en tu cuenta \`TicketRegistry\` (PDA). YieldBonds utiliza un sistema dinámico optimizado en Solana para minimizar costos de renta manteniendo capacidad para millones de boletos.
+- Por cada **1.00 USDC** depositado, recibes **1 Bono de Premio**.
+- Tus bonos permanecen activos en cada sorteo semanal mientras tu USDC permanezca depositado.
+- Cuantos más bonos poseas, mayor será tu probabilidad estadística de ganar.
+
+---
+
+## Registro de Bonos y Almacenamiento
+
+Los bonos se registran en tu cuenta \`TicketRegistry\` (PDA). YieldBonds utiliza un sistema dinámico optimizado en Solana para minimizar costos de renta manteniendo capacidad para millones de bonos.
 
 ---
 
@@ -561,10 +561,10 @@ Transparency and fairness are the cornerstone of YieldBonds. Prize draw winners 
 
 ## How VRF Selection Works
 
-1. **Cycle Freeze**: At the end of each weekly cycle, the prize pool snapshot locks ticket eligibility.
+1. **Cycle Freeze**: At the end of each weekly cycle, the prize pool snapshot locks bond eligibility.
 2. **Randomness Request**: The pool administrator or crank bot requests a VRF random seed from Switchboard.
 3. **On-Chain Verification**: Switchboard oracle nodes submit proof of randomness that is mathematically verified by the Solana runtime.
-4. **Winner Selection**: The random number is mapped across total active ticket indexes to determine winning ticket IDs cleanly and impartially.
+4. **Winner Selection**: The random number is mapped across total active bond indexes to determine winning bond IDs cleanly and impartially.
 
 ---
 
@@ -572,8 +572,8 @@ Transparency and fairness are the cornerstone of YieldBonds. Prize draw winners 
 
 Every draw cycle records:
 - The VRF Randomness Seed signature.
-- Total eligible tickets at snapshot time.
-- Winning ticket numbers and recipient addresses.
+- Total eligible bonds at snapshot time.
+- Winning bond numbers and recipient addresses.
 
 Anyone can verify past draw results on the Solana blockchain using Solscan.
       `,
@@ -586,10 +586,10 @@ La transparencia y la justicia son fundamentales en YieldBonds. Los ganadores de
 
 ## Cómo Funciona la Selección VRF
 
-1. **Congelación de Ciclo**: Al final de cada ciclo semanal, se toma una captura del registro de boletos elegibles.
+1. **Congelación de Ciclo**: Al final de cada ciclo semanal, se toma una captura del registro de bonos elegibles.
 2. **Solicitud de Aleatoriedad**: Se solicita una semilla aleatoria VRF a Switchboard.
 3. **Verificación en Cadena**: Los nodos de Switchboard envían una prueba matemática de aleatoriedad verificada por Solana.
-4. **Selección del Ganador**: El número aleatorio se asigna al índice de boletos activos para determinar imparcialmente el ganador.
+4. **Selección del Ganador**: El número aleatorio se asigna al índice de bonos activos para determinar imparcialmente el ganador.
 
 ---
 
@@ -597,8 +597,8 @@ La transparencia y la justicia son fundamentales en YieldBonds. Los ganadores de
 
 Cada ciclo de sorteo registra en cadena:
 - La firma de la semilla aleatoria VRF.
-- Total de boletos elegibles al momento de la captura.
-- Números de boletos ganadores y direcciones de los beneficiarios.
+- Total de bonos elegibles al momento de la captura.
+- Números de bonos ganadores y direcciones de los beneficiarios.
       `,
     },
   },
@@ -637,7 +637,7 @@ The entire $1,442.30 USDC generated in a week forms the prize pot for that cycle
 ## Prize Tier Allocations
 
 Prize pools can distribute winnings across multiple tiers:
-- **Grand Prize (70%)**: Awarded to 1 lucky single ticket holder.
+- **Grand Prize (70%)**: Awarded to 1 lucky single bond holder.
 - **Runner-Up Prizes (30%)**: Split equally among secondary winners.
 
 All amounts are formatted using standard \`en-US\` formatting with comma separators (e.g. \`$1,442.30 USDC\`).
@@ -748,7 +748,7 @@ We avoid jargon wherever possible. Here is a guide to terms used in YieldBonds i
 | **Gas Fee / Priority Fee** | **Network Fee** | Small cost in SOL required to execute a blockchain transaction. |
 | **Public Key / Address** | **Account Address** | Your wallet's public receiving identifier. |
 | **Sign Transaction** | **Confirm Action** | Approving an operation inside your wallet extension. |
-| **PDA (Program Derived Address)** | **Protocol Account / Vault** | An on-chain account managed by smart contracts to store funds or ticket data. |
+| **PDA (Program Derived Address)** | **Protocol Account / Vault** | An on-chain account managed by smart contracts to store funds or bond data. |
 | **Blockhash Expired** | **Transaction Timeout** | The network was congested and your transaction needs to be retried. |
 | **Slippage Tolerance** | **Price Difference Limit** | Maximum acceptable price variation during a token swap. |
       `,
@@ -764,7 +764,7 @@ Evitamos los tecnicismos siempre que sea posible. Esta es la guía de términos 
 | **Gas Fee / Priority Fee** | **Comisión de Red** | Pequeño costo en SOL requerido para procesar una transacción. |
 | **Public Key / Address** | **Dirección de Cuenta** | El identificador público para recibir fondos en tu billetera. |
 | **Sign Transaction** | **Confirmar Acción** | Aprobar una operación dentro de tu extensión de billetera. |
-| **PDA** | **Cuenta del Protocolo / Vault** | Cuenta administrada por contratos inteligentes para almacenar fondos o boletos. |
+| **PDA** | **Cuenta del Protocolo / Vault** | Cuenta administrada por contratos inteligentes para almacenar fondos o bonos. |
 | **Blockhash Expired** | **Tiempo de Espera Agotado** | La red estaba ocupada y la transacción debe reintentarse. |
       `,
     },
@@ -1047,7 +1047,7 @@ Para proteger tus activos de sitios web falsos y estafas de phishing, verifica s
 Prize draws occur on a **weekly cycle**. At the end of each cycle, on-chain VRF randomness selects the winner(s).
 
 ### How do I claim my prize winnings?
-If your ticket is selected as a winner, prize winnings accumulate in your user account state. You can click **[Claim Prize Winnings]** on your dashboard to claim them directly to your wallet.
+If your bond is selected as a winner, prize winnings accumulate in your user account state. You can click **[Claim Prize Winnings]** on your dashboard to claim them directly to your wallet.
 
 ### What are the fees?
 YieldBonds charges zero deposit or withdrawal fees. You only pay standard Solana network gas fees ($< 0.005 USD$).
@@ -1062,7 +1062,7 @@ YieldBonds charges zero deposit or withdrawal fees. You only pay standard Solana
 Los sorteos se celebran en un **ciclo semanal**. Al final de cada ciclo, la aleatoriedad en cadena (VRF) selecciona a los ganadores.
 
 ### ¿Cómo reclamo mis premios?
-Si tu boleto resulta ganador, las ganancias se acumulan en tu estado de usuario. Puedes hacer clic en **[Reclamar Ganancias]** en tu panel para transferirlas a tu billetera.
+Si tu bono resulta ganador, las ganancias se acumulan en tu estado de usuario. Puedes hacer clic en **[Reclamar Ganancias]** en tu panel para transferirlas a tu billetera.
 
 ### ¿Cuáles son las comisiones?
 YieldBonds no cobra comisiones por depositar o retirar. Solo pagas las comisiones habituales de la red Solana ($< 0.005 USD$).

@@ -284,9 +284,9 @@ export function PrizeHistoryLedger({
                           >
                             <span
                               className="inline-flex items-center gap-1 border border-tertiary/30 bg-tertiary/15 px-1.5 py-0.5 text-[10px] font-semibold text-tertiary rounded-md cursor-help"
-                              aria-label={`Reinvested ${entry.reinvestedTickets} tickets using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust`}
+                              aria-label={`Reinvested ${entry.reinvestedTickets} bonds using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust`}
                             >
-                              +{entry.reinvestedTickets} tkt
+                              +{entry.reinvestedTickets} bonds
                               <span className="text-[9px] px-1 bg-tertiary/20 rounded text-tertiary-bright font-bold">
                                 +dust
                               </span>
@@ -301,7 +301,7 @@ export function PrizeHistoryLedger({
                                 tokenDecimals
                               )}{" "}
                               {tokenSymbol} of previous dust with this
-                              draw&apos;s winnings to purchase an extra ticket.
+                              draw&apos;s winnings to purchase an extra bond.
                             </div>
                           </div>
                         );
@@ -309,7 +309,7 @@ export function PrizeHistoryLedger({
 
                       return (
                         <span className="inline-flex items-center gap-1 border border-tertiary/20 bg-tertiary/10 px-1.5 py-0.5 text-[10px] font-semibold text-tertiary rounded-md">
-                          +{entry.reinvestedTickets} tkt
+                          +{entry.reinvestedTickets} bonds
                         </span>
                       );
                     })()}
@@ -333,7 +333,7 @@ export function PrizeHistoryLedger({
                             </strong>
                             Leftover {tokenSymbol} winnings less than the{" "}
                             {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                            {tokenSymbol} ticket price. Automatically aggregated
+                            {tokenSymbol} bond price. Automatically aggregated
                             above to claim.
                           </div>
                         </div>

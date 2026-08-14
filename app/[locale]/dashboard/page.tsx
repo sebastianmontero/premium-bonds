@@ -211,7 +211,7 @@ export default function DashboardPage() {
       id: `act-dep-${Date.now()}`,
       date: new Date().toISOString(),
       type: "deposit",
-      description: `Deposited ${value / 1_000_000} USDC → +${tickets} tickets`,
+      description: `Deposited ${value / 1_000_000} USDC → +${tickets} bonds`,
       amount: value,
       txSignature: signature,
     };

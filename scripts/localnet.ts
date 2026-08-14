@@ -1551,6 +1551,12 @@ async function handleDbDelete(args: string[]) {
       fs.unlinkSync(addressesPath);
     }
     console.log(`Successfully deleted database '${cleanName}'.`);
+    console.log(
+      `ℹ️  Note: Restarting the chain will initialize a new ledger with a fresh genesis hash.`
+    );
+    console.log(
+      `   Client-side activity feed and transaction caches will automatically be invalidated on next load.\n`
+    );
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`Failed to delete database '${cleanName}': ${errMsg}`);
@@ -2273,12 +2279,15 @@ async function handleYield(args: string[]) {
     totalDepositedPrincipal + feesInVault + totalPrizesAllocated;
 
   console.log("Fetching on-chain yield parameters...");
-  const { humaTotalAssets: currentTotalAssets, pstSupply, poolPstBalance } =
-    await fetchPoolYieldOnChainState(rpc, {
-      poolId,
-      humaPoolStateAddress: addresses.humaPoolState,
-      pstMintAddress: addresses.pstMint,
-    });
+  const {
+    humaTotalAssets: currentTotalAssets,
+    pstSupply,
+    poolPstBalance,
+  } = await fetchPoolYieldOnChainState(rpc, {
+    poolId,
+    humaPoolStateAddress: addresses.humaPoolState,
+    pstMintAddress: addresses.pstMint,
+  });
 
   if (poolPstBalance === 0n) {
     console.error(

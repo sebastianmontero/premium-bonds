@@ -436,8 +436,8 @@ export function calculatePoolYield(params: {
     params.feesInVault !== undefined
       ? BigInt(params.feesInVault)
       : feesAccrued > feesWithdrawn
-      ? feesAccrued - feesWithdrawn
-      : 0n;
+        ? feesAccrued - feesWithdrawn
+        : 0n;
   const totalPrizesAllocated = BigInt(params.totalPrizesAllocated ?? 0n);
   const feeBasisPoints = params.feeBasisPoints ?? 0;
 
@@ -489,9 +489,7 @@ export async function fetchPoolYieldOnChainState(
   const humaPoolState = params.humaPoolStateAddress
     ? address(params.humaPoolStateAddress)
     : null;
-  const pstMint = params.pstMintAddress
-    ? address(params.pstMintAddress)
-    : null;
+  const pstMint = params.pstMintAddress ? address(params.pstMintAddress) : null;
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
 
   const [humaRes, pstMintRes, poolPstVaultRes] = await Promise.allSettled([
@@ -515,10 +513,7 @@ export async function fetchPoolYieldOnChainState(
   }
 
   let pstSupply = 0n;
-  if (
-    pstMintRes.status === "fulfilled" &&
-    pstMintRes.value?.value?.data?.[0]
-  ) {
+  if (pstMintRes.status === "fulfilled" && pstMintRes.value?.value?.data?.[0]) {
     try {
       const data = new Uint8Array(
         base64Encoder.encode(pstMintRes.value.value.data[0])

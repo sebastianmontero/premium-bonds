@@ -4,10 +4,11 @@ import { useEffect, useRef, useSyncExternalStore, useMemo } from "react";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
+import { DEFAULT_LIVE_YIELD_PRECISION } from "@/app/lib/formatters";
 
 export interface LiveYieldTickerProps {
   pool?: PoolInfo;
-  /** Number of fraction digits to display (default 4 for sub-cent visual ticks) */
+  /** Number of fraction digits to display (default 6 for micro-USDC sub-cent visual ticks) */
   precision?: number;
   /** APY percentage (default 0.08 = 8%) */
   apy?: number;
@@ -25,7 +26,7 @@ const emptySubscribe = () => () => {};
 
 export function LiveYieldTicker({
   pool,
-  precision = 4,
+  precision = DEFAULT_LIVE_YIELD_PRECISION,
   apy = 0.08,
   showBadge = true,
   className = "",
@@ -34,8 +35,7 @@ export function LiveYieldTicker({
 }: LiveYieldTickerProps) {
   const t = useTranslations("Dashboard");
 
-  const resolvedDebugLabel =
-    debugLabel ?? pool?.tokenSymbol ?? "Global";
+  const resolvedDebugLabel = debugLabel ?? pool?.tokenSymbol ?? "Global";
 
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
     basePrizePot: pool?.estimatedPrizePot ?? 0,
@@ -97,7 +97,7 @@ export function LiveYieldTicker({
     <div className={`inline-flex items-center gap-3 ${className}`}>
       <span
         ref={spanRef}
-        className={`font-mono tabular-nums ${valueClassName}`}
+        className={`font-mono tabular-nums whitespace-nowrap ${valueClassName}`}
       >
         {initialFormatted}
       </span>

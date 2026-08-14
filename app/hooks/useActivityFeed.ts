@@ -8,6 +8,8 @@ import {
   ProgramEvent,
   getCachedEvents,
   setCachedEvents,
+  fetchClusterGenesisHash,
+  clearCachedEvents,
 } from "../lib/anchor-events";
 import type { ActivityEntry, ActivityType } from "../types";
 
@@ -190,7 +192,7 @@ function mergeAndDeduplicate(
  * 2. `loadMore()` uses the `oldestSignature` cursor pointer from raw RPC response
  *    to lazily fetch historical transaction batches without re-fetching non-program transactions.
  * 3. `fetchUntilMatches()` runs up to 5 background scan iterations when filtering to ensure page size is satisfied.
- * 4. Caches top 20 items in localStorage for fast subsequent mounts.
+ * 4. Caches top 20 items in localStorage scoped by cluster genesis hash for fast subsequent mounts.
  *
  * @param userAddress - The base58 user wallet address.
  * @param tokenDecimals - Number of decimals for formatting USDC (defaults to 6).
@@ -213,6 +215,7 @@ export function useActivityFeed(
   const isFetchingMoreRef = useRef(false);
   const entriesRef = useRef<ActivityEntry[]>([]);
   const lastUserAddressRef = useRef<string | undefined>(userAddress);
+  const lastGenesisHashRef = useRef<string | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedRef = useRef(false);
 
@@ -256,10 +259,29 @@ export function useActivityFeed(
     try {
       const rpc = client.runtime.rpc;
       const walletAddr = userAddress as unknown as Address;
-      const cacheKey = `activity:${userAddress}`;
 
-      // Check localStorage cache for incremental fetching
-      const cached = getCachedEvents(cacheKey);
+      // 1. Check cluster genesis hash to detect live chain resets / environment switches
+      const genesisHash = await fetchClusterGenesisHash(rpc);
+
+      if (
+        genesisHash &&
+        lastGenesisHashRef.current &&
+        lastGenesisHashRef.current !== genesisHash
+      ) {
+        // Chain was restarted or ledger was deleted while tab was open!
+        entriesRef.current = [];
+        updateEntriesState([]);
+        oldestSignatureRef.current = null;
+        hasMoreRef.current = true;
+        clearCachedEvents(userAddress, lastGenesisHashRef.current);
+      }
+
+      if (genesisHash) {
+        lastGenesisHashRef.current = genesisHash;
+      }
+
+      // 2. Check localStorage cache scoped by cluster genesis hash for incremental fetching
+      const cached = getCachedEvents(userAddress, genesisHash ?? undefined);
 
       if (cached && cached.events.length > 0) {
         if (cached.oldestSignature !== undefined) {
@@ -276,7 +298,7 @@ export function useActivityFeed(
           ? { limit: 15, until: cached.lastSignature }
           : { limit: 15 };
 
-      // Fetch initial batch from RPC
+      // 3. Fetch initial batch from RPC
       const result = await fetchProgramEvents(rpc, walletAddr, fetchOpts);
 
       if (fetchId !== fetchIdRef.current) return;
@@ -285,7 +307,13 @@ export function useActivityFeed(
 
       // If incremental fetch with cache
       if (cached && cached.events.length > 0) {
-        allEvents = [...result.events, ...cached.events];
+        // Guard against orphaned cursors: if the on-chain account has 0 total transactions on this cluster
+        if (result.events.length === 0 && result.oldestRawSignature === null) {
+          allEvents = [];
+          clearCachedEvents(userAddress, genesisHash ?? undefined);
+        } else {
+          allEvents = [...result.events, ...cached.events];
+        }
       }
 
       // Update cursor refs: ONLY update if not doing an incremental `until` fetch
@@ -305,14 +333,15 @@ export function useActivityFeed(
         oldestSignatureRef.current = allEvents[allEvents.length - 1].signature;
       }
 
-      // Save top 20 events to localStorage cache with history cursors
+      // Save top 20 events to localStorage cache with history cursors and genesisHash
       if (allEvents.length > 0) {
         setCachedEvents(
-          cacheKey,
+          userAddress,
           allEvents.slice(0, 20),
           allEvents[0].signature,
           oldestSignatureRef.current,
-          hasMoreRef.current
+          hasMoreRef.current,
+          genesisHash ?? undefined
         );
       }
 

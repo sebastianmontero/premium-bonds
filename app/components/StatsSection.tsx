@@ -85,7 +85,6 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
           <div>
             <LiveYieldTicker
               pool={activePool ?? undefined}
-              precision={4}
               showBadge={false}
               valueClassName="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl"
               debugLabel="Homepage Hero Stats"

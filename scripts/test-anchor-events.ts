@@ -197,6 +197,167 @@ async function runTests() {
     );
   }
 
+  // 4. Test Event Cache, Genesis Hash Validation & Invalidation
+  {
+    // Setup in-memory localStorage polyfill for Node.js test environment
+    const storageMap = new Map<string, string>();
+    const mockLocalStorage = {
+      getItem: (k: string) => storageMap.get(k) ?? null,
+      setItem: (k: string, v: string) => storageMap.set(k, v),
+      removeItem: (k: string) => storageMap.delete(k),
+      clear: () => storageMap.clear(),
+      get length() {
+        return storageMap.size;
+      },
+      key: (index: number) => Array.from(storageMap.keys())[index] ?? null,
+    };
+    (globalThis as any).localStorage = mockLocalStorage;
+
+    const {
+      getCachedEvents,
+      setCachedEvents,
+      clearCachedEvents,
+      fetchClusterGenesisHash,
+    } = await import("../app/lib/anchor-events");
+
+    const dummyUser = "User11111111111111111111111111111111111111";
+    const genesisA = "GenesisHashAlpha11111111111111111111111111";
+    const genesisB = "GenesisHashBeta222222222222222222222222222";
+
+    const mockEvents = [
+      {
+        type: "BondsPurchased" as const,
+        data: {
+          user: dummyUser,
+          poolId: 1,
+          bonds: 5,
+          amount: 25_000_000n,
+        },
+        signature: "sig_abc_1",
+        blockTime: 1700000000,
+      },
+    ];
+
+    // 4a. Write and read cache with genesisHash
+    setCachedEvents(
+      dummyUser,
+      mockEvents,
+      "sig_abc_1",
+      "sig_abc_1",
+      true,
+      genesisA
+    );
+    const cachedA = getCachedEvents(dummyUser, genesisA);
+    assert(cachedA !== null, "Expected cached events to be retrieved");
+    assert.strictEqual(cachedA.events.length, 1);
+    assert.strictEqual(cachedA.genesisHash, genesisA);
+    assert.strictEqual(cachedA.lastSignature, "sig_abc_1");
+    console.log(
+      "✓ Event cache saved and retrieved with genesisHash successfully!"
+    );
+
+    // 4b. Mismatched genesisHash should invalidate and purge cache
+    const cachedMismatch = getCachedEvents(dummyUser, genesisB);
+    assert.strictEqual(
+      cachedMismatch,
+      null,
+      "Expected genesis mismatch to return null and purge"
+    );
+    console.log("✓ Genesis hash mismatch correctly invalidated and purged!");
+
+    // 4c. Legacy un-versioned cache entries should be strictly evicted when expectedGenesisHash is passed
+    const legacyUser = "LegacyUser999999999999999999999999999999";
+    const legacyRaw = JSON.stringify(
+      {
+        events: mockEvents,
+        lastSignature: "sig_legacy",
+        oldestSignature: "sig_legacy",
+        hasMore: true,
+        timestamp: Date.now(),
+        // genesisHash is undefined
+      },
+      (_, value) =>
+        typeof value === "bigint" ? { __bigint: value.toString() } : value
+    );
+    mockLocalStorage.setItem(`pb_events:activity:${legacyUser}`, legacyRaw);
+
+    const legacyChecked = getCachedEvents(legacyUser, genesisA);
+    assert.strictEqual(
+      legacyChecked,
+      null,
+      "Expected legacy cache with undefined genesisHash to be evicted when expectedGenesisHash is provided"
+    );
+    assert.strictEqual(
+      mockLocalStorage.getItem(`pb_events:activity:${legacyUser}`),
+      null,
+      "Expected legacy key to be removed from storage"
+    );
+
+    // Also verify unversioned entry stored under storageKey directly gets evicted on genesis mismatch
+    mockLocalStorage.setItem(
+      `pb_events:activity:${genesisA}:${legacyUser}`,
+      legacyRaw
+    );
+    const unversionedChecked = getCachedEvents(legacyUser, genesisA);
+    assert.strictEqual(
+      unversionedChecked,
+      null,
+      "Expected entry without genesisHash field to be evicted"
+    );
+    console.log("✓ Legacy un-versioned cache evicted on genesis check!");
+
+    // 4d. Test fetchClusterGenesisHash helper
+    const mockRpcGenesis = {
+      getGenesisHash: () => ({
+        send: async () => genesisA,
+      }),
+    };
+    const fetchedGenesis = await fetchClusterGenesisHash(mockRpcGenesis as any);
+    assert.strictEqual(fetchedGenesis, genesisA);
+
+    // Test resilience when getGenesisHash RPC fails
+    const mockFailingRpc = {
+      getGenesisHash: () => ({
+        send: async () => {
+          throw new Error("RPC unreachable");
+        },
+      }),
+    };
+    const fallbackGenesis = await fetchClusterGenesisHash(
+      mockFailingRpc as any
+    );
+    assert.strictEqual(
+      fallbackGenesis,
+      null,
+      "Expected failing RPC to return null safely without throwing"
+    );
+    console.log("✓ fetchClusterGenesisHash RPC resilience verified!");
+
+    // 4e. Test clearCachedEvents
+    setCachedEvents(
+      dummyUser,
+      mockEvents,
+      "sig_abc_1",
+      "sig_abc_1",
+      true,
+      genesisA
+    );
+    clearCachedEvents(dummyUser, genesisA);
+    assert.strictEqual(getCachedEvents(dummyUser, genesisA), null);
+
+    setCachedEvents(
+      dummyUser,
+      mockEvents,
+      "sig_abc_1",
+      "sig_abc_1",
+      true,
+      genesisB
+    );
+    clearCachedEvents();
+    assert.strictEqual(mockLocalStorage.length, 0);
+    console.log("✓ clearCachedEvents purged storage keys successfully!");
+  }
+
   console.log("\nAll anchor-events tests passed successfully!");
 }
 

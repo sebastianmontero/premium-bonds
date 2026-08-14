@@ -187,7 +187,6 @@ export function DepositModal({
           </span>
           <LiveYieldTicker
             pool={pool}
-            precision={4}
             showBadge={false}
             valueClassName="font-display text-lg font-bold text-gradient"
           />

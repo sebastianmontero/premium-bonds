@@ -65,7 +65,7 @@ export default function PrizeDetailsModal({
   };
 
   const handleShare = () => {
-    const text = `Just checked my YieldBonds draw cycle ${entry.drawCycleId} - my ticket ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
+    const text = `Just checked my YieldBonds draw cycle ${entry.drawCycleId} - my bond ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
     navigator.clipboard.writeText(text);
     setShareStatus("Copied share template to clipboard!");
     setTimeout(() => setShareStatus(null), 3000);
@@ -166,7 +166,7 @@ export default function PrizeDetailsModal({
                       )
                     }
                     className="flex items-center gap-1 hover:text-primary transition cursor-pointer text-on-surface-variant text-[10px]"
-                    title="Copy ticket number"
+                    title="Copy bond number"
                   >
                     {copiedField === "winningTicket" ? (
                       <>
@@ -270,7 +270,7 @@ export default function PrizeDetailsModal({
                     {t("reinvestedTickets")}
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    +{entry.reinvestedTickets || 0} Tickets
+                    +{entry.reinvestedTickets || 0} Bonds
                   </p>
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
@@ -279,7 +279,7 @@ export default function PrizeDetailsModal({
                   </p>
                   <p className="font-mono text-base font-bold text-on-surface mt-1">
                     {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                    {tokenSymbol} / tkt
+                    {tokenSymbol} / bond
                   </p>
                 </div>
                 <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
@@ -349,7 +349,7 @@ export default function PrizeDetailsModal({
                     {priorDustApplied > 0 && (
                       <div
                         className="flex items-start gap-2.5 p-3 rounded-xl border border-tertiary/20 bg-tertiary/5 text-xs text-on-surface mt-3"
-                        aria-label="Bonus ticket unlocked notification"
+                        aria-label="Bonus bond unlocked notification"
                       >
                         <span className="text-base leading-none">✨</span>
                         <div className="space-y-0.5">

@@ -443,26 +443,68 @@ export interface EventCache {
   oldestSignature: string | null;
   hasMore: boolean;
   timestamp: number;
+  genesisHash?: string;
 }
 
 const CACHE_TTL_MS = 60_000; // 1 minute
 
 /**
- * Retrieves cached events from localStorage if they exist and are not expired.
- *
- * @param cacheKey - Unique key string identifying the cached user events.
- * @returns The cached event object, or null if empty or expired.
+ * Fetches the cluster's genesis hash from the RPC client.
+ * Returns null if the query fails or times out.
  */
-export function getCachedEvents(cacheKey: string): EventCache | null {
+export async function fetchClusterGenesisHash(
+  rpc: RpcClient
+): Promise<string | null> {
   try {
-    const raw = localStorage.getItem(`pb_events:${cacheKey}`);
+    const res = await rpc.getGenesisHash().send();
+    if (typeof res === "string" && res.length > 0) {
+      return res;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch cluster genesis hash:", err);
+  }
+  return null;
+}
+
+/**
+ * Retrieves cached events from localStorage if they exist, match the expected cluster genesis hash,
+ * and have not expired.
+ *
+ * @param userAddress - The user wallet address.
+ * @param expectedGenesisHash - Optional cluster genesis hash to validate ledger identity.
+ * @returns The cached event object, or null if empty, mismatched, or expired.
+ */
+export function getCachedEvents(
+  userAddress: string,
+  expectedGenesisHash?: string
+): EventCache | null {
+  try {
+    const storageKey = expectedGenesisHash
+      ? `pb_events:activity:${expectedGenesisHash}:${userAddress}`
+      : `pb_events:activity:${userAddress}`;
+
+    // Clean up un-namespaced legacy key if expectedGenesisHash is provided
+    const legacyKey = `pb_events:activity:${userAddress}`;
+    if (expectedGenesisHash && localStorage.getItem(legacyKey)) {
+      localStorage.removeItem(legacyKey);
+    }
+
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const cache: EventCache = JSON.parse(raw, (_, value) =>
       value && typeof value === "object" && "__bigint" in value
         ? BigInt(value.__bigint)
         : value
     );
-    if (Date.now() - cache.timestamp > CACHE_TTL_MS) return null;
+    if (Date.now() - cache.timestamp > CACHE_TTL_MS) {
+      localStorage.removeItem(storageKey);
+      return null;
+    }
+    // Strict genesis check: if expectedGenesisHash is specified, require exact match (reject undefined / mismatch)
+    if (expectedGenesisHash && cache.genesisHash !== expectedGenesisHash) {
+      localStorage.removeItem(storageKey);
+      return null;
+    }
     return cache;
   } catch {
     return null;
@@ -470,34 +512,87 @@ export function getCachedEvents(cacheKey: string): EventCache | null {
 }
 
 /**
- * Serializes and saves program events in the localStorage cache.
+ * Serializes and saves program events in the localStorage cache scoped by cluster genesis hash.
  *
- * @param cacheKey - Unique key string identifying the cache slot.
+ * @param userAddress - The user wallet address.
  * @param events - List of parsed events to store.
  * @param lastSignature - The signature cursor corresponding to the latest event cached.
  * @param oldestSignature - The signature cursor corresponding to the oldest transaction scanned.
  * @param hasMore - Whether additional historical transactions exist on-chain.
+ * @param genesisHash - Optional cluster genesis hash for ledger isolation.
  */
 export function setCachedEvents(
-  cacheKey: string,
+  userAddress: string,
   events: ProgramEvent[],
   lastSignature: string,
   oldestSignature: string | null = null,
-  hasMore: boolean = true
+  hasMore: boolean = true,
+  genesisHash?: string
 ): void {
   try {
+    const storageKey = genesisHash
+      ? `pb_events:activity:${genesisHash}:${userAddress}`
+      : `pb_events:activity:${userAddress}`;
     const cache: EventCache = {
       events,
       lastSignature,
       oldestSignature,
       hasMore,
       timestamp: Date.now(),
+      genesisHash,
     };
     const serialized = JSON.stringify(cache, (_, value) =>
       typeof value === "bigint" ? { __bigint: value.toString() } : value
     );
-    localStorage.setItem(`pb_events:${cacheKey}`, serialized);
+    localStorage.setItem(storageKey, serialized);
   } catch {
     // localStorage may be full or unavailable
   }
+}
+
+/**
+ * Purges cached activity feed entries from localStorage.
+ *
+ * @param userAddress - Optional user address to target.
+ * @param genesisHash - Optional genesis hash to target.
+ */
+export function clearCachedEvents(
+  userAddress?: string,
+  genesisHash?: string
+): void {
+  try {
+    if (userAddress && genesisHash) {
+      localStorage.removeItem(
+        `pb_events:activity:${genesisHash}:${userAddress}`
+      );
+    } else if (userAddress) {
+      localStorage.removeItem(`pb_events:activity:${userAddress}`);
+      // Also purge all cluster-namespaced keys for this address
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (
+          key &&
+          key.startsWith("pb_events:activity:") &&
+          key.endsWith(`:${userAddress}`)
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const k of keysToRemove) {
+        localStorage.removeItem(k);
+      }
+    } else {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("pb_events:")) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const k of keysToRemove) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {}
 }

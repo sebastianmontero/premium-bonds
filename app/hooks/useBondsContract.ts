@@ -245,8 +245,7 @@ export function useBondsContract(poolId: number = 1) {
                     pstSupply: "Total PST token mint supply across Huma",
                     humaTotalAssets:
                       "Total assets held in underlying Huma lending pool state",
-                    currentValue:
-                      "Underlying USDC value of pool PST holdings",
+                    currentValue: "Underlying USDC value of pool PST holdings",
                     bookValue:
                       "Protocol liabilities to active depositors + fees + prizes",
                     grossYield:

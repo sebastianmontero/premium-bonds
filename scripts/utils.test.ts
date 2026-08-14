@@ -1,5 +1,6 @@
 import { formatErrorDetails, extractAllLogs, formatStackTrace } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
+import { DEFAULT_LIVE_YIELD_PRECISION } from "../app/lib/formatters";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -129,6 +130,41 @@ function runTests() {
       `Title mismatch, got: ${parsed.title}`
     );
     console.log("✓ Passed Test 5\n");
+  }
+
+  // Test 6: DEFAULT_LIVE_YIELD_PRECISION & 6-decimal Intl formatting
+  {
+    console.log(
+      "Test 6: DEFAULT_LIVE_YIELD_PRECISION & 6-decimal Intl formatting"
+    );
+    assert(
+      DEFAULT_LIVE_YIELD_PRECISION === 6,
+      `Expected DEFAULT_LIVE_YIELD_PRECISION to be 6, got ${DEFAULT_LIVE_YIELD_PRECISION}`
+    );
+
+    const formatter = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: DEFAULT_LIVE_YIELD_PRECISION,
+      maximumFractionDigits: DEFAULT_LIVE_YIELD_PRECISION,
+    });
+
+    const formattedZero = formatter.format(0);
+    assert(
+      formattedZero === "0.000000",
+      `Expected '0.000000', got '${formattedZero}'`
+    );
+
+    const formattedYield = formatter.format(1234.567891);
+    assert(
+      formattedYield === "1,234.567891",
+      `Expected '1,234.567891', got '${formattedYield}'`
+    );
+
+    const formattedSubCent = formatter.format(0.000025);
+    assert(
+      formattedSubCent === "0.000025",
+      `Expected '0.000025', got '${formattedSubCent}'`
+    );
+    console.log("✓ Passed Test 6\n");
   }
 
   console.log("All unit tests completed successfully!");

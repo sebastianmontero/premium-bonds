@@ -95,7 +95,7 @@ export function PortfolioHeroRow({
             <path d="M2 12h20" />
           </svg>
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-            {t("activeBondsCount", { count: totalTickets })}
+            {t("bondsTitle")}
           </p>
         </div>
         <p className="font-display text-3xl font-bold tracking-tight text-on-surface">

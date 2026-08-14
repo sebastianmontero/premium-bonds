@@ -42,8 +42,8 @@ export function formatLocalizedActivityDescription(
   result = result.replace(/\bwinnings\b/gi, "ganancias");
   result = result.replace(/\bprior dust\b/gi, "residual anterior");
   result = result.replace(/\baccumulated dust\b/gi, "residual acumulado");
-  result = result.replace(/\btickets\b/gi, "boletos");
-  result = result.replace(/\bticket\b/gi, "boleto");
+  result = result.replace(/\btickets\b/gi, "bonos");
+  result = result.replace(/\bticket\b/gi, "bono");
   result = result.replace(/\bbonds\b/gi, "bonos");
   result = result.replace(/\bbond\b/gi, "bono");
   result = result.replace(/\bDraw #/gi, "Sorteo #");

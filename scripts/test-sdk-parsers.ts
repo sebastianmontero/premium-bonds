@@ -334,7 +334,9 @@ function mockAccount(data: Uint8Array) {
   assert.strictEqual(resZero.grossYield, 0n);
   assert.strictEqual(resZero.estimatedPrizePot, 0);
 
-  console.log("✓ calculatePoolYield pending redemptions & settle invariance passed");
+  console.log(
+    "✓ calculatePoolYield pending redemptions & settle invariance passed"
+  );
 }
 
 console.log("All Codama SDK parser & math tests completed successfully!");
