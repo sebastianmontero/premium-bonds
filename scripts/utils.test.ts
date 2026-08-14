@@ -1,4 +1,5 @@
 import { formatErrorDetails, extractAllLogs, formatStackTrace } from "./utils";
+import { parseLocalnetFlags } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
   DEFAULT_LIVE_YIELD_PRECISION,
@@ -200,6 +201,52 @@ function runTests() {
       `Expected '651.31', got '${formattedNetWorth}'`
     );
     console.log("✓ Passed Test 7\n");
+  }
+
+  // Test 8: parseLocalnetFlags parsing and aliases
+  {
+    console.log("Test 8: parseLocalnetFlags parsing and aliases");
+    const flags1 = parseLocalnetFlags([
+      "--bootstrap-only",
+      "--db",
+      "testdb",
+      "--snapshot",
+      "snap.json",
+    ]);
+    assert(flags1.bootstrapOnly === true, "Expected bootstrapOnly to be true");
+    assert(
+      flags1.dbName === "testdb",
+      `Expected dbName 'testdb', got '${flags1.dbName}'`
+    );
+    assert(
+      flags1.snapshotInput === "snap.json",
+      `Expected snapshotInput 'snap.json', got '${flags1.snapshotInput}'`
+    );
+
+    const flags2 = parseLocalnetFlags(["--pre-global", "-d=customdb"]);
+    assert(
+      flags2.bootstrapOnly === true,
+      "Expected --pre-global to set bootstrapOnly"
+    );
+    assert(
+      flags2.dbName === "customdb",
+      `Expected dbName 'customdb', got '${flags2.dbName}'`
+    );
+
+    const flags3 = parseLocalnetFlags(["--setup-base"]);
+    assert(
+      flags3.bootstrapOnly === true,
+      "Expected --setup-base to set bootstrapOnly"
+    );
+
+    const flags4 = parseLocalnetFlags(["init", "--base"]);
+    assert(
+      flags4.bootstrapOnly === true,
+      "Expected --base to set bootstrapOnly"
+    );
+    assert(flags4.positionals[0] === "init", "Expected positional 'init'");
+
+    console.log("✓ Passed Test 8\n");
   }
 
   console.log("All unit tests completed successfully!");

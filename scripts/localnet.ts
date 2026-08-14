@@ -1,6 +1,7 @@
 import {
   createSolanaRpc,
   address,
+  Address,
   getProgramDerivedAddress,
   AccountRole,
   getBase58Encoder,
@@ -27,9 +28,11 @@ import {
   parseDrawCycle,
   parsePrizePool,
   fetchPoolYieldOnChainState,
-  getInitializeGlobalInstructionDataEncoder,
-  getCreatePoolInstructionDataEncoder,
-  getSetPrizeTiersInstructionDataEncoder,
+  findGlobalConfigPda,
+  findPrizePoolPda,
+  buildInitializeGlobalInstruction,
+  buildCreatePoolInstruction,
+  buildSetPrizeTiersInstruction,
 } from "../app/lib/bonds-sdk";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 
@@ -125,6 +128,58 @@ function resolveSnapshotPath(snapshotInput: string): {
   return { snapshotPath: jsonPath, addressesPath, cleanName };
 }
 
+export interface LocalnetFlags {
+  dbName?: string;
+  snapshotInput?: string;
+  bootstrapOnly: boolean;
+  positionals: string[];
+}
+
+export function parseLocalnetFlags(args: string[]): LocalnetFlags {
+  let dbName: string | undefined;
+  let snapshotInput: string | undefined;
+  let bootstrapOnly = false;
+  const positionals: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--db" || arg === "-d") {
+      const nextArg = args[i + 1];
+      if (!nextArg || nextArg.startsWith("-")) {
+        console.error("Error: Missing value for --db / -d flag.");
+        process.exit(1);
+      }
+      dbName = nextArg;
+      i++;
+    } else if (arg.startsWith("--db=")) {
+      dbName = arg.slice(5);
+    } else if (arg.startsWith("-d=")) {
+      dbName = arg.slice(3);
+    } else if (arg === "--snapshot") {
+      const nextArg = args[i + 1];
+      if (!nextArg || nextArg.startsWith("-")) {
+        console.error("Error: Missing value for --snapshot flag.");
+        process.exit(1);
+      }
+      snapshotInput = nextArg;
+      i++;
+    } else if (arg.startsWith("--snapshot=")) {
+      snapshotInput = arg.slice(11);
+    } else if (
+      arg === "--bootstrap-only" ||
+      arg === "--pre-global" ||
+      arg === "--setup-base" ||
+      arg === "--base"
+    ) {
+      bootstrapOnly = true;
+    } else if (!arg.startsWith("-")) {
+      positionals.push(arg);
+    }
+  }
+
+  return { dbName, snapshotInput, bootstrapOnly, positionals };
+}
+
 function printUsage() {
   console.log("Usage: npm run localnet [command] [args]");
   console.log("Commands:");
@@ -132,9 +187,15 @@ function printUsage() {
     "  start                 Starts Surfpool (if not running), checks/initializes state, writes env, and starts Next.js (default)"
   );
   console.log(
-    "                        Flags: [--db <name> | -d <name>] [--snapshot <path>]"
+    "                        Flags: [--db <name> | -d <name>] [--snapshot <path>] [--bootstrap-only | --pre-global]"
   );
-  console.log("  init                  Runs state initialization sequence");
+  console.log(
+    "  bootstrap             Bootstraps base accounts, programs, and env up to pre-global state (for pb-cli testing)"
+  );
+  console.log("                        Aliases: setup-base, pre-global");
+  console.log(
+    "  init                  Runs full state initialization sequence (base + GlobalConfig + Pool 1)"
+  );
   console.log("  fund <wallet> <sol>   Funds a wallet with SOL");
   console.log(
     "  warp [--seconds <n> | -s <n>] [--pool-id <id> | -i <id>] [--pool-end | -p]"
@@ -244,68 +305,49 @@ function loadOrGenerateAddresses(dbName?: string): LocalnetAddresses {
   return addresses as LocalnetAddresses;
 }
 
-async function loadOrGenerateAdminKey(): Promise<KeyPairSigner> {
-  const adminKeyPath = path.resolve(__dirname, "admin-key.json");
-  let secretKey: Uint8Array;
-
-  if (fs.existsSync(adminKeyPath)) {
-    const bytes = JSON.parse(fs.readFileSync(adminKeyPath, "utf-8"));
-    secretKey = new Uint8Array(bytes);
-  } else {
-    console.log("Generating new admin keypair...");
-    const keyPair = crypto.generateKeyPairSync("ed25519");
-
-    const pkcs8 = keyPair.privateKey.export({ format: "der", type: "pkcs8" });
-    const secretKeyBytes = pkcs8.subarray(16, 48);
-
-    const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
-    const publicKeyBytes = spki.subarray(12, 44);
-
-    const derivedSecretKey = new Uint8Array(64);
-    derivedSecretKey.set(secretKeyBytes);
-    derivedSecretKey.set(publicKeyBytes, 32);
-
-    fs.writeFileSync(
-      adminKeyPath,
-      JSON.stringify(Array.from(derivedSecretKey)),
-      "utf-8"
-    );
-    secretKey = derivedSecretKey;
+async function loadOrGenerateKeypair(
+  keyPath: string,
+  label: string
+): Promise<KeyPairSigner> {
+  if (fs.existsSync(keyPath)) {
+    const bytes = JSON.parse(fs.readFileSync(keyPath, "utf-8"));
+    return await createKeyPairSignerFromBytes(new Uint8Array(bytes));
   }
 
-  return await createKeyPairSignerFromBytes(secretKey);
+  console.log(`Generating new ${label} keypair at ${keyPath}...`);
+  const keyPair = crypto.generateKeyPairSync("ed25519");
+
+  const pkcs8 = keyPair.privateKey.export({ format: "der", type: "pkcs8" });
+  const secretKeyBytes = pkcs8.subarray(16, 48);
+
+  const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
+  const publicKeyBytes = spki.subarray(12, 44);
+
+  const derivedSecretKey = new Uint8Array(64);
+  derivedSecretKey.set(secretKeyBytes);
+  derivedSecretKey.set(publicKeyBytes, 32);
+
+  fs.writeFileSync(
+    keyPath,
+    JSON.stringify(Array.from(derivedSecretKey)),
+    "utf-8"
+  );
+
+  return await createKeyPairSignerFromBytes(derivedSecretKey);
+}
+
+async function loadOrGenerateAdminKey(): Promise<KeyPairSigner> {
+  return loadOrGenerateKeypair(
+    path.resolve(__dirname, "admin-key.json"),
+    "admin"
+  );
 }
 
 async function loadOrGenerateRandomnessKey(): Promise<KeyPairSigner> {
-  const keyPath = path.resolve(__dirname, "randomness-key.json");
-  let secretKey: Uint8Array;
-
-  if (fs.existsSync(keyPath)) {
-    const bytes = JSON.parse(fs.readFileSync(keyPath, "utf-8"));
-    secretKey = new Uint8Array(bytes);
-  } else {
-    console.log("Generating new randomness keypair...");
-    const keyPair = crypto.generateKeyPairSync("ed25519");
-
-    const pkcs8 = keyPair.privateKey.export({ format: "der", type: "pkcs8" });
-    const secretKeyBytes = pkcs8.subarray(16, 48);
-
-    const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
-    const publicKeyBytes = spki.subarray(12, 44);
-
-    const derivedSecretKey = new Uint8Array(64);
-    derivedSecretKey.set(secretKeyBytes);
-    derivedSecretKey.set(publicKeyBytes, 32);
-
-    fs.writeFileSync(
-      keyPath,
-      JSON.stringify(Array.from(derivedSecretKey)),
-      "utf-8"
-    );
-    secretKey = derivedSecretKey;
-  }
-
-  return await createKeyPairSignerFromBytes(secretKey);
+  return loadOrGenerateKeypair(
+    path.resolve(__dirname, "randomness-key.json"),
+    "randomness"
+  );
 }
 
 async function setAccount(
@@ -434,38 +476,6 @@ function serializeHumaPoolState(): string {
   return Buffer.from(data).toString("hex");
 }
 
-function serializeInitializeGlobalData(): Uint8Array {
-  return getInitializeGlobalInstructionDataEncoder().encode({});
-}
-
-function serializeCreatePoolData(
-  poolId: number,
-  bondPrice: bigint,
-  stakeCycleDurationHrs: bigint,
-  feeBasisPoints: number,
-  minYieldThreshold: bigint = 0n
-): Uint8Array {
-  return getCreatePoolInstructionDataEncoder().encode({
-    poolId,
-    bondPrice,
-    stakeCycleDurationHrs,
-    feeBasisPoints,
-    minYieldThreshold,
-  });
-}
-
-function serializeSetPrizeTiersData(
-  tiers: { basisPoints: number; numWinners: number }[]
-): Uint8Array {
-  return getSetPrizeTiersInstructionDataEncoder().encode({
-    tiers: tiers.map((t) => ({
-      numWinners: t.numWinners,
-      basisPoints: t.basisPoints,
-      padding: new Uint8Array(2),
-    })),
-  });
-}
-
 async function ensurePrizeTiersConfigured(
   poolId: number,
   rpc: ReturnType<typeof createSolanaRpc>,
@@ -477,35 +487,12 @@ async function ensurePrizeTiersConfigured(
     { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% total (15% each for 2 winners)
     { basisPoints: 400, numWinners: 5 }, // Consolation: 20% total (4% each for 5 winners)
   ];
-  const programAddress = address(PROGRAM_ID_STR);
-  const poolIdBytes = new Uint8Array(4);
-  new DataView(poolIdBytes.buffer).setUint32(0, poolId, true);
-
-  const encoder = new TextEncoder();
-  const [poolAddress] = await getProgramDerivedAddress({
-    programAddress,
-    seeds: [encoder.encode("prize_pool"), poolIdBytes],
+  const ix = await buildSetPrizeTiersInstruction({
+    admin: adminSigner,
+    poolId,
+    tiers: prizeTiers,
   });
-
-  const [globalConfigAddress] = await getProgramDerivedAddress({
-    programAddress,
-    seeds: [encoder.encode("global_config")],
-  });
-
-  const setTiersData = serializeSetPrizeTiersData(prizeTiers);
-  const setTiersInstruction = {
-    programAddress,
-    accounts: [
-      { address: globalConfigAddress, role: AccountRole.READONLY },
-      {
-        address: address(adminSigner.address),
-        role: AccountRole.WRITABLE_SIGNER,
-      },
-      { address: poolAddress, role: AccountRole.WRITABLE },
-    ],
-    data: setTiersData,
-  };
-  await sendTx(rpc, setTiersInstruction, adminSigner);
+  await sendTx(rpc, ix, adminSigner);
   console.log(`Successfully configured prize tiers for pool ${poolId}.`);
 }
 
@@ -598,13 +585,23 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899
   console.log("Successfully wrote .env.local configuration.");
 }
 
-async function handleInit(dbName?: string) {
-  console.log("Starting localnet state initialization...");
+export interface BaseStateContext {
+  rpc: ReturnType<typeof createSolanaRpc>;
+  adminSigner: KeyPairSigner;
+  randomnessSigner: KeyPairSigner;
+  addresses: LocalnetAddresses;
+  globalConfigAddress: Address;
+  isGlobalInitialized: boolean;
+}
 
+export async function injectBaseState(options?: {
+  dbName?: string;
+  rpcUrl?: string;
+}): Promise<BaseStateContext> {
+  const rpcUrl = options?.rpcUrl ?? RPC_URL;
   ensureDirsExist();
 
-  // Check if RPC is running
-  const isRpcsActive = await checkRpcHealth(RPC_URL);
+  const isRpcsActive = await checkRpcHealth(rpcUrl);
   if (!isRpcsActive) {
     console.error(
       "Error: Solana RPC is not running. Please start the localnet orchestrator or your validator first."
@@ -612,34 +609,30 @@ async function handleInit(dbName?: string) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createSolanaRpc(rpcUrl);
 
-  // 1. Load or generate admin key
+  // 1. Load or generate admin and randomness keys
   const adminSigner = await loadOrGenerateAdminKey();
-  const adminAddress = adminSigner.address;
-  console.log("Admin address:", adminAddress);
-
-  // 1b. Load or generate randomness key
   const randomnessSigner = await loadOrGenerateRandomnessKey();
-  const randomnessAddress = randomnessSigner.address;
-  console.log("Mock Switchboard Randomness address:", randomnessAddress);
+  console.log("Admin address:", adminSigner.address);
+  console.log("Mock Switchboard Randomness address:", randomnessSigner.address);
 
   // 2. Load or generate addresses
-  const addresses = loadOrGenerateAddresses(dbName);
+  const addresses = loadOrGenerateAddresses(options?.dbName);
   console.log(
     "Injected/configured addresses:",
     JSON.stringify(addresses, null, 2)
   );
 
   // 3. Fund admin key
-  await airdropSol(rpc, adminAddress, 100);
+  await airdropSol(rpc, adminSigner.address, 100);
 
-  // 4. Inject programs
+  // 4. Inject compiled programs
   await ensureProgramsInjected();
 
   // 5. Inject mock accounts
   console.log("Injecting USDC Mint account...");
-  const usdcMintData = serializeMintAccount(adminAddress, 6);
+  const usdcMintData = serializeMintAccount(adminSigner.address, 6);
   await setAccount(
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     1_000_000_000,
@@ -653,7 +646,13 @@ async function handleInit(dbName?: string) {
     process.env.SB_ENV === "devnet"
       ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
       : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
-  await setAccount(randomnessAddress, 1_000_000_000, "", sbProgramId, false);
+  await setAccount(
+    randomnessSigner.address,
+    1_000_000_000,
+    "",
+    sbProgramId,
+    false
+  );
 
   console.log("Injecting Huma Pool State account...");
   const humaPoolStateData = serializeHumaPoolState();
@@ -722,7 +721,7 @@ async function handleInit(dbName?: string) {
   console.log("Injecting Admin Fee Wallet token account...");
   const feeWalletData = serializeTokenAccount(
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    adminAddress,
+    adminSigner.address,
     0n
   );
   await setAccount(
@@ -733,51 +732,53 @@ async function handleInit(dbName?: string) {
     false
   );
 
-  // 6. Execute transactions on-chain
-  const programAddress = address(PROGRAM_ID_STR);
-  const encoder = new TextEncoder();
-  const [globalConfigAddress] = await getProgramDerivedAddress({
-    programAddress,
-    seeds: [encoder.encode("global_config")],
-  });
+  // 6. Write the environment file
+  writeEnvLocal(addresses, adminSigner.address, randomnessSigner.address);
 
-  let globalInitialized = false;
+  // 7. Check if GlobalConfig exists on-chain
+  const globalConfigAddress = await findGlobalConfigPda();
+  let isGlobalInitialized = false;
   try {
     const acc = await rpc.getAccountInfo(globalConfigAddress).send();
     if (acc && acc.value) {
-      globalInitialized = true;
+      isGlobalInitialized = true;
     }
   } catch {}
 
-  if (!globalInitialized) {
-    console.log("Initializing GlobalConfig on-chain...");
-    const initGlobalData = serializeInitializeGlobalData();
-    const instruction = {
-      programAddress,
-      accounts: [
-        { address: globalConfigAddress, role: AccountRole.WRITABLE },
-        { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-        { address: address(adminAddress), role: AccountRole.READONLY },
-        {
-          address: address("11111111111111111111111111111111"),
-          role: AccountRole.READONLY,
-        },
-      ],
-      data: initGlobalData,
-    };
-    await sendTx(rpc, instruction, adminSigner);
-  } else {
+  return {
+    rpc,
+    adminSigner,
+    randomnessSigner,
+    addresses,
+    globalConfigAddress,
+    isGlobalInitialized,
+  };
+}
+
+async function initializeGlobalConfigOnChain(ctx: BaseStateContext) {
+  const { rpc, adminSigner, isGlobalInitialized } = ctx;
+
+  if (isGlobalInitialized) {
     console.log("GlobalConfig is already initialized on-chain.");
+    return;
   }
 
-  // Check if PrizePool (pool_id: 1) exists
-  const poolIdBytes = new Uint8Array(4);
-  new DataView(poolIdBytes.buffer).setUint32(0, 1, true);
-
-  const [poolAddress] = await getProgramDerivedAddress({
-    programAddress,
-    seeds: [encoder.encode("prize_pool"), poolIdBytes],
+  console.log("Initializing GlobalConfig on-chain...");
+  const ix = await buildInitializeGlobalInstruction({
+    admin: adminSigner,
+    jobsAccount: adminSigner.address,
   });
+  await sendTx(rpc, ix, adminSigner);
+  ctx.isGlobalInitialized = true;
+  console.log("GlobalConfig initialized successfully on-chain.");
+}
+
+async function initializePrizePoolOnChain(
+  ctx: BaseStateContext,
+  poolId: number = 1
+) {
+  const { rpc, adminSigner, addresses } = ctx;
+  const poolAddress = await findPrizePoolPda(poolId);
 
   let poolInitialized = false;
   try {
@@ -788,62 +789,23 @@ async function handleInit(dbName?: string) {
   } catch {}
 
   if (!poolInitialized) {
-    console.log("Creating Pool (pool_id: 1) on-chain...");
-    const [poolVaultAddress] = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [encoder.encode("pool_vault"), poolIdBytes],
+    console.log(`Creating Pool (pool_id: ${poolId}) on-chain...`);
+    const ix = await buildCreatePoolInstruction({
+      admin: adminSigner,
+      poolId,
+      bondPrice: 1_000_000n, // bond_price = 1 USDC (decimals 6)
+      stakeCycleDurationHrs: 24n, // stake_cycle_duration_hrs = 24
+      feeBasisPoints: 100, // fee_basis_points = 100 (1%)
+      minYieldThreshold: 0n,
+      tokenMint: address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+      pstMint: address(addresses.pstMint),
+      ticketRegistry: address(addresses.ticketRegistry),
+      feeWallet: address(addresses.feeWallet),
     });
-    const [poolPstVaultAddress] = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [encoder.encode("pool_pst"), poolIdBytes],
-    });
-
-    const createPoolData = serializeCreatePoolData(
-      1,
-      1_000_000n, // bond_price = 1 USDC (decimals 6)
-      24n, // stake_cycle_duration_hrs = 24
-      100, // fee_basis_points = 100 (1%)
-      0n // min_yield_threshold = 0
-    );
-
-    const instruction = {
-      programAddress,
-      accounts: [
-        { address: globalConfigAddress, role: AccountRole.READONLY },
-        { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-        { address: poolAddress, role: AccountRole.WRITABLE },
-        {
-          address: address(addresses.ticketRegistry),
-          role: AccountRole.WRITABLE,
-        },
-        {
-          address: address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
-          role: AccountRole.READONLY,
-        },
-        { address: address(addresses.pstMint), role: AccountRole.READONLY },
-        { address: poolVaultAddress, role: AccountRole.WRITABLE },
-        { address: poolPstVaultAddress, role: AccountRole.WRITABLE },
-        { address: address(addresses.feeWallet), role: AccountRole.READONLY },
-        {
-          address: address("11111111111111111111111111111111"),
-          role: AccountRole.READONLY,
-        },
-        {
-          address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-          role: AccountRole.READONLY,
-        },
-        {
-          address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-          role: AccountRole.READONLY,
-        },
-      ],
-      data: createPoolData,
-    };
-    await sendTx(rpc, instruction, adminSigner);
-
-    await ensurePrizeTiersConfigured(1, rpc, adminSigner);
+    await sendTx(rpc, ix, adminSigner);
+    await ensurePrizeTiersConfigured(poolId, rpc, adminSigner);
   } else {
-    console.log("Pool (pool_id: 1) is already created on-chain.");
+    console.log(`Pool (pool_id: ${poolId}) is already created on-chain.`);
     const poolAcc = await rpc.getAccountInfo(poolAddress).send();
     if (poolAcc && poolAcc.value) {
       const rawData = new Uint8Array(
@@ -852,16 +814,67 @@ async function handleInit(dbName?: string) {
       const parsedPool = parsePrizePool(rawData);
       if (parsedPool.prizeTiers.length === 0) {
         console.log(
-          "Prize tiers not configured for existing pool (pool_id: 1). Configuring now..."
+          `Prize tiers not configured for existing pool (pool_id: ${poolId}). Configuring now...`
         );
-        await ensurePrizeTiersConfigured(1, rpc, adminSigner);
+        await ensurePrizeTiersConfigured(poolId, rpc, adminSigner);
       }
     }
   }
+}
 
-  // 7. Write the environment file
-  writeEnvLocal(addresses, adminAddress, randomnessAddress);
+function printBootstrapGuide() {
+  console.log(`
+================================================================================
+🚀 Localnet Base State is Ready for pb-cli Admin Testing!
+================================================================================
+The local validator has been injected with compiled programs and mock accounts,
+and .env.local has been synchronized. GlobalConfig has NOT been initialized yet.
 
+Next Steps to Test pb-cli:
+  1. Initialize Global Configuration:
+     npm run pb-cli init-global -- --jobs <CRANK_PUBKEY>
+     (Or use admin address: npm run pb-cli init-global)
+
+  2. Query & Verify Global Configuration:
+     npm run pb-cli query-config
+
+  3. Create Prize Pool #1:
+     npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --stake-duration 24 --fee-bps 100
+
+  4. Initialize Huma Lender:
+     npm run pb-cli initialize-huma-lender -- --pool 1
+
+  5. Configure Prize Tiers:
+     npm run pb-cli set-prize-tiers -- --pool 1 --tiers "1:5000,5:1000"
+
+  6. Inspect Prize Pool State:
+     npm run pb-cli query-pool -- --pool 1
+================================================================================
+`);
+}
+
+async function handleBootstrap(args: string[] = []) {
+  const flags = parseLocalnetFlags(args);
+  const context = await injectBaseState({ dbName: flags.dbName });
+
+  if (context.isGlobalInitialized) {
+    console.warn(`
+[WARNING] GlobalConfig is already initialized on this localnet node at ${context.globalConfigAddress}.
+Running 'npm run pb-cli init-global' will return an error because the account already exists.
+To start with a fresh state, either restart Surfpool or specify a new database using:
+  npm run localnet start --bootstrap-only --db <clean-name>
+`);
+  } else {
+    printBootstrapGuide();
+  }
+}
+
+async function handleInit(args: string[] = []) {
+  const flags = parseLocalnetFlags(args);
+  console.log("Starting localnet state initialization...");
+  const context = await injectBaseState({ dbName: flags.dbName });
+  await initializeGlobalConfigOnChain(context);
+  await initializePrizePoolOnChain(context, 1);
   console.log("Localnet initialization sequence completed successfully!");
 }
 
@@ -1257,38 +1270,15 @@ function cleanupAndExit(code: number = 0) {
 
 async function handleStart(args: string[] = []) {
   ensureDirsExist();
-
-  let snapshotInput: string | undefined;
-  let dbName: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--snapshot") {
-      const nextArg = args[i + 1];
-      if (!nextArg || nextArg.startsWith("-")) {
-        console.error("Error: Missing value for --snapshot flag.");
-        process.exit(1);
-      }
-      snapshotInput = nextArg;
-      i++;
-    } else if (arg === "--db" || arg === "-d") {
-      const nextArg = args[i + 1];
-      if (!nextArg || nextArg.startsWith("-")) {
-        console.error("Error: Missing value for --db / -d flag.");
-        process.exit(1);
-      }
-      dbName = nextArg;
-      i++;
-    }
-  }
+  const flags = parseLocalnetFlags(args);
 
   let snapshotPath: string | undefined;
-  if (snapshotInput) {
+  if (flags.snapshotInput) {
     const {
       snapshotPath: resolvedPath,
       addressesPath,
       cleanName,
-    } = resolveSnapshotPath(snapshotInput);
+    } = resolveSnapshotPath(flags.snapshotInput);
     if (!fs.existsSync(resolvedPath)) {
       console.error(`Error: Snapshot file not found at: ${resolvedPath}`);
       process.exit(1);
@@ -1344,7 +1334,7 @@ async function handleStart(args: string[] = []) {
       console.log(
         `Found paired address configuration for snapshot '${cleanName}': ${addressesPath}`
       );
-      const targetAddressPath = getAddressesFilePath(dbName);
+      const targetAddressPath = getAddressesFilePath(flags.dbName);
       fs.copyFileSync(addressesPath, targetAddressPath);
     }
   }
@@ -1362,8 +1352,8 @@ async function handleStart(args: string[] = []) {
     surfpoolArgs.push("--snapshot", snapshotPath);
   }
 
-  if (dbName) {
-    const { dbPath, cleanName } = resolveDbPath(dbName);
+  if (flags.dbName) {
+    const { dbPath, cleanName } = resolveDbPath(flags.dbName);
     const dbExists = fs.existsSync(dbPath);
     if (dbExists) {
       console.log(`Using existing SQLite database '${cleanName}' at ${dbPath}`);
@@ -1414,41 +1404,39 @@ async function handleStart(args: string[] = []) {
     console.log("Solana RPC is already active. Reusing existing instance.");
   }
 
-  // 2. Ensure program binaries are injected into localnet node
-  await ensureProgramsInjected();
+  // 2. Inject Base State (Keys, SOL, Programs, Mock Accounts, .env.local)
+  const context = await injectBaseState({ dbName: flags.dbName });
 
-  // 3. Load admin key and addresses
-  const adminSigner = await loadOrGenerateAdminKey();
-  const randomnessSigner = await loadOrGenerateRandomnessKey();
-  const addresses = loadOrGenerateAddresses(dbName);
-
-  // 3. Derive GlobalConfig PDA and check if initialized
-  const rpc = createSolanaRpc(RPC_URL);
-  const programAddress = address(PROGRAM_ID_STR);
-  const encoder = new TextEncoder();
-  const [globalConfigAddress] = await getProgramDerivedAddress({
-    programAddress,
-    seeds: [encoder.encode("global_config")],
-  });
-
-  console.log("Deriving GlobalConfig PDA:", globalConfigAddress);
-
-  let initialized = false;
-  try {
-    const accountInfo = await rpc.getAccountInfo(globalConfigAddress).send();
-    if (accountInfo && accountInfo.value) {
-      initialized = true;
+  if (flags.bootstrapOnly) {
+    if (context.isGlobalInitialized) {
+      console.warn(`
+[WARNING] GlobalConfig is already initialized on this node at ${context.globalConfigAddress}.
+To test pb-cli init-global against a clean ledger, restart Surfpool or specify a new database using:
+  npm run localnet start --bootstrap-only --db <new-name>
+`);
+    } else {
+      printBootstrapGuide();
     }
-  } catch {
-    console.log("GlobalConfig PDA not found on chain (yet).");
+    console.log(
+      "Localnet node is running in bootstrap mode (Next.js skipped). Press Ctrl+C to stop.\n"
+    );
+    await new Promise<void>((resolve) => {
+      process.once("SIGINT", () => resolve());
+      process.once("SIGTERM", () => resolve());
+    });
+    return;
   }
 
-  if (!initialized) {
-    console.log("GlobalConfig PDA not found. Executing initialization...");
-    await handleInit(dbName);
+  // 3. Complete Protocol Initialization for standard dApp dev
+  if (!context.isGlobalInitialized) {
+    console.log(
+      "GlobalConfig PDA not found. Initializing protocol state on-chain..."
+    );
+    await initializeGlobalConfigOnChain(context);
+    await initializePrizePoolOnChain(context, 1);
   } else {
     console.log("GlobalConfig PDA is already initialized on localnet.");
-    writeEnvLocal(addresses, adminSigner.address, randomnessSigner.address);
+    await initializePrizePoolOnChain(context, 1);
   }
 
   // 4. Start Next.js dev server
@@ -1741,8 +1729,14 @@ async function main() {
     case "start":
       await handleStart(args.slice(1));
       break;
+    case "bootstrap":
+    case "setup-base":
+    case "pre-global":
+    case "pre-init":
+      await handleBootstrap(args.slice(1));
+      break;
     case "init":
-      await handleInit();
+      await handleInit(args.slice(1));
       break;
     case "inject-programs":
     case "reinject":
@@ -2621,7 +2615,9 @@ async function handleDraw(args: string[]) {
   );
 }
 
-main().catch((err) => {
-  printErrorDetails(err, "Unhandled error in localnet orchestrator");
-  cleanupAndExit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    printErrorDetails(err, "Unhandled error in localnet orchestrator");
+    cleanupAndExit(1);
+  });
+}

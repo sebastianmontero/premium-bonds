@@ -125,7 +125,8 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
           tokenDecimals: "Token decimals precision (6 for USDC)",
           baseUi: "Converted human-readable base prize pot amount",
           tvlUi: "Total deposited principal in human-readable token UI units",
-          lastSyncedAt: "Synchronized timestamp baseline for continuous yield accrual",
+          lastSyncedAt:
+            "Synchronized timestamp baseline for continuous yield accrual",
         },
       });
     }
@@ -164,7 +165,8 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
         nowInSeconds - lastLogTimeRef.current >= 10.0
       ) {
         lastLogTimeRef.current = nowInSeconds;
-        const elapsed = syncTimestamp > 0 ? Math.max(0, nowInSeconds - syncTimestamp) : 0;
+        const elapsed =
+          syncTimestamp > 0 ? Math.max(0, nowInSeconds - syncTimestamp) : 0;
         const yieldAccrued = (tvlUi * apy * elapsed) / SECONDS_PER_YEAR;
         console.log(
           `[LiveYieldTicker: ${debugLabel}] Calculation Tick (10s):`,

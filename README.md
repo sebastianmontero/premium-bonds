@@ -40,20 +40,33 @@ npm run localnet
 - **Frontend Startup**: Starts the Next.js development server (`npm run dev`).
 - **Graceful Shutdown**: Automatically intercepts termination signals (`SIGINT`, `SIGTERM`, etc.) to cleanly kill the Surfpool daemon and the Next.js process.
 
-#### 2. Run Manual State Initialization
+#### 2. Bootstrap Base State (For pb-cli Admin Testing)
+
+```bash
+# Start Surfpool in pre-global bootstrap mode:
+npm run localnet start -- --bootstrap-only
+
+# Or bootstrap against an already running localnet node:
+npm run localnet bootstrap
+```
+
+- Injects compiled program binaries (`anchor.so`, `mock_huma.so`).
+- Generates and funds admin & randomness keypairs with SOL.
+- Injects mock state accounts (USDC Mint, Switchboard Randomness, Huma Pool State, PST Mint, Ticket Registry buffer, Huma Pool Token Accounts, Fee Wallet).
+- Writes `.env.local` with all mock and derived addresses.
+- **Leaves `GlobalConfig` and pools uninitialized**, allowing manual execution and testing of `npm run pb-cli init-global`, `create-pool`, `initialize-huma-lender`, and `set-prize-tiers`.
+
+#### 3. Run Full State Initialization
 
 ```bash
 npm run localnet init
 ```
 
-- Loads/generates an admin keypair (`scripts/admin-key.json`).
-- Funds the admin wallet with SOL.
-- Deploys the main smart contract (`CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx`) and the Mock Huma Lending program (`XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw`).
-- Injects mock state accounts (USDC Mint, Huma Pool State, PST Mint, Ticket Registry, Huma Pool Token Accounts, Fee Wallet).
-- Submits on-chain transactions to initialize the `GlobalConfig` and create the initial liquidity pool.
+- Runs base state bootstrapping.
+- Submits on-chain transactions to initialize `GlobalConfig` and create the initial prize pool (`PrizePool #1`) with configured prize tiers.
 - Generates/updates `.env.local`.
 
-#### 3. Fund Developer Wallets
+#### 4. Fund Developer Wallets
 
 ```bash
 npm run localnet fund <wallet_address> <amount>

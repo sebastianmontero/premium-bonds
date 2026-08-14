@@ -78,6 +78,7 @@
 - **Objective / Focus:** Verify administrative setup, pool creation, tier configuration, and registry capacity resizing via `pb-cli.ts`.
 - **Target Commands:** `init-global`, `update-global-config`, `create-pool`, `initialize-huma-lender`, `resize-registry`, `set-prize-tiers`, `update-pool-config`.
 - **Test Scenarios & Guardrails:**
+  - [ ] **Pre-Flight Bootstrap:** Run `npm run localnet start -- --bootstrap-only --db test-cli-admin` (or `npm run localnet bootstrap`). Verify programs, mock mints, and `.env.local` are ready while `GlobalConfig` remains uninitialized.
   - [ ] **Initialization (`init-global`):** Run `npm run pb-cli init-global -- --jobs <pubkey>`. Verify `GlobalConfig` PDA is initialized with authority and jobs address.
   - [ ] **Config Update Guard (`update-global-config`):** Run `update-global-config --new-admin <pubkey>` without `--confirm`. Verify execution fails with explicit error requiring `--confirm`.
   - [ ] **Pool Creation (`create-pool`):** Create Pool 1 with `--bond-price 1000000 --fee-bps 100`. Verify `PrizePool` PDA, vault PDAs, and zero-copy `TicketRegistry` PDA are initialized.

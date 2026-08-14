@@ -12,7 +12,9 @@ import {
 } from "../app/lib/formatters";
 import { createDefaultPoolFallback } from "../app/types";
 
-console.log("Running Live Yield Ticker Synchronization verification tests...\n");
+console.log(
+  "Running Live Yield Ticker Synchronization verification tests...\n"
+);
 
 // ── Test 1: Multi-Component Ticker Synchronization ──────────────────────────
 {
@@ -309,4 +311,6 @@ console.log("Running Live Yield Ticker Synchronization verification tests...\n")
   console.log("✓ Test 6: Formatter Cache Identity & Fallback Factory verified");
 }
 
-console.log("\nAll Live Yield Ticker Synchronization tests passed successfully!");
+console.log(
+  "\nAll Live Yield Ticker Synchronization tests passed successfully!"
+);
