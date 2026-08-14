@@ -58,8 +58,12 @@ export type DrawStatusName =
 export {
   parseTicketRegistry,
   parseRegistryEntry,
+  resolveUserTickets,
 } from "./ticket-registry-helpers";
-export type { UserEntryInfo } from "./ticket-registry-helpers";
+export type {
+  UserEntryInfo,
+  ResolvedUserTickets,
+} from "./ticket-registry-helpers";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

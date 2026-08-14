@@ -555,8 +555,7 @@ export default function CompleteLedgerModal({
                                   tokenDecimals
                                 )}{" "}
                                 {tokenSymbol} of previous dust with this
-                                draw&apos;s winnings to purchase an extra
-                                bond.
+                                draw&apos;s winnings to purchase an extra bond.
                               </div>
                             </div>
                           );
@@ -588,8 +587,8 @@ export default function CompleteLedgerModal({
                               </strong>
                               Leftover {tokenSymbol} winnings less than the{" "}
                               {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                              {tokenSymbol} bond price. Automatically
-                              aggregated above to claim.
+                              {tokenSymbol} bond price. Automatically aggregated
+                              above to claim.
                             </div>
                           </div>
                         )}

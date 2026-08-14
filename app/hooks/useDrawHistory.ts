@@ -83,7 +83,7 @@ export function useDrawHistory(
   }, [userAddress, poolId, currentDrawCycleId]);
 
   const fetchHistory = useCallback(async () => {
-    if (currentDrawCycleId === undefined || currentDrawCycleId < 1) {
+    if (currentDrawCycleId === undefined || currentDrawCycleId < 0) {
       setPrizeHistory([]);
       setRecentWinners([]);
       hasLoadedRef.current = false;
@@ -105,7 +105,7 @@ export function useDrawHistory(
       const cycleIds: number[] = [];
       for (
         let cycleId = currentDrawCycleId;
-        cycleId >= 1 && cycleId > currentDrawCycleId - maxCyclesToFetch;
+        cycleId >= 0 && cycleId > currentDrawCycleId - maxCyclesToFetch;
         cycleId--
       ) {
         cycleIds.push(cycleId);

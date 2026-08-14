@@ -14,6 +14,53 @@ export interface UserEntryInfo {
   cumulativeActive: number;
 }
 
+export interface ResolvedUserTickets {
+  activeTicketsCount: number;
+  pendingTicketsCount: number;
+  isStale: boolean;
+}
+
+/**
+ * Resolves a user's active and pending ticket balance taking into account lazy merges
+ * and active draw-in-progress state (frozen pool).
+ *
+ * Single authoritative source of truth across UI components, hooks, and CLI tools.
+ *
+ * During a draw in progress (`isFrozenForDraw = true`), the draw cycle id has been
+ * incremented on-chain for accounting, but the draw being resolved is `currentCycle - 1`.
+ * Pending tickets purchased during that cycle are not eligible for the draw in progress
+ * and remain pending until the draw reveals and the pool unfreezes.
+ */
+export function resolveUserTickets(
+  entry: UserEntryInfo | null | undefined,
+  currentCycle: number,
+  isFrozenForDraw: boolean = false
+): ResolvedUserTickets {
+  if (!entry) {
+    return { activeTicketsCount: 0, pendingTicketsCount: 0, isStale: false };
+  }
+
+  const effectiveCycle = isFrozenForDraw
+    ? Math.max(0, currentCycle - 1)
+    : currentCycle;
+
+  const isStale = entry.mergedThroughCycle < effectiveCycle;
+
+  if (isStale) {
+    return {
+      activeTicketsCount: entry.active + entry.pending,
+      pendingTicketsCount: 0,
+      isStale: true,
+    };
+  }
+
+  return {
+    activeTicketsCount: entry.active,
+    pendingTicketsCount: entry.pending,
+    isStale: false,
+  };
+}
+
 export interface ExtendedTicketRegistry extends TicketRegistry {
   entries: UserEntryInfo[];
 }

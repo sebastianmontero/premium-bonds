@@ -67,7 +67,10 @@ export function DepositModal({
 
   const totalCostBase = parsedTickets * pool.bondPrice;
   const canDeposit =
-    parsedTickets > 0 && totalCostBase <= walletBalance && txStage === null;
+    parsedTickets > 0 &&
+    totalCostBase <= walletBalance &&
+    txStage === null &&
+    !pool.isFrozenForDraw;
 
   const handleDeposit = useCallback(async () => {
     setTxStage("signing");
@@ -180,6 +183,34 @@ export function DepositModal({
           />
         )}
 
+        {/* Frozen Alert */}
+        {pool.isFrozenForDraw && (
+          <div className="flex items-center gap-3 rounded-xl border border-tertiary/20 bg-tertiary/5 px-4 py-3">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 text-tertiary animate-spin"
+            >
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-tertiary">
+                Draw in progress!
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                The pool is temporarily frozen to pick winners. Deposits are
+                paused until the draw completes.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Current Prize Pot ───────────────────────────────────────── */}
         <div className="rounded-xl bg-surface-container/60 px-4 py-3 flex items-center justify-between">
           <span className="text-xs font-medium text-on-surface-variant">
@@ -201,6 +232,8 @@ export function DepositModal({
                 {t("amountLabel", { symbol: pool.tokenSymbol })}
               </label>
               <button
+                type="button"
+                disabled={pool.isFrozenForDraw}
                 onClick={() => {
                   const maxTokens = walletBalance / 10 ** pool.tokenDecimals;
                   setActiveInput("token");
@@ -210,7 +243,7 @@ export function DepositModal({
                     )
                   );
                 }}
-                className="text-[10px] font-semibold text-primary hover:underline cursor-pointer"
+                className="text-[10px] font-semibold text-primary hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {t("max")}:{" "}
                 {formatTokenAmount(walletBalance, pool.tokenDecimals)}
@@ -234,10 +267,11 @@ export function DepositModal({
                 setActiveInput("token");
                 setInputValue(val);
               }}
+              disabled={pool.isFrozenForDraw}
               placeholder="0"
               min="0"
               step="1"
-              className="w-full rounded-xl bg-surface-container px-4 py-3 font-mono text-lg text-on-surface placeholder:text-on-surface-variant/40 ghost-border ghost-border-focus outline-none transition"
+              className="w-full rounded-xl bg-surface-container px-4 py-3 font-mono text-lg text-on-surface placeholder:text-on-surface-variant/40 ghost-border ghost-border-focus outline-none transition disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -283,10 +317,11 @@ export function DepositModal({
                 setActiveInput("ticket");
                 setInputValue(val);
               }}
+              disabled={pool.isFrozenForDraw}
               placeholder="0"
               min="0"
               step="1"
-              className="w-full rounded-xl bg-surface-container px-4 py-3 font-mono text-lg text-on-surface placeholder:text-on-surface-variant/40 ghost-border ghost-border-focus outline-none transition"
+              className="w-full rounded-xl bg-surface-container px-4 py-3 font-mono text-lg text-on-surface placeholder:text-on-surface-variant/40 ghost-border ghost-border-focus outline-none transition disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -331,14 +366,19 @@ export function DepositModal({
           disabled={!canDeposit}
           className="w-full btn-gradient rounded-xl py-3.5 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {totalCostBase > walletBalance
-            ? t("insufficientBalance")
-            : parsedTickets > 0
-              ? t("confirmDepositAmount", {
-                  amount: formatTokenAmount(totalCostBase, pool.tokenDecimals),
-                  symbol: pool.tokenSymbol,
-                })
-              : t("enterAmount")}
+          {pool.isFrozenForDraw
+            ? "Pool Frozen During Draw"
+            : totalCostBase > walletBalance
+              ? t("insufficientBalance")
+              : parsedTickets > 0
+                ? t("confirmDepositAmount", {
+                    amount: formatTokenAmount(
+                      totalCostBase,
+                      pool.tokenDecimals
+                    ),
+                    symbol: pool.tokenSymbol,
+                  })
+                : t("enterAmount")}
         </button>
       </div>
     </div>

@@ -32,6 +32,7 @@ import {
   parseUserWinnings,
   parseTicketRegistry,
   parseRegistryEntry,
+  resolveUserTickets,
   parsePendingRedemption,
   parseMockHumaPoolState,
   calculatePoolYield,
@@ -378,25 +379,19 @@ export function useBondsContract(poolId: number = 1) {
 
               const currentCycle = view.getUint32(28, true);
               const userEntry = parseRegistryEntry(bytes, registryEntryIndex);
+              const isFrozen = poolInfo?.isFrozenForDraw ?? false;
 
-              let activeCount = 0;
-              let pendingCount = 0;
-
-              if (userEntry && userEntry.owner === userAddress) {
-                // Simulate lazy merge check locally
-                if (userEntry.mergedThroughCycle < currentCycle) {
-                  activeCount = userEntry.active + userEntry.pending;
-                  pendingCount = 0;
-                } else {
-                  activeCount = userEntry.active;
-                  pendingCount = userEntry.pending;
-                }
-              }
+              const { activeTicketsCount, pendingTicketsCount } =
+                resolveUserTickets(
+                  userEntry?.owner === userAddress ? userEntry : null,
+                  currentCycle,
+                  isFrozen
+                );
 
               setUserTickets({
                 poolId,
-                activeTicketsCount: activeCount,
-                pendingTicketsCount: pendingCount,
+                activeTicketsCount,
+                pendingTicketsCount,
               });
             } else {
               setUserTickets({
@@ -594,6 +589,9 @@ export function useBondsContract(poolId: number = 1) {
     async (amount: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
+      if (pool.isFrozenForDraw) {
+        throw new Error("Pool is frozen while draw is being resolved");
+      }
 
       const rpc = client.runtime.rpc;
       const registryAddrStr = pool.ticketRegistry;
@@ -624,26 +622,20 @@ export function useBondsContract(poolId: number = 1) {
       const bytes = base64Encoder.encode(registryAcc.value.data[0]);
       const registry = parseTicketRegistry(new Uint8Array(bytes));
 
-      let activeOwned = 0;
-      let pendingOwned = 0;
-      const currentCycle = registry.drawCycleId;
-
-      if (
+      const entry =
         registryEntryIndex !== 0xffffffff &&
         registryEntryIndex < registry.userCount
-      ) {
-        const entry = registry.entries[registryEntryIndex];
-        if (entry && entry.owner === userAddress) {
-          activeOwned = entry.active;
-          pendingOwned = entry.pending;
+          ? registry.entries[registryEntryIndex]
+          : null;
 
-          // Apply lazy merge locally
-          if (entry.mergedThroughCycle < currentCycle) {
-            activeOwned += pendingOwned;
-            pendingOwned = 0;
-          }
-        }
-      }
+      const {
+        activeTicketsCount: activeOwned,
+        pendingTicketsCount: pendingOwned,
+      } = resolveUserTickets(
+        entry && entry.owner === userAddress ? entry : null,
+        registry.drawCycleId,
+        pool.isFrozenForDraw
+      );
 
       // Number of bonds to sell
       const bondsToSell = Math.floor(amount / pool.bondPrice);

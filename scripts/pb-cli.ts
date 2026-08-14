@@ -43,8 +43,8 @@ import {
   findPendingRedemptionPda,
   parseUserWinnings,
   parsePendingRedemption,
-  RedemptionType,
   parseTicketRegistry,
+  resolveUserTickets,
   findPoolVaultPda,
   findPoolPstVaultPda,
   encodeU32,
@@ -2920,11 +2920,15 @@ Ticket Registry for Pool ${poolId} (Filtered by User: ${target})
 `);
 
         if (entry) {
-          const isStale = entry.mergedThroughCycle < registryState.drawCycleId;
-          const activeVal = isStale
-            ? entry.active + entry.pending
-            : entry.active;
-          const pendingVal = isStale ? 0 : entry.pending;
+          const {
+            activeTicketsCount: activeVal,
+            pendingTicketsCount: pendingVal,
+            isStale,
+          } = resolveUserTickets(
+            entry,
+            registryState.drawCycleId,
+            poolState.isFrozenForDraw
+          );
           console.log(`User Entry Details:
   Owner: ${entry.owner}
   Active Tickets: ${activeVal} ${isStale ? `(Lazy-merged: ${entry.active} + ${entry.pending} pending)` : ""}
@@ -2945,6 +2949,7 @@ Ticket Registry for Pool ${poolId}
   Total Pending Tickets: ${registryState.totalPendingTickets}
   Draw Cycle ID: ${registryState.drawCycleId}
   Draw Prepared Up To: ${registryState.drawPreparedUpTo}
+  Pool Frozen for Draw: ${poolState.isFrozenForDraw}
 `);
 
         console.log("Registered User Entries:");
@@ -2953,12 +2958,20 @@ Ticket Registry for Pool ${poolId}
         } else {
           console.table(
             registryState.entries.map((e, index) => {
-              const isStale = e.mergedThroughCycle < registryState.drawCycleId;
+              const {
+                activeTicketsCount: activeVal,
+                pendingTicketsCount: pendingVal,
+                isStale,
+              } = resolveUserTickets(
+                e,
+                registryState.drawCycleId,
+                poolState.isFrozenForDraw
+              );
               return {
                 Index: index,
                 Owner: e.owner.slice(0, 8) + "...",
-                Active: isStale ? e.active + e.pending : e.active,
-                Pending: isStale ? 0 : e.pending,
+                Active: activeVal,
+                Pending: pendingVal,
                 "Merged Cycle": e.mergedThroughCycle,
                 "Cumulative Active": e.cumulativeActive,
                 Stale: isStale ? "YES (will merge)" : "NO",

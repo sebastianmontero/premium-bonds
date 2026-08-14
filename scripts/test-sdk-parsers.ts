@@ -15,6 +15,8 @@ import {
   parseTokenAccountBalance,
   parseMintSupply,
   calculatePoolYield,
+  resolveUserTickets,
+  UserEntryInfo,
 } from "../app/lib/bonds-sdk";
 import { ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import { ANCHOR_ERROR__POOL_NOT_FROZEN } from "../app/lib/generated/yield-bonds/src/generated";
@@ -336,6 +338,98 @@ function mockAccount(data: Uint8Array) {
 
   console.log(
     "✓ calculatePoolYield pending redemptions & settle invariance passed"
+  );
+}
+
+// 12. Test resolveUserTickets (Active vs Pending during Draw In Progress)
+{
+  const mockOwner = "11111111111111111111111111111111" as Address;
+
+  // Case 1: Standard Active Cycle (Cycle 0, user purchased in Cycle 0, pool not frozen)
+  const entryCycle0: UserEntryInfo = {
+    owner: mockOwner,
+    active: 0,
+    pending: 100,
+    mergedThroughCycle: 0,
+    cumulativeActive: 0,
+  };
+  const resCycle0 = resolveUserTickets(entryCycle0, 0, false);
+  assert.strictEqual(resCycle0.activeTicketsCount, 0);
+  assert.strictEqual(resCycle0.pendingTicketsCount, 100);
+  assert.strictEqual(resCycle0.isStale, false);
+  assert.strictEqual(
+    resCycle0.activeTicketsCount + resCycle0.pendingTicketsCount,
+    entryCycle0.active + entryCycle0.pending
+  );
+
+  // Case 2: Draw in Progress (Cycle 0 harvested -> drawCycleId bumped to 1, isFrozenForDraw = true)
+  // Newly purchased bonds in cycle 0 MUST remain pending while Draw 0 is resolving!
+  const resCycle0Frozen = resolveUserTickets(entryCycle0, 1, true);
+  assert.strictEqual(resCycle0Frozen.activeTicketsCount, 0);
+  assert.strictEqual(resCycle0Frozen.pendingTicketsCount, 100);
+  assert.strictEqual(resCycle0Frozen.isStale, false);
+  assert.strictEqual(
+    resCycle0Frozen.activeTicketsCount + resCycle0Frozen.pendingTicketsCount,
+    entryCycle0.active + entryCycle0.pending
+  );
+
+  // Case 3: Draw Complete (Reveal executed -> pool unfrozen, isFrozenForDraw = false, cycle 1)
+  // Tickets are now mature and active for Cycle 1!
+  const resCycle1Unfrozen = resolveUserTickets(entryCycle0, 1, false);
+  assert.strictEqual(resCycle1Unfrozen.activeTicketsCount, 100);
+  assert.strictEqual(resCycle1Unfrozen.pendingTicketsCount, 0);
+  assert.strictEqual(resCycle1Unfrozen.isStale, true);
+  assert.strictEqual(
+    resCycle1Unfrozen.activeTicketsCount +
+      resCycle1Unfrozen.pendingTicketsCount,
+    entryCycle0.active + entryCycle0.pending
+  );
+
+  // Case 4: User with existing active tickets + new pending tickets during frozen draw
+  // User had 50 active from past cycles, bought 75 pending in cycle 1.
+  // Pool is now at cycle 2, frozen for Draw 1.
+  const entryMixed: UserEntryInfo = {
+    owner: mockOwner,
+    active: 50,
+    pending: 75,
+    mergedThroughCycle: 1,
+    cumulativeActive: 50,
+  };
+  const resMixedFrozen = resolveUserTickets(entryMixed, 2, true);
+  assert.strictEqual(resMixedFrozen.activeTicketsCount, 50);
+  assert.strictEqual(resMixedFrozen.pendingTicketsCount, 75);
+  assert.strictEqual(resMixedFrozen.isStale, false);
+  assert.strictEqual(
+    resMixedFrozen.activeTicketsCount + resMixedFrozen.pendingTicketsCount,
+    entryMixed.active + entryMixed.pending
+  );
+
+  // Case 5: Multi-cycle stale user during active draw
+  // User deposited in cycle 0 (mergedThroughCycle = 0), pool is now at cycle 3 frozen for Draw 2.
+  // Effective cycle = 3 - 1 = 2. Since 0 < 2, their tickets were mature for Draw 2!
+  const resMultiCycleStale = resolveUserTickets(entryCycle0, 3, true);
+  assert.strictEqual(resMultiCycleStale.activeTicketsCount, 100);
+  assert.strictEqual(resMultiCycleStale.pendingTicketsCount, 0);
+  assert.strictEqual(resMultiCycleStale.isStale, true);
+  assert.strictEqual(
+    resMultiCycleStale.activeTicketsCount +
+      resMultiCycleStale.pendingTicketsCount,
+    entryCycle0.active + entryCycle0.pending
+  );
+
+  // Case 6: Null / Undefined entry guard
+  const resNull = resolveUserTickets(null, 1, false);
+  assert.strictEqual(resNull.activeTicketsCount, 0);
+  assert.strictEqual(resNull.pendingTicketsCount, 0);
+  assert.strictEqual(resNull.isStale, false);
+
+  const resUndefined = resolveUserTickets(undefined, 1, true);
+  assert.strictEqual(resUndefined.activeTicketsCount, 0);
+  assert.strictEqual(resUndefined.pendingTicketsCount, 0);
+  assert.strictEqual(resUndefined.isStale, false);
+
+  console.log(
+    "✓ resolveUserTickets active/pending balance & frozen draw invariance passed"
   );
 }
 
