@@ -10,6 +10,7 @@ import {
   Address,
   getProgramDerivedAddress,
   getBase58Encoder,
+  getBase64Encoder,
   lamports,
   TransactionSigner,
 } from "@solana/kit";
@@ -313,6 +314,237 @@ export function parsePendingRedemption(data: Uint8Array): PendingRedemption {
   return decodedData<PendingRedemption>(
     decodePendingRedemption(mockAccount(data))
   );
+}
+
+const base64Encoder = getBase64Encoder();
+
+export function parseTokenAccountBalance(data: Uint8Array): bigint {
+  if (data.byteLength < 72) return 0n;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view.getBigUint64(64, true);
+}
+
+export function parseMintSupply(data: Uint8Array): bigint {
+  if (data.byteLength < 44) return 0n;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return view.getBigUint64(36, true);
+}
+
+export interface MockHumaPoolStateInfo {
+  numModes: number;
+  totalAssets: bigint;
+  numConfigKeys: number;
+  nextRequestId: bigint;
+  lastRequestId: bigint;
+  pendingRequests: bigint;
+}
+
+export function parseMockHumaPoolState(
+  data: Uint8Array
+): MockHumaPoolStateInfo {
+  if (data.byteLength < 30) {
+    return {
+      numModes: 0,
+      totalAssets: 0n,
+      numConfigKeys: 0,
+      nextRequestId: 0n,
+      lastRequestId: 0n,
+      pendingRequests: 0n,
+    };
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  const numModes = view.getUint32(26, true);
+  let totalAssets = 0n;
+  if (numModes > 0 && data.byteLength >= 46) {
+    // Read 128-bit total_assets at offset 30..46
+    const totalAssetsLow = view.getBigUint64(30, true);
+    const totalAssetsHigh = view.getBigUint64(38, true);
+    totalAssets = (totalAssetsHigh << 64n) | totalAssetsLow;
+  }
+
+  const modeConfigKeysOffset = 30 + numModes * 216;
+  if (data.byteLength < modeConfigKeysOffset + 4) {
+    return {
+      numModes,
+      totalAssets,
+      numConfigKeys: 0,
+      nextRequestId: 0n,
+      lastRequestId: 0n,
+      pendingRequests: 0n,
+    };
+  }
+
+  const numConfigKeys = view.getUint32(modeConfigKeysOffset, true);
+  const redemptionOffset = modeConfigKeysOffset + 4 + numConfigKeys * 32;
+
+  let nextRequestId = 0n;
+  let lastRequestId = 0n;
+  if (data.byteLength >= redemptionOffset + 32) {
+    const nextLow = view.getBigUint64(redemptionOffset, true);
+    const nextHigh = view.getBigUint64(redemptionOffset + 8, true);
+    nextRequestId = (nextHigh << 64n) | nextLow;
+
+    const lastLow = view.getBigUint64(redemptionOffset + 16, true);
+    const lastHigh = view.getBigUint64(redemptionOffset + 24, true);
+    lastRequestId = (lastHigh << 64n) | lastLow;
+  }
+
+  const pendingRequests =
+    lastRequestId >= nextRequestId ? lastRequestId - nextRequestId : 0n;
+
+  return {
+    numModes,
+    totalAssets,
+    numConfigKeys,
+    nextRequestId,
+    lastRequestId,
+    pendingRequests,
+  };
+}
+
+export interface PoolYieldCalculation {
+  poolPstBalance: bigint;
+  pstSupply: bigint;
+  humaTotalAssets: bigint;
+  currentValue: bigint;
+  bookValue: bigint;
+  grossYield: bigint;
+  protocolFee: bigint;
+  netYield: bigint;
+  estimatedPrizePot: number;
+  totalDepositedPrincipal: bigint;
+  feesInVault: bigint;
+  totalPrizesAllocated: bigint;
+}
+
+export function calculatePoolYield(params: {
+  poolPstBalance: bigint;
+  pstSupply: bigint;
+  humaTotalAssets: bigint;
+  totalDepositedPrincipal: bigint | number;
+  totalFeesAccrued?: bigint | number;
+  totalFeesWithdrawn?: bigint | number;
+  feesInVault?: bigint | number;
+  totalPrizesAllocated?: bigint | number;
+  feeBasisPoints?: number;
+}): PoolYieldCalculation {
+  const principal = BigInt(params.totalDepositedPrincipal);
+  const feesAccrued = BigInt(params.totalFeesAccrued ?? 0n);
+  const feesWithdrawn = BigInt(params.totalFeesWithdrawn ?? 0n);
+  const feesInVault =
+    params.feesInVault !== undefined
+      ? BigInt(params.feesInVault)
+      : feesAccrued > feesWithdrawn
+      ? feesAccrued - feesWithdrawn
+      : 0n;
+  const totalPrizesAllocated = BigInt(params.totalPrizesAllocated ?? 0n);
+  const feeBasisPoints = params.feeBasisPoints ?? 0;
+
+  const bookValue = principal + feesInVault + totalPrizesAllocated;
+
+  let currentValue = 0n;
+  if (params.pstSupply > 0n && params.poolPstBalance > 0n) {
+    currentValue =
+      (params.poolPstBalance * params.humaTotalAssets) / params.pstSupply;
+  }
+
+  const grossYield = currentValue > bookValue ? currentValue - bookValue : 0n;
+  const protocolFee =
+    feeBasisPoints > 0 ? (grossYield * BigInt(feeBasisPoints)) / 10000n : 0n;
+  const netYield = grossYield > protocolFee ? grossYield - protocolFee : 0n;
+  const estimatedPrizePot = Number(netYield);
+
+  return {
+    poolPstBalance: params.poolPstBalance,
+    pstSupply: params.pstSupply,
+    humaTotalAssets: params.humaTotalAssets,
+    currentValue,
+    bookValue,
+    grossYield,
+    protocolFee,
+    netYield,
+    estimatedPrizePot,
+    totalDepositedPrincipal: principal,
+    feesInVault,
+    totalPrizesAllocated,
+  };
+}
+
+export interface PoolYieldOnChainState {
+  humaTotalAssets: bigint;
+  pstSupply: bigint;
+  poolPstBalance: bigint;
+}
+
+export async function fetchPoolYieldOnChainState(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: any,
+  params: {
+    poolId: number;
+    humaPoolStateAddress?: Address | string;
+    pstMintAddress?: Address | string;
+  }
+): Promise<PoolYieldOnChainState> {
+  const humaPoolState = params.humaPoolStateAddress
+    ? address(params.humaPoolStateAddress)
+    : null;
+  const pstMint = params.pstMintAddress
+    ? address(params.pstMintAddress)
+    : null;
+  const poolPstVault = await findPoolPstVaultPda(params.poolId);
+
+  const [humaRes, pstMintRes, poolPstVaultRes] = await Promise.allSettled([
+    humaPoolState
+      ? rpc.getAccountInfo(humaPoolState, { encoding: "base64" }).send()
+      : Promise.resolve(null),
+    pstMint
+      ? rpc.getAccountInfo(pstMint, { encoding: "base64" }).send()
+      : Promise.resolve(null),
+    rpc.getAccountInfo(poolPstVault, { encoding: "base64" }).send(),
+  ]);
+
+  let humaTotalAssets = 0n;
+  if (humaRes.status === "fulfilled" && humaRes.value?.value?.data?.[0]) {
+    try {
+      const data = new Uint8Array(
+        base64Encoder.encode(humaRes.value.value.data[0])
+      );
+      humaTotalAssets = parseMockHumaPoolState(data).totalAssets;
+    } catch {}
+  }
+
+  let pstSupply = 0n;
+  if (
+    pstMintRes.status === "fulfilled" &&
+    pstMintRes.value?.value?.data?.[0]
+  ) {
+    try {
+      const data = new Uint8Array(
+        base64Encoder.encode(pstMintRes.value.value.data[0])
+      );
+      pstSupply = parseMintSupply(data);
+    } catch {}
+  }
+
+  let poolPstBalance = 0n;
+  if (
+    poolPstVaultRes.status === "fulfilled" &&
+    poolPstVaultRes.value?.value?.data?.[0]
+  ) {
+    try {
+      const data = new Uint8Array(
+        base64Encoder.encode(poolPstVaultRes.value.value.data[0])
+      );
+      poolPstBalance = parseTokenAccountBalance(data);
+    } catch {}
+  }
+
+  return {
+    humaTotalAssets,
+    pstSupply,
+    poolPstBalance,
+  };
 }
 
 // Re-export Codama generated types

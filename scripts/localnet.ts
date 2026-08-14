@@ -26,6 +26,7 @@ import {
   findDrawCyclePda,
   parseDrawCycle,
   parsePrizePool,
+  fetchPoolYieldOnChainState,
   getInitializeGlobalInstructionDataEncoder,
   getCreatePoolInstructionDataEncoder,
   getSetPrizeTiersInstructionDataEncoder,
@@ -2271,33 +2272,13 @@ async function handleYield(args: string[]) {
   const bookValue =
     totalDepositedPrincipal + feesInVault + totalPrizesAllocated;
 
-  console.log(`Fetching PST Mint account: ${addresses.pstMint}...`);
-  const pstMintInfo = await rpc
-    .getAccountInfo(address(addresses.pstMint))
-    .send();
-  if (!pstMintInfo || !pstMintInfo.value) {
-    console.error("Error: PST Mint account does not exist.");
-    process.exit(1);
-  }
-  const pstMintBuffer = Buffer.from(pstMintInfo.value.data[0], "base64");
-  if (pstMintBuffer.length < 44) {
-    console.error("Error: PST Mint account data is too short.");
-    process.exit(1);
-  }
-  const pstSupply = pstMintBuffer.readBigUInt64LE(36);
-
-  console.log(`Fetching Pool PST Vault account: ${poolPstVaultAddress}...`);
-  const vaultInfo = await rpc.getAccountInfo(poolPstVaultAddress).send();
-  if (!vaultInfo || !vaultInfo.value) {
-    console.error("Error: Pool PST Vault account does not exist.");
-    process.exit(1);
-  }
-  const vaultBuffer = Buffer.from(vaultInfo.value.data[0], "base64");
-  if (vaultBuffer.length < 72) {
-    console.error("Error: Pool PST Vault account data is too short.");
-    process.exit(1);
-  }
-  const poolPstBalance = vaultBuffer.readBigUInt64LE(64);
+  console.log("Fetching on-chain yield parameters...");
+  const { humaTotalAssets: currentTotalAssets, pstSupply, poolPstBalance } =
+    await fetchPoolYieldOnChainState(rpc, {
+      poolId,
+      humaPoolStateAddress: addresses.humaPoolState,
+      pstMintAddress: addresses.pstMint,
+    });
 
   if (poolPstBalance === 0n) {
     console.error(
@@ -2334,9 +2315,6 @@ async function handleYield(args: string[]) {
     console.error("Error: Huma Pool State account data is too short.");
     process.exit(1);
   }
-
-  const currentTotalAssets =
-    rawData.readBigUInt64LE(30) + (rawData.readBigUInt64LE(38) << 64n);
 
   console.log("\nYield Simulation Calculation Details:");
   console.log(`- Pool ID: ${poolId}`);

@@ -49,6 +49,7 @@ import {
   findPoolPstVaultPda,
   encodeU32,
   PROGRAM_ID,
+  HUMA_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   buildPrepareDrawInstruction,
   buildInitializeGlobalInstruction,
@@ -61,6 +62,9 @@ import {
   buildWithdrawFeesInstruction,
   buildAdminForceUnlockDrawInstruction,
   buildCrankRebindExpiredRandomnessInstruction,
+  parseMockHumaPoolState,
+  MockHumaPoolStateInfo,
+  findHumaPoolAuthorityPda,
 } from "../app/lib/bonds-sdk";
 
 // ─── Help / Usage & Command Registry ─────────────────────────────────────────
@@ -491,6 +495,26 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       { flag: "--user <pubkey>", description: "User public key filter" },
     ],
     examples: ["npm run pb-cli query-registry -- --pool 1"],
+  },
+  "query-mock-huma-pool-state": {
+    command: "query-mock-huma-pool-state",
+    category: "Query",
+    summary:
+      "Query and display the Mock Huma Pool state and redemption queue status",
+    description:
+      "Query and display the Mock Huma Pool state (total assets, mode configuration, PDA authority) and redemption queue status (next/last request IDs, pending count).",
+    requiresSigner: false,
+    positionalArgs: "[humaPoolStatePubkey]",
+    options: [
+      {
+        flag: "--address <pubkey>",
+        description: "Mock Huma Pool State public key address",
+      },
+    ],
+    examples: [
+      "npm run pb-cli query-mock-huma-pool-state",
+      "npm run pb-cli query-mock-huma-pool-state -- --address <PUBKEY>",
+    ],
   },
 };
 
@@ -2017,6 +2041,131 @@ export async function sendTxWithSigners(
   return signature;
 }
 
+export interface ExecuteQueryMockHumaPoolStateParams {
+  rpcUrl?: string;
+  addressStr?: string;
+}
+
+export async function executeQueryMockHumaPoolState({
+  rpcUrl = "http://127.0.0.1:8899",
+  addressStr,
+}: ExecuteQueryMockHumaPoolStateParams = {}): Promise<
+  MockHumaPoolStateInfo & { address: string; authorityPda: string }
+> {
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+  const env = loadEnvLocal();
+
+  const targetAddressStr =
+    addressStr ||
+    stateAddresses.humaPoolState ||
+    env.NEXT_PUBLIC_HUMA_POOL_STATE;
+
+  if (!targetAddressStr) {
+    throw new CliArgumentError(
+      "Mock Huma Pool State address not provided. Pass --address <pubkey>, specify positional argument, or define 'humaPoolState' in state JSON / .env.local."
+    );
+  }
+
+  let targetAddr;
+  try {
+    targetAddr = address(targetAddressStr);
+  } catch {
+    throw new CliArgumentError(
+      `Invalid Mock Huma Pool State public key address: "${targetAddressStr}"`
+    );
+  }
+
+  console.log(`Querying Mock Huma Pool State at ${targetAddr}...`);
+  const accountInfo = await rpc
+    .getAccountInfo(targetAddr, { encoding: "base64" })
+    .send();
+
+  if (!accountInfo || !accountInfo.value) {
+    throw new Error(
+      `Mock Huma Pool State account at ${targetAddr} not found on-chain.`
+    );
+  }
+
+  const accountOwner = accountInfo.value.owner;
+  if (accountOwner !== HUMA_PROGRAM_ID.toString()) {
+    console.warn(
+      `Warning: Account owner (${accountOwner}) does not match expected Mock Huma Program ID (${HUMA_PROGRAM_ID}).`
+    );
+  }
+
+  const rawBytes = new Uint8Array(
+    base64Encoder.encode(accountInfo.value.data[0])
+  );
+  const state = parseMockHumaPoolState(rawBytes);
+  const authorityPda = await findHumaPoolAuthorityPda(targetAddr);
+
+  console.log(`
+Mock Huma Pool State Details (${targetAddr}):
+  Owner: ${accountOwner}
+  Pool Authority PDA: ${authorityPda}
+  Total Assets: ${formatAmount(state.totalAssets)} USDC (${state.totalAssets.toLocaleString("en-US")} base units)
+  Num Modes: ${state.numModes.toLocaleString("en-US")}
+  Num Config Keys: ${state.numConfigKeys.toLocaleString("en-US")}
+
+Redemption Queue Status:
+  next_request_id: ${state.nextRequestId.toLocaleString("en-US")}
+  last_request_id: ${state.lastRequestId.toLocaleString("en-US")}
+  Pending Requests: ${state.pendingRequests.toLocaleString("en-US")}
+`);
+
+  // Query related auxiliary accounts if known in state addresses
+  if (stateAddresses.pstMint) {
+    try {
+      const pstAcc = await rpc
+        .getAccountInfo(address(stateAddresses.pstMint), { encoding: "base64" })
+        .send();
+      if (pstAcc && pstAcc.value) {
+        console.log(`Auxiliary Accounts:
+  PST Mint: ${stateAddresses.pstMint}`);
+      }
+    } catch {
+      // Ignore optional auxiliary query failure
+    }
+  }
+
+  if (stateAddresses.humaLenderState) {
+    try {
+      const lenderAcc = await rpc
+        .getAccountInfo(address(stateAddresses.humaLenderState), {
+          encoding: "base64",
+        })
+        .send();
+      if (lenderAcc && lenderAcc.value) {
+        const lenderBytes = new Uint8Array(
+          base64Encoder.encode(lenderAcc.value.data[0])
+        );
+        if (lenderBytes.length >= 16) {
+          const view = new DataView(
+            lenderBytes.buffer,
+            lenderBytes.byteOffset,
+            lenderBytes.byteLength
+          );
+          const owedAmount = view.getBigUint64(8, true);
+          console.log(
+            `  Huma Lender State (${stateAddresses.humaLenderState}) Owed: ${formatAmount(owedAmount)} USDC`
+          );
+        }
+      }
+    } catch {
+      // Ignore optional auxiliary query failure
+    }
+  }
+
+  return {
+    ...state,
+    address: targetAddr,
+    authorityPda,
+  };
+}
+
 // ─── Main CLI Logic ──────────────────────────────────────────────────────────
 
 async function main() {
@@ -2291,13 +2440,11 @@ async function main() {
       const cycleId = options["--cycle"]
         ? parseInt(options["--cycle"], 10)
         : undefined;
-      const maxBonds = parseInt(options["--max-bonds"] || "1000", 10);
       const winnerOption = options["--winner"] || positionals[0];
       await executeReinvest({
         poolId,
         cycleId,
         winnerOption,
-        maxBonds,
         rpcUrl,
         signer: signer!,
       });
@@ -2482,8 +2629,6 @@ async function main() {
       const state = parsePayoutRegistry(bytes);
 
       let totalOwed = 0n;
-      let totalReinvested = 0n;
-      let totalClaimable = 0n;
 
       console.log(`Payout Registry for Pool ${poolId}, Cycle ${cycleId}:
   Pool ID: ${state.poolId}
@@ -2494,24 +2639,18 @@ async function main() {
   Winners:`);
 
       state.winners.slice(0, state.winnersCount).forEach((w, idx) => {
-        const claimable = w.amountOwed - w.amountReinvested;
         totalOwed += w.amountOwed;
-        totalReinvested += w.amountReinvested;
-        totalClaimable += claimable;
 
         console.log(`    [${idx}] Winner: ${w.winner}
         Tier Index: ${w.tierIndex}
         Amount Owed: ${formatAmount(w.amountOwed)}
-        Amount Reinvested: ${formatAmount(w.amountReinvested)}
-        Claimable Amount: ${formatAmount(claimable)}
+        Bonds Bought: ${w.bondsBought}
         Processed: ${w.processed}`);
       });
 
       console.log(`
   Totals:
     Total Amount Owed: ${formatAmount(totalOwed)}
-    Total Amount Reinvested: ${formatAmount(totalReinvested)}
-    Total Claimable: ${formatAmount(totalClaimable)}
 `);
       break;
     }
@@ -2828,6 +2967,15 @@ Ticket Registry for Pool ${poolId}
           );
         }
       }
+      break;
+    }
+
+    case "query-mock-huma-pool-state": {
+      const addressOption = options["--address"] || positionals[0];
+      await executeQueryMockHumaPoolState({
+        rpcUrl,
+        addressStr: addressOption,
+      });
       break;
     }
 

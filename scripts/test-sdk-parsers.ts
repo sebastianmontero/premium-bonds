@@ -1,5 +1,5 @@
 import assert from "assert";
-import { Address } from "@solana/kit";
+import { Address, lamports } from "@solana/kit";
 import {
   decodeUserWinnings,
   decodeGlobalConfig,
@@ -11,6 +11,10 @@ import {
   RedemptionType,
   parseDrawCycle,
   parsePrizePool,
+  parseMockHumaPoolState,
+  parseTokenAccountBalance,
+  parseMintSupply,
+  calculatePoolYield,
 } from "../app/lib/bonds-sdk";
 import { ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import { ANCHOR_ERROR__POOL_NOT_FROZEN } from "../app/lib/generated/yield-bonds/src/generated";
@@ -19,11 +23,14 @@ console.log("Running Codama SDK parser verification tests...");
 
 function mockAccount(data: Uint8Array) {
   return {
+    address: "11111111111111111111111111111111" as Address,
+    programAddress: "11111111111111111111111111111111" as Address,
     executable: false,
-    owner: "" as Address,
-    lamports: 0n,
+    lamports: lamports(0n),
+    space: BigInt(data.byteLength),
+    exists: true,
     data,
-  };
+  } as const;
 }
 
 // 1. Test decodeUserWinnings
@@ -176,4 +183,158 @@ function mockAccount(data: Uint8Array) {
   console.log("✓ ANCHOR_CUSTOM_ERRORS key synchronization passed");
 }
 
-console.log("All Codama SDK parser tests completed successfully!");
+// 8. Test parseMockHumaPoolState
+{
+  const buffer = new Uint8Array(512);
+  const view = new DataView(buffer.buffer);
+
+  view.setUint32(26, 1, true); // numModes = 1
+  view.setBigUint64(30, 10_000_000n, true); // totalAssets low
+  view.setBigUint64(38, 0n, true); // totalAssets high
+
+  const modeConfigKeysOffset = 30 + 1 * 216; // 246
+  view.setUint32(modeConfigKeysOffset, 0, true); // numConfigKeys = 0
+
+  const redemptionOffset = modeConfigKeysOffset + 4; // 250
+  view.setBigUint64(redemptionOffset, 5n, true); // next low
+  view.setBigUint64(redemptionOffset + 8, 0n, true); // next high
+  view.setBigUint64(redemptionOffset + 16, 12n, true); // last low
+  view.setBigUint64(redemptionOffset + 24, 0n, true); // last high
+
+  const parsed = parseMockHumaPoolState(buffer);
+  assert.strictEqual(parsed.numModes, 1);
+  assert.strictEqual(parsed.totalAssets, 10_000_000n);
+  assert.strictEqual(parsed.numConfigKeys, 0);
+  assert.strictEqual(parsed.nextRequestId, 5n);
+  assert.strictEqual(parsed.lastRequestId, 12n);
+  assert.strictEqual(parsed.pendingRequests, 7n);
+
+  console.log("✓ parseMockHumaPoolState passed");
+}
+
+// 9. Test parseMockHumaPoolState bounds check on empty/short buffers
+{
+  const empty = parseMockHumaPoolState(new Uint8Array(10));
+  assert.strictEqual(empty.totalAssets, 0n);
+  assert.strictEqual(empty.pendingRequests, 0n);
+
+  const short = parseMockHumaPoolState(new Uint8Array(35));
+  assert.strictEqual(short.numModes, 0);
+  assert.strictEqual(short.totalAssets, 0n);
+
+  console.log("✓ parseMockHumaPoolState bounds checking passed");
+}
+
+// 10. Test parseTokenAccountBalance
+{
+  const buffer = new Uint8Array(165);
+  const view = new DataView(buffer.buffer);
+  view.setBigUint64(64, 42_000_000n, true);
+
+  assert.strictEqual(parseTokenAccountBalance(buffer), 42_000_000n);
+  assert.strictEqual(parseTokenAccountBalance(new Uint8Array(50)), 0n); // Short buffer fallback
+  console.log("✓ parseTokenAccountBalance passed");
+}
+
+// 11. Test parseMintSupply
+{
+  const buffer = new Uint8Array(82);
+  const view = new DataView(buffer.buffer);
+  view.setBigUint64(36, 1_000_000_000n, true);
+
+  assert.strictEqual(parseMintSupply(buffer), 1_000_000_000n);
+  assert.strictEqual(parseMintSupply(new Uint8Array(20)), 0n); // Short buffer fallback
+  console.log("✓ parseMintSupply passed");
+}
+
+// 12. Test calculatePoolYield - Baseline and Fee Deduction
+{
+  // 1000 USDC deposit, 1000 PST balance, 1000 PST supply, 1050 USDC Huma assets (50 USDC yield), 0% fee
+  const resNoFee = calculatePoolYield({
+    poolPstBalance: 1_000_000_000n,
+    pstSupply: 1_000_000_000n,
+    humaTotalAssets: 1_050_000_000n,
+    totalDepositedPrincipal: 1_000_000_000n,
+    feeBasisPoints: 0,
+  });
+
+  assert.strictEqual(resNoFee.currentValue, 1_050_000_000n);
+  assert.strictEqual(resNoFee.bookValue, 1_000_000_000n);
+  assert.strictEqual(resNoFee.grossYield, 50_000_000n);
+  assert.strictEqual(resNoFee.protocolFee, 0n);
+  assert.strictEqual(resNoFee.netYield, 50_000_000n);
+  assert.strictEqual(resNoFee.estimatedPrizePot, 50_000_000);
+
+  // 10% fee (1000 bps) on 50 USDC yield -> 5 USDC fee, 45 USDC net prize pot
+  const resWithFee = calculatePoolYield({
+    poolPstBalance: 1_000_000_000n,
+    pstSupply: 1_000_000_000n,
+    humaTotalAssets: 1_050_000_000n,
+    totalDepositedPrincipal: 1_000_000_000n,
+    feeBasisPoints: 1000,
+  });
+
+  assert.strictEqual(resWithFee.grossYield, 50_000_000n);
+  assert.strictEqual(resWithFee.protocolFee, 5_000_000n);
+  assert.strictEqual(resWithFee.netYield, 45_000_000n);
+  assert.strictEqual(resWithFee.estimatedPrizePot, 45_000_000);
+
+  console.log("✓ calculatePoolYield baseline & fee deduction passed");
+}
+
+// 13. Test calculatePoolYield - Pending Redemptions & Settle Invariance
+{
+  // User requested 25 USDC redemption out of 934 USDC total:
+  // Active principal: 909 USDC (909M)
+  // Pool PST Balance: 909 PST (909M)
+  // PST Mint Supply: 934 PST (934M)
+  // Simulated 50 USDC yield: Huma Total Assets = 985,382,743 micro-USDC
+  const resPending = calculatePoolYield({
+    poolPstBalance: 909_000_000n,
+    pstSupply: 934_000_000n,
+    humaTotalAssets: 985_382_743n,
+    totalDepositedPrincipal: 909_000_000n,
+    feeBasisPoints: 0,
+  });
+
+  // currentValue = 909M * 985,382,743 / 934M = 959,007,401 micro-USDC
+  assert.strictEqual(resPending.currentValue, 959_007_401n);
+  assert.strictEqual(resPending.bookValue, 909_000_000n);
+  assert.strictEqual(resPending.grossYield, 50_007_401n);
+  assert.strictEqual(resPending.netYield, 50_007_401n);
+  assert.strictEqual(resPending.estimatedPrizePot, 50_007_401);
+
+  // After 25 PST settled and burned in Huma:
+  // Active principal: 909 USDC (909M)
+  // Pool PST Balance: 909 PST (909M)
+  // PST Mint Supply: 909 PST (909M)
+  // Huma Total Assets = 959,007,401 micro-USDC
+  const resSettled = calculatePoolYield({
+    poolPstBalance: 909_000_000n,
+    pstSupply: 909_000_000n,
+    humaTotalAssets: 959_007_401n,
+    totalDepositedPrincipal: 909_000_000n,
+    feeBasisPoints: 0,
+  });
+
+  assert.strictEqual(resSettled.currentValue, 959_007_401n);
+  assert.strictEqual(resSettled.bookValue, 909_000_000n);
+  assert.strictEqual(resSettled.grossYield, 50_007_401n);
+  assert.strictEqual(resSettled.netYield, 50_007_401n);
+  assert.strictEqual(resSettled.estimatedPrizePot, 50_007_401);
+
+  // Zero supply / zero deposits defensive test
+  const resZero = calculatePoolYield({
+    poolPstBalance: 0n,
+    pstSupply: 0n,
+    humaTotalAssets: 0n,
+    totalDepositedPrincipal: 0n,
+  });
+  assert.strictEqual(resZero.currentValue, 0n);
+  assert.strictEqual(resZero.grossYield, 0n);
+  assert.strictEqual(resZero.estimatedPrizePot, 0);
+
+  console.log("✓ calculatePoolYield pending redemptions & settle invariance passed");
+}
+
+console.log("All Codama SDK parser & math tests completed successfully!");

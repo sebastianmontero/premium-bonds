@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { formatTokenAmount } from "../lib/formatters";
 
 export interface UseLivePrizePotOptions {
   /** Estimated base prize pot (in base units) */
@@ -15,9 +16,13 @@ export interface UseLivePrizePotOptions {
   isFrozenForDraw?: boolean;
   /** Whether interpolation is enabled */
   enabled?: boolean;
+  /** Optional label for console debugging (e.g., "USDC Pool" or "Homepage Stats") */
+  debugLabel?: string;
 }
 
 const SECONDS_PER_YEAR = 365.25 * 86400; // 31,557,600
+
+type WindowWithDebug = Window & { __DEBUG_YIELD__?: boolean };
 
 export function useLivePrizePot({
   basePrizePot,
@@ -26,16 +31,61 @@ export function useLivePrizePot({
   apy = 0.08,
   isFrozenForDraw = false,
   enabled = true,
+  debugLabel = "Global",
 }: UseLivePrizePotOptions) {
+  const isDev = process.env.NODE_ENV === "development";
   const baseUi = basePrizePot / 10 ** tokenDecimals;
   const tvlUi = totalDepositedPrincipal / 10 ** tokenDecimals;
 
   const lastSyncTimeRef = useRef<number>(0);
+  const lastLogTimeRef = useRef<number>(0);
 
   // Resync reference timestamp whenever basePrizePot or TVL updates (e.g., RPC refetch)
   useEffect(() => {
     lastSyncTimeRef.current = Date.now() / 1000;
-  }, [basePrizePot, totalDepositedPrincipal, tokenDecimals]);
+    lastLogTimeRef.current = 0; // Trigger instant log on next tick after sync
+
+    if (
+      isDev &&
+      (typeof window === "undefined" ||
+        (window as WindowWithDebug).__DEBUG_YIELD__ !== false)
+    ) {
+      console.log(`[LiveYieldTicker: ${debugLabel}] RPC Parameters Synced:`, {
+        formula: "baseUi = basePrizePotRaw / (10 ** tokenDecimals)",
+        valuesRaw: {
+          basePrizePotRaw: basePrizePot,
+          tokenDecimals,
+          totalDepositedPrincipalRaw: totalDepositedPrincipal,
+          apy,
+          isFrozenForDraw,
+          enabled,
+        },
+        valuesFormatted: {
+          baseUi: `${formatTokenAmount(basePrizePot, tokenDecimals)} USDC`,
+          tvlUi: `${formatTokenAmount(totalDepositedPrincipal, tokenDecimals)} USDC`,
+          apyPercent: `${(apy * 100).toFixed(2)}%`,
+        },
+        explanations: {
+          basePrizePotRaw:
+            "Raw on-chain net surplus yield in base units (micro-USDC)",
+          tokenDecimals: "Token decimals precision (6 for USDC)",
+          baseUi: "Converted human-readable base prize pot amount",
+          tvlUi: "Total deposited principal in human-readable token UI units",
+        },
+      });
+    }
+  }, [
+    basePrizePot,
+    totalDepositedPrincipal,
+    tokenDecimals,
+    apy,
+    isFrozenForDraw,
+    enabled,
+    debugLabel,
+    baseUi,
+    tvlUi,
+    isDev,
+  ]);
 
   // Tab visibility safety guard to prevent visual yield jumps on tab refocus
   useEffect(() => {
@@ -63,9 +113,48 @@ export function useLivePrizePot({
       }
       const elapsed = Math.max(0, nowInSeconds - lastSyncTimeRef.current);
       const yieldAccrued = (tvlUi * apy * elapsed) / SECONDS_PER_YEAR;
-      return baseUi + yieldAccrued;
+      const currentValue = baseUi + yieldAccrued;
+
+      if (
+        isDev &&
+        (typeof window === "undefined" ||
+          (window as WindowWithDebug).__DEBUG_YIELD__ !== false) &&
+        nowInSeconds - lastLogTimeRef.current >= 10.0
+      ) {
+        lastLogTimeRef.current = nowInSeconds;
+        console.log(
+          `[LiveYieldTicker: ${debugLabel}] Calculation Tick (10s):`,
+          {
+            basePrizePotRaw: basePrizePot,
+            baseUi,
+            totalDepositedPrincipalRaw: totalDepositedPrincipal,
+            tvlUi,
+            apy,
+            apyPercent: `${(apy * 100).toFixed(2)}%`,
+            isFrozenForDraw,
+            enabled,
+            lastSyncTimestamp: lastSyncTimeRef.current,
+            nowTimestamp: nowInSeconds,
+            elapsedSeconds: Number(elapsed.toFixed(3)),
+            yieldAccrued,
+            currentValue,
+          }
+        );
+      }
+
+      return currentValue;
     },
-    [baseUi, tvlUi, apy, isFrozenForDraw, enabled]
+    [
+      baseUi,
+      basePrizePot,
+      totalDepositedPrincipal,
+      tvlUi,
+      apy,
+      isFrozenForDraw,
+      enabled,
+      debugLabel,
+      isDev,
+    ]
   );
 
   return {

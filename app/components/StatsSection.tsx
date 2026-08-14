@@ -88,6 +88,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
               precision={4}
               showBadge={false}
               valueClassName="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl"
+              debugLabel="Homepage Hero Stats"
             />
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-1">

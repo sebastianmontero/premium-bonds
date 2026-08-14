@@ -17,6 +17,8 @@ export interface LiveYieldTickerProps {
   className?: string;
   /** Custom className for the number text */
   valueClassName?: string;
+  /** Optional label for console debug logs */
+  debugLabel?: string;
 }
 
 const emptySubscribe = () => () => {};
@@ -28,8 +30,12 @@ export function LiveYieldTicker({
   showBadge = true,
   className = "",
   valueClassName = "",
+  debugLabel,
 }: LiveYieldTickerProps) {
   const t = useTranslations("Dashboard");
+
+  const resolvedDebugLabel =
+    debugLabel ?? pool?.tokenSymbol ?? "Global";
 
   const { calculateCurrentValue, baseUi } = useLivePrizePot({
     basePrizePot: pool?.estimatedPrizePot ?? 0,
@@ -37,6 +43,7 @@ export function LiveYieldTicker({
     tokenDecimals: pool?.tokenDecimals ?? 6,
     apy,
     isFrozenForDraw: pool?.isFrozenForDraw ?? false,
+    debugLabel: resolvedDebugLabel,
   });
 
   const spanRef = useRef<HTMLSpanElement>(null);

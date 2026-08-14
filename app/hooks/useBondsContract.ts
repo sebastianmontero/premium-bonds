@@ -33,11 +33,17 @@ import {
   parseTicketRegistry,
   parseRegistryEntry,
   parsePendingRedemption,
+  parseMockHumaPoolState,
+  calculatePoolYield,
+  fetchPoolYieldOnChainState,
   RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { sanitizeErrorMessage } from "../lib/errors";
+import { formatTokenAmount } from "../lib/formatters";
+
+type WindowWithDebug = Window & { __DEBUG_YIELD__?: boolean };
 
 // ─── Extended Types ──────────────────────────────────────────────────────────
 
@@ -48,12 +54,6 @@ interface ExtendedPoolInfo extends PoolInfo {
   totalFeesWithdrawn?: bigint;
   totalPrizesAllocated?: bigint;
   totalPendingRedemptions?: bigint;
-}
-
-interface ParsedHumaPool {
-  assets: bigint;
-  nextRequestId: bigint;
-  lastRequestId: bigint;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -93,39 +93,6 @@ export const HUMA_REDEMPTION_REQUEST = address(
 );
 
 const base64Encoder = getBase64Encoder();
-
-function parseHumaPoolState(data: Uint8Array): ParsedHumaPool {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-
-  // Offset to mode_states length prefix = 26
-  const numModes = view.getUint32(26, true);
-  const assetsStart = 30;
-  let assets = BigInt(0);
-  if (numModes > 0 && data.byteLength >= assetsStart + 16) {
-    const low = view.getBigUint64(assetsStart, true);
-    const high = view.getBigUint64(assetsStart + 8, true);
-    assets = (high << BigInt(64)) | low;
-  }
-
-  // Offset to mode_config_keys length prefix
-  const modeConfigKeysOffset = 30 + numModes * 216;
-  const numConfigKeys = view.getUint32(modeConfigKeysOffset, true);
-  const redemptionOffset = modeConfigKeysOffset + 4 + numConfigKeys * 32;
-
-  let nextRequestId = BigInt(0);
-  let lastRequestId = BigInt(0);
-  if (data.byteLength >= redemptionOffset + 32) {
-    const nextLow = view.getBigUint64(redemptionOffset, true);
-    const nextHigh = view.getBigUint64(redemptionOffset + 8, true);
-    nextRequestId = (nextHigh << BigInt(64)) | nextLow;
-
-    const lastLow = view.getBigUint64(redemptionOffset + 16, true);
-    const lastHigh = view.getBigUint64(redemptionOffset + 24, true);
-    lastRequestId = (lastHigh << BigInt(64)) | lastLow;
-  }
-
-  return { assets, nextRequestId, lastRequestId };
-}
 
 // ─── Main Hook ───────────────────────────────────────────────────────────────
 
@@ -212,45 +179,99 @@ export function useBondsContract(poolId: number = 1) {
             ticketRegistry: parsed.ticketRegistry.toString(),
           };
 
-          // Fetch estimated prize pot from Huma pool state yield if available
+          // Fetch estimated prize pot using on-chain PST yield accounting
           try {
-            const humaAcc = await rpc
-              .getAccountInfo(HUMA_POOL_STATE, { encoding: "base64" })
-              .send();
-            if (humaAcc && humaAcc.value) {
-              const humaBytes = new Uint8Array(
-                base64Encoder.encode(humaAcc.value.data[0])
-              );
-              const { assets } = parseHumaPoolState(humaBytes);
-              const totalPrincipal = BigInt(
-                currentPool.totalDepositedPrincipal
-              );
-              const totalPrizesAllocated =
-                currentPool.totalPrizesAllocated || 0n;
-              const totalFeesAccrued = currentPool.totalFeesAccrued || 0n;
-              const totalFeesWithdrawn = currentPool.totalFeesWithdrawn || 0n;
-              const feesInVault =
-                totalFeesAccrued > totalFeesWithdrawn
-                  ? totalFeesAccrued - totalFeesWithdrawn
-                  : 0n;
-              const totalPendingRedemptions =
-                currentPool.totalPendingRedemptions || 0n;
-              const totalLiabilities =
-                totalPrincipal +
-                totalPrizesAllocated +
-                feesInVault +
-                totalPendingRedemptions;
+            const { humaTotalAssets, pstSupply, poolPstBalance } =
+              await fetchPoolYieldOnChainState(rpc, {
+                poolId,
+                humaPoolStateAddress: HUMA_POOL_STATE,
+                pstMintAddress: HUMA_MODE_MINT,
+              });
 
-              if (assets > totalLiabilities) {
-                currentPool.estimatedPrizePot = Number(
-                  assets - totalLiabilities
-                );
-              } else {
-                currentPool.estimatedPrizePot = 0;
-              }
+            const yieldCalc = calculatePoolYield({
+              poolPstBalance,
+              pstSupply,
+              humaTotalAssets,
+              totalDepositedPrincipal: currentPool.totalDepositedPrincipal,
+              totalFeesAccrued: currentPool.totalFeesAccrued,
+              totalFeesWithdrawn: currentPool.totalFeesWithdrawn,
+              totalPrizesAllocated: currentPool.totalPrizesAllocated,
+              feeBasisPoints: currentPool.feeBasisPoints,
+            });
+
+            currentPool.estimatedPrizePot = yieldCalc.estimatedPrizePot;
+
+            const isDev = process.env.NODE_ENV === "development";
+            const isDebugEnabled =
+              isDev &&
+              (typeof window === "undefined" ||
+                (window as WindowWithDebug).__DEBUG_YIELD__ !== false);
+
+            if (isDebugEnabled) {
+              console.log(
+                `[PrizePool: ${currentPool.tokenSymbol ?? poolId}] On-Chain Base Prize Pot Calculation:`,
+                {
+                  formula:
+                    "currentValue = (poolPstBalance * humaTotalAssets) / pstSupply; grossYield = max(0, currentValue - bookValue); netYield = grossYield - fee",
+                  valuesRaw: {
+                    poolPstBalance: yieldCalc.poolPstBalance.toString(),
+                    pstSupply: yieldCalc.pstSupply.toString(),
+                    humaTotalAssets: yieldCalc.humaTotalAssets.toString(),
+                    currentValue: yieldCalc.currentValue.toString(),
+                    bookValue: yieldCalc.bookValue.toString(),
+                    grossYield: yieldCalc.grossYield.toString(),
+                    protocolFee: yieldCalc.protocolFee.toString(),
+                    netYield: yieldCalc.netYield.toString(),
+                    estimatedPrizePotRaw: currentPool.estimatedPrizePot,
+                  },
+                  valuesFormatted: {
+                    poolPstBalanceUi: `${formatTokenAmount(Number(yieldCalc.poolPstBalance))} PST`,
+                    pstSupplyUi: `${formatTokenAmount(Number(yieldCalc.pstSupply))} PST`,
+                    humaTotalAssetsUi: `${formatTokenAmount(Number(yieldCalc.humaTotalAssets))} USDC`,
+                    currentValueUi: `${formatTokenAmount(Number(yieldCalc.currentValue))} USDC`,
+                    bookValueUi: `${formatTokenAmount(Number(yieldCalc.bookValue))} USDC`,
+                    grossYieldUi: `${formatTokenAmount(Number(yieldCalc.grossYield))} USDC`,
+                    protocolFeeUi: `${formatTokenAmount(Number(yieldCalc.protocolFee))} USDC`,
+                    netYieldUi: `${formatTokenAmount(Number(yieldCalc.netYield))} USDC`,
+                    estimatedPrizePotUi: `${formatTokenAmount(currentPool.estimatedPrizePot)} USDC`,
+                  },
+                  bookValueBreakdown: {
+                    totalPrincipal: `${yieldCalc.totalDepositedPrincipal.toString()} (${formatTokenAmount(Number(yieldCalc.totalDepositedPrincipal))} USDC)`,
+                    feesInVault: `${yieldCalc.feesInVault.toString()} (${formatTokenAmount(Number(yieldCalc.feesInVault))} USDC)`,
+                    totalPrizesAllocated: `${yieldCalc.totalPrizesAllocated.toString()} (${formatTokenAmount(Number(yieldCalc.totalPrizesAllocated))} USDC)`,
+                  },
+                  explanations: {
+                    poolPstBalance: "Pool PST vault token balance",
+                    pstSupply: "Total PST token mint supply across Huma",
+                    humaTotalAssets:
+                      "Total assets held in underlying Huma lending pool state",
+                    currentValue:
+                      "Underlying USDC value of pool PST holdings",
+                    bookValue:
+                      "Protocol liabilities to active depositors + fees + prizes",
+                    grossYield:
+                      "Unadjusted surplus yield (currentValue - bookValue)",
+                    protocolFee: "Protocol fee cut from gross yield",
+                    netYield:
+                      "Net prize pot allocated for draws (grossYield - protocolFee)",
+                    estimatedPrizePot: "Live base prize pot in UI",
+                  },
+                }
+              );
             }
           } catch (err) {
-            console.warn("Failed to fetch Huma pool state assets:", err);
+            const isDev = process.env.NODE_ENV === "development";
+            if (
+              isDev &&
+              (typeof window === "undefined" ||
+                (window as WindowWithDebug).__DEBUG_YIELD__ !== false)
+            ) {
+              console.warn(
+                `[PrizePool: ${poolId}] Huma pool state fetch failed or unavailable. Defaulting estimatedPrizePot to 0:`,
+                err
+              );
+            }
+            currentPool.estimatedPrizePot = 0;
           }
           poolInfo = currentPool;
         }
@@ -429,7 +450,7 @@ export function useBondsContract(poolId: number = 1) {
               const humaBytes = new Uint8Array(
                 base64Encoder.encode(humaAcc.value.data[0])
               );
-              const humaState = parseHumaPoolState(humaBytes);
+              const humaState = parseMockHumaPoolState(humaBytes);
               nextHumaRequestId = humaState.nextRequestId;
             }
           } catch (err) {
