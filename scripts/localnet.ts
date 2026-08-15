@@ -496,7 +496,11 @@ async function ensurePrizeTiersConfigured(
   console.log(`Successfully configured prize tiers for pool ${poolId}.`);
 }
 
-async function injectProgram(programIdStr: string, soPath: string) {
+async function injectProgram(
+  programIdStr: string,
+  soPath: string,
+  upgradeAuthority?: string
+) {
   if (!fs.existsSync(soPath)) {
     throw new Error(
       `Compiled program binary not found at: ${soPath}. Please run 'npm run build' inside anchor directory.`
@@ -524,8 +528,12 @@ async function injectProgram(programIdStr: string, soPath: string) {
   const programAccountData = "02000000" + programDataAddressHex;
 
   // Construct program data account data:
-  // 45-byte header: 03000000 (tag) + 0100000000000000 (slot 1) + 01 (option Some) + 32 bytes authority
-  const headerHex = "03000000" + "0100000000000000" + "01" + "00".repeat(32);
+  // 45-byte header: 03000000 (tag) + 0100000000000000 (slot 1) + (01 option Some / 00 None) + 32 bytes authority
+  const authorityHex = upgradeAuthority
+    ? Buffer.from(base58.encode(address(upgradeAuthority))).toString("hex")
+    : "00".repeat(32);
+  const optionHex = upgradeAuthority ? "01" : "00";
+  const headerHex = "03000000" + "0100000000000000" + optionHex + authorityHex;
   const soHex = fs.readFileSync(soPath).toString("hex");
   const programDataAccountData = headerHex + soHex;
 
@@ -550,12 +558,12 @@ async function injectProgram(programIdStr: string, soPath: string) {
   console.log(`Successfully injected program ${programIdStr}`);
 }
 
-async function ensureProgramsInjected() {
+async function ensureProgramsInjected(upgradeAuthority?: string) {
   const deployDir = path.resolve(__dirname, "..", "anchor", "target", "deploy");
   const anchorSoPath = path.resolve(deployDir, "anchor.so");
   const mockHumaSoPath = path.resolve(deployDir, "mock_huma.so");
 
-  await injectProgram(PROGRAM_ID_STR, anchorSoPath);
+  await injectProgram(PROGRAM_ID_STR, anchorSoPath, upgradeAuthority);
   await injectProgram(MOCK_HUMA_PROGRAM_ID_STR, mockHumaSoPath);
 }
 
@@ -628,7 +636,7 @@ export async function injectBaseState(options?: {
   await airdropSol(rpc, adminSigner.address, 100);
 
   // 4. Inject compiled programs
-  await ensureProgramsInjected();
+  await ensureProgramsInjected(adminSigner.address);
 
   // 5. Inject mock accounts
   console.log("Injecting USDC Mint account...");
@@ -1739,9 +1747,11 @@ async function main() {
       await handleInit(args.slice(1));
       break;
     case "inject-programs":
-    case "reinject":
-      await ensureProgramsInjected();
+    case "reinject": {
+      const adminSigner = await loadAdminSigner();
+      await ensureProgramsInjected(adminSigner.address);
       break;
+    }
     case "fund":
       await handleFund(args.slice(1));
       break;

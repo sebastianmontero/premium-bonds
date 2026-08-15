@@ -51,13 +51,26 @@ pub fn handle(
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
+    require!(
+        pool.is_frozen_for_draw == 0,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
+
     if let Some(v) = new_fee_basis_points {
         require!(v <= 10000, PremiumBondsError::InvalidFeeConfig);
         pool.fee_basis_points = v;
     }
     if let Some(v) = new_bond_price {
         require!(v > 0, PremiumBondsError::InvalidBondPrice);
-        pool.bond_price = v;
+        if v != pool.bond_price {
+            require!(
+                pool.total_deposited_principal == 0
+                    && pool.total_prizes_allocated == 0
+                    && pool.total_pending_redemptions == 0,
+                PremiumBondsError::CannotModifyBondPriceWithActiveDeposits
+            );
+            pool.bond_price = v;
+        }
     }
     if let Some(v) = new_fee_wallet {
         pool.fee_wallet = v;

@@ -1,37 +1,11 @@
-use {
-    anchor_lang::{solana_program::instruction::Instruction, InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
-};
+mod common;
+use common::*;
 
 #[test]
 fn test_initialize() {
-    let program_id = anchor::id();
-    let payer = Keypair::new();
-    let mut svm = LiteSVM::new();
-    // let bytes = include_bytes!("../../../target/deploy/anchor.so");
-    // svm.add_program(program_id, bytes).unwrap();
-    // svm.airdrop(&payer.pubkey(), 1_000_000_000).unwrap();
-
-    // let instruction = Instruction::new_with_bytes(
-    //     program_id,
-    //     &anchor::instruction::InitializeGlobal {}.data(),
-    //     anchor::accounts::InitializeGlobal {
-    //         global_config: anchor_lang::prelude::Pubkey::new_unique(),
-    //         admin: payer.pubkey(),
-    //         jobs_account: anchor_lang::prelude::Pubkey::new_unique(),
-    //         fee_wallet: anchor_lang::prelude::Pubkey::new_unique(),
-    //         system_program: anchor_lang::system_program::ID,
-    //     }.to_account_metas(None),
-    // );
-
-    // let blockhash = svm.latest_blockhash();
-    // let msg = Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &blockhash);
-    // let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[payer]).unwrap();
-
-    // let res = svm.send_transaction(tx);
-    // assert!(res.is_ok());
+    let (svm, admin) = setup_global_config();
+    let (global_config, _) = global_config_pda();
+    assert!(svm.get_account(&global_config).is_some());
+    let _ = admin;
 }
+

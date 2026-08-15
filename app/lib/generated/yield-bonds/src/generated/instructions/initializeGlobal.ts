@@ -58,8 +58,12 @@ export function getInitializeGlobalDiscriminatorBytes(): ReadonlyUint8Array {
 export type InitializeGlobalInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
+  TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountJobsAccount extends string | AccountMeta<string> = string,
+  TAccountProgramData extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -70,13 +74,22 @@ export type InitializeGlobalInstruction<
       TAccountGlobalConfig extends string
         ? WritableAccount<TAccountGlobalConfig>
         : TAccountGlobalConfig,
+      TAccountAuthority extends string
+        ? WritableSignerAccount<TAccountAuthority> &
+            AccountSignerMeta<TAccountAuthority>
+        : TAccountAuthority,
       TAccountAdmin extends string
-        ? WritableSignerAccount<TAccountAdmin> &
-            AccountSignerMeta<TAccountAdmin>
+        ? ReadonlyAccount<TAccountAdmin>
         : TAccountAdmin,
       TAccountJobsAccount extends string
         ? ReadonlyAccount<TAccountJobsAccount>
         : TAccountJobsAccount,
+      TAccountProgramData extends string
+        ? ReadonlyAccount<TAccountProgramData>
+        : TAccountProgramData,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -115,8 +128,11 @@ export function getInitializeGlobalInstructionDataCodec(): FixedSizeCodec<
 
 export type InitializeGlobalAsyncInput<
   TAccountGlobalConfig extends string = string,
+  TAccountAuthority extends string = string,
   TAccountAdmin extends string = string,
   TAccountJobsAccount extends string = string,
+  TAccountProgramData extends string = string,
+  TAccountProgram extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
   /**
@@ -125,28 +141,40 @@ export type InitializeGlobalAsyncInput<
    * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
    */
   globalConfig?: Address<TAccountGlobalConfig>;
-  /** The admin authority initializing the global configuration. */
-  admin: TransactionSigner<TAccountAdmin>;
+  /** The program's upgrade authority authorizing this one-time initialization. */
+  authority: TransactionSigner<TAccountAuthority>;
+  /** Can be the authority itself, a warm operational key, or a Squads multisig. */
+  admin: Address<TAccountAdmin>;
   /**
    * exclusively as a reference address for the cranking bot. No data validation
    * or owner checks are performed on it, and it is stored solely in the global configuration.
    */
   jobsAccount: Address<TAccountJobsAccount>;
+  /** The program's ProgramData account containing the upgrade authority. */
+  programData: Address<TAccountProgramData>;
+  /** The deployed program itself. */
+  program?: Address<TAccountProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
 };
 
 export async function getInitializeGlobalInstructionAsync<
   TAccountGlobalConfig extends string,
+  TAccountAuthority extends string,
   TAccountAdmin extends string,
   TAccountJobsAccount extends string,
+  TAccountProgramData extends string,
+  TAccountProgram extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: InitializeGlobalAsyncInput<
     TAccountGlobalConfig,
+    TAccountAuthority,
     TAccountAdmin,
     TAccountJobsAccount,
+    TAccountProgramData,
+    TAccountProgram,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress }
@@ -154,8 +182,11 @@ export async function getInitializeGlobalInstructionAsync<
   InitializeGlobalInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
+    TAccountAuthority,
     TAccountAdmin,
     TAccountJobsAccount,
+    TAccountProgramData,
+    TAccountProgram,
     TAccountSystemProgram
   >
 > {
@@ -165,8 +196,11 @@ export async function getInitializeGlobalInstructionAsync<
   // Original accounts.
   const originalAccounts = {
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
-    admin: { value: input.admin ?? null, isWritable: true },
+    authority: { value: input.authority ?? null, isWritable: true },
+    admin: { value: input.admin ?? null, isWritable: false },
     jobsAccount: { value: input.jobsAccount ?? null, isWritable: false },
+    programData: { value: input.programData ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -178,6 +212,10 @@ export async function getInitializeGlobalInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -187,8 +225,11 @@ export async function getInitializeGlobalInstructionAsync<
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
+      getAccountMeta("authority", accounts.authority),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("jobsAccount", accounts.jobsAccount),
+      getAccountMeta("programData", accounts.programData),
+      getAccountMeta("program", accounts.program),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getInitializeGlobalInstructionDataEncoder().encode({}),
@@ -196,16 +237,22 @@ export async function getInitializeGlobalInstructionAsync<
   } as InitializeGlobalInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
+    TAccountAuthority,
     TAccountAdmin,
     TAccountJobsAccount,
+    TAccountProgramData,
+    TAccountProgram,
     TAccountSystemProgram
   >);
 }
 
 export type InitializeGlobalInput<
   TAccountGlobalConfig extends string = string,
+  TAccountAuthority extends string = string,
   TAccountAdmin extends string = string,
   TAccountJobsAccount extends string = string,
+  TAccountProgramData extends string = string,
+  TAccountProgram extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
   /**
@@ -214,36 +261,51 @@ export type InitializeGlobalInput<
    * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
    */
   globalConfig: Address<TAccountGlobalConfig>;
-  /** The admin authority initializing the global configuration. */
-  admin: TransactionSigner<TAccountAdmin>;
+  /** The program's upgrade authority authorizing this one-time initialization. */
+  authority: TransactionSigner<TAccountAuthority>;
+  /** Can be the authority itself, a warm operational key, or a Squads multisig. */
+  admin: Address<TAccountAdmin>;
   /**
    * exclusively as a reference address for the cranking bot. No data validation
    * or owner checks are performed on it, and it is stored solely in the global configuration.
    */
   jobsAccount: Address<TAccountJobsAccount>;
+  /** The program's ProgramData account containing the upgrade authority. */
+  programData: Address<TAccountProgramData>;
+  /** The deployed program itself. */
+  program?: Address<TAccountProgram>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
 };
 
 export function getInitializeGlobalInstruction<
   TAccountGlobalConfig extends string,
+  TAccountAuthority extends string,
   TAccountAdmin extends string,
   TAccountJobsAccount extends string,
+  TAccountProgramData extends string,
+  TAccountProgram extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: InitializeGlobalInput<
     TAccountGlobalConfig,
+    TAccountAuthority,
     TAccountAdmin,
     TAccountJobsAccount,
+    TAccountProgramData,
+    TAccountProgram,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): InitializeGlobalInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
+  TAccountAuthority,
   TAccountAdmin,
   TAccountJobsAccount,
+  TAccountProgramData,
+  TAccountProgram,
   TAccountSystemProgram
 > {
   // Program address.
@@ -252,8 +314,11 @@ export function getInitializeGlobalInstruction<
   // Original accounts.
   const originalAccounts = {
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
-    admin: { value: input.admin ?? null, isWritable: true },
+    authority: { value: input.authority ?? null, isWritable: true },
+    admin: { value: input.admin ?? null, isWritable: false },
     jobsAccount: { value: input.jobsAccount ?? null, isWritable: false },
+    programData: { value: input.programData ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -262,6 +327,10 @@ export function getInitializeGlobalInstruction<
   >;
 
   // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -271,8 +340,11 @@ export function getInitializeGlobalInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
+      getAccountMeta("authority", accounts.authority),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("jobsAccount", accounts.jobsAccount),
+      getAccountMeta("programData", accounts.programData),
+      getAccountMeta("program", accounts.program),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getInitializeGlobalInstructionDataEncoder().encode({}),
@@ -280,8 +352,11 @@ export function getInitializeGlobalInstruction<
   } as InitializeGlobalInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
+    TAccountAuthority,
     TAccountAdmin,
     TAccountJobsAccount,
+    TAccountProgramData,
+    TAccountProgram,
     TAccountSystemProgram
   >);
 }
@@ -298,15 +373,21 @@ export type ParsedInitializeGlobalInstruction<
      * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
      */
     globalConfig: TAccountMetas[0];
-    /** The admin authority initializing the global configuration. */
-    admin: TAccountMetas[1];
+    /** The program's upgrade authority authorizing this one-time initialization. */
+    authority: TAccountMetas[1];
+    /** Can be the authority itself, a warm operational key, or a Squads multisig. */
+    admin: TAccountMetas[2];
     /**
      * exclusively as a reference address for the cranking bot. No data validation
      * or owner checks are performed on it, and it is stored solely in the global configuration.
      */
-    jobsAccount: TAccountMetas[2];
+    jobsAccount: TAccountMetas[3];
+    /** The program's ProgramData account containing the upgrade authority. */
+    programData: TAccountMetas[4];
+    /** The deployed program itself. */
+    program: TAccountMetas[5];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[3];
+    systemProgram: TAccountMetas[6];
   };
   data: InitializeGlobalInstructionData;
 };
@@ -319,12 +400,12 @@ export function parseInitializeGlobalInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedInitializeGlobalInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+  if (instruction.accounts.length < 7) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 4,
+        expectedAccountMetas: 7,
       }
     );
   }
@@ -338,8 +419,11 @@ export function parseInitializeGlobalInstruction<
     programAddress: instruction.programAddress,
     accounts: {
       globalConfig: getNextAccount(),
+      authority: getNextAccount(),
       admin: getNextAccount(),
       jobsAccount: getNextAccount(),
+      programData: getNextAccount(),
+      program: getNextAccount(),
       systemProgram: getNextAccount(),
     },
     data: getInitializeGlobalInstructionDataDecoder().decode(instruction.data),

@@ -27,6 +27,7 @@ import {
 import {
   findHumaPoolAuthorityPda,
   findAtaAddress,
+  buildInitializeGlobalInstruction,
   getInitializeGlobalInstructionDataEncoder,
   getCreatePoolInstructionDataEncoder,
   getSetPrizeTiersInstructionDataEncoder,
@@ -316,8 +317,13 @@ async function handleInit(args: string[]) {
       {
         address: humaPoolStateSigner.address,
         role: AccountRole.WRITABLE_SIGNER,
+        signer: humaPoolStateSigner,
       },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: address(adminAddress),
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: adminSigner,
+      },
       {
         address: address("11111111111111111111111111111111"),
         role: AccountRole.READONLY,
@@ -541,10 +547,15 @@ async function handleInit(args: string[]) {
   const createAccountIx = {
     programAddress: address("11111111111111111111111111111111"),
     accounts: [
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: address(adminAddress),
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: adminSigner,
+      },
       {
         address: address(ticketRegistryAddress),
         role: AccountRole.WRITABLE_SIGNER,
+        signer: ticketRegistrySigner,
       },
     ],
     data: createAccountData,
@@ -556,24 +567,11 @@ async function handleInit(args: string[]) {
 
   // Initialize Global Config
   console.log("Initializing YieldBonds GlobalConfig...");
-  const [globalConfigAddress] = await getProgramDerivedAddress({
-    programAddress: address(anchorProgramId),
-    seeds: [new TextEncoder().encode("global_config")],
+  const initGlobalIx = await buildInitializeGlobalInstruction({
+    authority: adminSigner,
+    admin: address(adminAddress),
+    jobsAccount: address(adminAddress),
   });
-
-  const initGlobalIx = {
-    programAddress: address(anchorProgramId),
-    accounts: [
-      { address: globalConfigAddress, role: AccountRole.WRITABLE },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-      { address: address(adminAddress), role: AccountRole.READONLY }, // admin as jobs
-      {
-        address: address("11111111111111111111111111111111"),
-        role: AccountRole.READONLY,
-      },
-    ],
-    data: serializeInitializeGlobalData(),
-  };
   await sendTx(rpc, initGlobalIx, adminSigner);
 
   // Initialize Prize Pool 1

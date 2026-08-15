@@ -19,53 +19,13 @@ use common::*;
 
 // ─── Constants mirrored from the program ────────────────────────────────────
 
-const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
-
-// ─── Test helpers ────────────────────────────────────────────────────────────
-
-fn global_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[GLOBAL_CONFIG_SEED], &anchor::id())
-}
-
-/// Load the compiled program bytes, set up a funded SVM environment, and initialize the global config.
-///
-/// Returns `(svm, admin_keypair, initial_jobs_account)`.
 fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey) {
-    let mut svm = LiteSVM::new();
-
-    let program_bytes = include_bytes!("../../../target/deploy/anchor.so");
-    svm.add_program(anchor::id(), program_bytes);
-
     let admin = Keypair::new();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap(); // 10 SOL
-
     let initial_jobs_account = Keypair::new().pubkey();
-
-    let (global_config, _bump) = global_config_pda();
-
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account: initial_jobs_account,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-
-    svm.send_transaction(tx)
-        .expect("initialize_global should succeed");
-
+    let svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&initial_jobs_account));
     (svm, admin, initial_jobs_account)
 }
+
 
 /// Deserialize the `GlobalConfig` account from raw LiteSVM account data.
 fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {

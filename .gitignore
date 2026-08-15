@@ -52,8 +52,7 @@ anchor/cargo_test_output.txt
 anchor/target/
 
 # localnet orchestration ignores
-scripts/admin-key.json
+scripts/*-key.json
 scripts/localnet-state/
 .surfpool/
 anchor/show_output.txt
-scripts/randomness-key.json

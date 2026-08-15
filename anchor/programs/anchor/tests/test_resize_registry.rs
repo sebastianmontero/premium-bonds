@@ -22,43 +22,18 @@ use common::*;
 /// Setup the basic SVM environment with the program and an initialized GlobalConfig.
 /// Sets the `crank` keypair as the authorized `jobs_account`.
 fn setup_resize_registry_test() -> (LiteSVM, Keypair, Keypair, Pubkey) {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
-
     let admin = Keypair::new();
     let crank = Keypair::new();
     let payer = Keypair::new();
 
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
     let (global_config, _) = global_config_pda();
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account: crank.pubkey(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx)
-        .expect("initialize_global should succeed");
-
     (svm, crank, payer, global_config)
 }
+
 
 /// Helper to inject a `TicketRegistry` account directly into the SVM.
 fn inject_ticket_registry_account(

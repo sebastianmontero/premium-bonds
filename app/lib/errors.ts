@@ -36,6 +36,7 @@ import {
   ANCHOR_ERROR__POOL_NOT_FROZEN,
   ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS,
   ANCHOR_ERROR__INVALID_FEE_WALLET,
+  ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorCategory =
@@ -245,6 +246,13 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   [ANCHOR_ERROR__INVALID_FEE_WALLET]: {
     name: "InvalidFeeWallet",
     message: "The provided fee wallet account is invalid.",
+  },
+  [ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS]: {
+    name: "CannotModifyBondPriceWithActiveDeposits",
+    message:
+      "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.",
+    actionable:
+      "Wait until all participants exit the pool and all prizes/redemptions settle, or create a new pool with the desired bond price.",
   },
 };
 

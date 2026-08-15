@@ -19,60 +19,6 @@ use {
 mod common;
 use common::*;
 
-// ─── Constants mirrored from the program ────────────────────────────────────
-
-const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
-const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
-
-// ─── Test helpers ────────────────────────────────────────────────────────────
-
-fn global_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[GLOBAL_CONFIG_SEED], &anchor::id())
-}
-
-fn pool_pda(pool_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[PRIZE_POOL_SEED, pool_id.to_le_bytes().as_ref()],
-        &anchor::id(),
-    )
-}
-
-/// Setup the basic SVM environment with the program and an initialized GlobalConfig.
-fn setup_global_config() -> (LiteSVM, Keypair) {
-    let mut svm = LiteSVM::new();
-
-    let program_bytes = include_bytes!("../../../target/deploy/anchor.so");
-    svm.add_program(anchor::id(), program_bytes);
-
-    let admin = Keypair::new();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
-    let (global_config, _bump) = global_config_pda();
-    let jobs_account = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-
-    svm.send_transaction(tx)
-        .expect("initialize_global should succeed");
-
-    (svm, admin)
-}
 
 /// Helper to inject a `PrizePool` account directly into the SVM, bypassing `create_pool`.
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pubkey {

@@ -2,18 +2,17 @@
 //!
 //! Strategy
 //! ─────────
-//! Each test loads the compiled `.so` into a fresh LiteSVM instance, then
-//! attempts to execute `initialize_global` via a real versioned transaction.
-//! This exercises account constraint checks (PDA seeds, init, payer, system
-//! program) as well as the handler field-population logic — all without a
-//! live validator.
+//! Each test uses LiteSVM with `UpgradeableLoaderState` dual-state setup in `tests/common/mod.rs`.
+//! This exercises account constraint checks (PDA seeds, init, payer, authority, program_data,
+//! program, system program) as well as the handler field-population logic.
 //!
 //! Run with:
 //!   cargo +nightly test --package anchor --test test_initialize_global -- --nocapture
 
 use {
     anchor_lang::prelude::Pubkey,
-    anchor_lang::{InstructionData, ToAccountMetas},
+    anchor_lang::prelude::UpgradeableLoaderState,
+    anchor_lang::{AnchorDeserialize, InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_message::{Message, VersionedMessage},
@@ -25,114 +24,12 @@ use {
 mod common;
 use common::*;
 
-// ─── Constants mirrored from the program ────────────────────────────────────
-
-const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
-
-// ─── Test helpers ────────────────────────────────────────────────────────────
-
-/// Load the compiled program bytes and set up a funded SVM environment.
-///
-/// Returns `(svm, admin_keypair)` ready for test use.
-fn setup() -> (LiteSVM, Keypair) {
-    let mut svm = LiteSVM::new();
-
-    // Load the compiled BPF program.  The path is relative to the Cargo
-    // workspace root so it works from any `cargo test` invocation directory.
-    let program_bytes = include_bytes!("../../../target/deploy/anchor.so");
-    svm.add_program(anchor::id(), program_bytes);
-
-    let admin = Keypair::new();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap(); // 10 SOL
-
-    (svm, admin)
-}
-
-/// Derive the canonical `global_config` PDA for the program under test.
-fn global_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[GLOBAL_CONFIG_SEED], &anchor::id())
-}
-
-/// Build and send an `initialize_global` transaction.
-///
-/// Returns the raw LiteSVM send result so callers can assert success or failure.
-fn send_initialize_global(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    jobs_account: Pubkey,
-) -> litesvm::types::FailedTransactionMetadata {
-    let (global_config, _bump) = global_config_pda();
-
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-
-    // Use the infallible send so we can inspect errors
-    match svm.send_transaction(tx) {
-        Ok(meta) => {
-            // Hack: wrap success as a "failed" with empty logs so the
-            // return type is uniform.  Callers that expect success use
-            // `send_initialize_global_ok` instead.
-            let _ = meta;
-            panic!("expected FailedTransactionMetadata but got Ok — use send_initialize_global_ok");
-        }
-        Err(failed) => failed,
-    }
-}
-
-/// Variant of `send_initialize_global` that asserts success and
-/// returns the confirmed transaction metadata.
-fn send_initialize_global_ok(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    jobs_account: Pubkey,
-) -> litesvm::types::TransactionMetadata {
-    let (global_config, _bump) = global_config_pda();
-
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-
-    svm.send_transaction(tx)
-        .expect("initialize_global should succeed")
-}
-
-/// Deserialize the `GlobalConfig` account from raw LiteSVM account data.
+/// Helper to deserialize GlobalConfig from LiteSVM
 fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
-    let (global_config_pda, _) = global_config_pda();
+    let (pda, _) = global_config_pda();
     let account = svm
-        .get_account(&global_config_pda)
+        .get_account(&pda)
         .expect("global_config account must exist after init");
-
-    // Skip the 8-byte Anchor discriminator before deserializing.
     anchor_lang::AccountDeserialize::try_deserialize(&mut account.data.as_slice())
         .expect("account data should deserialize as GlobalConfig")
 }
@@ -141,15 +38,18 @@ fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
 // Happy-path tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// The most basic case: initialization succeeds and the PDA is created.
+/// Initialization succeeds when authority == admin and the PDA is created.
 #[test]
-fn test_initialize_global_succeeds() {
-    let (mut svm, admin) = setup();
+fn test_initialize_global_succeeds_same_authority_and_admin() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let jobs = Keypair::new().pubkey();
 
-    let meta = send_initialize_global_ok(&mut svm, &admin, jobs);
+    let meta = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+        .expect("initialize_global should succeed");
+
     let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.admin, authority.pubkey());
     assert_eq!(event.jobs_account, jobs);
 
     let (pda, _) = global_config_pda();
@@ -157,88 +57,73 @@ fn test_initialize_global_succeeds() {
         svm.get_account(&pda).is_some(),
         "global_config PDA must exist after successful initialization"
     );
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, authority.pubkey());
+    assert_eq!(config.jobs_account, jobs);
 }
 
-/// After initialization the `admin` field equals the signing admin key.
+
+/// Initialization succeeds when authority != admin (decoupled upgrade authority and operational admin).
 #[test]
-fn test_initialize_global_sets_admin() {
-    let (mut svm, admin) = setup();
+fn test_initialize_global_succeeds_different_authority_and_admin() {
+    let authority = Keypair::new();
+    let designated_admin = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
+    let mut svm = setup_svm_with_authority(&authority);
 
-    send_initialize_global_ok(&mut svm, &admin, jobs);
+    let meta = send_initialize_global(&mut svm, &authority, &designated_admin, &jobs)
+        .expect("initialize_global should succeed with separate admin");
 
-    let config = read_global_config(&svm);
-    assert_eq!(
-        config.admin,
-        admin.pubkey(),
-        "GlobalConfig.admin must equal the signer"
-    );
-}
-
-/// The `jobs_account` field is stored verbatim — even for an arbitrary key.
-#[test]
-fn test_initialize_global_sets_jobs_account() {
-    let (mut svm, admin) = setup();
-    let jobs = Keypair::new().pubkey();
-
-    send_initialize_global_ok(&mut svm, &admin, jobs);
+    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.admin, designated_admin);
+    assert_eq!(event.jobs_account, jobs);
 
     let config = read_global_config(&svm);
-    assert_eq!(
-        config.jobs_account, jobs,
-        "GlobalConfig.jobs_account must equal the jobs_account passed in"
-    );
+    assert_eq!(config.admin, designated_admin);
+    assert_eq!(config.jobs_account, jobs);
 }
 
-/// `jobs_account` can be the same key as `admin` (no constraint forbids it).
+/// The `jobs_account` field is stored verbatim — even for an arbitrary key or default pubkey.
 #[test]
-fn test_initialize_global_jobs_equals_admin() {
-    let (mut svm, admin) = setup();
-    let jobs = admin.pubkey(); // same key
+fn test_initialize_global_sets_jobs_account_default() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
 
-    send_initialize_global_ok(&mut svm, &admin, jobs);
-
-    let config = read_global_config(&svm);
-    assert_eq!(config.admin, admin.pubkey());
-    assert_eq!(config.jobs_account, admin.pubkey());
-}
-
-/// `jobs_account` can be `Pubkey::default()` (zero address) — the instruction
-/// accepts any unchecked public key.
-#[test]
-fn test_initialize_global_jobs_default_pubkey() {
-    let (mut svm, admin) = setup();
-
-    send_initialize_global_ok(&mut svm, &admin, Pubkey::default());
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &Pubkey::default())
+        .expect("should succeed with default jobs pubkey");
 
     let config = read_global_config(&svm);
     assert_eq!(config.jobs_account, Pubkey::default());
 }
 
-/// After initialization the admin's SOL balance decreases by (at least) the
+/// After initialization the authority's SOL balance decreases by (at least) the
 /// rent-exempt minimum for the GlobalConfig account space.
 #[test]
 fn test_initialize_global_deducts_rent_from_payer() {
-    let (mut svm, admin) = setup();
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let jobs = Keypair::new().pubkey();
-    let balance_before = svm.get_balance(&admin.pubkey()).unwrap();
+    let balance_before = svm.get_balance(&authority.pubkey()).unwrap();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs);
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+        .expect("initialize_global should succeed");
 
-    let balance_after = svm.get_balance(&admin.pubkey()).unwrap();
+    let balance_after = svm.get_balance(&authority.pubkey()).unwrap();
     assert!(
         balance_after < balance_before,
-        "Admin balance must decrease after paying rent (before={balance_before}, after={balance_after})"
+        "Authority balance must decrease after paying rent (before={balance_before}, after={balance_after})"
     );
 }
 
-/// The newly created account is owned by the program (ensures PDA allocation
-/// is performed under the correct program owner).
+/// The newly created account is owned by the program.
 #[test]
 fn test_initialize_global_account_owned_by_program() {
-    let (mut svm, admin) = setup();
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let jobs = Keypair::new().pubkey();
-    send_initialize_global_ok(&mut svm, &admin, jobs);
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+        .expect("initialize_global should succeed");
 
     let (pda, _) = global_config_pda();
     let account = svm.get_account(&pda).unwrap();
@@ -250,61 +135,51 @@ fn test_initialize_global_account_owned_by_program() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Idempotency / double-init guard
+// Upgrade Authority & Access Control tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Calling `initialize_global` a second time on an already-initialized PDA
-/// must fail — Anchor's `init` constraint prevents re-initialization.
+/// Fails when the signer is NOT the program's upgrade authority.
 #[test]
-fn test_initialize_global_fails_on_double_init() {
-    let (mut svm, admin) = setup();
+fn test_initialize_global_fails_when_signer_is_not_upgrade_authority() {
+    let real_upgrade_authority = Keypair::new();
+    let fake_attacker = Keypair::new();
+    let mut svm = setup_svm_with_authority(&real_upgrade_authority);
+    svm.airdrop(&fake_attacker.pubkey(), 10_000_000_000).unwrap();
+
     let jobs = Keypair::new().pubkey();
-
-    // First call: must succeed.
-    send_initialize_global_ok(&mut svm, &admin, jobs);
-
-    // Second call: must fail (PDA already exists).
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        send_initialize_global_ok(&mut svm, &admin, jobs)
-    }));
+    let result = send_initialize_global(&mut svm, &fake_attacker, &fake_attacker.pubkey(), &jobs);
     assert!(
         result.is_err(),
-        "A second initialize_global call on the same PDA must fail"
+        "Must fail when signer is not the program's upgrade authority"
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Access-control tests
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A transaction that omits the admin signature must be rejected.
-/// We test this by using a payer that is NOT a signer in the accounts list.
+/// A transaction that omits the authority signature must be rejected.
 #[test]
-fn test_initialize_global_requires_admin_signature() {
-    let mut svm = LiteSVM::new();
-    let program_bytes = include_bytes!("../../../target/deploy/anchor.so");
-    svm.add_program(anchor::id(), program_bytes);
-
-    let admin = Keypair::new();
-    let unsigned_admin = Keypair::new(); // will NOT sign the tx
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+fn test_initialize_global_requires_authority_signature() {
+    let real_authority = Keypair::new();
+    let unsigned_authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&unsigned_authority);
+    svm.airdrop(&real_authority.pubkey(), 10_000_000_000).unwrap();
 
     let (global_config, _) = global_config_pda();
+    let (program_data, _) = program_data_pda();
     let jobs = Keypair::new().pubkey();
 
-    // Build accounts using unsigned_admin as the admin (but sign with `admin`)
     let mut accounts = anchor::accounts::InitializeGlobal {
         global_config,
-        admin: unsigned_admin.pubkey(), // mismatched
+        authority: unsigned_authority.pubkey(),
+        admin: unsigned_authority.pubkey(),
         jobs_account: jobs,
+        program_data,
+        program: anchor::id(),
         system_program: anchor_lang::system_program::ID,
     }
     .to_account_metas(None);
 
-    // Manually remove the signer flag so the client builder doesn't panic.
-    // The program itself should reject this instruction.
+    // Manually remove signer flag
     for meta in accounts.iter_mut() {
-        if meta.pubkey == unsigned_admin.pubkey() {
+        if meta.pubkey == unsigned_authority.pubkey() {
             meta.is_signer = false;
         }
     }
@@ -315,36 +190,33 @@ fn test_initialize_global_requires_admin_signature() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    // Sign only with `admin`, not with `unsigned_admin`.
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&real_authority.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&real_authority]).unwrap();
 
-    let result = svm.send_transaction(tx);
-    assert!(
-        result.is_err(),
-        "Transaction must fail when admin does not sign"
-    );
+    assert!(svm.send_transaction(tx).is_err(), "Must fail when authority does not sign");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Wrong-PDA / seed manipulation tests
+// Wrong-PDA / Seed Manipulation Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Supplying a `global_config` address that was derived from the **wrong seed**
-/// must be rejected by Anchor's PDA verification.
+/// Supplying a `global_config` address that was derived from the wrong seed must fail.
 #[test]
-fn test_initialize_global_rejects_wrong_pda() {
-    let (mut svm, admin) = setup();
-    let jobs = Keypair::new().pubkey();
-
-    // Derive a PDA with a different seed prefix.
+fn test_initialize_global_rejects_wrong_global_config_pda() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
+    let (program_data, _) = program_data_pda();
+    let jobs = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::InitializeGlobal {
-        global_config: wrong_pda, // intentionally wrong
-        admin: admin.pubkey(),
+        global_config: wrong_pda,
+        authority: authority.pubkey(),
+        admin: authority.pubkey(),
         jobs_account: jobs,
+        program_data,
+        program: anchor::id(),
         system_program: anchor_lang::system_program::ID,
     }
     .to_account_metas(None);
@@ -355,27 +227,29 @@ fn test_initialize_global_rejects_wrong_pda() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "Wrong PDA must be rejected"
-    );
+    assert!(svm.send_transaction(tx).is_err(), "Wrong global_config PDA must be rejected");
 }
 
-/// Supplying a random non-PDA address as `global_config` must be rejected.
+/// Supplying an invalid `program_data` account must fail.
 #[test]
-fn test_initialize_global_rejects_arbitrary_address() {
-    let (mut svm, admin) = setup();
+fn test_initialize_global_rejects_wrong_program_data_pda() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
+    let (global_config, _) = global_config_pda();
+    let (wrong_program_data, _) = Pubkey::find_program_address(&[b"wrong_program_data"], &anchor::id());
     let jobs = Keypair::new().pubkey();
-    let random_key = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::InitializeGlobal {
-        global_config: random_key, // not a PDA at all
-        admin: admin.pubkey(),
+        global_config,
+        authority: authority.pubkey(),
+        admin: authority.pubkey(),
         jobs_account: jobs,
+        program_data: wrong_program_data,
+        program: anchor::id(),
         system_program: anchor_lang::system_program::ID,
     }
     .to_account_metas(None);
@@ -386,30 +260,25 @@ fn test_initialize_global_rejects_arbitrary_address() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "Non-PDA global_config must be rejected"
-    );
+    assert!(svm.send_transaction(tx).is_err(), "Wrong program_data PDA must be rejected");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Multi-field consistency check
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// All mutable fields are set atomically in a single instruction.
-/// Vary all inputs simultaneously and verify every field independently.
+/// Calling `initialize_global` a second time must fail due to `init` constraint.
 #[test]
-fn test_initialize_global_all_fields_consistent() {
-    let (mut svm, admin) = setup();
+fn test_initialize_global_fails_on_double_init() {
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let jobs = Keypair::new().pubkey();
 
-    send_initialize_global_ok(&mut svm, &admin, jobs);
+    // First call succeeds
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+        .expect("first init should succeed");
 
-    let config = read_global_config(&svm);
-    assert_eq!(config.admin, admin.pubkey());
-    assert_eq!(config.jobs_account, jobs);
+    // Second call must fail
+    let result = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs);
+    assert!(result.is_err(), "Second init on the same PDA must fail");
 }

@@ -51,6 +51,7 @@ import {
   PROGRAM_ID,
   HUMA_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
+  REGISTRY_INITIAL_SIZE,
   buildPrepareDrawInstruction,
   buildInitializeGlobalInstruction,
   buildUpdateGlobalConfigInstruction,
@@ -194,12 +195,21 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     positionalArgs: "[jobs]",
     options: [
       {
+        flag: "--admin <pubkey>",
+        description:
+          "Admin authority public key (defaults to deployer/signer authority)",
+      },
+      {
         flag: "--jobs <pubkey>",
-        description: "Crank bot/jobs account public key",
-        required: true,
+        description:
+          "Crank bot/jobs account public key (defaults to admin authority)",
       },
     ],
-    examples: ["npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>"],
+    examples: [
+      "npm run pb-cli init-global",
+      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>",
+      "npm run pb-cli init-global -- --admin <ADMIN_PUBKEY> --jobs <JOBS_PUBKEY>",
+    ],
   },
   "update-global-config": {
     command: "update-global-config",
@@ -635,9 +645,11 @@ function formatTimestamp(seconds: number | bigint): string {
 function loadAddresses(isDevnet: boolean): Record<string, string> {
   const stateDir = isDevnet ? "devnet-state" : "localnet-state";
   const filePath = path.resolve(__dirname, stateDir, "addresses.json");
+  const env = loadEnvLocal();
+  let fileAddresses: Record<string, string> = {};
   if (fs.existsSync(filePath)) {
     try {
-      return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      fileAddresses = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     } catch (err) {
       console.warn(
         `Failed to parse ${stateDir}/addresses.json, using defaults:`,
@@ -645,7 +657,7 @@ function loadAddresses(isDevnet: boolean): Record<string, string> {
       );
     }
   }
-  return {};
+  return { ...env, ...fileAddresses };
 }
 
 function loadEnvLocal(): Record<string, string> {
@@ -1281,12 +1293,14 @@ export async function executeReinvest({
 // ─── Admin Action Handlers ───────────────────────────────────────────────────
 
 export interface ExecuteInitGlobalParams {
+  adminAccount?: string;
   jobsAccount?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
 
 export async function executeInitGlobal({
+  adminAccount,
   jobsAccount,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
@@ -1303,15 +1317,18 @@ export async function executeInitGlobal({
     );
   }
 
-  const jobs = jobsAccount ? address(jobsAccount) : signer.address;
+  const admin = adminAccount ? address(adminAccount) : signer.address;
+  const jobs = jobsAccount ? address(jobsAccount) : admin;
   console.log(`Initializing Global Config:
-  Admin: ${signer.address}
+  Deployer Authority (Signer): ${signer.address}
+  Admin: ${admin}
   Jobs Account (Crank): ${jobs}
   PDA: ${configPda}
 `);
 
   const ix = await buildInitializeGlobalInstruction({
-    admin: signer.address,
+    authority: signer,
+    admin,
     jobsAccount: jobs,
   });
 
@@ -1450,16 +1467,21 @@ export async function executeCreatePool({
   Fee Wallet: ${resolvedFeeWallet}
 `);
 
-  const space = 100200n;
+  const space = REGISTRY_INITIAL_SIZE;
   const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
 
   const createRegistryIx = {
     programAddress: SYSTEM_PROGRAM_ID,
     accounts: [
-      { address: signer.address, role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: signer.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer,
+      },
       {
         address: ticketRegistrySigner.address,
         role: AccountRole.WRITABLE_SIGNER,
+        signer: ticketRegistrySigner,
       },
     ],
     data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
@@ -2226,8 +2248,10 @@ async function main() {
 
   switch (command) {
     case "init-global": {
+      const adminAccount = options["--admin"];
       const jobsAccount = options["--jobs"] || positionals[0];
       await executeInitGlobal({
+        adminAccount,
         jobsAccount,
         rpcUrl,
         signer: signer!,

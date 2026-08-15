@@ -367,39 +367,94 @@ pub fn inject_registry_with_tickets(
     inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
 }
 
-pub fn setup_global_config() -> (LiteSVM, Keypair) {
+use anchor_lang::solana_program::bpf_loader_upgradeable::{self, UpgradeableLoaderState};
+
+pub fn program_data_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[anchor::id().as_ref()], &bpf_loader_upgradeable::id())
+}
+
+pub fn setup_program_data(svm: &mut LiteSVM, upgrade_authority: Option<&Pubkey>) {
+    let (pda, _) = program_data_pda();
+    if let Some(mut account) = svm.get_account(&pda) {
+        let program_data_state = UpgradeableLoaderState::ProgramData {
+            slot: 1,
+            upgrade_authority_address: upgrade_authority.cloned(),
+        };
+        let header_bytes = bincode::serialize(&program_data_state).unwrap();
+        account.data[..header_bytes.len()].copy_from_slice(&header_bytes);
+        svm.set_account(pda, account).unwrap();
+    }
+}
+
+pub fn build_initialize_global_ix(
+    authority: &Pubkey,
+    admin: &Pubkey,
+    jobs_account: &Pubkey,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (program_data, _) = program_data_pda();
+
+    let accounts = anchor::accounts::InitializeGlobal {
+        global_config,
+        authority: *authority,
+        admin: *admin,
+        jobs_account: *jobs_account,
+        program_data,
+        program: anchor::id(),
+        system_program: anchor_lang::system_program::ID,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::InitializeGlobal {}.data(),
+    }
+}
+
+pub fn send_initialize_global(
+    svm: &mut LiteSVM,
+    authority: &Keypair,
+    admin: &Pubkey,
+    jobs_account: &Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_initialize_global_ix(&authority.pubkey(), admin, jobs_account);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[authority]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn setup_svm_with_authority(authority: &Keypair) -> LiteSVM {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
         include_bytes!("../../../../target/deploy/anchor.so"),
     );
-
-    let admin = Keypair::new();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
-    let (global_config, _) = global_config_pda();
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account: Keypair::new().pubkey(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx)
-        .expect("initialize_global should succeed");
-
-    (svm, admin)
+    svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
+    setup_program_data(&mut svm, Some(&authority.pubkey()));
+    svm
 }
+
+pub fn setup_global_config_with_admin(
+    authority: &Keypair,
+    admin: &Pubkey,
+    jobs_account: Option<&Pubkey>,
+) -> LiteSVM {
+    let mut svm = setup_svm_with_authority(authority);
+    let default_jobs = Keypair::new().pubkey();
+    let jobs = jobs_account.unwrap_or(&default_jobs);
+    send_initialize_global(&mut svm, authority, admin, jobs)
+        .expect("initialize_global should succeed");
+    svm
+}
+
+pub fn setup_global_config() -> (LiteSVM, Keypair) {
+    let authority = Keypair::new();
+    let svm = setup_global_config_with_admin(&authority, &authority.pubkey(), None);
+    (svm, authority)
+}
+
 
 // ─── SPL Helpers ─────────────────────────────────────────────────────────────
 
@@ -637,26 +692,11 @@ pub fn setup_e2e() -> E2eContext {
     let user = Keypair::new();
     svm.airdrop(&admin.pubkey(), 50_000_000_000).unwrap();
     svm.airdrop(&user.pubkey(), 50_000_000_000).unwrap();
+    setup_program_data(&mut svm, Some(&admin.pubkey()));
 
     // 1. Initialize GlobalConfig
-    {
-        let (global_config, _) = global_config_pda();
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts: anchor::accounts::InitializeGlobal {
-                global_config,
-                admin: admin.pubkey(),
-                jobs_account: admin.pubkey(),
-                system_program: anchor_lang::system_program::ID,
-            }
-            .to_account_metas(None),
-            data: anchor::instruction::InitializeGlobal {}.data(),
-        };
-        let bh = svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-        svm.send_transaction(tx).expect("init_global");
-    }
+    send_initialize_global(&mut svm, &admin, &admin.pubkey(), &admin.pubkey()).expect("init_global");
+
 
     // 2. Create USDC mint (admin is mint authority for test convenience)
     let usdc_mint_authority = Keypair::new();

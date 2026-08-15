@@ -115,4 +115,7 @@ pub enum PremiumBondsError {
     /// The provided fee wallet account is invalid or does not match the pool configuration.
     #[msg("The provided fee wallet account is invalid or does not match the pool configuration")]
     InvalidFeeWallet,
+    /// Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.
+    #[msg("Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.")]
+    CannotModifyBondPriceWithActiveDeposits,
 }

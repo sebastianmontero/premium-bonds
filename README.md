@@ -173,6 +173,9 @@ A utility crank CLI to manage the draw cycle, query on-chain state, and trigger 
 
 ### Commands
 
+- **`init-global`**: Initializes global configuration specifying admin authority and crank bot account.
+- **`update-global-config`**: Updates global config admin authority or crank bot account.
+- **`create-pool`**: Creates a new Prize Pool with bond price, duration, and fee basis points.
 - **`harvest`**: Harvests yield from the Huma pool and commits it as the prize pot for the current draw cycle.
 - **`prepare-draw`**: Prepares ticket checkpoints for the draw cycle in batches.
 - **`reveal`**: Submits the random seed and picks winners. On localnet, automatically mocks resolved randomness on the Switchboard account.
@@ -191,6 +194,8 @@ Specify options after `--` when running via `npm run`:
 
 | Option                | Description                               | Default                         |
 | --------------------- | ----------------------------------------- | ------------------------------- |
+| `--admin <pubkey>`    | Initial or target admin authority         | Signer / deployer authority     |
+| `--jobs <pubkey>`     | Crank bot / jobs account address          | Admin authority                 |
 | `--pool <number>`     | Target Pool ID                            | `1`                             |
 | `--keypair <path>`    | Path to the authority keypair file        | `scripts/admin-key.json`        |
 | `--rpc <url>`         | Solana RPC endpoint URL                   | `http://127.0.0.1:8899`         |

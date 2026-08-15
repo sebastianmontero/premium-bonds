@@ -42,34 +42,8 @@ fn setup_with_amounts(
     total_prizes_allocated: u64,
     total_fees_accrued: u64,
 ) -> Ctx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
+    let mut svm = setup_global_config_with_admin(admin, &admin.pubkey(), None);
 
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
-    // Setup global config
-    let (global_config, _) = global_config_pda();
-    let init_accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account: Keypair::new().pubkey(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let init_ix = Instruction {
-        program_id: anchor::id(),
-        accounts: init_accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[init_ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx).unwrap();
 
     // Inject pool
     let (pool_key, bump) = pool_pda(1);

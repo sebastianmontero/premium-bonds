@@ -32,38 +32,11 @@ struct Ctx {
 }
 
 fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
-
     let admin = Keypair::new();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
     let crank = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
 
-    // Setup global config with jobs_account = crank
-    let (global_config, _) = global_config_pda();
-    let init_accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        admin: admin.pubkey(),
-        jobs_account: crank.pubkey(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let init_ix = Instruction {
-        program_id: anchor::id(),
-        accounts: init_accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[init_ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx).unwrap();
 
     // Inject pool
     let pool_key = pool_pda(1).0;

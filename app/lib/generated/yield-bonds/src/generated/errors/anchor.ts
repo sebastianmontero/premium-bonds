@@ -88,11 +88,14 @@ export const ANCHOR_ERROR__POOL_NOT_FROZEN = 0x1792; // 6034
 export const ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS = 0x1793; // 6035
 /** InvalidFeeWallet: The provided fee wallet account is invalid or does not match the pool configuration */
 export const ANCHOR_ERROR__INVALID_FEE_WALLET = 0x1794; // 6036
+/** CannotModifyBondPriceWithActiveDeposits: Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes. */
+export const ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS = 0x1795; // 6037
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
   | typeof ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE
   | typeof ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000
+  | typeof ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS
   | typeof ANCHOR_ERROR__CYCLE_NOT_ENDED
   | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
@@ -134,6 +137,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__ALREADY_CLAIMED]: `Trying to claim a prize that has already been claimed.`,
     [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: `The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.`,
     [ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000]: `Total basis points across all tiers must equal exactly 10,000 (100%).`,
+    [ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS]: `Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.`,
     [ANCHOR_ERROR__CYCLE_NOT_ENDED]: `The current stake cycle has not yet ended.`,
     [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,

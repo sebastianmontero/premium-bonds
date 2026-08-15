@@ -1,4 +1,5 @@
 use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED};
+use crate::error::PremiumBondsError;
 use crate::events::GlobalConfigUpdated;
 use crate::state::GlobalConfig;
 use anchor_lang::prelude::*;
@@ -11,21 +12,35 @@ pub struct InitializeGlobal<'info> {
     /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
     #[account(
         init,
-        payer = admin,
+        payer = authority,
         space = DISCRIMINATOR + GlobalConfig::INIT_SPACE,
         seeds = [GLOBAL_CONFIG_SEED],
         bump
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
 
-    /// The admin authority initializing the global configuration.
+    /// The program's upgrade authority authorizing this one-time initialization.
     #[account(mut)]
-    pub admin: Signer<'info>,
+    pub authority: Signer<'info>,
+
+    /// CHECK: The initial admin authority to set in GlobalConfig.
+    /// Can be the authority itself, a warm operational key, or a Squads multisig.
+    pub admin: UncheckedAccount<'info>,
 
     /// CHECK: This account is unchecked because it represents a raw public key used
     /// exclusively as a reference address for the cranking bot. No data validation
     /// or owner checks are performed on it, and it is stored solely in the global configuration.
     pub jobs_account: UncheckedAccount<'info>,
+
+    /// The program's ProgramData account containing the upgrade authority.
+    #[account(
+        constraint = program_data.upgrade_authority_address == Some(authority.key()) @ PremiumBondsError::UnauthorizedAdmin
+    )]
+    pub program_data: Account<'info, ProgramData>,
+
+    /// The deployed program itself.
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()))]
+    pub program: Program<'info, crate::program::Anchor>,
 
     /// Solana System Program.
     pub system_program: Program<'info, System>,
@@ -52,3 +67,4 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
 
     Ok(())
 }
+

@@ -79,6 +79,7 @@ export const ATA_PROGRAM_ID = address(
 export const USDC_MINT = address(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
+export const REGISTRY_INITIAL_SIZE = 262_248n;
 
 const textEncoder = new TextEncoder();
 const base58Encoder = getBase58Encoder();
@@ -98,6 +99,20 @@ export function encodeU64(val: bigint | number): Uint8Array {
 }
 
 // ─── PDA Derivations ─────────────────────────────────────────────────────────
+
+export const BPF_LOADER_UPGRADEABLE_PROGRAM_ADDRESS = address(
+  "BPFLoaderUpgradeab1e11111111111111111111111"
+);
+
+export async function findProgramDataPda(
+  programAddress: Address = PROGRAM_ID
+): Promise<Address> {
+  const [addr] = await getProgramDerivedAddress({
+    programAddress: BPF_LOADER_UPGRADEABLE_PROGRAM_ADDRESS,
+    seeds: [getBase58Encoder().encode(programAddress)],
+  });
+  return addr;
+}
 
 export async function findGlobalConfigPda(): Promise<Address> {
   const [addr] = await getProgramDerivedAddress({
@@ -610,12 +625,32 @@ export {
 // ─── High-Level SDK Instruction Builder Wrappers for CLI & Scripts ─────────
 
 export async function buildInitializeGlobalInstruction(params: {
-  admin: Address | TransactionSigner;
+  authority?: Address | TransactionSigner;
+  admin?: Address | TransactionSigner;
   jobsAccount?: Address;
+  programData?: Address;
+  program?: Address;
 }) {
+  const signer = (params.authority ?? params.admin) as TransactionSigner;
+  const authorityAddress =
+    typeof signer === "string"
+      ? (signer as unknown as Address)
+      : (signer as TransactionSigner).address;
+
+  const adminAddress = params.admin
+    ? typeof params.admin === "string"
+      ? params.admin
+      : (params.admin as TransactionSigner).address
+    : authorityAddress;
+
+  const programData = params.programData ?? (await findProgramDataPda());
+
   return getInitializeGlobalInstructionAsync({
-    admin: params.admin as TransactionSigner,
-    jobsAccount: params.jobsAccount ?? (params.admin as Address),
+    authority: signer,
+    admin: adminAddress,
+    jobsAccount: params.jobsAccount ?? authorityAddress,
+    programData,
+    program: params.program ?? PROGRAM_ID,
   });
 }
 
@@ -809,22 +844,53 @@ export async function buildReinvestWinningsInstruction(params: {
 export async function buildInitializeHumaLenderInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
-  humaStateAddresses: Record<string, string>;
+  humaStateAddresses?: Record<string, string | undefined>;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
+  const addrs = params.humaStateAddresses ?? {};
+
+  const humaConfig =
+    addrs.humaConfig || addrs.NEXT_PUBLIC_HUMA_CONFIG || SYSTEM_PROGRAM_ID;
+  const humaPoolConfig =
+    addrs.humaPoolConfig ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
+    SYSTEM_PROGRAM_ID;
+  const humaPoolState =
+    addrs.humaPoolState ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_STATE ||
+    SYSTEM_PROGRAM_ID;
+  const humaModeConfig =
+    addrs.humaModeConfig ||
+    addrs.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
+    SYSTEM_PROGRAM_ID;
+  const humaModeMint =
+    addrs.humaModeMint ||
+    addrs.NEXT_PUBLIC_HUMA_MODE_MINT ||
+    addrs.pstMint ||
+    addrs.NEXT_PUBLIC_PST_MINT ||
+    SYSTEM_PROGRAM_ID;
+  const humaLenderState =
+    addrs.humaLenderState ||
+    addrs.NEXT_PUBLIC_HUMA_LENDER_STATE ||
+    SYSTEM_PROGRAM_ID;
+  const humaLenderModeToken =
+    addrs.humaLenderModeToken ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    addrs.humaPoolModeToken ||
+    poolPstVault;
 
   return getInitializeHumaLenderInstructionAsync({
     admin: params.admin as TransactionSigner,
     pool,
     poolPstVault,
-    humaConfig: address(params.humaStateAddresses.humaConfig),
-    humaPoolConfig: address(params.humaStateAddresses.humaPoolConfig),
-    humaPoolState: address(params.humaStateAddresses.humaPoolState),
-    humaModeConfig: address(params.humaStateAddresses.humaModeConfig),
-    humaModeMint: address(params.humaStateAddresses.humaModeMint),
-    humaLenderState: address(params.humaStateAddresses.humaLenderState),
-    humaLenderModeToken: address(params.humaStateAddresses.humaLenderModeToken),
+    humaConfig: address(humaConfig),
+    humaPoolConfig: address(humaPoolConfig),
+    humaPoolState: address(humaPoolState),
+    humaModeConfig: address(humaModeConfig),
+    humaModeMint: address(humaModeMint),
+    humaLenderState: address(humaLenderState),
+    humaLenderModeToken: address(humaLenderModeToken),
     pstTokenProgram: TOKEN_PROGRAM_ID,
   });
 }
@@ -851,17 +917,50 @@ export async function buildWithdrawFeesInstruction(params: {
   tokenMint: Address;
   feeWallet: Address;
   nextRedemptionId: bigint | number;
-  humaStateAddresses: Record<string, string>;
+  humaStateAddresses?: Record<string, string | undefined>;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    params.humaStateAddresses.humaPoolState
-  );
+  const addrs = params.humaStateAddresses ?? {};
+  const humaPoolStateStr =
+    addrs.humaPoolState ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_STATE ||
+    SYSTEM_PROGRAM_ID;
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(humaPoolStateStr);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     params.nextRedemptionId
   );
+
+  const humaConfig =
+    addrs.humaConfig || addrs.NEXT_PUBLIC_HUMA_CONFIG || SYSTEM_PROGRAM_ID;
+  const humaPoolConfig =
+    addrs.humaPoolConfig ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
+    SYSTEM_PROGRAM_ID;
+  const humaModeConfig =
+    addrs.humaModeConfig ||
+    addrs.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
+    SYSTEM_PROGRAM_ID;
+  const humaModeMint =
+    addrs.humaModeMint ||
+    addrs.NEXT_PUBLIC_HUMA_MODE_MINT ||
+    addrs.pstMint ||
+    addrs.NEXT_PUBLIC_PST_MINT ||
+    SYSTEM_PROGRAM_ID;
+  const humaRedemptionRequest =
+    addrs.humaRedemptionRequest ||
+    addrs.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+    humaPoolStateStr;
+  const humaLenderState =
+    addrs.humaLenderState ||
+    addrs.NEXT_PUBLIC_HUMA_LENDER_STATE ||
+    SYSTEM_PROGRAM_ID;
+  const humaPoolModeToken =
+    addrs.humaPoolModeToken ||
+    addrs.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    addrs.humaLenderModeToken ||
+    poolPstVault;
 
   return getWithdrawFeesInstructionAsync({
     admin: params.admin as TransactionSigner,
@@ -871,18 +970,15 @@ export async function buildWithdrawFeesInstruction(params: {
     feeWallet: params.feeWallet,
     tokenMint: params.tokenMint,
     amount: BigInt(params.amount),
-    humaConfig: address(params.humaStateAddresses.humaConfig),
-    humaPoolConfig: address(params.humaStateAddresses.humaPoolConfig),
-    humaPoolState: address(params.humaStateAddresses.humaPoolState),
-    humaModeConfig: address(params.humaStateAddresses.humaModeConfig),
-    humaModeMint: address(params.humaStateAddresses.humaModeMint),
-    humaRedemptionRequest: address(
-      params.humaStateAddresses.humaRedemptionRequest ??
-        params.humaStateAddresses.humaPoolState
-    ),
-    humaLenderState: address(params.humaStateAddresses.humaLenderState),
+    humaConfig: address(humaConfig),
+    humaPoolConfig: address(humaPoolConfig),
+    humaPoolState: address(humaPoolStateStr),
+    humaModeConfig: address(humaModeConfig),
+    humaModeMint: address(humaModeMint),
+    humaRedemptionRequest: address(humaRedemptionRequest),
+    humaLenderState: address(humaLenderState),
     humaPoolAuthority,
-    humaPoolModeToken: address(params.humaStateAddresses.humaLenderModeToken),
+    humaPoolModeToken: address(humaPoolModeToken),
     pstTokenProgram: TOKEN_PROGRAM_ID,
   });
 }
