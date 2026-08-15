@@ -4,15 +4,16 @@ use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
     account::Account,
+    clock::Clock,
     message::{Message, VersionedMessage},
     signature::Keypair,
     signer::Signer,
+    sysvar::clock,
 };
 use solana_transaction::versioned::VersionedTransaction;
 
 mod common;
 use common::*;
-
 
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
     let (pda, bump) = pool_pda(pool_id);
@@ -71,6 +72,7 @@ fn build_update_pool_config_ix(
     new_bond_price: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
     new_min_yield_threshold: Option<u64>,
+    new_stake_cycle_duration_hrs: Option<i64>,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
@@ -90,6 +92,7 @@ fn build_update_pool_config_ix(
             new_bond_price,
             new_fee_wallet,
             new_min_yield_threshold,
+            new_stake_cycle_duration_hrs,
         }
         .data(),
     }
@@ -100,7 +103,7 @@ fn test_update_pool_config_succeeds_empty() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -118,7 +121,7 @@ fn test_update_pool_config_succeeds_one_field() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -129,6 +132,7 @@ fn test_update_pool_config_succeeds_one_field() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, admin.pubkey());
     assert_eq!(event.fee_basis_points, 200);
+    assert_eq!(event.stake_cycle_duration_hrs, 24);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
@@ -152,17 +156,16 @@ fn test_update_pool_config_succeeds_all_fields() {
         Some(2_000_000),
         Some(new_fee_wallet),
         Some(1_000_000),
+        Some(168),
     );
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let res = svm.send_transaction(tx);
-    assert!(
-        res.is_ok(),
-        "update_pool_config should succeed updating all fields"
-    );
+    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating all fields");
+    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.stake_cycle_duration_hrs, 168);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
@@ -172,6 +175,80 @@ fn test_update_pool_config_succeeds_all_fields() {
     assert_eq!(pool_state.bond_price, 2_000_000);
     assert_eq!(pool_state.fee_wallet, new_fee_wallet);
     assert_eq!(pool_state.min_yield_threshold, 1_000_000);
+    assert_eq!(pool_state.stake_cycle_duration_hrs, 168);
+}
+
+#[test]
+fn test_update_pool_config_succeeds_stake_cycle_duration() {
+    let (mut svm, admin) = setup_global_config();
+    let pool_pda = inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(72));
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating duration");
+    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.stake_cycle_duration_hrs, 72);
+
+    let pool_acc = svm.get_account(&pool_pda).unwrap();
+    let mut data_slice: &[u8] = &pool_acc.data;
+    let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
+    assert_eq!(pool_state.stake_cycle_duration_hrs, 72);
+}
+
+#[test]
+fn test_update_pool_config_fails_invalid_stake_cycle_duration_zero() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(0));
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidStakeCycleDuration"));
+}
+
+#[test]
+fn test_update_pool_config_fails_negative_stake_cycle_duration() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(-10));
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidStakeCycleDuration"));
+}
+
+#[test]
+fn test_update_pool_config_fails_exceeds_max_stake_cycle_duration() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(8761));
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidStakeCycleDuration"));
 }
 
 #[test]
@@ -179,7 +256,7 @@ fn test_update_pool_config_fails_invalid_bond_price() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(0), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(0), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -199,7 +276,7 @@ fn test_update_pool_config_unauthorized_admin() {
     let hacker = Keypair::new();
     svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
-    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, Some(0), None, None, None);
+    let ix = build_update_pool_config_ix(hacker.pubkey(), 1, Some(0), None, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&hacker.pubkey()), &blockhash);
@@ -216,7 +293,7 @@ fn test_update_pool_config_fails_invalid_fee() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(10_001), None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(10_001), None, None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -261,7 +338,7 @@ fn test_update_pool_config_fails_when_deposited_principal_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 5_000_000, 0, 0, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -282,7 +359,7 @@ fn test_update_pool_config_fails_when_prizes_allocated_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 0, 1_000_000, 0, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -303,7 +380,7 @@ fn test_update_pool_config_fails_when_pending_redemptions_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 0, 0, 2, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -325,7 +402,29 @@ fn test_update_pool_config_fails_when_frozen_for_draw() {
     inject_pool_custom(&mut svm, 1, 0, 0, 0, 1);
 
     // Attempting to update any parameter (e.g. fee basis points) should fail if frozen
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None, None);
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, Some(200), None, None, None, None);
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(
+        err_str.contains("AwaitingRandomnessFreeze"),
+        "Expected AwaitingRandomnessFreeze error, got: {}",
+        err_str
+    );
+}
+
+#[test]
+fn test_update_pool_config_fails_when_frozen_stake_duration() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool_custom(&mut svm, 1, 0, 0, 0, 1);
+
+    // Attempting to update duration should fail if frozen
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(168));
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -354,6 +453,7 @@ fn test_update_pool_config_idempotent_bond_price_succeeds_with_deposits() {
         Some(1_000_000), // Same bond price (idempotent)
         None,
         None,
+        None,
     );
 
     let blockhash = svm.latest_blockhash();
@@ -372,4 +472,54 @@ fn test_update_pool_config_idempotent_bond_price_succeeds_with_deposits() {
 
     assert_eq!(pool_state.fee_basis_points, 250);
     assert_eq!(pool_state.bond_price, 1_000_000);
+}
+
+#[test]
+fn test_update_pool_config_duration_advances_on_next_harvest() {
+    let (mut svm, admin) = setup_global_config();
+    let pool_pda = inject_pool(&mut svm, 1);
+
+    // Set initial cycle end timestamp to 100_000
+    {
+        let mut acc = svm.get_account(&pool_pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.stake_cycle_duration_hrs = 24;
+        pool.current_cycle_end_at = 100_000;
+        svm.set_account(pool_pda, acc).unwrap();
+    }
+
+    // Set clock to 50_000 (mid-cycle) and update duration to 168 hours
+    let mut clock = Clock::default();
+    clock.unix_timestamp = 50_000;
+    svm.set_sysvar(&clock);
+
+    let ix = build_update_pool_config_ix(
+        admin.pubkey(),
+        1,
+        None,
+        None,
+        None,
+        None,
+        Some(168),
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_ok(), "Config update should succeed");
+
+    // Invariant check: current_cycle_end_at MUST remain 100_000 for the active cycle
+    let pool_acc = svm.get_account(&pool_pda).unwrap();
+    let mut data_slice: &[u8] = &pool_acc.data;
+    let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
+    assert_eq!(pool_state.stake_cycle_duration_hrs, 168);
+    assert_eq!(pool_state.current_cycle_end_at, 100_000);
+
+    // Now test advancing cycle at 100_001
+    let mut pool_mut = pool_state;
+    pool_mut.advance_cycle_end_at(100_001).unwrap();
+    // 100_001 + 168 * 3600 = 100_001 + 604_800 = 704_801
+    assert_eq!(pool_mut.current_cycle_end_at, 100_001 + 168 * 3600);
 }

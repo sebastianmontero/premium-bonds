@@ -21,6 +21,11 @@ pub const PAYOUT_SEED: &[u8] = b"payout";
 /// PDA seed prefix for the PendingRedemption account.
 pub const PENDING_REDEMPTION_SEED: &[u8] = b"pending_redemption";
 
+/// Minimum allowable duration for a single stake/yield cycle in hours (1 hour).
+pub const MIN_STAKE_CYCLE_DURATION_HRS: i64 = 1;
+/// Maximum allowable duration for a single stake/yield cycle in hours (8,760 hours = 365 days).
+pub const MAX_STAKE_CYCLE_DURATION_HRS: i64 = 8760;
+
 /// Maximum number of prize tiers per pool.
 pub const MAX_PRIZE_TIERS: usize = 10;
 /// Maximum number of total winners per draw.

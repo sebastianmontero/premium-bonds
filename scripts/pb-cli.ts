@@ -314,9 +314,10 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
   "update-pool-config": {
     command: "update-pool-config",
     category: "Admin",
-    summary: "Update pool config (fee bps, bond price, fee wallet)",
+    summary:
+      "Update pool config (fee bps, bond price, fee wallet, duration, min yield)",
     description:
-      "Update pool config parameters (fee bps, bond price, fee wallet address).",
+      "Update pool config parameters (fee bps, bond price, fee wallet address, stake cycle duration, min yield threshold).",
     requiresSigner: true,
     options: [
       {
@@ -331,8 +332,19 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         flag: "--fee-wallet <pubkey>",
         description: "Fee wallet token account address",
       },
+      {
+        flag: "--stake-duration <hrs>",
+        description: "Stake cycle duration in hours (1-8760)",
+      },
+      {
+        flag: "--min-yield-threshold <num>",
+        description: "Minimum yield threshold in base units",
+      },
     ],
-    examples: ["npm run pb-cli update-pool-config -- --pool 1 --fee-bps 200"],
+    examples: [
+      "npm run pb-cli update-pool-config -- --pool 1 --fee-bps 200",
+      "npm run pb-cli update-pool-config -- --pool 1 --stake-duration 168",
+    ],
   },
   "withdraw-fees": {
     command: "withdraw-fees",
@@ -1718,6 +1730,8 @@ export interface ExecuteUpdatePoolConfigParams {
   feeBasisPoints?: number;
   bondPrice?: bigint | number;
   feeWallet?: string;
+  minYieldThreshold?: bigint | number;
+  stakeDurationHrs?: bigint | number;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
@@ -1727,6 +1741,8 @@ export async function executeUpdatePoolConfig({
   feeBasisPoints,
   bondPrice,
   feeWallet,
+  minYieldThreshold,
+  stakeDurationHrs,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecuteUpdatePoolConfigParams) {
@@ -1744,9 +1760,15 @@ export async function executeUpdatePoolConfig({
     new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
   );
 
-  if (feeBasisPoints === undefined && bondPrice === undefined && !feeWallet) {
+  if (
+    feeBasisPoints === undefined &&
+    bondPrice === undefined &&
+    !feeWallet &&
+    minYieldThreshold === undefined &&
+    stakeDurationHrs === undefined
+  ) {
     throw new Error(
-      "No update options provided. Pass --fee-bps, --bond-price, or --fee-wallet."
+      "No update options provided. Pass --fee-bps, --bond-price, --fee-wallet, --stake-duration, or --min-yield-threshold."
     );
   }
 
@@ -1759,11 +1781,22 @@ export async function executeUpdatePoolConfig({
   if (bondPrice !== undefined && BigInt(bondPrice) <= 0n) {
     throw new Error("bondPrice must be a positive integer.");
   }
+  if (
+    stakeDurationHrs !== undefined &&
+    (BigInt(stakeDurationHrs) < 1n || BigInt(stakeDurationHrs) > 8760n)
+  ) {
+    throw new Error("stakeDurationHrs must be between 1 and 8760 hours.");
+  }
+  if (minYieldThreshold !== undefined && BigInt(minYieldThreshold) < 0n) {
+    throw new Error("minYieldThreshold must be non-negative.");
+  }
 
   console.log(`Updating Prize Pool ${poolId} Config:
   Current Fee Basis Points: ${poolState.feeBasisPoints} ${feeBasisPoints !== undefined ? `-> New: ${feeBasisPoints}` : ""}
   Current Bond Price: ${formatAmount(poolState.bondPrice)} ${bondPrice !== undefined ? `-> New: ${formatAmount(bondPrice)}` : ""}
   Current Fee Wallet: ${poolState.feeWallet} ${feeWallet ? `-> New: ${feeWallet}` : ""}
+  Current Stake Cycle Duration (Hrs): ${poolState.stakeCycleDurationHrs} ${stakeDurationHrs !== undefined ? `-> New: ${stakeDurationHrs}` : ""}
+  Current Min Yield Threshold: ${poolState.minYieldThreshold} ${minYieldThreshold !== undefined ? `-> New: ${minYieldThreshold}` : ""}
 `);
 
   const ix = await buildUpdatePoolConfigInstruction({
@@ -1772,6 +1805,8 @@ export async function executeUpdatePoolConfig({
     newFeeBasisPoints: feeBasisPoints,
     newBondPrice: bondPrice,
     newFeeWallet: feeWallet ? address(feeWallet) : undefined,
+    newMinYieldThreshold: minYieldThreshold,
+    newStakeCycleDurationHrs: stakeDurationHrs,
   });
 
   await sendTx(rpc, ix, signer);
@@ -2339,11 +2374,19 @@ async function main() {
         ? BigInt(options["--bond-price"])
         : undefined;
       const feeWallet = options["--fee-wallet"];
+      const stakeDurationHrs = options["--stake-duration"]
+        ? BigInt(options["--stake-duration"])
+        : undefined;
+      const minYieldThreshold = options["--min-yield-threshold"]
+        ? BigInt(options["--min-yield-threshold"])
+        : undefined;
       await executeUpdatePoolConfig({
         poolId,
         feeBasisPoints,
         bondPrice,
         feeWallet,
+        minYieldThreshold,
+        stakeDurationHrs,
         rpcUrl,
         signer: signer!,
       });

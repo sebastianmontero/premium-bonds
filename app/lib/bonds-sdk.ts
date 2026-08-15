@@ -721,6 +721,7 @@ export async function buildUpdatePoolConfigInstruction(params: {
   newBondPrice?: bigint | number;
   newFeeWallet?: Address;
   newMinYieldThreshold?: bigint | number;
+  newStakeCycleDurationHrs?: bigint | number;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   return getUpdatePoolConfigInstructionAsync({
@@ -733,6 +734,10 @@ export async function buildUpdatePoolConfigInstruction(params: {
     newMinYieldThreshold:
       params.newMinYieldThreshold !== undefined
         ? BigInt(params.newMinYieldThreshold)
+        : null,
+    newStakeCycleDurationHrs:
+      params.newStakeCycleDurationHrs !== undefined
+        ? BigInt(params.newStakeCycleDurationHrs)
         : null,
   });
 }

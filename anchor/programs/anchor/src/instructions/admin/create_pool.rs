@@ -121,7 +121,8 @@ pub fn handle(
 ) -> Result<()> {
     require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
     require!(
-        stake_cycle_duration_hrs > 0,
+        stake_cycle_duration_hrs >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
+            && stake_cycle_duration_hrs <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
         PremiumBondsError::InvalidStakeCycleDuration
     );
     require!(

@@ -166,6 +166,7 @@ pub mod anchor {
         new_bond_price: Option<u64>,
         new_fee_wallet: Option<Pubkey>,
         new_min_yield_threshold: Option<u64>,
+        new_stake_cycle_duration_hrs: Option<i64>,
     ) -> Result<()> {
         instructions::admin::update_pool_config::handle(
             ctx,
@@ -173,6 +174,7 @@ pub mod anchor {
             new_bond_price,
             new_fee_wallet,
             new_min_yield_threshold,
+            new_stake_cycle_duration_hrs,
         )
     }
 

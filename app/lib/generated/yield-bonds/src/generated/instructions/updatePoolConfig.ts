@@ -20,6 +20,8 @@ import {
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
+  getI64Decoder,
+  getI64Encoder,
   getOptionDecoder,
   getOptionEncoder,
   getStructDecoder,
@@ -96,6 +98,7 @@ export type UpdatePoolConfigInstructionData = {
   newBondPrice: Option<bigint>;
   newFeeWallet: Option<Address>;
   newMinYieldThreshold: Option<bigint>;
+  newStakeCycleDurationHrs: Option<bigint>;
 };
 
 export type UpdatePoolConfigInstructionDataArgs = {
@@ -103,6 +106,7 @@ export type UpdatePoolConfigInstructionDataArgs = {
   newBondPrice: OptionOrNullable<number | bigint>;
   newFeeWallet: OptionOrNullable<Address>;
   newMinYieldThreshold: OptionOrNullable<number | bigint>;
+  newStakeCycleDurationHrs: OptionOrNullable<number | bigint>;
 };
 
 export function getUpdatePoolConfigInstructionDataEncoder(): Encoder<UpdatePoolConfigInstructionDataArgs> {
@@ -113,6 +117,7 @@ export function getUpdatePoolConfigInstructionDataEncoder(): Encoder<UpdatePoolC
       ["newBondPrice", getOptionEncoder(getU64Encoder())],
       ["newFeeWallet", getOptionEncoder(getAddressEncoder())],
       ["newMinYieldThreshold", getOptionEncoder(getU64Encoder())],
+      ["newStakeCycleDurationHrs", getOptionEncoder(getI64Encoder())],
     ]),
     (value) => ({ ...value, discriminator: UPDATE_POOL_CONFIG_DISCRIMINATOR })
   );
@@ -125,6 +130,7 @@ export function getUpdatePoolConfigInstructionDataDecoder(): Decoder<UpdatePoolC
     ["newBondPrice", getOptionDecoder(getU64Decoder())],
     ["newFeeWallet", getOptionDecoder(getAddressDecoder())],
     ["newMinYieldThreshold", getOptionDecoder(getU64Decoder())],
+    ["newStakeCycleDurationHrs", getOptionDecoder(getI64Decoder())],
   ]);
 }
 
@@ -162,6 +168,7 @@ export type UpdatePoolConfigAsyncInput<
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
   newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
+  newStakeCycleDurationHrs: UpdatePoolConfigInstructionDataArgs["newStakeCycleDurationHrs"];
 };
 
 export async function getUpdatePoolConfigInstructionAsync<
@@ -249,6 +256,7 @@ export type UpdatePoolConfigInput<
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
   newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
+  newStakeCycleDurationHrs: UpdatePoolConfigInstructionDataArgs["newStakeCycleDurationHrs"];
 };
 
 export function getUpdatePoolConfigInstruction<

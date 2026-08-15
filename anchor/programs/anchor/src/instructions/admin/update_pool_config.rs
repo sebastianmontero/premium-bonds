@@ -34,7 +34,7 @@ pub struct UpdatePoolConfig<'info> {
 
 /// Updates a prize pool's configuration parameters.
 ///
-/// Allows modifying the fee rate (basis points), the bond price, the fee wallet address, and the minimum yield threshold.
+/// Allows modifying the fee rate (basis points), the bond price, the fee wallet address, the minimum yield threshold, and the stake cycle duration.
 ///
 /// # Parameters
 /// * `ctx` - The context of the update pool config instruction.
@@ -42,12 +42,14 @@ pub struct UpdatePoolConfig<'info> {
 /// * `new_bond_price` - Optional new price of a single bond.
 /// * `new_fee_wallet` - Optional new fee wallet address.
 /// * `new_min_yield_threshold` - Optional new minimum yield threshold.
+/// * `new_stake_cycle_duration_hrs` - Optional new stake cycle duration in hours.
 pub fn handle(
     ctx: Context<UpdatePoolConfig>,
     new_fee_basis_points: Option<u16>,
     new_bond_price: Option<u64>,
     new_fee_wallet: Option<Pubkey>,
     new_min_yield_threshold: Option<u64>,
+    new_stake_cycle_duration_hrs: Option<i64>,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
@@ -56,6 +58,14 @@ pub fn handle(
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
+    if let Some(v) = new_stake_cycle_duration_hrs {
+        require!(
+            v >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
+                && v <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
+            PremiumBondsError::InvalidStakeCycleDuration
+        );
+        pool.stake_cycle_duration_hrs = v;
+    }
     if let Some(v) = new_fee_basis_points {
         require!(v <= 10000, PremiumBondsError::InvalidFeeConfig);
         pool.fee_basis_points = v;
@@ -86,6 +96,7 @@ pub fn handle(
         bond_price: pool.bond_price,
         fee_wallet: pool.fee_wallet,
         min_yield_threshold: pool.min_yield_threshold,
+        stake_cycle_duration_hrs: pool.stake_cycle_duration_hrs,
     });
 
     Ok(())

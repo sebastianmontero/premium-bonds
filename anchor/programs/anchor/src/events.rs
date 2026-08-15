@@ -148,6 +148,7 @@ pub struct PoolConfigUpdated {
     pub bond_price: u64,
     pub fee_wallet: Pubkey,
     pub min_yield_threshold: u64,
+    pub stake_cycle_duration_hrs: i64,
 }
 
 /// Emitted when prize tiers are updated for a pool.

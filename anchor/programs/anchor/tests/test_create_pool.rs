@@ -192,6 +192,38 @@ fn test_create_pool_fails_on_invalid_stake_duration() {
 }
 
 #[test]
+fn test_create_pool_fails_on_negative_stake_duration() {
+    let mut ctx = setup_create_pool_context();
+    // stake_cycle_duration_hrs = -24 should fail
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, -24, 100, 0);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidStakeCycleDuration"));
+}
+
+#[test]
+fn test_create_pool_fails_on_exceeds_max_stake_duration() {
+    let mut ctx = setup_create_pool_context();
+    // stake_cycle_duration_hrs = 8761 (> MAX_STAKE_CYCLE_DURATION_HRS) should fail
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 8761, 100, 0);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidStakeCycleDuration"));
+}
+
+#[test]
 fn test_create_pool_fails_on_registry_too_small() {
     let mut ctx = setup_create_pool_context();
 
