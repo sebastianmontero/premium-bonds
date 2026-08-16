@@ -851,15 +851,15 @@ Next Steps to Test pb-cli:
 
   3. Create Prize Pool #1:
      npm run pb-cli create-pool -- --pool 1
-     (Defaults: --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 0 --payout-timelock 300)
-     (Custom params: npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 500 --payout-timelock 300)
+     (Defaults: --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 0 --payout-timelock 300 --tiers "1:10000")
+     (Custom params: npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 500 --payout-timelock 300 --tiers "1:5000,2:1500,5:400")
      (Optional accounts: --token-mint <PUBKEY> --pst-mint <PUBKEY> --fee-wallet <PUBKEY>)
      (Update existing: npm run pb-cli update-pool-config -- --pool 1 --fee-bps 100 --bond-price 1000000 --stake-duration 24 --min-yield-threshold 0 --max-yield-bps 500 --payout-timelock 0 --fee-wallet <PUBKEY>)
 
   4. Initialize Huma Lender:
      npm run pb-cli initialize-huma-lender -- --pool 1
 
-  5. Configure Prize Tiers:
+  5. Update Prize Tiers (Optional - if customizing after creation):
      npm run pb-cli set-prize-tiers -- --pool 1 --tiers "1:5000,2:1500,5:400"
 
   6. Inspect State:

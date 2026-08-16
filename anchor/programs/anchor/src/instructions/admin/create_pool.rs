@@ -113,6 +113,7 @@ pub struct CreatePool<'info> {
 /// * `min_yield_threshold` - Minimum yield required (in base units) to execute a draw cycle.
 /// * `max_yield_basis_points` - Maximum allowable yield basis points per single cycle (0 = uncapped).
 /// * `payout_timelock_seconds` - Timelock delay in seconds before winner payouts can be cranked.
+/// * `prize_tiers` - The initial prize tiers distribution configuration for the pool.
 pub fn handle(
     ctx: Context<CreatePool>,
     pool_id: u32,
@@ -122,13 +123,15 @@ pub fn handle(
     min_yield_threshold: u64,
     max_yield_basis_points: u16,
     payout_timelock_seconds: u32,
+    prize_tiers: Vec<crate::state::PrizeTier>,
 ) -> Result<()> {
-    PrizePool::validate_pool_creation_params(
+    let total_winners = PrizePool::validate_pool_creation_params(
         bond_price,
         stake_cycle_duration_hrs,
         fee_basis_points,
         max_yield_basis_points,
         payout_timelock_seconds,
+        &prize_tiers,
     )?;
 
     let mut pool = ctx.accounts.pool.load_init()?;
@@ -147,9 +150,8 @@ pub fn handle(
     pool.total_deposited_principal = 0;
     pool.is_frozen_for_draw = 0;
     pool.current_draw_cycle_id = 0;
-    pool.prize_tiers_count = 0;
     pool._padding = [0; 3];
-    pool.prize_tiers = [crate::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10];
+    pool.set_prize_tiers(&prize_tiers)?;
     pool.next_redemption_id = 0;
     pool.total_fees_accrued = 0;
     pool.total_fees_withdrawn = 0;
@@ -190,6 +192,8 @@ pub fn handle(
         min_yield_threshold,
         max_yield_basis_points,
         payout_timelock_seconds,
+        tiers_count: pool.prize_tiers_count,
+        total_winners,
     });
 
     Ok(())

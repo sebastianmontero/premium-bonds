@@ -15,6 +15,8 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
+  getArrayDecoder,
+  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
   getI64Decoder,
@@ -28,9 +30,9 @@ import {
   getU64Decoder,
   getU64Encoder,
   transformEncoder,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
-  type FixedSizeEncoder,
+  type Codec,
+  type Decoder,
+  type Encoder,
   type ReadonlyUint8Array } from "@solana/codecs";
 import {
 SolanaError } from "@solana/errors";
@@ -59,6 +61,12 @@ import {
   findPoolVaultAccountPda,
 } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
+import {
+  getPrizeTierDecoder,
+  getPrizeTierEncoder,
+  type PrizeTier,
+  type PrizeTierArgs,
+} from "../types";
 
 export const CREATE_POOL_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
   233, 146, 209, 142, 207, 104, 64, 188,
@@ -139,6 +147,7 @@ export type CreatePoolInstructionData = {
   minYieldThreshold: bigint;
   maxYieldBasisPoints: number;
   payoutTimelockSeconds: number;
+  prizeTiers: Array<PrizeTier>;
 };
 
 export type CreatePoolInstructionDataArgs = {
@@ -149,9 +158,10 @@ export type CreatePoolInstructionDataArgs = {
   minYieldThreshold: number | bigint;
   maxYieldBasisPoints: number;
   payoutTimelockSeconds: number;
+  prizeTiers: Array<PrizeTierArgs>;
 };
 
-export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePoolInstructionDataArgs> {
+export function getCreatePoolInstructionDataEncoder(): Encoder<CreatePoolInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
@@ -162,12 +172,13 @@ export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePo
       ["minYieldThreshold", getU64Encoder()],
       ["maxYieldBasisPoints", getU16Encoder()],
       ["payoutTimelockSeconds", getU32Encoder()],
+      ["prizeTiers", getArrayEncoder(getPrizeTierEncoder())],
     ]),
     (value) => ({ ...value, discriminator: CREATE_POOL_DISCRIMINATOR })
   );
 }
 
-export function getCreatePoolInstructionDataDecoder(): FixedSizeDecoder<CreatePoolInstructionData> {
+export function getCreatePoolInstructionDataDecoder(): Decoder<CreatePoolInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["poolId", getU32Decoder()],
@@ -177,10 +188,11 @@ export function getCreatePoolInstructionDataDecoder(): FixedSizeDecoder<CreatePo
     ["minYieldThreshold", getU64Decoder()],
     ["maxYieldBasisPoints", getU16Decoder()],
     ["payoutTimelockSeconds", getU32Decoder()],
+    ["prizeTiers", getArrayDecoder(getPrizeTierDecoder())],
   ]);
 }
 
-export function getCreatePoolInstructionDataCodec(): FixedSizeCodec<
+export function getCreatePoolInstructionDataCodec(): Codec<
   CreatePoolInstructionDataArgs,
   CreatePoolInstructionData
 > {
@@ -254,6 +266,7 @@ export type CreatePoolAsyncInput<
   minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
   maxYieldBasisPoints: CreatePoolInstructionDataArgs["maxYieldBasisPoints"];
   payoutTimelockSeconds: CreatePoolInstructionDataArgs["payoutTimelockSeconds"];
+  prizeTiers: CreatePoolInstructionDataArgs["prizeTiers"];
 };
 
 export async function getCreatePoolInstructionAsync<
@@ -464,6 +477,7 @@ export type CreatePoolInput<
   minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
   maxYieldBasisPoints: CreatePoolInstructionDataArgs["maxYieldBasisPoints"];
   payoutTimelockSeconds: CreatePoolInstructionDataArgs["payoutTimelockSeconds"];
+  prizeTiers: CreatePoolInstructionDataArgs["prizeTiers"];
 };
 
 export function getCreatePoolInstruction<

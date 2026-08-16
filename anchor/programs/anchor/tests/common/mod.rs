@@ -705,6 +705,11 @@ pub fn read_registry_entry(svm: &LiteSVM, address: Pubkey, idx: usize) -> anchor
     anchor::utils::registry_get_entry(&acct.data, idx)
 }
 
+/// Returns the default 1-winner 10,000 bps prize tier vector for testing.
+pub fn default_prize_tiers() -> Vec<anchor::PrizeTier> {
+    vec![anchor::PrizeTier::default_single_winner()]
+}
+
 /// Builds a `CreatePool` instruction with full parameters.
 pub fn build_create_pool_instruction(
     admin: &Keypair,
@@ -715,6 +720,7 @@ pub fn build_create_pool_instruction(
     min_yield_threshold: u64,
     max_yield_basis_points: u16,
     payout_timelock_seconds: u32,
+    prize_tiers: Vec<anchor::PrizeTier>,
     token_mint: Pubkey,
     pst_mint: Pubkey,
     ticket_registry: Pubkey,
@@ -750,6 +756,7 @@ pub fn build_create_pool_instruction(
             min_yield_threshold,
             max_yield_basis_points,
             payout_timelock_seconds,
+            prize_tiers,
         }
         .data(),
     }
@@ -869,6 +876,7 @@ pub fn setup_e2e() -> E2eContext {
             0,
             0,
             300,
+            default_prize_tiers(),
             usdc_mint,
             pst_mint,
             ticket_registry,

@@ -270,6 +270,10 @@ function runTests() {
       "create-pool options must include --payout-timelock"
     );
     assert(
+      createFlags?.includes("--tiers") === true,
+      "create-pool options must include --tiers"
+    );
+    assert(
       createFlags?.includes("--timelock") === false,
       "create-pool options must not contain deprecated --timelock"
     );
@@ -324,8 +328,14 @@ function runTests() {
         guideText.includes("--payout-timelock") &&
         guideText.includes("--stake-duration") &&
         guideText.includes("--bond-price") &&
-        guideText.includes("--fee-bps"),
-      "Guide must document pool configuration parameters"
+        guideText.includes("--fee-bps") &&
+        guideText.includes('--tiers "1:10000"') &&
+        guideText.includes('--tiers "1:5000,2:1500,5:400"'),
+      "Guide must document pool configuration parameters including default and custom --tiers"
+    );
+    assert(
+      guideText.includes("Update Prize Tiers (Optional"),
+      "Guide must document that prize tier configuration is optional after pool creation"
     );
     assert(
       !guideText.includes("--timelock 0"),

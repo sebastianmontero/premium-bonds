@@ -70,6 +70,8 @@ import {
   parseMockHumaPoolState,
   MockHumaPoolStateInfo,
   findHumaPoolAuthorityPda,
+  PrizeTierInput,
+  DEFAULT_PRIZE_TIERS,
 } from "../app/lib/bonds-sdk";
 
 // ─── Help / Usage & Command Registry ─────────────────────────────────────────
@@ -300,9 +302,16 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         description: "Payout settlement timelock in seconds (max 86400)",
         default: "300",
       },
+      {
+        flag: "--tiers <string>",
+        description:
+          'Prize tiers config (e.g. "1:10000" or "1:5000,2:1500,5:400" or JSON array)',
+        default: "1:10000",
+      },
     ],
     examples: [
       "npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --fee-bps 100",
+      'npm run pb-cli create-pool -- --pool 1 --tiers "1:5000,2:1500,5:400"',
     ],
   },
   "initialize-huma-lender": {
@@ -1543,14 +1552,86 @@ export async function executeUpdateGlobalConfig({
   await sendTx(rpc, ix, signer);
 }
 
+/**
+ * Parses and validates prize tier configuration from either a comma-separated string
+ * ("1:5000,2:1500,5:400") or a JSON string. Returns a clean PrizeTierInput array.
+ */
+export function parseAndValidatePrizeTiers(
+  tiersString?: string
+): PrizeTierInput[] {
+  if (!tiersString || tiersString.trim().length === 0) {
+    return DEFAULT_PRIZE_TIERS;
+  }
+
+  let parsedTiers: PrizeTierInput[] = [];
+
+  if (tiersString.trim().startsWith("[")) {
+    const raw = JSON.parse(tiersString);
+    parsedTiers = raw.map((item: Record<string, unknown>) => ({
+      numWinners: Number(
+        item.numWinners ?? item.num_winners ?? item.winners ?? 0
+      ),
+      basisPoints: Number(
+        item.basisPoints ?? item.basis_points ?? item.bps ?? 0
+      ),
+    }));
+  } else {
+    parsedTiers = tiersString.split(",").map((part) => {
+      const [w, b] = part.split(":").map((v) => parseInt(v.trim(), 10));
+      if (isNaN(w) || isNaN(b)) {
+        throw new Error(
+          `Invalid tier format in "${part}". Expected "numWinners:basisPoints".`
+        );
+      }
+      return { numWinners: w, basisPoints: b };
+    });
+  }
+
+  if (parsedTiers.length === 0 || parsedTiers.length > 10) {
+    throw new Error(`Number of prize tiers must be between 1 and 10.`);
+  }
+
+  let totalWinners = 0;
+  let totalBps = 0;
+  parsedTiers.forEach((t, idx) => {
+    if (
+      !t.numWinners ||
+      !t.basisPoints ||
+      t.numWinners <= 0 ||
+      t.basisPoints <= 0
+    ) {
+      throw new Error(
+        `Tier ${idx + 1} must have numWinners > 0 and basisPoints > 0.`
+      );
+    }
+    totalWinners += t.numWinners;
+    totalBps += t.numWinners * t.basisPoints;
+  });
+
+  if (totalWinners > 50) {
+    throw new Error(
+      `Total winners (${totalWinners}) exceeds maximum allowed on-chain limit (50).`
+    );
+  }
+
+  if (totalBps !== 10000) {
+    throw new Error(
+      `Total tier basis points product (${totalBps}) must equal exactly 10,000 (100.00%).`
+    );
+  }
+
+  return parsedTiers;
+}
+
 export interface ExecuteCreatePoolParams {
   poolId?: number;
   bondPrice?: bigint | number;
-  stakeCycleDurationHrs?: bigint | number;
+  stakeCycleDurationHrs?: number;
   feeBasisPoints?: number;
   minYieldThreshold?: bigint | number;
   maxYieldBasisPoints?: number;
   payoutTimelockSeconds?: number;
+  tiersString?: string;
   tokenMint?: string;
   pstMint?: string;
   feeWallet?: string;
@@ -1566,6 +1647,7 @@ export async function executeCreatePool({
   minYieldThreshold = 0n,
   maxYieldBasisPoints = 0,
   payoutTimelockSeconds = 300,
+  tiersString = "1:10000",
   tokenMint,
   pstMint,
   feeWallet,
@@ -1598,6 +1680,8 @@ export async function executeCreatePool({
   if (payoutTimelockSeconds < 0 || payoutTimelockSeconds > 86400)
     throw new Error("payoutTimelockSeconds must be between 0 and 86400.");
 
+  const prizeTiers = parseAndValidatePrizeTiers(tiersString);
+
   const resolvedTokenMint =
     tokenMint ||
     stateAddresses.usdcMint ||
@@ -1621,6 +1705,7 @@ export async function executeCreatePool({
   Min Yield Threshold: ${formatAmount(minYieldThreshold)}
   Max Yield Basis Points: ${maxYieldBasisPoints} (${maxYieldBasisPoints / 100}%)
   Payout Timelock (Secs): ${payoutTimelockSeconds}s
+  Prize Tiers: ${prizeTiers.map((t) => `${t.numWinners} winner(s) @ ${t.basisPoints / 100}%`).join(", ")}
   Token Mint: ${resolvedTokenMint}
   PST Mint: ${resolvedPstMint}
   Fee Wallet: ${resolvedFeeWallet}
@@ -1655,6 +1740,7 @@ export async function executeCreatePool({
     minYieldThreshold: BigInt(minYieldThreshold),
     maxYieldBasisPoints,
     payoutTimelockSeconds,
+    prizeTiers,
     tokenMint: address(resolvedTokenMint),
     pstMint: address(resolvedPstMint),
     ticketRegistry: ticketRegistrySigner.address,
@@ -1798,62 +1884,12 @@ export async function executeSetPrizeTiers({
     );
   }
 
-  let parsedTiers: Array<{ numWinners: number; basisPoints: number }> = [];
-
-  if (tiersString.trim().startsWith("[")) {
-    const raw = JSON.parse(tiersString);
-    parsedTiers = raw.map((item: Record<string, unknown>) => ({
-      numWinners: Number(
-        item.numWinners ?? item.num_winners ?? item.winners ?? 0
-      ),
-      basisPoints: Number(
-        item.basisPoints ?? item.basis_points ?? item.bps ?? 0
-      ),
-    }));
-  } else {
-    parsedTiers = tiersString.split(",").map((part) => {
-      const [w, b] = part.split(":").map((v) => parseInt(v.trim(), 10));
-      if (isNaN(w) || isNaN(b)) {
-        throw new Error(
-          `Invalid tier format in "${part}". Expected "numWinners:basisPoints".`
-        );
-      }
-      return { numWinners: w, basisPoints: b };
-    });
-  }
-
-  if (parsedTiers.length === 0 || parsedTiers.length > 10) {
-    throw new Error(`Number of prize tiers must be between 1 and 10.`);
-  }
-
-  let totalWinners = 0;
-  let totalBps = 0;
-  parsedTiers.forEach((t, idx) => {
-    if (
-      !t.numWinners ||
-      !t.basisPoints ||
-      t.numWinners <= 0 ||
-      t.basisPoints <= 0
-    ) {
-      throw new Error(
-        `Tier ${idx + 1} must have numWinners > 0 and basisPoints > 0.`
-      );
-    }
-    totalWinners += t.numWinners;
-    totalBps += t.numWinners * t.basisPoints;
-  });
-
-  if (totalWinners > 50) {
-    throw new Error(
-      `Total winners (${totalWinners}) exceeds maximum allowed on-chain limit (50).`
-    );
-  }
-
-  if (totalBps !== 10000) {
-    throw new Error(
-      `Total tier basis points product (${totalBps}) must equal exactly 10,000 (100.00%).`
-    );
-  }
+  const parsedTiers = parseAndValidatePrizeTiers(tiersString);
+  const totalWinners = parsedTiers.reduce((acc, t) => acc + t.numWinners, 0);
+  const totalBps = parsedTiers.reduce(
+    (acc, t) => acc + t.numWinners * t.basisPoints,
+    0
+  );
 
   console.log(`Setting Prize Tiers for Pool ${poolId}:`);
   parsedTiers.forEach((t, i) => {
@@ -2695,6 +2731,7 @@ async function main() {
       const payoutTimelockSeconds = options["--payout-timelock"]
         ? parseInt(options["--payout-timelock"], 10)
         : 300;
+      const tiersString = options["--tiers"] || positionals[0] || "1:10000";
       await executeCreatePool({
         poolId,
         bondPrice,
@@ -2703,6 +2740,7 @@ async function main() {
         minYieldThreshold,
         maxYieldBasisPoints,
         payoutTimelockSeconds,
+        tiersString,
         tokenMint: options["--token-mint"],
         pstMint: options["--pst-mint"],
         feeWallet: options["--fee-wallet"],

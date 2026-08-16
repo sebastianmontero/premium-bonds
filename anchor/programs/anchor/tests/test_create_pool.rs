@@ -109,6 +109,30 @@ fn build_create_pool_ix(
     max_yield_basis_points: u16,
     payout_timelock_seconds: u32,
 ) -> Instruction {
+    build_create_pool_ix_with_tiers(
+        ctx,
+        pool_id,
+        bond_price,
+        stake_cycle_duration_hrs,
+        fee_basis_points,
+        min_yield_threshold,
+        max_yield_basis_points,
+        payout_timelock_seconds,
+        default_prize_tiers(),
+    )
+}
+
+fn build_create_pool_ix_with_tiers(
+    ctx: &TestContext,
+    pool_id: u32,
+    bond_price: u64,
+    stake_cycle_duration_hrs: i64,
+    fee_basis_points: u16,
+    min_yield_threshold: u64,
+    max_yield_basis_points: u16,
+    payout_timelock_seconds: u32,
+    prize_tiers: Vec<anchor::PrizeTier>,
+) -> Instruction {
     build_create_pool_instruction(
         &ctx.admin,
         pool_id,
@@ -118,6 +142,7 @@ fn build_create_pool_ix(
         min_yield_threshold,
         max_yield_basis_points,
         payout_timelock_seconds,
+        prize_tiers,
         ctx.token_mint,
         ctx.pst_mint,
         ctx.ticket_registry,
@@ -142,10 +167,14 @@ fn test_create_pool_succeeds() {
     assert_eq!(event.pst_mint, ctx.pst_mint);
     assert_eq!(event.max_yield_basis_points, 0);
     assert_eq!(event.payout_timelock_seconds, 300);
+    assert_eq!(event.tiers_count, 1);
+    assert_eq!(event.total_winners, 1);
 
     let pool_state = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool_state.max_yield_basis_points, 0);
     assert_eq!(pool_state.payout_timelock_seconds, 300);
+    assert_eq!(pool_state.prize_tiers_count, 1);
+    assert_eq!(pool_state.prize_tiers[0], anchor::PrizeTier::default_single_winner());
 }
 
 #[test]
@@ -288,6 +317,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
         0,
         0,
         300,
+        default_prize_tiers(),
         ctx.token_mint,
         ctx.pst_mint,
         ctx.ticket_registry,
@@ -350,4 +380,91 @@ fn test_create_pool_fails_on_invalid_payout_timelock() {
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("InvalidPayoutTimelock"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_empty_prize_tiers() {
+    let mut ctx = setup_create_pool_context();
+    let ix = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, vec![]);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_exceeding_max_prize_tiers() {
+    let mut ctx = setup_create_pool_context();
+    let eleven_tiers = vec![anchor::PrizeTier::new(1, 909); 11];
+    let ix = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, eleven_tiers);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_invalid_basis_points_or_winners() {
+    let mut ctx = setup_create_pool_context();
+
+    // 0 winners
+    let zero_winners = vec![anchor::PrizeTier::new(0, 10_000)];
+    let ix1 = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, zero_winners);
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
+    let res1 = ctx.svm.send_transaction(tx1);
+    assert!(res1.is_err());
+    assert!(format!("{:?}", res1.unwrap_err()).contains("InvalidPrizeTierConfig"));
+
+    // 0 bps
+    let zero_bps = vec![anchor::PrizeTier::new(1, 0)];
+    let ix2 = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, zero_bps);
+    let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
+    let res2 = ctx.svm.send_transaction(tx2);
+    assert!(res2.is_err());
+    assert!(format!("{:?}", res2.unwrap_err()).contains("InvalidPrizeTierConfig"));
+}
+
+#[test]
+fn test_create_pool_fails_on_incorrect_total_basis_points() {
+    let mut ctx = setup_create_pool_context();
+    let bad_bps = vec![anchor::PrizeTier::new(1, 9999)];
+    let ix = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, bad_bps);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("BasisPointsMustEqual10000"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_exceeding_total_winners() {
+    let mut ctx = setup_create_pool_context();
+    let too_many_winners = vec![anchor::PrizeTier::new(51, 10_000)];
+    let ix = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, too_many_winners);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
 }

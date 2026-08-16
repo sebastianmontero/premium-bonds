@@ -810,3 +810,29 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     assert_eq!(pool_state.total_fees_accrued, 0);
     assert_eq!(pool_state.total_prizes_allocated, 0);
 }
+
+#[test]
+fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_deposit() {
+    // End-to-end test verifying that a newly created pool with atomic prize tiers
+    // allows deposits and immediately completes a harvest draw cycle without calling set_prize_tiers.
+    let mut ctx = setup_happy(
+        10,
+        0,
+        100,
+        default_prize_tiers(),
+        1_000_000,
+        1_000_000,
+        2_000_000,
+        1_000_000,
+    );
+
+    send_harvest(&mut ctx, 1, 0).expect("harvest should succeed immediately with atomic prize tiers");
+
+    let dc = read_draw_cycle(&ctx.svm, 1, 0);
+    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
+
+    let pool = read_pool(&ctx.svm, 1);
+    assert_eq!(pool.is_frozen_for_draw, 1);
+    assert_eq!(pool.prize_tiers_count, 1);
+    assert_eq!(pool.prize_tiers[0], anchor::PrizeTier::default_single_winner());
+}

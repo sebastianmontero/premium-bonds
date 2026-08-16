@@ -93,6 +93,7 @@ pub mod anchor {
         min_yield_threshold: u64,
         max_yield_basis_points: u16,
         payout_timelock_seconds: u32,
+        prize_tiers: Vec<PrizeTier>,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -103,6 +104,7 @@ pub mod anchor {
             min_yield_threshold,
             max_yield_basis_points,
             payout_timelock_seconds,
+            prize_tiers,
         )
     }
 

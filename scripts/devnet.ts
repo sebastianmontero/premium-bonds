@@ -35,6 +35,8 @@ import {
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
   getCreateLenderAccountsV2InstructionDataEncoder,
+  formatPrizeTiersForEncoder,
+  PrizeTierInput,
 } from "../app/lib/bonds-sdk";
 
 function generateRandomAddress(): string {
@@ -56,6 +58,12 @@ function printUsage() {
   );
   console.log(
     "  init                  Runs on-chain initialization sequence on devnet"
+  );
+  console.log(
+    "  airdrop               Airdrops USDC and PST to the specified address"
+  );
+  console.log(
+    "  sync                  Reads on-chain account state and syncs to devnet-state.json and constants"
   );
   console.log(
     "  fund <wallet> <amount> Funds a wallet with SOL (airdrop) and Mock USDC"
@@ -94,7 +102,8 @@ function serializeCreatePoolData(
   feeBasisPoints: number,
   minYieldThreshold: bigint = 0n,
   maxYieldBasisPoints: number = 0,
-  payoutTimelockSeconds: number = 300
+  payoutTimelockSeconds: number = 300,
+  prizeTiers?: PrizeTierInput[]
 ): Uint8Array {
   return getCreatePoolInstructionDataEncoder().encode({
     poolId,
@@ -104,18 +113,13 @@ function serializeCreatePoolData(
     minYieldThreshold,
     maxYieldBasisPoints,
     payoutTimelockSeconds,
+    prizeTiers: formatPrizeTiersForEncoder(prizeTiers),
   });
 }
 
-function serializeSetPrizeTiersData(
-  tiers: { basisPoints: number; numWinners: number }[]
-): Uint8Array {
+function serializeSetPrizeTiersData(tiers: PrizeTierInput[]): Uint8Array {
   return getSetPrizeTiersInstructionDataEncoder().encode({
-    tiers: tiers.map((t) => ({
-      numWinners: t.numWinners,
-      basisPoints: t.basisPoints,
-      padding: new Uint8Array(2),
-    })),
+    tiers: formatPrizeTiersForEncoder(tiers),
   });
 }
 
@@ -596,6 +600,12 @@ async function handleInit(args: string[]) {
     seeds: [new TextEncoder().encode("pool_pst"), poolIdBytes],
   });
 
+  const prizeTiers = [
+    { basisPoints: 5000, numWinners: 1 }, // Grand prize: 50%
+    { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% (15% each)
+    { basisPoints: 400, numWinners: 5 }, // Consolation: 20% (4% each)
+  ];
+
   const createPoolIx = {
     programAddress: address(anchorProgramId),
     accounts: [
@@ -626,18 +636,16 @@ async function handleInit(args: string[]) {
       1_000_000n, // bond price = 1 USDC
       24n, // stake duration = 24 hrs
       100, // fee = 1%
-      0n // min_yield_threshold = 0
+      0n, // min_yield_threshold = 0
+      0, // max_yield_basis_points = 0
+      300, // payout_timelock_seconds = 300
+      prizeTiers
     ),
   };
   await sendTx(rpc, createPoolIx, adminSigner);
 
   // Set Prize Tiers
   console.log("Setting prize tiers...");
-  const prizeTiers = [
-    { basisPoints: 5000, numWinners: 1 }, // Grand prize: 50%
-    { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% (15% each)
-    { basisPoints: 400, numWinners: 5 }, // Consolation: 20% (4% each)
-  ];
   const setTiersIx = {
     programAddress: address(anchorProgramId),
     accounts: [

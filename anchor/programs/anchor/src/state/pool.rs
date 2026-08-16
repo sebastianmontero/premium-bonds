@@ -39,6 +39,20 @@ pub struct PrizeTier {
 }
 
 impl PrizeTier {
+    /// Constructs a new `PrizeTier` with explicit 2-byte zero padding.
+    pub const fn new(num_winners: u32, basis_points: u16) -> Self {
+        Self {
+            num_winners,
+            basis_points,
+            _padding: [0; 2],
+        }
+    }
+
+    /// Default tier configuration with a single winner receiving 100% (10,000 bps) of the prize pot.
+    pub const fn default_single_winner() -> Self {
+        Self::new(1, 10_000)
+    }
+
     /// Calculates the prize amount based on the pool's total prize pot and basis points.
     pub fn calculate_prize(&self, prize_pot: u64) -> Result<u64> {
         let prize = (prize_pot as u128)
@@ -241,6 +255,78 @@ impl PrizePool {
         Ok(())
     }
 
+    /// Validates all prize tiers configuration constraints.
+    ///
+    /// Validates that:
+    /// - The number of tiers is between 1 and `MAX_PRIZE_TIERS`.
+    /// - Each tier specifies positive basis points and winner counts.
+    /// - The sum of basis points multiplied by the number of winners in each tier equals exactly 10,000.
+    /// - The total number of winners does not exceed `MAX_TOTAL_WINNERS`.
+    ///
+    /// Returns the total number of winners across all tiers on success.
+    pub fn validate_prize_tiers(tiers: &[PrizeTier]) -> Result<u32> {
+        require!(
+            !tiers.is_empty() && tiers.len() <= crate::constants::MAX_PRIZE_TIERS,
+            PremiumBondsError::InvalidPrizeTierConfig
+        );
+
+        let mut total_winners: u32 = 0;
+        let mut total_basis_points: u32 = 0;
+
+        for tier in tiers.iter() {
+            require!(
+                tier.basis_points > 0 && tier.num_winners > 0,
+                PremiumBondsError::InvalidPrizeTierConfig
+            );
+
+            total_winners = total_winners
+                .checked_add(tier.num_winners)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+
+            total_basis_points = total_basis_points
+                .checked_add(
+                    (tier.basis_points as u32)
+                        .checked_mul(tier.num_winners)
+                        .ok_or(PremiumBondsError::MathOverflow)?,
+                )
+                .ok_or(PremiumBondsError::MathOverflow)?;
+        }
+
+        require!(
+            total_winners as usize <= crate::constants::MAX_TOTAL_WINNERS,
+            PremiumBondsError::InvalidPrizeTierConfig
+        );
+
+        require!(
+            total_basis_points == 10_000,
+            PremiumBondsError::BasisPointsMustEqual10000
+        );
+
+        Ok(total_winners)
+    }
+
+    /// Validates and applies prize tiers to the pool state.
+    ///
+    /// Sets `prize_tiers_count`, copies the configured tiers, and zero-fills all remaining
+    /// unused slots up to `MAX_PRIZE_TIERS` (10).
+    ///
+    /// Returns the total number of winners across all tiers on success.
+    pub fn set_prize_tiers(&mut self, tiers: &[PrizeTier]) -> Result<u32> {
+        let total_winners = Self::validate_prize_tiers(tiers)?;
+        self.prize_tiers_count = tiers.len() as u8;
+        for (i, tier) in tiers.iter().enumerate() {
+            self.prize_tiers[i] = *tier;
+        }
+        for i in tiers.len()..crate::constants::MAX_PRIZE_TIERS {
+            self.prize_tiers[i] = PrizeTier {
+                num_winners: 0,
+                basis_points: 0,
+                _padding: [0; 2],
+            };
+        }
+        Ok(total_winners)
+    }
+
     /// Validates all initial configuration parameters for creating a new pool.
     pub fn validate_pool_creation_params(
         bond_price: u64,
@@ -248,13 +334,14 @@ impl PrizePool {
         fee_basis_points: u16,
         max_yield_basis_points: u16,
         payout_timelock_seconds: u32,
-    ) -> Result<()> {
+        prize_tiers: &[PrizeTier],
+    ) -> Result<u32> {
         Self::validate_bond_price(bond_price)?;
         Self::validate_stake_cycle_duration(stake_cycle_duration_hrs)?;
         Self::validate_fee_basis_points(fee_basis_points)?;
         Self::validate_max_yield_basis_points(max_yield_basis_points)?;
         Self::validate_payout_timelock_seconds(payout_timelock_seconds)?;
-        Ok(())
+        Self::validate_prize_tiers(prize_tiers)
     }
 }
 
@@ -787,26 +874,136 @@ mod tests {
 
     #[test]
     fn test_validate_pool_creation_params() {
-        assert!(PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300).is_ok());
+        let valid_tiers = [PrizeTier::default_single_winner()];
         assert_eq!(
-            PrizePool::validate_pool_creation_params(0, 24, 100, 500, 300).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &valid_tiers).unwrap(),
+            1
+        );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(0, 24, 100, 500, 300, &valid_tiers).unwrap_err(),
             PremiumBondsError::InvalidBondPrice.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 0, 100, 500, 300).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 0, 100, 500, 300, &valid_tiers).unwrap_err(),
             PremiumBondsError::InvalidStakeCycleDuration.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 10_001, 500, 300).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 10_001, 500, 300, &valid_tiers).unwrap_err(),
             PremiumBondsError::InvalidFeeConfig.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 10_001, 300).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 10_001, 300, &valid_tiers).unwrap_err(),
             PremiumBondsError::InvalidMaxYieldBasisPoints.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 86_401).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 86_401, &valid_tiers).unwrap_err(),
             PremiumBondsError::InvalidPayoutTimelock.into()
         );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &[]).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_prize_tiers_success() {
+        let single_tier = [PrizeTier::default_single_winner()];
+        assert_eq!(PrizePool::validate_prize_tiers(&single_tier).unwrap(), 1);
+
+        let multi_tier = [
+            PrizeTier::new(1, 5000),
+            PrizeTier::new(5, 1000),
+        ];
+        assert_eq!(PrizePool::validate_prize_tiers(&multi_tier).unwrap(), 6);
+    }
+
+    #[test]
+    fn test_validate_prize_tiers_failures() {
+        // Empty tiers
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&[]).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+
+        // Exceeding 10 tiers
+        let eleven_tiers = vec![PrizeTier::new(1, 909); 11];
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&eleven_tiers).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+
+        // Zero winners in tier
+        let zero_winners = [PrizeTier::new(0, 10_000)];
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&zero_winners).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+
+        // Zero basis points in tier
+        let zero_bps = [PrizeTier::new(1, 0)];
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&zero_bps).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+
+        // Total basis points != 10000
+        let bad_bps = [PrizeTier::new(1, 9999)];
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&bad_bps).unwrap_err(),
+            PremiumBondsError::BasisPointsMustEqual10000.into()
+        );
+
+        // Exceeding max winners (> 50)
+        let too_many_winners = [PrizeTier::new(51, 10_000)];
+        assert_eq!(
+            PrizePool::validate_prize_tiers(&too_many_winners).unwrap_err(),
+            PremiumBondsError::InvalidPrizeTierConfig.into()
+        );
+    }
+
+    #[test]
+    fn test_set_prize_tiers_state_mutation() {
+        let mut pool = PrizePool {
+            vault_authority_bump: 0,
+            pool_id: 1,
+            token_mint: Pubkey::default(),
+            ticket_registry: Pubkey::default(),
+            fee_wallet: Pubkey::default(),
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs: 24,
+            current_cycle_end_at: 0,
+            fee_basis_points: 100,
+            min_yield_threshold: 0,
+            max_yield_basis_points: 0,
+            payout_timelock_seconds: 300,
+            status: PoolStatus::Active as u8,
+            total_deposited_principal: 0,
+            is_frozen_for_draw: 0,
+            current_draw_cycle_id: 0,
+            prize_tiers_count: 0,
+            _padding: [0; 3],
+            prize_tiers: [PrizeTier { num_winners: 99, basis_points: 99, _padding: [0; 2] }; 10],
+            next_redemption_id: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
+            version: 1,
+            _reserved: [0; 128],
+        };
+
+        let tiers = [
+            PrizeTier::new(1, 6000),
+            PrizeTier::new(4, 1000),
+        ];
+        let total_winners = pool.set_prize_tiers(&tiers).unwrap();
+        assert_eq!(total_winners, 5);
+        assert_eq!(pool.prize_tiers_count, 2);
+        assert_eq!(pool.prize_tiers[0], PrizeTier::new(1, 6000));
+        assert_eq!(pool.prize_tiers[1], PrizeTier::new(4, 1000));
+        // Remaining slots are zeroed
+        for i in 2..10 {
+            assert_eq!(pool.prize_tiers[i], PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] });
+        }
     }
 }

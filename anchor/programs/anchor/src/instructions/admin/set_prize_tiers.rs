@@ -52,54 +52,7 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
-    require!(
-        !tiers.is_empty() && tiers.len() <= MAX_PRIZE_TIERS,
-        PremiumBondsError::InvalidPrizeTierConfig
-    );
-
-    let mut total_winners: u32 = 0;
-    let mut total_basis_points: u32 = 0;
-
-    for tier in tiers.iter() {
-        require!(
-            tier.basis_points > 0 && tier.num_winners > 0,
-            PremiumBondsError::InvalidPrizeTierConfig
-        );
-
-        total_winners = total_winners
-            .checked_add(tier.num_winners)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        total_basis_points = total_basis_points
-            .checked_add(
-                (tier.basis_points as u32)
-                    .checked_mul(tier.num_winners)
-                    .ok_or(PremiumBondsError::MathOverflow)?,
-            )
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
-
-    require!(
-        total_winners as usize <= MAX_TOTAL_WINNERS,
-        PremiumBondsError::InvalidPrizeTierConfig
-    );
-
-    require!(
-        total_basis_points == 10_000,
-        PremiumBondsError::BasisPointsMustEqual10000
-    );
-
-    pool.prize_tiers_count = tiers.len() as u8;
-    for (i, tier) in tiers.iter().enumerate() {
-        pool.prize_tiers[i] = *tier;
-    }
-    for i in tiers.len()..MAX_PRIZE_TIERS {
-        pool.prize_tiers[i] = PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0; 2],
-        };
-    }
+    let total_winners = pool.set_prize_tiers(&tiers)?;
 
     emit!(PrizeTiersUpdated {
         pool_id: pool.pool_id,

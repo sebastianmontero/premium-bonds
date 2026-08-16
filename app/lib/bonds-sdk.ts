@@ -687,6 +687,24 @@ export async function buildUpdateGlobalConfigInstruction(params: {
   });
 }
 
+export type PrizeTierInput = { numWinners: number; basisPoints: number };
+
+export const DEFAULT_PRIZE_TIERS: PrizeTierInput[] = [
+  { numWinners: 1, basisPoints: 10_000 },
+];
+
+/**
+ * Formats user-supplied prize tier definitions into Codama-compatible args with required padding.
+ */
+export function formatPrizeTiersForEncoder(tiers?: PrizeTierInput[]) {
+  const source = tiers && tiers.length > 0 ? tiers : DEFAULT_PRIZE_TIERS;
+  return source.map((t) => ({
+    numWinners: t.numWinners,
+    basisPoints: t.basisPoints,
+    padding: new Uint8Array(2),
+  }));
+}
+
 export async function buildCreatePoolInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
@@ -696,6 +714,7 @@ export async function buildCreatePoolInstruction(params: {
   minYieldThreshold?: bigint | number;
   maxYieldBasisPoints?: number;
   payoutTimelockSeconds?: number;
+  prizeTiers?: PrizeTierInput[];
   tokenMint: Address;
   pstMint: Address;
   ticketRegistry: Address;
@@ -714,6 +733,7 @@ export async function buildCreatePoolInstruction(params: {
         : 0n,
     maxYieldBasisPoints: params.maxYieldBasisPoints ?? 0,
     payoutTimelockSeconds: params.payoutTimelockSeconds ?? 300,
+    prizeTiers: formatPrizeTiersForEncoder(params.prizeTiers),
     tokenMint: params.tokenMint,
     pstMint: params.pstMint,
     ticketRegistry: params.ticketRegistry,
@@ -725,17 +745,13 @@ export async function buildCreatePoolInstruction(params: {
 export async function buildSetPrizeTiersInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
-  tiers: Array<{ numWinners: number; basisPoints: number }>;
+  tiers: PrizeTierInput[];
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   return getSetPrizeTiersInstructionAsync({
     admin: params.admin as TransactionSigner,
     pool,
-    tiers: params.tiers.map((t) => ({
-      numWinners: t.numWinners,
-      basisPoints: t.basisPoints,
-      padding: new Uint8Array(2),
-    })),
+    tiers: formatPrizeTiersForEncoder(params.tiers),
   });
 }
 
