@@ -66,6 +66,8 @@ fn inject_pool(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 0,
         status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
@@ -78,7 +80,7 @@ fn inject_pool(
         current_draw_cycle_id: 0,
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };
@@ -119,8 +121,10 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         cycle_id,
         winners_count: count as u32,
         payouts_completed: 0,
+        revealed_at: 0,
+        status: anchor::PayoutRegistryStatus::Active as u8,
         version: 1,
-        _padding: [0; 7],
+        _padding: [0; 6],
         _reserved: [0; 64],
         winners: fixed_winners,
     };
@@ -698,3 +702,82 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
     assert_eq!(entry.pending, 0);
     assert_eq!(entry.merged_through_cycle, 1);
 }
+
+#[test]
+fn test_reinvest_fails_payout_timelock_active() {
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner = Keypair::new().pubkey();
+    let mint = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: 1,
+        _reserved: [0; 15],
+    }];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+    let pool_pda = inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    // Set payout_timelock_seconds = 300
+    {
+        let mut acc = svm.get_account(&pool_pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.payout_timelock_seconds = 300;
+        svm.set_account(pool_pda, acc).unwrap();
+    }
+
+    // Payout revealed at timestamp 1_000
+    let (payout_pda, _) = payout_pda(1, 0);
+    inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
+    {
+        let mut acc = svm.get_account(&payout_pda).unwrap();
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        pr.revealed_at = 1_000;
+        svm.set_account(payout_pda, acc).unwrap();
+    }
+
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+    // Current clock is 1_200 (timelock active until 1_000 + 300 = 1_300)
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.unix_timestamp = 1_200;
+    svm.set_sysvar(&clock);
+
+    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("PayoutTimelockActive"), "got: {err}");
+
+    // Advance clock to 1_300 (timelock elapsed)
+    clock.unix_timestamp = 1_300;
+    ctx.svm.set_sysvar(&clock);
+    let crank2 = Keypair::new();
+    ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
+    ctx.crank = crank2;
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest should succeed after timelock elapsed");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.bonds_bought, 3);
+}
+
+#[test]
+fn test_reinvest_fails_draw_voided() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let (pda, _) = payout_pda(1, 0);
+    {
+        let mut acc = ctx.svm.get_account(&pda).unwrap();
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        pr.status = anchor::PayoutRegistryStatus::Voided as u8;
+        ctx.svm.set_account(pda, acc).unwrap();
+    }
+
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("DrawVoided"), "got: {err}");
+}
+

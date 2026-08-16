@@ -178,6 +178,10 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     payout_registry.cycle_id = draw_cycle.cycle_id;
     payout_registry.version = 1;
     payout_registry.payouts_completed = 0;
+    payout_registry.revealed_at = clock.unix_timestamp;
+    payout_registry.status = crate::state::PayoutRegistryStatus::Active as u8;
+    payout_registry._padding = [0; 6];
+    payout_registry._reserved = [0; 64];
 
     let mut total_distributed: u64 = 0;
     let mut winner_count: usize = 0;

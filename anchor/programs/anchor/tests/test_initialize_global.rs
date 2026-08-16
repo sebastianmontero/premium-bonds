@@ -43,13 +43,15 @@ fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
 fn test_initialize_global_succeeds_same_authority_and_admin() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
-    let meta = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+    let meta = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("initialize_global should succeed");
 
     let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
     assert_eq!(event.admin, authority.pubkey());
+    assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);
 
     let (pda, _) = global_config_pda();
@@ -60,6 +62,7 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, authority.pubkey());
+    assert_eq!(config.guardian, guardian);
     assert_eq!(config.jobs_account, jobs);
 }
 
@@ -69,18 +72,21 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
 fn test_initialize_global_succeeds_different_authority_and_admin() {
     let authority = Keypair::new();
     let designated_admin = Keypair::new().pubkey();
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
     let mut svm = setup_svm_with_authority(&authority);
 
-    let meta = send_initialize_global(&mut svm, &authority, &designated_admin, &jobs)
+    let meta = send_initialize_global(&mut svm, &authority, &designated_admin, &guardian, &jobs)
         .expect("initialize_global should succeed with separate admin");
 
     let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
     assert_eq!(event.admin, designated_admin);
+    assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, designated_admin);
+    assert_eq!(config.guardian, guardian);
     assert_eq!(config.jobs_account, jobs);
 }
 
@@ -89,8 +95,9 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
 fn test_initialize_global_sets_jobs_account_default() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
+    let guardian = Keypair::new().pubkey();
 
-    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &Pubkey::default())
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &Pubkey::default())
         .expect("should succeed with default jobs pubkey");
 
     let config = read_global_config(&svm);
@@ -103,10 +110,11 @@ fn test_initialize_global_sets_jobs_account_default() {
 fn test_initialize_global_deducts_rent_from_payer() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
     let balance_before = svm.get_balance(&authority.pubkey()).unwrap();
 
-    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("initialize_global should succeed");
 
     let balance_after = svm.get_balance(&authority.pubkey()).unwrap();
@@ -121,8 +129,9 @@ fn test_initialize_global_deducts_rent_from_payer() {
 fn test_initialize_global_account_owned_by_program() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
-    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("initialize_global should succeed");
 
     let (pda, _) = global_config_pda();
@@ -146,8 +155,9 @@ fn test_initialize_global_fails_when_signer_is_not_upgrade_authority() {
     let mut svm = setup_svm_with_authority(&real_upgrade_authority);
     svm.airdrop(&fake_attacker.pubkey(), 10_000_000_000).unwrap();
 
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
-    let result = send_initialize_global(&mut svm, &fake_attacker, &fake_attacker.pubkey(), &jobs);
+    let result = send_initialize_global(&mut svm, &fake_attacker, &fake_attacker.pubkey(), &guardian, &jobs);
     assert!(
         result.is_err(),
         "Must fail when signer is not the program's upgrade authority"
@@ -164,12 +174,14 @@ fn test_initialize_global_requires_authority_signature() {
 
     let (global_config, _) = global_config_pda();
     let (program_data, _) = program_data_pda();
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
     let mut accounts = anchor::accounts::InitializeGlobal {
         global_config,
         authority: unsigned_authority.pubkey(),
         admin: unsigned_authority.pubkey(),
+        guardian,
         jobs_account: jobs,
         program_data,
         program: anchor::id(),
@@ -208,12 +220,14 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
     let mut svm = setup_svm_with_authority(&authority);
     let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
     let (program_data, _) = program_data_pda();
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::InitializeGlobal {
         global_config: wrong_pda,
         authority: authority.pubkey(),
         admin: authority.pubkey(),
+        guardian,
         jobs_account: jobs,
         program_data,
         program: anchor::id(),
@@ -241,12 +255,14 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
     let mut svm = setup_svm_with_authority(&authority);
     let (global_config, _) = global_config_pda();
     let (wrong_program_data, _) = Pubkey::find_program_address(&[b"wrong_program_data"], &anchor::id());
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::InitializeGlobal {
         global_config,
         authority: authority.pubkey(),
         admin: authority.pubkey(),
+        guardian,
         jobs_account: jobs,
         program_data: wrong_program_data,
         program: anchor::id(),
@@ -272,13 +288,14 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
 fn test_initialize_global_fails_on_double_init() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
+    let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
     // First call succeeds
-    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs)
+    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("first init should succeed");
 
     // Second call must fail
-    let result = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &jobs);
+    let result = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs);
     assert!(result.is_err(), "Second init on the same PDA must fail");
 }

@@ -90,6 +90,26 @@ export const ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS = 0x1793; // 6035
 export const ANCHOR_ERROR__INVALID_FEE_WALLET = 0x1794; // 6036
 /** CannotModifyBondPriceWithActiveDeposits: Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes. */
 export const ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS = 0x1795; // 6037
+/** PoolPaused: The prize pool is paused. */
+export const ANCHOR_ERROR__POOL_PAUSED = 0x1796; // 6038
+/** PoolClosed: The prize pool is closed permanently. */
+export const ANCHOR_ERROR__POOL_CLOSED = 0x1797; // 6039
+/** DrawVoided: This draw has been voided. */
+export const ANCHOR_ERROR__DRAW_VOIDED = 0x1798; // 6040
+/** DrawAlreadyVoided: This draw has already been voided. */
+export const ANCHOR_ERROR__DRAW_ALREADY_VOIDED = 0x1799; // 6041
+/** PayoutsAlreadyStarted: Winner payouts have already begun processing. */
+export const ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED = 0x179a; // 6042
+/** PayoutTimelockActive: Payout settlement timelock is active. */
+export const ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE = 0x179b; // 6043
+/** FeesAlreadyWithdrawn: Protocol fees from this cycle were already withdrawn. */
+export const ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN = 0x179c; // 6044
+/** YieldVelocityExceeded: Yield velocity limit exceeded. */
+export const ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED = 0x179d; // 6045
+/** YieldVenueInsolvent: Yield venue is insolvent. */
+export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x179e; // 6046
+/** Unauthorized: Unauthorized signer. */
+export const ANCHOR_ERROR__UNAUTHORIZED = 0x179f; // 6047
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -97,6 +117,9 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000
   | typeof ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS
   | typeof ANCHOR_ERROR__CYCLE_NOT_ENDED
+  | typeof ANCHOR_ERROR__DRAW_ALREADY_VOIDED
+  | typeof ANCHOR_ERROR__DRAW_VOIDED
+  | typeof ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN
   | typeof ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
@@ -118,8 +141,12 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__MATH_OVERFLOW
   | typeof ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS
   | typeof ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM
+  | typeof ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED
+  | typeof ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE
+  | typeof ANCHOR_ERROR__POOL_CLOSED
   | typeof ANCHOR_ERROR__POOL_NOT_ACTIVE
   | typeof ANCHOR_ERROR__POOL_NOT_FROZEN
+  | typeof ANCHOR_ERROR__POOL_PAUSED
   | typeof ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED
@@ -127,9 +154,12 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
   | typeof ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST
+  | typeof ANCHOR_ERROR__UNAUTHORIZED
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
-  | typeof ANCHOR_ERROR__UNAUTHORIZED_TICKET;
+  | typeof ANCHOR_ERROR__UNAUTHORIZED_TICKET
+  | typeof ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED
+  | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT;
 
 let anchorErrorMessages: Record<AnchorError, string> | undefined;
 if (process.env["NODE_ENV"] !== "production") {
@@ -139,6 +169,9 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000]: `Total basis points across all tiers must equal exactly 10,000 (100%).`,
     [ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS]: `Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.`,
     [ANCHOR_ERROR__CYCLE_NOT_ENDED]: `The current stake cycle has not yet ended.`,
+    [ANCHOR_ERROR__DRAW_ALREADY_VOIDED]: `This draw has already been voided.`,
+    [ANCHOR_ERROR__DRAW_VOIDED]: `This draw has been voided.`,
+    [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: `Protocol fees from this cycle were already withdrawn.`,
     [ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED]: `Huma redemption has not been settled yet.`,
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
@@ -160,8 +193,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__MATH_OVERFLOW]: `Calculation overflow occurred natively.`,
     [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: `Required remaining account for swapped user's UserWinnings is missing`,
     [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: `No unclaimed non-reinvested winnings to claim.`,
+    [ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED]: `Winner payouts have already begun processing.`,
+    [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: `Payout settlement timelock is active.`,
+    [ANCHOR_ERROR__POOL_CLOSED]: `The prize pool is closed permanently.`,
     [ANCHOR_ERROR__POOL_NOT_ACTIVE]: `The prize pool is not currently active.`,
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
+    [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `The randomness account cannot be re-locked because the current one is not yet expired.`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
@@ -169,9 +206,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,
     [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: `The randomness request is stale or was committed before the harvest freeze.`,
+    [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,
     [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: `Trying to sell a ticket that does not belong to the signer.`,
+    [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: `Yield velocity limit exceeded.`,
+    [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: `Yield venue is insolvent.`,
   };
 }
 

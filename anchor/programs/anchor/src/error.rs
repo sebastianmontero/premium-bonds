@@ -118,4 +118,34 @@ pub enum PremiumBondsError {
     /// Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.
     #[msg("Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.")]
     CannotModifyBondPriceWithActiveDeposits,
+    /// The prize pool is paused due to an emergency or circuit breaker event.
+    #[msg("The prize pool is paused.")]
+    PoolPaused,
+    /// The prize pool is closed permanently.
+    #[msg("The prize pool is closed permanently.")]
+    PoolClosed,
+    /// This draw has been voided by the protocol administrator.
+    #[msg("This draw has been voided.")]
+    DrawVoided,
+    /// This draw has already been voided.
+    #[msg("This draw has already been voided.")]
+    DrawAlreadyVoided,
+    /// Winner payouts have already begun processing; draw cannot be voided.
+    #[msg("Winner payouts have already begun processing.")]
+    PayoutsAlreadyStarted,
+    /// Payout settlement timelock is active. Please wait for the timelock window to elapse.
+    #[msg("Payout settlement timelock is active.")]
+    PayoutTimelockActive,
+    /// Protocol fees from this cycle were already withdrawn; draw cannot be voided.
+    #[msg("Protocol fees from this cycle were already withdrawn.")]
+    FeesAlreadyWithdrawn,
+    /// Yield generated in a single cycle exceeded the configured velocity ceiling.
+    #[msg("Yield velocity limit exceeded.")]
+    YieldVelocityExceeded,
+    /// Yield venue balance dropped below deposited book value.
+    #[msg("Yield venue is insolvent.")]
+    YieldVenueInsolvent,
+    /// Caller is not authorized for this operation.
+    #[msg("Unauthorized signer.")]
+    Unauthorized,
 }

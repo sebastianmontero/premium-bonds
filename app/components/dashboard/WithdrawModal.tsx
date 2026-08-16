@@ -47,7 +47,10 @@ export function WithdrawModal({
   const parsedTickets = parseInt(ticketAmount, 10) || 0;
   const withdrawValue = parsedTickets * pool.bondPrice;
   const canWithdraw =
-    parsedTickets > 0 && parsedTickets <= maxTickets && !pool.isFrozenForDraw;
+    parsedTickets > 0 &&
+    parsedTickets <= maxTickets &&
+    !pool.isFrozenForDraw &&
+    pool.status !== "Paused";
 
   const handleWithdraw = useCallback(async () => {
     if (!canWithdraw) return;
@@ -205,6 +208,60 @@ export function WithdrawModal({
           </div>
         )}
 
+        {/* Paused Alert */}
+        {pool.status === "Paused" && !pool.isFrozenForDraw && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <svg
+              className="w-5 h-5 text-amber-400 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-amber-200">
+                Pool is paused
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                Withdrawals are temporarily halted while the emergency pause is active.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Closed Sunset Notice */}
+        {pool.status === "Closed" && (
+          <div className="flex items-center gap-3 rounded-xl border border-surface-container-highest bg-surface-container-high/80 px-4 py-3">
+            <svg
+              className="w-5 h-5 text-primary shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-on-surface">
+                Pool is closed (sunset)
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                You may withdraw 100% of your deposited bond principal without penalty.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Current Balance */}
         <div className="rounded-xl bg-surface-container/60 px-4 py-3 flex items-center justify-between">
           <span className="text-xs font-medium text-on-surface-variant">
@@ -335,11 +392,13 @@ export function WithdrawModal({
         >
           {pool.isFrozenForDraw
             ? "Pool Frozen — Try Later"
-            : parsedTickets > maxTickets
-              ? "Exceeds Balance"
-              : parsedTickets > 0
-                ? `Request Withdrawal — ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol}`
-                : t("enterAmount")}
+            : pool.status === "Paused"
+              ? "Pool Paused"
+              : parsedTickets > maxTickets
+                ? "Exceeds Balance"
+                : parsedTickets > 0
+                  ? `Request Withdrawal — ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol}`
+                  : t("enterAmount")}
         </button>
       </div>
     </div>

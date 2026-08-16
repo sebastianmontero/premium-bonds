@@ -120,6 +120,8 @@ fn inject_pool_with_next_redemption_id(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
         status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
@@ -132,7 +134,7 @@ fn inject_pool_with_next_redemption_id(
         current_draw_cycle_id: 0,
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };
@@ -329,10 +331,10 @@ fn test_claim_fails_no_winnings() {
 }
 
 #[test]
-fn test_claim_fails_pool_not_active() {
+fn test_claim_fails_pool_paused() {
     let mut ctx = setup_claim_guard(500_000, anchor::PoolStatus::Paused);
     let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("PoolNotActive"), "got: {err}");
+    assert!(err.contains("PoolPaused"), "got: {err}");
 }
 
 #[test]

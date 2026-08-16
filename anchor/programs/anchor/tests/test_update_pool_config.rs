@@ -29,6 +29,8 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
         status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
@@ -41,7 +43,7 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         current_draw_cycle_id: 0,
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };
@@ -74,15 +76,43 @@ fn build_update_pool_config_ix(
     new_min_yield_threshold: Option<u64>,
     new_stake_cycle_duration_hrs: Option<i64>,
 ) -> Instruction {
+    build_update_pool_config_full_ix(
+        admin,
+        pool_id,
+        new_fee_basis_points,
+        new_bond_price,
+        new_fee_wallet,
+        new_min_yield_threshold,
+        new_stake_cycle_duration_hrs,
+        None,
+        None,
+    )
+}
+
+fn build_update_pool_config_full_ix(
+    admin: Pubkey,
+    pool_id: u32,
+    new_fee_basis_points: Option<u16>,
+    new_bond_price: Option<u64>,
+    new_fee_wallet: Option<Pubkey>,
+    new_min_yield_threshold: Option<u64>,
+    new_stake_cycle_duration_hrs: Option<i64>,
+    new_max_yield_basis_points: Option<u16>,
+    new_payout_timelock_seconds: Option<u32>,
+) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
 
-    let accounts = anchor::accounts::UpdatePoolConfig {
+    let mut accounts = anchor::accounts::UpdatePoolConfig {
         global_config,
         admin,
         pool,
     }
     .to_account_metas(None);
+
+    if let Some(fee_wallet) = new_fee_wallet {
+        accounts.push(solana_program::instruction::AccountMeta::new_readonly(fee_wallet, false));
+    }
 
     Instruction {
         program_id: anchor::id(),
@@ -93,6 +123,8 @@ fn build_update_pool_config_ix(
             new_fee_wallet,
             new_min_yield_threshold,
             new_stake_cycle_duration_hrs,
+            new_max_yield_basis_points,
+            new_payout_timelock_seconds,
         }
         .data(),
     }
@@ -148,6 +180,7 @@ fn test_update_pool_config_succeeds_all_fields() {
     let pool_pda = inject_pool(&mut svm, 1);
 
     let new_fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, new_fee_wallet, Pubkey::default(), admin.pubkey(), 0);
 
     let ix = build_update_pool_config_ix(
         admin.pubkey(),
@@ -523,3 +556,137 @@ fn test_update_pool_config_duration_advances_on_next_harvest() {
     // 100_001 + 168 * 3600 = 100_001 + 604_800 = 704_801
     assert_eq!(pool_mut.current_cycle_end_at, 100_001 + 168 * 3600);
 }
+
+#[test]
+fn test_update_pool_config_fails_missing_fee_wallet_account() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+    let new_fee_wallet = Keypair::new().pubkey();
+
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(1);
+
+    let accounts = anchor::accounts::UpdatePoolConfig {
+        global_config,
+        admin: admin.pubkey(),
+        pool,
+    }
+    .to_account_metas(None);
+
+    // Intentionally do NOT push new_fee_wallet to remaining_accounts
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::UpdatePoolConfig {
+            new_fee_basis_points: None,
+            new_bond_price: None,
+            new_fee_wallet: Some(new_fee_wallet),
+            new_min_yield_threshold: None,
+            new_stake_cycle_duration_hrs: None,
+            new_max_yield_basis_points: None,
+            new_payout_timelock_seconds: None,
+        }
+        .data(),
+    };
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidFeeWallet"), "got: {err_str}");
+}
+
+#[test]
+fn test_update_pool_config_fails_invalid_fee_wallet_mint() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    // Create fee_wallet with wrong token mint
+    let wrong_mint = Keypair::new().pubkey();
+    let new_fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, new_fee_wallet, wrong_mint, admin.pubkey(), 0);
+
+    // Pool's token_mint is Pubkey::default() in inject_pool, which does not match wrong_mint
+    let ix = build_update_pool_config_ix(
+        admin.pubkey(),
+        1,
+        None,
+        None,
+        Some(new_fee_wallet),
+        None,
+        None,
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidFeeWallet"), "got: {err_str}");
+}
+
+#[test]
+fn test_update_pool_config_fails_timelock_exceeds_max() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_full_ix(
+        admin.pubkey(),
+        1,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(86_401), // > 86400 max
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("MathOverflow"), "got: {err_str}");
+}
+
+#[test]
+fn test_update_pool_config_succeeds_max_yield_and_timelock() {
+    let (mut svm, admin) = setup_global_config();
+    let pool_pda = inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_full_ix(
+        admin.pubkey(),
+        1,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(500),  // 5%
+        Some(600),  // 600s
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let meta = svm.send_transaction(tx).expect("update should succeed");
+    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.max_yield_basis_points, 500);
+    assert_eq!(event.payout_timelock_seconds, 600);
+
+    let pool_acc = svm.get_account(&pool_pda).unwrap();
+    let mut data_slice: &[u8] = &pool_acc.data;
+    let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
+    assert_eq!(pool_state.max_yield_basis_points, 500);
+    assert_eq!(pool_state.payout_timelock_seconds, 600);
+}
+

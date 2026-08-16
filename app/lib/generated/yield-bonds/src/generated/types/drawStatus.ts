@@ -22,6 +22,9 @@ export enum DrawStatus {
   Complete,
   ForceUnlocked,
   Skipped,
+  Voided,
+  HaltedInsolvent,
+  HaltedYieldSpike,
 }
 
 export type DrawStatusArgs = DrawStatus;

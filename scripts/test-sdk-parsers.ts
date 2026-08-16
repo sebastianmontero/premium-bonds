@@ -64,9 +64,10 @@ function mockAccount(data: Uint8Array) {
 
 // 2. Test decodeGlobalConfig
 {
-  const buffer = new Uint8Array(137);
+  const buffer = new Uint8Array(169);
   const parsed = decodeGlobalConfig(mockAccount(buffer)).data;
   assert.ok(parsed.admin);
+  assert.ok(parsed.guardian);
   assert.ok(parsed.jobsAccount);
   console.log("✓ decodeGlobalConfig passed");
 }
@@ -137,17 +138,19 @@ function mockAccount(data: Uint8Array) {
 
 // 5. Test decodePayoutRegistry
 {
-  const buffer = new Uint8Array(8 + 2888);
+  const buffer = new Uint8Array(8 + 2896);
   const view = new DataView(buffer.buffer);
 
   view.setUint32(8, 1, true); // pool_id
   view.setUint32(12, 0, true); // cycle_id
   view.setUint32(16, 1, true); // winners_count
   view.setUint32(20, 0, true); // payouts_completed
-  buffer[24] = 1; // version
+  view.setBigInt64(24, 1700000000n, true); // revealed_at
+  buffer[32] = 0; // status (Active = 0)
+  buffer[33] = 1; // version
 
-  // Winner 0 at offset 8 + 88 = 96
-  const wOffset = 96;
+  // Winner 0 at offset 8 + 32 (header) + 64 (reserved) = 104
+  const wOffset = 104;
   buffer.fill(2, wOffset, wOffset + 32); // winner Pubkey (32 bytes: 0..32)
   view.setBigUint64(wOffset + 32, 5_000_000n, true); // amount_owed (8 bytes: 32..40)
   view.setUint32(wOffset + 40, 2, true); // bonds_bought (4 bytes: 40..44)
@@ -159,6 +162,9 @@ function mockAccount(data: Uint8Array) {
   assert.strictEqual(parsed.poolId, 1);
   assert.strictEqual(parsed.cycleId, 0);
   assert.strictEqual(parsed.winnersCount, 1);
+  assert.strictEqual(parsed.payoutsCompleted, 0);
+  assert.strictEqual(parsed.revealedAt, 1700000000n);
+  assert.strictEqual(parsed.status, 0);
   assert.strictEqual(parsed.winners[0].amountOwed, 5_000_000n);
   assert.strictEqual(parsed.winners[0].bondsBought, 2);
   assert.ok(parsed.winners[0].winner);

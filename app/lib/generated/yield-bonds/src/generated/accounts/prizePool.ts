@@ -93,6 +93,10 @@ export type PrizePool = {
   currentDrawCycleId: number;
   /** Protocol fee rate in basis points (e.g. 250 = 2.5%). */
   feeBasisPoints: number;
+  /** Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped). */
+  maxYieldBasisPoints: number;
+  /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s). */
+  payoutTimelockSeconds: number;
   /** Bump seed for the vault authority. */
   vaultAuthorityBump: number;
   /** Administrative lifecycle status of the pool (u8 representation of PoolStatus). */
@@ -144,6 +148,10 @@ export type PrizePoolArgs = {
   currentDrawCycleId: number;
   /** Protocol fee rate in basis points (e.g. 250 = 2.5%). */
   feeBasisPoints: number;
+  /** Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped). */
+  maxYieldBasisPoints: number;
+  /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s). */
+  payoutTimelockSeconds: number;
   /** Bump seed for the vault authority. */
   vaultAuthorityBump: number;
   /** Administrative lifecycle status of the pool (u8 representation of PoolStatus). */
@@ -186,12 +194,14 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["poolId", getU32Encoder()],
       ["currentDrawCycleId", getU32Encoder()],
       ["feeBasisPoints", getU16Encoder()],
+      ["maxYieldBasisPoints", getU16Encoder()],
+      ["payoutTimelockSeconds", getU32Encoder()],
       ["vaultAuthorityBump", getU8Encoder()],
       ["status", getU8Encoder()],
       ["isFrozenForDraw", getU8Encoder()],
       ["version", getU8Encoder()],
       ["prizeTiersCount", getU8Encoder()],
-      ["padding", fixEncoderSize(getBytesEncoder(), 1)],
+      ["padding", fixEncoderSize(getBytesEncoder(), 3)],
       ["tokenMint", getAddressEncoder()],
       ["ticketRegistry", getAddressEncoder()],
       ["feeWallet", getAddressEncoder()],
@@ -219,12 +229,14 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["poolId", getU32Decoder()],
     ["currentDrawCycleId", getU32Decoder()],
     ["feeBasisPoints", getU16Decoder()],
+    ["maxYieldBasisPoints", getU16Decoder()],
+    ["payoutTimelockSeconds", getU32Decoder()],
     ["vaultAuthorityBump", getU8Decoder()],
     ["status", getU8Decoder()],
     ["isFrozenForDraw", getU8Decoder()],
     ["version", getU8Decoder()],
     ["prizeTiersCount", getU8Decoder()],
-    ["padding", fixDecoderSize(getBytesDecoder(), 1)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 3)],
     ["tokenMint", getAddressDecoder()],
     ["ticketRegistry", getAddressDecoder()],
     ["feeWallet", getAddressDecoder()],
@@ -292,5 +304,5 @@ export async function fetchAllMaybePrizePool(
 }
 
 export function getPrizePoolSize(): number {
-  return 408;
+  return 416;
 }

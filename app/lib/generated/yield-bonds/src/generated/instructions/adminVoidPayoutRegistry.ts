@@ -10,34 +10,19 @@ const SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS = 1200004 as any
  * @see https://github.com/codama-idl/codama
  */
 
-import {
-  getAddressDecoder,
-  getAddressEncoder,
-  type Address } from "@solana/addresses";
+import { type Address } from "@solana/addresses";
 import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
-  getI64Decoder,
-  getI64Encoder,
-  getOptionDecoder,
-  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU16Decoder,
-  getU16Encoder,
-  getU32Decoder,
-  getU32Encoder,
-  getU64Decoder,
-  getU64Encoder,
   transformEncoder,
-  type Codec,
-  type Decoder,
-  type Encoder,
-  type Option,
-  type OptionOrNullable,
+  type FixedSizeCodec,
+  type FixedSizeDecoder,
+  type FixedSizeEncoder,
   type ReadonlyUint8Array } from "@solana/codecs";
 import {
 SolanaError } from "@solana/errors";
@@ -61,20 +46,22 @@ import {
 import { findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
-export const UPDATE_POOL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
-  new Uint8Array([68, 236, 203, 122, 179, 62, 234, 252]);
+export const ADMIN_VOID_PAYOUT_REGISTRY_DISCRIMINATOR: ReadonlyUint8Array =
+  new Uint8Array([38, 164, 27, 81, 125, 241, 156, 151]);
 
-export function getUpdatePoolConfigDiscriminatorBytes(): ReadonlyUint8Array {
+export function getAdminVoidPayoutRegistryDiscriminatorBytes(): ReadonlyUint8Array {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    UPDATE_POOL_CONFIG_DISCRIMINATOR
+    ADMIN_VOID_PAYOUT_REGISTRY_DISCRIMINATOR
   );
 }
 
-export type UpdatePoolConfigInstruction<
+export type AdminVoidPayoutRegistryInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
+  TAccountPayoutRegistry extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -90,117 +77,91 @@ export type UpdatePoolConfigInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountCurrentDrawCycle extends string
+        ? WritableAccount<TAccountCurrentDrawCycle>
+        : TAccountCurrentDrawCycle,
+      TAccountPayoutRegistry extends string
+        ? WritableAccount<TAccountPayoutRegistry>
+        : TAccountPayoutRegistry,
       ...TRemainingAccounts,
     ]
   >;
 
-export type UpdatePoolConfigInstructionData = {
+export type AdminVoidPayoutRegistryInstructionData = {
   discriminator: ReadonlyUint8Array;
-  newFeeBasisPoints: Option<number>;
-  newBondPrice: Option<bigint>;
-  newFeeWallet: Option<Address>;
-  newMinYieldThreshold: Option<bigint>;
-  newStakeCycleDurationHrs: Option<bigint>;
-  newMaxYieldBasisPoints: Option<number>;
-  newPayoutTimelockSeconds: Option<number>;
 };
 
-export type UpdatePoolConfigInstructionDataArgs = {
-  newFeeBasisPoints: OptionOrNullable<number>;
-  newBondPrice: OptionOrNullable<number | bigint>;
-  newFeeWallet: OptionOrNullable<Address>;
-  newMinYieldThreshold: OptionOrNullable<number | bigint>;
-  newStakeCycleDurationHrs: OptionOrNullable<number | bigint>;
-  newMaxYieldBasisPoints: OptionOrNullable<number>;
-  newPayoutTimelockSeconds: OptionOrNullable<number>;
-};
+export type AdminVoidPayoutRegistryInstructionDataArgs = {};
 
-export function getUpdatePoolConfigInstructionDataEncoder(): Encoder<UpdatePoolConfigInstructionDataArgs> {
+export function getAdminVoidPayoutRegistryInstructionDataEncoder(): FixedSizeEncoder<AdminVoidPayoutRegistryInstructionDataArgs> {
   return transformEncoder(
-    getStructEncoder([
-      ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["newFeeBasisPoints", getOptionEncoder(getU16Encoder())],
-      ["newBondPrice", getOptionEncoder(getU64Encoder())],
-      ["newFeeWallet", getOptionEncoder(getAddressEncoder())],
-      ["newMinYieldThreshold", getOptionEncoder(getU64Encoder())],
-      ["newStakeCycleDurationHrs", getOptionEncoder(getI64Encoder())],
-      ["newMaxYieldBasisPoints", getOptionEncoder(getU16Encoder())],
-      ["newPayoutTimelockSeconds", getOptionEncoder(getU32Encoder())],
-    ]),
-    (value) => ({ ...value, discriminator: UPDATE_POOL_CONFIG_DISCRIMINATOR })
+    getStructEncoder([["discriminator", fixEncoderSize(getBytesEncoder(), 8)]]),
+    (value) => ({
+      ...value,
+      discriminator: ADMIN_VOID_PAYOUT_REGISTRY_DISCRIMINATOR,
+    })
   );
 }
 
-export function getUpdatePoolConfigInstructionDataDecoder(): Decoder<UpdatePoolConfigInstructionData> {
+export function getAdminVoidPayoutRegistryInstructionDataDecoder(): FixedSizeDecoder<AdminVoidPayoutRegistryInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["newFeeBasisPoints", getOptionDecoder(getU16Decoder())],
-    ["newBondPrice", getOptionDecoder(getU64Decoder())],
-    ["newFeeWallet", getOptionDecoder(getAddressDecoder())],
-    ["newMinYieldThreshold", getOptionDecoder(getU64Decoder())],
-    ["newStakeCycleDurationHrs", getOptionDecoder(getI64Decoder())],
-    ["newMaxYieldBasisPoints", getOptionDecoder(getU16Decoder())],
-    ["newPayoutTimelockSeconds", getOptionDecoder(getU32Decoder())],
   ]);
 }
 
-export function getUpdatePoolConfigInstructionDataCodec(): Codec<
-  UpdatePoolConfigInstructionDataArgs,
-  UpdatePoolConfigInstructionData
+export function getAdminVoidPayoutRegistryInstructionDataCodec(): FixedSizeCodec<
+  AdminVoidPayoutRegistryInstructionDataArgs,
+  AdminVoidPayoutRegistryInstructionData
 > {
   return combineCodec(
-    getUpdatePoolConfigInstructionDataEncoder(),
-    getUpdatePoolConfigInstructionDataDecoder()
+    getAdminVoidPayoutRegistryInstructionDataEncoder(),
+    getAdminVoidPayoutRegistryInstructionDataDecoder()
   );
 }
 
-export type UpdatePoolConfigAsyncInput<
+export type AdminVoidPayoutRegistryAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountCurrentDrawCycle extends string = string,
+  TAccountPayoutRegistry extends string = string,
 > = {
-  /**
-   * The global configuration state, used to verify the admin signature.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration state, used to verify the admin signature. */
   globalConfig?: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
-  /**
-   * The prize pool state account to update.
-   *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-   * Bump is verified from the pool's initialized authority bump.
-   */
+  /** The prize pool state account. */
   pool: Address<TAccountPool>;
-  newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
-  newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
-  newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
-  newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
-  newStakeCycleDurationHrs: UpdatePoolConfigInstructionDataArgs["newStakeCycleDurationHrs"];
-  newMaxYieldBasisPoints: UpdatePoolConfigInstructionDataArgs["newMaxYieldBasisPoints"];
-  newPayoutTimelockSeconds: UpdatePoolConfigInstructionDataArgs["newPayoutTimelockSeconds"];
+  /** The draw cycle account to void. */
+  currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  /** The payout registry account to void. */
+  payoutRegistry: Address<TAccountPayoutRegistry>;
 };
 
-export async function getUpdatePoolConfigInstructionAsync<
+export async function getAdminVoidPayoutRegistryInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountCurrentDrawCycle extends string,
+  TAccountPayoutRegistry extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdatePoolConfigAsyncInput<
+  input: AdminVoidPayoutRegistryAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountCurrentDrawCycle,
+    TAccountPayoutRegistry
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
-  UpdatePoolConfigInstruction<
+  AdminVoidPayoutRegistryInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountCurrentDrawCycle,
+    TAccountPayoutRegistry
   >
 > {
   // Program address.
@@ -211,14 +172,16 @@ export async function getUpdatePoolConfigInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    currentDrawCycle: {
+      value: input.currentDrawCycle ?? null,
+      isWritable: true,
+    },
+    payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
-
-  // Original args.
-  const args = { ...input };
 
   // Resolve default values.
   if (!accounts.globalConfig.value) {
@@ -231,65 +194,63 @@ export async function getUpdatePoolConfigInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta("payoutRegistry", accounts.payoutRegistry),
     ],
-    data: getUpdatePoolConfigInstructionDataEncoder().encode(
-      args as UpdatePoolConfigInstructionDataArgs
-    ),
+    data: getAdminVoidPayoutRegistryInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdatePoolConfigInstruction<
+  } as AdminVoidPayoutRegistryInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountCurrentDrawCycle,
+    TAccountPayoutRegistry
   >);
 }
 
-export type UpdatePoolConfigInput<
+export type AdminVoidPayoutRegistryInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountCurrentDrawCycle extends string = string,
+  TAccountPayoutRegistry extends string = string,
 > = {
-  /**
-   * The global configuration state, used to verify the admin signature.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration state, used to verify the admin signature. */
   globalConfig: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
-  /**
-   * The prize pool state account to update.
-   *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-   * Bump is verified from the pool's initialized authority bump.
-   */
+  /** The prize pool state account. */
   pool: Address<TAccountPool>;
-  newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
-  newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
-  newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
-  newMinYieldThreshold: UpdatePoolConfigInstructionDataArgs["newMinYieldThreshold"];
-  newStakeCycleDurationHrs: UpdatePoolConfigInstructionDataArgs["newStakeCycleDurationHrs"];
-  newMaxYieldBasisPoints: UpdatePoolConfigInstructionDataArgs["newMaxYieldBasisPoints"];
-  newPayoutTimelockSeconds: UpdatePoolConfigInstructionDataArgs["newPayoutTimelockSeconds"];
+  /** The draw cycle account to void. */
+  currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  /** The payout registry account to void. */
+  payoutRegistry: Address<TAccountPayoutRegistry>;
 };
 
-export function getUpdatePoolConfigInstruction<
+export function getAdminVoidPayoutRegistryInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountCurrentDrawCycle extends string,
+  TAccountPayoutRegistry extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdatePoolConfigInput<
+  input: AdminVoidPayoutRegistryInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountCurrentDrawCycle,
+    TAccountPayoutRegistry
   >,
   config?: { programAddress?: TProgramAddress }
-): UpdatePoolConfigInstruction<
+): AdminVoidPayoutRegistryInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
-  TAccountPool
+  TAccountPool,
+  TAccountCurrentDrawCycle,
+  TAccountPayoutRegistry
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -299,14 +260,16 @@ export function getUpdatePoolConfigInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    currentDrawCycle: {
+      value: input.currentDrawCycle ?? null,
+      isWritable: true,
+    },
+    payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
-
-  // Original args.
-  const args = { ...input };
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -314,58 +277,55 @@ export function getUpdatePoolConfigInstruction<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta("payoutRegistry", accounts.payoutRegistry),
     ],
-    data: getUpdatePoolConfigInstructionDataEncoder().encode(
-      args as UpdatePoolConfigInstructionDataArgs
-    ),
+    data: getAdminVoidPayoutRegistryInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdatePoolConfigInstruction<
+  } as AdminVoidPayoutRegistryInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountCurrentDrawCycle,
+    TAccountPayoutRegistry
   >);
 }
 
-export type ParsedUpdatePoolConfigInstruction<
+export type ParsedAdminVoidPayoutRegistryInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /**
-     * The global configuration state, used to verify the admin signature.
-     *
-     * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-     */
+    /** The global configuration state, used to verify the admin signature. */
     globalConfig: TAccountMetas[0];
     /** The admin authority. */
     admin: TAccountMetas[1];
-    /**
-     * The prize pool state account to update.
-     *
-     * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-     * Bump is verified from the pool's initialized authority bump.
-     */
+    /** The prize pool state account. */
     pool: TAccountMetas[2];
+    /** The draw cycle account to void. */
+    currentDrawCycle: TAccountMetas[3];
+    /** The payout registry account to void. */
+    payoutRegistry: TAccountMetas[4];
   };
-  data: UpdatePoolConfigInstructionData;
+  data: AdminVoidPayoutRegistryInstructionData;
 };
 
-export function parseUpdatePoolConfigInstruction<
+export function parseAdminVoidPayoutRegistryInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
-): ParsedUpdatePoolConfigInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+): ParsedAdminVoidPayoutRegistryInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 5,
       }
     );
   }
@@ -381,7 +341,11 @@ export function parseUpdatePoolConfigInstruction<
       globalConfig: getNextAccount(),
       admin: getNextAccount(),
       pool: getNextAccount(),
+      currentDrawCycle: getNextAccount(),
+      payoutRegistry: getNextAccount(),
     },
-    data: getUpdatePoolConfigInstructionDataDecoder().decode(instruction.data),
+    data: getAdminVoidPayoutRegistryInstructionDataDecoder().decode(
+      instruction.data
+    ),
   };
 }

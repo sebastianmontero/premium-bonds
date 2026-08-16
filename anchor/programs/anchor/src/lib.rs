@@ -36,13 +36,48 @@ pub mod anchor {
 
     /// Updates the protocol-wide global configuration.
     ///
-    /// Allows the admin to change the admin wallet address or the cranking bot address.
+    /// Allows the admin to change the admin wallet address, the guardian address, or the cranking bot address.
     pub fn update_global_config(
         ctx: Context<UpdateGlobalConfig>,
         new_admin: Option<Pubkey>,
+        new_guardian: Option<Pubkey>,
         new_jobs_account: Option<Pubkey>,
     ) -> Result<()> {
-        instructions::admin::update_global_config::handle(ctx, new_admin, new_jobs_account)
+        instructions::admin::update_global_config::handle(
+            ctx,
+            new_admin,
+            new_guardian,
+            new_jobs_account,
+        )
+    }
+
+    /// Immediately pauses deposits, sales, claims, and harvests for a prize pool.
+    ///
+    /// Callable by either the emergency guardian bot or the admin multisig.
+    pub fn pause_pool(ctx: Context<PausePool>) -> Result<()> {
+        instructions::admin::emergency_pause::handle_pause_pool(ctx)
+    }
+
+    /// Unpauses a paused prize pool, resuming normal protocol operations.
+    ///
+    /// Callable strictly by the admin multisig.
+    pub fn unpause_pool(ctx: Context<UnpausePool>) -> Result<()> {
+        instructions::admin::emergency_pause::handle_unpause_pool(ctx)
+    }
+
+    /// Permanently closes a prize pool for orderly sunset.
+    ///
+    /// Callable strictly by the admin multisig.
+    pub fn close_pool(ctx: Context<ClosePool>) -> Result<()> {
+        instructions::admin::emergency_pause::handle_close_pool(ctx)
+    }
+
+    /// Voids a completed draw and rolls back prize and fee accounting.
+    ///
+    /// Can only be called before any winner payouts have been cranked.
+    /// Callable strictly by the admin multisig.
+    pub fn admin_void_payout_registry(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
+        instructions::yield_draw::admin_void_payout_registry::handle(ctx)
     }
 
     /// Creates a new prize pool and initializes its zero-copy TicketRegistry.
@@ -167,6 +202,8 @@ pub mod anchor {
         new_fee_wallet: Option<Pubkey>,
         new_min_yield_threshold: Option<u64>,
         new_stake_cycle_duration_hrs: Option<i64>,
+        new_max_yield_basis_points: Option<u16>,
+        new_payout_timelock_seconds: Option<u32>,
     ) -> Result<()> {
         instructions::admin::update_pool_config::handle(
             ctx,
@@ -175,6 +212,8 @@ pub mod anchor {
             new_fee_wallet,
             new_min_yield_threshold,
             new_stake_cycle_duration_hrs,
+            new_max_yield_basis_points,
+            new_payout_timelock_seconds,
         )
     }
 

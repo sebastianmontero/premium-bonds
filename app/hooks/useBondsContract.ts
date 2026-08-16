@@ -520,6 +520,13 @@ export function useBondsContract(poolId: number = 1) {
     async (ticketsToBuy: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
+      if (pool.status !== "Active") {
+        throw new Error(
+          pool.status === "Paused"
+            ? "Pool is paused due to emergency circuit breaker"
+            : "Pool is closed permanently"
+        );
+      }
 
       const poolPda = await findPrizePoolPda(poolId);
       const poolVault = await findPoolVaultPda(poolId);
@@ -591,6 +598,9 @@ export function useBondsContract(poolId: number = 1) {
     async (amount: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
+      if (pool.status === "Paused") {
+        throw new Error("Pool is currently paused");
+      }
       if (pool.isFrozenForDraw) {
         throw new Error("Pool is frozen while draw is being resolved");
       }
@@ -764,6 +774,9 @@ export function useBondsContract(poolId: number = 1) {
   const claimRedemption = useCallback(
     async (redemptionId: string) => {
       if (!userAddress) throw new Error("Wallet not connected");
+      if (pool && pool.status === "Paused") {
+        throw new Error("Pool is currently paused");
+      }
 
       const poolPda = await findPrizePoolPda(poolId);
       const poolVault = await findPoolVaultPda(poolId);
@@ -812,7 +825,7 @@ export function useBondsContract(poolId: number = 1) {
       await refetch();
       return signature;
     },
-    [userAddress, poolId, send, refetch]
+    [userAddress, pool, poolId, send, refetch]
   );
 
   /**
@@ -823,6 +836,9 @@ export function useBondsContract(poolId: number = 1) {
   const claimNonReinvestedWinnings = useCallback(async () => {
     if (!userAddress) throw new Error("Wallet not connected");
     if (!pool) throw new Error("Pool state not loaded");
+    if (pool.status === "Paused") {
+      throw new Error("Pool is currently paused");
+    }
 
     const poolPda = await findPrizePoolPda(poolId);
     const poolPstVault = await findPoolPstVaultPda(poolId);

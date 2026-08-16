@@ -68,74 +68,90 @@ import {
 } from "../accounts";
 import {
   getAdminForceUnlockDrawInstructionAsync,
+  getAdminVoidPayoutRegistryInstructionAsync,
   getBuyBondsInstructionAsync,
   getClaimNonReinvestedWinningsInstructionAsync,
   getClaimRedemptionInstructionAsync,
+  getClosePoolInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
   getCreatePoolInstructionAsync,
   getHarvestYieldAndCommitInstructionAsync,
   getInitializeGlobalInstructionAsync,
   getInitializeHumaLenderInstructionAsync,
+  getPausePoolInstructionAsync,
   getPrepareDrawInstruction,
   getReinvestWinningsInstructionAsync,
   getResizeRegistryInstructionAsync,
   getRevealAndPickWinnersInstructionAsync,
   getSellBondsInstructionAsync,
   getSetPrizeTiersInstructionAsync,
+  getUnpausePoolInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
   getUpdatePoolConfigInstructionAsync,
   getWithdrawFeesInstructionAsync,
   parseAdminForceUnlockDrawInstruction,
+  parseAdminVoidPayoutRegistryInstruction,
   parseBuyBondsInstruction,
   parseClaimNonReinvestedWinningsInstruction,
   parseClaimRedemptionInstruction,
+  parseClosePoolInstruction,
   parseCrankRebindExpiredRandomnessInstruction,
   parseCreatePoolInstruction,
   parseHarvestYieldAndCommitInstruction,
   parseInitializeGlobalInstruction,
   parseInitializeHumaLenderInstruction,
+  parsePausePoolInstruction,
   parsePrepareDrawInstruction,
   parseReinvestWinningsInstruction,
   parseResizeRegistryInstruction,
   parseRevealAndPickWinnersInstruction,
   parseSellBondsInstruction,
   parseSetPrizeTiersInstruction,
+  parseUnpausePoolInstruction,
   parseUpdateGlobalConfigInstruction,
   parseUpdatePoolConfigInstruction,
   parseWithdrawFeesInstruction,
   type AdminForceUnlockDrawAsyncInput,
+  type AdminVoidPayoutRegistryAsyncInput,
   type BuyBondsAsyncInput,
   type ClaimNonReinvestedWinningsAsyncInput,
   type ClaimRedemptionAsyncInput,
+  type ClosePoolAsyncInput,
   type CrankRebindExpiredRandomnessAsyncInput,
   type CreatePoolAsyncInput,
   type HarvestYieldAndCommitAsyncInput,
   type InitializeGlobalAsyncInput,
   type InitializeHumaLenderAsyncInput,
   type ParsedAdminForceUnlockDrawInstruction,
+  type ParsedAdminVoidPayoutRegistryInstruction,
   type ParsedBuyBondsInstruction,
   type ParsedClaimNonReinvestedWinningsInstruction,
   type ParsedClaimRedemptionInstruction,
+  type ParsedClosePoolInstruction,
   type ParsedCrankRebindExpiredRandomnessInstruction,
   type ParsedCreatePoolInstruction,
   type ParsedHarvestYieldAndCommitInstruction,
   type ParsedInitializeGlobalInstruction,
   type ParsedInitializeHumaLenderInstruction,
+  type ParsedPausePoolInstruction,
   type ParsedPrepareDrawInstruction,
   type ParsedReinvestWinningsInstruction,
   type ParsedResizeRegistryInstruction,
   type ParsedRevealAndPickWinnersInstruction,
   type ParsedSellBondsInstruction,
   type ParsedSetPrizeTiersInstruction,
+  type ParsedUnpausePoolInstruction,
   type ParsedUpdateGlobalConfigInstruction,
   type ParsedUpdatePoolConfigInstruction,
   type ParsedWithdrawFeesInstruction,
+  type PausePoolAsyncInput,
   type PrepareDrawInput,
   type ReinvestWinningsAsyncInput,
   type ResizeRegistryAsyncInput,
   type RevealAndPickWinnersAsyncInput,
   type SellBondsAsyncInput,
   type SetPrizeTiersAsyncInput,
+  type UnpausePoolAsyncInput,
   type UpdateGlobalConfigAsyncInput,
   type UpdatePoolConfigAsyncInput,
   type WithdrawFeesAsyncInput,
@@ -250,20 +266,24 @@ export function identifyAnchorAccount(
 
 export enum AnchorInstruction {
   AdminForceUnlockDraw,
+  AdminVoidPayoutRegistry,
   BuyBonds,
   ClaimNonReinvestedWinnings,
   ClaimRedemption,
+  ClosePool,
   CrankRebindExpiredRandomness,
   CreatePool,
   HarvestYieldAndCommit,
   InitializeGlobal,
   InitializeHumaLender,
+  PausePool,
   PrepareDraw,
   ReinvestWinnings,
   ResizeRegistry,
   RevealAndPickWinners,
   SellBonds,
   SetPrizeTiers,
+  UnpausePool,
   UpdateGlobalConfig,
   UpdatePoolConfig,
   WithdrawFees,
@@ -283,6 +303,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.AdminForceUnlockDraw;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([38, 164, 27, 81, 125, 241, 156, 151])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.AdminVoidPayoutRegistry;
   }
   if (
     containsBytes(
@@ -316,6 +347,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.ClaimRedemption;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([140, 189, 209, 23, 239, 62, 239, 11])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.ClosePool;
   }
   if (
     containsBytes(
@@ -371,6 +413,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.InitializeHumaLender;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([160, 15, 12, 189, 160, 0, 243, 245])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.PausePool;
   }
   if (
     containsBytes(
@@ -442,6 +495,17 @@ export function identifyAnchorInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([241, 148, 129, 243, 222, 125, 125, 160])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.UnpausePool;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([164, 84, 130, 189, 111, 58, 250, 200])
       ),
       0
@@ -484,6 +548,9 @@ export type ParsedAnchorInstruction<
       instructionType: AnchorInstruction.AdminForceUnlockDraw;
     } & ParsedAdminForceUnlockDrawInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.AdminVoidPayoutRegistry;
+    } & ParsedAdminVoidPayoutRegistryInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.BuyBonds;
     } & ParsedBuyBondsInstruction<TProgram>)
   | ({
@@ -492,6 +559,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.ClaimRedemption;
     } & ParsedClaimRedemptionInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.ClosePool;
+    } & ParsedClosePoolInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.CrankRebindExpiredRandomness;
     } & ParsedCrankRebindExpiredRandomnessInstruction<TProgram>)
@@ -507,6 +577,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.InitializeHumaLender;
     } & ParsedInitializeHumaLenderInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.PausePool;
+    } & ParsedPausePoolInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.PrepareDraw;
     } & ParsedPrepareDrawInstruction<TProgram>)
@@ -525,6 +598,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.SetPrizeTiers;
     } & ParsedSetPrizeTiersInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.UnpausePool;
+    } & ParsedUnpausePoolInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.UpdateGlobalConfig;
     } & ParsedUpdateGlobalConfigInstruction<TProgram>)
@@ -547,6 +623,13 @@ export function parseAnchorInstruction<TProgram extends string>(
         ...parseAdminForceUnlockDrawInstruction(instruction),
       };
     }
+    case AnchorInstruction.AdminVoidPayoutRegistry: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.AdminVoidPayoutRegistry,
+        ...parseAdminVoidPayoutRegistryInstruction(instruction),
+      };
+    }
     case AnchorInstruction.BuyBonds: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -566,6 +649,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.ClaimRedemption,
         ...parseClaimRedemptionInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.ClosePool: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.ClosePool,
+        ...parseClosePoolInstruction(instruction),
       };
     }
     case AnchorInstruction.CrankRebindExpiredRandomness: {
@@ -601,6 +691,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.InitializeHumaLender,
         ...parseInitializeHumaLenderInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.PausePool: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.PausePool,
+        ...parsePausePoolInstruction(instruction),
       };
     }
     case AnchorInstruction.PrepareDraw: {
@@ -643,6 +740,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.SetPrizeTiers,
         ...parseSetPrizeTiersInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.UnpausePool: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.UnpausePool,
+        ...parseUnpausePoolInstruction(instruction),
       };
     }
     case AnchorInstruction.UpdateGlobalConfig: {
@@ -705,6 +809,10 @@ export type AnchorPluginInstructions = {
     input: AdminForceUnlockDrawAsyncInput
   ) => ReturnType<typeof getAdminForceUnlockDrawInstructionAsync> &
     SelfPlanAndSendFunctions;
+  adminVoidPayoutRegistry: (
+    input: AdminVoidPayoutRegistryAsyncInput
+  ) => ReturnType<typeof getAdminVoidPayoutRegistryInstructionAsync> &
+    SelfPlanAndSendFunctions;
   buyBonds: (
     input: BuyBondsAsyncInput
   ) => ReturnType<typeof getBuyBondsInstructionAsync> &
@@ -716,6 +824,10 @@ export type AnchorPluginInstructions = {
   claimRedemption: (
     input: ClaimRedemptionAsyncInput
   ) => ReturnType<typeof getClaimRedemptionInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  closePool: (
+    input: ClosePoolAsyncInput
+  ) => ReturnType<typeof getClosePoolInstructionAsync> &
     SelfPlanAndSendFunctions;
   crankRebindExpiredRandomness: (
     input: CrankRebindExpiredRandomnessAsyncInput
@@ -736,6 +848,10 @@ export type AnchorPluginInstructions = {
   initializeHumaLender: (
     input: InitializeHumaLenderAsyncInput
   ) => ReturnType<typeof getInitializeHumaLenderInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  pausePool: (
+    input: PausePoolAsyncInput
+  ) => ReturnType<typeof getPausePoolInstructionAsync> &
     SelfPlanAndSendFunctions;
   prepareDraw: (
     input: PrepareDrawInput
@@ -759,6 +875,10 @@ export type AnchorPluginInstructions = {
   setPrizeTiers: (
     input: SetPrizeTiersAsyncInput
   ) => ReturnType<typeof getSetPrizeTiersInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  unpausePool: (
+    input: UnpausePoolAsyncInput
+  ) => ReturnType<typeof getUnpausePoolInstructionAsync> &
     SelfPlanAndSendFunctions;
   updateGlobalConfig: (
     input: UpdateGlobalConfigAsyncInput
@@ -819,6 +939,11 @@ export function anchorProgram() {
               client,
               getAdminForceUnlockDrawInstructionAsync(input)
             ),
+          adminVoidPayoutRegistry: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getAdminVoidPayoutRegistryInstructionAsync(input)
+            ),
           buyBonds: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -833,6 +958,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getClaimRedemptionInstructionAsync(input)
+            ),
+          closePool: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getClosePoolInstructionAsync(input)
             ),
           crankRebindExpiredRandomness: (input) =>
             addSelfPlanAndSendFunctions(
@@ -858,6 +988,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getInitializeHumaLenderInstructionAsync(input)
+            ),
+          pausePool: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getPausePoolInstructionAsync(input)
             ),
           prepareDraw: (input) =>
             addSelfPlanAndSendFunctions(
@@ -891,6 +1026,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getSetPrizeTiersInstructionAsync(input)
+            ),
+          unpausePool: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getUnpausePoolInstructionAsync(input)
             ),
           updateGlobalConfig: (input) =>
             addSelfPlanAndSendFunctions(

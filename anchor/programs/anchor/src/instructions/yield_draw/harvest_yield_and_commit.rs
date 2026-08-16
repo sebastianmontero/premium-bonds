@@ -184,39 +184,90 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     // current_value = pool_pst_balance × total_assets / pst_supply
     let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets);
 
-    // If there are no active tickets, we do not harvest any yield or accrue fees.
-    // The yield will roll over naturally in the Huma pool and be harvested in a later cycle
-    // when active tickets are present.
-    let yield_generated = if eligible_locked_count > 0 {
-        let fees_in_vault = pool
-            .total_fees_accrued
-            .checked_sub(pool.total_fees_withdrawn)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        let book_value = pool
-            .total_deposited_principal
-            .checked_add(fees_in_vault)
-            .ok_or(PremiumBondsError::MathOverflow)?
-            .checked_add(pool.total_prizes_allocated)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        current_value.saturating_sub(book_value)
-    } else {
-        0
-    };
-
-    let fee = pool.calculate_fee(yield_generated)?;
-    let net_yield = yield_generated
-        .checked_sub(fee)
+    let fees_in_vault = pool
+        .total_fees_accrued
+        .checked_sub(pool.total_fees_withdrawn)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // ── Draw Cycle creation ─────────────────────────────────────────────────
+    let book_value = pool
+        .total_deposited_principal
+        .checked_add(fees_in_vault)
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .checked_add(pool.total_prizes_allocated)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    // ── Base Draw Cycle metadata (unconditionally initialized) ───────────────
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
     draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
     draw_cycle.harvest_slot = clock.slot;
     draw_cycle.version = 1;
+
+    // ── Circuit Breaker 1: On-Chain Solvency Guard ───────────────────────────
+    if current_value < book_value {
+        let deficit = book_value.saturating_sub(current_value);
+        if deficit > crate::constants::SOLVENCY_DUST_TOLERANCE {
+            pool.status = PoolStatus::Paused as u8;
+            pool.is_frozen_for_draw = 0;
+            draw_cycle.status = DrawStatus::HaltedInsolvent;
+            draw_cycle.locked_ticket_count = eligible_locked_count;
+            draw_cycle.prize_pot = 0;
+            draw_cycle.cycle_fee_collected = 0;
+            pool.current_draw_cycle_id = pool
+                .current_draw_cycle_id
+                .checked_add(1)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+            pool.advance_cycle_end_at(current_time)?;
+            emit_cpi!(crate::events::EmergencyInsolvencyDetected {
+                pool_id: pool.pool_id,
+                current_value,
+                book_value,
+                deficit,
+            });
+            return Ok(());
+        }
+    }
+
+    // If there are no active tickets, we do not harvest any yield or accrue fees.
+    // The yield rolls over naturally in the Huma pool for subsequent cycles.
+    let yield_generated = if eligible_locked_count > 0 {
+        current_value.saturating_sub(book_value)
+    } else {
+        0
+    };
+
+    // ── Circuit Breaker 2: Yield Velocity Spike Guard ─────────────────────────
+    if pool.max_yield_basis_points > 0 && yield_generated > 0 {
+        let max_allowed_yield = (book_value as u128)
+            .saturating_mul(pool.max_yield_basis_points as u128)
+            .checked_div(10_000)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        if (yield_generated as u128) > max_allowed_yield {
+            pool.status = PoolStatus::Paused as u8;
+            pool.is_frozen_for_draw = 0;
+            draw_cycle.status = DrawStatus::HaltedYieldSpike;
+            draw_cycle.locked_ticket_count = eligible_locked_count;
+            draw_cycle.prize_pot = 0;
+            draw_cycle.cycle_fee_collected = 0;
+            pool.current_draw_cycle_id = pool
+                .current_draw_cycle_id
+                .checked_add(1)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+            pool.advance_cycle_end_at(current_time)?;
+            emit_cpi!(crate::events::YieldVelocityBreached {
+                pool_id: pool.pool_id,
+                yield_generated,
+                max_allowed_yield: max_allowed_yield as u64,
+            });
+            return Ok(());
+        }
+    }
+
+    let fee = pool.calculate_fee(yield_generated)?;
+    let net_yield = yield_generated
+        .checked_sub(fee)
+        .ok_or(PremiumBondsError::MathOverflow)?;
 
     if yield_generated > 0 && yield_generated >= pool.min_yield_threshold && eligible_locked_count > 0 {
         require!(

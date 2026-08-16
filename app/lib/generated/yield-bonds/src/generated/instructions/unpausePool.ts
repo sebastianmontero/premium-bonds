@@ -10,26 +10,19 @@ const SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS = 1200004 as any
  * @see https://github.com/codama-idl/codama
  */
 
-import {
-  getAddressDecoder,
-  getAddressEncoder,
-  type Address } from "@solana/addresses";
+import { type Address } from "@solana/addresses";
 import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
-  getOptionDecoder,
-  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
   transformEncoder,
-  type Codec,
-  type Decoder,
-  type Encoder,
-  type Option,
-  type OptionOrNullable,
+  type FixedSizeCodec,
+  type FixedSizeDecoder,
+  type FixedSizeEncoder,
   type ReadonlyUint8Array } from "@solana/codecs";
 import {
 SolanaError } from "@solana/errors";
@@ -38,6 +31,7 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type ReadonlyAccount,
   type ReadonlySignerAccount,
   type WritableAccount,
 } from "@solana/instructions";
@@ -52,108 +46,98 @@ import {
 import { findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
-export const UPDATE_GLOBAL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
-  new Uint8Array([164, 84, 130, 189, 111, 58, 250, 200]);
+export const UNPAUSE_POOL_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
+  241, 148, 129, 243, 222, 125, 125, 160,
+]);
 
-export function getUpdateGlobalConfigDiscriminatorBytes(): ReadonlyUint8Array {
+export function getUnpausePoolDiscriminatorBytes(): ReadonlyUint8Array {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    UPDATE_GLOBAL_CONFIG_DISCRIMINATOR
+    UNPAUSE_POOL_DISCRIMINATOR
   );
 }
 
-export type UpdateGlobalConfigInstruction<
+export type UnpausePoolInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
+  TAccountPool extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
       TAccountGlobalConfig extends string
-        ? WritableAccount<TAccountGlobalConfig>
+        ? ReadonlyAccount<TAccountGlobalConfig>
         : TAccountGlobalConfig,
       TAccountAdmin extends string
         ? ReadonlySignerAccount<TAccountAdmin> &
             AccountSignerMeta<TAccountAdmin>
         : TAccountAdmin,
+      TAccountPool extends string
+        ? WritableAccount<TAccountPool>
+        : TAccountPool,
       ...TRemainingAccounts,
     ]
   >;
 
-export type UpdateGlobalConfigInstructionData = {
-  discriminator: ReadonlyUint8Array;
-  newAdmin: Option<Address>;
-  newGuardian: Option<Address>;
-  newJobsAccount: Option<Address>;
-};
+export type UnpausePoolInstructionData = { discriminator: ReadonlyUint8Array };
 
-export type UpdateGlobalConfigInstructionDataArgs = {
-  newAdmin: OptionOrNullable<Address>;
-  newGuardian: OptionOrNullable<Address>;
-  newJobsAccount: OptionOrNullable<Address>;
-};
+export type UnpausePoolInstructionDataArgs = {};
 
-export function getUpdateGlobalConfigInstructionDataEncoder(): Encoder<UpdateGlobalConfigInstructionDataArgs> {
+export function getUnpausePoolInstructionDataEncoder(): FixedSizeEncoder<UnpausePoolInstructionDataArgs> {
   return transformEncoder(
-    getStructEncoder([
-      ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["newAdmin", getOptionEncoder(getAddressEncoder())],
-      ["newGuardian", getOptionEncoder(getAddressEncoder())],
-      ["newJobsAccount", getOptionEncoder(getAddressEncoder())],
-    ]),
-    (value) => ({ ...value, discriminator: UPDATE_GLOBAL_CONFIG_DISCRIMINATOR })
+    getStructEncoder([["discriminator", fixEncoderSize(getBytesEncoder(), 8)]]),
+    (value) => ({ ...value, discriminator: UNPAUSE_POOL_DISCRIMINATOR })
   );
 }
 
-export function getUpdateGlobalConfigInstructionDataDecoder(): Decoder<UpdateGlobalConfigInstructionData> {
+export function getUnpausePoolInstructionDataDecoder(): FixedSizeDecoder<UnpausePoolInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["newAdmin", getOptionDecoder(getAddressDecoder())],
-    ["newGuardian", getOptionDecoder(getAddressDecoder())],
-    ["newJobsAccount", getOptionDecoder(getAddressDecoder())],
   ]);
 }
 
-export function getUpdateGlobalConfigInstructionDataCodec(): Codec<
-  UpdateGlobalConfigInstructionDataArgs,
-  UpdateGlobalConfigInstructionData
+export function getUnpausePoolInstructionDataCodec(): FixedSizeCodec<
+  UnpausePoolInstructionDataArgs,
+  UnpausePoolInstructionData
 > {
   return combineCodec(
-    getUpdateGlobalConfigInstructionDataEncoder(),
-    getUpdateGlobalConfigInstructionDataDecoder()
+    getUnpausePoolInstructionDataEncoder(),
+    getUnpausePoolInstructionDataDecoder()
   );
 }
 
-export type UpdateGlobalConfigAsyncInput<
+export type UnpausePoolAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
+  TAccountPool extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration state, used to verify the admin signature. */
   globalConfig?: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
-  newAdmin: UpdateGlobalConfigInstructionDataArgs["newAdmin"];
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
+  /** The prize pool state account to unpause. */
+  pool: Address<TAccountPool>;
 };
 
-export async function getUpdateGlobalConfigInstructionAsync<
+export async function getUnpausePoolInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
+  TAccountPool extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigAsyncInput<TAccountGlobalConfig, TAccountAdmin>,
+  input: UnpausePoolAsyncInput<
+    TAccountGlobalConfig,
+    TAccountAdmin,
+    TAccountPool
+  >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
-  UpdateGlobalConfigInstruction<
+  UnpausePoolInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountPool
   >
 > {
   // Program address.
@@ -161,16 +145,14 @@ export async function getUpdateGlobalConfigInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    globalConfig: { value: input.globalConfig ?? null, isWritable: true },
+    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
+    pool: { value: input.pool ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
-
-  // Original args.
-  const args = { ...input };
 
   // Resolve default values.
   if (!accounts.globalConfig.value) {
@@ -182,112 +164,106 @@ export async function getUpdateGlobalConfigInstructionAsync<
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("pool", accounts.pool),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
-    ),
+    data: getUnpausePoolInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as UnpausePoolInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountPool
   >);
 }
 
-export type UpdateGlobalConfigInput<
+export type UnpausePoolInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
+  TAccountPool extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration state, used to verify the admin signature. */
   globalConfig: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
-  newAdmin: UpdateGlobalConfigInstructionDataArgs["newAdmin"];
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
+  /** The prize pool state account to unpause. */
+  pool: Address<TAccountPool>;
 };
 
-export function getUpdateGlobalConfigInstruction<
+export function getUnpausePoolInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
+  TAccountPool extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigInput<TAccountGlobalConfig, TAccountAdmin>,
+  input: UnpausePoolInput<TAccountGlobalConfig, TAccountAdmin, TAccountPool>,
   config?: { programAddress?: TProgramAddress }
-): UpdateGlobalConfigInstruction<
+): UnpausePoolInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
-  TAccountAdmin
+  TAccountAdmin,
+  TAccountPool
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
 
   // Original accounts.
   const originalAccounts = {
-    globalConfig: { value: input.globalConfig ?? null, isWritable: true },
+    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
+    pool: { value: input.pool ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
 
-  // Original args.
-  const args = { ...input };
-
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("pool", accounts.pool),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
-    ),
+    data: getUnpausePoolInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as UnpausePoolInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountPool
   >);
 }
 
-export type ParsedUpdateGlobalConfigInstruction<
+export type ParsedUnpausePoolInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /**
-     * The global configuration state account to update.
-     *
-     * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-     */
+    /** The global configuration state, used to verify the admin signature. */
     globalConfig: TAccountMetas[0];
     /** The admin authority. */
     admin: TAccountMetas[1];
+    /** The prize pool state account to unpause. */
+    pool: TAccountMetas[2];
   };
-  data: UpdateGlobalConfigInstructionData;
+  data: UnpausePoolInstructionData;
 };
 
-export function parseUpdateGlobalConfigInstruction<
+export function parseUnpausePoolInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
-): ParsedUpdateGlobalConfigInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 2) {
+): ParsedUnpausePoolInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 3) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 2,
+        expectedAccountMetas: 3,
       }
     );
   }
@@ -299,9 +275,11 @@ export function parseUpdateGlobalConfigInstruction<
   };
   return {
     programAddress: instruction.programAddress,
-    accounts: { globalConfig: getNextAccount(), admin: getNextAccount() },
-    data: getUpdateGlobalConfigInstructionDataDecoder().decode(
-      instruction.data
-    ),
+    accounts: {
+      globalConfig: getNextAccount(),
+      admin: getNextAccount(),
+      pool: getNextAccount(),
+    },
+    data: getUnpausePoolInstructionDataDecoder().decode(instruction.data),
   };
 }

@@ -63,6 +63,10 @@ import {
   buildWithdrawFeesInstruction,
   buildAdminForceUnlockDrawInstruction,
   buildCrankRebindExpiredRandomnessInstruction,
+  buildPausePoolInstruction,
+  buildUnpausePoolInstruction,
+  buildClosePoolInstruction,
+  buildAdminVoidPayoutRegistryInstruction,
   parseMockHumaPoolState,
   MockHumaPoolStateInfo,
   findHumaPoolAuthorityPda,
@@ -200,6 +204,11 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
           "Admin authority public key (defaults to deployer/signer authority)",
       },
       {
+        flag: "--guardian <pubkey>",
+        description:
+          "Emergency guardian public key for pause button (defaults to admin authority)",
+      },
+      {
         flag: "--jobs <pubkey>",
         description:
           "Crank bot/jobs account public key (defaults to admin authority)",
@@ -207,21 +216,25 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     ],
     examples: [
       "npm run pb-cli init-global",
-      "npm run pb-cli init-global -- --jobs <JOBS_PUBKEY>",
+      "npm run pb-cli init-global -- --guardian <GUARDIAN_PUBKEY> --jobs <JOBS_PUBKEY>",
       "npm run pb-cli init-global -- --admin <ADMIN_PUBKEY> --jobs <JOBS_PUBKEY>",
     ],
   },
   "update-global-config": {
     command: "update-global-config",
     category: "Admin",
-    summary: "Update global config (admin, jobs account)",
+    summary: "Update global config (admin, guardian, jobs account)",
     description:
-      "Update global configuration parameters including admin authority and jobs account.",
+      "Update global configuration parameters including admin authority, guardian authority, and jobs account.",
     requiresSigner: true,
     options: [
       {
         flag: "--new-admin <pubkey>",
         description: "New admin authority address (requires --confirm)",
+      },
+      {
+        flag: "--guardian <pubkey>",
+        description: "New emergency guardian authority address",
       },
       {
         flag: "--jobs <pubkey>",
@@ -233,7 +246,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
           "Explicit confirmation flag required for changing admin authority",
       },
     ],
-    examples: ["npm run pb-cli update-global-config -- --jobs <pubkey>"],
+    examples: ["npm run pb-cli update-global-config -- --guardian <pubkey>"],
   },
   "create-pool": {
     command: "create-pool",
@@ -340,10 +353,21 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         flag: "--min-yield-threshold <num>",
         description: "Minimum yield threshold in base units",
       },
+      {
+        flag: "--max-yield-bps <num>",
+        description:
+          "Maximum allowable yield spike per cycle in basis points (1-10000)",
+      },
+      {
+        flag: "--timelock <seconds>",
+        description:
+          "Payout delay timelock in seconds before winners can be processed (0-604800)",
+      },
     ],
     examples: [
       "npm run pb-cli update-pool-config -- --pool 1 --fee-bps 200",
       "npm run pb-cli update-pool-config -- --pool 1 --stake-duration 168",
+      "npm run pb-cli update-pool-config -- --pool 1 --max-yield-bps 500 --timelock 3600",
     ],
   },
   "withdraw-fees": {
@@ -369,6 +393,70 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     examples: [
       "npm run pb-cli withdraw-fees -- --amount all --confirm --pool 1",
     ],
+  },
+  "pause-pool": {
+    command: "pause-pool",
+    category: "Admin",
+    summary: "Emergency pause a prize pool (halts deposits/withdrawals/draws)",
+    description:
+      "Emergency pause a prize pool. Can be executed by Guardian panic button or Admin cold multisig.",
+    requiresSigner: true,
+    examples: ["npm run pb-cli pause-pool -- --pool 1"],
+  },
+  "unpause-pool": {
+    command: "unpause-pool",
+    category: "Admin",
+    summary: "Unpause a paused prize pool (resumes normal operations)",
+    description:
+      "Unpause a paused prize pool. Can ONLY be executed by Admin cold multisig.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--confirm",
+        description: "Explicit confirmation flag required to unpause pool",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli unpause-pool -- --pool 1 --confirm"],
+  },
+  "close-pool": {
+    command: "close-pool",
+    category: "Admin",
+    summary: "Permanently close and decommission a prize pool",
+    description:
+      "Permanently close and decommission a prize pool for sunset. Can ONLY be executed by Admin cold multisig.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--confirm",
+        description:
+          "Explicit confirmation flag required to permanently close pool",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli close-pool -- --pool 1 --confirm"],
+  },
+  "void-draw": {
+    command: "void-draw",
+    category: "Admin",
+    summary: "Emergency void a draw cycle and roll back allocated prizes",
+    description:
+      "Emergency void an active draw cycle if no winner payouts have occurred. Can ONLY be executed by Admin cold multisig.",
+    requiresSigner: true,
+    positionalArgs: "[cycle]",
+    options: [
+      {
+        flag: "--cycle <number>",
+        description:
+          "Draw Cycle ID to target (default: pool's currentDrawCycleId - 1)",
+      },
+      {
+        flag: "--confirm",
+        description: "Explicit confirmation flag required to void draw cycle",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli void-draw -- --pool 1 --confirm"],
   },
   "force-unlock-draw": {
     command: "force-unlock-draw",
@@ -1215,6 +1303,22 @@ export async function executeReinvest({
   );
   const state = parsePayoutRegistry(bytes);
 
+  if (state.status === 1) {
+    throw new Error(
+      `Cannot reinvest winners: Draw cycle ${targetCycleId} has been voided by the administrator.`
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const unlockTime =
+    Number(state.revealedAt) + Number(poolState.payoutTimelockSeconds);
+  if (now < unlockTime) {
+    const remaining = unlockTime - now;
+    console.warn(
+      `Notice: Payout timelock is active (${remaining}s remaining). Reinvest instruction will fail on-chain if timelock is not elapsed.`
+    );
+  }
+
   let targetWinnerIndices: number[] = [];
 
   if (winnerOption) {
@@ -1306,6 +1410,7 @@ export async function executeReinvest({
 
 export interface ExecuteInitGlobalParams {
   adminAccount?: string;
+  guardianAccount?: string;
   jobsAccount?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
@@ -1313,6 +1418,7 @@ export interface ExecuteInitGlobalParams {
 
 export async function executeInitGlobal({
   adminAccount,
+  guardianAccount,
   jobsAccount,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
@@ -1330,10 +1436,12 @@ export async function executeInitGlobal({
   }
 
   const admin = adminAccount ? address(adminAccount) : signer.address;
+  const guardian = guardianAccount ? address(guardianAccount) : admin;
   const jobs = jobsAccount ? address(jobsAccount) : admin;
   console.log(`Initializing Global Config:
   Deployer Authority (Signer): ${signer.address}
   Admin: ${admin}
+  Guardian (Pause Authority): ${guardian}
   Jobs Account (Crank): ${jobs}
   PDA: ${configPda}
 `);
@@ -1341,6 +1449,7 @@ export async function executeInitGlobal({
   const ix = await buildInitializeGlobalInstruction({
     authority: signer,
     admin,
+    guardian,
     jobsAccount: jobs,
   });
 
@@ -1349,6 +1458,7 @@ export async function executeInitGlobal({
 
 export interface ExecuteUpdateGlobalConfigParams {
   newAdmin?: string;
+  guardianAccount?: string;
   jobsAccount?: string;
   confirm?: boolean;
   rpcUrl?: string;
@@ -1357,6 +1467,7 @@ export interface ExecuteUpdateGlobalConfigParams {
 
 export async function executeUpdateGlobalConfig({
   newAdmin,
+  guardianAccount,
   jobsAccount,
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
@@ -1384,9 +1495,9 @@ export async function executeUpdateGlobalConfig({
     );
   }
 
-  if (!newAdmin && !jobsAccount) {
+  if (!newAdmin && !guardianAccount && !jobsAccount) {
     throw new Error(
-      "No update parameters specified. Pass --new-admin or --jobs."
+      "No update parameters specified. Pass --new-admin, --guardian, or --jobs."
     );
   }
 
@@ -1398,13 +1509,16 @@ export async function executeUpdateGlobalConfig({
 
   console.log(`Updating Global Config:
   Current Admin: ${state.admin}
+  Current Guardian: ${state.guardian}
   ${newAdmin ? `New Admin: ${newAdmin}` : ""}
+  ${guardianAccount ? `New Guardian: ${guardianAccount}` : ""}
   ${jobsAccount ? `New Jobs Account: ${jobsAccount}` : ""}
 `);
 
   const ix = await buildUpdateGlobalConfigInstruction({
     admin: signer.address,
     newAdmin: newAdmin ? address(newAdmin) : undefined,
+    newGuardian: guardianAccount ? address(guardianAccount) : undefined,
     newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
   });
 
@@ -1732,6 +1846,8 @@ export interface ExecuteUpdatePoolConfigParams {
   feeWallet?: string;
   minYieldThreshold?: bigint | number;
   stakeDurationHrs?: bigint | number;
+  maxYieldBasisPoints?: number;
+  payoutTimelockSeconds?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
 }
@@ -1743,6 +1859,8 @@ export async function executeUpdatePoolConfig({
   feeWallet,
   minYieldThreshold,
   stakeDurationHrs,
+  maxYieldBasisPoints,
+  payoutTimelockSeconds,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecuteUpdatePoolConfigParams) {
@@ -1765,10 +1883,12 @@ export async function executeUpdatePoolConfig({
     bondPrice === undefined &&
     !feeWallet &&
     minYieldThreshold === undefined &&
-    stakeDurationHrs === undefined
+    stakeDurationHrs === undefined &&
+    maxYieldBasisPoints === undefined &&
+    payoutTimelockSeconds === undefined
   ) {
     throw new Error(
-      "No update options provided. Pass --fee-bps, --bond-price, --fee-wallet, --stake-duration, or --min-yield-threshold."
+      "No update options provided. Pass --fee-bps, --bond-price, --fee-wallet, --stake-duration, --min-yield-threshold, --max-yield-bps, or --timelock."
     );
   }
 
@@ -1790,6 +1910,18 @@ export async function executeUpdatePoolConfig({
   if (minYieldThreshold !== undefined && BigInt(minYieldThreshold) < 0n) {
     throw new Error("minYieldThreshold must be non-negative.");
   }
+  if (
+    maxYieldBasisPoints !== undefined &&
+    (maxYieldBasisPoints < 1 || maxYieldBasisPoints > 10000)
+  ) {
+    throw new Error("maxYieldBasisPoints must be between 1 and 10000.");
+  }
+  if (
+    payoutTimelockSeconds !== undefined &&
+    (payoutTimelockSeconds < 0 || payoutTimelockSeconds > 604800)
+  ) {
+    throw new Error("payoutTimelockSeconds must be between 0 and 604800 (7 days).");
+  }
 
   console.log(`Updating Prize Pool ${poolId} Config:
   Current Fee Basis Points: ${poolState.feeBasisPoints} ${feeBasisPoints !== undefined ? `-> New: ${feeBasisPoints}` : ""}
@@ -1797,6 +1929,8 @@ export async function executeUpdatePoolConfig({
   Current Fee Wallet: ${poolState.feeWallet} ${feeWallet ? `-> New: ${feeWallet}` : ""}
   Current Stake Cycle Duration (Hrs): ${poolState.stakeCycleDurationHrs} ${stakeDurationHrs !== undefined ? `-> New: ${stakeDurationHrs}` : ""}
   Current Min Yield Threshold: ${poolState.minYieldThreshold} ${minYieldThreshold !== undefined ? `-> New: ${minYieldThreshold}` : ""}
+  Current Max Yield Basis Points: ${poolState.maxYieldBasisPoints} ${maxYieldBasisPoints !== undefined ? `-> New: ${maxYieldBasisPoints}` : ""}
+  Current Payout Timelock (Seconds): ${poolState.payoutTimelockSeconds}s ${payoutTimelockSeconds !== undefined ? `-> New: ${payoutTimelockSeconds}s` : ""}
 `);
 
   const ix = await buildUpdatePoolConfigInstruction({
@@ -1807,6 +1941,8 @@ export async function executeUpdatePoolConfig({
     newFeeWallet: feeWallet ? address(feeWallet) : undefined,
     newMinYieldThreshold: minYieldThreshold,
     newStakeCycleDurationHrs: stakeDurationHrs,
+    newMaxYieldBasisPoints: maxYieldBasisPoints,
+    newPayoutTimelockSeconds: payoutTimelockSeconds,
   });
 
   await sendTx(rpc, ix, signer);
@@ -1897,6 +2033,197 @@ export async function executeWithdrawFees({
   });
 
   await sendTx(rpc, ix, signer);
+}
+
+export interface ExecutePausePoolParams {
+  poolId?: number;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executePausePool({
+  poolId = 1,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecutePausePoolParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  console.log(`Executing emergency pause for Pool ${poolId}...`);
+  const ix = await buildPausePoolInstruction({
+    signer,
+    poolId,
+  });
+  await sendTx(rpc, ix, signer);
+  console.log(`Pool ${poolId} has been successfully paused.`);
+}
+
+export interface ExecuteUnpausePoolParams {
+  poolId?: number;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeUnpausePool({
+  poolId = 1,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteUnpausePoolParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  if (!confirm) {
+    throw new Error(
+      `Unpause resumes deposits, sales, and draws. Re-run with --confirm to proceed.`
+    );
+  }
+  console.log(`Executing unpause for Pool ${poolId}...`);
+  const ix = await buildUnpausePoolInstruction({
+    admin: signer,
+    poolId,
+  });
+  await sendTx(rpc, ix, signer);
+  console.log(`Pool ${poolId} has been successfully unpaused.`);
+}
+
+export interface ExecuteClosePoolParams {
+  poolId?: number;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeClosePool({
+  poolId = 1,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteClosePoolParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  if (poolState.isFrozenForDraw) {
+    throw new Error(
+      `Cannot close pool while a draw is in flight and frozen. Please run reveal or force-unlock-draw first.`
+    );
+  }
+
+  if (!confirm) {
+    console.log(`PERMANENT POOL DECOMMISSION PREVIEW:
+  Pool ID: ${poolId}
+  Current Status: ${poolState.status}
+  Total Deposited Principal: ${formatAmount(poolState.totalDepositedPrincipal)}
+`);
+    throw new Error(
+      `Closing a pool is permanent and disables all new deposits and draws. Re-run with --confirm to proceed.`
+    );
+  }
+
+  console.log(`Executing permanent close for Pool ${poolId}...`);
+  const ix = await buildClosePoolInstruction({
+    admin: signer,
+    poolId,
+  });
+  await sendTx(rpc, ix, signer);
+  console.log(`Pool ${poolId} has been permanently closed for orderly sunset.`);
+}
+
+export interface ExecuteVoidDrawParams {
+  poolId?: number;
+  cycleId?: number;
+  confirm?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeVoidDraw({
+  poolId = 1,
+  cycleId,
+  confirm = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteVoidDrawParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(`PrizePool account for pool ${poolId} not found.`);
+  }
+  const poolState = parsePrizePool(
+    new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
+  );
+
+  const targetCycleId =
+    cycleId !== undefined
+      ? cycleId
+      : poolState.currentDrawCycleId > 1
+        ? poolState.currentDrawCycleId - 1
+        : 1;
+
+  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+  const drawCycleAcc = await rpc
+    .getAccountInfo(drawCyclePda, { encoding: "base64" })
+    .send();
+  if (!drawCycleAcc || !drawCycleAcc.value) {
+    throw new Error(`DrawCycle account for cycle ${targetCycleId} not found.`);
+  }
+  const drawCycleState = parseDrawCycle(
+    new Uint8Array(base64Encoder.encode(drawCycleAcc.value.data[0]))
+  );
+
+  const payoutRegistryPda = await findPayoutRegistryPda(poolId, targetCycleId);
+  const payoutRegistryAcc = await rpc
+    .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
+    .send();
+  if (!payoutRegistryAcc || !payoutRegistryAcc.value) {
+    throw new Error(
+      `PayoutRegistry account for cycle ${targetCycleId} not found.`
+    );
+  }
+  const payoutState = parsePayoutRegistry(
+    new Uint8Array(base64Encoder.encode(payoutRegistryAcc.value.data[0]))
+  );
+
+  if (!confirm) {
+    console.log(`VOID DRAW CYCLE PREVIEW:
+  Pool ID: ${poolId}
+  Cycle ID: ${targetCycleId}
+  Draw Status: ${drawCycleState.status}
+  Payout Status: ${payoutState.status}
+  Winners Drawn: ${payoutState.winnersCount}
+  Payouts Completed: ${payoutState.payoutsCompleted}
+  Committed Prize Pot: ${formatAmount(drawCycleState.prizePot)}
+  Committed Cycle Fee: ${formatAmount(drawCycleState.cycleFeeCollected)}
+`);
+    throw new Error(
+      `Voiding a draw cancels all pending winner prize claims and rolls back allocated prizes. Re-run with --confirm to proceed.`
+    );
+  }
+
+  console.log(
+    `Executing void draw for Pool ${poolId}, Cycle ${targetCycleId}...`
+  );
+  const ix = await buildAdminVoidPayoutRegistryInstruction({
+    admin: signer,
+    poolId,
+    cycleId: targetCycleId,
+  });
+  await sendTx(rpc, ix, signer);
+  console.log(
+    `Draw cycle ${targetCycleId} for Pool ${poolId} has been successfully voided.`
+  );
 }
 
 export interface ExecuteForceUnlockDrawParams {
@@ -2284,9 +2611,11 @@ async function main() {
   switch (command) {
     case "init-global": {
       const adminAccount = options["--admin"];
+      const guardianAccount = options["--guardian"];
       const jobsAccount = options["--jobs"] || positionals[0];
       await executeInitGlobal({
         adminAccount,
+        guardianAccount,
         jobsAccount,
         rpcUrl,
         signer: signer!,
@@ -2296,10 +2625,12 @@ async function main() {
 
     case "update-global-config": {
       const newAdmin = options["--new-admin"];
+      const guardianAccount = options["--guardian"];
       const jobsAccount = options["--jobs"];
       const confirm = options["--confirm"] === "true";
       await executeUpdateGlobalConfig({
         newAdmin,
+        guardianAccount,
         jobsAccount,
         confirm,
         rpcUrl,
@@ -2380,6 +2711,12 @@ async function main() {
       const minYieldThreshold = options["--min-yield-threshold"]
         ? BigInt(options["--min-yield-threshold"])
         : undefined;
+      const maxYieldBasisPoints = options["--max-yield-bps"]
+        ? parseInt(options["--max-yield-bps"], 10)
+        : undefined;
+      const payoutTimelockSeconds = options["--timelock"]
+        ? parseInt(options["--timelock"], 10)
+        : undefined;
       await executeUpdatePoolConfig({
         poolId,
         feeBasisPoints,
@@ -2387,6 +2724,8 @@ async function main() {
         feeWallet,
         minYieldThreshold,
         stakeDurationHrs,
+        maxYieldBasisPoints,
+        payoutTimelockSeconds,
         rpcUrl,
         signer: signer!,
       });
@@ -2409,6 +2748,71 @@ async function main() {
       await executeWithdrawFees({
         poolId,
         amountOption,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "pause-pool": {
+      await executePausePool({
+        poolId,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "unpause-pool": {
+      const confirm = options["--confirm"] === "true";
+      if (!confirm) {
+        console.error("Error: Missing required flag --confirm\n");
+        showCommandHelp("unpause-pool");
+        process.exit(1);
+      }
+      await executeUnpausePool({
+        poolId,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "close-pool": {
+      const confirm = options["--confirm"] === "true";
+      if (!confirm) {
+        console.error("Error: Missing required flag --confirm\n");
+        showCommandHelp("close-pool");
+        process.exit(1);
+      }
+      await executeClosePool({
+        poolId,
+        confirm,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "void-draw": {
+      let cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : undefined;
+      if (cycleId === undefined && positionals.length > 0) {
+        const val = parseInt(positionals[0], 10);
+        if (!isNaN(val)) cycleId = val;
+      }
+      const confirm = options["--confirm"] === "true";
+      if (!confirm) {
+        console.error("Error: Missing required flag --confirm\n");
+        showCommandHelp("void-draw");
+        process.exit(1);
+      }
+      await executeVoidDraw({
+        poolId,
+        cycleId,
         confirm,
         rpcUrl,
         signer: signer!,
@@ -2534,6 +2938,7 @@ async function main() {
       const state = parseGlobalConfig(bytes);
       console.log(`Global Config:
   Admin: ${state.admin}
+  Guardian (Pause Authority): ${state.guardian}
   Jobs Account (Crank): ${state.jobsAccount}
 `);
       break;
@@ -2570,6 +2975,8 @@ async function main() {
   Bond Price: ${formatAmount(state.bondPrice)}
   Stake Cycle Duration (Hrs): ${state.stakeCycleDurationHrs}
   Fee Basis Points: ${state.feeBasisPoints}
+  Max Yield Basis Points: ${state.maxYieldBasisPoints} (${state.maxYieldBasisPoints / 100}%)
+  Payout Timelock (Seconds): ${state.payoutTimelockSeconds}s
   Status: ${state.status}
   Total Deposited Principal: ${formatAmount(state.totalDepositedPrincipal)}
   Current Cycle End At: ${formatTimestamp(state.currentCycleEndAt)}

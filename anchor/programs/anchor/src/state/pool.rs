@@ -84,6 +84,10 @@ pub struct PrizePool {
 
     /// Protocol fee rate in basis points (e.g. 250 = 2.5%).
     pub fee_basis_points: u16,
+    /// Maximum allowable yield basis points per single cycle (e.g. 500 = 5.0%, 0 = uncapped).
+    pub max_yield_basis_points: u16,
+    /// Timelock buffer in seconds before winner payouts can be cranked (default: 300s).
+    pub payout_timelock_seconds: u32,
 
     /// Bump seed for the vault authority.
     pub vault_authority_bump: u8,
@@ -96,7 +100,7 @@ pub struct PrizePool {
     /// Active prize tiers count in prize_tiers array.
     pub prize_tiers_count: u8,
     /// Explicit padding to maintain 8-byte boundary alignment.
-    pub _padding: [u8; 1],
+    pub _padding: [u8; 3],
 
     /// The mint of the underlying USDC token used for purchasing bonds.
     pub token_mint: Pubkey,
@@ -248,13 +252,15 @@ mod tests {
             stake_cycle_duration_hrs,
             min_yield_threshold: 0,
             fee_basis_points,
+            max_yield_basis_points: 0,
+            payout_timelock_seconds: 300,
             status: PoolStatus::Active as u8,
             total_deposited_principal: 0,
             current_cycle_end_at: 0,
             is_frozen_for_draw: 0,
             current_draw_cycle_id: 0,
             prize_tiers_count: 0,
-            _padding: [0; 1],
+            _padding: [0; 3],
             prize_tiers: [PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
             next_redemption_id: 0,
             total_fees_accrued: 0,

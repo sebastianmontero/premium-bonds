@@ -172,6 +172,10 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let (bond_price, pool_id_for_seeds) = {
         let pool = ctx.accounts.pool.load()?;
         require!(
+            pool.status != (crate::state::PoolStatus::Paused as u8),
+            PremiumBondsError::PoolPaused
+        );
+        require!(
             pool.is_frozen_for_draw == 0,
             PremiumBondsError::AwaitingRandomnessFreeze
         );

@@ -28,6 +28,8 @@ import {
   getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getI64Decoder,
+  getI64Encoder,
   getStructDecoder,
   getStructEncoder,
   getU32Decoder,
@@ -67,9 +69,13 @@ export type PayoutRegistry = {
   winnersCount: number;
   /** Number of payouts successfully processed (claimed or reinvested). */
   payoutsCompleted: number;
+  /** Timestamp when reveal_and_pick_winners was executed. */
+  revealedAt: bigint;
+  /** Backed by PayoutRegistryStatus (0 = Active, 1 = Voided). */
+  status: number;
   /** Schema version of the struct. */
   version: number;
-  /** Explicit padding for 8-byte boundary alignment. */
+  /** Explicit padding for 8-byte boundary alignment (4+4+4+4+8+1+1+6 = 32 bytes). */
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
@@ -86,9 +92,13 @@ export type PayoutRegistryArgs = {
   winnersCount: number;
   /** Number of payouts successfully processed (claimed or reinvested). */
   payoutsCompleted: number;
+  /** Timestamp when reveal_and_pick_winners was executed. */
+  revealedAt: number | bigint;
+  /** Backed by PayoutRegistryStatus (0 = Active, 1 = Voided). */
+  status: number;
   /** Schema version of the struct. */
   version: number;
-  /** Explicit padding for 8-byte boundary alignment. */
+  /** Explicit padding for 8-byte boundary alignment (4+4+4+4+8+1+1+6 = 32 bytes). */
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
@@ -105,8 +115,10 @@ export function getPayoutRegistryEncoder(): FixedSizeEncoder<PayoutRegistryArgs>
       ["cycleId", getU32Encoder()],
       ["winnersCount", getU32Encoder()],
       ["payoutsCompleted", getU32Encoder()],
+      ["revealedAt", getI64Encoder()],
+      ["status", getU8Encoder()],
       ["version", getU8Encoder()],
-      ["padding", fixEncoderSize(getBytesEncoder(), 7)],
+      ["padding", fixEncoderSize(getBytesEncoder(), 6)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
       ["winners", getArrayEncoder(getWinnerEncoder(), { size: 50 })],
     ]),
@@ -122,8 +134,10 @@ export function getPayoutRegistryDecoder(): FixedSizeDecoder<PayoutRegistry> {
     ["cycleId", getU32Decoder()],
     ["winnersCount", getU32Decoder()],
     ["payoutsCompleted", getU32Decoder()],
+    ["revealedAt", getI64Decoder()],
+    ["status", getU8Decoder()],
     ["version", getU8Decoder()],
-    ["padding", fixDecoderSize(getBytesDecoder(), 7)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 6)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
     ["winners", getArrayDecoder(getWinnerDecoder(), { size: 50 })],
   ]);
@@ -199,5 +213,5 @@ export async function fetchAllMaybePayoutRegistry(
 }
 
 export function getPayoutRegistrySize(): number {
-  return 2896;
+  return 2904;
 }

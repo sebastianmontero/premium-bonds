@@ -3,7 +3,7 @@ use crate::error::PremiumBondsError;
 use crate::state::UserWinnings;
 
 /// Status phases of an active or completed draw cycle.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
 pub enum DrawStatus {
     /// Awaiting yield harvest and commit from the yield-bearing reserve (Huma).
     AwaitingYield,
@@ -15,6 +15,20 @@ pub enum DrawStatus {
     ForceUnlocked,
     /// Draw was skipped because the generated yield was below the pool's min_yield_threshold or there were no active tickets.
     Skipped,
+    /// Draw was voided and rolled back by an admin.
+    Voided,
+    /// Circuit breaker: Venue balance dropped below book value (insolvent/bad debt).
+    HaltedInsolvent,
+    /// Circuit breaker: Single-cycle yield exceeded configured velocity ceiling.
+    HaltedYieldSpike,
+}
+
+/// Lifecycle status of a PayoutRegistry.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+#[repr(u8)]
+pub enum PayoutRegistryStatus {
+    Active,
+    Voided,
 }
 
 /// State tracking a specific draw cycle's yields and randomness properties.
@@ -61,10 +75,14 @@ pub struct PayoutRegistry {
     pub winners_count: u32,
     /// Number of payouts successfully processed (claimed or reinvested).
     pub payouts_completed: u32,
+    /// Timestamp when reveal_and_pick_winners was executed.
+    pub revealed_at: i64,
+    /// Backed by PayoutRegistryStatus (0 = Active, 1 = Voided).
+    pub status: u8,
     /// Schema version of the struct.
     pub version: u8,
-    /// Explicit padding for 8-byte boundary alignment.
-    pub _padding: [u8; 7],
+    /// Explicit padding for 8-byte boundary alignment (4+4+4+4+8+1+1+6 = 32 bytes).
+    pub _padding: [u8; 6],
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
     /// List of winners and their allocation details.

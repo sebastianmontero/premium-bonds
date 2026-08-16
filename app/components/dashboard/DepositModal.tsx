@@ -70,7 +70,8 @@ export function DepositModal({
     parsedTickets > 0 &&
     totalCostBase <= walletBalance &&
     txStage === null &&
-    !pool.isFrozenForDraw;
+    !pool.isFrozenForDraw &&
+    pool.status === "Active";
 
   const handleDeposit = useCallback(async () => {
     setTxStage("signing");
@@ -206,6 +207,60 @@ export function DepositModal({
               <p className="text-xs text-on-surface-variant mt-0.5">
                 The pool is temporarily frozen to pick winners. Deposits are
                 paused until the draw completes.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Paused Alert */}
+        {pool.status === "Paused" && !pool.isFrozenForDraw && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <svg
+              className="w-5 h-5 text-amber-400 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-amber-200">
+                Pool is paused
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                Deposits are temporarily halted while the emergency pause is active.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Closed Alert */}
+        {pool.status === "Closed" && (
+          <div className="flex items-center gap-3 rounded-xl border border-surface-container-highest bg-surface-container-high/80 px-4 py-3">
+            <svg
+              className="w-5 h-5 text-on-surface-variant shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-on-surface">
+                Pool is closed
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                This pool is permanently closed. New bond deposits are disabled.
               </p>
             </div>
           </div>
@@ -368,17 +423,21 @@ export function DepositModal({
         >
           {pool.isFrozenForDraw
             ? "Pool Frozen During Draw"
-            : totalCostBase > walletBalance
-              ? t("insufficientBalance")
-              : parsedTickets > 0
-                ? t("confirmDepositAmount", {
-                    amount: formatTokenAmount(
-                      totalCostBase,
-                      pool.tokenDecimals
-                    ),
-                    symbol: pool.tokenSymbol,
-                  })
-                : t("enterAmount")}
+            : pool.status === "Paused"
+              ? "Pool Paused"
+              : pool.status === "Closed"
+                ? "Pool Closed"
+                : totalCostBase > walletBalance
+                  ? t("insufficientBalance")
+                  : parsedTickets > 0
+                    ? t("confirmDepositAmount", {
+                        amount: formatTokenAmount(
+                          totalCostBase,
+                          pool.tokenDecimals
+                        ),
+                        symbol: pool.tokenSymbol,
+                      })
+                    : t("enterAmount")}
         </button>
       </div>
     </div>

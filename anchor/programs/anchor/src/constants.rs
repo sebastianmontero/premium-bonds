@@ -31,6 +31,11 @@ pub const MAX_PRIZE_TIERS: usize = 10;
 /// Maximum number of total winners per draw.
 pub const MAX_TOTAL_WINNERS: usize = 50;
 
+/// Default timelock delay (in seconds) before winner payouts can be cranked (5 minutes).
+pub const DEFAULT_PAYOUT_TIMELOCK_SECONDS: u32 = 300;
+/// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
+pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
+
 /// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` crank call.
 pub const REGISTRY_REALLOC_STEP: usize = 10_240;
 /// Solana's hard account size cap.

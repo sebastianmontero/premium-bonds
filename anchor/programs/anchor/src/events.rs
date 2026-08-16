@@ -136,6 +136,7 @@ pub struct HumaLenderInitialized {
 #[event]
 pub struct GlobalConfigUpdated {
     pub admin: Pubkey,
+    pub guardian: Pubkey,
     pub jobs_account: Pubkey,
 }
 
@@ -149,6 +150,44 @@ pub struct PoolConfigUpdated {
     pub fee_wallet: Pubkey,
     pub min_yield_threshold: u64,
     pub stake_cycle_duration_hrs: i64,
+    pub max_yield_basis_points: u16,
+    pub payout_timelock_seconds: u32,
+}
+
+/// Emitted when a pool's administrative lifecycle status is changed (pause, unpause, close).
+#[event]
+pub struct PoolStatusChanged {
+    pub pool_id: u32,
+    pub previous_status: u8,
+    pub new_status: u8,
+    pub authority: Pubkey,
+}
+
+/// Emitted when the on-chain solvency circuit breaker trips due to venue deficit.
+#[event]
+pub struct EmergencyInsolvencyDetected {
+    pub pool_id: u32,
+    pub current_value: u64,
+    pub book_value: u64,
+    pub deficit: u64,
+}
+
+/// Emitted when single-cycle yield breaches the configured velocity ceiling.
+#[event]
+pub struct YieldVelocityBreached {
+    pub pool_id: u32,
+    pub yield_generated: u64,
+    pub max_allowed_yield: u64,
+}
+
+/// Emitted when a completed draw is voided and rolled back by an administrator.
+#[event]
+pub struct DrawVoided {
+    pub pool_id: u32,
+    pub cycle_id: u32,
+    pub admin: Pubkey,
+    pub prizes_reversed: u64,
+    pub fees_reversed: u64,
 }
 
 /// Emitted when prize tiers are updated for a pool.

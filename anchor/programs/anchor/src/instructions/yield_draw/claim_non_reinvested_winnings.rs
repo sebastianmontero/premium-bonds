@@ -159,8 +159,8 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         let mut pool = ctx.accounts.pool.load_mut()?;
 
         require!(
-            pool.status == (PoolStatus::Active as u8),
-            PremiumBondsError::PoolNotActive
+            pool.status != (PoolStatus::Paused as u8),
+            PremiumBondsError::PoolPaused
         );
 
         pool.total_prizes_allocated = pool

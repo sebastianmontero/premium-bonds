@@ -82,7 +82,13 @@ export function PoolCard({
         </div>
 
         <span
-          className={`pill ${pool.status === "Active" ? "pill-success" : "pill-warning"}`}
+          className={`pill ${
+            pool.status === "Active"
+              ? "pill-success"
+              : pool.status === "Paused"
+                ? "pill-warning"
+                : "pill-error"
+          }`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
           {pool.status}
@@ -217,18 +223,62 @@ export function PoolCard({
         );
       })()}
 
+      {/* ── Status Banners ─────────────────────────────────────────── */}
+      {pool.status === "Paused" && !isFrozen && (
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 flex items-center gap-2 text-xs text-amber-200">
+          <svg
+            className="w-4 h-4 text-amber-400 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+          <span>
+            Emergency pause active. Deposits and withdrawals are temporarily halted.
+          </span>
+        </div>
+      )}
+      {pool.status === "Closed" && (
+        <div className="rounded-xl bg-surface-container-high/80 border border-surface-container-highest px-4 py-2.5 flex items-center gap-2 text-xs text-on-surface-variant">
+          <svg
+            className="w-4 h-4 text-on-surface-variant shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>
+            Pool closed (sunset). You may withdraw 100% of your remaining bond principal.
+          </span>
+        </div>
+      )}
+
       {/* ── Actions ──────────────────────────────────────────────────── */}
       <div className="flex gap-3 relative z-0">
         <button
           onClick={onDeposit}
-          disabled={isFrozen}
+          disabled={isFrozen || pool.status !== "Active"}
           className="btn-gradient flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {t("depositButton")}
         </button>
         <button
           onClick={onWithdraw}
-          disabled={isFrozen || totalTicketsCount === 0}
+          disabled={
+            isFrozen || pool.status === "Paused" || totalTicketsCount === 0
+          }
           className="btn-ghost flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {t("withdrawButton")}

@@ -162,6 +162,11 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         let mut pool = ctx.accounts.pool.load_mut()?;
 
         require!(
+            pool.status != (crate::state::PoolStatus::Paused as u8),
+            PremiumBondsError::PoolPaused
+        );
+
+        require!(
             pool.is_frozen_for_draw == 0,
             PremiumBondsError::AwaitingRandomnessFreeze
         );

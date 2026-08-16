@@ -123,6 +123,8 @@ fn inject_pool_custom(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
         status: status as u8,
         total_deposited_principal,
         total_fees_accrued: 0,
@@ -135,7 +137,7 @@ fn inject_pool_custom(
         current_draw_cycle_id: 0,
         prize_tiers: fixed_tiers,
         prize_tiers_count: count as u8,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };

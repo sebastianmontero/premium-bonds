@@ -20,6 +20,8 @@ pub const POOL_VAULT_SEED: &[u8] = b"pool_vault";
 pub const POOL_PST_SEED: &[u8] = b"pool_pst";
 pub const HUMA_POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";
 pub const PENDING_REDEMPTION_SEED: &[u8] = b"pending_redemption";
+pub const DRAW_CYCLE_SEED: &[u8] = b"draw_cycle";
+pub const PAYOUT_SEED: &[u8] = b"payout";
 
 // ─── Trigger Pubkeys ─────────────────────────────────────────────────────────
 
@@ -71,6 +73,28 @@ pub fn pending_redemption_pda(pool_id: u32, redemption_id: u64) -> (Pubkey, u8) 
             PENDING_REDEMPTION_SEED,
             pool_id.to_le_bytes().as_ref(),
             redemption_id.to_le_bytes().as_ref(),
+        ],
+        &anchor::id(),
+    )
+}
+
+pub fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            DRAW_CYCLE_SEED,
+            pool_id.to_le_bytes().as_ref(),
+            cycle_id.to_le_bytes().as_ref(),
+        ],
+        &anchor::id(),
+    )
+}
+
+pub fn payout_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            PAYOUT_SEED,
+            pool_id.to_le_bytes().as_ref(),
+            cycle_id.to_le_bytes().as_ref(),
         ],
         &anchor::id(),
     )
@@ -241,6 +265,8 @@ pub fn inject_pool(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
         status: status as u8,
         total_deposited_principal: 0,
         total_fees_accrued: 0,
@@ -257,7 +283,7 @@ pub fn inject_pool(
             _padding: [0, 0],
         }; 10],
         prize_tiers_count: 0,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };
@@ -389,6 +415,7 @@ pub fn setup_program_data(svm: &mut LiteSVM, upgrade_authority: Option<&Pubkey>)
 pub fn build_initialize_global_ix(
     authority: &Pubkey,
     admin: &Pubkey,
+    guardian: &Pubkey,
     jobs_account: &Pubkey,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
@@ -398,6 +425,7 @@ pub fn build_initialize_global_ix(
         global_config,
         authority: *authority,
         admin: *admin,
+        guardian: *guardian,
         jobs_account: *jobs_account,
         program_data,
         program: anchor::id(),
@@ -416,9 +444,10 @@ pub fn send_initialize_global(
     svm: &mut LiteSVM,
     authority: &Keypair,
     admin: &Pubkey,
+    guardian: &Pubkey,
     jobs_account: &Pubkey,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let ix = build_initialize_global_ix(&authority.pubkey(), admin, jobs_account);
+    let ix = build_initialize_global_ix(&authority.pubkey(), admin, guardian, jobs_account);
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[authority]).unwrap();
@@ -444,7 +473,22 @@ pub fn setup_global_config_with_admin(
     let mut svm = setup_svm_with_authority(authority);
     let default_jobs = Keypair::new().pubkey();
     let jobs = jobs_account.unwrap_or(&default_jobs);
-    send_initialize_global(&mut svm, authority, admin, jobs)
+    let guardian = Keypair::new().pubkey();
+    send_initialize_global(&mut svm, authority, admin, &guardian, jobs)
+        .expect("initialize_global should succeed");
+    svm
+}
+
+pub fn setup_global_config_with_admin_and_guardian(
+    authority: &Keypair,
+    admin: &Pubkey,
+    guardian: &Pubkey,
+    jobs_account: Option<&Pubkey>,
+) -> LiteSVM {
+    let mut svm = setup_svm_with_authority(authority);
+    let default_jobs = Keypair::new().pubkey();
+    let jobs = jobs_account.unwrap_or(&default_jobs);
+    send_initialize_global(&mut svm, authority, admin, guardian, jobs)
         .expect("initialize_global should succeed");
     svm
 }
@@ -695,7 +739,7 @@ pub fn setup_e2e() -> E2eContext {
     setup_program_data(&mut svm, Some(&admin.pubkey()));
 
     // 1. Initialize GlobalConfig
-    send_initialize_global(&mut svm, &admin, &admin.pubkey(), &admin.pubkey()).expect("init_global");
+    send_initialize_global(&mut svm, &admin, &admin.pubkey(), &admin.pubkey(), &admin.pubkey()).expect("init_global");
 
 
     // 2. Create USDC mint (admin is mint authority for test convenience)
@@ -1058,4 +1102,129 @@ pub fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
         },
     )
     .unwrap();
+}
+
+pub fn build_pause_pool_ix(signer: &Pubkey, pool_id: u32) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+
+    let accounts = anchor::accounts::PausePool {
+        global_config,
+        signer: *signer,
+        pool,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::PausePool {}.data(),
+    }
+}
+
+pub fn send_pause_pool(
+    svm: &mut LiteSVM,
+    signer: &Keypair,
+    pool_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_pause_pool_ix(&signer.pubkey(), pool_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_unpause_pool_ix(admin: &Pubkey, pool_id: u32) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+
+    let accounts = anchor::accounts::UnpausePool {
+        global_config,
+        admin: *admin,
+        pool,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::UnpausePool {}.data(),
+    }
+}
+
+pub fn send_unpause_pool(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_unpause_pool_ix(&admin.pubkey(), pool_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_close_pool_ix(admin: &Pubkey, pool_id: u32) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+
+    let accounts = anchor::accounts::ClosePool {
+        global_config,
+        admin: *admin,
+        pool,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClosePool {}.data(),
+    }
+}
+
+pub fn send_close_pool(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_close_pool_ix(&admin.pubkey(), pool_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_admin_void_payout_registry_ix(admin: &Pubkey, pool_id: u32, cycle_id: u32) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
+
+    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
+        global_config,
+        admin: *admin,
+        pool,
+        current_draw_cycle,
+        payout_registry,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
+    }
+}
+
+pub fn send_admin_void_payout_registry(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+    cycle_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_admin_void_payout_registry_ix(&admin.pubkey(), pool_id, cycle_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
 }

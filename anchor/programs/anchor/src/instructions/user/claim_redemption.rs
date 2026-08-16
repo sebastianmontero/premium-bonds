@@ -138,6 +138,10 @@ pub struct ClaimRedemption<'info> {
 pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     let (pool_id_bytes, authority_bump, pool_id) = {
         let pool = ctx.accounts.pool.load()?;
+        require!(
+            pool.status != (crate::state::PoolStatus::Paused as u8),
+            PremiumBondsError::PoolPaused
+        );
         let id = pool.pool_id;
         (id.to_le_bytes(), pool.vault_authority_bump, id)
     };

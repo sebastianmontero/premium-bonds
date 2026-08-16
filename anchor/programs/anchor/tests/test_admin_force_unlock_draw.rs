@@ -59,6 +59,8 @@ fn setup_with_amounts(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
         status: anchor::PoolStatus::Active as u8,
         total_deposited_principal: 0,
         total_fees_accrued,
@@ -71,7 +73,7 @@ fn setup_with_amounts(
         current_draw_cycle_id: 0,
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
-        _padding: [0; 1],
+        _padding: [0; 3],
         version: 1,
         _reserved: [0; 128],
     };

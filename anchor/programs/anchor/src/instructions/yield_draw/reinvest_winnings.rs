@@ -101,8 +101,35 @@ pub fn handle(
     _cycle_id: u32,
     winner_index: u32,
 ) -> Result<()> {
-    // ── 1. Validate winner entry ─────────────────────────────────────────────
+    // ── 1. Validate winner entry & statuses ──────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
+    require!(
+        payout_registry.status == (crate::state::PayoutRegistryStatus::Active as u8),
+        PremiumBondsError::DrawVoided
+    );
+
+    let pool = &mut ctx.accounts.pool.load_mut()?;
+    require!(
+        pool.status == (crate::state::PoolStatus::Active as u8),
+        PremiumBondsError::PoolNotActive
+    );
+    require!(
+        pool.is_frozen_for_draw == 0,
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
+
+    let clock = Clock::get()?;
+    if pool.payout_timelock_seconds > 0 {
+        let eligible_at = payout_registry
+            .revealed_at
+            .checked_add(pool.payout_timelock_seconds as i64)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        require!(
+            clock.unix_timestamp >= eligible_at,
+            PremiumBondsError::PayoutTimelockActive
+        );
+    }
+
     let user_winnings = &mut ctx.accounts.user_winnings;
     let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
 
@@ -113,8 +140,6 @@ pub fn handle(
     let total_available = remaining_current
         .checked_add(accumulated)
         .ok_or(PremiumBondsError::MathOverflow)?;
-
-    let pool = &mut ctx.accounts.pool.load_mut()?;
 
     // How many total bonds can be bought with the total available?
     let mut bonds_to_buy = (total_available
@@ -170,15 +195,6 @@ pub fn handle(
     // the entire pool value including unrealized yield. We simply "re-book"
     // the winnings as principal and register new tickets.
     if bonds_to_buy > 0 {
-        require!(
-            pool.status == (PoolStatus::Active as u8),
-            PremiumBondsError::PoolNotActive
-        );
-        require!(
-            pool.is_frozen_for_draw == 0,
-            PremiumBondsError::AwaitingRandomnessFreeze
-        );
-
         // Update principal (accounting)
         pool.total_deposited_principal = pool
             .total_deposited_principal

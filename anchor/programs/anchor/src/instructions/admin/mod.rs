@@ -1,6 +1,7 @@
 #![allow(ambiguous_glob_reexports)]
 
 pub mod create_pool;
+pub mod emergency_pause;
 pub mod initialize_global;
 pub mod initialize_huma_lender;
 pub mod resize_registry;
@@ -10,6 +11,7 @@ pub mod update_pool_config;
 pub mod withdraw_fees;
 
 pub use create_pool::*;
+pub use emergency_pause::*;
 pub use initialize_global::*;
 pub use initialize_huma_lender::*;
 pub use resize_registry::*;

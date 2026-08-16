@@ -42,6 +42,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
+        constraint = pool.load()?.status == (crate::state::PoolStatus::Active as u8) @ PremiumBondsError::PoolNotActive,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 

@@ -139,13 +139,15 @@ pub fn handle(
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
+    pool.max_yield_basis_points = 0; // Uncapped yield velocity by default
+    pool.payout_timelock_seconds = crate::constants::DEFAULT_PAYOUT_TIMELOCK_SECONDS; // 300s default
     pool.min_yield_threshold = min_yield_threshold;
     pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
     pool.is_frozen_for_draw = 0;
     pool.current_draw_cycle_id = 0;
     pool.prize_tiers_count = 0;
-    pool._padding = [0; 1];
+    pool._padding = [0; 3];
     pool.prize_tiers = [crate::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10];
     pool.next_redemption_id = 0;
     pool.total_fees_accrued = 0;
@@ -153,6 +155,7 @@ pub fn handle(
     pool.total_prizes_allocated = 0;
     pool.total_pending_redemptions = 0;
     pool.version = 1;
+    pool._reserved = [0; 128];
 
     let clock = Clock::get()?;
     pool.advance_cycle_end_at(clock.unix_timestamp)?;

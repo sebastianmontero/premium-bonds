@@ -47,6 +47,7 @@ fn send_update_global_config(
     admin_account_override: Option<Pubkey>,
     override_is_signer: Option<bool>,
     new_admin: Option<Pubkey>,
+    new_guardian: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let mut accounts = anchor::accounts::UpdateGlobalConfig {
@@ -69,6 +70,7 @@ fn send_update_global_config(
         accounts,
         data: anchor::instruction::UpdateGlobalConfig {
             new_admin,
+            new_guardian,
             new_jobs_account,
         }
         .data(),
@@ -101,6 +103,7 @@ fn test_update_global_config_no_fields() {
         None,
         None,
         None,
+        None,
     )
     .expect("Updating no fields should succeed");
 
@@ -124,6 +127,7 @@ fn test_update_global_config_admin_only() {
         None,
         Some(new_admin),
         None,
+        None,
     )
     .expect("Updating admin should succeed");
     let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
@@ -133,6 +137,35 @@ fn test_update_global_config_admin_only() {
     let config = read_global_config(&svm);
     assert_eq!(config.admin, new_admin);
     assert_eq!(config.jobs_account, jobs); // remains unchanged
+}
+
+#[test]
+fn test_update_global_config_guardian_only() {
+    let (mut svm, admin, jobs) = setup_and_initialize();
+    let (global_config, _) = global_config_pda();
+
+    let new_guardian = Keypair::new().pubkey();
+
+    let meta = send_update_global_config(
+        &mut svm,
+        &admin,
+        global_config,
+        None,
+        None,
+        None,
+        Some(new_guardian),
+        None,
+    )
+    .expect("Updating guardian should succeed");
+    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.guardian, new_guardian);
+    assert_eq!(event.jobs_account, jobs);
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, admin.pubkey());
+    assert_eq!(config.guardian, new_guardian);
+    assert_eq!(config.jobs_account, jobs);
 }
 
 #[test]
@@ -146,6 +179,7 @@ fn test_update_global_config_jobs_account_only() {
         &mut svm,
         &admin,
         global_config,
+        None,
         None,
         None,
         None,
@@ -164,6 +198,7 @@ fn test_update_global_config_all_fields() {
     let (global_config, _) = global_config_pda();
 
     let new_admin = Keypair::new().pubkey();
+    let new_guardian = Keypair::new().pubkey();
     let new_jobs_account = Keypair::new().pubkey();
 
     send_update_global_config(
@@ -173,12 +208,14 @@ fn test_update_global_config_all_fields() {
         None,
         None,
         Some(new_admin),
+        Some(new_guardian),
         Some(new_jobs_account),
     )
     .expect("Updating all fields should succeed");
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, new_admin);
+    assert_eq!(config.guardian, new_guardian);
     assert_eq!(config.jobs_account, new_jobs_account);
 }
 
@@ -204,6 +241,7 @@ fn test_update_global_config_unauthorized_admin() {
         None, // The admin account passed in the IX defaults to `attacker.pubkey()`
         None,
         Some(new_admin),
+        None,
         None,
     );
 
@@ -245,6 +283,7 @@ fn test_update_global_config_requires_admin_signature() {
         Some(false),          // But clear the signer flag
         Some(Keypair::new().pubkey()),
         None,
+        None,
     );
 
     assert!(
@@ -270,6 +309,7 @@ fn test_update_global_config_wrong_pda() {
         None,
         None,
         Some(Keypair::new().pubkey()),
+        None,
         None,
     );
 

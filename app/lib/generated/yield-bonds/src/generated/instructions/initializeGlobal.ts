@@ -60,6 +60,7 @@ export type InitializeGlobalInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
+  TAccountGuardian extends string | AccountMeta<string> = string,
   TAccountJobsAccount extends string | AccountMeta<string> = string,
   TAccountProgramData extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
@@ -81,6 +82,9 @@ export type InitializeGlobalInstruction<
       TAccountAdmin extends string
         ? ReadonlyAccount<TAccountAdmin>
         : TAccountAdmin,
+      TAccountGuardian extends string
+        ? ReadonlyAccount<TAccountGuardian>
+        : TAccountGuardian,
       TAccountJobsAccount extends string
         ? ReadonlyAccount<TAccountJobsAccount>
         : TAccountJobsAccount,
@@ -130,6 +134,7 @@ export type InitializeGlobalAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAuthority extends string = string,
   TAccountAdmin extends string = string,
+  TAccountGuardian extends string = string,
   TAccountJobsAccount extends string = string,
   TAccountProgramData extends string = string,
   TAccountProgram extends string = string,
@@ -145,6 +150,7 @@ export type InitializeGlobalAsyncInput<
   authority: TransactionSigner<TAccountAuthority>;
   /** Can be the authority itself, a warm operational key, or a Squads multisig. */
   admin: Address<TAccountAdmin>;
+  guardian: Address<TAccountGuardian>;
   /**
    * exclusively as a reference address for the cranking bot. No data validation
    * or owner checks are performed on it, and it is stored solely in the global configuration.
@@ -162,6 +168,7 @@ export async function getInitializeGlobalInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAuthority extends string,
   TAccountAdmin extends string,
+  TAccountGuardian extends string,
   TAccountJobsAccount extends string,
   TAccountProgramData extends string,
   TAccountProgram extends string,
@@ -172,6 +179,7 @@ export async function getInitializeGlobalInstructionAsync<
     TAccountGlobalConfig,
     TAccountAuthority,
     TAccountAdmin,
+    TAccountGuardian,
     TAccountJobsAccount,
     TAccountProgramData,
     TAccountProgram,
@@ -184,6 +192,7 @@ export async function getInitializeGlobalInstructionAsync<
     TAccountGlobalConfig,
     TAccountAuthority,
     TAccountAdmin,
+    TAccountGuardian,
     TAccountJobsAccount,
     TAccountProgramData,
     TAccountProgram,
@@ -198,6 +207,7 @@ export async function getInitializeGlobalInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
     authority: { value: input.authority ?? null, isWritable: true },
     admin: { value: input.admin ?? null, isWritable: false },
+    guardian: { value: input.guardian ?? null, isWritable: false },
     jobsAccount: { value: input.jobsAccount ?? null, isWritable: false },
     programData: { value: input.programData ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -227,6 +237,7 @@ export async function getInitializeGlobalInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("authority", accounts.authority),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("guardian", accounts.guardian),
       getAccountMeta("jobsAccount", accounts.jobsAccount),
       getAccountMeta("programData", accounts.programData),
       getAccountMeta("program", accounts.program),
@@ -239,6 +250,7 @@ export async function getInitializeGlobalInstructionAsync<
     TAccountGlobalConfig,
     TAccountAuthority,
     TAccountAdmin,
+    TAccountGuardian,
     TAccountJobsAccount,
     TAccountProgramData,
     TAccountProgram,
@@ -250,6 +262,7 @@ export type InitializeGlobalInput<
   TAccountGlobalConfig extends string = string,
   TAccountAuthority extends string = string,
   TAccountAdmin extends string = string,
+  TAccountGuardian extends string = string,
   TAccountJobsAccount extends string = string,
   TAccountProgramData extends string = string,
   TAccountProgram extends string = string,
@@ -265,6 +278,7 @@ export type InitializeGlobalInput<
   authority: TransactionSigner<TAccountAuthority>;
   /** Can be the authority itself, a warm operational key, or a Squads multisig. */
   admin: Address<TAccountAdmin>;
+  guardian: Address<TAccountGuardian>;
   /**
    * exclusively as a reference address for the cranking bot. No data validation
    * or owner checks are performed on it, and it is stored solely in the global configuration.
@@ -282,6 +296,7 @@ export function getInitializeGlobalInstruction<
   TAccountGlobalConfig extends string,
   TAccountAuthority extends string,
   TAccountAdmin extends string,
+  TAccountGuardian extends string,
   TAccountJobsAccount extends string,
   TAccountProgramData extends string,
   TAccountProgram extends string,
@@ -292,6 +307,7 @@ export function getInitializeGlobalInstruction<
     TAccountGlobalConfig,
     TAccountAuthority,
     TAccountAdmin,
+    TAccountGuardian,
     TAccountJobsAccount,
     TAccountProgramData,
     TAccountProgram,
@@ -303,6 +319,7 @@ export function getInitializeGlobalInstruction<
   TAccountGlobalConfig,
   TAccountAuthority,
   TAccountAdmin,
+  TAccountGuardian,
   TAccountJobsAccount,
   TAccountProgramData,
   TAccountProgram,
@@ -316,6 +333,7 @@ export function getInitializeGlobalInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
     authority: { value: input.authority ?? null, isWritable: true },
     admin: { value: input.admin ?? null, isWritable: false },
+    guardian: { value: input.guardian ?? null, isWritable: false },
     jobsAccount: { value: input.jobsAccount ?? null, isWritable: false },
     programData: { value: input.programData ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
@@ -342,6 +360,7 @@ export function getInitializeGlobalInstruction<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("authority", accounts.authority),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("guardian", accounts.guardian),
       getAccountMeta("jobsAccount", accounts.jobsAccount),
       getAccountMeta("programData", accounts.programData),
       getAccountMeta("program", accounts.program),
@@ -354,6 +373,7 @@ export function getInitializeGlobalInstruction<
     TAccountGlobalConfig,
     TAccountAuthority,
     TAccountAdmin,
+    TAccountGuardian,
     TAccountJobsAccount,
     TAccountProgramData,
     TAccountProgram,
@@ -377,17 +397,18 @@ export type ParsedInitializeGlobalInstruction<
     authority: TAccountMetas[1];
     /** Can be the authority itself, a warm operational key, or a Squads multisig. */
     admin: TAccountMetas[2];
+    guardian: TAccountMetas[3];
     /**
      * exclusively as a reference address for the cranking bot. No data validation
      * or owner checks are performed on it, and it is stored solely in the global configuration.
      */
-    jobsAccount: TAccountMetas[3];
+    jobsAccount: TAccountMetas[4];
     /** The program's ProgramData account containing the upgrade authority. */
-    programData: TAccountMetas[4];
+    programData: TAccountMetas[5];
     /** The deployed program itself. */
-    program: TAccountMetas[5];
+    program: TAccountMetas[6];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[6];
+    systemProgram: TAccountMetas[7];
   };
   data: InitializeGlobalInstructionData;
 };
@@ -400,12 +421,12 @@ export function parseInitializeGlobalInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedInitializeGlobalInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+  if (instruction.accounts.length < 8) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 7,
+        expectedAccountMetas: 8,
       }
     );
   }
@@ -421,6 +442,7 @@ export function parseInitializeGlobalInstruction<
       globalConfig: getNextAccount(),
       authority: getNextAccount(),
       admin: getNextAccount(),
+      guardian: getNextAccount(),
       jobsAccount: getNextAccount(),
       programData: getNextAccount(),
       program: getNextAccount(),

@@ -27,6 +27,9 @@ pub struct InitializeGlobal<'info> {
     /// Can be the authority itself, a warm operational key, or a Squads multisig.
     pub admin: UncheckedAccount<'info>,
 
+    /// CHECK: The emergency guardian key authorized to trigger panic pauses.
+    pub guardian: UncheckedAccount<'info>,
+
     /// CHECK: This account is unchecked because it represents a raw public key used
     /// exclusively as a reference address for the cranking bot. No data validation
     /// or owner checks are performed on it, and it is stored solely in the global configuration.
@@ -48,7 +51,7 @@ pub struct InitializeGlobal<'info> {
 
 /// Initializes the global program configuration.
 ///
-/// This instruction sets the admin address and the jobs account address (cranking bot).
+/// This instruction sets the admin address, the guardian address, and the jobs account address (cranking bot).
 /// It can only be called once, as the `global_config` account is initialized as a PDA.
 ///
 /// # Parameters
@@ -57,11 +60,13 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
 
     global_config.admin = ctx.accounts.admin.key();
+    global_config.guardian = ctx.accounts.guardian.key();
     global_config.jobs_account = ctx.accounts.jobs_account.key();
     global_config.version = 1;
 
     emit!(GlobalConfigUpdated {
         admin: global_config.admin,
+        guardian: global_config.guardian,
         jobs_account: global_config.jobs_account,
     });
 

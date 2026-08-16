@@ -32,6 +32,7 @@ pub struct PrepareDraw<'info> {
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry,
+        constraint = pool.load()?.status == (crate::state::PoolStatus::Active as u8) @ PremiumBondsError::PoolNotActive,
         constraint = pool.load()?.is_frozen_for_draw != 0 @ PremiumBondsError::PoolNotFrozen,
     )]
     pub pool: AccountLoader<'info, PrizePool>,

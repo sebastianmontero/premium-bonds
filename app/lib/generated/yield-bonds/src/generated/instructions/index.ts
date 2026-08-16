@@ -7,20 +7,24 @@
  */
 
 export * from "./adminForceUnlockDraw";
+export * from "./adminVoidPayoutRegistry";
 export * from "./buyBonds";
 export * from "./claimNonReinvestedWinnings";
 export * from "./claimRedemption";
+export * from "./closePool";
 export * from "./crankRebindExpiredRandomness";
 export * from "./createPool";
 export * from "./harvestYieldAndCommit";
 export * from "./initializeGlobal";
 export * from "./initializeHumaLender";
+export * from "./pausePool";
 export * from "./prepareDraw";
 export * from "./reinvestWinnings";
 export * from "./resizeRegistry";
 export * from "./revealAndPickWinners";
 export * from "./sellBonds";
 export * from "./setPrizeTiers";
+export * from "./unpausePool";
 export * from "./updateGlobalConfig";
 export * from "./updatePoolConfig";
 export * from "./withdrawFees";

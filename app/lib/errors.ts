@@ -37,6 +37,16 @@ import {
   ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS,
   ANCHOR_ERROR__INVALID_FEE_WALLET,
   ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS,
+  ANCHOR_ERROR__POOL_PAUSED,
+  ANCHOR_ERROR__POOL_CLOSED,
+  ANCHOR_ERROR__DRAW_VOIDED,
+  ANCHOR_ERROR__DRAW_ALREADY_VOIDED,
+  ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED,
+  ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE,
+  ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN,
+  ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED,
+  ANCHOR_ERROR__YIELD_VENUE_INSOLVENT,
+  ANCHOR_ERROR__UNAUTHORIZED,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorCategory =
@@ -253,6 +263,56 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
       "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.",
     actionable:
       "Wait until all participants exit the pool and all prizes/redemptions settle, or create a new pool with the desired bond price.",
+  },
+  [ANCHOR_ERROR__POOL_PAUSED]: {
+    name: "PoolPaused",
+    message: "The prize pool is paused due to an emergency or circuit breaker event.",
+    actionable: "Please wait for administrators to resolve the issue and unpause the pool.",
+  },
+  [ANCHOR_ERROR__POOL_CLOSED]: {
+    name: "PoolClosed",
+    message: "The prize pool is closed permanently.",
+    actionable:
+      "Deposits and new draws are disabled. You may withdraw and settle any remaining bond principal.",
+  },
+  [ANCHOR_ERROR__DRAW_VOIDED]: {
+    name: "DrawVoided",
+    message: "This draw has been voided by the protocol administrator.",
+    actionable: "Prizes from voided draws cannot be claimed or reinvested.",
+  },
+  [ANCHOR_ERROR__DRAW_ALREADY_VOIDED]: {
+    name: "DrawAlreadyVoided",
+    message: "This draw has already been voided.",
+  },
+  [ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED]: {
+    name: "PayoutsAlreadyStarted",
+    message: "Winner payouts have already begun processing; draw cannot be voided.",
+  },
+  [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: {
+    name: "PayoutTimelockActive",
+    message: "Payout settlement timelock is active.",
+    actionable:
+      "Please wait for the timelock settlement window to elapse before cranking payouts.",
+  },
+  [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: {
+    name: "FeesAlreadyWithdrawn",
+    message: "Protocol fees from this cycle were already withdrawn; draw cannot be voided.",
+  },
+  [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: {
+    name: "YieldVelocityExceeded",
+    message: "Yield generated in a single cycle exceeded the configured velocity ceiling.",
+    actionable:
+      "The pool has been paused by the automated circuit breaker for security verification.",
+  },
+  [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: {
+    name: "YieldVenueInsolvent",
+    message: "Yield venue balance dropped below deposited book value.",
+    actionable:
+      "The pool has been paused by the automated solvency guard to prevent capital leakage.",
+  },
+  [ANCHOR_ERROR__UNAUTHORIZED]: {
+    name: "Unauthorized",
+    message: "Caller is not authorized for this operation.",
   },
 };
 

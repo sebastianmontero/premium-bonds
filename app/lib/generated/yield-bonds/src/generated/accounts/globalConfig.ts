@@ -55,6 +55,8 @@ export type GlobalConfig = {
   discriminator: ReadonlyUint8Array;
   /** Public key of the protocol administrator who can create pools and update configs. */
   admin: Address;
+  /** Public key of the hot emergency guardian bot. */
+  guardian: Address;
   /** Designated crank/bot account allowed to trigger restricted drawings and cranks. */
   jobsAccount: Address;
   /** Schema version of the struct. */
@@ -66,6 +68,8 @@ export type GlobalConfig = {
 export type GlobalConfigArgs = {
   /** Public key of the protocol administrator who can create pools and update configs. */
   admin: Address;
+  /** Public key of the hot emergency guardian bot. */
+  guardian: Address;
   /** Designated crank/bot account allowed to trigger restricted drawings and cranks. */
   jobsAccount: Address;
   /** Schema version of the struct. */
@@ -80,6 +84,7 @@ export function getGlobalConfigEncoder(): FixedSizeEncoder<GlobalConfigArgs> {
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["admin", getAddressEncoder()],
+      ["guardian", getAddressEncoder()],
       ["jobsAccount", getAddressEncoder()],
       ["version", getU8Encoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
@@ -93,6 +98,7 @@ export function getGlobalConfigDecoder(): FixedSizeDecoder<GlobalConfig> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["admin", getAddressDecoder()],
+    ["guardian", getAddressDecoder()],
     ["jobsAccount", getAddressDecoder()],
     ["version", getU8Decoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
@@ -161,5 +167,5 @@ export async function fetchAllMaybeGlobalConfig(
 }
 
 export function getGlobalConfigSize(): number {
-  return 137;
+  return 169;
 }

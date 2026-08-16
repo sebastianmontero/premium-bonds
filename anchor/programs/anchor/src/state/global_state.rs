@@ -11,6 +11,8 @@ use anchor_lang::prelude::*;
 pub struct GlobalConfig {
     /// Public key of the protocol administrator who can create pools and update configs.
     pub admin: Pubkey,
+    /// Public key of the hot emergency guardian bot.
+    pub guardian: Pubkey,
     /// Designated crank/bot account allowed to trigger restricted drawings and cranks.
     pub jobs_account: Pubkey,
     /// Schema version of the struct.

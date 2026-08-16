@@ -3,6 +3,7 @@ use crate::error::PremiumBondsError;
 use crate::events::PoolConfigUpdated;
 use crate::state::{GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
+use anchor_spl::token_interface::TokenAccount;
 
 /// Accounts required to update a prize pool's configuration.
 #[derive(Accounts)]
@@ -22,7 +23,7 @@ pub struct UpdatePoolConfig<'info> {
 
     /// The prize pool state account to update.
     ///
-    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
     /// Bump is verified from the pool's initialized authority bump.
     #[account(
         mut,
@@ -34,7 +35,8 @@ pub struct UpdatePoolConfig<'info> {
 
 /// Updates a prize pool's configuration parameters.
 ///
-/// Allows modifying the fee rate (basis points), the bond price, the fee wallet address, the minimum yield threshold, and the stake cycle duration.
+/// Allows modifying the fee rate (basis points), the bond price, the fee wallet address, the minimum yield threshold,
+/// the stake cycle duration, the max yield velocity limit, and the payout settlement timelock buffer.
 ///
 /// # Parameters
 /// * `ctx` - The context of the update pool config instruction.
@@ -43,6 +45,8 @@ pub struct UpdatePoolConfig<'info> {
 /// * `new_fee_wallet` - Optional new fee wallet address.
 /// * `new_min_yield_threshold` - Optional new minimum yield threshold.
 /// * `new_stake_cycle_duration_hrs` - Optional new stake cycle duration in hours.
+/// * `new_max_yield_basis_points` - Optional maximum allowable yield basis points per single cycle (0 = uncapped).
+/// * `new_payout_timelock_seconds` - Optional timelock delay in seconds before payouts can be cranked.
 pub fn handle(
     ctx: Context<UpdatePoolConfig>,
     new_fee_basis_points: Option<u16>,
@@ -50,6 +54,8 @@ pub fn handle(
     new_fee_wallet: Option<Pubkey>,
     new_min_yield_threshold: Option<u64>,
     new_stake_cycle_duration_hrs: Option<i64>,
+    new_max_yield_basis_points: Option<u16>,
+    new_payout_timelock_seconds: Option<u32>,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
 
@@ -83,10 +89,34 @@ pub fn handle(
         }
     }
     if let Some(v) = new_fee_wallet {
-        pool.fee_wallet = v;
+        if v != pool.fee_wallet {
+            let fee_wallet_account_info = ctx
+                .remaining_accounts
+                .iter()
+                .find(|acc| acc.key() == v)
+                .ok_or(PremiumBondsError::InvalidFeeWallet)?;
+
+            let fee_token_account =
+                InterfaceAccount::<TokenAccount>::try_from(fee_wallet_account_info)
+                    .map_err(|_| PremiumBondsError::InvalidFeeWallet)?;
+
+            require!(
+                fee_token_account.mint == pool.token_mint,
+                PremiumBondsError::InvalidFeeWallet
+            );
+
+            pool.fee_wallet = v;
+        }
     }
     if let Some(v) = new_min_yield_threshold {
         pool.min_yield_threshold = v;
+    }
+    if let Some(v) = new_max_yield_basis_points {
+        pool.max_yield_basis_points = v;
+    }
+    if let Some(v) = new_payout_timelock_seconds {
+        require!(v <= 86400, PremiumBondsError::MathOverflow);
+        pool.payout_timelock_seconds = v;
     }
 
     emit!(PoolConfigUpdated {
@@ -97,6 +127,8 @@ pub fn handle(
         fee_wallet: pool.fee_wallet,
         min_yield_threshold: pool.min_yield_threshold,
         stake_cycle_duration_hrs: pool.stake_cycle_duration_hrs,
+        max_yield_basis_points: pool.max_yield_basis_points,
+        payout_timelock_seconds: pool.payout_timelock_seconds,
     });
 
     Ok(())

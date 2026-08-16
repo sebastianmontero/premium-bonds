@@ -53,7 +53,10 @@ export type DrawStatusName =
   | "AwaitingRandomness"
   | "Complete"
   | "ForceUnlocked"
-  | "Skipped";
+  | "Skipped"
+  | "Voided"
+  | "HaltedInsolvent"
+  | "HaltedYieldSpike";
 
 export {
   parseTicketRegistry,
@@ -589,6 +592,10 @@ import {
   getWithdrawFeesInstructionAsync,
   getAdminForceUnlockDrawInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
+  getPausePoolInstructionAsync,
+  getUnpausePoolInstructionAsync,
+  getClosePoolInstructionAsync,
+  getAdminVoidPayoutRegistryInstructionAsync,
 } from "./generated/yield-bonds/src/generated/instructions";
 
 import {
@@ -616,6 +623,10 @@ export {
   getWithdrawFeesInstructionAsync,
   getAdminForceUnlockDrawInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
+  getPausePoolInstructionAsync,
+  getUnpausePoolInstructionAsync,
+  getClosePoolInstructionAsync,
+  getAdminVoidPayoutRegistryInstructionAsync,
   getSimulateYieldInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
@@ -627,6 +638,7 @@ export {
 export async function buildInitializeGlobalInstruction(params: {
   authority?: Address | TransactionSigner;
   admin?: Address | TransactionSigner;
+  guardian?: Address | TransactionSigner;
   jobsAccount?: Address;
   programData?: Address;
   program?: Address;
@@ -643,11 +655,18 @@ export async function buildInitializeGlobalInstruction(params: {
       : (params.admin as TransactionSigner).address
     : authorityAddress;
 
+  const guardianAddress = params.guardian
+    ? typeof params.guardian === "string"
+      ? params.guardian
+      : (params.guardian as TransactionSigner).address
+    : adminAddress;
+
   const programData = params.programData ?? (await findProgramDataPda());
 
   return getInitializeGlobalInstructionAsync({
     authority: signer,
     admin: adminAddress,
+    guardian: guardianAddress,
     jobsAccount: params.jobsAccount ?? authorityAddress,
     programData,
     program: params.program ?? PROGRAM_ID,
@@ -657,11 +676,13 @@ export async function buildInitializeGlobalInstruction(params: {
 export async function buildUpdateGlobalConfigInstruction(params: {
   admin: Address | TransactionSigner;
   newAdmin?: Address;
+  newGuardian?: Address;
   newJobsAccount?: Address;
 }) {
   return getUpdateGlobalConfigInstructionAsync({
     admin: params.admin as TransactionSigner,
     newAdmin: params.newAdmin ?? null,
+    newGuardian: params.newGuardian ?? null,
     newJobsAccount: params.newJobsAccount ?? null,
   });
 }
@@ -722,9 +743,11 @@ export async function buildUpdatePoolConfigInstruction(params: {
   newFeeWallet?: Address;
   newMinYieldThreshold?: bigint | number;
   newStakeCycleDurationHrs?: bigint | number;
+  newMaxYieldBasisPoints?: number;
+  newPayoutTimelockSeconds?: number;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
-  return getUpdatePoolConfigInstructionAsync({
+  const ix = await getUpdatePoolConfigInstructionAsync({
     admin: params.admin as TransactionSigner,
     pool,
     newFeeBasisPoints: params.newFeeBasisPoints ?? null,
@@ -739,6 +762,78 @@ export async function buildUpdatePoolConfigInstruction(params: {
       params.newStakeCycleDurationHrs !== undefined
         ? BigInt(params.newStakeCycleDurationHrs)
         : null,
+    newMaxYieldBasisPoints: params.newMaxYieldBasisPoints ?? null,
+    newPayoutTimelockSeconds: params.newPayoutTimelockSeconds ?? null,
+  });
+
+  if (params.newFeeWallet) {
+    return {
+      ...ix,
+      accounts: [
+        ...ix.accounts,
+        {
+          address: params.newFeeWallet,
+          role: 0, // ReadonlyAccount
+        },
+      ],
+    };
+  }
+
+  return ix;
+}
+
+export async function buildPausePoolInstruction(params: {
+  signer: Address | TransactionSigner;
+  poolId: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getPausePoolInstructionAsync({
+    signer: params.signer as TransactionSigner,
+    pool,
+  });
+}
+
+export async function buildUnpausePoolInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getUnpausePoolInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+  });
+}
+
+export async function buildClosePoolInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  return getClosePoolInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+  });
+}
+
+export async function buildAdminVoidPayoutRegistryInstruction(params: {
+  admin: Address | TransactionSigner;
+  poolId: number;
+  cycleId: number;
+}) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const currentDrawCycle = await findDrawCyclePda(
+    params.poolId,
+    params.cycleId
+  );
+  const payoutRegistry = await findPayoutRegistryPda(
+    params.poolId,
+    params.cycleId
+  );
+  return getAdminVoidPayoutRegistryInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pool,
+    currentDrawCycle,
+    payoutRegistry,
   });
 }
 
