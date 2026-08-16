@@ -92,7 +92,9 @@ function serializeCreatePoolData(
   bondPrice: bigint,
   stakeCycleDurationHrs: bigint,
   feeBasisPoints: number,
-  minYieldThreshold: bigint = 0n
+  minYieldThreshold: bigint = 0n,
+  maxYieldBasisPoints: number = 0,
+  payoutTimelockSeconds: number = 300
 ): Uint8Array {
   return getCreatePoolInstructionDataEncoder().encode({
     poolId,
@@ -100,6 +102,8 @@ function serializeCreatePoolData(
     stakeCycleDurationHrs,
     feeBasisPoints,
     minYieldThreshold,
+    maxYieldBasisPoints,
+    payoutTimelockSeconds,
   });
 }
 

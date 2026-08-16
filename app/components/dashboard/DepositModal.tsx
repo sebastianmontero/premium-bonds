@@ -233,7 +233,8 @@ export function DepositModal({
                 Pool is paused
               </p>
               <p className="text-xs text-on-surface-variant mt-0.5">
-                Deposits are temporarily halted while the emergency pause is active.
+                Deposits are temporarily halted while the emergency pause is
+                active.
               </p>
             </div>
           </div>

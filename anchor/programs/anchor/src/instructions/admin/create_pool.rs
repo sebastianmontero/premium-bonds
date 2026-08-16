@@ -111,6 +111,8 @@ pub struct CreatePool<'info> {
 /// * `stake_cycle_duration_hrs` - The duration of each staking/draw cycle in hours.
 /// * `fee_basis_points` - Protocol fee rate in basis points (e.g., 50 = 0.5%).
 /// * `min_yield_threshold` - Minimum yield required (in base units) to execute a draw cycle.
+/// * `max_yield_basis_points` - Maximum allowable yield basis points per single cycle (0 = uncapped).
+/// * `payout_timelock_seconds` - Timelock delay in seconds before winner payouts can be cranked.
 pub fn handle(
     ctx: Context<CreatePool>,
     pool_id: u32,
@@ -118,17 +120,16 @@ pub fn handle(
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
     min_yield_threshold: u64,
+    max_yield_basis_points: u16,
+    payout_timelock_seconds: u32,
 ) -> Result<()> {
-    require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
-    require!(
-        stake_cycle_duration_hrs >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
-            && stake_cycle_duration_hrs <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
-        PremiumBondsError::InvalidStakeCycleDuration
-    );
-    require!(
-        fee_basis_points <= 10000,
-        PremiumBondsError::InvalidFeeConfig
-    );
+    PrizePool::validate_pool_creation_params(
+        bond_price,
+        stake_cycle_duration_hrs,
+        fee_basis_points,
+        max_yield_basis_points,
+        payout_timelock_seconds,
+    )?;
 
     let mut pool = ctx.accounts.pool.load_init()?;
     pool.vault_authority_bump = ctx.bumps.pool;
@@ -139,8 +140,8 @@ pub fn handle(
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
-    pool.max_yield_basis_points = 0; // Uncapped yield velocity by default
-    pool.payout_timelock_seconds = crate::constants::DEFAULT_PAYOUT_TIMELOCK_SECONDS; // 300s default
+    pool.max_yield_basis_points = max_yield_basis_points;
+    pool.payout_timelock_seconds = payout_timelock_seconds;
     pool.min_yield_threshold = min_yield_threshold;
     pool.status = PoolStatus::Active as u8;
     pool.total_deposited_principal = 0;
@@ -187,6 +188,8 @@ pub fn handle(
         stake_cycle_duration_hrs,
         fee_basis_points,
         min_yield_threshold,
+        max_yield_basis_points,
+        payout_timelock_seconds,
     });
 
     Ok(())

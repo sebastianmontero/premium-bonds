@@ -123,6 +123,8 @@ pub struct PoolCreated {
     pub stake_cycle_duration_hrs: i64,
     pub fee_basis_points: u16,
     pub min_yield_threshold: u64,
+    pub max_yield_basis_points: u16,
+    pub payout_timelock_seconds: u32,
 }
 
 /// Emitted when a Huma lender is initialized for a pool.

@@ -694,6 +694,8 @@ export async function buildCreatePoolInstruction(params: {
   stakeCycleDurationHrs: bigint | number;
   feeBasisPoints: number;
   minYieldThreshold?: bigint | number;
+  maxYieldBasisPoints?: number;
+  payoutTimelockSeconds?: number;
   tokenMint: Address;
   pstMint: Address;
   ticketRegistry: Address;
@@ -710,6 +712,8 @@ export async function buildCreatePoolInstruction(params: {
       params.minYieldThreshold !== undefined
         ? BigInt(params.minYieldThreshold)
         : 0n,
+    maxYieldBasisPoints: params.maxYieldBasisPoints ?? 0,
+    payoutTimelockSeconds: params.payoutTimelockSeconds ?? 300,
     tokenMint: params.tokenMint,
     pstMint: params.pstMint,
     ticketRegistry: params.ticketRegistry,

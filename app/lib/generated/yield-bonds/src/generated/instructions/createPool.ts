@@ -137,6 +137,8 @@ export type CreatePoolInstructionData = {
   stakeCycleDurationHrs: bigint;
   feeBasisPoints: number;
   minYieldThreshold: bigint;
+  maxYieldBasisPoints: number;
+  payoutTimelockSeconds: number;
 };
 
 export type CreatePoolInstructionDataArgs = {
@@ -145,6 +147,8 @@ export type CreatePoolInstructionDataArgs = {
   stakeCycleDurationHrs: number | bigint;
   feeBasisPoints: number;
   minYieldThreshold: number | bigint;
+  maxYieldBasisPoints: number;
+  payoutTimelockSeconds: number;
 };
 
 export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePoolInstructionDataArgs> {
@@ -156,6 +160,8 @@ export function getCreatePoolInstructionDataEncoder(): FixedSizeEncoder<CreatePo
       ["stakeCycleDurationHrs", getI64Encoder()],
       ["feeBasisPoints", getU16Encoder()],
       ["minYieldThreshold", getU64Encoder()],
+      ["maxYieldBasisPoints", getU16Encoder()],
+      ["payoutTimelockSeconds", getU32Encoder()],
     ]),
     (value) => ({ ...value, discriminator: CREATE_POOL_DISCRIMINATOR })
   );
@@ -169,6 +175,8 @@ export function getCreatePoolInstructionDataDecoder(): FixedSizeDecoder<CreatePo
     ["stakeCycleDurationHrs", getI64Decoder()],
     ["feeBasisPoints", getU16Decoder()],
     ["minYieldThreshold", getU64Decoder()],
+    ["maxYieldBasisPoints", getU16Decoder()],
+    ["payoutTimelockSeconds", getU32Decoder()],
   ]);
 }
 
@@ -244,6 +252,8 @@ export type CreatePoolAsyncInput<
   stakeCycleDurationHrs: CreatePoolInstructionDataArgs["stakeCycleDurationHrs"];
   feeBasisPoints: CreatePoolInstructionDataArgs["feeBasisPoints"];
   minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
+  maxYieldBasisPoints: CreatePoolInstructionDataArgs["maxYieldBasisPoints"];
+  payoutTimelockSeconds: CreatePoolInstructionDataArgs["payoutTimelockSeconds"];
 };
 
 export async function getCreatePoolInstructionAsync<
@@ -452,6 +462,8 @@ export type CreatePoolInput<
   stakeCycleDurationHrs: CreatePoolInstructionDataArgs["stakeCycleDurationHrs"];
   feeBasisPoints: CreatePoolInstructionDataArgs["feeBasisPoints"];
   minYieldThreshold: CreatePoolInstructionDataArgs["minYieldThreshold"];
+  maxYieldBasisPoints: CreatePoolInstructionDataArgs["maxYieldBasisPoints"];
+  payoutTimelockSeconds: CreatePoolInstructionDataArgs["payoutTimelockSeconds"];
 };
 
 export function getCreatePoolInstruction<

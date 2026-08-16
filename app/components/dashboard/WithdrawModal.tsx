@@ -229,7 +229,8 @@ export function WithdrawModal({
                 Pool is paused
               </p>
               <p className="text-xs text-on-surface-variant mt-0.5">
-                Withdrawals are temporarily halted while the emergency pause is active.
+                Withdrawals are temporarily halted while the emergency pause is
+                active.
               </p>
             </div>
           </div>
@@ -256,7 +257,8 @@ export function WithdrawModal({
                 Pool is closed (sunset)
               </p>
               <p className="text-xs text-on-surface-variant mt-0.5">
-                You may withdraw 100% of your deposited bond principal without penalty.
+                You may withdraw 100% of your deposited bond principal without
+                penalty.
               </p>
             </div>
           </div>

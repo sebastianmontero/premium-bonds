@@ -80,6 +80,12 @@ pub enum PremiumBondsError {
     /// Fee basis points must be less than or equal to 10,000 (100%).
     #[msg("Fee basis points must be less than or equal to 10,000 (100%).")]
     InvalidFeeConfig,
+    /// Max yield basis points must be less than or equal to 10,000 (100%).
+    #[msg("Max yield basis points must be less than or equal to 10,000 (100%).")]
+    InvalidMaxYieldBasisPoints,
+    /// Payout timelock delay must not exceed 86,400 seconds (24 hours).
+    #[msg("Payout timelock delay must not exceed 86,400 seconds (24 hours).")]
+    InvalidPayoutTimelock,
     /// The mode mint does not match the pool's mode mint.
     #[msg("The mode mint does not match the pool's mode mint.")]
     InvalidModeMint,

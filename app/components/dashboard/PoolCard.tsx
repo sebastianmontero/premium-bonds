@@ -240,7 +240,8 @@ export function PoolCard({
             />
           </svg>
           <span>
-            Emergency pause active. Deposits and withdrawals are temporarily halted.
+            Emergency pause active. Deposits and withdrawals are temporarily
+            halted.
           </span>
         </div>
       )}
@@ -260,7 +261,8 @@ export function PoolCard({
             />
           </svg>
           <span>
-            Pool closed (sunset). You may withdraw 100% of your remaining bond principal.
+            Pool closed (sunset). You may withdraw 100% of your remaining bond
+            principal.
           </span>
         </div>
       )}

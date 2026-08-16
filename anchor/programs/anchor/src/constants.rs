@@ -31,8 +31,13 @@ pub const MAX_PRIZE_TIERS: usize = 10;
 /// Maximum number of total winners per draw.
 pub const MAX_TOTAL_WINNERS: usize = 50;
 
+/// Maximum allowable basis points (100.00%).
+pub const MAX_BASIS_POINTS: u16 = 10_000;
+
 /// Default timelock delay (in seconds) before winner payouts can be cranked (5 minutes).
 pub const DEFAULT_PAYOUT_TIMELOCK_SECONDS: u32 = 300;
+/// Maximum allowable timelock delay before winner payouts can be cranked (24 hours = 86,400 seconds).
+pub const MAX_PAYOUT_TIMELOCK_SECONDS: u32 = 86_400;
 /// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
 pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
 

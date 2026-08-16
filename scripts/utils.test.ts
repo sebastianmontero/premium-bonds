@@ -1,10 +1,11 @@
 import { formatErrorDetails, extractAllLogs, formatStackTrace } from "./utils";
-import { parseLocalnetFlags } from "./localnet";
+import { parseLocalnetFlags, getBootstrapGuideText } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
   DEFAULT_LIVE_YIELD_PRECISION,
   formatTokenAmount,
 } from "../app/lib/formatters";
+import { COMMAND_REGISTRY } from "./pb-cli";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -247,6 +248,90 @@ function runTests() {
     assert(flags4.positionals[0] === "init", "Expected positional 'init'");
 
     console.log("✓ Passed Test 8\n");
+  }
+
+  // Test 9: pb-cli COMMAND_REGISTRY options for create-pool and update-pool-config
+  {
+    console.log("Test 9: pb-cli COMMAND_REGISTRY flags verification");
+    const createPoolMeta = COMMAND_REGISTRY["create-pool"];
+    assert(
+      createPoolMeta !== undefined,
+      "create-pool should exist in COMMAND_REGISTRY"
+    );
+    const createFlags = createPoolMeta.options?.map(
+      (o) => o.flag.split(" ")[0]
+    );
+    assert(
+      createFlags?.includes("--min-yield-threshold") === true,
+      "create-pool options must include --min-yield-threshold"
+    );
+    assert(
+      createFlags?.includes("--payout-timelock") === true,
+      "create-pool options must include --payout-timelock"
+    );
+    assert(
+      createFlags?.includes("--timelock") === false,
+      "create-pool options must not contain deprecated --timelock"
+    );
+
+    const updatePoolMeta = COMMAND_REGISTRY["update-pool-config"];
+    assert(
+      updatePoolMeta !== undefined,
+      "update-pool-config should exist in COMMAND_REGISTRY"
+    );
+    const updateFlags = updatePoolMeta.options?.map(
+      (o) => o.flag.split(" ")[0]
+    );
+    assert(
+      updateFlags?.includes("--min-yield-threshold") === true,
+      "update-pool-config options must include --min-yield-threshold"
+    );
+    assert(
+      updateFlags?.includes("--payout-timelock") === true,
+      "update-pool-config options must include --payout-timelock"
+    );
+    assert(
+      updateFlags?.includes("--timelock") === false,
+      "update-pool-config options must not contain deprecated --timelock"
+    );
+    assert(
+      updatePoolMeta.examples?.every((ex) => !ex.includes("--timelock")) ===
+        true,
+      "update-pool-config examples must not contain deprecated --timelock"
+    );
+    assert(
+      updatePoolMeta.examples?.some((ex) =>
+        ex.includes("--payout-timelock")
+      ) === true,
+      "update-pool-config examples must contain --payout-timelock"
+    );
+    console.log("✓ Passed Test 9\n");
+  }
+
+  // Test 10: Localnet bootstrap guide contains updated create-pool flags and options
+  {
+    console.log("Test 10: Localnet bootstrap guide create-pool documentation");
+    const guideText = getBootstrapGuideText();
+    assert(
+      guideText.includes("--token-mint") &&
+        guideText.includes("--pst-mint") &&
+        guideText.includes("--fee-wallet"),
+      "Guide must document optional account overrides: --token-mint, --pst-mint, --fee-wallet"
+    );
+    assert(
+      guideText.includes("--min-yield-threshold") &&
+        guideText.includes("--max-yield-bps") &&
+        guideText.includes("--payout-timelock") &&
+        guideText.includes("--stake-duration") &&
+        guideText.includes("--bond-price") &&
+        guideText.includes("--fee-bps"),
+      "Guide must document pool configuration parameters"
+    );
+    assert(
+      !guideText.includes("--timelock 0"),
+      "Guide must not contain deprecated --timelock flag in update-pool-config"
+    );
+    console.log("✓ Passed Test 10\n");
   }
 
   console.log("All unit tests completed successfully!");

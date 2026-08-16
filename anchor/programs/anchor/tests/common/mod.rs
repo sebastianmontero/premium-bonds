@@ -153,10 +153,11 @@ pub fn parse_all_log_events<T: anchor_lang::Discriminator + AnchorDeserialize>(
     meta: &litesvm::types::TransactionMetadata,
 ) -> Vec<T> {
     let disc = T::DISCRIMINATOR;
+    use anchor_lang::__private::base64::prelude::*;
     meta.logs
         .iter()
         .filter_map(|log| log.strip_prefix("Program data: "))
-        .filter_map(|b64| anchor_lang::__private::base64::decode(b64.trim()).ok())
+        .filter_map(|b64| BASE64_STANDARD.decode(b64.trim()).ok())
         .filter_map(|bytes| {
             if bytes.len() >= 8 && bytes[0..8] == disc[..] {
                 let mut slice = &bytes[8..];
@@ -704,6 +705,56 @@ pub fn read_registry_entry(svm: &LiteSVM, address: Pubkey, idx: usize) -> anchor
     anchor::utils::registry_get_entry(&acct.data, idx)
 }
 
+/// Builds a `CreatePool` instruction with full parameters.
+pub fn build_create_pool_instruction(
+    admin: &Keypair,
+    pool_id: u32,
+    bond_price: u64,
+    stake_cycle_duration_hrs: i64,
+    fee_basis_points: u16,
+    min_yield_threshold: u64,
+    max_yield_basis_points: u16,
+    payout_timelock_seconds: u32,
+    token_mint: Pubkey,
+    pst_mint: Pubkey,
+    ticket_registry: Pubkey,
+    fee_wallet: Pubkey,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (pool_vault, _) = pool_vault_pda(pool_id);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts: anchor::accounts::CreatePool {
+            global_config,
+            admin: admin.pubkey(),
+            pool,
+            ticket_registry,
+            token_mint,
+            pst_mint,
+            pool_vault_account: pool_vault,
+            pool_pst_vault,
+            fee_wallet,
+            system_program: anchor_lang::system_program::ID,
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+        }
+        .to_account_metas(None),
+        data: anchor::instruction::CreatePool {
+            pool_id,
+            bond_price,
+            stake_cycle_duration_hrs,
+            fee_basis_points,
+            min_yield_threshold,
+            max_yield_basis_points,
+            payout_timelock_seconds,
+        }
+        .data(),
+    }
+}
+
 // ─── E2E Context ─────────────────────────────────────────────────────────────
 
 pub struct E2eContext {
@@ -809,37 +860,20 @@ pub fn setup_e2e() -> E2eContext {
 
     // 8. Create pool via instruction
     {
-        let (global_config, _) = global_config_pda();
-        let (pool, _) = pool_pda(1);
-        let (pool_vault, _) = pool_vault_pda(1);
-        let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts: anchor::accounts::CreatePool {
-                global_config,
-                admin: admin.pubkey(),
-                pool,
-                ticket_registry,
-                token_mint: usdc_mint,
-                pst_mint,
-                pool_vault_account: pool_vault,
-                pool_pst_vault,
-                fee_wallet,
-                system_program: anchor_lang::system_program::ID,
-                token_program: anchor_spl::token::ID,
-                pst_token_program: anchor_spl::token::ID,
-            }
-            .to_account_metas(None),
-            data: anchor::instruction::CreatePool {
-                pool_id: 1,
-                bond_price: 1_000_000,
-                stake_cycle_duration_hrs: 24,
-                fee_basis_points: 100,
-                min_yield_threshold: 0,
-            }
-            .data(),
-        };
+        let ix = build_create_pool_instruction(
+            &admin,
+            1,
+            1_000_000,
+            24,
+            100,
+            0,
+            0,
+            300,
+            usdc_mint,
+            pst_mint,
+            ticket_registry,
+            fee_wallet,
+        );
 
         let bh = svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);

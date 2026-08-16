@@ -106,46 +106,29 @@ fn build_create_pool_ix(
     stake_cycle_duration_hrs: i64,
     fee_basis_points: u16,
     min_yield_threshold: u64,
+    max_yield_basis_points: u16,
+    payout_timelock_seconds: u32,
 ) -> Instruction {
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let (pool_vault_account, _) = pool_vault_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-
-    let accounts = anchor::accounts::CreatePool {
-        global_config,
-        admin: ctx.admin.pubkey(),
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.token_mint,
-        pst_mint: ctx.pst_mint,
-        pool_vault_account,
-        pool_pst_vault,
-        fee_wallet: ctx.fee_wallet,
-        system_program: anchor_lang::system_program::ID,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CreatePool {
-            pool_id,
-            bond_price,
-            stake_cycle_duration_hrs,
-            fee_basis_points,
-            min_yield_threshold,
-        }
-        .data(),
-    }
+    build_create_pool_instruction(
+        &ctx.admin,
+        pool_id,
+        bond_price,
+        stake_cycle_duration_hrs,
+        fee_basis_points,
+        min_yield_threshold,
+        max_yield_basis_points,
+        payout_timelock_seconds,
+        ctx.token_mint,
+        ctx.pst_mint,
+        ctx.ticket_registry,
+        ctx.fee_wallet,
+    )
 }
 
 #[test]
 fn test_create_pool_succeeds() {
     let mut ctx = setup_create_pool_context();
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -157,13 +140,55 @@ fn test_create_pool_succeeds() {
     assert_eq!(event.admin, ctx.admin.pubkey());
     assert_eq!(event.token_mint, ctx.token_mint);
     assert_eq!(event.pst_mint, ctx.pst_mint);
+    assert_eq!(event.max_yield_basis_points, 0);
+    assert_eq!(event.payout_timelock_seconds, 300);
+
+    let pool_state = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_state.max_yield_basis_points, 0);
+    assert_eq!(pool_state.payout_timelock_seconds, 300);
+}
+
+#[test]
+fn test_create_pool_with_custom_security_parameters_succeeds() {
+    let mut ctx = setup_create_pool_context();
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 500, 600);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let meta = ctx.svm.send_transaction(tx).expect("create_pool should succeed");
+    let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.max_yield_basis_points, 500);
+    assert_eq!(event.payout_timelock_seconds, 600);
+
+    let pool_state = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_state.max_yield_basis_points, 500);
+    assert_eq!(pool_state.payout_timelock_seconds, 600);
+}
+
+#[test]
+fn test_create_pool_boundary_values_succeed() {
+    let mut ctx = setup_create_pool_context();
+    // Boundary: max_yield_basis_points = 10_000 (100%), payout_timelock = 86_400 (24h)
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10_000, 0, 10_000, 86_400);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let meta = ctx.svm.send_transaction(tx).expect("create_pool boundary should succeed");
+    let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
+    assert_eq!(event.max_yield_basis_points, 10_000);
+    assert_eq!(event.payout_timelock_seconds, 86_400);
 }
 
 #[test]
 fn test_create_pool_fails_on_invalid_bond_price() {
     let mut ctx = setup_create_pool_context();
     // bond_price = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 0, 24, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -179,7 +204,7 @@ fn test_create_pool_fails_on_invalid_bond_price() {
 fn test_create_pool_fails_on_invalid_stake_duration() {
     let mut ctx = setup_create_pool_context();
     // stake_cycle_duration_hrs = 0 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 0, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -195,7 +220,7 @@ fn test_create_pool_fails_on_invalid_stake_duration() {
 fn test_create_pool_fails_on_negative_stake_duration() {
     let mut ctx = setup_create_pool_context();
     // stake_cycle_duration_hrs = -24 should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, -24, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, -24, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -211,7 +236,7 @@ fn test_create_pool_fails_on_negative_stake_duration() {
 fn test_create_pool_fails_on_exceeds_max_stake_duration() {
     let mut ctx = setup_create_pool_context();
     // stake_cycle_duration_hrs = 8761 (> MAX_STAKE_CYCLE_DURATION_HRS) should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 8761, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 8761, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -236,7 +261,7 @@ fn test_create_pool_fails_on_registry_too_small() {
     );
     ctx.ticket_registry = too_small_registry;
 
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -254,40 +279,20 @@ fn test_create_pool_fails_on_unauthorized_admin() {
     let hacker = Keypair::new();
     ctx.svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(1);
-    let (pool_vault_account, _) = pool_vault_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-
-    // Try to call create_pool with hacker as admin
-    let accounts = anchor::accounts::CreatePool {
-        global_config,
-        admin: hacker.pubkey(),
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.token_mint,
-        pst_mint: ctx.pst_mint,
-        pool_vault_account,
-        pool_pst_vault,
-        fee_wallet: ctx.fee_wallet,
-        system_program: anchor_lang::system_program::ID,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CreatePool {
-            pool_id: 1,
-            bond_price: 1_000_000,
-            stake_cycle_duration_hrs: 24,
-            fee_basis_points: 100,
-            min_yield_threshold: 0,
-        }
-        .data(),
-    };
+    let ix = build_create_pool_instruction(
+        &hacker,
+        1,
+        1_000_000,
+        24,
+        100,
+        0,
+        0,
+        300,
+        ctx.token_mint,
+        ctx.pst_mint,
+        ctx.ticket_registry,
+        ctx.fee_wallet,
+    );
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&hacker.pubkey()), &blockhash);
@@ -303,7 +308,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
 fn test_create_pool_fails_on_invalid_fee_config() {
     let mut ctx = setup_create_pool_context();
     // fee_basis_points = 10001 (exceeds 10000 / 100%) should fail
-    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10001, 0);
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 10001, 0, 0, 300);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
@@ -313,4 +318,36 @@ fn test_create_pool_fails_on_invalid_fee_config() {
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("InvalidFeeConfig"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_invalid_max_yield_basis_points() {
+    let mut ctx = setup_create_pool_context();
+    // max_yield_basis_points = 10001 (exceeds 10000 / 100%) should fail
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 10_001, 300);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidMaxYieldBasisPoints"), "got: {err_str}");
+}
+
+#[test]
+fn test_create_pool_fails_on_invalid_payout_timelock() {
+    let mut ctx = setup_create_pool_context();
+    // payout_timelock_seconds = 86401 (exceeds 86400 / 24h) should fail
+    let ix = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 0, 86_401);
+
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidPayoutTimelock"), "got: {err_str}");
 }

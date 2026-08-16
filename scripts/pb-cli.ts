@@ -283,6 +283,23 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         flag: "--fee-wallet <pubkey>",
         description: "Fee wallet token account address",
       },
+      {
+        flag: "--min-yield-threshold <num>",
+        description:
+          "Minimum yield threshold in base units (0 = uncapped/no min)",
+        default: "0",
+      },
+      {
+        flag: "--max-yield-bps <num>",
+        description:
+          "Maximum yield velocity limit in basis points (0 = uncapped)",
+        default: "0",
+      },
+      {
+        flag: "--payout-timelock <secs>",
+        description: "Payout settlement timelock in seconds (max 86400)",
+        default: "300",
+      },
     ],
     examples: [
       "npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --fee-bps 100",
@@ -328,9 +345,9 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     command: "update-pool-config",
     category: "Admin",
     summary:
-      "Update pool config (fee bps, bond price, fee wallet, duration, min yield)",
+      "Update pool config (fee bps, bond price, fee wallet, duration, min yield, max yield, payout timelock)",
     description:
-      "Update pool config parameters (fee bps, bond price, fee wallet address, stake cycle duration, min yield threshold).",
+      "Update pool config parameters (fee bps, bond price, fee wallet address, stake cycle duration, min yield threshold, max yield velocity bps, payout settlement timelock).",
     requiresSigner: true,
     options: [
       {
@@ -359,7 +376,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
           "Maximum allowable yield spike per cycle in basis points (1-10000)",
       },
       {
-        flag: "--timelock <seconds>",
+        flag: "--payout-timelock <seconds>",
         description:
           "Payout delay timelock in seconds before winners can be processed (0-604800)",
       },
@@ -367,7 +384,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     examples: [
       "npm run pb-cli update-pool-config -- --pool 1 --fee-bps 200",
       "npm run pb-cli update-pool-config -- --pool 1 --stake-duration 168",
-      "npm run pb-cli update-pool-config -- --pool 1 --max-yield-bps 500 --timelock 3600",
+      "npm run pb-cli update-pool-config -- --pool 1 --min-yield-threshold 5000000",
+      "npm run pb-cli update-pool-config -- --pool 1 --max-yield-bps 500 --payout-timelock 3600",
     ],
   },
   "withdraw-fees": {
@@ -1530,6 +1548,9 @@ export interface ExecuteCreatePoolParams {
   bondPrice?: bigint | number;
   stakeCycleDurationHrs?: bigint | number;
   feeBasisPoints?: number;
+  minYieldThreshold?: bigint | number;
+  maxYieldBasisPoints?: number;
+  payoutTimelockSeconds?: number;
   tokenMint?: string;
   pstMint?: string;
   feeWallet?: string;
@@ -1542,6 +1563,9 @@ export async function executeCreatePool({
   bondPrice = 1_000_000,
   stakeCycleDurationHrs = 24,
   feeBasisPoints = 100,
+  minYieldThreshold = 0n,
+  maxYieldBasisPoints = 0,
+  payoutTimelockSeconds = 300,
   tokenMint,
   pstMint,
   feeWallet,
@@ -1567,6 +1591,12 @@ export async function executeCreatePool({
     throw new Error("stakeCycleDurationHrs must be > 0.");
   if (feeBasisPoints < 0 || feeBasisPoints > 10000)
     throw new Error("feeBasisPoints must be between 0 and 10000.");
+  if (BigInt(minYieldThreshold) < 0n)
+    throw new Error("minYieldThreshold must be non-negative.");
+  if (maxYieldBasisPoints < 0 || maxYieldBasisPoints > 10000)
+    throw new Error("maxYieldBasisPoints must be between 0 and 10000.");
+  if (payoutTimelockSeconds < 0 || payoutTimelockSeconds > 86400)
+    throw new Error("payoutTimelockSeconds must be between 0 and 86400.");
 
   const resolvedTokenMint =
     tokenMint ||
@@ -1588,6 +1618,9 @@ export async function executeCreatePool({
   Bond Price: ${formatAmount(bondPrice)}
   Stake Cycle Duration (Hrs): ${stakeCycleDurationHrs}
   Fee Basis Points: ${feeBasisPoints} (${feeBasisPoints / 100}%)
+  Min Yield Threshold: ${formatAmount(minYieldThreshold)}
+  Max Yield Basis Points: ${maxYieldBasisPoints} (${maxYieldBasisPoints / 100}%)
+  Payout Timelock (Secs): ${payoutTimelockSeconds}s
   Token Mint: ${resolvedTokenMint}
   PST Mint: ${resolvedPstMint}
   Fee Wallet: ${resolvedFeeWallet}
@@ -1619,7 +1652,9 @@ export async function executeCreatePool({
     bondPrice,
     stakeCycleDurationHrs,
     feeBasisPoints,
-    minYieldThreshold: 0n,
+    minYieldThreshold: BigInt(minYieldThreshold),
+    maxYieldBasisPoints,
+    payoutTimelockSeconds,
     tokenMint: address(resolvedTokenMint),
     pstMint: address(resolvedPstMint),
     ticketRegistry: ticketRegistrySigner.address,
@@ -1888,7 +1923,7 @@ export async function executeUpdatePoolConfig({
     payoutTimelockSeconds === undefined
   ) {
     throw new Error(
-      "No update options provided. Pass --fee-bps, --bond-price, --fee-wallet, --stake-duration, --min-yield-threshold, --max-yield-bps, or --timelock."
+      "No update options provided. Pass --fee-bps, --bond-price, --fee-wallet, --stake-duration, --min-yield-threshold, --max-yield-bps, or --payout-timelock."
     );
   }
 
@@ -1920,7 +1955,9 @@ export async function executeUpdatePoolConfig({
     payoutTimelockSeconds !== undefined &&
     (payoutTimelockSeconds < 0 || payoutTimelockSeconds > 604800)
   ) {
-    throw new Error("payoutTimelockSeconds must be between 0 and 604800 (7 days).");
+    throw new Error(
+      "payoutTimelockSeconds must be between 0 and 604800 (7 days)."
+    );
   }
 
   console.log(`Updating Prize Pool ${poolId} Config:
@@ -1928,7 +1965,7 @@ export async function executeUpdatePoolConfig({
   Current Bond Price: ${formatAmount(poolState.bondPrice)} ${bondPrice !== undefined ? `-> New: ${formatAmount(bondPrice)}` : ""}
   Current Fee Wallet: ${poolState.feeWallet} ${feeWallet ? `-> New: ${feeWallet}` : ""}
   Current Stake Cycle Duration (Hrs): ${poolState.stakeCycleDurationHrs} ${stakeDurationHrs !== undefined ? `-> New: ${stakeDurationHrs}` : ""}
-  Current Min Yield Threshold: ${poolState.minYieldThreshold} ${minYieldThreshold !== undefined ? `-> New: ${minYieldThreshold}` : ""}
+  Current Min Yield Threshold: ${formatAmount(poolState.minYieldThreshold)} ${minYieldThreshold !== undefined ? `-> New: ${formatAmount(minYieldThreshold)}` : ""}
   Current Max Yield Basis Points: ${poolState.maxYieldBasisPoints} ${maxYieldBasisPoints !== undefined ? `-> New: ${maxYieldBasisPoints}` : ""}
   Current Payout Timelock (Seconds): ${poolState.payoutTimelockSeconds}s ${payoutTimelockSeconds !== undefined ? `-> New: ${payoutTimelockSeconds}s` : ""}
 `);
@@ -2649,11 +2686,23 @@ async function main() {
       const feeBasisPoints = options["--fee-bps"]
         ? parseInt(options["--fee-bps"], 10)
         : 100;
+      const minYieldThreshold = options["--min-yield-threshold"]
+        ? BigInt(options["--min-yield-threshold"])
+        : 0n;
+      const maxYieldBasisPoints = options["--max-yield-bps"]
+        ? parseInt(options["--max-yield-bps"], 10)
+        : 0;
+      const payoutTimelockSeconds = options["--payout-timelock"]
+        ? parseInt(options["--payout-timelock"], 10)
+        : 300;
       await executeCreatePool({
         poolId,
         bondPrice,
         stakeCycleDurationHrs,
         feeBasisPoints,
+        minYieldThreshold,
+        maxYieldBasisPoints,
+        payoutTimelockSeconds,
         tokenMint: options["--token-mint"],
         pstMint: options["--pst-mint"],
         feeWallet: options["--fee-wallet"],
@@ -2714,8 +2763,8 @@ async function main() {
       const maxYieldBasisPoints = options["--max-yield-bps"]
         ? parseInt(options["--max-yield-bps"], 10)
         : undefined;
-      const payoutTimelockSeconds = options["--timelock"]
-        ? parseInt(options["--timelock"], 10)
+      const payoutTimelockSeconds = options["--payout-timelock"]
+        ? parseInt(options["--payout-timelock"], 10)
         : undefined;
       await executeUpdatePoolConfig({
         poolId,
@@ -2975,6 +3024,7 @@ async function main() {
   Bond Price: ${formatAmount(state.bondPrice)}
   Stake Cycle Duration (Hrs): ${state.stakeCycleDurationHrs}
   Fee Basis Points: ${state.feeBasisPoints}
+  Min Yield Threshold: ${formatAmount(state.minYieldThreshold)}
   Max Yield Basis Points: ${state.maxYieldBasisPoints} (${state.maxYieldBasisPoints / 100}%)
   Payout Timelock (Seconds): ${state.payoutTimelockSeconds}s
   Status: ${state.status}

@@ -654,7 +654,34 @@ fn test_update_pool_config_fails_timelock_exceeds_max() {
     let res = svm.send_transaction(tx);
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("MathOverflow"), "got: {err_str}");
+    assert!(err_str.contains("InvalidPayoutTimelock"), "got: {err_str}");
+}
+
+#[test]
+fn test_update_pool_config_fails_max_yield_exceeds_max() {
+    let (mut svm, admin) = setup_global_config();
+    inject_pool(&mut svm, 1);
+
+    let ix = build_update_pool_config_full_ix(
+        admin.pubkey(),
+        1,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(10_001), // > 10_000 max bps
+        None,
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("InvalidMaxYieldBasisPoints"), "got: {err_str}");
 }
 
 #[test]

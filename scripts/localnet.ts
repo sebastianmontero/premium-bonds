@@ -805,6 +805,8 @@ async function initializePrizePoolOnChain(
       stakeCycleDurationHrs: 24n, // stake_cycle_duration_hrs = 24
       feeBasisPoints: 100, // fee_basis_points = 100 (1%)
       minYieldThreshold: 0n,
+      maxYieldBasisPoints: 0,
+      payoutTimelockSeconds: 300,
       tokenMint: address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
       pstMint: address(addresses.pstMint),
       ticketRegistry: address(addresses.ticketRegistry),
@@ -830,8 +832,8 @@ async function initializePrizePoolOnChain(
   }
 }
 
-function printBootstrapGuide() {
-  console.log(`
+export function getBootstrapGuideText(): string {
+  return `
 ================================================================================
 🚀 Localnet Base State is Ready for pb-cli Admin Testing!
 ================================================================================
@@ -840,25 +842,40 @@ and .env.local has been synchronized. GlobalConfig has NOT been initialized yet.
 
 Next Steps to Test pb-cli:
   1. Initialize Global Configuration:
-     npm run pb-cli init-global -- --jobs <CRANK_PUBKEY>
-     (Or use admin address: npm run pb-cli init-global)
+     npm run pb-cli init-global
+     (Optional flags: --admin <PUBKEY> --guardian <PUBKEY> --jobs <CRANK_PUBKEY>)
+     (Update existing: npm run pb-cli update-global-config -- --guardian <PUBKEY> --jobs <PUBKEY>)
 
   2. Query & Verify Global Configuration:
      npm run pb-cli query-config
 
   3. Create Prize Pool #1:
-     npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --stake-duration 24 --fee-bps 100
+     npm run pb-cli create-pool -- --pool 1
+     (Defaults: --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 0 --payout-timelock 300)
+     (Custom params: npm run pb-cli create-pool -- --pool 1 --bond-price 1000000 --stake-duration 24 --fee-bps 100 --min-yield-threshold 0 --max-yield-bps 500 --payout-timelock 300)
+     (Optional accounts: --token-mint <PUBKEY> --pst-mint <PUBKEY> --fee-wallet <PUBKEY>)
+     (Update existing: npm run pb-cli update-pool-config -- --pool 1 --fee-bps 100 --bond-price 1000000 --stake-duration 24 --min-yield-threshold 0 --max-yield-bps 500 --payout-timelock 0 --fee-wallet <PUBKEY>)
 
   4. Initialize Huma Lender:
      npm run pb-cli initialize-huma-lender -- --pool 1
 
   5. Configure Prize Tiers:
-     npm run pb-cli set-prize-tiers -- --pool 1 --tiers "1:5000,5:1000"
+     npm run pb-cli set-prize-tiers -- --pool 1 --tiers "1:5000,2:1500,5:400"
 
-  6. Inspect Prize Pool State:
+  6. Inspect State:
      npm run pb-cli query-pool -- --pool 1
+     npm run pb-cli query-mock-huma-pool-state
+
+Additional Commands:
+  - Emergency Controls: npm run pb-cli pause-pool -- --pool 1 (or unpause-pool / close-pool / void-draw)
+  - Draw Execution:     npm run pb-cli harvest -- --pool 1 -> prepare-draw -> reveal -> reinvest
+                        (Or all-in-one: npm run localnet draw -- --pool-id 1)
 ================================================================================
-`);
+`;
+}
+
+export function printBootstrapGuide() {
+  console.log(getBootstrapGuideText());
 }
 
 async function handleBootstrap(args: string[] = []) {

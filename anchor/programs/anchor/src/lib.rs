@@ -91,6 +91,8 @@ pub mod anchor {
         stake_cycle_duration_hrs: i64,
         fee_basis_points: u16,
         min_yield_threshold: u64,
+        max_yield_basis_points: u16,
+        payout_timelock_seconds: u32,
     ) -> Result<()> {
         instructions::admin::create_pool::handle(
             ctx,
@@ -99,6 +101,8 @@ pub mod anchor {
             stake_cycle_duration_hrs,
             fee_basis_points,
             min_yield_threshold,
+            max_yield_basis_points,
+            payout_timelock_seconds,
         )
     }
 

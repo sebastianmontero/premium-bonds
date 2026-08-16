@@ -25,6 +25,8 @@ import {
   ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE,
   ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM,
   ANCHOR_ERROR__INVALID_FEE_CONFIG,
+  ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS,
+  ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK,
   ANCHOR_ERROR__INVALID_MODE_MINT,
   ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT,
   ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED,
@@ -208,6 +210,18 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     name: "InvalidFeeConfig",
     message: "Fee basis points must be less than or equal to 100%.",
   },
+  [ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS]: {
+    name: "InvalidMaxYieldBasisPoints",
+    message:
+      "Maximum yield basis points must be less than or equal to 10,000 (100%).",
+    actionable:
+      "Configure max yield basis points between 0 (uncapped) and 10,000 (100%).",
+  },
+  [ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK]: {
+    name: "InvalidPayoutTimelock",
+    message: "Payout timelock must not exceed 86,400 seconds (24 hours).",
+    actionable: "Set a payout delay buffer between 0 and 86,400 seconds.",
+  },
   [ANCHOR_ERROR__INVALID_MODE_MINT]: {
     name: "InvalidModeMint",
     message: "The provided token mint does not match the pool configuration.",
@@ -266,8 +280,10 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   },
   [ANCHOR_ERROR__POOL_PAUSED]: {
     name: "PoolPaused",
-    message: "The prize pool is paused due to an emergency or circuit breaker event.",
-    actionable: "Please wait for administrators to resolve the issue and unpause the pool.",
+    message:
+      "The prize pool is paused due to an emergency or circuit breaker event.",
+    actionable:
+      "Please wait for administrators to resolve the issue and unpause the pool.",
   },
   [ANCHOR_ERROR__POOL_CLOSED]: {
     name: "PoolClosed",
@@ -286,7 +302,8 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   },
   [ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED]: {
     name: "PayoutsAlreadyStarted",
-    message: "Winner payouts have already begun processing; draw cannot be voided.",
+    message:
+      "Winner payouts have already begun processing; draw cannot be voided.",
   },
   [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: {
     name: "PayoutTimelockActive",
@@ -296,11 +313,13 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   },
   [ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN]: {
     name: "FeesAlreadyWithdrawn",
-    message: "Protocol fees from this cycle were already withdrawn; draw cannot be voided.",
+    message:
+      "Protocol fees from this cycle were already withdrawn; draw cannot be voided.",
   },
   [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: {
     name: "YieldVelocityExceeded",
-    message: "Yield generated in a single cycle exceeded the configured velocity ceiling.",
+    message:
+      "Yield generated in a single cycle exceeded the configured velocity ceiling.",
     actionable:
       "The pool has been paused by the automated circuit breaker for security verification.",
   },

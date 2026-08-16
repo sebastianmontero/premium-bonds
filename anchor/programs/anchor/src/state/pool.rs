@@ -197,6 +197,65 @@ impl PrizePool {
         );
         Ok(())
     }
+
+    /// Validates bond price.
+    pub fn validate_bond_price(bond_price: u64) -> Result<()> {
+        require!(bond_price > 0, PremiumBondsError::InvalidBondPrice);
+        Ok(())
+    }
+
+    /// Validates stake cycle duration in hours.
+    pub fn validate_stake_cycle_duration(stake_cycle_duration_hrs: i64) -> Result<()> {
+        require!(
+            stake_cycle_duration_hrs >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
+                && stake_cycle_duration_hrs <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
+            PremiumBondsError::InvalidStakeCycleDuration
+        );
+        Ok(())
+    }
+
+    /// Validates fee rate in basis points.
+    pub fn validate_fee_basis_points(fee_basis_points: u16) -> Result<()> {
+        require!(
+            fee_basis_points <= crate::constants::MAX_BASIS_POINTS,
+            PremiumBondsError::InvalidFeeConfig
+        );
+        Ok(())
+    }
+
+    /// Validates maximum allowable yield velocity basis points.
+    pub fn validate_max_yield_basis_points(max_yield_basis_points: u16) -> Result<()> {
+        require!(
+            max_yield_basis_points <= crate::constants::MAX_BASIS_POINTS,
+            PremiumBondsError::InvalidMaxYieldBasisPoints
+        );
+        Ok(())
+    }
+
+    /// Validates payout settlement timelock delay in seconds.
+    pub fn validate_payout_timelock_seconds(payout_timelock_seconds: u32) -> Result<()> {
+        require!(
+            payout_timelock_seconds <= crate::constants::MAX_PAYOUT_TIMELOCK_SECONDS,
+            PremiumBondsError::InvalidPayoutTimelock
+        );
+        Ok(())
+    }
+
+    /// Validates all initial configuration parameters for creating a new pool.
+    pub fn validate_pool_creation_params(
+        bond_price: u64,
+        stake_cycle_duration_hrs: i64,
+        fee_basis_points: u16,
+        max_yield_basis_points: u16,
+        payout_timelock_seconds: u32,
+    ) -> Result<()> {
+        Self::validate_bond_price(bond_price)?;
+        Self::validate_stake_cycle_duration(stake_cycle_duration_hrs)?;
+        Self::validate_fee_basis_points(fee_basis_points)?;
+        Self::validate_max_yield_basis_points(max_yield_basis_points)?;
+        Self::validate_payout_timelock_seconds(payout_timelock_seconds)?;
+        Ok(())
+    }
 }
 
 /// Tracks the winnings balance and claims for an individual user.
@@ -658,5 +717,96 @@ mod tests {
         let err =
             PrizePool::validate_registry_capacity(10_001, 50_000, 40_000, 100_000).unwrap_err();
         assert_eq!(err, PremiumBondsError::RegistryFull.into());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Parameter Validation Tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_bond_price() {
+        assert!(PrizePool::validate_bond_price(1).is_ok());
+        assert!(PrizePool::validate_bond_price(1_000_000).is_ok());
+        assert_eq!(
+            PrizePool::validate_bond_price(0).unwrap_err(),
+            PremiumBondsError::InvalidBondPrice.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_stake_cycle_duration() {
+        assert!(PrizePool::validate_stake_cycle_duration(1).is_ok());
+        assert!(PrizePool::validate_stake_cycle_duration(24).is_ok());
+        assert!(PrizePool::validate_stake_cycle_duration(8760).is_ok());
+        assert_eq!(
+            PrizePool::validate_stake_cycle_duration(0).unwrap_err(),
+            PremiumBondsError::InvalidStakeCycleDuration.into()
+        );
+        assert_eq!(
+            PrizePool::validate_stake_cycle_duration(-1).unwrap_err(),
+            PremiumBondsError::InvalidStakeCycleDuration.into()
+        );
+        assert_eq!(
+            PrizePool::validate_stake_cycle_duration(8761).unwrap_err(),
+            PremiumBondsError::InvalidStakeCycleDuration.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_fee_basis_points() {
+        assert!(PrizePool::validate_fee_basis_points(0).is_ok());
+        assert!(PrizePool::validate_fee_basis_points(100).is_ok());
+        assert!(PrizePool::validate_fee_basis_points(10_000).is_ok());
+        assert_eq!(
+            PrizePool::validate_fee_basis_points(10_001).unwrap_err(),
+            PremiumBondsError::InvalidFeeConfig.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_max_yield_basis_points() {
+        assert!(PrizePool::validate_max_yield_basis_points(0).is_ok());
+        assert!(PrizePool::validate_max_yield_basis_points(500).is_ok());
+        assert!(PrizePool::validate_max_yield_basis_points(10_000).is_ok());
+        assert_eq!(
+            PrizePool::validate_max_yield_basis_points(10_001).unwrap_err(),
+            PremiumBondsError::InvalidMaxYieldBasisPoints.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_payout_timelock_seconds() {
+        assert!(PrizePool::validate_payout_timelock_seconds(0).is_ok());
+        assert!(PrizePool::validate_payout_timelock_seconds(300).is_ok());
+        assert!(PrizePool::validate_payout_timelock_seconds(86_400).is_ok());
+        assert_eq!(
+            PrizePool::validate_payout_timelock_seconds(86_401).unwrap_err(),
+            PremiumBondsError::InvalidPayoutTimelock.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_pool_creation_params() {
+        assert!(PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300).is_ok());
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(0, 24, 100, 500, 300).unwrap_err(),
+            PremiumBondsError::InvalidBondPrice.into()
+        );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(1_000_000, 0, 100, 500, 300).unwrap_err(),
+            PremiumBondsError::InvalidStakeCycleDuration.into()
+        );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 10_001, 500, 300).unwrap_err(),
+            PremiumBondsError::InvalidFeeConfig.into()
+        );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 10_001, 300).unwrap_err(),
+            PremiumBondsError::InvalidMaxYieldBasisPoints.into()
+        );
+        assert_eq!(
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 86_401).unwrap_err(),
+            PremiumBondsError::InvalidPayoutTimelock.into()
+        );
     }
 }

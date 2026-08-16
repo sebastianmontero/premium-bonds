@@ -65,19 +65,15 @@ pub fn handle(
     );
 
     if let Some(v) = new_stake_cycle_duration_hrs {
-        require!(
-            v >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
-                && v <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
-            PremiumBondsError::InvalidStakeCycleDuration
-        );
+        PrizePool::validate_stake_cycle_duration(v)?;
         pool.stake_cycle_duration_hrs = v;
     }
     if let Some(v) = new_fee_basis_points {
-        require!(v <= 10000, PremiumBondsError::InvalidFeeConfig);
+        PrizePool::validate_fee_basis_points(v)?;
         pool.fee_basis_points = v;
     }
     if let Some(v) = new_bond_price {
-        require!(v > 0, PremiumBondsError::InvalidBondPrice);
+        PrizePool::validate_bond_price(v)?;
         if v != pool.bond_price {
             require!(
                 pool.total_deposited_principal == 0
@@ -112,10 +108,11 @@ pub fn handle(
         pool.min_yield_threshold = v;
     }
     if let Some(v) = new_max_yield_basis_points {
+        PrizePool::validate_max_yield_basis_points(v)?;
         pool.max_yield_basis_points = v;
     }
     if let Some(v) = new_payout_timelock_seconds {
-        require!(v <= 86400, PremiumBondsError::MathOverflow);
+        PrizePool::validate_payout_timelock_seconds(v)?;
         pool.payout_timelock_seconds = v;
     }
 
