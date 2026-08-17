@@ -81,7 +81,7 @@ import {
   getPausePoolInstructionAsync,
   getPrepareDrawInstruction,
   getReinvestWinningsInstructionAsync,
-  getResizeRegistryInstructionAsync,
+  getResizeRegistryInstruction,
   getRevealAndPickWinnersInstructionAsync,
   getSellBondsInstructionAsync,
   getSetPrizeTiersInstructionAsync,
@@ -147,7 +147,7 @@ import {
   type PausePoolAsyncInput,
   type PrepareDrawInput,
   type ReinvestWinningsAsyncInput,
-  type ResizeRegistryAsyncInput,
+  type ResizeRegistryInput,
   type RevealAndPickWinnersAsyncInput,
   type SellBondsAsyncInput,
   type SetPrizeTiersAsyncInput,
@@ -861,8 +861,8 @@ export type AnchorPluginInstructions = {
   ) => ReturnType<typeof getReinvestWinningsInstructionAsync> &
     SelfPlanAndSendFunctions;
   resizeRegistry: (
-    input: MakeOptional<ResizeRegistryAsyncInput, "payer">
-  ) => ReturnType<typeof getResizeRegistryInstructionAsync> &
+    input: MakeOptional<ResizeRegistryInput, "payer">
+  ) => ReturnType<typeof getResizeRegistryInstruction> &
     SelfPlanAndSendFunctions;
   revealAndPickWinners: (
     input: RevealAndPickWinnersAsyncInput
@@ -1007,7 +1007,7 @@ export function anchorProgram() {
           resizeRegistry: (input) =>
             addSelfPlanAndSendFunctions(
               client,
-              getResizeRegistryInstructionAsync({
+              getResizeRegistryInstruction({
                 ...input,
                 payer: input.payer ?? client.payer,
               })

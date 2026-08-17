@@ -41,7 +41,7 @@ pub const MAX_PAYOUT_TIMELOCK_SECONDS: u32 = 86_400;
 /// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
 pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
 
-/// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` crank call.
+/// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` call.
 pub const REGISTRY_REALLOC_STEP: usize = 10_240;
 /// Solana's hard account size cap.
 pub const REGISTRY_MAX_SIZE: usize = 10_485_760;

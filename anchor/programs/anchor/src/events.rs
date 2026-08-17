@@ -207,7 +207,7 @@ pub struct PrizeTiersUpdated {
 #[event]
 pub struct RegistryResized {
     pub pool_id: u32,
-    pub admin: Pubkey,
+    pub caller: Pubkey,
     pub old_capacity: u32,
     pub new_capacity: u32,
 }

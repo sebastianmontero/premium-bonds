@@ -19,21 +19,12 @@ use common::*;
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
-/// Setup the basic SVM environment with the program and an initialized GlobalConfig.
-/// Sets the `crank` keypair as the authorized `jobs_account`.
-fn setup_resize_registry_test() -> (LiteSVM, Keypair, Keypair, Pubkey) {
-    let admin = Keypair::new();
-    let crank = Keypair::new();
+/// Setup the basic SVM environment with the program and an initialized payer.
+fn setup_resize_registry_test() -> (LiteSVM, Keypair) {
     let payer = Keypair::new();
-
-    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-
-    let (global_config, _) = global_config_pda();
-    (svm, crank, payer, global_config)
+    let svm = setup_svm_with_authority(&payer);
+    (svm, payer)
 }
-
 
 /// Helper to inject a `TicketRegistry` account directly into the SVM.
 fn inject_ticket_registry_account(
@@ -129,18 +120,14 @@ fn inject_prize_pool_account(
 /// Helper to send `resize_registry` instruction.
 fn send_resize_registry_simple(
     svm: &mut LiteSVM,
-    crank: &Keypair,
     payer: &Keypair,
     pool_id: u32,
     ticket_registry: Pubkey,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
 
     let accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
         payer: payer.pubkey(),
-        global_config,
         pool,
         ticket_registry,
         system_program: anchor_lang::system_program::ID,
@@ -155,7 +142,7 @@ fn send_resize_registry_simple(
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[payer, crank]).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[payer]).unwrap();
     svm.send_transaction(tx)
 }
 
@@ -181,7 +168,7 @@ fn write_entry_at_idx(
 
 #[test]
 fn test_resize_registry_succeeds() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -219,10 +206,10 @@ fn test_resize_registry_succeeds() {
     let expected_new_capacity = anchor::utils::registry_capacity_from_len(expected_new_size);
 
     // Execute the resize
-    let meta = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry).expect("Resize should succeed");
+    let meta = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry).expect("Resize should succeed");
     let event = assert_log_event::<anchor::events::RegistryResized>(&meta);
     assert_eq!(event.pool_id, pool_id);
-    assert_eq!(event.admin, crank.pubkey());
+    assert_eq!(event.caller, payer.pubkey());
     assert_eq!(event.old_capacity, initial_capacity);
     assert_eq!(event.new_capacity, expected_new_capacity);
 
@@ -252,7 +239,7 @@ fn test_resize_registry_succeeds() {
 
 #[test]
 fn test_resize_registry_sequential_growth() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -272,7 +259,7 @@ fn test_resize_registry_sequential_growth() {
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
 
     // Step 1: Resize once
-    let res1 = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry);
+    let res1 = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert!(res1.is_ok());
 
     let size_1 = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
@@ -286,13 +273,10 @@ fn test_resize_registry_sequential_growth() {
     // Step 2: Resize again sequentially
     // Since the instruction has no arguments and the same accounts, the transaction is identical.
     // We add a dummy transfer instruction to make the transaction message and signature unique.
-    let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
 
     let accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
         payer: payer.pubkey(),
-        global_config,
         pool,
         ticket_registry,
         system_program: anchor_lang::system_program::ID,
@@ -311,8 +295,7 @@ fn test_resize_registry_sequential_growth() {
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[resize_ix, transfer_ix], Some(&payer.pubkey()), &bh);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &crank]).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res2 = svm.send_transaction(tx);
     assert!(res2.is_ok());
 
@@ -325,90 +308,50 @@ fn test_resize_registry_sequential_growth() {
     assert_eq!(read_registry_capacity(&svm, ticket_registry), cap_2);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Constraint and Error Tests
-// ═══════════════════════════════════════════════════════════════════════════
-
 #[test]
-fn test_resize_registry_fails_unauthorized_crank() {
-    let (mut svm, _crank, payer, _global_config) = setup_resize_registry_test();
+fn test_resize_registry_permissionless_any_caller() {
+    let (mut svm, _) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
     let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
+    let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
+
     inject_ticket_registry_account(
         &mut svm,
         ticket_registry,
         pool_id,
-        anchor::utils::registry_capacity_from_len(initial_size),
+        initial_capacity,
         0,
         0,
         initial_size,
     );
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
 
-    // Hacker calls the instruction as crank
-    let hacker = Keypair::new();
-    svm.airdrop(&hacker.pubkey(), 1_000_000_000).unwrap();
+    // Any arbitrary user / third-party keypair can initiate and fund the resize
+    let random_caller = Keypair::new();
+    svm.airdrop(&random_caller.pubkey(), 10_000_000_000).unwrap();
 
-    let res = send_resize_registry_simple(&mut svm, &hacker, &payer, pool_id, ticket_registry);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("UnauthorizedCrank"));
-}
+    let meta = send_resize_registry_simple(&mut svm, &random_caller, pool_id, ticket_registry)
+        .expect("Permissionless resize by arbitrary caller should succeed");
 
-#[test]
-fn test_resize_registry_fails_unsigned_crank() {
-    let (mut svm, crank, payer, global_config) = setup_resize_registry_test();
-    let pool_id = 1;
-
-    let ticket_registry = Keypair::new().pubkey();
-    let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
-    inject_ticket_registry_account(
-        &mut svm,
-        ticket_registry,
-        pool_id,
-        anchor::utils::registry_capacity_from_len(initial_size),
-        0,
-        0,
-        initial_size,
+    let event = assert_log_event::<anchor::events::RegistryResized>(&meta);
+    assert_eq!(event.pool_id, pool_id);
+    assert_eq!(event.caller, random_caller.pubkey());
+    assert_eq!(event.old_capacity, initial_capacity);
+    assert_eq!(
+        event.new_capacity,
+        anchor::utils::registry_capacity_from_len(initial_size + anchor::constants::REGISTRY_REALLOC_STEP)
     );
-    let pool = inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
-
-    // Build ix but mark crank as non-signer
-    let mut accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
-        payer: payer.pubkey(),
-        global_config,
-        pool,
-        ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    for meta in accounts.iter_mut() {
-        if meta.pubkey == crank.pubkey() {
-            meta.is_signer = false;
-        }
-    }
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ResizeRegistry {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    let res = svm.send_transaction(tx);
-
-    assert!(res.is_err());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Constraint and Error Tests
+// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_resize_registry_fails_unsigned_payer() {
-    let (mut svm, crank, payer, global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -426,9 +369,7 @@ fn test_resize_registry_fails_unsigned_payer() {
 
     // Build ix but mark payer as non-signer
     let mut accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
         payer: payer.pubkey(),
-        global_config,
         pool,
         ticket_registry,
         system_program: anchor_lang::system_program::ID,
@@ -447,55 +388,12 @@ fn test_resize_registry_fails_unsigned_payer() {
         data: anchor::instruction::ResizeRegistry {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
-
-    assert!(res.is_err());
-}
-
-#[test]
-fn test_resize_registry_fails_wrong_global_config_pda() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
-    let pool_id = 1;
-
-    let ticket_registry = Keypair::new().pubkey();
-    let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
-    inject_ticket_registry_account(
-        &mut svm,
-        ticket_registry,
-        pool_id,
-        anchor::utils::registry_capacity_from_len(initial_size),
-        0,
-        0,
-        initial_size,
-    );
-    let pool = inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
-
-    // Use a completely incorrect global config PDA
-    let wrong_global_config = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
-        payer: payer.pubkey(),
-        global_config: wrong_global_config,
-        pool,
-        ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ResizeRegistry {}.data(),
-    };
+    let non_payer_signer = Keypair::new();
+    svm.airdrop(&non_payer_signer.pubkey(), 1_000_000_000).unwrap();
 
     let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &crank]).unwrap();
+    let msg = Message::new_with_blockhash(&[ix], Some(&non_payer_signer.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&non_payer_signer]).unwrap();
     let res = svm.send_transaction(tx);
 
     assert!(res.is_err());
@@ -503,7 +401,7 @@ fn test_resize_registry_fails_wrong_global_config_pda() {
 
 #[test]
 fn test_resize_registry_fails_wrong_pool_pda() {
-    let (mut svm, crank, payer, global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -523,9 +421,7 @@ fn test_resize_registry_fails_wrong_pool_pda() {
     let wrong_pool = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::ResizeRegistry {
-        crank: crank.pubkey(),
         payer: payer.pubkey(),
-        global_config,
         pool: wrong_pool,
         ticket_registry,
         system_program: anchor_lang::system_program::ID,
@@ -540,8 +436,7 @@ fn test_resize_registry_fails_wrong_pool_pda() {
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &crank]).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res = svm.send_transaction(tx);
 
     assert!(res.is_err());
@@ -549,7 +444,7 @@ fn test_resize_registry_fails_wrong_pool_pda() {
 
 #[test]
 fn test_resize_registry_fails_pool_frozen() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -566,7 +461,7 @@ fn test_resize_registry_fails_pool_frozen() {
     // Inject frozen pool
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, true);
 
-    let res = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry);
+    let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("AwaitingRandomnessFreeze"));
@@ -574,7 +469,7 @@ fn test_resize_registry_fails_pool_frozen() {
 
 #[test]
 fn test_resize_registry_fails_unauthorized_ticket() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -593,7 +488,7 @@ fn test_resize_registry_fails_unauthorized_ticket() {
     let other_registry = Keypair::new().pubkey();
     inject_prize_pool_account(&mut svm, pool_id, other_registry, false);
 
-    let res = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry);
+    let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("UnauthorizedTicket"));
@@ -601,7 +496,7 @@ fn test_resize_registry_fails_unauthorized_ticket() {
 
 #[test]
 fn test_resize_registry_fails_registry_at_max_size() {
-    let (mut svm, crank, payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -618,7 +513,7 @@ fn test_resize_registry_fails_registry_at_max_size() {
     );
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
 
-    let res = send_resize_registry_simple(&mut svm, &crank, &payer, pool_id, ticket_registry);
+    let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
     // Since Anchor evaluates realloc before user constraints, growing beyond 10MB
@@ -628,7 +523,7 @@ fn test_resize_registry_fails_registry_at_max_size() {
 
 #[test]
 fn test_resize_registry_fails_payer_insufficient_funds() {
-    let (mut svm, crank, _payer, _global_config) = setup_resize_registry_test();
+    let (mut svm, _payer) = setup_resize_registry_test();
     let pool_id = 1;
 
     let ticket_registry = Keypair::new().pubkey();
@@ -647,7 +542,7 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
     // Create a payer with insufficient funds (0 lamports)
     let poor_payer = Keypair::new();
 
-    let res = send_resize_registry_simple(&mut svm, &crank, &poor_payer, pool_id, ticket_registry);
+    let res = send_resize_registry_simple(&mut svm, &poor_payer, pool_id, ticket_registry);
     assert!(res.is_err());
     // Should fail with rent or signature/fee verification errors
 }

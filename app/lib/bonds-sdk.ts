@@ -586,7 +586,7 @@ import {
   getReinvestWinningsInstructionAsync,
   getPrepareDrawInstruction,
   getInitializeHumaLenderInstructionAsync,
-  getResizeRegistryInstructionAsync,
+  getResizeRegistryInstruction,
   getUpdatePoolConfigInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
   getWithdrawFeesInstructionAsync,
@@ -617,7 +617,7 @@ export {
   getReinvestWinningsInstructionAsync,
   getPrepareDrawInstruction,
   getInitializeHumaLenderInstructionAsync,
-  getResizeRegistryInstructionAsync,
+  getResizeRegistryInstruction,
   getUpdatePoolConfigInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
   getWithdrawFeesInstructionAsync,
@@ -1016,14 +1016,12 @@ export async function buildInitializeHumaLenderInstruction(params: {
 }
 
 export async function buildResizeRegistryInstruction(params: {
-  crank: Address | TransactionSigner;
   payer: Address | TransactionSigner;
   poolId: number;
   ticketRegistry: Address;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
-  return getResizeRegistryInstructionAsync({
-    crank: params.crank as TransactionSigner,
+  return getResizeRegistryInstruction({
     payer: params.payer as TransactionSigner,
     pool,
     ticketRegistry: params.ticketRegistry,

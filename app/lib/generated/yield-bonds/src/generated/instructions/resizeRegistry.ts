@@ -32,7 +32,6 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
-  type ReadonlySignerAccount,
   type WritableAccount,
   type WritableSignerAccount,
 } from "@solana/instructions";
@@ -44,7 +43,6 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const RESIZE_REGISTRY_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array(
@@ -59,9 +57,7 @@ export function getResizeRegistryDiscriminatorBytes(): ReadonlyUint8Array {
 
 export type ResizeRegistryInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
-  TAccountCrank extends string | AccountMeta<string> = string,
   TAccountPayer extends string | AccountMeta<string> = string,
-  TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountTicketRegistry extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
@@ -71,17 +67,10 @@ export type ResizeRegistryInstruction<
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
-      TAccountCrank extends string
-        ? ReadonlySignerAccount<TAccountCrank> &
-            AccountSignerMeta<TAccountCrank>
-        : TAccountCrank,
       TAccountPayer extends string
         ? WritableSignerAccount<TAccountPayer> &
             AccountSignerMeta<TAccountPayer>
         : TAccountPayer,
-      TAccountGlobalConfig extends string
-        ? ReadonlyAccount<TAccountGlobalConfig>
-        : TAccountGlobalConfig,
       TAccountPool extends string
         ? ReadonlyAccount<TAccountPool>
         : TAccountPool,
@@ -124,144 +113,14 @@ export function getResizeRegistryInstructionDataCodec(): FixedSizeCodec<
   );
 }
 
-export type ResizeRegistryAsyncInput<
-  TAccountCrank extends string = string,
-  TAccountPayer extends string = string,
-  TAccountGlobalConfig extends string = string,
-  TAccountPool extends string = string,
-  TAccountTicketRegistry extends string = string,
-  TAccountSystemProgram extends string = string,
-> = {
-  /** The authorized crank bot key that signs to initiate the resize. */
-  crank: TransactionSigner<TAccountCrank>;
-  /**
-   * Separate payer that pays for the rent increase.
-   * This allows the crank key to stay relatively low-funded.
-   */
-  payer: TransactionSigner<TAccountPayer>;
-  /**
-   * The global configuration state, used to verify the crank bot authority.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
-  globalConfig?: Address<TAccountGlobalConfig>;
-  /**
-   * The prize pool state account, used to verify that the ticket registry belongs
-   * to this pool and that the pool is not currently frozen for drawing.
-   *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
-   * Bump is verified from the pool's initialized authority bump.
-   */
-  pool: Address<TAccountPool>;
-  /**
-   * The zero-copy ticket registry account to be resized.
-   * Verified against the prize pool's registry reference.
-   * Reallocates additional space (`REGISTRY_REALLOC_STEP`) and charges rent to `payer`.
-   */
-  ticketRegistry: Address<TAccountTicketRegistry>;
-  /** Solana System Program. */
-  systemProgram?: Address<TAccountSystemProgram>;
-};
-
-export async function getResizeRegistryInstructionAsync<
-  TAccountCrank extends string,
-  TAccountPayer extends string,
-  TAccountGlobalConfig extends string,
-  TAccountPool extends string,
-  TAccountTicketRegistry extends string,
-  TAccountSystemProgram extends string,
-  TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
->(
-  input: ResizeRegistryAsyncInput<
-    TAccountCrank,
-    TAccountPayer,
-    TAccountGlobalConfig,
-    TAccountPool,
-    TAccountTicketRegistry,
-    TAccountSystemProgram
-  >,
-  config?: { programAddress?: TProgramAddress }
-): Promise<
-  ResizeRegistryInstruction<
-    TProgramAddress,
-    TAccountCrank,
-    TAccountPayer,
-    TAccountGlobalConfig,
-    TAccountPool,
-    TAccountTicketRegistry,
-    TAccountSystemProgram
-  >
-> {
-  // Program address.
-  const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
-
-  // Original accounts.
-  const originalAccounts = {
-    crank: { value: input.crank ?? null, isWritable: false },
-    payer: { value: input.payer ?? null, isWritable: true },
-    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
-    pool: { value: input.pool ?? null, isWritable: false },
-    ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
-    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
-  };
-  const accounts = originalAccounts as Record<
-    keyof typeof originalAccounts,
-    ResolvedInstructionAccount
-  >;
-
-  // Resolve default values.
-  if (!accounts.globalConfig.value) {
-    accounts.globalConfig.value = await findGlobalConfigPda();
-  }
-  if (!accounts.systemProgram.value) {
-    accounts.systemProgram.value =
-      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
-  }
-
-  const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
-  return Object.freeze({
-    accounts: [
-      getAccountMeta("crank", accounts.crank),
-      getAccountMeta("payer", accounts.payer),
-      getAccountMeta("globalConfig", accounts.globalConfig),
-      getAccountMeta("pool", accounts.pool),
-      getAccountMeta("ticketRegistry", accounts.ticketRegistry),
-      getAccountMeta("systemProgram", accounts.systemProgram),
-    ],
-    data: getResizeRegistryInstructionDataEncoder().encode({}),
-    programAddress,
-  } as ResizeRegistryInstruction<
-    TProgramAddress,
-    TAccountCrank,
-    TAccountPayer,
-    TAccountGlobalConfig,
-    TAccountPool,
-    TAccountTicketRegistry,
-    TAccountSystemProgram
-  >);
-}
-
 export type ResizeRegistryInput<
-  TAccountCrank extends string = string,
   TAccountPayer extends string = string,
-  TAccountGlobalConfig extends string = string,
   TAccountPool extends string = string,
   TAccountTicketRegistry extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
-  /** The authorized crank bot key that signs to initiate the resize. */
-  crank: TransactionSigner<TAccountCrank>;
-  /**
-   * Separate payer that pays for the rent increase.
-   * This allows the crank key to stay relatively low-funded.
-   */
+  /** Account that signs and funds the rent increase for the additional space. */
   payer: TransactionSigner<TAccountPayer>;
-  /**
-   * The global configuration state, used to verify the crank bot authority.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
-  globalConfig: Address<TAccountGlobalConfig>;
   /**
    * The prize pool state account, used to verify that the ticket registry belongs
    * to this pool and that the pool is not currently frozen for drawing.
@@ -281,18 +140,14 @@ export type ResizeRegistryInput<
 };
 
 export function getResizeRegistryInstruction<
-  TAccountCrank extends string,
   TAccountPayer extends string,
-  TAccountGlobalConfig extends string,
   TAccountPool extends string,
   TAccountTicketRegistry extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ResizeRegistryInput<
-    TAccountCrank,
     TAccountPayer,
-    TAccountGlobalConfig,
     TAccountPool,
     TAccountTicketRegistry,
     TAccountSystemProgram
@@ -300,9 +155,7 @@ export function getResizeRegistryInstruction<
   config?: { programAddress?: TProgramAddress }
 ): ResizeRegistryInstruction<
   TProgramAddress,
-  TAccountCrank,
   TAccountPayer,
-  TAccountGlobalConfig,
   TAccountPool,
   TAccountTicketRegistry,
   TAccountSystemProgram
@@ -312,9 +165,7 @@ export function getResizeRegistryInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    crank: { value: input.crank ?? null, isWritable: false },
     payer: { value: input.payer ?? null, isWritable: true },
-    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: false },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
@@ -333,9 +184,7 @@ export function getResizeRegistryInstruction<
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
-      getAccountMeta("crank", accounts.crank),
       getAccountMeta("payer", accounts.payer),
-      getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
       getAccountMeta("systemProgram", accounts.systemProgram),
@@ -344,9 +193,7 @@ export function getResizeRegistryInstruction<
     programAddress,
   } as ResizeRegistryInstruction<
     TProgramAddress,
-    TAccountCrank,
     TAccountPayer,
-    TAccountGlobalConfig,
     TAccountPool,
     TAccountTicketRegistry,
     TAccountSystemProgram
@@ -359,19 +206,8 @@ export type ParsedResizeRegistryInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** The authorized crank bot key that signs to initiate the resize. */
-    crank: TAccountMetas[0];
-    /**
-     * Separate payer that pays for the rent increase.
-     * This allows the crank key to stay relatively low-funded.
-     */
-    payer: TAccountMetas[1];
-    /**
-     * The global configuration state, used to verify the crank bot authority.
-     *
-     * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-     */
-    globalConfig: TAccountMetas[2];
+    /** Account that signs and funds the rent increase for the additional space. */
+    payer: TAccountMetas[0];
     /**
      * The prize pool state account, used to verify that the ticket registry belongs
      * to this pool and that the pool is not currently frozen for drawing.
@@ -379,15 +215,15 @@ export type ParsedResizeRegistryInstruction<
      * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
      * Bump is verified from the pool's initialized authority bump.
      */
-    pool: TAccountMetas[3];
+    pool: TAccountMetas[1];
     /**
      * The zero-copy ticket registry account to be resized.
      * Verified against the prize pool's registry reference.
      * Reallocates additional space (`REGISTRY_REALLOC_STEP`) and charges rent to `payer`.
      */
-    ticketRegistry: TAccountMetas[4];
+    ticketRegistry: TAccountMetas[2];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[5];
+    systemProgram: TAccountMetas[3];
   };
   data: ResizeRegistryInstructionData;
 };
@@ -400,12 +236,12 @@ export function parseResizeRegistryInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedResizeRegistryInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 6) {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 6,
+        expectedAccountMetas: 4,
       }
     );
   }
@@ -418,9 +254,7 @@ export function parseResizeRegistryInstruction<
   return {
     programAddress: instruction.programAddress,
     accounts: {
-      crank: getNextAccount(),
       payer: getNextAccount(),
-      globalConfig: getNextAccount(),
       pool: getNextAccount(),
       ticketRegistry: getNextAccount(),
       systemProgram: getNextAccount(),

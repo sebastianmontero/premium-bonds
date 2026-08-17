@@ -43,6 +43,7 @@ import {
   findPendingRedemptionPda,
   parseUserWinnings,
   parsePendingRedemption,
+  RedemptionType,
   parseTicketRegistry,
   resolveUserTickets,
   findPoolVaultPda,
@@ -1836,7 +1837,6 @@ export async function executeResizeRegistry({
 `);
 
   const ix = await buildResizeRegistryInstruction({
-    crank: signer.address,
     payer: signer.address,
     poolId,
     ticketRegistry: address(registryAddr),

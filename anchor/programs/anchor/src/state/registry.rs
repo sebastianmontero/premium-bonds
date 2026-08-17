@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 /// (starting at byte offset 36: 8 discriminator + 28 struct fields).
 /// Access them via the helpers in `utils.rs`.
 ///
-/// The account starts at 196,644 bytes and grows by 10,080 bytes per `resize_registry` crank call.
+/// The account starts at 196,644 bytes and grows by 10,080 bytes per `resize_registry` call.
 #[account(zero_copy(unsafe))]
 #[repr(C)]
 pub struct TicketRegistry {

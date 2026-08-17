@@ -1,32 +1,16 @@
-use crate::constants::{
-    GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, REGISTRY_MAX_SIZE, REGISTRY_REALLOC_STEP,
-};
+use crate::constants::{PRIZE_POOL_SEED, REGISTRY_MAX_SIZE, REGISTRY_REALLOC_STEP};
 use crate::error::PremiumBondsError;
 use crate::events::RegistryResized;
-use crate::state::{GlobalConfig, PrizePool, TicketRegistry};
+use crate::state::{PrizePool, TicketRegistry};
 use crate::utils::registry_capacity_from_len;
 use anchor_lang::prelude::*;
 
 /// Accounts required to resize the ticket registry.
 #[derive(Accounts)]
 pub struct ResizeRegistry<'info> {
-    /// The authorized crank bot key that signs to initiate the resize.
-    pub crank: Signer<'info>,
-
-    /// Separate payer that pays for the rent increase.
-    /// This allows the crank key to stay relatively low-funded.
+    /// Account that signs and funds the rent increase for the additional space.
     #[account(mut)]
     pub payer: Signer<'info>,
-
-    /// The global configuration state, used to verify the crank bot authority.
-    ///
-    /// PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-    #[account(
-        seeds = [GLOBAL_CONFIG_SEED],
-        bump,
-        constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
-    )]
-    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     /// The prize pool state account, used to verify that the ticket registry belongs
     /// to this pool and that the pool is not currently frozen for drawing.
@@ -79,7 +63,7 @@ pub fn handle(ctx: Context<ResizeRegistry>) -> Result<()> {
 
     emit!(RegistryResized {
         pool_id: registry.pool_id,
-        admin: ctx.accounts.crank.key(),
+        caller: ctx.accounts.payer.key(),
         old_capacity,
         new_capacity,
     });

@@ -240,23 +240,10 @@ fn test_resize_registry_zero_initialization() {
     let payer = Keypair::new();
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
-    // Adjust global config to use a known jobs keypair so we can sign
-    let jobs_kp = Keypair::new();
-    let (gc_pda, _) = global_config_pda();
-    let mut gc_acct = svm.get_account(&gc_pda).unwrap();
-    let mut gc_data = anchor::state::GlobalConfig::try_deserialize(&mut &gc_acct.data[..]).unwrap();
-    gc_data.jobs_account = jobs_kp.pubkey();
-    let mut new_data = vec![];
-    gc_data.try_serialize(&mut new_data).unwrap();
-    gc_acct.data = new_data;
-    svm.set_account(gc_pda, gc_acct).unwrap();
-
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::ResizeRegistry {
-            crank: jobs_kp.pubkey(),
             payer: payer.pubkey(),
-            global_config: gc_pda,
             pool: pool_key,
             ticket_registry,
             system_program: anchor_lang::system_program::ID,
@@ -267,8 +254,7 @@ fn test_resize_registry_zero_initialization() {
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &jobs_kp]).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     svm.send_transaction(tx).expect("ResizeRegistry failed");
 
     // Fetch account data and verify that all newly allocated bytes are strictly 0
