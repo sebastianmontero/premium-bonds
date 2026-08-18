@@ -989,10 +989,34 @@ export function getExplorerUrl(
 }
 
 /**
- * Helper to truncate a 88-character Solana signature for display.
+ * Builds a block explorer link for an account / wallet address.
+ */
+export function getAccountExplorerUrl(
+  address: string,
+  cluster: "devnet" | "mainnet-beta" | "testnet" | "localnet" = "devnet",
+  provider: "solscan" | "solana-explorer" = "solscan"
+): string {
+  const clusterParam = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
+  if (provider === "solscan") {
+    return `https://solscan.io/account/${address}${clusterParam}`;
+  }
+  return `https://explorer.solana.com/address/${address}${clusterParam}`;
+}
+
+/**
+ * Helper to truncate an 88-character Solana signature for display.
  */
 export function truncateSignature(signature: string): string {
   if (!signature) return "";
   if (signature.length <= 12) return signature;
   return `${signature.slice(0, 4)}...${signature.slice(-4)}`;
+}
+
+/**
+ * Helper to truncate a base58 Solana public key address for display.
+ */
+export function truncateAddress(address: string): string {
+  if (!address) return "";
+  if (address.length <= 10) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }

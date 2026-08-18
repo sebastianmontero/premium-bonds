@@ -135,3 +135,57 @@ export interface PendingRedemption {
   requestedAt: string; // ISO date string
   type: "bond_sale" | "prize_claim";
 }
+
+// ─── Protocol Draw Explorer Types ───────────────────────────────────────────
+
+export type DrawStatusName =
+  | "AwaitingYield"
+  | "AwaitingRandomness"
+  | "Complete"
+  | "ForceUnlocked"
+  | "Skipped"
+  | "Voided"
+  | "HaltedInsolvent"
+  | "HaltedYieldSpike";
+
+export interface DrawWinnerRecord {
+  winnerIndex: number;
+  slotInTier: number;
+  winnerAddress: string;
+  amountOwed: number; // base units
+  bondsBought: number;
+  processed: boolean;
+  tierIndex: number;
+  winningTicketIndex?: number;
+}
+
+export interface DrawCycleSummary {
+  poolId: number;
+  cycleId: number;
+  status: DrawStatusName;
+  prizePot: number; // base units
+  cycleFeeCollected: number;
+  lockedTicketCount: number;
+  harvestSlot: number;
+  randomnessAccount: string;
+  randomnessSeed: Uint8Array;
+  vrfSeedHex: string;
+  revealedAt?: number; // unix timestamp (seconds)
+  winnersCount: number;
+  payoutsCompleted: number;
+  hasPayoutRegistry: boolean;
+}
+
+export interface DetailedDrawCycle extends DrawCycleSummary {
+  payoutRegistryStatus?: "Active" | "Voided";
+  winners: DrawWinnerRecord[];
+  isUserWinner?: boolean;
+  userWinningsTotal?: number;
+}
+
+export interface DrawHistoryStats {
+  totalYieldDistributed: number; // base units
+  totalDrawsCompleted: number;
+  totalWinningBonds: number;
+  averagePrizePot: number; // base units
+}

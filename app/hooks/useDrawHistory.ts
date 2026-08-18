@@ -8,6 +8,7 @@ import {
   findPayoutRegistryPda,
   parseDrawCycle,
   parsePayoutRegistry,
+  chunkArray,
   DrawCycleInfo,
   PayoutRegistryInfo,
 } from "../lib/bonds-sdk";
@@ -138,14 +139,19 @@ export function useDrawHistory(
         pdaKeys.push(pair.drawPda, pair.payoutPda);
       }
 
-      // Single RPC batch request via getMultipleAccounts
-      const accountsRes = await rpc
-        .getMultipleAccounts(pdaKeys, { encoding: "base64" })
-        .send();
+      // Chunk PDA keys to respect 100-account RPC getMultipleAccounts limit
+      const pdaChunks = chunkArray(pdaKeys, 80);
+      const accountsResArrays = await Promise.all(
+        pdaChunks.map((chunk) =>
+          rpc.getMultipleAccounts(chunk, { encoding: "base64" }).send()
+        )
+      );
 
       if (fetchId !== fetchIdRef.current) return;
 
-      const accountValues = accountsRes?.value || [];
+      const accountValues = accountsResArrays.flatMap(
+        (res) => res?.value || []
+      );
 
       // Process each cycle pair in memory
       for (let i = 0; i < pdaPairs.length; i++) {
@@ -153,26 +159,29 @@ export function useDrawHistory(
         const drawAcc = accountValues[2 * i];
         const payoutAcc = accountValues[2 * i + 1];
 
-        if (!drawAcc?.data || !payoutAcc?.data) continue;
+        if (!drawAcc?.data) continue;
 
         let drawCycle: DrawCycleInfo;
-        let payout: PayoutRegistryInfo;
+        let payout: PayoutRegistryInfo | undefined;
 
         try {
           const drawBytes = new Uint8Array(
             base64Encoder.encode(drawAcc.data[0])
           );
-          const payoutBytes = new Uint8Array(
-            base64Encoder.encode(payoutAcc.data[0])
-          );
           drawCycle = parseDrawCycle(drawBytes);
-          payout = parsePayoutRegistry(payoutBytes);
+
+          if (payoutAcc?.data) {
+            const payoutBytes = new Uint8Array(
+              base64Encoder.encode(payoutAcc.data[0])
+            );
+            payout = parsePayoutRegistry(payoutBytes);
+          }
         } catch {
           continue;
         }
 
-        // Only process completed draw cycles
-        if (drawCycle.status !== "Complete") continue;
+        // Only process completed draw cycles for prizes & winners
+        if (drawCycle.status !== "Complete" || !payout) continue;
 
         // Extract Recent Winners from the latest completed cycle
         if (!latestCompleteCycleFound) {
@@ -193,8 +202,13 @@ export function useDrawHistory(
 
         // Extract user's prizes from this payout
         if (userAddress) {
+          const tierWinnerCounts: Record<number, number> = {};
+
           for (let wi = 0; wi < payout.winnersCount; wi++) {
             const winner = payout.winners[wi];
+            const slotInTier = tierWinnerCounts[winner.tierIndex] ?? 0;
+            tierWinnerCounts[winner.tierIndex] = slotInTier + 1;
+
             if (winner.winner !== userAddress) continue;
 
             // Determine status
@@ -209,11 +223,11 @@ export function useDrawHistory(
             let vrfSeed: string | undefined;
             try {
               const allZero = drawCycle.randomnessSeed.every((b) => b === 0);
-              if (!allZero) {
+              if (!allZero && drawCycle.lockedTicketCount > 0) {
                 winningTicketIdx = await deriveRandomIndex(
                   drawCycle.randomnessSeed,
                   winner.tierIndex,
-                  wi, // winner slot within tier
+                  slotInTier,
                   cycleId,
                   drawCycle.lockedTicketCount
                 );
@@ -241,10 +255,12 @@ export function useDrawHistory(
             }
 
             const drawDateTimestamp =
-              currentCycleEndAt && currentDrawCycleId !== undefined
-                ? currentCycleEndAt -
-                  (currentDrawCycleId - cycleId) * cycleDurationSeconds
-                : Math.floor(Date.now() / 1000);
+              payout.revealedAt && payout.revealedAt > 0n
+                ? Number(payout.revealedAt)
+                : currentCycleEndAt && currentDrawCycleId !== undefined
+                  ? currentCycleEndAt -
+                    (currentDrawCycleId - cycleId) * cycleDurationSeconds
+                  : Math.floor(Date.now() / 1000);
 
             userPrizes.push({
               drawCycleId: cycleId,

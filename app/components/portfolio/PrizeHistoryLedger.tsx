@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
@@ -8,6 +7,8 @@ import {
   tierBadgeClass,
   formatLocalDate,
 } from "@/app/lib/formatters";
+import { StatusBadge } from "@/app/components/common/StatusBadge";
+import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeHistoryLedgerProps {
@@ -37,40 +38,8 @@ export function PrizeHistoryLedger({
   crankingCycles = {},
   isLoading = false,
 }: PrizeHistoryLedgerProps) {
-  const [copiedDrawId, setCopiedDrawId] = useState<number | null>(null);
   const t = useTranslations("Ledger");
   const format = useFormatter();
-
-  const statusPill = (
-    status: PrizeHistoryEntry["status"],
-    isCranking: boolean = false
-  ) => {
-    if (isCranking) {
-      return (
-        <span className="pill pill-info animate-yield-pulse">
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          {t("reinvesting")}
-        </span>
-      );
-    }
-
-    switch (status) {
-      case "processing":
-        return (
-          <span className="pill pill-warning">
-            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {t("processing")}
-          </span>
-        );
-      case "reinvested":
-        return (
-          <span className="pill pill-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {t("reinvested")}
-          </span>
-        );
-    }
-  };
 
   const formatDate = (isoDate: string): string => {
     return formatLocalDate(
@@ -78,17 +47,6 @@ export function PrizeHistoryLedger({
       { month: "short", day: "numeric", year: "numeric" },
       format.dateTime
     );
-  };
-
-  const handleCopySeed = (
-    e: React.MouseEvent,
-    seed: string,
-    drawCycleId: number
-  ) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(seed);
-    setCopiedDrawId(drawCycleId);
-    setTimeout(() => setCopiedDrawId(null), 2000);
   };
 
   return (
@@ -254,12 +212,15 @@ export function PrizeHistoryLedger({
                     {t("status")}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 mt-0.5 md:mt-0">
-                    {statusPill(
-                      entry.status,
-                      !!crankingCycles[
-                        `${entry.drawCycleId}-${entry.winnerIndex}`
-                      ]
-                    )}
+                    <StatusBadge
+                      status={entry.status}
+                      isCranking={
+                        !!crankingCycles[
+                          `${entry.drawCycleId}-${entry.winnerIndex}`
+                        ]
+                      }
+                      size="sm"
+                    />
                     {(() => {
                       const priorDustApplied =
                         entry.usedPriorDust ??
@@ -391,63 +352,11 @@ export function PrizeHistoryLedger({
 
                   {/* Monospace/truncated VRF indicator to reassure users of fairness */}
                   {entry.vrfSeed && (
-                    <div
-                      onClick={(e) =>
-                        handleCopySeed(e, entry.vrfSeed!, entry.drawCycleId)
-                      }
-                      className="hidden lg:flex items-center gap-1 text-[10px] font-mono text-on-surface-variant/40 hover:text-primary hover:border-primary/20 bg-surface-container/50 border border-surface-bright/5 px-2 py-1 rounded-md max-w-[120px] truncate shrink-0 transition relative group/vrf cursor-pointer"
-                    >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="text-tertiary animate-pulse"
-                      >
-                        <rect
-                          x="3"
-                          y="11"
-                          width="18"
-                          height="11"
-                          rx="2"
-                          ry="2"
-                        />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                      {entry.vrfSeed.slice(0, 8)}
-
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 rounded-lg bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/vrf:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
-                        {copiedDrawId === entry.drawCycleId ? (
-                          <span className="text-emerald-400 font-semibold flex items-center justify-center gap-1">
-                            <svg
-                              className="w-3 h-3"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
-                            {t("vrfSeedCopied")}
-                          </span>
-                        ) : (
-                          <span>
-                            <strong className="text-primary block mb-0.5">
-                              {t("vrfRandomnessSeed")}
-                            </strong>
-                            {t("vrfHelp")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    <VrfSeedBadge
+                      seedHex={entry.vrfSeed}
+                      drawCycleId={entry.drawCycleId}
+                      className="hidden lg:inline-flex"
+                    />
                   )}
 
                   {/* Row navigation indicator (Desktop Only) */}

@@ -128,7 +128,7 @@ export function CustomSelect<T extends string | number>({
 
       {isOpen && (
         <div
-          className={`absolute z-50 mt-1.5 min-w-[140px] w-full ${alignClasses} rounded-xl glass bg-[#0a0c14]/95 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150`}
+          className={`absolute z-50 mt-1.5 min-w-full w-max max-w-xs sm:max-w-sm ${alignClasses} rounded-xl glass bg-[#0a0c14]/95 p-1.5 shadow-2xl ring-1 ring-white/10 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150`}
         >
           <div
             role="listbox"
@@ -150,7 +150,7 @@ export function CustomSelect<T extends string | number>({
                     setIsOpen(false);
                   }}
                   onMouseEnter={() => setFocusedIndex(idx)}
-                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                  className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
                     isSelected
                       ? "bg-primary/15 text-primary font-semibold"
                       : isFocused
@@ -158,7 +158,7 @@ export function CustomSelect<T extends string | number>({
                         : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/50"
                   }`}
                 >
-                  <span className="flex items-center gap-1.5 truncate">
+                  <span className="flex items-center gap-1.5 whitespace-nowrap">
                     {opt.icon}
                     {opt.label}
                   </span>

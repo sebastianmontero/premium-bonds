@@ -101,6 +101,17 @@ export function encodeU64(val: bigint | number): Uint8Array {
   return buf;
 }
 
+/**
+ * Splits an array into chunks of `chunkSize` to avoid exceeding Solana RPC getMultipleAccounts limits.
+ */
+export function chunkArray<T>(items: T[], chunkSize: number = 80): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 // ─── PDA Derivations ─────────────────────────────────────────────────────────
 
 export const BPF_LOADER_UPGRADEABLE_PROGRAM_ADDRESS = address(

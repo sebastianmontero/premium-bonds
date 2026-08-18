@@ -7,6 +7,7 @@ import { PrizeTiersModal } from "./PrizeTiersModal";
 import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/routing";
 
 interface PoolCardProps {
   pool: PoolInfo;
@@ -75,9 +76,17 @@ export function PoolCard({
                 ? t("weeklyUSDC")
                 : `${pool.tokenSymbol} Pool`}
             </h3>
-            <p className="text-xs text-on-surface-variant">
-              {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
-            </p>
+            <Link
+              href="/dashboard/draws"
+              className="text-xs text-on-surface-variant hover:text-primary transition inline-flex items-center gap-1 group/drawLink"
+            >
+              <span>
+                {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
+              </span>
+              <span className="opacity-0 group-hover/drawLink:opacity-100 transition-opacity text-[10px]">
+                ↗
+              </span>
+            </Link>
           </div>
         </div>
 
