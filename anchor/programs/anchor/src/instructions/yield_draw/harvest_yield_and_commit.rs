@@ -202,6 +202,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
     draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
     draw_cycle.harvest_slot = clock.slot;
+    draw_cycle.initiated_at = current_time;
+    draw_cycle.completed_at = 0;
     draw_cycle.version = 1;
 
     // ── Circuit Breaker 1: On-Chain Solvency Guard ───────────────────────────
@@ -211,6 +213,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             pool.status = PoolStatus::Paused as u8;
             pool.is_frozen_for_draw = 0;
             draw_cycle.status = DrawStatus::HaltedInsolvent;
+            draw_cycle.completed_at = current_time;
             draw_cycle.locked_ticket_count = eligible_locked_count;
             draw_cycle.prize_pot = 0;
             draw_cycle.cycle_fee_collected = 0;
@@ -247,6 +250,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             pool.status = PoolStatus::Paused as u8;
             pool.is_frozen_for_draw = 0;
             draw_cycle.status = DrawStatus::HaltedYieldSpike;
+            draw_cycle.completed_at = current_time;
             draw_cycle.locked_ticket_count = eligible_locked_count;
             draw_cycle.prize_pot = 0;
             draw_cycle.cycle_fee_collected = 0;
@@ -275,6 +279,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             PremiumBondsError::PrizeTiersNotConfigured
         );
         draw_cycle.status = DrawStatus::AwaitingRandomness;
+        draw_cycle.completed_at = 0;
         pool.is_frozen_for_draw = 1;
 
         // Accrue fee (accounting only — no token transfer)
@@ -301,6 +306,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         });
     } else {
         draw_cycle.status = DrawStatus::Skipped;
+        draw_cycle.completed_at = current_time;
         emit_cpi!(crate::events::DrawSkipped {
             pool_id: pool.pool_id,
             cycle_id: pool.current_draw_cycle_id,

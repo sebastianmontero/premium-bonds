@@ -7,8 +7,8 @@ import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
 import { PayoutWinnersTable } from "./PayoutWinnersTable";
 import { ProvableFairnessVerifier } from "./ProvableFairnessVerifier";
 import { DrawExportActions } from "./DrawExportActions";
-import { formatLocalDate } from "@/app/lib/formatters";
-import { useTranslations, useFormatter } from "next-intl";
+import { formatDrawDisplayDate } from "@/app/lib/draw-helpers";
+import { useTranslations } from "next-intl";
 
 interface DrawCycleInspectorModalProps {
   poolId: number;
@@ -35,7 +35,6 @@ export function DrawCycleInspectorModal({
 }: DrawCycleInspectorModalProps) {
   const [activeTab, setActiveTab] = useState<"winners" | "proofs">("winners");
   const t = useTranslations("DrawInspector");
-  const format = useFormatter();
 
   const { details, isLoading, error } = useDrawCycleDetails(
     poolId,
@@ -56,13 +55,11 @@ export function DrawCycleInspectorModal({
 
   if (!isOpen || cycleId === null) return null;
 
-  const formattedDate = details?.revealedAt
-    ? formatLocalDate(
-        new Date(details.revealedAt * 1000).toISOString(),
-        { month: "short", day: "numeric", year: "numeric" },
-        format.dateTime
-      )
-    : "Estimated";
+  const formattedDate = details
+    ? formatDrawDisplayDate(details, undefined, {
+        estimatedPrefix: "Est.",
+      })
+    : "—";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

@@ -67,6 +67,8 @@ export function DrawExportActions({
       randomnessAccount: draw.randomnessAccount,
       vrfSeedHex: draw.vrfSeedHex,
       revealedAt: draw.revealedAt,
+      initiatedAt: draw.initiatedAt,
+      completedAt: draw.completedAt,
       winnersCount: draw.winnersCount,
       payoutsCompleted: draw.payoutsCompleted,
       winners: draw.winners,

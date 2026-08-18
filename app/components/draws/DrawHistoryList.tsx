@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { formatTokenAmount, formatLocalDate } from "@/app/lib/formatters";
+import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatDrawDisplayDate } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
 import type { DrawCycleSummary } from "@/app/types";
-import { useTranslations, useFormatter } from "next-intl";
+import { useTranslations } from "next-intl";
 
 interface DrawHistoryListProps {
   draws: DrawCycleSummary[];
@@ -29,7 +30,6 @@ export function DrawHistoryList({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const t = useTranslations("DrawHistory");
-  const format = useFormatter();
 
   const resetFilters = () => {
     setSearchTerm("");
@@ -67,13 +67,10 @@ export function DrawHistoryList({
     return filteredDraws.slice(start, start + pageSize);
   }, [filteredDraws, safePage, pageSize]);
 
-  const formatDate = (timestampSeconds?: number): string => {
-    if (!timestampSeconds) return "Estimated";
-    return formatLocalDate(
-      new Date(timestampSeconds * 1000).toISOString(),
-      { month: "short", day: "numeric", year: "numeric" },
-      format.dateTime
-    );
+  const formatDate = (draw: DrawCycleSummary): string => {
+    return formatDrawDisplayDate(draw, undefined, {
+      estimatedPrefix: t("estimatedPrefix"),
+    });
   };
 
   return (
@@ -232,7 +229,7 @@ export function DrawHistoryList({
                       {t("colDate")}
                     </p>
                     <p className="text-xs text-on-surface font-semibold">
-                      {formatDate(draw.revealedAt)}
+                      {formatDate(draw)}
                     </p>
                   </div>
                 </div>
@@ -240,7 +237,7 @@ export function DrawHistoryList({
                 {/* Date (Desktop Only) */}
                 <div className="hidden md:block">
                   <p className="text-xs text-on-surface font-medium whitespace-nowrap">
-                    {formatDate(draw.revealedAt)}
+                    {formatDate(draw)}
                   </p>
                 </div>
 

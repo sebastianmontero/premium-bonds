@@ -379,7 +379,8 @@
     "colActions": "Acciones",
     "inspectPayouts": "Inspeccionar Pagos",
     "crankModalTitle": "Ejecución de Auto-Reinversión",
-    "crankSuccessMsg": "¡Las ganancias fueron procesadas y reinvertidas exitosamente en nuevos bonos activos!"
+    "crankSuccessMsg": "¡Las ganancias fueron procesadas y reinvertidas exitosamente en nuevos bonos activos!",
+    "estimatedPrefix": "Est."
   },
   "DrawInspector": {
     "modalTitle": "Inspector del Sorteo #{cycleId}",

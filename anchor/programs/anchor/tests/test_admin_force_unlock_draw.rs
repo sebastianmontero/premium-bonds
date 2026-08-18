@@ -105,11 +105,15 @@ fn setup_with_amounts(
         cycle_fee_collected,
         randomness_account: Pubkey::default(),
         harvest_slot: 0,
+        initiated_at: 1_700_000_000,
+        completed_at: 0,
         version: 1,
         _reserved: [0; 64],
     };
     let mut data = vec![];
-    dc.try_serialize(&mut data).unwrap();
+    data.extend_from_slice(&anchor::DrawCycle::DISCRIMINATOR);
+    use anchor_lang::AnchorSerialize;
+    dc.serialize(&mut data).unwrap();
     data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
     svm.set_account(
         current_draw_cycle,
@@ -191,6 +195,7 @@ fn test_admin_force_unlock_happy_path() {
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked);
+    assert!(dc.completed_at > 0);
 }
 
 #[test]

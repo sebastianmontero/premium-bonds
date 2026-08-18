@@ -43,6 +43,10 @@ pub struct DrawCycle {
     pub cycle_fee_collected: u64,
     /// The slot number when yield was frozen, preventing front-running randomness requests.
     pub harvest_slot: u64,
+    /// Unix timestamp (seconds) when harvest_yield_and_commit was executed.
+    pub initiated_at: i64,
+    /// Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight).
+    pub completed_at: i64,
     /// Public key of the locked Switchboard randomness request account.
     pub randomness_account: Pubkey,
     /// Pool ID this draw cycle belongs to.

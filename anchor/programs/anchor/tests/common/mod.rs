@@ -308,6 +308,63 @@ pub fn inject_pool(
     pda
 }
 
+pub fn default_draw_cycle(
+    pool_id: u32,
+    cycle_id: u32,
+    status: anchor::DrawStatus,
+) -> anchor::DrawCycle {
+    let now = 1_700_000_000;
+    anchor::DrawCycle {
+        prize_pot: 100_000_000,
+        cycle_fee_collected: 0,
+        harvest_slot: 100,
+        initiated_at: now,
+        completed_at: match status {
+            anchor::DrawStatus::Complete
+            | anchor::DrawStatus::Skipped
+            | anchor::DrawStatus::ForceUnlocked
+            | anchor::DrawStatus::Voided
+            | anchor::DrawStatus::HaltedInsolvent
+            | anchor::DrawStatus::HaltedYieldSpike => now,
+            _ => 0,
+        },
+        randomness_account: Pubkey::default(),
+        pool_id,
+        cycle_id,
+        locked_ticket_count: 100,
+        status,
+        version: 1,
+        randomness_seed: [0; 32],
+        _reserved: [0; 64],
+    }
+}
+
+pub fn inject_draw_cycle(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    cycle_id: u32,
+    draw_cycle: &anchor::DrawCycle,
+) -> Pubkey {
+    use anchor_lang::AccountSerialize;
+    let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
+    let mut data = vec![];
+    draw_cycle.try_serialize(&mut data).unwrap();
+
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
+    pda
+}
+
 pub fn inject_registry(
     svm: &mut LiteSVM,
     address: Pubkey,
@@ -461,6 +518,9 @@ pub fn setup_svm_with_authority(authority: &Keypair) -> LiteSVM {
         anchor::id(),
         include_bytes!("../../../../target/deploy/anchor.so"),
     );
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.unix_timestamp = 1_700_000_000;
+    svm.set_sysvar(&clock);
     svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
     setup_program_data(&mut svm, Some(&authority.pubkey()));
     svm

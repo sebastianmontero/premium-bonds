@@ -101,36 +101,40 @@ function mockAccount(data: Uint8Array) {
 
 // 4. Test decodeDrawCycle
 {
-  const buffer = new Uint8Array(174);
+  const buffer = new Uint8Array(190);
   const view = new DataView(buffer.buffer);
 
   view.setBigUint64(8, 500_000_000n, true);
   view.setBigUint64(16, 50_000_000n, true);
   view.setBigUint64(24, 12345n, true);
-  view.setUint32(64, 1, true);
-  view.setUint32(68, 3, true);
-  view.setUint32(72, 1000, true);
-  buffer[76] = 2; // Complete
+  view.setBigInt64(32, 1700000000n, true);
+  view.setBigInt64(40, 1700001000n, true);
+  view.setUint32(80, 1, true);
+  view.setUint32(84, 3, true);
+  view.setUint32(88, 1000, true);
+  buffer[92] = 2; // Complete
 
   const parsed = decodeDrawCycle(mockAccount(buffer)).data;
   assert.strictEqual(parsed.prizePot, 500_000_000n);
   assert.strictEqual(parsed.cycleFeeCollected, 50_000_000n);
   assert.strictEqual(parsed.harvestSlot, 12345n);
+  assert.strictEqual(parsed.initiatedAt, 1700000000n);
+  assert.strictEqual(parsed.completedAt, 1700001000n);
   assert.strictEqual(parsed.poolId, 1);
   assert.strictEqual(parsed.cycleId, 3);
   assert.strictEqual(parsed.lockedTicketCount, 1000);
   assert.strictEqual(parsed.status, 2); // Complete enum variant index
 
-  buffer[76] = 4; // Skipped
+  buffer[92] = 4; // Skipped
   const parsedSkipped = parseDrawCycle(buffer);
   assert.strictEqual(parsedSkipped.status, "Skipped");
 
-  buffer[76] = 3; // ForceUnlocked
+  buffer[92] = 3; // ForceUnlocked
   const parsedUnlocked = parseDrawCycle(buffer);
   assert.strictEqual(parsedUnlocked.status, "ForceUnlocked");
 
   // Verify that an invalid DrawStatus byte throws an explicit Error
-  buffer[76] = 99;
+  buffer[92] = 99;
   assert.throws(() => parseDrawCycle(buffer));
 
   console.log("✓ decodeDrawCycle passed");

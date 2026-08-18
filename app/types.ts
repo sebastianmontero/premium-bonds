@@ -170,7 +170,9 @@ export interface DrawCycleSummary {
   randomnessAccount: string;
   randomnessSeed: Uint8Array;
   vrfSeedHex: string;
-  revealedAt?: number; // unix timestamp (seconds)
+  revealedAt?: number; // unix timestamp (seconds) from PayoutRegistry
+  initiatedAt?: number; // unix timestamp (seconds) from DrawCycle
+  completedAt?: number; // unix timestamp (seconds) from DrawCycle
   winnersCount: number;
   payoutsCompleted: number;
   hasPayoutRegistry: boolean;

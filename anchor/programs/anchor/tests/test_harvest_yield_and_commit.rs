@@ -546,6 +546,8 @@ fn test_harvest_happy_path_zero_yield() {
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, dc.initiated_at);
     assert_eq!(dc.prize_pot, 0);
     assert_eq!(dc.cycle_fee_collected, 0);
     assert_eq!(dc.locked_ticket_count, 0); // no active before merge
@@ -576,6 +578,8 @@ fn test_harvest_happy_path_yield_no_eligible() {
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, dc.initiated_at);
     assert_eq!(dc.cycle_fee_collected, 0);
     assert_eq!(dc.prize_pot, 0);
     assert_eq!(dc.locked_ticket_count, 0);
@@ -606,6 +610,8 @@ fn test_harvest_happy_path_yield_and_eligible() {
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, 0);
     assert_eq!(dc.locked_ticket_count, 2); // only active, not pending
 
     let pool = read_pool(&ctx.svm, 1);

@@ -68,6 +68,7 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
         PremiumBondsError::InvalidDrawStatus
     );
     draw_cycle.status = DrawStatus::ForceUnlocked;
+    draw_cycle.completed_at = Clock::get()?.unix_timestamp;
 
     if draw_cycle.prize_pot > 0 {
         pool.total_prizes_allocated = pool

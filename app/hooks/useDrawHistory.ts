@@ -13,6 +13,7 @@ import {
   PayoutRegistryInfo,
 } from "../lib/bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "../lib/vrf-utils";
+import { resolveDrawCycleTimestamp } from "../lib/draw-helpers";
 import type { PrizeHistoryEntry, RecentWinner, PrizeStatus } from "../types";
 
 const base64Encoder = getBase64Encoder();
@@ -254,13 +255,25 @@ export function useDrawHistory(
               }
             }
 
-            const drawDateTimestamp =
-              payout.revealedAt && payout.revealedAt > 0n
-                ? Number(payout.revealedAt)
-                : currentCycleEndAt && currentDrawCycleId !== undefined
-                  ? currentCycleEndAt -
-                    (currentDrawCycleId - cycleId) * cycleDurationSeconds
-                  : Math.floor(Date.now() / 1000);
+            const { timestamp: drawDateTimestamp } = resolveDrawCycleTimestamp(
+              {
+                revealedAt: payout.revealedAt
+                  ? Number(payout.revealedAt)
+                  : undefined,
+                completedAt: drawCycle.completedAt
+                  ? Number(drawCycle.completedAt)
+                  : undefined,
+                initiatedAt: drawCycle.initiatedAt
+                  ? Number(drawCycle.initiatedAt)
+                  : undefined,
+                cycleId,
+              },
+              {
+                currentCycleEndAt,
+                currentCycleId: currentDrawCycleId,
+                stakeCycleDurationHrs: cycleDurationSeconds / 3600,
+              }
+            );
 
             userPrizes.push({
               drawCycleId: cycleId,

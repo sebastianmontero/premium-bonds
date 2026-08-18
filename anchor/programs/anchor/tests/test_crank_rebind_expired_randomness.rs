@@ -62,11 +62,16 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
         cycle_fee_collected: 0,
         randomness_account: Pubkey::default(),
         harvest_slot,
+        initiated_at: 1_700_000_000,
+        completed_at: 0,
         version: 1,
         _reserved: [0; 64],
     };
     let mut data = vec![];
-    dc.try_serialize(&mut data).unwrap();
+    use anchor_lang::Discriminator;
+    data.extend_from_slice(&anchor::DrawCycle::DISCRIMINATOR);
+    use anchor_lang::AnchorSerialize;
+    dc.serialize(&mut data).unwrap();
     data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
     svm.set_account(
         current_draw_cycle,

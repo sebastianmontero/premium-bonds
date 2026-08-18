@@ -3,6 +3,8 @@ import {
   formatDrawCycleSummary,
   parseWinnersWithVrf,
   getDrawDateTimestamp,
+  resolveDrawCycleTimestamp,
+  formatDrawDisplayDate,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -38,6 +40,8 @@ async function runTests() {
     cycleFeeCollected: 1_000_000n,
     lockedTicketCount: 50_000,
     harvestSlot: 240_500_100n,
+    initiatedAt: 1723800000n,
+    completedAt: 1723900000n,
     randomnessAccount: address("11111111111111111111111111111111"),
     randomnessSeed: new Uint8Array(32).fill(7),
   };
@@ -142,6 +146,8 @@ async function runTests() {
     cycleFeeCollected: 250_000n,
     lockedTicketCount: 1_000,
     harvestSlot: 100_000n,
+    initiatedAt: 1699990000n,
+    completedAt: 1700000000n,
     randomnessAccount: address("11111111111111111111111111111111"),
     randomnessSeed: new Uint8Array(32).fill(42),
   };
@@ -174,30 +180,65 @@ async function runTests() {
   assert.ok(winners0[0].winningTicketIndex !== undefined);
   assert.ok(winners0[0].winningTicketIndex! < 1_000);
 
-  // Test timestamp calculation when cycleId = 0 and currentCycleId = 1
-  const tsCycle0 = getDrawDateTimestamp(undefined, 1700604800, 1, 0, 604800);
-  assert.strictEqual(tsCycle0, 1700000000);
+  // 6. Test resolveDrawCycleTimestamp & formatDrawDisplayDate
+  console.log("  Testing resolveDrawCycleTimestamp & formatDrawDisplayDate...");
+  // 6a. Completed draw with completedAt
+  const res1 = resolveDrawCycleTimestamp({
+    completedAt: 1723900000,
+    initiatedAt: 1723800000,
+    cycleId: 14,
+  });
+  assert.strictEqual(res1.timestamp, 1723900000);
+  assert.strictEqual(res1.isEstimated, false);
 
-  // Test range derivation for useDrawExplorer when currentDrawCycleId = 0
-  const cycleIdsAt0: number[] = [];
-  const maxCycles = 100;
-  const current0 = 0;
-  for (let cId = current0; cId >= 0 && cId > current0 - maxCycles; cId--) {
-    cycleIdsAt0.push(cId);
-  }
-  assert.deepStrictEqual(cycleIdsAt0, [0], "Expected cycleIds to contain [0]");
+  // 6b. In-flight draw with initiatedAt only
+  const res2 = resolveDrawCycleTimestamp({
+    initiatedAt: 1723800000,
+    completedAt: 0,
+    cycleId: 15,
+  });
+  assert.strictEqual(res2.timestamp, 1723800000);
+  assert.strictEqual(res2.isEstimated, false);
 
-  // Test range derivation when currentDrawCycleId = 1 (after cycle 0 resolved)
-  const cycleIdsAt1: number[] = [];
-  const current1 = 1;
-  for (let cId = current1; cId >= 0 && cId > current1 - maxCycles; cId--) {
-    cycleIdsAt1.push(cId);
-  }
-  assert.deepStrictEqual(
-    cycleIdsAt1,
-    [1, 0],
-    "Expected cycleIds to include both cycle 1 and cycle 0"
+  // 6c. Skipped/Voided draw without PayoutRegistry but with completedAt
+  const res3 = resolveDrawCycleTimestamp({
+    initiatedAt: 1723800000,
+    completedAt: 1723800000,
+    cycleId: 12,
+  });
+  assert.strictEqual(res3.timestamp, 1723800000);
+  assert.strictEqual(res3.isEstimated, false);
+
+  // 6d. Fallback estimated calculation
+  const res4 = resolveDrawCycleTimestamp(
+    { cycleId: 10 },
+    {
+      currentCycleEndAt: 1724000000,
+      currentCycleId: 15,
+      stakeCycleDurationHrs: 168,
+    }
   );
+  assert.strictEqual(res4.timestamp, 1724000000 - 5 * 168 * 3600);
+  assert.strictEqual(res4.isEstimated, true);
+
+  // 6e. formatDrawDisplayDate formatting
+  const formattedExact = formatDrawDisplayDate(
+    { completedAt: 1700000000 },
+    undefined,
+    { estimatedPrefix: "Est." }
+  );
+  assert.strictEqual(formattedExact, "Nov 14, 2023");
+
+  const formattedEst = formatDrawDisplayDate(
+    { cycleId: 0 },
+    {
+      currentCycleEndAt: 1700604800,
+      currentCycleId: 1,
+      stakeCycleDurationHrs: 168,
+    },
+    { estimatedPrefix: "Est." }
+  );
+  assert.strictEqual(formattedEst, "Est. Nov 14, 2023");
 
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }

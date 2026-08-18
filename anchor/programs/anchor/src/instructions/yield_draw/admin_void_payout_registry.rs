@@ -108,6 +108,7 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
     // 4. Update statuses
     payout_registry.status = PayoutRegistryStatus::Voided as u8;
     draw_cycle.status = DrawStatus::Voided;
+    draw_cycle.completed_at = Clock::get()?.unix_timestamp;
 
     emit!(DrawVoided {
         pool_id: pool.pool_id,

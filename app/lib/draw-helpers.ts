@@ -24,6 +24,28 @@ export function formatDrawCycleSummary(
           : undefined
       : undefined;
 
+  const initiatedAtNum =
+    drawCycle.initiatedAt !== undefined
+      ? typeof drawCycle.initiatedAt === "bigint"
+        ? drawCycle.initiatedAt > 0n
+          ? Number(drawCycle.initiatedAt)
+          : undefined
+        : drawCycle.initiatedAt > 0
+          ? Number(drawCycle.initiatedAt)
+          : undefined
+      : undefined;
+
+  const completedAtNum =
+    drawCycle.completedAt !== undefined
+      ? typeof drawCycle.completedAt === "bigint"
+        ? drawCycle.completedAt > 0n
+          ? Number(drawCycle.completedAt)
+          : undefined
+        : drawCycle.completedAt > 0
+          ? Number(drawCycle.completedAt)
+          : undefined
+      : undefined;
+
   return {
     poolId: drawCycle.poolId,
     cycleId: drawCycle.cycleId,
@@ -36,6 +58,8 @@ export function formatDrawCycleSummary(
     randomnessSeed: drawCycle.randomnessSeed,
     vrfSeedHex: formatSeedHex(drawCycle.randomnessSeed),
     revealedAt: revealedAtNum,
+    initiatedAt: initiatedAtNum,
+    completedAt: completedAtNum,
     winnersCount,
     payoutsCompleted,
     hasPayoutRegistry: Boolean(payout),
@@ -90,8 +114,106 @@ export async function parseWinnersWithVrf(
 }
 
 /**
- * Computes draw date timestamp in seconds, prioritizing on-chain revealedAt,
- * falling back to cycle duration calculation.
+ * Resolves the effective timestamp (in seconds) and whether the date is estimated for a draw cycle.
+ * Prioritizes on-chain revealedAt / completedAt, then initiatedAt, and falls back to cycle end estimation.
+ */
+export function resolveDrawCycleTimestamp(
+  draw: {
+    revealedAt?: number;
+    completedAt?: number;
+    initiatedAt?: number;
+    cycleId?: number;
+  },
+  poolContext?: {
+    currentCycleEndAt?: number;
+    currentCycleId?: number;
+    stakeCycleDurationHrs?: number;
+  }
+): { timestamp: number; isEstimated: boolean } {
+  // 1. Authoritative completed timestamp (revealedAt or completedAt)
+  if (draw.revealedAt && draw.revealedAt > 0) {
+    return { timestamp: draw.revealedAt, isEstimated: false };
+  }
+  if (draw.completedAt && draw.completedAt > 0) {
+    return { timestamp: draw.completedAt, isEstimated: false };
+  }
+
+  // 2. In-flight draw harvest/initiated timestamp
+  if (draw.initiatedAt && draw.initiatedAt > 0) {
+    return { timestamp: draw.initiatedAt, isEstimated: false };
+  }
+
+  // 3. Fallback to estimation based on pool cycle metadata
+  const cycleDurationSeconds =
+    (poolContext?.stakeCycleDurationHrs ?? 168) * 3600;
+  if (
+    poolContext?.currentCycleEndAt &&
+    poolContext.currentCycleEndAt > 0 &&
+    poolContext.currentCycleId !== undefined &&
+    draw.cycleId !== undefined
+  ) {
+    const estimated =
+      poolContext.currentCycleEndAt -
+      (poolContext.currentCycleId - draw.cycleId) * cycleDurationSeconds;
+    return { timestamp: Math.max(0, estimated), isEstimated: true };
+  }
+
+  return { timestamp: Math.floor(Date.now() / 1000), isEstimated: true };
+}
+
+/**
+ * Formats a draw cycle's display date string with optional estimation prefix, UTC formatting,
+ * and optional time inclusion.
+ */
+export function formatDrawDisplayDate(
+  draw: {
+    revealedAt?: number;
+    completedAt?: number;
+    initiatedAt?: number;
+    cycleId?: number;
+  },
+  poolContext?: {
+    currentCycleEndAt?: number;
+    currentCycleId?: number;
+    stakeCycleDurationHrs?: number;
+  },
+  options?: {
+    estimatedPrefix?: string;
+    includeTime?: boolean;
+    locale?: string;
+  }
+): string {
+  const { timestamp, isEstimated } = resolveDrawCycleTimestamp(
+    draw,
+    poolContext
+  );
+  const locale = options?.locale ?? "en-US";
+  const dateObj = new Date(timestamp * 1000);
+
+  const formatOptions: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+    ...(options?.includeTime
+      ? {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }
+      : {}),
+  };
+
+  const formattedDate = dateObj.toLocaleDateString(locale, formatOptions);
+  const prefix =
+    isEstimated && options?.estimatedPrefix
+      ? `${options.estimatedPrefix} `
+      : "";
+  return `${prefix}${formattedDate}`;
+}
+
+/**
+ * Backward compatibility wrapper for getDrawDateTimestamp.
  */
 export function getDrawDateTimestamp(
   revealedAt?: number,
@@ -100,19 +222,12 @@ export function getDrawDateTimestamp(
   cycleId?: number,
   cycleDurationSeconds: number = 604800
 ): number {
-  if (revealedAt && revealedAt > 0) {
-    return revealedAt;
-  }
-
-  if (
-    currentCycleEndAt &&
-    currentCycleId !== undefined &&
-    cycleId !== undefined
-  ) {
-    return (
-      currentCycleEndAt - (currentCycleId - cycleId) * cycleDurationSeconds
-    );
-  }
-
-  return Math.floor(Date.now() / 1000);
+  return resolveDrawCycleTimestamp(
+    { revealedAt, cycleId },
+    {
+      currentCycleEndAt,
+      currentCycleId,
+      stakeCycleDurationHrs: cycleDurationSeconds / 3600,
+    }
+  ).timestamp;
 }

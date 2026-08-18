@@ -378,7 +378,8 @@
     "colActions": "Actions",
     "inspectPayouts": "Inspect Payouts",
     "crankModalTitle": "Auto-Reinvest Winner Crank",
-    "crankSuccessMsg": "Winner winnings were successfully processed and reinvested into new active bonds!"
+    "crankSuccessMsg": "Winner winnings were successfully processed and reinvested into new active bonds!",
+    "estimatedPrefix": "Est."
   },
   "DrawInspector": {
     "modalTitle": "Draw Cycle #{cycleId} Inspector",

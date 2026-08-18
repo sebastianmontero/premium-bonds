@@ -297,6 +297,8 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, dc.initiated_at);
 }
 
 #[test]
@@ -335,6 +337,8 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedYieldSpike);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, dc.initiated_at);
 }
 
 #[test]
@@ -375,6 +379,8 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent);
+    assert!(dc.initiated_at > 0);
+    assert_eq!(dc.completed_at, dc.initiated_at);
     assert_eq!(dc.pool_id, 1);
     assert_eq!(dc.cycle_id, 0);
     assert_eq!(dc.locked_ticket_count, 0);

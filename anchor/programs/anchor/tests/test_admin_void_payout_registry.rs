@@ -34,6 +34,8 @@ fn inject_draw_cycle(
         prize_pot,
         cycle_fee_collected,
         harvest_slot: 100,
+        initiated_at: 1_700_000_000,
+        completed_at: 1_700_000_000,
         randomness_account: Pubkey::default(),
         pool_id,
         cycle_id,
@@ -208,6 +210,7 @@ fn test_admin_void_payout_registry_success() {
     let dc_acc = svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::Voided);
+    assert!(dc.completed_at > 0);
 }
 
 #[test]

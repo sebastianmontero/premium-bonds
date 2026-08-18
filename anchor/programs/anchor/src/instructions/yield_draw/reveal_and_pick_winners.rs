@@ -162,6 +162,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     draw_cycle.randomness_seed = random_seed;
     draw_cycle.status = DrawStatus::Complete;
+    draw_cycle.completed_at = clock.unix_timestamp;
     pool.is_frozen_for_draw = 0;
 
     // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.

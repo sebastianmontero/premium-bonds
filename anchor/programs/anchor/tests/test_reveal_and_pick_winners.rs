@@ -194,6 +194,8 @@ fn inject_draw_cycle(
         cycle_fee_collected: 0,
         randomness_account,
         harvest_slot: 0,
+        initiated_at: 1_700_000_000,
+        completed_at: 0,
         version: 1,
         _reserved: [0; 64],
     };
@@ -686,6 +688,8 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Complete);
     assert_eq!(dc.randomness_seed, seed);
+    assert!(dc.completed_at > 0);
+    assert!(dc.completed_at >= dc.initiated_at);
 }
 
 #[test]

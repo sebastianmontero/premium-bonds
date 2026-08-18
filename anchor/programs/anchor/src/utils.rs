@@ -288,7 +288,7 @@ mod tests {
         );
         assert_eq!(
             crate::state::DrawCycle::INIT_SPACE,
-            8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 32 + 64
+            8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + crate::state::DrawStatus::INIT_SPACE + 1 + 32 + 64
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,

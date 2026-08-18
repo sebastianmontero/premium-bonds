@@ -30,6 +30,8 @@ import {
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
+  getI64Decoder,
+  getI64Encoder,
   getStructDecoder,
   getStructEncoder,
   getU32Decoder,
@@ -67,6 +69,10 @@ export type DrawCycle = {
   cycleFeeCollected: bigint;
   /** The slot number when yield was frozen, preventing front-running randomness requests. */
   harvestSlot: bigint;
+  /** Unix timestamp (seconds) when harvest_yield_and_commit was executed. */
+  initiatedAt: bigint;
+  /** Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight). */
+  completedAt: bigint;
   /** Public key of the locked Switchboard randomness request account. */
   randomnessAccount: Address;
   /** Pool ID this draw cycle belongs to. */
@@ -92,6 +98,10 @@ export type DrawCycleArgs = {
   cycleFeeCollected: number | bigint;
   /** The slot number when yield was frozen, preventing front-running randomness requests. */
   harvestSlot: number | bigint;
+  /** Unix timestamp (seconds) when harvest_yield_and_commit was executed. */
+  initiatedAt: number | bigint;
+  /** Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight). */
+  completedAt: number | bigint;
   /** Public key of the locked Switchboard randomness request account. */
   randomnessAccount: Address;
   /** Pool ID this draw cycle belongs to. */
@@ -118,6 +128,8 @@ export function getDrawCycleEncoder(): FixedSizeEncoder<DrawCycleArgs> {
       ["prizePot", getU64Encoder()],
       ["cycleFeeCollected", getU64Encoder()],
       ["harvestSlot", getU64Encoder()],
+      ["initiatedAt", getI64Encoder()],
+      ["completedAt", getI64Encoder()],
       ["randomnessAccount", getAddressEncoder()],
       ["poolId", getU32Encoder()],
       ["cycleId", getU32Encoder()],
@@ -138,6 +150,8 @@ export function getDrawCycleDecoder(): FixedSizeDecoder<DrawCycle> {
     ["prizePot", getU64Decoder()],
     ["cycleFeeCollected", getU64Decoder()],
     ["harvestSlot", getU64Decoder()],
+    ["initiatedAt", getI64Decoder()],
+    ["completedAt", getI64Decoder()],
     ["randomnessAccount", getAddressDecoder()],
     ["poolId", getU32Decoder()],
     ["cycleId", getU32Decoder()],
@@ -208,5 +222,5 @@ export async function fetchAllMaybeDrawCycle(
 }
 
 export function getDrawCycleSize(): number {
-  return 174;
+  return 190;
 }
