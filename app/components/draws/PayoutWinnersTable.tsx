@@ -9,6 +9,7 @@ import {
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
+import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -17,6 +18,7 @@ interface PayoutWinnersTableProps {
   connectedUserAddress?: string;
   tokenDecimals?: number;
   tokenSymbol?: string;
+  bondPrice?: number;
   onCrankWinner?: (winnerIndex: number) => void;
   crankingWinnerIndices?: Record<number, boolean>;
 }
@@ -26,6 +28,7 @@ export function PayoutWinnersTable({
   connectedUserAddress,
   tokenDecimals = 6,
   tokenSymbol = "USDC",
+  bondPrice = 5_000_000,
   onCrankWinner,
   crankingWinnerIndices = {},
 }: PayoutWinnersTableProps) {
@@ -195,11 +198,15 @@ export function PayoutWinnersTable({
                         {tokenSymbol}
                       </span>
                     </p>
-                    {winner.bondsBought > 0 && (
-                      <p className="text-[10px] text-tertiary font-mono">
-                        +{winner.bondsBought} bonds
-                      </p>
-                    )}
+                    <BonusBondDustBadge
+                      bondsBought={winner.bondsBought}
+                      amountWon={winner.amountOwed}
+                      bondPrice={bondPrice}
+                      tokenDecimals={tokenDecimals}
+                      tokenSymbol={tokenSymbol}
+                      tooltipAlign="right"
+                      className="mt-0.5"
+                    />
                   </td>
 
                   {/* Status */}

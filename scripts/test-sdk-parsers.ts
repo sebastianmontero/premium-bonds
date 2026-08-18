@@ -18,6 +18,11 @@ import {
   resolveUserTickets,
   UserEntryInfo,
 } from "../app/lib/bonds-sdk";
+import {
+  serializeTicketRegistry,
+  parseTicketRegistry,
+  TICKET_REGISTRY_DISCRIMINATOR,
+} from "../app/lib/ticket-registry-helpers";
 import { ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import { ANCHOR_ERROR__POOL_NOT_FROZEN } from "../app/lib/generated/yield-bonds/src/generated";
 
@@ -440,6 +445,65 @@ function mockAccount(data: Uint8Array) {
 
   console.log(
     "✓ resolveUserTickets active/pending balance & frozen draw invariance passed"
+  );
+}
+
+// 12. Test serializeTicketRegistry & parseTicketRegistry roundtrip
+{
+  const mockUser1 = "11111111111111111111111111111111" as Address;
+  const mockUser2 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address;
+
+  const entries: UserEntryInfo[] = [
+    {
+      owner: mockUser1,
+      active: 651,
+      pending: 0,
+      mergedThroughCycle: 3,
+      cumulativeActive: 651,
+    },
+    {
+      owner: mockUser2,
+      active: 276,
+      pending: 0,
+      mergedThroughCycle: 3,
+      cumulativeActive: 927,
+    },
+  ];
+
+  const buffer = serializeTicketRegistry({
+    poolId: 1,
+    totalActiveTickets: 927,
+    totalPendingTickets: 0,
+    drawCycleId: 3,
+    drawPreparedUpTo: 2,
+    entries,
+  });
+
+  assert.strictEqual(buffer.byteLength, 262248);
+  assert.deepStrictEqual(
+    Array.from(buffer.subarray(0, 8)),
+    Array.from(TICKET_REGISTRY_DISCRIMINATOR)
+  );
+
+  const parsed = parseTicketRegistry(buffer);
+  assert.strictEqual(parsed.poolId, 1);
+  assert.strictEqual(parsed.capacity, 4096);
+  assert.strictEqual(parsed.userCount, 2);
+  assert.strictEqual(parsed.totalActiveTickets, 927);
+  assert.strictEqual(parsed.drawCycleId, 3);
+  assert.strictEqual(parsed.drawPreparedUpTo, 2);
+  assert.strictEqual(parsed.entries.length, 2);
+
+  assert.strictEqual(parsed.entries[0].owner, mockUser1);
+  assert.strictEqual(parsed.entries[0].active, 651);
+  assert.strictEqual(parsed.entries[0].cumulativeActive, 651);
+
+  assert.strictEqual(parsed.entries[1].owner, mockUser2);
+  assert.strictEqual(parsed.entries[1].active, 276);
+  assert.strictEqual(parsed.entries[1].cumulativeActive, 927);
+
+  console.log(
+    "✓ serializeTicketRegistry & parseTicketRegistry roundtrip passed"
   );
 }
 

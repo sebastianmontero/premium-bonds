@@ -1,10 +1,21 @@
-import { Address, getBase58Decoder, lamports } from "@solana/kit";
+import {
+  Address,
+  getBase58Decoder,
+  getBase58Encoder,
+  lamports,
+} from "@solana/kit";
 import {
   decodeTicketRegistry,
+  getTicketRegistryEncoder,
+  TICKET_REGISTRY_DISCRIMINATOR,
   TicketRegistry,
+  TicketRegistryArgs,
 } from "./generated/yield-bonds/src/generated/accounts";
 
+export { TICKET_REGISTRY_DISCRIMINATOR };
+
 const base58Decoder = getBase58Decoder();
+const base58Encoder = getBase58Encoder();
 
 export interface UserEntryInfo {
   owner: Address;
@@ -136,4 +147,70 @@ export function parseTicketRegistry(data: Uint8Array): ExtendedTicketRegistry {
     ...header,
     entries,
   };
+}
+
+export interface SerializeTicketRegistryOptions {
+  poolId: number;
+  capacity?: number;
+  userCount?: number;
+  totalActiveTickets?: number;
+  totalPendingTickets?: number;
+  drawCycleId?: number;
+  drawPreparedUpTo?: number;
+  version?: number;
+  totalSizeBytes?: number;
+  entries?: UserEntryInfo[];
+}
+
+/**
+ * Serializes a single UserEntry struct into a 64-byte binary buffer.
+ */
+export function serializeUserEntry(entry: UserEntryInfo): Uint8Array {
+  const buf = new Uint8Array(64);
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const ownerBytes = base58Encoder.encode(entry.owner);
+  buf.set(ownerBytes, 0);
+  view.setUint32(32, entry.active, true);
+  view.setUint32(36, entry.pending, true);
+  view.setUint32(40, entry.mergedThroughCycle, true);
+  view.setUint32(44, entry.cumulativeActive, true);
+  view.setUint8(48, 1); // version = 1
+  return buf;
+}
+
+/**
+ * Serializes a full TicketRegistry account (header + user entries) into a byte buffer.
+ */
+export function serializeTicketRegistry(
+  options: SerializeTicketRegistryOptions
+): Uint8Array {
+  const totalSizeBytes = options.totalSizeBytes ?? 262248;
+  const capacity = options.capacity ?? Math.floor((totalSizeBytes - 104) / 64);
+  const entries = options.entries ?? [];
+  const userCount = options.userCount ?? entries.length;
+
+  const headerArgs: TicketRegistryArgs = {
+    poolId: options.poolId,
+    capacity,
+    userCount,
+    totalActiveTickets: options.totalActiveTickets ?? 0,
+    totalPendingTickets: options.totalPendingTickets ?? 0,
+    drawCycleId: options.drawCycleId ?? 0,
+    drawPreparedUpTo: options.drawPreparedUpTo ?? 0,
+    version: options.version ?? 1,
+    reserved: new Uint8Array(67),
+  };
+
+  const headerBytes = getTicketRegistryEncoder().encode(headerArgs);
+  const fullBuffer = new Uint8Array(totalSizeBytes);
+  fullBuffer.set(headerBytes, 0);
+
+  entries.forEach((entry, idx) => {
+    const entryOffset = 104 + idx * 64;
+    if (entryOffset + 64 <= totalSizeBytes) {
+      fullBuffer.set(serializeUserEntry(entry), entryOffset);
+    }
+  });
+
+  return fullBuffer;
 }

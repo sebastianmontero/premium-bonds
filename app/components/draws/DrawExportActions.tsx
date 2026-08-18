@@ -3,19 +3,23 @@
 import React from "react";
 import { exportToCsv, exportToJson } from "@/app/lib/export-utils";
 import { tierLabel } from "@/app/lib/formatters";
+import { hasDrawVrfRandomness } from "@/app/lib/draw-helpers";
 import type { DetailedDrawCycle } from "@/app/types";
 import { useTranslations } from "next-intl";
 
 interface DrawExportActionsProps {
   draw: DetailedDrawCycle;
+  hasVrfRandomness?: boolean;
   className?: string;
 }
 
 export function DrawExportActions({
   draw,
+  hasVrfRandomness,
   className = "",
 }: DrawExportActionsProps) {
   const t = useTranslations("DrawInspector");
+  const isVrf = hasVrfRandomness ?? hasDrawVrfRandomness(draw);
 
   const handleExportCSV = () => {
     const headers = [
@@ -43,7 +47,7 @@ export function DrawExportActions({
       w.bondsBought,
       w.processed ? "true" : "false",
       w.winningTicketIndex !== undefined ? `#${w.winningTicketIndex}` : "",
-      draw.vrfSeedHex,
+      isVrf ? draw.vrfSeedHex : t("notApplicableSeed"),
       draw.harvestSlot,
       draw.randomnessAccount,
     ]);
@@ -65,7 +69,8 @@ export function DrawExportActions({
       lockedTicketCount: draw.lockedTicketCount,
       harvestSlot: draw.harvestSlot,
       randomnessAccount: draw.randomnessAccount,
-      vrfSeedHex: draw.vrfSeedHex,
+      vrfSeedHex: isVrf ? draw.vrfSeedHex : null,
+      hasVrfRandomness: isVrf,
       revealedAt: draw.revealedAt,
       initiatedAt: draw.initiatedAt,
       completedAt: draw.completedAt,

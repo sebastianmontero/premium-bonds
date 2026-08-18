@@ -311,7 +311,8 @@ fn send_reveal(
     cycle_id: u32,
     seed: [u8; 32],
 ) -> Result<litesvm::types::TransactionMetadata, String> {
-    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 0, 0, seed);
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, clock.slot, clock.slot, seed);
     let ix = build_reveal_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);

@@ -34,6 +34,10 @@ import {
   buildCreatePoolInstruction,
   buildSetPrizeTiersInstruction,
 } from "../app/lib/bonds-sdk";
+import {
+  TICKET_REGISTRY_DISCRIMINATOR,
+  serializeTicketRegistry,
+} from "../app/lib/ticket-registry-helpers";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
 
 // Constants
@@ -638,107 +642,207 @@ export async function injectBaseState(options?: {
   // 4. Inject compiled programs
   await ensureProgramsInjected(adminSigner.address);
 
-  // 5. Inject mock accounts
-  console.log("Injecting USDC Mint account...");
-  const usdcMintData = serializeMintAccount(adminSigner.address, 6);
-  await setAccount(
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    1_000_000_000,
-    usdcMintData,
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    false
-  );
+  // 5. Inject mock accounts with atomic batch inspection
+  const accountsToQuery = [
+    address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"), // 0: USDC mint
+    address(randomnessSigner.address), // 1: Mock Randomness
+    address(addresses.humaPoolState), // 2: Huma Pool State
+    address(addresses.pstMint), // 3: PST Mint
+    address(addresses.ticketRegistry), // 4: Ticket Registry
+    address(addresses.humaPoolUnderlying), // 5: Huma Underlying
+    address(addresses.humaPoolModeToken), // 6: Huma Mode Token
+    address(addresses.feeWallet), // 7: Fee Wallet
+  ];
 
-  console.log("Injecting Mock Switchboard Randomness account...");
+  const poolAddress = await findPrizePoolPda(1);
+  const [existingAccounts, poolAcc] = await Promise.all([
+    rpc
+      .getMultipleAccounts(accountsToQuery, { encoding: "base64" })
+      .send()
+      .catch(() => null),
+    rpc
+      .getAccountInfo(poolAddress, { encoding: "base64" })
+      .send()
+      .catch(() => null),
+  ]);
+
+  const accMap = existingAccounts?.value ?? [];
+  const poolExists = Boolean(poolAcc?.value);
+
+  // 5a. USDC Mint
+  if (!accMap[0] || !accMap[0].data?.[0]) {
+    console.log("Injecting USDC Mint account...");
+    const usdcMintData = serializeMintAccount(adminSigner.address, 6);
+    await setAccount(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      1_000_000_000,
+      usdcMintData,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      false
+    );
+  }
+
+  // 5b. Mock Switchboard Randomness
   const sbProgramId =
     process.env.SB_ENV === "devnet"
       ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
       : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
-  await setAccount(
-    randomnessSigner.address,
-    1_000_000_000,
-    "",
-    sbProgramId,
-    false
-  );
+  if (!accMap[1]) {
+    console.log("Injecting Mock Switchboard Randomness account...");
+    await setAccount(
+      randomnessSigner.address,
+      1_000_000_000,
+      "",
+      sbProgramId,
+      false
+    );
+  }
 
-  console.log("Injecting Huma Pool State account...");
-  const humaPoolStateData = serializeHumaPoolState();
-  await setAccount(
-    addresses.humaPoolState,
-    1_000_000_000,
-    humaPoolStateData,
-    MOCK_HUMA_PROGRAM_ID_STR,
-    false
-  );
+  // 5c. Huma Pool State
+  if (!accMap[2] || !accMap[2].data?.[0]) {
+    console.log("Injecting Huma Pool State account...");
+    const humaPoolStateData = serializeHumaPoolState();
+    await setAccount(
+      addresses.humaPoolState,
+      1_000_000_000,
+      humaPoolStateData,
+      MOCK_HUMA_PROGRAM_ID_STR,
+      false
+    );
+  }
 
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
     addresses.humaPoolState
   );
   console.log("Derived Huma Pool Authority:", humaPoolAuthority);
 
-  console.log("Injecting PST Mint account...");
-  const pstMintData = serializeMintAccount(humaPoolAuthority, 6);
-  await setAccount(
-    addresses.pstMint,
-    1_000_000_000,
-    pstMintData,
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    false
-  );
+  // 5d. PST Mint
+  if (!accMap[3] || !accMap[3].data?.[0]) {
+    console.log("Injecting PST Mint account...");
+    const pstMintData = serializeMintAccount(humaPoolAuthority, 6);
+    await setAccount(
+      addresses.pstMint,
+      1_000_000_000,
+      pstMintData,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      false
+    );
+  }
 
-  console.log("Injecting Ticket Registry account...");
+  // 5e. Ticket Registry
+  const regAcc = accMap[4];
   const REGISTRY_INITIAL_SIZE = 262248;
-  const ticketRegistryData = "00".repeat(REGISTRY_INITIAL_SIZE);
-  await setAccount(
-    addresses.ticketRegistry,
-    10_000_000_000,
-    ticketRegistryData,
-    PROGRAM_ID_STR,
-    false
-  );
+  const regBytes = regAcc?.data?.[0]
+    ? Buffer.from(regAcc.data[0], "base64")
+    : null;
+  const hasValidRegDiscriminator =
+    regBytes &&
+    regBytes.length >= 8 &&
+    Array.from(regBytes.subarray(0, 8)).every(
+      (b, i) => b === TICKET_REGISTRY_DISCRIMINATOR[i]
+    );
 
-  console.log("Injecting Huma Pool Underlying token account...");
-  const humaPoolUnderlyingData = serializeTokenAccount(
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    humaPoolAuthority,
-    0n
-  );
-  await setAccount(
-    addresses.humaPoolUnderlying,
-    1_000_000_000,
-    humaPoolUnderlyingData,
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    false
-  );
+  if (!poolExists) {
+    // Fresh bootstrap: zero-initialized buffer for createPool #[account(zero)]
+    if (!regAcc || !regBytes || regBytes.length < REGISTRY_INITIAL_SIZE) {
+      console.log(
+        "Injecting Ticket Registry account (uninitialized zeroed buffer)..."
+      );
+      const ticketRegistryData = "00".repeat(REGISTRY_INITIAL_SIZE);
+      await setAccount(
+        addresses.ticketRegistry,
+        10_000_000_000,
+        ticketRegistryData,
+        PROGRAM_ID_STR,
+        false
+      );
+    }
+  } else if (!hasValidRegDiscriminator) {
+    // Pool exists but registry discriminator was corrupted (all zeros) -> initialize valid header
+    console.log(
+      "Pool exists but Ticket Registry discriminator is uninitialized. Initializing valid header..."
+    );
+    const poolBytes = poolAcc?.value
+      ? new Uint8Array(Buffer.from(poolAcc.value.data[0], "base64"))
+      : null;
+    const parsedPool = poolBytes ? parsePrizePool(poolBytes) : null;
+    const poolId = parsedPool ? parsedPool.poolId : 1;
 
-  console.log("Injecting Huma Pool Mode token account...");
-  const humaPoolModeTokenData = serializeTokenAccount(
-    addresses.pstMint,
-    humaPoolAuthority,
-    0n
-  );
-  await setAccount(
-    addresses.humaPoolModeToken,
-    1_000_000_000,
-    humaPoolModeTokenData,
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    false
-  );
+    const repairedBuffer = serializeTicketRegistry({
+      poolId,
+      capacity: 4096,
+      userCount: 0,
+      totalActiveTickets: 0,
+      totalPendingTickets: 0,
+      drawCycleId: parsedPool ? parsedPool.currentDrawCycleId : 0,
+      drawPreparedUpTo: 0,
+      version: 1,
+      totalSizeBytes: REGISTRY_INITIAL_SIZE,
+    });
+    const hexData = Buffer.from(repairedBuffer).toString("hex");
+    await setAccount(
+      addresses.ticketRegistry,
+      10_000_000_000,
+      hexData,
+      PROGRAM_ID_STR,
+      false
+    );
+  } else {
+    console.log(
+      "Ticket Registry already initialized on-chain; preserving existing data."
+    );
+  }
 
-  console.log("Injecting Admin Fee Wallet token account...");
-  const feeWalletData = serializeTokenAccount(
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    adminSigner.address,
-    0n
-  );
-  await setAccount(
-    addresses.feeWallet,
-    1_000_000_000,
-    feeWalletData,
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    false
-  );
+  // 5f. Huma Pool Underlying
+  if (!accMap[5] || !accMap[5].data?.[0]) {
+    console.log("Injecting Huma Pool Underlying token account...");
+    const humaPoolUnderlyingData = serializeTokenAccount(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      humaPoolAuthority,
+      0n
+    );
+    await setAccount(
+      addresses.humaPoolUnderlying,
+      1_000_000_000,
+      humaPoolUnderlyingData,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      false
+    );
+  }
+
+  // 5g. Huma Pool Mode Token
+  if (!accMap[6] || !accMap[6].data?.[0]) {
+    console.log("Injecting Huma Pool Mode token account...");
+    const humaPoolModeTokenData = serializeTokenAccount(
+      addresses.pstMint,
+      humaPoolAuthority,
+      0n
+    );
+    await setAccount(
+      addresses.humaPoolModeToken,
+      1_000_000_000,
+      humaPoolModeTokenData,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      false
+    );
+  }
+
+  // 5h. Admin Fee Wallet
+  if (!accMap[7] || !accMap[7].data?.[0]) {
+    console.log("Injecting Admin Fee Wallet token account...");
+    const feeWalletData = serializeTokenAccount(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      adminSigner.address,
+      0n
+    );
+    await setAccount(
+      addresses.feeWallet,
+      1_000_000_000,
+      feeWalletData,
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      false
+    );
+  }
 
   // 6. Write the environment file
   writeEnvLocal(addresses, adminSigner.address, randomnessSigner.address);

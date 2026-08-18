@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
+import { hasDrawVrfRandomness } from "@/app/lib/draw-helpers";
 import type { DetailedDrawCycle } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -15,6 +16,23 @@ export function ProvableFairnessVerifier({
 }: ProvableFairnessVerifierProps) {
   const [copiedFormula, setCopiedFormula] = useState(false);
   const t = useTranslations("DrawInspector");
+
+  const hasRandomness = hasDrawVrfRandomness(draw);
+
+  if (!hasRandomness) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-bright/10 rounded-xl bg-[#08090E]/40 space-y-1.5">
+        <p className="text-xs font-semibold text-on-surface-variant">
+          {t("noRandomnessNotice")}
+        </p>
+        <p className="text-[10px] text-on-surface-variant/60 max-w-sm">
+          {draw.status === "Skipped"
+            ? t("noRandomnessSkippedSub")
+            : t("noRandomnessGeneralSub")}
+        </p>
+      </div>
+    );
+  }
 
   const formulaText = `u64::from_le_bytes(SHA-256(seed || tier_idx || slot_in_tier || cycle_id)[0..8]) % ${draw.lockedTicketCount}`;
 

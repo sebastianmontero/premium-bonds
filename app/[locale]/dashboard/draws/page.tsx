@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense, useCallback } from "react";
+import React, { useState, Suspense, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter, usePathname } from "@/i18n/routing";
 import { useWalletConnection } from "@solana/react-hooks";
@@ -44,38 +44,22 @@ function DrawHistoryContent() {
     refetch: refetchDraws,
   } = useDrawExplorer(1, onChainPool?.currentDrawCycleId, 100);
 
-  // Deep-linked cycle query param handling
+  // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
-  const [selectedCycleId, setSelectedCycleId] = useState<number | null>(() => {
-    if (cycleParam) {
-      const parsed = parseInt(cycleParam, 10);
-      return !isNaN(parsed) && parsed >= 0 ? parsed : null;
-    }
-    return null;
-  });
-
-  // Keep state synchronized with URL query params
-  useEffect(() => {
-    if (cycleParam) {
-      const parsed = parseInt(cycleParam, 10);
-      if (!isNaN(parsed) && parsed >= 0 && parsed !== selectedCycleId) {
-        setSelectedCycleId(parsed);
-      }
-    } else if (selectedCycleId !== null && !cycleParam) {
-      // Intentionally keep modal state or close if user clicked back
-    }
-  }, [cycleParam, selectedCycleId]);
+  const selectedCycleId = useMemo(() => {
+    if (!cycleParam) return null;
+    const parsed = parseInt(cycleParam, 10);
+    return !isNaN(parsed) && parsed >= 0 ? parsed : null;
+  }, [cycleParam]);
 
   const handleOpenInspector = useCallback(
     (cycleId: number) => {
-      setSelectedCycleId(cycleId);
       router.replace(`${pathname}?cycle=${cycleId}`, { scroll: false });
     },
     [router, pathname]
   );
 
   const handleCloseInspector = useCallback(() => {
-    setSelectedCycleId(null);
     router.replace(pathname, { scroll: false });
   }, [router, pathname]);
 
@@ -107,7 +91,7 @@ function DrawHistoryContent() {
 
     try {
       if (isConnected) {
-        await runActionTx(
+        return await runActionTx(
           () => actions.reinvestWinnings(drawCycleId, winnerIndex),
           () => {
             refetchPool();
@@ -119,6 +103,7 @@ function DrawHistoryContent() {
       const parsed = parseTransactionError(err);
       setTxError(parsed);
       setLastTxAction(() => () => handleCrankWinner(drawCycleId, winnerIndex));
+      throw parsed;
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
@@ -191,6 +176,7 @@ function DrawHistoryContent() {
         userAddress={isConnected ? userAddress : undefined}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
+        bondPrice={activePool.bondPrice}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}
       />

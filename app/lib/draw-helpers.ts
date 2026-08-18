@@ -1,6 +1,10 @@
 import { DrawCycleInfo, PayoutRegistryInfo } from "./bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "./vrf-utils";
-import type { DrawWinnerRecord, DrawCycleSummary } from "../types";
+import type {
+  DrawWinnerRecord,
+  DrawCycleSummary,
+  DrawStatusName,
+} from "../types";
 
 /**
  * Normalizes a DrawCycle account and optional PayoutRegistry account into a DrawCycleSummary.
@@ -230,4 +234,34 @@ export function getDrawDateTimestamp(
       stakeCycleDurationHrs: cycleDurationSeconds / 3600,
     }
   ).timestamp;
+}
+
+/**
+ * Checks whether a draw cycle utilized Switchboard VRF randomness for picking winners.
+ * Returns false for Skipped, Halted, ForceUnlocked, uncompleted draws, or draws with all-zero seeds.
+ */
+export function hasDrawVrfRandomness(draw?: {
+  status?: DrawStatusName | string;
+  randomnessSeed?: Uint8Array;
+  lockedTicketCount?: number;
+}): boolean {
+  if (!draw || draw.status !== "Complete") return false;
+  if (!draw.randomnessSeed || draw.randomnessSeed.every((b) => b === 0))
+    return false;
+  if (!draw.lockedTicketCount || draw.lockedTicketCount <= 0) return false;
+  return true;
+}
+
+/**
+ * Calculates the amount of previously accumulated dust applied to purchase bonus bonds.
+ */
+export function calculatePriorDustApplied(
+  bondsBought: number,
+  amountWon: number,
+  bondPrice: number = 5_000_000,
+  usedPriorDust?: number
+): number {
+  if (usedPriorDust !== undefined && usedPriorDust > 0) return usedPriorDust;
+  if (bondsBought <= 0 || bondPrice <= 0) return 0;
+  return Math.max(0, bondsBought * bondPrice - amountWon);
 }

@@ -413,6 +413,14 @@
     "exportCSV": "Export CSV",
     "exportJSON": "Export JSON",
     "cryptographicProofFooter": "100% Non-Custodial • Verifiable On Solana • SHA-256 VRF Proofs",
+    "bonusBondWithDust": "+dust",
+    "bonusBondUnlocked": "Bonus Bond via Dust",
+    "bonusBondDustNotice": "Combined ${priorDust} {symbol} of previous non-reinvested winnings to purchase an extra bond.",
+    "noRandomnessNotice": "No Randomness Requested or Used",
+    "noRandomnessSkippedSub": "This draw cycle was skipped (e.g. zero prize pot was generated), so no verifiable randomness was requested or used to pick winners.",
+    "noRandomnessGeneralSub": "Verifiable randomness is only generated when a draw cycle is actively resolved with participants and prize yield.",
+    "refreshDetails": "Refresh draw details",
+    "notApplicableSeed": "N/A - Draw did not use randomness",
     "close": "Close"
   }
 }

@@ -5,6 +5,8 @@ import {
   getDrawDateTimestamp,
   resolveDrawCycleTimestamp,
   formatDrawDisplayDate,
+  hasDrawVrfRandomness,
+  calculatePriorDustApplied,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -239,6 +241,116 @@ async function runTests() {
     { estimatedPrefix: "Est." }
   );
   assert.strictEqual(formattedEst, "Est. Nov 14, 2023");
+
+  // 7. Test hasDrawVrfRandomness
+  console.log(
+    "  Testing hasDrawVrfRandomness across draw states & seed variants..."
+  );
+  const validSeed = new Uint8Array(32).fill(9);
+  const zeroSeed = new Uint8Array(32).fill(0);
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "Complete",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 1000,
+    }),
+    true,
+    "Complete draw with valid seed and tickets should have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "Complete",
+      randomnessSeed: zeroSeed,
+      lockedTicketCount: 1000,
+    }),
+    false,
+    "Complete draw with all-zero seed should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "Complete",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 0,
+    }),
+    false,
+    "Complete draw with 0 locked tickets should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "Skipped",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 1000,
+    }),
+    false,
+    "Skipped draw should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "HaltedInsolvent",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 1000,
+    }),
+    false,
+    "HaltedInsolvent draw should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "HaltedYieldSpike",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 1000,
+    }),
+    false,
+    "HaltedYieldSpike draw should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness({
+      status: "ForceUnlocked",
+      randomnessSeed: validSeed,
+      lockedTicketCount: 1000,
+    }),
+    false,
+    "ForceUnlocked draw should NOT have VRF randomness"
+  );
+
+  assert.strictEqual(
+    hasDrawVrfRandomness(undefined),
+    false,
+    "Undefined draw should NOT have VRF randomness"
+  );
+
+  // 8. Test calculatePriorDustApplied
+  console.log("  Testing calculatePriorDustApplied...");
+  // 8a. Winner won 2 USDC, bought 1 bond at 5 USDC -> 3 USDC prior dust used
+  assert.strictEqual(
+    calculatePriorDustApplied(1, 2_000_000, 5_000_000),
+    3_000_000
+  );
+
+  // 8b. Winner won 10 USDC, bought 2 bonds at 5 USDC -> 0 prior dust used
+  assert.strictEqual(calculatePriorDustApplied(2, 10_000_000, 5_000_000), 0);
+
+  // 8c. Winner won 7 USDC, bought 2 bonds at 5 USDC -> 3 USDC prior dust used
+  assert.strictEqual(
+    calculatePriorDustApplied(2, 7_000_000, 5_000_000),
+    3_000_000
+  );
+
+  // 8d. Explicit usedPriorDust parameter override
+  assert.strictEqual(
+    calculatePriorDustApplied(2, 7_000_000, 5_000_000, 4_500_000),
+    4_500_000
+  );
+
+  // 8e. Zero bonds bought or zero bond price
+  assert.strictEqual(calculatePriorDustApplied(0, 7_000_000, 5_000_000), 0);
+  assert.strictEqual(calculatePriorDustApplied(2, 7_000_000, 0), 0);
 
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }

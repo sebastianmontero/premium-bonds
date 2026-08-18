@@ -19,7 +19,13 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { sendTx, safeStringify, printErrorDetails } from "./utils";
+import {
+  sendTx,
+  safeStringify,
+  printErrorDetails,
+  extractAllLogs,
+} from "./utils";
+import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 
 export class CliArgumentError extends Error {
   constructor(message: string) {
@@ -1187,15 +1193,17 @@ export async function executeReveal({
 
     const offsets = [1n, 2n, 0n, 3n];
     let confirmed = false;
-    let lastError: Error | null = null;
+    let lastError: unknown = null;
+
+    const baseSlot =
+      currentSlot >= drawCycleState.harvestSlot
+        ? currentSlot
+        : drawCycleState.harvestSlot;
 
     for (const offset of offsets) {
-      const targetSlot = currentSlot + offset;
-      console.log(
-        `Attempting with reveal_slot offset +${offset} (target slot: ${targetSlot})...`
-      );
+      const targetSlot = baseSlot + offset;
 
-      view.setBigUint64(104, targetSlot, true);
+      view.setBigUint64(104, baseSlot, true);
       view.setBigUint64(144, targetSlot, true);
 
       const dataHex = Buffer.from(buffer).toString("hex");
@@ -1228,7 +1236,17 @@ export async function executeReveal({
           if (status && status.value && status.value[0]) {
             const err = status.value[0].err;
             if (err) {
-              throw new Error(`Transaction failed: ${safeStringify(err)}`);
+              const errDetails = safeStringify(err);
+              const matched = matchAnchorError(errDetails);
+              const msg = matched
+                ? `Transaction failed: AnchorError ${matched.code} (${matched.info.name}): ${matched.info.message}`
+                : `Transaction failed: ${errDetails}`;
+              const txError = new Error(msg);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (txError as any).signature = signature;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (txError as any).rawError = err;
+              throw txError;
             }
             txSuccess = true;
             break;
@@ -1241,24 +1259,23 @@ export async function executeReveal({
           break;
         }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`Attempt with offset +${offset} failed: ${msg}`);
-        lastError = err instanceof Error ? err : new Error(msg);
-
+        lastError = err;
+        const logs = extractAllLogs(err).join(" ");
+        const parsed = parseTransactionError(err);
+        const errStr = `${String(err)} ${safeStringify(err)} ${logs}`;
         if (
-          !msg.includes("178d") &&
-          !msg.includes("178e") &&
-          !msg.includes("1790") &&
-          !msg.includes("6029") &&
-          !msg.includes("6030") &&
-          !msg.includes("6031") &&
-          !msg.includes("6032") &&
-          !msg.includes("SwitchboardRandomnessTooOld") &&
-          !msg.includes("InstructionError") &&
-          !msg.includes("Custom")
+          parsed.code === 6030 ||
+          parsed.code === 6031 ||
+          errStr.includes("RandomnessNotResolved") ||
+          errStr.includes("StaleRandomnessRequest") ||
+          errStr.includes("6030") ||
+          errStr.includes("6031") ||
+          errStr.includes("0x178e") ||
+          errStr.includes("0x178f")
         ) {
-          throw err;
+          continue;
         }
+        throw err;
       }
     }
 

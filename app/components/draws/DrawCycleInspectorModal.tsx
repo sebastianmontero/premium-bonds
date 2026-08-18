@@ -7,7 +7,10 @@ import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
 import { PayoutWinnersTable } from "./PayoutWinnersTable";
 import { ProvableFairnessVerifier } from "./ProvableFairnessVerifier";
 import { DrawExportActions } from "./DrawExportActions";
-import { formatDrawDisplayDate } from "@/app/lib/draw-helpers";
+import {
+  formatDrawDisplayDate,
+  hasDrawVrfRandomness,
+} from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
 interface DrawCycleInspectorModalProps {
@@ -18,7 +21,11 @@ interface DrawCycleInspectorModalProps {
   userAddress?: string;
   tokenDecimals?: number;
   tokenSymbol?: string;
-  onCrankWinner?: (drawCycleId: number, winnerIndex: number) => void;
+  bondPrice?: number;
+  onCrankWinner?: (
+    drawCycleId: number,
+    winnerIndex: number
+  ) => Promise<unknown> | void;
   crankingCycles?: Record<string, boolean>;
 }
 
@@ -30,17 +37,23 @@ export function DrawCycleInspectorModal({
   userAddress,
   tokenDecimals = 6,
   tokenSymbol = "USDC",
+  bondPrice = 5_000_000,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
-  const [activeTab, setActiveTab] = useState<"winners" | "proofs">("winners");
+  const [selectedTab, setSelectedTab] = useState<"winners" | "proofs">(
+    "winners"
+  );
   const t = useTranslations("DrawInspector");
 
-  const { details, isLoading, error } = useDrawCycleDetails(
+  const { details, isLoading, error, refetch } = useDrawCycleDetails(
     poolId,
     isOpen ? cycleId : null,
     userAddress
   );
+
+  const hasVrfRandomness = hasDrawVrfRandomness(details ?? undefined);
+  const activeTab = hasVrfRandomness ? selectedTab : "winners";
 
   // Close on Escape key press
   useEffect(() => {
@@ -90,32 +103,55 @@ export function DrawCycleInspectorModal({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            aria-label="Close modal"
-            className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => refetch()}
+              disabled={isLoading}
+              title={t("refreshDetails")}
+              aria-label={t("refreshDetails")}
+              className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer disabled:opacity-40"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+              <svg
+                className={`w-4 h-4 ${isLoading ? "animate-spin text-primary" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close modal"
+              className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
         <div className="flex items-center justify-between gap-4 py-3 border-b border-surface-bright/5 shrink-0">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveTab("winners")}
+              onClick={() => setSelectedTab("winners")}
               className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
                 activeTab === "winners"
                   ? "bg-primary text-surface-container shadow-sm"
@@ -124,32 +160,39 @@ export function DrawCycleInspectorModal({
             >
               {t("tabWinners")} {details ? `(${details.winnersCount})` : ""}
             </button>
-            <button
-              onClick={() => setActiveTab("proofs")}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                activeTab === "proofs"
-                  ? "bg-primary text-surface-container shadow-sm"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
-              }`}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {hasVrfRandomness && (
+              <button
+                onClick={() => setSelectedTab("proofs")}
+                className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === "proofs"
+                    ? "bg-primary text-surface-container shadow-sm"
+                    : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
+                }`}
               >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              {t("tabFairnessProofs")}
-            </button>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                {t("tabFairnessProofs")}
+              </button>
+            )}
           </div>
 
-          {details && <DrawExportActions draw={details} />}
+          {details && (
+            <DrawExportActions
+              draw={details}
+              hasVrfRandomness={hasVrfRandomness}
+            />
+          )}
         </div>
 
         {/* Scrollable Content Body */}
@@ -201,9 +244,20 @@ export function DrawCycleInspectorModal({
                     connectedUserAddress={userAddress}
                     tokenDecimals={tokenDecimals}
                     tokenSymbol={tokenSymbol}
+                    bondPrice={bondPrice}
                     onCrankWinner={
                       onCrankWinner
-                        ? (wIdx) => onCrankWinner(details.cycleId, wIdx)
+                        ? async (wIdx) => {
+                            try {
+                              await onCrankWinner(details.cycleId, wIdx);
+                              await refetch();
+                              setTimeout(() => {
+                                refetch();
+                              }, 1000);
+                            } catch {
+                              // Handled by global transaction runner / error alert
+                            }
+                          }
                         : undefined
                     }
                     crankingWinnerIndices={Object.entries(

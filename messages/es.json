@@ -414,6 +414,14 @@
     "exportCSV": "Exportar CSV",
     "exportJSON": "Exportar JSON",
     "cryptographicProofFooter": "100% No Custodial • Verificable en Solana • Pruebas VRF SHA-256",
+    "bonusBondWithDust": "+residual",
+    "bonusBondUnlocked": "Bono Adicional por Saldo Residual",
+    "bonusBondDustNotice": "Se combinó ${priorDust} {symbol} de ganancias previas no reinvertidas para comprar un bono adicional.",
+    "noRandomnessNotice": "Sin Aleatoriedad Solicitada ni Utilizada",
+    "noRandomnessSkippedSub": "Este ciclo de sorteo se omitió (ej. no se generó bote de premios), por lo que no se solicitó ni utilizó aleatoriedad verificable para seleccionar ganadores.",
+    "noRandomnessGeneralSub": "La aleatoriedad verificable solo se genera cuando un ciclo de sorteo se resuelve activamente con participantes y rendimiento de premios.",
+    "refreshDetails": "Actualizar detalles del sorteo",
+    "notApplicableSeed": "N/D - El sorteo no utilizó aleatoriedad",
     "close": "Cerrar"
   }
 }
