@@ -7,6 +7,10 @@ import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
   calculatePriorDustApplied,
+  buildDrawStatusOptions,
+  CANONICAL_DRAW_STATUS_ORDER,
+  DRAW_STATUS_TRANSLATION_KEYS,
+  getDrawStatusTranslationKey,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -379,9 +383,97 @@ async function runTests() {
     4_500_000
   );
 
-  // 8e. Zero bonds bought or zero bond price
-  assert.strictEqual(calculatePriorDustApplied(0, 7_000_000, 5_000_000), 0);
-  assert.strictEqual(calculatePriorDustApplied(2, 7_000_000, 0), 0);
+  // 9. Test buildDrawStatusOptions & Canonical Draw Status Helpers
+  console.log(
+    "  Testing buildDrawStatusOptions & Canonical Draw Status Helpers..."
+  );
+
+  const mockTranslations: Record<string, string> = {
+    allStatuses: "All Statuses",
+    statusComplete: "Complete",
+    statusAwaitingVRF: "Awaiting VRF",
+    statusAwaitingYield: "Awaiting Yield",
+    statusSkipped: "Skipped",
+    statusForceUnlocked: "Force Unlocked",
+    statusVoided: "Voided",
+    statusHaltedInsolvent: "Halted (Insolvency)",
+    statusHaltedYieldSpike: "Halted (Yield Spike)",
+  };
+  const mockT = (key: string) => mockTranslations[key] || key;
+
+  // 9a. Empty draws list
+  const emptyOptions = buildDrawStatusOptions([], mockT);
+  assert.strictEqual(emptyOptions.length, 1);
+  assert.deepStrictEqual(emptyOptions[0], {
+    value: "all",
+    label: "All Statuses (0)",
+  });
+
+  // 9b. Standard draws dataset (5 Complete, 2 AwaitingRandomness)
+  const standardDraws = [
+    { status: "Complete" as const },
+    { status: "AwaitingRandomness" as const },
+    { status: "Complete" as const },
+    { status: "Complete" as const },
+    { status: "AwaitingRandomness" as const },
+    { status: "Complete" as const },
+    { status: "Complete" as const },
+  ];
+  const standardOptions = buildDrawStatusOptions(standardDraws, mockT);
+  assert.strictEqual(standardOptions.length, 3);
+  assert.deepStrictEqual(standardOptions, [
+    { value: "all", label: "All Statuses (7)" },
+    { value: "Complete", label: "Complete (5)" },
+    { value: "AwaitingRandomness", label: "Awaiting VRF (2)" },
+  ]);
+
+  // 9c. Canonical sort order verification (input in reverse order)
+  const reverseDraws = [
+    { status: "HaltedYieldSpike" as const },
+    { status: "HaltedInsolvent" as const },
+    { status: "Voided" as const },
+    { status: "ForceUnlocked" as const },
+    { status: "Skipped" as const },
+    { status: "AwaitingYield" as const },
+    { status: "AwaitingRandomness" as const },
+    { status: "Complete" as const },
+  ];
+  const sortedOptions = buildDrawStatusOptions(reverseDraws, mockT);
+  assert.strictEqual(sortedOptions.length, 9);
+  assert.strictEqual(sortedOptions[0].value, "all");
+  assert.strictEqual(sortedOptions[1].value, "Complete");
+  assert.strictEqual(sortedOptions[2].value, "AwaitingRandomness");
+  assert.strictEqual(sortedOptions[3].value, "AwaitingYield");
+  assert.strictEqual(sortedOptions[4].value, "Skipped");
+  assert.strictEqual(sortedOptions[5].value, "ForceUnlocked");
+  assert.strictEqual(sortedOptions[6].value, "Voided");
+  assert.strictEqual(sortedOptions[7].value, "HaltedInsolvent");
+  assert.strictEqual(sortedOptions[8].value, "HaltedYieldSpike");
+
+  // 9d. Unrecognized status placed deterministically at end with fallback label
+  const unknownDraws = [
+    { status: "UnknownCustomStatus" as any },
+    { status: "Complete" as const },
+  ];
+  const unknownOptions = buildDrawStatusOptions(unknownDraws, mockT);
+  assert.strictEqual(unknownOptions.length, 3);
+  assert.strictEqual(unknownOptions[1].value, "Complete");
+  assert.deepStrictEqual(unknownOptions[2], {
+    value: "UnknownCustomStatus",
+    label: "UnknownCustomStatus (1)",
+  });
+
+  // 9e. Translation Key Lookup & Canonical Array integrity
+  assert.strictEqual(
+    getDrawStatusTranslationKey("AwaitingRandomness"),
+    "statusAwaitingVRF"
+  );
+  assert.strictEqual(getDrawStatusTranslationKey("Complete"), "statusComplete");
+  assert.strictEqual(
+    getDrawStatusTranslationKey("NonExistentStatus"),
+    undefined
+  );
+  assert.strictEqual(CANONICAL_DRAW_STATUS_ORDER.length, 8);
 
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }

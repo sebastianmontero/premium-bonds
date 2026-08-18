@@ -1,3 +1,4 @@
+import type { SelectOption } from "../components/common/CustomSelect";
 import { DrawCycleInfo, PayoutRegistryInfo } from "./bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "./vrf-utils";
 import type {
@@ -5,6 +6,89 @@ import type {
   DrawCycleSummary,
   DrawStatusName,
 } from "../types";
+
+/**
+ * Single source of truth for canonical draw lifecycle priority order.
+ */
+export const CANONICAL_DRAW_STATUS_ORDER: readonly DrawStatusName[] = [
+  "Complete",
+  "AwaitingRandomness",
+  "AwaitingYield",
+  "Skipped",
+  "ForceUnlocked",
+  "Voided",
+  "HaltedInsolvent",
+  "HaltedYieldSpike",
+] as const;
+
+/**
+ * Maps on-chain DrawStatusName to translation keys in messages/*.json under "DrawHistory".
+ */
+export const DRAW_STATUS_TRANSLATION_KEYS: Record<DrawStatusName, string> = {
+  Complete: "statusComplete",
+  AwaitingRandomness: "statusAwaitingVRF",
+  AwaitingYield: "statusAwaitingYield",
+  Skipped: "statusSkipped",
+  ForceUnlocked: "statusForceUnlocked",
+  Voided: "statusVoided",
+  HaltedInsolvent: "statusHaltedInsolvent",
+  HaltedYieldSpike: "statusHaltedYieldSpike",
+};
+
+/**
+ * Resolves the translation key for any draw status with fallback.
+ */
+export function getDrawStatusTranslationKey(
+  status: DrawStatusName | string
+): string | undefined {
+  return DRAW_STATUS_TRANSLATION_KEYS[status as DrawStatusName];
+}
+
+/**
+ * Dynamically builds status filter options with counts from a draws array,
+ * canonically ordered and localized.
+ */
+export function buildDrawStatusOptions(
+  draws: Pick<DrawCycleSummary, "status">[],
+  t: (key: string) => string
+): SelectOption<string>[] {
+  const totalCount = draws.length;
+  const counts = new Map<string, number>();
+
+  for (const d of draws) {
+    counts.set(d.status, (counts.get(d.status) ?? 0) + 1);
+  }
+
+  const options: SelectOption<string>[] = [
+    {
+      value: "all",
+      label: `${t("allStatuses")} (${totalCount})`,
+    },
+  ];
+
+  // Canonical priority sort with deterministic alphabetical fallback for unknown statuses
+  const distinctStatuses = Array.from(counts.keys()).sort((a, b) => {
+    const idxA = CANONICAL_DRAW_STATUS_ORDER.indexOf(a as DrawStatusName);
+    const idxB = CANONICAL_DRAW_STATUS_ORDER.indexOf(b as DrawStatusName);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  for (const status of distinctStatuses) {
+    const count = counts.get(status) ?? 0;
+    const translationKey = getDrawStatusTranslationKey(status);
+    const statusLabel = translationKey ? t(translationKey) : status;
+
+    options.push({
+      value: status,
+      label: `${statusLabel} (${count})`,
+    });
+  }
+
+  return options;
+}
 
 /**
  * Normalizes a DrawCycle account and optional PayoutRegistry account into a DrawCycleSummary.

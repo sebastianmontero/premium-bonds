@@ -5,6 +5,7 @@ import { formatTokenAmount } from "@/app/lib/formatters";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
+  buildDrawStatusOptions,
 } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
@@ -36,6 +37,17 @@ export function DrawHistoryList({
   const [pageSize, setPageSize] = useState(10);
   const t = useTranslations("DrawHistory");
 
+  const statusOptions = useMemo(() => {
+    return buildDrawStatusOptions(draws, t);
+  }, [draws, t]);
+
+  // Derive the effective status filter during render without triggering cascading re-renders
+  const effectiveStatusFilter = useMemo(() => {
+    if (statusFilter === "all") return "all";
+    const exists = statusOptions.some((opt) => opt.value === statusFilter);
+    return exists ? statusFilter : "all";
+  }, [statusOptions, statusFilter]);
+
   const resetFilters = () => {
     setSearchTerm("");
     setStatusFilter("all");
@@ -56,13 +68,14 @@ export function DrawHistoryList({
 
       // 2. Status matching (matches exact status or top-level 'Halted' matching any circuit breaker)
       const matchesStatus =
-        statusFilter === "all" ||
-        draw.status === statusFilter ||
-        (statusFilter === "Halted" && draw.status.startsWith("Halted"));
+        effectiveStatusFilter === "all" ||
+        draw.status === effectiveStatusFilter ||
+        (effectiveStatusFilter === "Halted" &&
+          draw.status.startsWith("Halted"));
 
       return matchesSearch && matchesStatus;
     });
-  }, [draws, searchTerm, statusFilter]);
+  }, [draws, searchTerm, effectiveStatusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDraws.length / pageSize));
   const safePage = Math.max(1, Math.min(currentPage, totalPages));
@@ -132,33 +145,19 @@ export function DrawHistoryList({
           {/* Status Filter */}
           <div className="w-full sm:w-56 md:w-60">
             <CustomSelect
-              value={statusFilter}
+              value={effectiveStatusFilter}
               disabled={isLoading}
               onChange={(val) => {
                 setStatusFilter(val);
                 setCurrentPage(1);
               }}
-              options={[
-                { value: "all", label: t("allStatuses") },
-                { value: "Complete", label: t("statusComplete") },
-                { value: "AwaitingRandomness", label: t("statusAwaitingVRF") },
-                { value: "AwaitingYield", label: t("statusAwaitingYield") },
-                { value: "Skipped", label: t("statusSkipped") },
-                { value: "ForceUnlocked", label: t("statusForceUnlocked") },
-                { value: "Voided", label: t("statusVoided") },
-                { value: "Halted", label: t("statusHaltedAll") },
-                { value: "HaltedInsolvent", label: t("statusHaltedInsolvent") },
-                {
-                  value: "HaltedYieldSpike",
-                  label: t("statusHaltedYieldSpike"),
-                },
-              ]}
+              options={statusOptions}
               align="right"
               ariaLabel="Filter draws by status"
             />
           </div>
 
-          {(searchTerm || statusFilter !== "all") && (
+          {(searchTerm || effectiveStatusFilter !== "all") && (
             <button
               onClick={resetFilters}
               className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer"
