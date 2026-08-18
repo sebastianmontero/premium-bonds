@@ -19,7 +19,7 @@ interface PayoutWinnersTableProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   bondPrice?: number;
-  onCrankWinner?: (winnerIndex: number) => void;
+  onCrankWinner?: (winnerIndex: number, winnerAddress: string) => void;
   crankingWinnerIndices?: Record<number, boolean>;
 }
 
@@ -222,7 +222,12 @@ export function PayoutWinnersTable({
                   <td className="py-3 px-4 text-right">
                     {!winner.processed && onCrankWinner ? (
                       <button
-                        onClick={() => onCrankWinner(winner.winnerIndex)}
+                        onClick={() =>
+                          onCrankWinner(
+                            winner.winnerIndex,
+                            winner.winnerAddress
+                          )
+                        }
                         disabled={isCranking}
                         className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-black cursor-pointer shadow-sm transition disabled:opacity-50"
                       >

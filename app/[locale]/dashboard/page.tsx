@@ -259,7 +259,12 @@ export default function DashboardPage() {
     try {
       if (isConnected) {
         await runActionTx(
-          () => actions.reinvestWinnings(drawCycleId, entry.winnerIndex),
+          () =>
+            actions.reinvestWinnings(
+              drawCycleId,
+              entry.winnerIndex,
+              userAddress
+            ),
           () => {
             refetch();
             refetchDrawHistory();

@@ -491,7 +491,7 @@ fn test_resize_registry_fails_unauthorized_ticket() {
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert!(res.is_err());
     let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("UnauthorizedTicket"));
+    assert!(err_str.contains("ConstraintHasOne") || err_str.contains("2001"));
 }
 
 #[test]

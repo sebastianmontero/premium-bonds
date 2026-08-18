@@ -25,7 +25,6 @@ import {
   findUserWinningsPda,
   findPendingRedemptionPda,
   findHumaPoolAuthorityPda,
-  findPayoutRegistryPda,
   findEventAuthorityPda,
   findAtaAddress,
   parsePrizePool,
@@ -37,6 +36,8 @@ import {
   parseMockHumaPoolState,
   calculatePoolYield,
   fetchPoolYieldOnChainState,
+  buildReinvestWinningsInstruction,
+  resolveWinnerAddress,
   RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
@@ -897,54 +898,49 @@ export function useBondsContract(poolId: number = 1) {
    *
    * @param cycleId - The draw cycle ID where the prize was won.
    * @param winnerIndex - Winner index inside the payout registry.
-   * @param maxBonds - Maximum number of bonds to purchase in this batch.
+   * @param winnerAddress - Optional winner address. If omitted, resolved via on-chain PayoutRegistry.
    * @returns The transaction signature.
    */
   const reinvestWinnings = useCallback(
-    async (cycleId: number, winnerIndex: number) => {
+    async (
+      cycleId: number,
+      winnerIndex: number,
+      winnerAddress?: Address | string
+    ) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
 
+      const targetWinner = await resolveWinnerAddress(
+        client.runtime.rpc,
+        poolId,
+        cycleId,
+        winnerIndex,
+        winnerAddress,
+        userAddress
+      );
+
       const poolPda = await findPrizePoolPda(poolId);
-      const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
-      const payoutRegistry = await findPayoutRegistryPda(poolId, cycleId);
-      const eventAuthorityPda = await findEventAuthorityPda();
       const registryAddr = pool.ticketRegistry
         ? address(pool.ticketRegistry)
         : poolPda;
 
-      const ixData = new Uint8Array(16);
-      ixData.set([29, 223, 229, 116, 101, 111, 58, 26], 0);
-      const view = new DataView(ixData.buffer);
-      view.setUint32(8, cycleId, true);
-      view.setUint32(12, winnerIndex, true);
-
-      const accounts = [
-        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
-        { address: address(userAddress), role: AccountRole.READONLY }, // winner (permissionless crank target)
-        { address: payoutRegistry, role: AccountRole.WRITABLE },
-        { address: poolPda, role: AccountRole.WRITABLE },
-        { address: userWinningsPda, role: AccountRole.WRITABLE },
-        { address: registryAddr, role: AccountRole.WRITABLE },
-        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
-        { address: eventAuthorityPda, role: AccountRole.READONLY },
-        { address: PROGRAM_ID, role: AccountRole.READONLY },
-      ];
+      const ix = await buildReinvestWinningsInstruction({
+        crank: address(userAddress),
+        winner: targetWinner,
+        poolId,
+        cycleId,
+        winnerIndex,
+        ticketRegistry: registryAddr,
+      });
 
       const signature = await send({
-        instructions: [
-          {
-            programAddress: PROGRAM_ID,
-            accounts,
-            data: ixData,
-          },
-        ],
+        instructions: [ix],
       });
 
       await refetch();
       return signature;
     },
-    [userAddress, pool, poolId, send, refetch]
+    [userAddress, pool, poolId, send, refetch, client]
   );
 
   return {

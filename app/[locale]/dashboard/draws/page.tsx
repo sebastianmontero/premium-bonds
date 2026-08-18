@@ -81,7 +81,8 @@ function DrawHistoryContent() {
 
   const handleCrankWinner = async (
     drawCycleId: number,
-    winnerIndex: number
+    winnerIndex: number,
+    winnerAddress?: string
   ) => {
     const key = `${drawCycleId}-${winnerIndex}`;
     if (crankingCycles[key]) return;
@@ -92,7 +93,8 @@ function DrawHistoryContent() {
     try {
       if (isConnected) {
         return await runActionTx(
-          () => actions.reinvestWinnings(drawCycleId, winnerIndex),
+          () =>
+            actions.reinvestWinnings(drawCycleId, winnerIndex, winnerAddress),
           () => {
             refetchPool();
             refetchDraws();
@@ -102,7 +104,9 @@ function DrawHistoryContent() {
     } catch (err) {
       const parsed = parseTransactionError(err);
       setTxError(parsed);
-      setLastTxAction(() => () => handleCrankWinner(drawCycleId, winnerIndex));
+      setLastTxAction(
+        () => () => handleCrankWinner(drawCycleId, winnerIndex, winnerAddress)
+      );
       throw parsed;
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));

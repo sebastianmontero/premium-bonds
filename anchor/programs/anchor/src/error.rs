@@ -26,8 +26,8 @@ pub enum PremiumBondsError {
     /// The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.
     #[msg("The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.")]
     AwaitingRandomnessFreeze,
-    /// Trying to sell a ticket that does not belong to the signer.
-    #[msg("Trying to sell a ticket that does not belong to the signer.")]
+    /// The ticket does not belong to the user.
+    #[msg("The ticket does not belong to the user.")]
     UnauthorizedTicket,
     /// Trying to claim a prize that has already been claimed.
     #[msg("Trying to claim a prize that has already been claimed.")]
@@ -154,4 +154,7 @@ pub enum PremiumBondsError {
     /// Caller is not authorized for this operation.
     #[msg("Unauthorized signer.")]
     Unauthorized,
+    /// Winner account does not match the payout registry entry.
+    #[msg("Winner account does not match the payout registry entry.")]
+    WinnerMismatch,
 }

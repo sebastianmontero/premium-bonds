@@ -30,7 +30,7 @@ export const ANCHOR_ERROR__REGISTRY_TOO_SMALL = 0x1775; // 6005
 export const ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE = 0x1776; // 6006
 /** AwaitingRandomnessFreeze: The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused. */
 export const ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE = 0x1777; // 6007
-/** UnauthorizedTicket: Trying to sell a ticket that does not belong to the signer. */
+/** UnauthorizedTicket: The ticket does not belong to the user. */
 export const ANCHOR_ERROR__UNAUTHORIZED_TICKET = 0x1778; // 6008
 /** AlreadyClaimed: Trying to claim a prize that has already been claimed. */
 export const ANCHOR_ERROR__ALREADY_CLAIMED = 0x1779; // 6009
@@ -114,6 +114,8 @@ export const ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED = 0x179f; // 6047
 export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x17a0; // 6048
 /** Unauthorized: Unauthorized signer. */
 export const ANCHOR_ERROR__UNAUTHORIZED = 0x17a1; // 6049
+/** WinnerMismatch: Winner account does not match the payout registry entry. */
+export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a2; // 6050
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -164,6 +166,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
   | typeof ANCHOR_ERROR__UNAUTHORIZED_TICKET
+  | typeof ANCHOR_ERROR__WINNER_MISMATCH
   | typeof ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED
   | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT;
 
@@ -217,7 +220,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,
-    [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: `Trying to sell a ticket that does not belong to the signer.`,
+    [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: `The ticket does not belong to the user.`,
+    [ANCHOR_ERROR__WINNER_MISMATCH]: `Winner account does not match the payout registry entry.`,
     [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: `Yield velocity limit exceeded.`,
     [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: `Yield venue is insolvent.`,
   };

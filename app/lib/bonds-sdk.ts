@@ -961,7 +961,7 @@ export async function buildReinvestWinningsInstruction(params: {
   const userWinnings = await findUserWinningsPda(params.poolId, params.winner);
 
   return getReinvestWinningsInstructionAsync({
-    crank: params.crank as TransactionSigner,
+    crank: params.crank as unknown as TransactionSigner,
     winner: params.winner,
     pool,
     payoutRegistry,
@@ -970,6 +970,48 @@ export async function buildReinvestWinningsInstruction(params: {
     cycleId: params.cycleId,
     winnerIndex: params.winnerIndex,
   });
+}
+
+/**
+ * Resolves the target winner address for a given draw cycle and winner index.
+ * If `winnerAddress` is provided, returns it directly without RPC roundtrips.
+ * Otherwise, queries the on-chain PayoutRegistry account to extract the winner.
+ */
+export async function resolveWinnerAddress(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: any,
+  poolId: number,
+  cycleId: number,
+  winnerIndex: number,
+  winnerAddress?: Address | string,
+  fallbackAddress?: Address | string
+): Promise<Address> {
+  if (winnerAddress) {
+    return address(winnerAddress);
+  }
+  try {
+    const payoutPda = await findPayoutRegistryPda(poolId, cycleId);
+    const payoutAcc = await rpc
+      .getAccountInfo(payoutPda, { encoding: "base64" })
+      .send();
+    if (payoutAcc?.value?.data) {
+      const payoutBytes = new Uint8Array(
+        base64Encoder.encode(payoutAcc.value.data[0])
+      );
+      const payout = parsePayoutRegistry(payoutBytes);
+      if (payout.winners && payout.winners[winnerIndex]) {
+        return address(payout.winners[winnerIndex].winner);
+      }
+    }
+  } catch {
+    // Fall back to fallbackAddress if on-chain fetch fails
+  }
+  if (fallbackAddress) {
+    return address(fallbackAddress);
+  }
+  throw new Error(
+    `Unable to resolve winner address for cycle #${cycleId} winner #${winnerIndex}`
+  );
 }
 
 export async function buildInitializeHumaLenderInstruction(params: {

@@ -49,6 +49,7 @@ import {
   ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED,
   ANCHOR_ERROR__YIELD_VENUE_INSOLVENT,
   ANCHOR_ERROR__UNAUTHORIZED,
+  ANCHOR_ERROR__WINNER_MISMATCH,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorCategory =
@@ -136,8 +137,7 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   },
   [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: {
     name: "UnauthorizedTicket",
-    message:
-      "You are trying to perform an action on tickets that do not belong to your wallet.",
+    message: "The ticket does not belong to the user.",
   },
   [ANCHOR_ERROR__ALREADY_CLAIMED]: {
     name: "AlreadyClaimed",
@@ -332,6 +332,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   [ANCHOR_ERROR__UNAUTHORIZED]: {
     name: "Unauthorized",
     message: "Caller is not authorized for this operation.",
+  },
+  [ANCHOR_ERROR__WINNER_MISMATCH]: {
+    name: "WinnerMismatch",
+    message: "Winner account does not match the payout registry entry.",
+    actionable:
+      "Ensure you are targeting the correct winner address when executing payout or reinvestment cranks.",
   },
 };
 

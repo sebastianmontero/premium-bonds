@@ -112,7 +112,7 @@ impl PayoutRegistry {
         );
         require!(
             self.winners[idx].winner == user_winnings.user,
-            PremiumBondsError::UnauthorizedTicket
+            PremiumBondsError::WinnerMismatch
         );
         require!(
             self.winners[idx].processed == 0,

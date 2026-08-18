@@ -297,7 +297,7 @@ fn test_reinvest_fails_wrong_winner() {
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
     let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("InvalidWinnerIndex") || err.contains("UnauthorizedTicket"), "got: {err}");
+    assert!(err.contains("InvalidWinnerIndex") || err.contains("WinnerMismatch"), "got: {err}");
 }
 
 #[test]

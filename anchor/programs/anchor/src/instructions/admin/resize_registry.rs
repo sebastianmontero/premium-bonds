@@ -20,7 +20,7 @@ pub struct ResizeRegistry<'info> {
     #[account(
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
-        has_one = ticket_registry @ PremiumBondsError::UnauthorizedTicket,
+        has_one = ticket_registry,
         constraint = pool.load()?.is_frozen_for_draw == 0 @ PremiumBondsError::AwaitingRandomnessFreeze
     )]
     pub pool: AccountLoader<'info, PrizePool>,

@@ -24,7 +24,8 @@ interface DrawCycleInspectorModalProps {
   bondPrice?: number;
   onCrankWinner?: (
     drawCycleId: number,
-    winnerIndex: number
+    winnerIndex: number,
+    winnerAddress?: string
   ) => Promise<unknown> | void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -247,9 +248,9 @@ export function DrawCycleInspectorModal({
                     bondPrice={bondPrice}
                     onCrankWinner={
                       onCrankWinner
-                        ? async (wIdx) => {
+                        ? async (wIdx, wAddr) => {
                             try {
-                              await onCrankWinner(details.cycleId, wIdx);
+                              await onCrankWinner(details.cycleId, wIdx, wAddr);
                               await refetch();
                               setTimeout(() => {
                                 refetch();
