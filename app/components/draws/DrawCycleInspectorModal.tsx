@@ -104,43 +104,43 @@ export function DrawCycleInspectorModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => refetch()}
               disabled={isLoading}
               title={t("refreshDetails")}
               aria-label={t("refreshDetails")}
-              className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer disabled:opacity-40"
+              className="h-9 w-9 rounded-xl border border-surface-bright/15 bg-surface-container/60 hover:bg-surface-container hover:border-surface-bright/30 text-on-surface-variant hover:text-on-surface flex items-center justify-center transition cursor-pointer shadow-xs disabled:opacity-40"
             >
               <svg
                 className={`w-4 h-4 ${isLoading ? "animate-spin text-primary" : ""}`}
                 fill="none"
                 stroke="currentColor"
+                strokeWidth={2}
                 viewBox="0 0 24 24"
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"
+                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
                 />
               </svg>
             </button>
             <button
               onClick={onClose}
               aria-label="Close modal"
-              className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
+              className="h-9 w-9 rounded-xl border border-surface-bright/15 bg-surface-container/60 hover:bg-surface-container hover:border-surface-bright/30 text-on-surface-variant hover:text-on-surface flex items-center justify-center transition cursor-pointer shadow-xs"
             >
               <svg
-                className="w-5 h-5"
+                className="w-4.5 h-4.5"
                 fill="none"
                 stroke="currentColor"
+                strokeWidth={2}
                 viewBox="0 0 24 24"
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth={2}
                   d="M6 18L18 6M6 6l12 12"
                 />
               </svg>

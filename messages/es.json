@@ -398,6 +398,7 @@
     "noWinnersRegistered": "Registro de Pagos No Disponible",
     "noWinnersSub": "Este ciclo aún está esperando aleatoriedad o no ha seleccionado ganadores.",
     "searchWinnerPlaceholder": "Buscar dirección de ganador, nivel o bono...",
+    "myWinningsFilter": "🎉 Mis Bonos Ganadores ({count})",
     "tierColumn": "Nivel",
     "winnerColumn": "Ganador",
     "winningBondColumn": "Bono Ganador",

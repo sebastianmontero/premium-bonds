@@ -37,8 +37,45 @@ export function PayoutWinnersTable({
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
 
+  const connectedUserWinsCount = useMemo(() => {
+    if (!connectedUserAddress) return 0;
+    const addrLower = connectedUserAddress.toLowerCase();
+    return winners.filter((w) => w.winnerAddress.toLowerCase() === addrLower)
+      .length;
+  }, [winners, connectedUserAddress]);
+
+  const tierOptions = useMemo(() => {
+    const opts = [
+      { value: "all", label: tLedger("allTiers") },
+      { value: "grand", label: tLedger("grandPrize") },
+      { value: "runnerup", label: tLedger("runnerUp") },
+      { value: "consolation", label: tLedger("consolation") },
+    ];
+    if (connectedUserWinsCount > 0) {
+      opts.splice(1, 0, {
+        value: "mine",
+        label: t("myWinningsFilter", { count: connectedUserWinsCount }),
+      });
+    }
+    return opts;
+  }, [connectedUserWinsCount, t, tLedger]);
+
   const filteredWinners = useMemo(() => {
     return winners.filter((w) => {
+      const isUser =
+        !!connectedUserAddress &&
+        w.winnerAddress.toLowerCase() === connectedUserAddress.toLowerCase();
+
+      // Tier / My Wins Matching
+      const matchesTier =
+        tierFilter === "all" ||
+        (tierFilter === "mine" && isUser) ||
+        (tierFilter === "grand" && w.tierIndex === 0) ||
+        (tierFilter === "runnerup" && w.tierIndex === 1) ||
+        (tierFilter === "consolation" && w.tierIndex >= 2);
+
+      if (!matchesTier) return false;
+
       // Search Matching
       const matchesSearch =
         searchTerm === "" ||
@@ -49,16 +86,9 @@ export function PayoutWinnersTable({
         (w.winningTicketIndex !== undefined &&
           w.winningTicketIndex.toString().includes(searchTerm));
 
-      // Tier Matching
-      const matchesTier =
-        tierFilter === "all" ||
-        (tierFilter === "grand" && w.tierIndex === 0) ||
-        (tierFilter === "runnerup" && w.tierIndex === 1) ||
-        (tierFilter === "consolation" && w.tierIndex >= 2);
-
-      return matchesSearch && matchesTier;
+      return matchesSearch;
     });
-  }, [winners, searchTerm, tierFilter]);
+  }, [winners, searchTerm, tierFilter, connectedUserAddress]);
 
   if (winners.length === 0) {
     return (
@@ -102,16 +132,11 @@ export function PayoutWinnersTable({
         </div>
 
         {/* Tier Filter Dropdown */}
-        <div className="w-full sm:w-48">
+        <div className="w-full sm:w-56">
           <CustomSelect
             value={tierFilter}
             onChange={(val) => setTierFilter(val)}
-            options={[
-              { value: "all", label: tLedger("allTiers") },
-              { value: "grand", label: tLedger("grandPrize") },
-              { value: "runnerup", label: tLedger("runnerUp") },
-              { value: "consolation", label: tLedger("consolation") },
-            ]}
+            options={tierOptions}
             ariaLabel="Filter winners by tier"
           />
         </div>
@@ -135,7 +160,7 @@ export function PayoutWinnersTable({
           <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
             {filteredWinners.map((winner) => {
               const isConnectedWinner =
-                connectedUserAddress &&
+                !!connectedUserAddress &&
                 winner.winnerAddress.toLowerCase() ===
                   connectedUserAddress.toLowerCase();
 
@@ -144,14 +169,20 @@ export function PayoutWinnersTable({
               return (
                 <tr
                   key={`${winner.tierIndex}-${winner.winnerIndex}-${winner.winnerAddress}`}
-                  className={`hover:bg-surface-container/40 transition-colors ${
+                  className={`transition-colors ${
                     isConnectedWinner
-                      ? "bg-primary/5 border-l-2 border-primary"
-                      : ""
+                      ? "bg-gradient-to-r from-primary/[0.08] via-primary/[0.03] to-transparent hover:from-primary/[0.13] hover:via-primary/[0.06]"
+                      : "hover:bg-surface-container/40"
                   }`}
                 >
                   {/* Tier */}
-                  <td className="py-3 px-4">
+                  <td
+                    className={`py-3 px-4 ${
+                      isConnectedWinner
+                        ? "relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-r-full before:bg-primary"
+                        : ""
+                    }`}
+                  >
                     <span className={tierBadgeClass(winner.tierIndex)}>
                       {tierLabel(winner.tierIndex)}
                     </span>
@@ -166,7 +197,7 @@ export function PayoutWinnersTable({
                         cluster="devnet"
                       />
                       {isConnectedWinner && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/20 border border-primary/40 px-2 py-0.5 text-[9px] font-bold text-primary animate-pulse">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 border border-primary/30 px-1.5 py-0.5 text-[9px] font-bold text-primary">
                           🎉 {t("youWonBadge")}
                         </span>
                       )}
@@ -176,7 +207,13 @@ export function PayoutWinnersTable({
                   {/* Winning Bond Index */}
                   <td className="py-3 px-4 text-center font-mono">
                     {winner.winningTicketIndex !== undefined ? (
-                      <span className="inline-flex items-center gap-1 bg-surface-container/80 border border-surface-bright/10 px-2 py-0.5 rounded-md text-[11px] font-bold text-tertiary">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                          isConnectedWinner
+                            ? "bg-primary/15 border border-primary/40 text-primary shadow-xs"
+                            : "bg-surface-container/80 border border-surface-bright/10 text-tertiary"
+                        }`}
+                      >
                         🎫 #{winner.winningTicketIndex.toLocaleString("en-US")}
                       </span>
                     ) : (
@@ -190,7 +227,9 @@ export function PayoutWinnersTable({
                       className={`font-mono text-xs font-bold ${
                         winner.tierIndex === 0
                           ? "text-amber-400"
-                          : "text-on-surface"
+                          : isConnectedWinner
+                            ? "text-primary"
+                            : "text-on-surface"
                       }`}
                     >
                       ${formatTokenAmount(winner.amountOwed, tokenDecimals)}{" "}

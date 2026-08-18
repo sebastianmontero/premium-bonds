@@ -397,6 +397,7 @@
     "noWinnersRegistered": "No Payout Registry Available",
     "noWinnersSub": "This cycle is either awaiting randomness or has not yet picked winners.",
     "searchWinnerPlaceholder": "Search winner address, tier, or ticket...",
+    "myWinningsFilter": "🎉 My Winning Bonds ({count})",
     "tierColumn": "Tier",
     "winnerColumn": "Winner",
     "winningBondColumn": "Winning Bond",
