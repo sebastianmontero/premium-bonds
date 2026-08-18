@@ -22,10 +22,12 @@ interface DrawExplorerResult {
   drawSummaries: DrawCycleSummary[];
   /** Aggregate protocol statistics across all historical draws. */
   stats: DrawHistoryStats;
-  /** Whether draw history is currently loading. */
+  /** Whether draw history is initially loading. */
   isLoading: boolean;
+  /** Whether draw history is currently refetching in background. */
+  isRefetching: boolean;
   /** Refetch all draw cycle headers. */
-  refetch: () => void;
+  refetch: () => Promise<void>;
 }
 
 /**
@@ -51,21 +53,17 @@ export function useDrawExplorer(
     averagePrizePot: 0,
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const fetchIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
   const lastPoolIdRef = useRef(poolId);
-  const lastDrawCycleIdRef = useRef(currentDrawCycleId);
 
   useEffect(() => {
-    if (
-      lastPoolIdRef.current !== poolId ||
-      lastDrawCycleIdRef.current !== currentDrawCycleId
-    ) {
+    if (lastPoolIdRef.current !== poolId) {
       lastPoolIdRef.current = poolId;
-      lastDrawCycleIdRef.current = currentDrawCycleId;
       hasLoadedRef.current = false;
     }
-  }, [poolId, currentDrawCycleId]);
+  }, [poolId]);
 
   const fetchDraws = useCallback(async () => {
     if (currentDrawCycleId === undefined || currentDrawCycleId < 0) {
@@ -78,12 +76,15 @@ export function useDrawExplorer(
       });
       hasLoadedRef.current = true;
       setIsLoading(false);
+      setIsRefetching(false);
       return;
     }
 
     const fetchId = ++fetchIdRef.current;
     if (!hasLoadedRef.current) {
       setIsLoading(true);
+    } else {
+      setIsRefetching(true);
     }
 
     try {
@@ -197,6 +198,7 @@ export function useDrawExplorer(
       if (fetchId === fetchIdRef.current) {
         hasLoadedRef.current = true;
         setIsLoading(false);
+        setIsRefetching(false);
       }
     }
   }, [client, poolId, currentDrawCycleId, maxCyclesToFetch]);
@@ -209,6 +211,7 @@ export function useDrawExplorer(
     drawSummaries,
     stats,
     isLoading,
+    isRefetching,
     refetch: fetchDraws,
   };
 }

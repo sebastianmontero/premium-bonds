@@ -41,8 +41,29 @@ function DrawHistoryContent() {
     drawSummaries,
     stats,
     isLoading: isDrawsLoading,
+    isRefetching: isDrawsRefetching,
     refetch: refetchDraws,
   } = useDrawExplorer(1, onChainPool?.currentDrawCycleId, 100);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing || isDrawsLoading || isDrawsRefetching) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refetchPool(), refetchDraws()]);
+    } catch (err) {
+      console.error("Failed to refresh draw history:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [
+    isRefreshing,
+    isDrawsLoading,
+    isDrawsRefetching,
+    refetchPool,
+    refetchDraws,
+  ]);
 
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
@@ -113,6 +134,8 @@ function DrawHistoryContent() {
     }
   };
 
+  const isBusyRefreshing = isRefreshing || isDrawsRefetching || isDrawsLoading;
+
   return (
     <div className="space-y-6">
       {/* ── Page Header & Subtitle ─────────────────────────────────── */}
@@ -130,15 +153,16 @@ function DrawHistoryContent() {
         </div>
 
         <button
-          onClick={() => {
-            refetchPool();
-            refetchDraws();
-          }}
-          disabled={isDrawsLoading}
-          className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 px-3 py-2 text-xs font-semibold text-on-surface transition cursor-pointer self-start sm:self-auto disabled:opacity-50"
+          type="button"
+          onClick={handleRefresh}
+          disabled={isBusyRefreshing}
+          aria-busy={isRefreshing || isDrawsRefetching}
+          aria-label={t("refresh")}
+          title={t("refresh")}
+          className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 px-3 py-2 text-xs font-semibold text-on-surface transition cursor-pointer self-start sm:self-auto disabled:opacity-50 select-none"
         >
           <svg
-            className={`w-3.5 h-3.5 ${isDrawsLoading ? "animate-spin text-primary" : "text-on-surface-variant"}`}
+            className={`w-3.5 h-3.5 ${isBusyRefreshing ? "animate-spin text-primary" : "text-on-surface-variant"}`}
             fill="none"
             stroke="currentColor"
             strokeWidth={2}
@@ -169,6 +193,7 @@ function DrawHistoryContent() {
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         isLoading={isDrawsLoading}
+        isSyncing={isDrawsRefetching || isRefreshing}
       />
 
       {/* ── Detail Inspector Modal ─────────────────────────────────── */}

@@ -2,7 +2,10 @@
 
 import React, { useState, useMemo } from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
-import { formatDrawDisplayDate } from "@/app/lib/draw-helpers";
+import {
+  formatDrawDisplayDate,
+  hasDrawVrfRandomness,
+} from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
@@ -16,6 +19,7 @@ interface DrawHistoryListProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   isLoading?: boolean;
+  isSyncing?: boolean;
 }
 
 export function DrawHistoryList({
@@ -24,6 +28,7 @@ export function DrawHistoryList({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   isLoading = false,
+  isSyncing = false,
 }: DrawHistoryListProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -82,7 +87,7 @@ export function DrawHistoryList({
             <h2 className="font-display text-lg font-bold text-on-surface">
               {t("listTitle")}
             </h2>
-            {isLoading && (
+            {(isLoading || isSyncing) && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary animate-pulse">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-spin" />
                 {t("syncing")}
@@ -293,8 +298,8 @@ export function DrawHistoryList({
                 </div>
 
                 {/* Actions & Fairness Seed */}
-                <div className="flex items-center justify-between md:justify-end gap-2 w-full">
-                  {draw.vrfSeedHex && (
+                <div className="flex items-center justify-between md:justify-end gap-2.5 w-full">
+                  {hasDrawVrfRandomness(draw) && (
                     <VrfSeedBadge
                       seedHex={draw.vrfSeedHex}
                       drawCycleId={draw.cycleId}
@@ -307,7 +312,7 @@ export function DrawHistoryList({
                       e.stopPropagation();
                       onSelectDraw(draw.cycleId);
                     }}
-                    className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform"
+                    className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
                   >
                     <span>{t("inspectPayouts")}</span>
                     <span>→</span>

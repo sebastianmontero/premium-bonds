@@ -325,6 +325,37 @@ async function runTests() {
     "Undefined draw should NOT have VRF randomness"
   );
 
+  // 7b. Test zero-seed regex filter used in VrfSeedBadge
+  const isZeroSeed = (seedHex?: string) =>
+    !seedHex || /^(?:0x)?0+$/i.test(seedHex.trim());
+  assert.strictEqual(
+    isZeroSeed(
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    ),
+    true,
+    "All-zero seed hex should be detected as zero seed"
+  );
+  assert.strictEqual(
+    isZeroSeed(
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+    ),
+    true,
+    "0x-prefixed all-zero seed hex should be detected as zero seed"
+  );
+  assert.strictEqual(
+    isZeroSeed(
+      "6156ec686156ec686156ec686156ec686156ec686156ec686156ec68de3f9d00"
+    ),
+    false,
+    "Valid non-zero seed hex should NOT be detected as zero seed"
+  );
+  assert.strictEqual(isZeroSeed(""), true, "Empty seed should be zero seed");
+  assert.strictEqual(
+    isZeroSeed(undefined),
+    true,
+    "Undefined seed should be zero seed"
+  );
+
   // 8. Test calculatePriorDustApplied
   console.log("  Testing calculatePriorDustApplied...");
   // 8a. Winner won 2 USDC, bought 1 bond at 5 USDC -> 3 USDC prior dust used
