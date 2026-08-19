@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     "app/lib/generated/**",
     // Build/codegen scripts - not part of the Next.js app
     "scripts/**",
+    // Anchor Rust contracts & target artifacts
+    "anchor/**",
   ]),
 ]);
 

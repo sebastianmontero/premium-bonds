@@ -149,7 +149,17 @@
     "shareColumn": "Share %",
     "winnersColumn": "Winners",
     "estPerWinnerColumn": "Est. per Winner",
-    "totalTierShareColumn": "Total Share"
+    "totalTierShareColumn": "Total Share",
+    "winnersCount": "×{count} {count, plural, =1 {winner} other {winners}}",
+    "belowThresholdNote": "Estimated payouts are displayed once the prize pot reaches {threshold} {symbol}.",
+    "potDistributionLabel": "Prize Pot Allocation",
+    "allocated": "Allocated",
+    "totalSummaryLabel": "Total Draw Allocation",
+    "winnersShort": "winners",
+    "distributedAcrossTiers": "Across all tiers",
+    "depositToEnterCta": "Deposit",
+    "close": "Close",
+    "perWinner": "per winner"
   },
   "Modals": {
     "depositTitle": "Deposit Funds",

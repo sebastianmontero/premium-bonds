@@ -4,7 +4,8 @@ import { useState } from "react";
 import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { PrizeTiersModal } from "./PrizeTiersModal";
-import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
+import { TierPrizeTicker } from "./TierPrizeTicker";
+import { formatTokenAmount, getLocalizedTierLabel } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
@@ -42,20 +43,6 @@ export function PoolCard({
   const activeTicketsCount = userTickets?.activeTicketsCount ?? 0;
   const totalTicketsCount =
     activeTicketsCount + (userTickets?.pendingTicketsCount ?? 0);
-
-  const getTierLabel = (tierIndex: number, totalCount: number) => {
-    switch (tierIndex) {
-      case 0:
-        return t("grand");
-      case 1:
-        return t("runnerUp");
-      default:
-        if (totalCount <= 3) {
-          return t("consolation");
-        }
-        return t("tierN", { tier: tierIndex + 1 });
-    }
-  };
 
   return (
     <div
@@ -201,25 +188,13 @@ export function PoolCard({
             </div>
             <div className={`grid ${gridColsClass} gap-2.5`}>
               {featuredTiers.map((tier, i) => (
-                <div
+                <TierPrizeTicker
                   key={i}
-                  className="rounded-lg bg-surface-container/60 px-3 py-2 text-center border border-surface-container-high/40 hover:bg-surface-container-high/50 transition-colors"
-                >
-                  <p
-                    className={`text-[10px] font-semibold truncate ${tierColor(i)}`}
-                  >
-                    {getTierLabel(i, activeTiers.length)}
-                  </p>
-                  <p className="mt-0.5 font-mono text-sm font-semibold text-on-surface">
-                    {(tier.basisPoints / 100).toLocaleString("en-US", {
-                      maximumFractionDigits: 1,
-                    })}
-                    %
-                  </p>
-                  <p className="text-[10px] text-on-surface-variant">
-                    ×{tier.numWinners}
-                  </p>
-                </div>
+                  pool={pool}
+                  tier={tier}
+                  tierIndex={i}
+                  tierLabel={getLocalizedTierLabel(i, activeTiers.length, t)}
+                />
               ))}
             </div>
 
@@ -227,6 +202,7 @@ export function PoolCard({
               isOpen={showAllTiersModal}
               onClose={() => setShowAllTiersModal(false)}
               pool={pool}
+              onDeposit={onDeposit}
             />
           </div>
         );

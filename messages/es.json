@@ -149,7 +149,17 @@
     "shareColumn": "Porcentaje %",
     "winnersColumn": "Ganadores",
     "estPerWinnerColumn": "Est. por Ganador",
-    "totalTierShareColumn": "Fondo Total"
+    "totalTierShareColumn": "Fondo Total",
+    "winnersCount": "×{count} {count, plural, =1 {ganador} other {ganadores}}",
+    "belowThresholdNote": "Los pagos estimados se muestran una vez que el bote de premios alcance {threshold} {symbol}.",
+    "potDistributionLabel": "Distribución de Premios",
+    "allocated": "Asignado",
+    "totalSummaryLabel": "Distribución Total del Sorteo",
+    "winnersShort": "ganadores",
+    "distributedAcrossTiers": "En todos los niveles",
+    "depositToEnterCta": "Depositar",
+    "close": "Cerrar",
+    "perWinner": "por ganador"
   },
   "Modals": {
     "depositTitle": "Depositar Fondos",

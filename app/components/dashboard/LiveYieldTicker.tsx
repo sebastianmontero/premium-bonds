@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore, useMemo } from "react";
+import { useRef, useMemo, useCallback } from "react";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
+import { useLiveTickerText } from "@/app/hooks/useLiveTickerText";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import {
@@ -25,8 +26,6 @@ export interface LiveYieldTickerProps {
   /** Optional label for console debug logs */
   debugLabel?: string;
 }
-
-const emptySubscribe = () => () => {};
 
 export function LiveYieldTicker({
   pool,
@@ -55,37 +54,17 @@ export function LiveYieldTicker({
     [precision]
   );
 
-  // Hydration safety check via useSyncExternalStore (React 19 standard)
-  const isMounted = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
+  const formatValue = useCallback(
+    (currentVal: number) => `$${numberFormatter.format(currentVal)}`,
+    [numberFormatter]
   );
 
-  // 60 FPS animation loop with direct DOM mutation (no React re-renders)
-  useEffect(() => {
-    if (!isMounted) return;
-
-    let animFrameId: number;
-
-    const tick = () => {
-      const nowInSeconds = Date.now() / 1000;
-      const currentVal = calculateCurrentValue(nowInSeconds);
-
-      if (spanRef.current) {
-        const formatted = numberFormatter.format(currentVal);
-        spanRef.current.textContent = `$${formatted}`;
-      }
-
-      animFrameId = requestAnimationFrame(tick);
-    };
-
-    animFrameId = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(animFrameId);
-    };
-  }, [isMounted, calculateCurrentValue, numberFormatter]);
+  useLiveTickerText({
+    calculateValue: calculateCurrentValue,
+    formatValue,
+    spanRef,
+    enabled: !pool?.isFrozenForDraw,
+  });
 
   // Initial SSR / pre-hydration display value
   const initialFormatted = `$${numberFormatter.format(baseUi)}`;

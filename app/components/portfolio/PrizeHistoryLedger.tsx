@@ -66,7 +66,9 @@ export function PrizeHistoryLedger({
               </span>
             )}
           </div>
-          <p className="text-xs text-on-surface-variant mt-0.5">{t("subtitle")}</p>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            {t("subtitle")}
+          </p>
         </div>
         {unclaimedTotal > 0 && (
           <button

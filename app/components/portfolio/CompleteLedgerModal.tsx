@@ -735,8 +735,8 @@ export default function CompleteLedgerModal({
                             <span
                               className={
                                 entry.tierIndex === 0
-                                ? "text-amber-400"
-                                : "text-on-surface"
+                                  ? "text-amber-400"
+                                  : "text-on-surface"
                               }
                             >
                               {formatTokenAmount(entry.amount, tokenDecimals)}{" "}

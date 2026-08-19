@@ -319,7 +319,7 @@ export default function DashboardPage() {
   };
 
   // Handlers for Pending Redemptions
-  const handleSimulateSettlement = (_id: string) => {
+  const handleSimulateSettlement = () => {
     // No-op in production mode without mock data
   };
 

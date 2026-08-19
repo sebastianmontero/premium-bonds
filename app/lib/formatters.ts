@@ -6,6 +6,9 @@ export const DEFAULT_LIVE_YIELD_PRECISION = 6;
 export const SECONDS_PER_YEAR = 365.25 * 86400; // 31,557,600
 export const DEFAULT_APY = 0.08;
 
+export const BPS_DENOMINATOR = 10_000;
+export const DEFAULT_TIER_PAYOUT_THRESHOLD_USD = 10.0;
+
 const liveYieldFormatterCache = new Map<number, Intl.NumberFormat>();
 
 /**
@@ -24,6 +27,102 @@ export function getLiveYieldFormatter(
     liveYieldFormatterCache.set(precision, fmt);
   }
   return fmt;
+}
+
+/**
+ * Returns token-aware threshold UI amount for estimated tier payout display.
+ */
+export function getPoolPayoutThresholdUi(tokenSymbol: string = "USDC"): number {
+  switch (tokenSymbol.toUpperCase()) {
+    case "SOL":
+      return 0.05;
+    case "WBTC":
+      return 0.0005;
+    case "USDC":
+    default:
+      return DEFAULT_TIER_PAYOUT_THRESHOLD_USD;
+  }
+}
+
+export interface TierPayoutBreakdown {
+  payoutPerWinnerUi: number;
+  totalTierShareUi: number;
+  isAboveThreshold: boolean;
+}
+
+/**
+ * Pure domain calculation for prize tier payouts.
+ * In the smart contract (state/pool.rs), tier.basisPoints is awarded to each individual winner.
+ */
+export function calculateTierPayout(
+  potUi: number,
+  tier: { basisPoints: number; numWinners: number },
+  threshold: number = DEFAULT_TIER_PAYOUT_THRESHOLD_USD
+): TierPayoutBreakdown {
+  if (
+    !Number.isFinite(potUi) ||
+    potUi <= 0 ||
+    !tier ||
+    !Number.isFinite(tier.basisPoints) ||
+    tier.basisPoints <= 0
+  ) {
+    return {
+      payoutPerWinnerUi: 0,
+      totalTierShareUi: 0,
+      isAboveThreshold: false,
+    };
+  }
+
+  const sanitizedBps = Math.min(tier.basisPoints, BPS_DENOMINATOR);
+  const payoutPerWinnerUi = (potUi * sanitizedBps) / BPS_DENOMINATOR;
+  const winnersCount = Math.max(1, tier.numWinners || 1);
+  const totalTierShareUi = payoutPerWinnerUi * winnersCount;
+  const isAboveThreshold = potUi >= threshold;
+
+  return {
+    payoutPerWinnerUi: Number.isFinite(payoutPerWinnerUi)
+      ? payoutPerWinnerUi
+      : 0,
+    totalTierShareUi: Number.isFinite(totalTierShareUi) ? totalTierShareUi : 0,
+    isAboveThreshold,
+  };
+}
+
+/**
+ * Format tier payout amount with token-aware symbol handling and 60 FPS cached formatting.
+ */
+export function formatTierPayoutAmount(
+  amount: number,
+  tokenSymbol: string = "USDC",
+  precision: number = DEFAULT_LIVE_YIELD_PRECISION
+): string {
+  const formatter = getLiveYieldFormatter(precision);
+  const formatted = formatter.format(amount);
+  if (tokenSymbol.toUpperCase() === "USDC") {
+    return `$${formatted}`;
+  }
+  return `${formatted} ${tokenSymbol}`;
+}
+
+/**
+ * Resolves localized tier label consistently across PoolCard and PrizeTiersModal.
+ */
+export function getLocalizedTierLabel(
+  tierIndex: number,
+  totalTiersCount: number,
+  t: (key: string, values?: Record<string, string | number | Date>) => string
+): string {
+  switch (tierIndex) {
+    case 0:
+      return t("grand");
+    case 1:
+      return t("runnerUp");
+    default:
+      if (totalTiersCount <= 3) {
+        return t("consolation");
+      }
+      return t("tierN", { tier: tierIndex + 1 });
+  }
 }
 
 /** Convert a human-readable USDC amount to on-chain base units. */
