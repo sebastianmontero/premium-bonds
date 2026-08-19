@@ -47,17 +47,18 @@ export function BonusBondDustBadge({
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 ${className}`}
+      data-prevent-row-click="true"
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <span className="text-[10px] text-tertiary font-mono">
+      <span className="text-[10px] text-tertiary font-mono whitespace-nowrap">
         +{bondsBought} {bondsBought === 1 ? "bond" : "bonds"}
       </span>
 
       {priorDustApplied > 0 && (
         <div className="relative group/priorDust shrink-0 inline-flex items-center">
           <span
-            className="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help"
+            className="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help whitespace-nowrap"
             title={`+${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust used`}
             aria-label={`Reinvested ${bondsBought} bonds using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust`}
           >
@@ -67,7 +68,7 @@ export function BonusBondDustBadge({
           </span>
 
           <div
-            className={`absolute bottom-full ${alignClass} mb-2 w-56 p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 group-focus/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-left whitespace-normal`}
+            className={`absolute bottom-full ${alignClass} mb-2 w-56 max-w-[calc(100vw-32px)] p-2.5 rounded-lg bg-[#0F111A] border border-tertiary/20 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/priorDust:opacity-100 group-focus/priorDust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-left whitespace-normal`}
           >
             <strong className="text-tertiary block mb-0.5">
               {tLedger("bonusTicket")}

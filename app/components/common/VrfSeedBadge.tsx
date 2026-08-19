@@ -8,6 +8,7 @@ interface VrfSeedBadgeProps {
   drawCycleId?: number;
   className?: string;
   label?: string;
+  variant?: "default" | "compact";
 }
 
 export function VrfSeedBadge({
@@ -15,6 +16,7 @@ export function VrfSeedBadge({
   drawCycleId,
   className = "",
   label,
+  variant = "default",
 }: VrfSeedBadgeProps) {
   const [copied, setCopied] = useState(false);
   const t = useTranslations("Ledger");
@@ -30,13 +32,16 @@ export function VrfSeedBadge({
   };
 
   const truncated = `${seedHex.slice(0, 8)}...${seedHex.slice(-6)}`;
+  const displayLabel =
+    label || (variant === "compact" ? t("compactVrfLabel") : truncated);
 
   return (
     <button
       type="button"
+      data-prevent-row-click="true"
       onClick={handleCopy}
       aria-label={`Copy VRF Randomness Seed ${seedHex}`}
-      title="Click to copy full VRF randomness seed"
+      title={t("copyVrfTitle")}
       className={`inline-flex items-center gap-1.5 text-[10px] leading-tight font-mono text-on-surface-variant/60 hover:text-primary hover:border-primary/30 bg-surface-container/50 hover:bg-surface-container/80 border border-surface-bright/10 px-2 py-0.5 rounded-lg transition-all duration-200 relative group/vrf cursor-pointer select-none shrink-0 align-middle focus-visible:ring-1 focus-visible:ring-primary outline-none ${className}`}
     >
       <svg
@@ -52,10 +57,10 @@ export function VrfSeedBadge({
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
 
-      <span className="leading-none tracking-tight">{label || truncated}</span>
+      <span className="leading-none tracking-tight">{displayLabel}</span>
 
       {/* Floating Tooltip */}
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/15 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/vrf:opacity-100 transition-opacity duration-200 shadow-2xl z-50 text-center whitespace-normal">
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/15 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/vrf:opacity-100 transition-opacity duration-200 shadow-2xl z-50 text-center whitespace-normal">
         {copied ? (
           <span className="text-emerald-400 font-semibold flex items-center justify-center gap-1.5">
             <svg

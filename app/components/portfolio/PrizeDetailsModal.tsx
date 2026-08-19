@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
@@ -50,6 +50,17 @@ export default function PrizeDetailsModal({
   const tLedger = useTranslations("Ledger");
   const format = useFormatter();
 
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !entry) return null;
 
   const handleClose = () => {
@@ -86,7 +97,12 @@ export default function PrizeDetailsModal({
       />
 
       {/* Modal Card */}
-      <div className="relative w-full max-w-2xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-y-auto max-h-[90vh] glass-strong">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("title", { drawCycleId: entry.drawCycleId })}
+        className="relative w-full max-w-2xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-y-auto max-h-[90vh] glass-strong"
+      >
         {/* Header */}
         <div className="flex items-start justify-between pb-4 border-b border-surface-bright/5">
           <div>

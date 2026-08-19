@@ -92,7 +92,7 @@ export function DrawHistoryList({
   };
 
   return (
-    <div className="glass rounded-2xl p-6 space-y-5">
+    <div className="glass rounded-2xl p-4 sm:p-6 space-y-5">
       {/* ── Header & Toolbar ────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 flex-wrap">
         <div>
@@ -113,9 +113,9 @@ export function DrawHistoryList({
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           {/* Search */}
-          <div className="relative flex-1 sm:w-48">
+          <div className="relative flex-1 sm:w-48 md:w-56">
             <input
               type="text"
               placeholder={t("searchPlaceholder")}
@@ -143,7 +143,7 @@ export function DrawHistoryList({
           </div>
 
           {/* Status Filter */}
-          <div className="w-full sm:w-56 md:w-60">
+          <div className="w-full sm:w-52 md:w-60">
             <CustomSelect
               value={effectiveStatusFilter}
               disabled={isLoading}
@@ -160,7 +160,7 @@ export function DrawHistoryList({
           {(searchTerm || effectiveStatusFilter !== "all") && (
             <button
               onClick={resetFilters}
-              className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 cursor-pointer"
+              className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 py-1 cursor-pointer self-end sm:self-center"
             >
               {t("clear")}
             </button>
@@ -171,18 +171,73 @@ export function DrawHistoryList({
       {/* ── Content ─────────────────────────────────────────────────── */}
       {isLoading ? (
         <div className="space-y-3 pointer-events-none select-none">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="p-4 rounded-xl skeleton-card flex items-center justify-between gap-4"
-            >
-              <div className="h-6 w-12 rounded skeleton-box" />
-              <div className="h-4 w-28 rounded skeleton-box" />
-              <div className="h-5 w-20 rounded-full skeleton-box" />
-              <div className="h-5 w-24 rounded skeleton-box" />
-              <div className="h-8 w-24 rounded-xl skeleton-box" />
-            </div>
-          ))}
+          {/* Mobile Skeleton Cards */}
+          <div className="lg:hidden space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-4 rounded-xl skeleton-card space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-8 w-11 rounded-lg skeleton-box" />
+                    <div className="h-4 w-24 rounded skeleton-box" />
+                  </div>
+                  <div className="h-5 w-20 rounded-full skeleton-box" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-surface-container/20">
+                  <div className="col-span-2 sm:col-span-1 h-8 rounded skeleton-box" />
+                  <div className="h-8 rounded skeleton-box" />
+                  <div className="h-8 rounded skeleton-box" />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <div className="h-5 w-28 rounded-lg skeleton-box" />
+                  <div className="h-4 w-20 rounded skeleton-box" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Skeleton Table */}
+          <div className="hidden lg:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
+            <table className="w-full min-w-[920px] text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-3.5 px-4 w-20">{t("colDraw")}</th>
+                  <th className="py-3.5 px-4">{t("colDate")}</th>
+                  <th className="py-3.5 px-4">{t("colStatus")}</th>
+                  <th className="py-3.5 px-4 text-right">{t("colPrizePot")}</th>
+                  <th className="py-3.5 px-4 text-center">{t("colBonds")}</th>
+                  <th className="py-3.5 px-4 text-center">{t("colPayouts")}</th>
+                  <th className="py-3.5 px-4 text-right">{t("colActions")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-bright/5">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <tr key={i} className="p-4">
+                    <td className="py-3.5 px-4">
+                      <div className="h-8 w-11 rounded-lg skeleton-box" />
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="h-4 w-24 rounded skeleton-box" />
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="h-5 w-20 rounded-full skeleton-box" />
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="h-4 w-24 rounded skeleton-box ml-auto" />
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <div className="h-4 w-12 rounded skeleton-box mx-auto" />
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <div className="h-4 w-12 rounded skeleton-box mx-auto" />
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="h-5 w-28 rounded-lg skeleton-box ml-auto" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : filteredDraws.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-surface-container/20">
@@ -204,114 +259,98 @@ export function DrawHistoryList({
         </div>
       ) : (
         <>
-          {/* Desktop Table Headers */}
-          <div className="hidden md:grid md:grid-cols-[60px_120px_160px_130px_120px_120px_1fr] items-center gap-4 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/60 border-b border-surface-bright/5">
-            <div>{t("colDraw")}</div>
-            <div>{t("colDate")}</div>
-            <div>{t("colStatus")}</div>
-            <div className="text-right">{t("colPrizePot")}</div>
-            <div className="text-center">{t("colBonds")}</div>
-            <div className="text-center">{t("colPayouts")}</div>
-            <div className="text-right">{t("colActions")}</div>
-          </div>
-
-          {/* Draw Rows / Mobile Cards */}
-          <div className="space-y-3">
+          {/* ── Mobile & Tablet Card Layout (< lg) ────────────────────── */}
+          <div className="lg:hidden space-y-3">
             {paginatedDraws.map((draw) => (
               <div
                 key={draw.cycleId}
-                onClick={() => onSelectDraw(draw.cycleId)}
-                className="flex flex-col md:grid md:grid-cols-[60px_120px_160px_130px_120px_120px_1fr] items-stretch md:items-center gap-4 p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  onSelectDraw(draw.cycleId);
+                }}
+                className="p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer space-y-3 group"
               >
-                {/* Draw ID & Date (Grouped for Mobile) */}
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-12 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
-                    #{draw.cycleId}
+                {/* 1. Header Tier: Cycle ID + Date & StatusBadge */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-11 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
+                      #{draw.cycleId}
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-on-surface">
+                        {formatDate(draw)}
+                      </p>
+                      <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider font-semibold">
+                        {t("colDate")}
+                      </p>
+                    </div>
                   </div>
-                  <div className="md:hidden">
-                    <p className="text-[10px] uppercase font-semibold text-on-surface-variant">
-                      {t("colDate")}
+                  <StatusBadge status={draw.status} size="sm" />
+                </div>
+
+                {/* 2. Metrics Grid Tier: 2-column mobile, 3-column tablet */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-surface-container/40 border border-surface-bright/5">
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="text-[10px] uppercase font-semibold text-on-surface-variant/70">
+                      {t("colPrizePot")}
                     </p>
-                    <p className="text-xs text-on-surface font-semibold">
-                      {formatDate(draw)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Date (Desktop Only) */}
-                <div className="hidden md:block">
-                  <p className="text-xs text-on-surface font-medium whitespace-nowrap">
-                    {formatDate(draw)}
-                  </p>
-                </div>
-
-                {/* Status Badge */}
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-on-surface-variant md:hidden">
-                    {t("colStatus")}
-                  </p>
-                  <div className="mt-0.5 md:mt-0">
-                    <StatusBadge status={draw.status} size="sm" />
-                  </div>
-                </div>
-
-                {/* Prize Pot */}
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-on-surface-variant md:hidden">
-                    {t("colPrizePot")}
-                  </p>
-                  <p className="font-mono text-xs md:text-sm font-bold text-on-surface md:text-right">
-                    ${formatTokenAmount(draw.prizePot, tokenDecimals)}{" "}
-                    <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                      {tokenSymbol}
-                    </span>
-                  </p>
-                </div>
-
-                {/* Locked Bonds Snapshot */}
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-on-surface-variant md:hidden">
-                    {t("colBonds")}
-                  </p>
-                  <p className="font-mono text-xs text-on-surface-variant md:text-center">
-                    {draw.lockedTicketCount.toLocaleString("en-US")}
-                  </p>
-                </div>
-
-                {/* Payout Progress */}
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-on-surface-variant md:hidden">
-                    {t("colPayouts")}
-                  </p>
-                  <div className="md:text-center">
-                    {draw.hasPayoutRegistry ? (
-                      <span className="font-mono text-xs font-semibold text-tertiary">
-                        {draw.payoutsCompleted} / {draw.winnersCount}
+                    <p className="font-mono text-sm font-bold text-on-surface mt-0.5">
+                      ${formatTokenAmount(draw.prizePot, tokenDecimals)}{" "}
+                      <span className="text-[10px] text-on-surface-variant/60 font-normal">
+                        {tokenSymbol}
                       </span>
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-on-surface-variant/70">
+                      {t("colBonds")}
+                    </p>
+                    <p className="font-mono text-xs text-on-surface mt-0.5">
+                      {draw.lockedTicketCount.toLocaleString("en-US")}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-on-surface-variant/70">
+                      {t("colPayouts")}
+                    </p>
+                    <div className="mt-0.5">
+                      {draw.hasPayoutRegistry ? (
+                        <span className="font-mono text-xs font-semibold text-tertiary">
+                          {draw.payoutsCompleted} / {draw.winnersCount}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-on-surface-variant/40">
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Footer Tier: VRF Randomness Badge & Action Button */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-surface-bright/5">
+                  <div>
+                    {hasDrawVrfRandomness(draw) ? (
+                      <VrfSeedBadge
+                        seedHex={draw.vrfSeedHex}
+                        drawCycleId={draw.cycleId}
+                      />
                     ) : (
-                      <span className="text-[10px] text-on-surface-variant/40">
+                      <span className="text-[10px] text-on-surface-variant/40 font-mono">
                         —
                       </span>
                     )}
                   </div>
-                </div>
-
-                {/* Actions & Fairness Seed */}
-                <div className="flex items-center justify-between md:justify-end gap-2.5 w-full">
-                  {hasDrawVrfRandomness(draw) && (
-                    <VrfSeedBadge
-                      seedHex={draw.vrfSeedHex}
-                      drawCycleId={draw.cycleId}
-                      className="hidden lg:inline-flex"
-                    />
-                  )}
 
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       onSelectDraw(draw.cycleId);
                     }}
-                    className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
                   >
                     <span>{t("inspectPayouts")}</span>
                     <span>→</span>
@@ -321,7 +360,126 @@ export function DrawHistoryList({
             ))}
           </div>
 
-          {/* Pagination */}
+          {/* ── Desktop Semantic Table Layout (>= lg) ─────────────────── */}
+          <div className="hidden lg:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
+            <table className="w-full min-w-[920px] text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                  <th scope="col" className="py-3.5 px-4 w-20">
+                    {t("colDraw")}
+                  </th>
+                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                    {t("colDate")}
+                  </th>
+                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                    {t("colStatus")}
+                  </th>
+                  <th
+                    scope="col"
+                    className="py-3.5 px-4 text-right whitespace-nowrap"
+                  >
+                    {t("colPrizePot")}
+                  </th>
+                  <th
+                    scope="col"
+                    className="py-3.5 px-4 text-center whitespace-nowrap"
+                  >
+                    {t("colBonds")}
+                  </th>
+                  <th
+                    scope="col"
+                    className="py-3.5 px-4 text-center whitespace-nowrap"
+                  >
+                    {t("colPayouts")}
+                  </th>
+                  <th
+                    scope="col"
+                    className="py-3.5 px-4 text-right whitespace-nowrap min-w-[220px]"
+                  >
+                    {t("colActions")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
+                {paginatedDraws.map((draw) => (
+                  <tr
+                    key={draw.cycleId}
+                    onClick={() => onSelectDraw(draw.cycleId)}
+                    className="hover:bg-surface-container/40 transition-colors cursor-pointer group"
+                  >
+                    {/* Cycle # */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex h-8 w-11 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
+                        #{draw.cycleId}
+                      </div>
+                    </td>
+
+                    {/* Date */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-on-surface font-medium">
+                      {formatDate(draw)}
+                    </td>
+
+                    {/* Status */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <StatusBadge status={draw.status} size="sm" />
+                    </td>
+
+                    {/* Prize Pot */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold text-on-surface">
+                      ${formatTokenAmount(draw.prizePot, tokenDecimals)}{" "}
+                      <span className="text-[10px] text-on-surface-variant/60 font-normal">
+                        {tokenSymbol}
+                      </span>
+                    </td>
+
+                    {/* Participating Bonds */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-center font-mono text-on-surface-variant">
+                      {draw.lockedTicketCount.toLocaleString("en-US")}
+                    </td>
+
+                    {/* Payout Progress */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-center">
+                      {draw.hasPayoutRegistry ? (
+                        <span className="font-mono text-xs font-semibold text-tertiary">
+                          {draw.payoutsCompleted} / {draw.winnersCount}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-on-surface-variant/40">
+                          —
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Actions & VRF Randomness Seed */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-right">
+                      <div className="inline-flex items-center justify-end gap-2.5">
+                        {hasDrawVrfRandomness(draw) && (
+                          <VrfSeedBadge
+                            seedHex={draw.vrfSeedHex}
+                            drawCycleId={draw.cycleId}
+                          />
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectDraw(draw.cycleId);
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
+                        >
+                          <span>{t("inspectPayouts")}</span>
+                          <span>→</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Pagination ───────────────────────────────────────────── */}
           <div className="border-t border-surface-bright/5 pt-3">
             <PaginationControls
               currentPage={safePage}
