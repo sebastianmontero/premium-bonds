@@ -6,6 +6,7 @@ import {
   SECONDS_PER_YEAR,
   DEFAULT_APY,
   USDC_DECIMALS,
+  calculateNetApy,
 } from "../lib/formatters";
 import type { PoolInfo } from "../types";
 
@@ -13,6 +14,7 @@ export interface LiveYieldCalculationParams {
   baseUi: number;
   tvlUi: number;
   apy: number;
+  feeBasisPoints?: number;
   lastSyncedAt?: number;
   nowInSeconds: number;
   isFrozenForDraw?: boolean;
@@ -27,6 +29,7 @@ export function calculateLiveYield({
   baseUi,
   tvlUi,
   apy,
+  feeBasisPoints = 0,
   lastSyncedAt,
   nowInSeconds,
   isFrozenForDraw = false,
@@ -44,8 +47,9 @@ export function calculateLiveYield({
   }
   // Guard against clock drift or negative elapsed time
   const elapsed = Math.max(0, nowInSeconds - lastSyncedAt);
-  const yieldAccrued = (tvlUi * apy * elapsed) / SECONDS_PER_YEAR;
-  const currentVal = baseUi + yieldAccrued;
+  const netApy = calculateNetApy(apy, feeBasisPoints);
+  const netYieldAccrued = (tvlUi * netApy * elapsed) / SECONDS_PER_YEAR;
+  const currentVal = baseUi + netYieldAccrued;
   return Number.isFinite(currentVal) ? currentVal : baseUi;
 }
 
@@ -58,8 +62,10 @@ export interface UseLivePrizePotOptions {
   totalDepositedPrincipal?: number;
   /** Token decimals (default 6 for USDC) */
   tokenDecimals?: number;
-  /** Estimated Annual Percentage Yield (e.g., 0.08 for 8%) */
+  /** Estimated Annual Percentage Yield (e.g., 0.085 for 8.5%) */
   apy?: number;
+  /** Protocol reserve fee in basis points (e.g., 250 for 2.5%) */
+  feeBasisPoints?: number;
   /** Whether the pool is currently frozen for draw execution */
   isFrozenForDraw?: boolean;
   /** Whether interpolation is enabled */
@@ -78,7 +84,8 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
     basePrizePot = pool?.estimatedPrizePot ?? 0,
     totalDepositedPrincipal = pool?.totalDepositedPrincipal ?? 0,
     tokenDecimals = pool?.tokenDecimals ?? USDC_DECIMALS,
-    apy = DEFAULT_APY,
+    apy = pool?.underlyingApy ?? options.apy ?? DEFAULT_APY,
+    feeBasisPoints = pool?.feeBasisPoints ?? options.feeBasisPoints ?? 0,
     isFrozenForDraw = pool?.isFrozenForDraw ?? false,
     enabled = true,
     lastSyncedAt = pool?.lastSyncedAt,
@@ -152,6 +159,7 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
         baseUi,
         tvlUi,
         apy,
+        feeBasisPoints,
         lastSyncedAt: syncTimestamp,
         nowInSeconds,
         isFrozenForDraw,
@@ -167,7 +175,8 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
         lastLogTimeRef.current = nowInSeconds;
         const elapsed =
           syncTimestamp > 0 ? Math.max(0, nowInSeconds - syncTimestamp) : 0;
-        const yieldAccrued = (tvlUi * apy * elapsed) / SECONDS_PER_YEAR;
+        const netApy = calculateNetApy(apy, feeBasisPoints);
+        const yieldAccrued = (tvlUi * netApy * elapsed) / SECONDS_PER_YEAR;
         console.log(
           `[LiveYieldTicker: ${debugLabel}] Calculation Tick (10s):`,
           {
@@ -176,7 +185,8 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
             totalDepositedPrincipalRaw: totalDepositedPrincipal,
             tvlUi,
             apy,
-            apyPercent: `${(apy * 100).toFixed(2)}%`,
+            feeBasisPoints,
+            netApyPercent: `${(netApy * 100).toFixed(2)}%`,
             isFrozenForDraw,
             enabled,
             lastSyncTimestamp: syncTimestamp,
@@ -196,6 +206,7 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
       totalDepositedPrincipal,
       tvlUi,
       apy,
+      feeBasisPoints,
       syncTimestamp,
       isFrozenForDraw,
       enabled,

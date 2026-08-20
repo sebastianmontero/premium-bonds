@@ -44,6 +44,7 @@
 - **Verification and Testing Integrity:** Whenever code changes are made that might affect the results of tests, you MUST run the tests to verify that they compile, execute, and pass successfully. Do not rely solely on static checks or success status from wrappers/scripts that ignore test execution exit codes (e.g., commands carrying `|| true`).
 - **Code Reuse:** Before implementing new functions or logic, scan the codebase and shared modules (such as `tests/common/mod.rs`) to check if similar utilities already exist that can be reused or exported.
 - **Designing for Reusability:** When writing new logic, helper functions, or testing utilities, make a best effort to structure the code in a modular, generic, and reusable way to avoid future duplication.
+- **Plan Reviews:** When reviewing plans, selectively invoke relevant subagents based on scope: `solution-critic` (macro architecture & alternatives), `code-smell-reviewer` (clean code, type modeling, module cohesion), `contract-plan-reviewer` (Solana contracts), `frontend-plan-reviewer` (dApp UI). Skip irrelevant reviewers for non-code tasks (e.g. skills, docs).
 
 ## Agent skills
 

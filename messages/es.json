@@ -160,7 +160,18 @@
     "distributedAcrossTiers": "En todos los niveles",
     "depositToEnterCta": "Depositar",
     "close": "Cerrar",
-    "perWinner": "por ganador"
+    "perWinner": "por ganador",
+    "yieldBreakdownTitle": "Desglose de Rendimiento",
+    "underlyingStrategy": "Estrategia de Rendimiento",
+    "humaStrategyName": "Bóvedas de Crédito Huma",
+    "humaLendingTag": "Huma · {apy}",
+    "grossYield": "Rendimiento Bruto Acumulado",
+    "protocolFee": "Tarifa del Protocolo ({percent})",
+    "netPrizePot": "Bolsa Neta Distribuible",
+    "losslessExplanation": "El 100% del capital depositado se mantiene seguro en la bóveda de préstamos. Solo los intereses se distribuyen como premios.",
+    "yieldTargetMet": "Objetivo de Rendimiento Cumplido (Sorteo Listo)",
+    "yieldTargetNotSet": "Sin Umbral Mínimo",
+    "yieldAccumulating": "Acumulando Rendimiento ({current} / {target})"
   },
   "Modals": {
     "depositTitle": "Depositar Fondos",

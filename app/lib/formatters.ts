@@ -1,13 +1,115 @@
-// ─── Formatters & Display Helpers ─────────────────────────────────────────────
+import type {
+  PoolInfo,
+  YieldBreakdown,
+  YieldThresholdProgress,
+} from "../types";
 
 export const USDC_DECIMALS = 6;
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const DEFAULT_LIVE_YIELD_PRECISION = 6;
 export const SECONDS_PER_YEAR = 365.25 * 86400; // 31,557,600
-export const DEFAULT_APY = 0.08;
-
 export const BPS_DENOMINATOR = 10_000;
+export const DEFAULT_APY_BPS = 850; // 8.50% Huma Credit Vaults target
+export const DEFAULT_APY = DEFAULT_APY_BPS / BPS_DENOMINATOR; // 0.085
 export const DEFAULT_TIER_PAYOUT_THRESHOLD_USD = 10.0;
+
+/** Converts basis points to a decimal rate (e.g. 250 -> 0.025) */
+export function bpsToRate(bps: number): number {
+  return (Number.isFinite(bps) ? bps : 0) / BPS_DENOMINATOR;
+}
+
+/** Converts a decimal rate to basis points (e.g. 0.085 -> 850) */
+export function rateToBps(rate: number): number {
+  return Math.round((Number.isFinite(rate) ? rate : 0) * BPS_DENOMINATOR);
+}
+
+/** Pure calculation for Net APY after deducting protocol reserve fees */
+export function calculateNetApy(
+  grossApy: number,
+  feeBasisPoints: number = 0
+): number {
+  const safeGrossApy = Number.isFinite(grossApy) && grossApy > 0 ? grossApy : 0;
+  const feeRate = bpsToRate(feeBasisPoints);
+  return safeGrossApy * Math.max(0, 1 - feeRate);
+}
+
+/** Formats basis points to human-readable percentage (e.g. 250 -> "2.50%") */
+export function formatBasisPoints(
+  bps: number,
+  fractionDigits: number = 2
+): string {
+  const percent = (Number.isFinite(bps) ? bps : 0) / 100;
+  return `${percent.toFixed(fractionDigits)}%`;
+}
+
+/** Formats APY decimal to human-readable string (e.g. 0.085 -> "8.50% APY") */
+export function formatApy(
+  apy: number,
+  fractionDigits: number = 2
+): string {
+  const percent = (Number.isFinite(apy) ? apy : 0) * 100;
+  return `${percent.toFixed(fractionDigits)}% APY`;
+}
+
+/**
+ * Pure domain selector to extract structured, formatted yield breakdown metrics from PoolInfo.
+ */
+export function resolvePoolYieldBreakdown(
+  pool: PoolInfo,
+  decimals: number = USDC_DECIMALS
+): YieldBreakdown {
+  const grossYieldBase = pool.grossYield ?? 0;
+  const feeBasisPoints = pool.feeBasisPoints ?? 0;
+  const protocolFeeBase =
+    pool.protocolFeeAmount ??
+    Math.round((grossYieldBase * feeBasisPoints) / BPS_DENOMINATOR);
+  const netYieldBase =
+    pool.estimatedPrizePot ?? Math.max(0, grossYieldBase - protocolFeeBase);
+  const underlyingApy = pool.underlyingApy ?? DEFAULT_APY;
+  const netApy = calculateNetApy(underlyingApy, feeBasisPoints);
+
+  return {
+    grossYieldBase,
+    protocolFeeBase,
+    netYieldBase,
+    grossYieldUi: grossYieldBase / 10 ** decimals,
+    protocolFeeUi: protocolFeeBase / 10 ** decimals,
+    netYieldUi: netYieldBase / 10 ** decimals,
+    feeBasisPoints,
+    feePercentFormatted: formatBasisPoints(feeBasisPoints),
+    underlyingApy,
+    underlyingApyFormatted: formatApy(underlyingApy),
+    netApy,
+    netApyFormatted: formatApy(netApy),
+  };
+}
+
+/**
+ * Pure evaluation for Minimum Yield Threshold execution status.
+ */
+export function calculateYieldThresholdProgress(
+  grossYieldBase: number = 0,
+  minYieldThresholdBase: number = 0,
+  decimals: number = USDC_DECIMALS
+): YieldThresholdProgress {
+  const currentBase = Math.max(0, grossYieldBase || 0);
+  const targetBase = Math.max(0, minYieldThresholdBase || 0);
+  const isConfigured = targetBase > 0;
+  const isMet = !isConfigured || currentBase >= targetBase;
+  const progressPercent = isConfigured
+    ? Math.min(100, Math.max(0, (currentBase / targetBase) * 100))
+    : 100;
+
+  return {
+    isMet,
+    isConfigured,
+    progressPercent,
+    currentBase,
+    targetBase,
+    currentUi: currentBase / 10 ** decimals,
+    targetUi: targetBase / 10 ** decimals,
+  };
+}
 
 const liveYieldFormatterCache = new Map<number, Intl.NumberFormat>();
 

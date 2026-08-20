@@ -5,7 +5,14 @@ import { CountdownTimer } from "./CountdownTimer";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { PrizeTiersModal } from "./PrizeTiersModal";
 import { TierPrizeTicker } from "./TierPrizeTicker";
-import { formatTokenAmount, getLocalizedTierLabel } from "@/app/lib/formatters";
+import { YieldBreakdownTooltip } from "./YieldBreakdownTooltip";
+import { MinimumYieldStatus } from "./MinimumYieldStatus";
+import {
+  formatTokenAmount,
+  getLocalizedTierLabel,
+  formatApy,
+  DEFAULT_APY,
+} from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
@@ -46,7 +53,7 @@ export function PoolCard({
 
   return (
     <div
-      className={`glass glass-hover relative overflow-hidden rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay" : ""}`}
+      className={`glass glass-hover relative rounded-2xl p-6 space-y-5 transition-all ${isFrozen ? "frozen-overlay overflow-hidden" : ""}`}
     >
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -63,17 +70,25 @@ export function PoolCard({
                 ? t("weeklyUSDC")
                 : `${pool.tokenSymbol} Pool`}
             </h3>
-            <Link
-              href="/dashboard/draws"
-              className="text-xs text-on-surface-variant hover:text-primary transition inline-flex items-center gap-1 group/drawLink"
-            >
-              <span>
-                {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
+              <Link
+                href="/dashboard/draws"
+                className="text-xs text-on-surface-variant hover:text-primary transition inline-flex items-center gap-1 group/drawLink"
+              >
+                <span>
+                  {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
+                </span>
+                <span className="opacity-0 group-hover/drawLink:opacity-100 transition-opacity text-[10px]">
+                  ↗
+                </span>
+              </Link>
+              <span className="inline-flex items-center gap-1 rounded-md bg-secondary/10 border border-secondary/20 px-1.5 py-0.5 text-[10px] font-semibold text-secondary">
+                <span className="h-1 w-1 rounded-full bg-secondary" />
+                {t("humaLendingTag", {
+                  apy: formatApy(pool.underlyingApy ?? DEFAULT_APY),
+                })}
               </span>
-              <span className="opacity-0 group-hover/drawLink:opacity-100 transition-opacity text-[10px]">
-                ↗
-              </span>
-            </Link>
+            </div>
           </div>
         </div>
 
@@ -99,9 +114,12 @@ export function PoolCard({
           accent="text-on-surface"
         />
         <div className="space-y-0.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            {t("estimatedPot")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              {t("estimatedPot")}
+            </p>
+            <YieldBreakdownTooltip pool={pool} />
+          </div>
           <LiveYieldTicker
             pool={pool}
             showBadge={false}
@@ -120,28 +138,33 @@ export function PoolCard({
         />
       </div>
 
-      {/* ── Countdown ────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-container/80 px-4 py-3">
-        <div className="flex items-center gap-2 shrink-0">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-on-surface-variant"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          <span className="text-xs font-medium text-on-surface-variant">
-            {t("drawIn")}
-          </span>
+      {/* ── Countdown & Minimum Threshold Status ─────────────────────── */}
+      <div className="rounded-xl bg-surface-container/80 px-4 py-3 space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 shrink-0">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-on-surface-variant"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+            <span className="text-xs font-medium text-on-surface-variant">
+              {t("drawIn")}
+            </span>
+          </div>
+          <CountdownTimer targetTimestamp={pool.currentCycleEndAt} />
         </div>
-        <CountdownTimer targetTimestamp={pool.currentCycleEndAt} />
+        <div className="pt-2 border-t border-outline-variant/10">
+          <MinimumYieldStatus pool={pool} />
+        </div>
       </div>
 
       {/* ── Prize Tiers ──────────────────────────────────────────────── */}

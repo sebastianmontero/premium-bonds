@@ -183,12 +183,17 @@ export function useBondsContract(poolId: number = 1) {
 
           // Fetch estimated prize pot using on-chain PST yield accounting
           try {
-            const { humaTotalAssets, pstSupply, poolPstBalance } =
-              await fetchPoolYieldOnChainState(rpc, {
-                poolId,
-                humaPoolStateAddress: HUMA_POOL_STATE,
-                pstMintAddress: HUMA_MODE_MINT,
-              });
+            const {
+              humaTotalAssets,
+              pstSupply,
+              poolPstBalance,
+              humaModeApy,
+            } = await fetchPoolYieldOnChainState(rpc, {
+              poolId,
+              humaPoolStateAddress: HUMA_POOL_STATE,
+              pstMintAddress: HUMA_MODE_MINT,
+              humaModeConfigAddress: HUMA_MODE_CONFIG,
+            });
 
             const yieldCalc = calculatePoolYield({
               poolPstBalance,
@@ -202,6 +207,10 @@ export function useBondsContract(poolId: number = 1) {
             });
 
             currentPool.estimatedPrizePot = yieldCalc.estimatedPrizePot;
+            currentPool.grossYield = Number(yieldCalc.grossYield);
+            currentPool.protocolFeeAmount = Number(yieldCalc.protocolFee);
+            currentPool.minYieldThreshold = Number(parsed.minYieldThreshold);
+            currentPool.underlyingApy = humaModeApy ?? 0.085;
 
             const isDev = process.env.NODE_ENV === "development";
             const isDebugEnabled =

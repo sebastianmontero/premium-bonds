@@ -35,6 +35,7 @@ import type {
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
 import { DrawStatus } from "./generated/yield-bonds/src/generated";
+import { DEFAULT_APY, DEFAULT_APY_BPS, bpsToRate } from "./formatters";
 
 export {
   RedemptionType,
@@ -308,6 +309,8 @@ export function parsePrizePool(data: Uint8Array) {
     nextRedemptionId: Number(decoded.nextRedemptionId),
     isFrozenForDraw: Boolean(decoded.isFrozenForDraw),
     ticketRegistry: decoded.ticketRegistry,
+    feeBasisPoints: Number(decoded.feeBasisPoints),
+    minYieldThreshold: Number(decoded.minYieldThreshold),
     prizeTiersCount,
     prizeTiers,
   };
@@ -504,10 +507,49 @@ export function calculatePoolYield(params: {
   };
 }
 
+export const HUMA_MODE_CONFIG_NAME_OFFSET = 42; // 8 (disc) + 1 (bump) + 1 (mint_bump) + 32 (id)
+export const BORSH_STRING_LENGTH_PREFIX_SIZE = 4;
+export const HUMA_MODE_CONFIG_MIN_BYTE_LENGTH = 48;
+
+export interface HumaModeConfigInfo {
+  targetApyBps: number;
+  apy: number;
+}
+
+/**
+ * Safely decodes Huma's ModeConfig account.
+ * Handles the dynamic Borsh string length prefix for `name: string` to locate `target_apy_bps`.
+ */
+export function parseModeConfig(data: Uint8Array): HumaModeConfigInfo {
+  if (data.byteLength < HUMA_MODE_CONFIG_MIN_BYTE_LENGTH) {
+    return { targetApyBps: DEFAULT_APY_BPS, apy: DEFAULT_APY };
+  }
+  try {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const nameLen = view.getUint32(HUMA_MODE_CONFIG_NAME_OFFSET, true);
+    const targetApyOffset =
+      HUMA_MODE_CONFIG_NAME_OFFSET + BORSH_STRING_LENGTH_PREFIX_SIZE + nameLen;
+    if (data.byteLength >= targetApyOffset + 2) {
+      const targetApyBps = view.getUint16(targetApyOffset, true);
+      return {
+        targetApyBps,
+        apy: bpsToRate(targetApyBps),
+      };
+    }
+  } catch (err) {
+    console.warn(
+      "Failed to parse Huma ModeConfig, falling back to default APY:",
+      err
+    );
+  }
+  return { targetApyBps: DEFAULT_APY_BPS, apy: DEFAULT_APY };
+}
+
 export interface PoolYieldOnChainState {
   humaTotalAssets: bigint;
   pstSupply: bigint;
   poolPstBalance: bigint;
+  humaModeApy?: number;
 }
 
 export async function fetchPoolYieldOnChainState(
@@ -517,23 +559,31 @@ export async function fetchPoolYieldOnChainState(
     poolId: number;
     humaPoolStateAddress?: Address | string;
     pstMintAddress?: Address | string;
+    humaModeConfigAddress?: Address | string;
   }
 ): Promise<PoolYieldOnChainState> {
   const humaPoolState = params.humaPoolStateAddress
     ? address(params.humaPoolStateAddress)
     : null;
   const pstMint = params.pstMintAddress ? address(params.pstMintAddress) : null;
+  const humaModeConfig = params.humaModeConfigAddress
+    ? address(params.humaModeConfigAddress)
+    : null;
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
 
-  const [humaRes, pstMintRes, poolPstVaultRes] = await Promise.allSettled([
-    humaPoolState
-      ? rpc.getAccountInfo(humaPoolState, { encoding: "base64" }).send()
-      : Promise.resolve(null),
-    pstMint
-      ? rpc.getAccountInfo(pstMint, { encoding: "base64" }).send()
-      : Promise.resolve(null),
-    rpc.getAccountInfo(poolPstVault, { encoding: "base64" }).send(),
-  ]);
+  const [humaRes, pstMintRes, poolPstVaultRes, humaModeConfigRes] =
+    await Promise.allSettled([
+      humaPoolState
+        ? rpc.getAccountInfo(humaPoolState, { encoding: "base64" }).send()
+        : Promise.resolve(null),
+      pstMint
+        ? rpc.getAccountInfo(pstMint, { encoding: "base64" }).send()
+        : Promise.resolve(null),
+      rpc.getAccountInfo(poolPstVault, { encoding: "base64" }).send(),
+      humaModeConfig
+        ? rpc.getAccountInfo(humaModeConfig, { encoding: "base64" }).send()
+        : Promise.resolve(null),
+    ]);
 
   let humaTotalAssets = 0n;
   if (humaRes.status === "fulfilled" && humaRes.value?.value?.data?.[0]) {
@@ -568,10 +618,24 @@ export async function fetchPoolYieldOnChainState(
     } catch {}
   }
 
+  let humaModeApy: number | undefined;
+  if (
+    humaModeConfigRes.status === "fulfilled" &&
+    humaModeConfigRes.value?.value?.data?.[0]
+  ) {
+    try {
+      const data = new Uint8Array(
+        base64Encoder.encode(humaModeConfigRes.value.value.data[0])
+      );
+      humaModeApy = parseModeConfig(data).apy;
+    } catch {}
+  }
+
   return {
     humaTotalAssets,
     pstSupply,
     poolPstBalance,
+    humaModeApy,
   };
 }
 

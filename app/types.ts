@@ -26,10 +26,43 @@ export interface PoolInfo {
   isFrozenForDraw: boolean;
   currentDrawCycleId: number;
   prizeTiers: PrizeTier[];
-  /** Estimated prize pot for the current cycle (off-chain calc) */
+  /** Estimated prize pot for the current cycle (off-chain calc, base units) */
   estimatedPrizePot: number;
+  /** Total accrued gross yield before protocol fees (base units) */
+  grossYield?: number;
+  /** Protocol reserve fee amount deducted from gross yield (base units) */
+  protocolFeeAmount?: number;
+  /** Minimum required gross yield threshold to execute draw (base units) */
+  minYieldThreshold?: number;
+  /** Underlying lending APY rate (e.g. 0.085 for 8.50%) */
+  underlyingApy?: number;
   /** Unix timestamp (in seconds) when the on-chain yield snapshot was fetched */
   lastSyncedAt?: number;
+}
+
+export interface YieldBreakdown {
+  grossYieldBase: number;
+  protocolFeeBase: number;
+  netYieldBase: number;
+  grossYieldUi: number;
+  protocolFeeUi: number;
+  netYieldUi: number;
+  feeBasisPoints: number;
+  feePercentFormatted: string;
+  underlyingApy: number;
+  underlyingApyFormatted: string;
+  netApy: number;
+  netApyFormatted: string;
+}
+
+export interface YieldThresholdProgress {
+  isMet: boolean;
+  isConfigured: boolean;
+  progressPercent: number; // 0..100 clamped
+  currentBase: number;
+  targetBase: number;
+  currentUi: number;
+  targetUi: number;
 }
 
 /**
@@ -55,6 +88,10 @@ export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
       { basisPoints: 2000, numWinners: 10 },
     ],
     estimatedPrizePot: 0,
+    grossYield: 0,
+    protocolFeeAmount: 0,
+    minYieldThreshold: 0,
+    underlyingApy: 0.085,
     lastSyncedAt: Math.floor(Date.now() / 1000),
   };
 }

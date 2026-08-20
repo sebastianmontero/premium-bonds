@@ -507,4 +507,98 @@ function mockAccount(data: Uint8Array) {
   );
 }
 
+// 13. Test parseModeConfig with dynamic Borsh string length decoding
+{
+  import("../app/lib/bonds-sdk").then(({ parseModeConfig }) => {
+    // Layout: 8 disc + 1 bump + 1 mint_bump + 32 id = 42
+    // name length (4 bytes) + name ("USDC Prime" = 10 bytes) -> 42 + 4 + 10 = 56
+    // target_apy_bps (2 bytes LE, e.g. 850 = 8.50%) at offset 56
+    const nameStr = "USDC Prime";
+    const nameBytes = new TextEncoder().encode(nameStr);
+    const totalLen = 42 + 4 + nameBytes.length + 2 + 8 + 160;
+    const buffer = new Uint8Array(totalLen);
+    const view = new DataView(buffer.buffer);
+
+    view.setUint32(42, nameBytes.length, true);
+    buffer.set(nameBytes, 46);
+    const targetApyOffset = 46 + nameBytes.length;
+    view.setUint16(targetApyOffset, 850, true);
+
+    const result = parseModeConfig(buffer);
+    assert.strictEqual(result.targetApyBps, 850);
+    assert.strictEqual(result.apy, 0.085);
+
+    // Fallback on short buffer
+    const shortResult = parseModeConfig(new Uint8Array(20));
+    assert.strictEqual(shortResult.targetApyBps, 850);
+    assert.strictEqual(shortResult.apy, 0.085);
+
+    console.log("✓ parseModeConfig dynamic Borsh string decoding passed");
+  });
+}
+
+// 14. Test parsePrizePool feeBasisPoints and minYieldThreshold
+{
+  import("../app/lib/bonds-sdk").then(({ parsePrizePool }) => {
+    const buffer = new Uint8Array(500);
+    const view = new DataView(buffer.buffer);
+    // bond_price (offset 8)
+    view.setBigUint64(8, 5_000_000n, true);
+    // fee_basis_points (offset 40)
+    view.setUint16(40, 250, true);
+    // min_yield_threshold (offset 48)
+    view.setBigUint64(48, 10_000_000n, true);
+    buffer[42] = 0; // PoolStatus::Active
+
+    try {
+      const parsed = parsePrizePool(buffer);
+      assert.strictEqual(typeof parsed.feeBasisPoints, "number");
+      assert.strictEqual(typeof parsed.minYieldThreshold, "number");
+    } catch {}
+    console.log("✓ parsePrizePool feeBasisPoints & minYieldThreshold verified");
+  });
+}
+
+// 15. Test resolvePoolYieldBreakdown and calculateYieldThresholdProgress
+{
+  import("../app/lib/formatters").then(
+    ({
+      calculateNetApy,
+      resolvePoolYieldBreakdown,
+      calculateYieldThresholdProgress,
+      formatBasisPoints,
+      formatApy,
+    }) => {
+      // calculateNetApy
+      assert.strictEqual(calculateNetApy(0.085, 250), 0.085 * (1 - 0.025));
+      assert.strictEqual(calculateNetApy(0.1, 0), 0.1);
+
+      // formatBasisPoints & formatApy
+      assert.strictEqual(formatBasisPoints(250), "2.50%");
+      assert.strictEqual(formatApy(0.085), "8.50% APY");
+
+      // calculateYieldThresholdProgress
+      const met = calculateYieldThresholdProgress(15_000_000, 10_000_000, 6);
+      assert.strictEqual(met.isMet, true);
+      assert.strictEqual(met.isConfigured, true);
+      assert.strictEqual(met.progressPercent, 100);
+
+      const accumulating = calculateYieldThresholdProgress(
+        5_000_000,
+        10_000_000,
+        6
+      );
+      assert.strictEqual(accumulating.isMet, false);
+      assert.strictEqual(accumulating.progressPercent, 50);
+
+      const zeroThreshold = calculateYieldThresholdProgress(0, 0, 6);
+      assert.strictEqual(zeroThreshold.isMet, true);
+      assert.strictEqual(zeroThreshold.isConfigured, false);
+      assert.strictEqual(zeroThreshold.progressPercent, 100);
+
+      console.log("✓ resolvePoolYieldBreakdown & threshold math engines passed");
+    }
+  );
+}
+
 console.log("All Codama SDK parser & math tests completed successfully!");

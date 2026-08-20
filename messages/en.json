@@ -160,7 +160,18 @@
     "distributedAcrossTiers": "Across all tiers",
     "depositToEnterCta": "Deposit",
     "close": "Close",
-    "perWinner": "per winner"
+    "perWinner": "per winner",
+    "yieldBreakdownTitle": "Yield Breakdown",
+    "underlyingStrategy": "Yield Strategy",
+    "humaStrategyName": "Huma Credit Vaults",
+    "humaLendingTag": "Huma · {apy}",
+    "grossYield": "Gross Yield Accrued",
+    "protocolFee": "Protocol Fee ({percent})",
+    "netPrizePot": "Net Distributable Prize Pot",
+    "losslessExplanation": "100% of deposited principal is held safely in the lending vault. Only interest is distributed.",
+    "yieldTargetMet": "Yield Target Met (Draw Ready)",
+    "yieldTargetNotSet": "No Minimum Threshold",
+    "yieldAccumulating": "Accumulating Yield ({current} / {target})"
   },
   "Modals": {
     "depositTitle": "Deposit Funds",

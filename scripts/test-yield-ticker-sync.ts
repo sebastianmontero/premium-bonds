@@ -63,8 +63,8 @@ console.log(
     "Formatted string output must be 100% identical"
   );
 
-  // Theoretical check: 1M USDC * 0.08 APY * 60s / 31557600s = 0.15210282... USDC
-  const expectedYield = (1_000_000 * 0.08 * 60) / SECONDS_PER_YEAR;
+  // Theoretical check: 1M USDC * DEFAULT_APY * 60s / 31557600s
+  const expectedYield = (1_000_000 * DEFAULT_APY * 60) / SECONDS_PER_YEAR;
   assert(
     Math.abs(poolCardVal - (10_000 + expectedYield)) < 1e-9,
     "Calculated yield must match financial formula"
@@ -309,6 +309,34 @@ console.log(
   assert(fallbackPool.lastSyncedAt! > 0);
 
   console.log("✓ Test 6: Formatter Cache Identity & Fallback Factory verified");
+}
+
+// ── Test 7: Net APY Protocol Fee Deduction Ticker Accrual ───────────────────
+{
+  const syncTime = 1_700_000_000;
+  const baseUi = 1_000;
+  const tvlUi = 1_000_000;
+  const apy = 0.085; // 8.50% gross APY
+  const feeBasisPoints = 250; // 2.50% protocol fee (net = 8.2875% APY)
+
+  const valWithFee = calculateLiveYield({
+    baseUi,
+    tvlUi,
+    apy,
+    feeBasisPoints,
+    lastSyncedAt: syncTime,
+    nowInSeconds: syncTime + 100,
+  });
+
+  const netApy = apy * (1 - 0.025);
+  const expectedYield = (1_000_000 * netApy * 100) / SECONDS_PER_YEAR;
+
+  assert(
+    Math.abs(valWithFee - (1_000 + expectedYield)) < 1e-9,
+    "Live yield calculation must accurately deduct protocol reserve fee"
+  );
+
+  console.log("✓ Test 7: Net APY Protocol Fee Deduction Ticker Accrual verified");
 }
 
 console.log(
