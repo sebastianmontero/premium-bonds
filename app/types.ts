@@ -55,6 +55,11 @@ export interface YieldBreakdown {
   netApyFormatted: string;
 }
 
+export interface YieldAmount {
+  base: number;
+  ui: number;
+}
+
 export interface YieldThresholdProgress {
   isMet: boolean;
   isConfigured: boolean;
@@ -63,6 +68,27 @@ export interface YieldThresholdProgress {
   targetBase: number;
   currentUi: number;
   targetUi: number;
+}
+
+export interface PoolThresholdBreakdown {
+  isConfigured: boolean;
+  isMet: boolean;
+  progressPercent: number;
+  gross: {
+    currentUi: number;
+    targetUi: number;
+    currentBase: number;
+    targetBase: number;
+  };
+  net: {
+    currentUi: number;
+    targetUi: number;
+    currentBase: number;
+    targetBase: number;
+  };
+  feeBasisPoints: number;
+  feePercentFormatted: string;
+  tokenSymbol: string;
 }
 
 /**

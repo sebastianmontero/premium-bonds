@@ -373,6 +373,7 @@ export default function DashboardPage() {
           totalUnclaimed={activeUnclaimedWinnings}
           tokenSymbol={activePool.tokenSymbol}
           tokenDecimals={activePool.tokenDecimals}
+          bondPrice={activePool.bondPrice}
           onClaim={handleClaimNonReinvestedWinnings}
         />
       )}

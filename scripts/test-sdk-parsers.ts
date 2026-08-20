@@ -566,6 +566,7 @@ function mockAccount(data: Uint8Array) {
       calculateNetApy,
       resolvePoolYieldBreakdown,
       calculateYieldThresholdProgress,
+      resolvePoolThresholdBreakdown,
       formatBasisPoints,
       formatApy,
     }) => {
@@ -596,7 +597,38 @@ function mockAccount(data: Uint8Array) {
       assert.strictEqual(zeroThreshold.isConfigured, false);
       assert.strictEqual(zeroThreshold.progressPercent, 100);
 
-      console.log("✓ resolvePoolYieldBreakdown & threshold math engines passed");
+      // resolvePoolThresholdBreakdown
+      const samplePool = {
+        poolId: 1,
+        tokenMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        bondPrice: 5_000_000,
+        stakeCycleDurationHrs: 168,
+        feeBasisPoints: 250,
+        status: "Active" as const,
+        totalDepositedPrincipal: 100_000_000_000,
+        currentCycleEndAt: 1800000000,
+        isFrozenForDraw: false,
+        currentDrawCycleId: 1,
+        prizeTiers: [],
+        estimatedPrizePot: 4_875_000,
+        grossYield: 5_000_000,
+        protocolFeeAmount: 125_000,
+        minYieldThreshold: 10_000_000,
+        underlyingApy: 0.085,
+      };
+      const breakdown = resolvePoolThresholdBreakdown(samplePool);
+      assert.strictEqual(breakdown.isConfigured, true);
+      assert.strictEqual(breakdown.isMet, false);
+      assert.strictEqual(breakdown.progressPercent, 50);
+      assert.strictEqual(breakdown.gross.targetUi, 10);
+      assert.strictEqual(breakdown.net.targetUi, 9.75);
+      assert.strictEqual(breakdown.net.currentUi, 4.875);
+
+      console.log(
+        "✓ resolvePoolYieldBreakdown & threshold math engines passed"
+      );
     }
   );
 }

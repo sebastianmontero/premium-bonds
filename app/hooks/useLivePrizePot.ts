@@ -7,51 +7,19 @@ import {
   DEFAULT_APY,
   USDC_DECIMALS,
   calculateNetApy,
+  calculateLiveYield,
+  type LiveYieldCalculationParams,
+  calculateLiveYieldBreakdown,
+  type LiveYieldBreakdown,
 } from "../lib/formatters";
 import type { PoolInfo } from "../types";
 
-export interface LiveYieldCalculationParams {
-  baseUi: number;
-  tvlUi: number;
-  apy: number;
-  feeBasisPoints?: number;
-  lastSyncedAt?: number;
-  nowInSeconds: number;
-  isFrozenForDraw?: boolean;
-  enabled?: boolean;
-}
-
-/**
- * Pure, deterministic live yield calculation engine.
- * Reused by hooks, ticker loops, and unit tests without duplication.
- */
-export function calculateLiveYield({
-  baseUi,
-  tvlUi,
-  apy,
-  feeBasisPoints = 0,
-  lastSyncedAt,
-  nowInSeconds,
-  isFrozenForDraw = false,
-  enabled = true,
-}: LiveYieldCalculationParams): number {
-  if (
-    isFrozenForDraw ||
-    !enabled ||
-    tvlUi <= 0 ||
-    apy <= 0 ||
-    !lastSyncedAt ||
-    lastSyncedAt <= 0
-  ) {
-    return baseUi;
-  }
-  // Guard against clock drift or negative elapsed time
-  const elapsed = Math.max(0, nowInSeconds - lastSyncedAt);
-  const netApy = calculateNetApy(apy, feeBasisPoints);
-  const netYieldAccrued = (tvlUi * netApy * elapsed) / SECONDS_PER_YEAR;
-  const currentVal = baseUi + netYieldAccrued;
-  return Number.isFinite(currentVal) ? currentVal : baseUi;
-}
+export {
+  calculateLiveYield,
+  type LiveYieldCalculationParams,
+  calculateLiveYieldBreakdown,
+  type LiveYieldBreakdown,
+};
 
 export interface UseLivePrizePotOptions {
   /** Optional PoolInfo reference - properties are extracted automatically if provided */

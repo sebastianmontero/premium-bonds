@@ -2,7 +2,12 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
-import { resolvePoolYieldBreakdown, formatTokenAmount } from "@/app/lib/formatters";
+import {
+  resolvePoolYieldBreakdown,
+  calculateLiveYieldBreakdown,
+  formatLiveYieldMetric,
+  DEFAULT_LIVE_YIELD_PRECISION,
+} from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 
 interface YieldBreakdownTooltipProps {
@@ -17,8 +22,74 @@ export function YieldBreakdownTooltip({
   const t = useTranslations("Pools");
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const grossSpanRef = useRef<HTMLSpanElement | null>(null);
+  const feeSpanRef = useRef<HTMLSpanElement | null>(null);
+  const netSpanRef = useRef<HTMLSpanElement | null>(null);
 
   const breakdown = resolvePoolYieldBreakdown(pool, pool.tokenDecimals);
+  const tokenSymbol = pool.tokenSymbol ?? "USDC";
+
+  // 60 FPS Live Yield Ticker Loop (strictly active only when open and not frozen)
+  useEffect(() => {
+    if (!isOpen || pool.isFrozenForDraw) return;
+
+    let animFrameId: number;
+
+    const tick = () => {
+      const nowInSeconds = Date.now() / 1000;
+      const live = calculateLiveYieldBreakdown(
+        pool,
+        nowInSeconds,
+        pool.tokenDecimals
+      );
+
+      if (grossSpanRef.current) {
+        grossSpanRef.current.textContent = formatLiveYieldMetric(
+          live.grossYieldUi,
+          tokenSymbol,
+          "+",
+          DEFAULT_LIVE_YIELD_PRECISION
+        );
+      }
+      if (feeSpanRef.current) {
+        feeSpanRef.current.textContent = formatLiveYieldMetric(
+          live.protocolFeeUi,
+          tokenSymbol,
+          "-",
+          DEFAULT_LIVE_YIELD_PRECISION
+        );
+      }
+      if (netSpanRef.current) {
+        netSpanRef.current.textContent = formatLiveYieldMetric(
+          live.netYieldUi,
+          tokenSymbol,
+          "",
+          DEFAULT_LIVE_YIELD_PRECISION
+        );
+      }
+
+      animFrameId = requestAnimationFrame(tick);
+    };
+
+    animFrameId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(animFrameId);
+    };
+  }, [
+    isOpen,
+    pool.isFrozenForDraw,
+    pool.grossYield,
+    pool.protocolFeeAmount,
+    pool.estimatedPrizePot,
+    pool.totalDepositedPrincipal,
+    pool.tokenDecimals,
+    pool.underlyingApy,
+    pool.feeBasisPoints,
+    pool.lastSyncedAt,
+    tokenSymbol,
+    pool,
+  ]);
 
   // Close when clicking outside
   useEffect(() => {
@@ -50,9 +121,24 @@ export function YieldBreakdownTooltip({
     };
   }, [isOpen]);
 
-  const formatMicroAmount = (amountBase: number) => {
-    return formatTokenAmount(amountBase, pool.tokenDecimals, 2, 6);
-  };
+  const initialGrossFormatted = formatLiveYieldMetric(
+    breakdown.grossYieldUi,
+    tokenSymbol,
+    "+",
+    DEFAULT_LIVE_YIELD_PRECISION
+  );
+  const initialFeeFormatted = formatLiveYieldMetric(
+    breakdown.protocolFeeUi,
+    tokenSymbol,
+    "-",
+    DEFAULT_LIVE_YIELD_PRECISION
+  );
+  const initialNetFormatted = formatLiveYieldMetric(
+    breakdown.netYieldUi,
+    tokenSymbol,
+    "",
+    DEFAULT_LIVE_YIELD_PRECISION
+  );
 
   return (
     <div
@@ -67,9 +153,23 @@ export function YieldBreakdownTooltip({
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         aria-label={t("yieldBreakdownTitle")}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-surface-container-high/70 text-on-surface-variant hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 -translate-y-px"
+        className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-on-surface-variant/70 hover:text-primary transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40 rounded-full"
       >
-        <span aria-hidden="true">ⓘ</span>
+        <svg
+          className="h-3.5 w-3.5 shrink-0"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" strokeWidth="2" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M12 16v-4m0-4h.01"
+          />
+        </svg>
       </button>
 
       {isOpen && (
@@ -112,8 +212,13 @@ export function YieldBreakdownTooltip({
 
             <div className="flex justify-between text-on-surface-variant">
               <span>{t("grossYield")}</span>
-              <span className="font-mono font-medium text-on-surface">
-                +${formatMicroAmount(breakdown.grossYieldBase)} {pool.tokenSymbol}
+              <span className="font-mono font-medium text-on-surface tabular-nums">
+                <span ref={grossSpanRef} aria-hidden="true">
+                  {initialGrossFormatted}
+                </span>
+                <span className="sr-only">
+                  {t("grossYield")}: {initialGrossFormatted}
+                </span>
               </span>
             </div>
 
@@ -121,15 +226,28 @@ export function YieldBreakdownTooltip({
               <span>
                 {t("protocolFee", { percent: breakdown.feePercentFormatted })}
               </span>
-              <span className="font-mono text-error/90 font-medium">
-                -${formatMicroAmount(breakdown.protocolFeeBase)} {pool.tokenSymbol}
+              <span className="font-mono text-error/90 font-medium tabular-nums">
+                <span ref={feeSpanRef} aria-hidden="true">
+                  {initialFeeFormatted}
+                </span>
+                <span className="sr-only">
+                  {t("protocolFee", {
+                    percent: breakdown.feePercentFormatted,
+                  })}
+                  : {initialFeeFormatted}
+                </span>
               </span>
             </div>
 
             <div className="pt-2 border-t border-outline-variant/15 flex justify-between font-bold text-on-surface">
               <span className="text-secondary">{t("netPrizePot")}</span>
-              <span className="font-mono text-gradient">
-                ${formatMicroAmount(breakdown.netYieldBase)} {pool.tokenSymbol}
+              <span className="font-mono text-gradient tabular-nums">
+                <span ref={netSpanRef} aria-hidden="true">
+                  {initialNetFormatted}
+                </span>
+                <span className="sr-only">
+                  {t("netPrizePot")}: {initialNetFormatted}
+                </span>
               </span>
             </div>
           </div>

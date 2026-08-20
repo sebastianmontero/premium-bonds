@@ -2,13 +2,17 @@ import assert from "assert";
 import {
   calculateLiveYield,
   LiveYieldCalculationParams,
+  calculateLiveYieldBreakdown,
 } from "../app/hooks/useLivePrizePot";
 import {
   SECONDS_PER_YEAR,
   DEFAULT_APY,
   DEFAULT_LIVE_YIELD_PRECISION,
   getLiveYieldFormatter,
+  formatLiveYieldMetric,
   USDC_DECIMALS,
+  resolvePoolThresholdBreakdown,
+  calculateYieldThresholdProgress,
 } from "../app/lib/formatters";
 import { createDefaultPoolFallback } from "../app/types";
 
@@ -336,7 +340,222 @@ console.log(
     "Live yield calculation must accurately deduct protocol reserve fee"
   );
 
-  console.log("✓ Test 7: Net APY Protocol Fee Deduction Ticker Accrual verified");
+  console.log(
+    "✓ Test 7: Net APY Protocol Fee Deduction Ticker Accrual verified"
+  );
+}
+
+// ── Test 8: Yield Breakdown Live Ticker Mathematical Consistency & Card Parity ──
+{
+  const syncTime = 1_700_000_000;
+  const pool = createDefaultPoolFallback(1);
+  pool.totalDepositedPrincipal = 2_000_000 * 10 ** USDC_DECIMALS; // 2M USDC
+  pool.grossYield = 10_000 * 10 ** USDC_DECIMALS; // 10k USDC gross
+  pool.feeBasisPoints = 250; // 2.50% fee
+  pool.protocolFeeAmount = 250 * 10 ** USDC_DECIMALS; // 250 USDC fee
+  pool.estimatedPrizePot = 9_750 * 10 ** USDC_DECIMALS; // 9,750 USDC net
+  pool.underlyingApy = 0.085; // 8.50%
+  pool.lastSyncedAt = syncTime;
+
+  // 8a: Mathematical Invariant: Gross = Fee + Net across arbitrary time deltas
+  for (const dt of [0, 1, 10, 60, 3600, 86400]) {
+    const live = calculateLiveYieldBreakdown(pool, syncTime + dt);
+    const sum = live.protocolFeeUi + live.netYieldUi;
+    assert(
+      Math.abs(live.grossYieldUi - sum) < 1e-9,
+      `Gross (${live.grossYieldUi}) must equal Fee (${live.protocolFeeUi}) + Net (${live.netYieldUi}) at dt=${dt}s`
+    );
+  }
+
+  // 8b: Card-to-Modal Net Pot Parity: calculateLiveYield === calculateLiveYieldBreakdown.netYieldUi
+  const now = syncTime + 300;
+  const directPot = calculateLiveYield({
+    baseUi: pool.estimatedPrizePot / 10 ** pool.tokenDecimals,
+    tvlUi: pool.totalDepositedPrincipal / 10 ** pool.tokenDecimals,
+    apy: pool.underlyingApy,
+    feeBasisPoints: pool.feeBasisPoints,
+    lastSyncedAt: pool.lastSyncedAt,
+    nowInSeconds: now,
+  });
+  const breakdownLive = calculateLiveYieldBreakdown(pool, now);
+  assert.strictEqual(
+    directPot,
+    breakdownLive.netYieldUi,
+    "calculateLiveYield and calculateLiveYieldBreakdown must produce identical net yield"
+  );
+
+  // 8c: Zero Fee Pool Invariant: feeBasisPoints = 0 -> Fee = 0 and Gross = Net
+  const zeroFeePool = {
+    ...pool,
+    feeBasisPoints: 0,
+    protocolFeeAmount: 0,
+    estimatedPrizePot: pool.grossYield,
+  };
+  const zeroFeeLive = calculateLiveYieldBreakdown(zeroFeePool, now);
+  assert.strictEqual(
+    zeroFeeLive.protocolFeeUi,
+    0,
+    "Zero fee pool must yield 0 protocol fee"
+  );
+  assert.strictEqual(
+    zeroFeeLive.grossYieldUi,
+    zeroFeeLive.netYieldUi,
+    "Zero fee pool must have Gross === Net"
+  );
+
+  // 8d: Frozen pool safeguard
+  const frozenPool = { ...pool, isFrozenForDraw: true };
+  const frozenLive = calculateLiveYieldBreakdown(frozenPool, now);
+  assert.strictEqual(
+    frozenLive.grossYieldUi,
+    pool.grossYield / 10 ** pool.tokenDecimals,
+    "Frozen pool gross yield must remain at base"
+  );
+  assert.strictEqual(
+    frozenLive.netYieldUi,
+    pool.estimatedPrizePot / 10 ** pool.tokenDecimals,
+    "Frozen pool net yield must remain at base"
+  );
+
+  // 8e: Canonical formatLiveYieldMetric token-aware prefix verification
+  assert.strictEqual(
+    formatLiveYieldMetric(1234.56789, "USDC", "+", 6),
+    "+$1,234.567890"
+  );
+  assert.strictEqual(
+    formatLiveYieldMetric(1234.56789, "USDC", "-", 6),
+    "-$1,234.567890"
+  );
+  assert.strictEqual(
+    formatLiveYieldMetric(1234.56789, "USDC", "", 6),
+    "$1,234.567890"
+  );
+  assert.strictEqual(
+    formatLiveYieldMetric(12.345678, "SOL", "+", 6),
+    "+12.345678 SOL"
+  );
+  assert.strictEqual(
+    formatLiveYieldMetric(12.345678, "SOL", "-", 6),
+    "-12.345678 SOL"
+  );
+
+  console.log(
+    "✓ Test 8: Yield Breakdown Live Ticker Mathematical Consistency & Card Parity verified"
+  );
+}
+
+// ── Test 9: Minimum Yield Status Live Ticker & Threshold Parity ─────────────
+{
+  const syncTime = 1_700_000_000;
+  const pool = createDefaultPoolFallback(1);
+  pool.totalDepositedPrincipal = 1_000_000 * 10 ** USDC_DECIMALS; // 1M USDC
+  pool.grossYield = 5_000 * 10 ** USDC_DECIMALS; // 5,000 USDC gross (50% of 10,000 threshold)
+  pool.minYieldThreshold = 10_000 * 10 ** USDC_DECIMALS; // 10,000 USDC gross target
+  pool.feeBasisPoints = 250; // 2.50% fee (net target = 9,750 USDC)
+  pool.protocolFeeAmount = 125 * 10 ** USDC_DECIMALS;
+  pool.estimatedPrizePot = 4_875 * 10 ** USDC_DECIMALS;
+  pool.underlyingApy = 0.085;
+  pool.lastSyncedAt = syncTime;
+
+  // 9a: Mathematical Identity of Gross vs. Net Threshold Progress
+  const breakdown = resolvePoolThresholdBreakdown(pool);
+  assert.strictEqual(
+    breakdown.isConfigured,
+    true,
+    "10k threshold must be configured"
+  );
+  assert.strictEqual(breakdown.isMet, false, "5k / 10k must not be met");
+  assert.strictEqual(
+    breakdown.progressPercent,
+    50,
+    "Progress must be exactly 50%"
+  );
+  assert.strictEqual(
+    breakdown.gross.targetUi,
+    10_000,
+    "Gross target must be 10,000 USDC"
+  );
+  assert.strictEqual(
+    breakdown.net.targetUi,
+    9_750,
+    "Net target must be 9,750 USDC"
+  );
+  assert.strictEqual(
+    breakdown.gross.currentUi,
+    5_000,
+    "Gross current must be 5,000 USDC"
+  );
+  assert.strictEqual(
+    breakdown.net.currentUi,
+    4_875,
+    "Net current must be 4,875 USDC"
+  );
+
+  // Ratio check: 4,875 / 9,750 === 5,000 / 10,000 === 0.5
+  assert.strictEqual(
+    breakdown.net.currentUi / breakdown.net.targetUi,
+    breakdown.gross.currentUi / breakdown.gross.targetUi,
+    "Gross and Net progress ratios must be strictly equal"
+  );
+
+  // 9b: 60 FPS Live Accrual Synchronization with calculateLiveYieldBreakdown
+  const dt = 3600; // 1 hour later
+  const live = calculateLiveYieldBreakdown(pool, syncTime + dt);
+  const liveProgressPct = Math.min(
+    100,
+    (live.netYieldUi / breakdown.net.targetUi) * 100
+  );
+  const expectedNetYield =
+    4_875 + (1_000_000 * (0.085 * (1 - 0.025)) * 3600) / SECONDS_PER_YEAR;
+  assert(
+    Math.abs(live.netYieldUi - expectedNetYield) < 1e-6,
+    "Live net yield must match 1-hour accrual formula"
+  );
+  assert(
+    liveProgressPct > 50,
+    "Live progress percentage must tick upward with accrued yield"
+  );
+
+  // 9c: Dynamic Boundary Crossing (< 100% -> >= 100%)
+  // Time needed to accumulate remaining 4,875 USDC net yield at 1M TVL & 8.2875% net APY:
+  // t = 4875 * SECONDS_PER_YEAR / (1,000,000 * 0.082875) = ~1,856,329 seconds
+  const crossingDt = 2_000_000;
+  const liveAfterCrossing = calculateLiveYieldBreakdown(
+    pool,
+    syncTime + crossingDt
+  );
+  const crossedProgressPct = Math.min(
+    100,
+    (liveAfterCrossing.netYieldUi / breakdown.net.targetUi) * 100
+  );
+  assert.strictEqual(
+    crossedProgressPct,
+    100,
+    "Progress must cap at 100% upon crossing threshold"
+  );
+  assert(
+    liveAfterCrossing.netYieldUi >= breakdown.net.targetUi,
+    "Net yield must exceed net target"
+  );
+
+  // 9d: Defensive Handling: Zero Threshold, Zero TVL, Frozen Pool
+  const zeroTargetPool = { ...pool, minYieldThreshold: 0 };
+  const zeroBreakdown = resolvePoolThresholdBreakdown(zeroTargetPool);
+  assert.strictEqual(zeroBreakdown.isConfigured, false);
+  assert.strictEqual(zeroBreakdown.isMet, true);
+  assert.strictEqual(zeroBreakdown.progressPercent, 100);
+
+  const frozenPool = { ...pool, isFrozenForDraw: true };
+  const frozenLive = calculateLiveYieldBreakdown(frozenPool, syncTime + 1000);
+  assert.strictEqual(
+    frozenLive.netYieldUi,
+    pool.estimatedPrizePot / 10 ** pool.tokenDecimals,
+    "Frozen pool live yield must remain clamped at snapshot base"
+  );
+
+  console.log(
+    "✓ Test 9: Minimum Yield Status Live Ticker & Threshold Parity verified"
+  );
 }
 
 console.log(

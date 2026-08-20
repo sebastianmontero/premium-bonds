@@ -108,6 +108,9 @@
   "Unclaimed": {
     "title": "You have accumulated leftover winnings!",
     "description": "accumulated leftover dust ready to claim.",
+    "dustTooltipTitle": "Why do I have leftover dust?",
+    "dustTooltipExplanation": "Prizes automatically compound into full {bondPrice} {symbol} bonds. Fractional winnings under {bondPrice} {symbol} are held as dust, which will automatically combine with future prize winnings to purchase new bonds, or can be claimed to your wallet at any time.",
+    "dustTooltipTrigger": "Learn about leftover dust",
     "claimNow": "Claim Now",
     "dismiss": "Dismiss"
   },
@@ -122,7 +125,11 @@
     "unclaimedPrizes": "Unclaimed Prizes",
     "claimPrizesButton": "Claim All Prizes",
     "noUnclaimed": "No unclaimed prizes",
-    "protocolLive": "Protocol Live"
+    "protocolLive": "Protocol Live",
+    "networkMainnet": "Solana Mainnet",
+    "networkDevnet": "Devnet",
+    "networkTestnet": "Testnet",
+    "networkLocalnet": "Localnet"
   },
   "Pools": {
     "activePool": "Active Pool",
@@ -171,7 +178,19 @@
     "losslessExplanation": "100% of deposited principal is held safely in the lending vault. Only interest is distributed.",
     "yieldTargetMet": "Yield Target Met (Draw Ready)",
     "yieldTargetNotSet": "No Minimum Threshold",
-    "yieldAccumulating": "Accumulating Yield ({current} / {target})"
+    "yieldAccumulating": "Accumulating Yield ({current} / {target})",
+    "drawTargetTitle": "Draw Prize Pot Target",
+    "drawTargetExplanation": "To ensure draws are economical and prizes are meaningful, a minimum prize pot must be accumulated before the draw executes.",
+    "targetMetExecution": "Target Met: The smart contract will request verifiable randomness (VRF) and select winners when the timer reaches zero.",
+    "targetUnmetRollover": "Rollover Protection: If the target is not reached before the countdown ends, the draw is skipped and 100% of accrued yield rolls over into the next cycle.",
+    "losslessRolloverNote": "100% Lossless: Your bonds and deposited principal are never at risk and remain active for future draws.",
+    "netTargetLabel": "Net Prize Pot Target",
+    "grossTargetLabel": "Underlying Gross Yield Target",
+    "prizePotTargetAccumulating": "Prize Pot Target",
+    "prizePotTargetMet": "Draw Target Met (Draw Ready)",
+    "noMinimumTarget": "No Minimum Target (Every Cycle Draws)",
+    "drawTargetTooltipLabel": "Draw target information",
+    "drawTargetProgressSr": "Draw target progress: {current} of {target} ({percent}%)"
   },
   "Modals": {
     "depositTitle": "Deposit Funds",

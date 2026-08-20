@@ -2,6 +2,7 @@ import type {
   PoolInfo,
   YieldBreakdown,
   YieldThresholdProgress,
+  PoolThresholdBreakdown,
 } from "../types";
 
 export const USDC_DECIMALS = 6;
@@ -43,10 +44,7 @@ export function formatBasisPoints(
 }
 
 /** Formats APY decimal to human-readable string (e.g. 0.085 -> "8.50% APY") */
-export function formatApy(
-  apy: number,
-  fractionDigits: number = 2
-): string {
+export function formatApy(apy: number, fractionDigits: number = 2): string {
   const percent = (Number.isFinite(apy) ? apy : 0) * 100;
   return `${percent.toFixed(fractionDigits)}% APY`;
 }
@@ -111,6 +109,151 @@ export function calculateYieldThresholdProgress(
   };
 }
 
+/**
+ * Pure domain selector to extract structured yield threshold progress metrics from PoolInfo.
+ * Computes both gross (on-chain) and net (distributable) target progress deterministically.
+ */
+export function resolvePoolThresholdBreakdown(
+  pool: PoolInfo,
+  decimals: number = pool.tokenDecimals ?? USDC_DECIMALS
+): PoolThresholdBreakdown {
+  const currentGrossBase = Math.max(0, pool.grossYield ?? 0);
+  const targetGrossBase = Math.max(0, pool.minYieldThreshold ?? 0);
+  const feeBasisPoints = pool.feeBasisPoints ?? 0;
+  const feeRate = bpsToRate(feeBasisPoints);
+  const netFactor = Math.max(0, 1 - feeRate);
+
+  const currentNetBase =
+    pool.estimatedPrizePot ?? Math.round(currentGrossBase * netFactor);
+  const targetNetBase = Math.round(targetGrossBase * netFactor);
+
+  const divisor = 10 ** decimals;
+  const isConfigured = targetGrossBase > 0;
+  const isMet = !isConfigured || currentGrossBase >= targetGrossBase;
+  const progressPercent = isConfigured
+    ? Math.min(100, Math.max(0, (currentGrossBase / targetGrossBase) * 100))
+    : 100;
+
+  return {
+    isConfigured,
+    isMet,
+    progressPercent,
+    gross: {
+      currentBase: currentGrossBase,
+      targetBase: targetGrossBase,
+      currentUi: currentGrossBase / divisor,
+      targetUi: targetGrossBase / divisor,
+    },
+    net: {
+      currentBase: currentNetBase,
+      targetBase: targetNetBase,
+      currentUi: currentNetBase / divisor,
+      targetUi: targetNetBase / divisor,
+    },
+    feeBasisPoints,
+    feePercentFormatted: formatBasisPoints(feeBasisPoints),
+    tokenSymbol: pool.tokenSymbol ?? "USDC",
+  };
+}
+
+export interface LiveYieldCalculationParams {
+  baseUi: number;
+  tvlUi: number;
+  apy: number;
+  feeBasisPoints?: number;
+  lastSyncedAt?: number;
+  nowInSeconds: number;
+  isFrozenForDraw?: boolean;
+  enabled?: boolean;
+}
+
+/**
+ * Pure, deterministic live yield calculation engine.
+ * Reused by hooks, ticker loops, and unit tests without duplication.
+ */
+export function calculateLiveYield({
+  baseUi,
+  tvlUi,
+  apy,
+  feeBasisPoints = 0,
+  lastSyncedAt,
+  nowInSeconds,
+  isFrozenForDraw = false,
+  enabled = true,
+}: LiveYieldCalculationParams): number {
+  if (
+    isFrozenForDraw ||
+    !enabled ||
+    tvlUi <= 0 ||
+    apy <= 0 ||
+    !lastSyncedAt ||
+    lastSyncedAt <= 0
+  ) {
+    return baseUi;
+  }
+  // Guard against clock drift or negative elapsed time
+  const elapsed = Math.max(0, nowInSeconds - lastSyncedAt);
+  const netApy = calculateNetApy(apy, feeBasisPoints);
+  const netYieldAccrued = (tvlUi * netApy * elapsed) / SECONDS_PER_YEAR;
+  const currentVal = baseUi + netYieldAccrued;
+  return Number.isFinite(currentVal) ? currentVal : baseUi;
+}
+
+export interface LiveYieldBreakdown {
+  grossYieldUi: number;
+  protocolFeeUi: number;
+  netYieldUi: number;
+  underlyingApy: number;
+  feeBasisPoints: number;
+}
+
+/**
+ * Pure, deterministic live yield breakdown engine.
+ * Guarantees mathematical consistency: Gross = Net + ProtocolFee at all timestamps.
+ */
+export function calculateLiveYieldBreakdown(
+  pool: PoolInfo,
+  nowInSeconds: number,
+  decimals: number = pool.tokenDecimals ?? USDC_DECIMALS
+): LiveYieldBreakdown {
+  const breakdown = resolvePoolYieldBreakdown(pool, decimals);
+  const tvlUi = (pool.totalDepositedPrincipal ?? 0) / 10 ** decimals;
+  const apy = pool.underlyingApy ?? DEFAULT_APY;
+  const feeBasisPoints = pool.feeBasisPoints ?? 0;
+  const lastSyncedAt = pool.lastSyncedAt;
+  const isFrozenForDraw = pool.isFrozenForDraw ?? false;
+
+  const grossYieldUi = calculateLiveYield({
+    baseUi: breakdown.grossYieldUi,
+    tvlUi,
+    apy,
+    feeBasisPoints: 0,
+    lastSyncedAt,
+    nowInSeconds,
+    isFrozenForDraw,
+  });
+
+  const netYieldUi = calculateLiveYield({
+    baseUi: breakdown.netYieldUi,
+    tvlUi,
+    apy,
+    feeBasisPoints,
+    lastSyncedAt,
+    nowInSeconds,
+    isFrozenForDraw,
+  });
+
+  const protocolFeeUi = Math.max(0, grossYieldUi - netYieldUi);
+
+  return {
+    grossYieldUi,
+    protocolFeeUi,
+    netYieldUi,
+    underlyingApy: breakdown.underlyingApy,
+    feeBasisPoints: breakdown.feeBasisPoints,
+  };
+}
+
 const liveYieldFormatterCache = new Map<number, Intl.NumberFormat>();
 
 /**
@@ -129,6 +272,23 @@ export function getLiveYieldFormatter(
     liveYieldFormatterCache.set(precision, fmt);
   }
   return fmt;
+}
+
+/**
+ * Canonical token-aware 60 FPS live currency formatter with optional prefix sign (+, -, ~).
+ */
+export function formatLiveYieldMetric(
+  amountUi: number,
+  tokenSymbol: string = "USDC",
+  prefix: string = "",
+  precision: number = DEFAULT_LIVE_YIELD_PRECISION
+): string {
+  const safeAmount = Number.isFinite(amountUi) ? amountUi : 0;
+  const formatted = getLiveYieldFormatter(precision).format(safeAmount);
+  if (tokenSymbol.toUpperCase() === "USDC") {
+    return `${prefix}$${formatted}`;
+  }
+  return `${prefix}${formatted} ${tokenSymbol}`;
 }
 
 /**
@@ -198,12 +358,7 @@ export function formatTierPayoutAmount(
   tokenSymbol: string = "USDC",
   precision: number = DEFAULT_LIVE_YIELD_PRECISION
 ): string {
-  const formatter = getLiveYieldFormatter(precision);
-  const formatted = formatter.format(amount);
-  if (tokenSymbol.toUpperCase() === "USDC") {
-    return `$${formatted}`;
-  }
-  return `${formatted} ${tokenSymbol}`;
+  return formatLiveYieldMetric(amount, tokenSymbol, "", precision);
 }
 
 /**

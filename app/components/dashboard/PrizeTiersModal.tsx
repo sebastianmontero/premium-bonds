@@ -293,19 +293,34 @@ export function PrizeTiersModal({
             <table className="w-full min-w-[560px] text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-surface-container-high/40 bg-surface-container/60 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
-                  <th scope="col" className="py-3 px-4 min-w-[155px] whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-4 min-w-[155px] whitespace-nowrap"
+                  >
                     {t("tierColumn")}
                   </th>
-                  <th scope="col" className="py-3 px-4 text-right w-[85px] whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-4 text-right w-[85px] whitespace-nowrap"
+                  >
                     {t("shareColumn")}
                   </th>
-                  <th scope="col" className="py-3 px-4 text-center w-[90px] whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-4 text-center w-[90px] whitespace-nowrap"
+                  >
                     {t("winnersColumn")}
                   </th>
-                  <th scope="col" className="py-3 px-4 text-right whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-4 text-right whitespace-nowrap"
+                  >
                     {t("estPerWinnerColumn")}
                   </th>
-                  <th scope="col" className="py-3 px-4 text-right whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-4 text-right whitespace-nowrap"
+                  >
                     {t("totalTierShareColumn")}
                   </th>
                 </tr>

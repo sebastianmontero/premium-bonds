@@ -108,6 +108,9 @@
   "Unclaimed": {
     "title": "¡Tienes ganancias acumuladas pendientes!",
     "description": "de saldo residual listo para reclamar.",
+    "dustTooltipTitle": "¿Por qué tengo saldo residual (dust)?",
+    "dustTooltipExplanation": "Los premios se reinvierten automáticamente en bonos completos de {bondPrice} {symbol}. Los montos fraccionarios menores a {bondPrice} {symbol} se mantienen como saldo residual, el cual se combinará automáticamente con futuras ganancias para comprar nuevos bonos, o puedes reclamarlo a tu billetera en cualquier momento.",
+    "dustTooltipTrigger": "Información sobre el saldo residual",
     "claimNow": "Reclamar Ahora",
     "dismiss": "Descartar"
   },
@@ -122,7 +125,11 @@
     "unclaimedPrizes": "Premios no Reclamados",
     "claimPrizesButton": "Reclamar Todos los Premios",
     "noUnclaimed": "Sin premios pendientes",
-    "protocolLive": "Protocolo Activo"
+    "protocolLive": "Protocolo Activo",
+    "networkMainnet": "Solana Mainnet",
+    "networkDevnet": "Devnet",
+    "networkTestnet": "Testnet",
+    "networkLocalnet": "Localnet"
   },
   "Pools": {
     "activePool": "Fondo Activo",
@@ -171,7 +178,19 @@
     "losslessExplanation": "El 100% del capital depositado se mantiene seguro en la bóveda de préstamos. Solo los intereses se distribuyen como premios.",
     "yieldTargetMet": "Objetivo de Rendimiento Cumplido (Sorteo Listo)",
     "yieldTargetNotSet": "Sin Umbral Mínimo",
-    "yieldAccumulating": "Acumulando Rendimiento ({current} / {target})"
+    "yieldAccumulating": "Acumulando Rendimiento ({current} / {target})",
+    "drawTargetTitle": "Meta del Bote del Sorteo",
+    "drawTargetExplanation": "Para garantizar que los sorteos sean económicos y los premios significativos, se debe acumular un bote mínimo antes de ejecutar el sorteo.",
+    "targetMetExecution": "Meta alcanzada: El contrato inteligente solicitará aleatoriedad verificable (VRF) y seleccionará ganadores cuando el contador llegue a cero.",
+    "targetUnmetRollover": "Protección de acumulación: Si no se alcanza la meta antes de que termine el contador, el sorteo se pospone y el 100% del rendimiento acumulado pasa al siguiente ciclo.",
+    "losslessRolloverNote": "100% sin pérdidas: Tus bonos y principal depositado nunca están en riesgo y permanecen activos para futuros sorteos.",
+    "netTargetLabel": "Meta del Bote Neto",
+    "grossTargetLabel": "Meta de Rendimiento Bruto Subyacente",
+    "prizePotTargetAccumulating": "Meta del Bote",
+    "prizePotTargetMet": "Meta del Sorteo Alcanzada (Listo)",
+    "noMinimumTarget": "Sin Meta Mínima (Sorteo en Cada Ciclo)",
+    "drawTargetTooltipLabel": "Información de la meta del sorteo",
+    "drawTargetProgressSr": "Progreso de la meta del sorteo: {current} de {target} ({percent}%)"
   },
   "Modals": {
     "depositTitle": "Depositar Fondos",
