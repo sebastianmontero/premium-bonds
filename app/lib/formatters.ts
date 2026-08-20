@@ -280,3 +280,33 @@ export function formatLocalDate<T extends object = Intl.DateTimeFormatOptions>(
     return String(isoDateOrTimestamp);
   }
 }
+
+export interface AnnualDrawEntriesResult {
+  drawsPerYear: number;
+  annualEntries: number;
+}
+
+/**
+ * Calculates annual draw chances/entries dynamically based on user tickets and pool stake cycle duration.
+ *
+ * @param totalTickets - The user's active and pending tickets.
+ * @param stakeCycleDurationHrs - The pool's cycle duration in hours (defaults to 168h for weekly).
+ * @returns AnnualDrawEntriesResult containing computed drawsPerYear and total annualEntries.
+ */
+export function calculateAnnualDrawEntries(
+  totalTickets: number,
+  stakeCycleDurationHrs?: number
+): AnnualDrawEntriesResult {
+  const safeTickets = Math.max(0, Math.floor(totalTickets || 0));
+  const safeCycleHrs =
+    typeof stakeCycleDurationHrs === "number" &&
+    Number.isFinite(stakeCycleDurationHrs) &&
+    stakeCycleDurationHrs > 0
+      ? stakeCycleDurationHrs
+      : 168; // Default 168h = 7d weekly cycle
+
+  const drawsPerYear = Math.max(1, Math.round((365 * 24) / safeCycleHrs));
+  const annualEntries = safeTickets * drawsPerYear;
+
+  return { drawsPerYear, annualEntries };
+}

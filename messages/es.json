@@ -80,7 +80,8 @@
     "connectWallet": "Conectar Billetera",
     "connecting": "Conectando…",
     "disconnect": "Desconectar",
-    "selectWallet": "Seleccionar Billetera"
+    "selectWallet": "Seleccionar Billetera",
+    "availableBalance": "Saldo Disponible"
   },
   "Sidebar": {
     "dashboard": "Panel de Control",
@@ -214,7 +215,24 @@
     "redeeming": "en redención",
     "unclaimed": "sin reclamar",
     "active": "activos",
-    "pending": "pendientes"
+    "pending": "pendientes",
+    "annualDrawEntries": "Entradas de Sorteo Anuales",
+    "chancesPerYear": "{count} Oportunidades / Año",
+    "bondsTimesDraws": "{tickets, plural, =1 {1 Bono} other {# Bonos}} × {draws, plural, =1 {1 Sorteo} other {# Sorteos}}",
+    "neverExpire": "Nunca vencen",
+    "totalPortfolioValueTooltip": "Valor total de tus bonos activos, redenciones pendientes y premios en polvo sin reclamar.",
+    "bondsInvestedTooltip": "Capital principal de bonos activos y pendientes invertido actualmente en los fondos.",
+    "redeemingTooltip": "Fondos actualmente en la cola de liquidación con el fondo de préstamos.",
+    "unclaimedDustTooltip": "Premios en polvo acumulados listos para reclamar o agrupar automáticamente en nuevos bonos.",
+    "activeBondsTooltip": "Bonos que participan activamente en el Sorteo #{cycleId}.",
+    "pendingBondsTooltip": "Bonos depositados a mitad de ciclo. Se activarán automáticamente para el Sorteo #{nextCycleId} en el próximo ciclo.",
+    "bondsInfoTooltip": "Tus bonos representan entradas perpetuas en los sorteos semanales de premios. El capital está 100% protegido.",
+    "lifetimeWinningsTooltip": "Total acumulado de todos los premios ganados en los sorteos históricos.",
+    "reinvestedWinningsTooltip": "Premios convertidos automáticamente en nuevos bonos para multiplicar las oportunidades futuras.",
+    "nonReinvestedWinningsTooltip": "Premios fraccionarios menores a $5.00 guardados como polvo, disponibles para reclamar o agrupar.",
+    "annualDrawEntriesTooltip": "Número total de oportunidades de sorteo en las que participarán tus bonos durante 12 meses.",
+    "bondsTimesDrawsTooltip": "Calculado a partir de tus {tickets} bonos participando en {draws} sorteos anuales.",
+    "neverExpireTooltip": "A diferencia de las loterías tradicionales, tus bonos permanecen activos para cada sorteo indefinidamente."
   },
   "Activity": {
     "title": "Historial de Actividad",

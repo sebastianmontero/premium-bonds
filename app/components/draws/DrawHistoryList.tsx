@@ -405,7 +405,7 @@ export function DrawHistoryList({
                   <tr
                     key={draw.cycleId}
                     onClick={() => onSelectDraw(draw.cycleId)}
-                    className="hover:bg-surface-container/40 transition-colors cursor-pointer group"
+                    className="hover:bg-surface-container/40 transition-colors cursor-pointer group hover:relative hover:z-20"
                   >
                     {/* Cycle # */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
@@ -457,6 +457,8 @@ export function DrawHistoryList({
                           <VrfSeedBadge
                             seedHex={draw.vrfSeedHex}
                             drawCycleId={draw.cycleId}
+                            tooltipPlacement="bottom"
+                            tooltipAlign="right"
                           />
                         )}
 

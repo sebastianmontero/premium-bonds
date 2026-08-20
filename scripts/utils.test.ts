@@ -4,6 +4,7 @@ import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
   DEFAULT_LIVE_YIELD_PRECISION,
   formatTokenAmount,
+  calculateAnnualDrawEntries,
 } from "../app/lib/formatters";
 import { COMMAND_REGISTRY } from "./pb-cli";
 
@@ -342,6 +343,42 @@ function runTests() {
       "Guide must not contain deprecated --timelock flag in update-pool-config"
     );
     console.log("✓ Passed Test 10\n");
+  }
+
+  // Test 11: calculateAnnualDrawEntries edge cases and dynamic pool duration
+  {
+    console.log("Test 11: calculateAnnualDrawEntries domain calculations");
+    
+    // 0 tickets
+    const zeroRes = calculateAnnualDrawEntries(0, 168);
+    assert(zeroRes.drawsPerYear === 52, `Expected 52 draws/yr, got ${zeroRes.drawsPerYear}`);
+    assert(zeroRes.annualEntries === 0, `Expected 0 entries, got ${zeroRes.annualEntries}`);
+
+    // Weekly pool (168h): 110 tickets
+    const weeklyRes = calculateAnnualDrawEntries(110, 168);
+    assert(weeklyRes.drawsPerYear === 52, `Expected 52 draws/yr, got ${weeklyRes.drawsPerYear}`);
+    assert(weeklyRes.annualEntries === 5720, `Expected 5720 entries, got ${weeklyRes.annualEntries}`);
+
+    // Daily pool (24h): 10 tickets
+    const dailyRes = calculateAnnualDrawEntries(10, 24);
+    assert(dailyRes.drawsPerYear === 365, `Expected 365 draws/yr, got ${dailyRes.drawsPerYear}`);
+    assert(dailyRes.annualEntries === 3650, `Expected 3650 entries, got ${dailyRes.annualEntries}`);
+
+    // Fallback when duration is 0, negative, or invalid
+    const zeroDurRes = calculateAnnualDrawEntries(10, 0);
+    assert(zeroDurRes.drawsPerYear === 52, `Expected fallback 52 draws/yr, got ${zeroDurRes.drawsPerYear}`);
+    assert(zeroDurRes.annualEntries === 520, `Expected fallback 520 entries, got ${zeroDurRes.annualEntries}`);
+
+    const negDurRes = calculateAnnualDrawEntries(10, -100);
+    assert(negDurRes.drawsPerYear === 52, `Expected fallback 52 draws/yr, got ${negDurRes.drawsPerYear}`);
+    assert(negDurRes.annualEntries === 520, `Expected fallback 520 entries, got ${negDurRes.annualEntries}`);
+
+    // Undefined duration (defaults to 168)
+    const undefDurRes = calculateAnnualDrawEntries(5);
+    assert(undefDurRes.drawsPerYear === 52, `Expected default 52 draws/yr, got ${undefDurRes.drawsPerYear}`);
+    assert(undefDurRes.annualEntries === 260, `Expected 260 entries, got ${undefDurRes.annualEntries}`);
+
+    console.log("✓ Passed Test 11\n");
   }
 
   console.log("All unit tests completed successfully!");

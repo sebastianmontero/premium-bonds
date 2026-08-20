@@ -9,6 +9,8 @@ interface VrfSeedBadgeProps {
   className?: string;
   label?: string;
   variant?: "default" | "compact";
+  tooltipPlacement?: "top" | "bottom";
+  tooltipAlign?: "left" | "center" | "right";
 }
 
 export function VrfSeedBadge({
@@ -17,6 +19,8 @@ export function VrfSeedBadge({
   className = "",
   label,
   variant = "default",
+  tooltipPlacement = "bottom",
+  tooltipAlign = "center",
 }: VrfSeedBadgeProps) {
   const [copied, setCopied] = useState(false);
   const t = useTranslations("Ledger");
@@ -35,6 +39,16 @@ export function VrfSeedBadge({
   const displayLabel =
     label || (variant === "compact" ? t("compactVrfLabel") : truncated);
 
+  const placementClass =
+    tooltipPlacement === "top" ? "bottom-full mb-2" : "top-full mt-2";
+
+  const alignClass =
+    tooltipAlign === "left"
+      ? "left-0"
+      : tooltipAlign === "right"
+        ? "right-0"
+        : "left-1/2 -translate-x-1/2";
+
   return (
     <button
       type="button"
@@ -42,7 +56,7 @@ export function VrfSeedBadge({
       onClick={handleCopy}
       aria-label={`Copy VRF Randomness Seed ${seedHex}`}
       title={t("copyVrfTitle")}
-      className={`inline-flex items-center gap-1.5 text-[10px] leading-tight font-mono text-on-surface-variant/60 hover:text-primary hover:border-primary/30 bg-surface-container/50 hover:bg-surface-container/80 border border-surface-bright/10 px-2 py-0.5 rounded-lg transition-all duration-200 relative group/vrf cursor-pointer select-none shrink-0 align-middle focus-visible:ring-1 focus-visible:ring-primary outline-none ${className}`}
+      className={`inline-flex items-center gap-1.5 text-[10px] leading-tight font-mono text-on-surface-variant/60 hover:text-primary hover:border-primary/30 bg-surface-container/50 hover:bg-surface-container/80 border border-surface-bright/10 px-2 py-0.5 rounded-lg transition-all duration-200 relative group/vrf cursor-pointer select-none shrink-0 align-middle focus-visible:ring-1 focus-visible:ring-primary outline-none hover:z-50 focus-within:z-50 ${className}`}
     >
       <svg
         viewBox="0 0 24 24"
@@ -60,7 +74,9 @@ export function VrfSeedBadge({
       <span className="leading-none tracking-tight">{displayLabel}</span>
 
       {/* Floating Tooltip */}
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/15 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/vrf:opacity-100 transition-opacity duration-200 shadow-2xl z-50 text-center whitespace-normal">
+      <div
+        className={`absolute ${placementClass} ${alignClass} w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/15 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/vrf:opacity-100 group-focus-within/vrf:opacity-100 transition-opacity duration-200 shadow-2xl z-50 text-center whitespace-normal`}
+      >
         {copied ? (
           <span className="text-emerald-400 font-semibold flex items-center justify-center gap-1.5">
             <svg

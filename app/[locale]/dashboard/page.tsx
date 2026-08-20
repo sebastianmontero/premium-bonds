@@ -390,6 +390,8 @@ export default function DashboardPage() {
         nonReinvestedWinnings={activeNonReinvestedWinnings}
         tokenSymbol={activePool.tokenSymbol}
         tokenDecimals={activePool.tokenDecimals}
+        currentDrawCycleId={activePool.currentDrawCycleId}
+        stakeCycleDurationHrs={activePool.stakeCycleDurationHrs}
       />
 
       {/* ── Active Pool + Activity Feed (Top two-column row) ───────────── */}

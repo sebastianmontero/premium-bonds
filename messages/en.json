@@ -80,7 +80,8 @@
     "connectWallet": "Connect Wallet",
     "connecting": "Connecting…",
     "disconnect": "Disconnect",
-    "selectWallet": "Select Wallet"
+    "selectWallet": "Select Wallet",
+    "availableBalance": "Available Balance"
   },
   "Sidebar": {
     "dashboard": "Dashboard",
@@ -214,7 +215,24 @@
     "redeeming": "redeeming",
     "unclaimed": "unclaimed",
     "active": "active",
-    "pending": "pending"
+    "pending": "pending",
+    "annualDrawEntries": "Annual Draw Entries",
+    "chancesPerYear": "{count} Chances / Year",
+    "bondsTimesDraws": "{tickets, plural, =1 {1 Bond} other {# Bonds}} × {draws, plural, =1 {1 Draw} other {# Draws}}",
+    "neverExpire": "Never Expire",
+    "totalPortfolioValueTooltip": "Total value of your active bonds, pending redemptions, and unclaimed prize dust.",
+    "bondsInvestedTooltip": "Active and pending bond principal currently invested in prize pools.",
+    "redeemingTooltip": "Funds currently in the settlement queue with the lending pool.",
+    "unclaimedDustTooltip": "Accumulated dust winnings ready to claim or auto-pool into new bonds.",
+    "activeBondsTooltip": "Bonds actively participating in Draw #{cycleId}.",
+    "pendingBondsTooltip": "Bonds deposited mid-cycle. They automatically activate for Draw #{nextCycleId} at the next cycle.",
+    "bondsInfoTooltip": "Your bonds represent perpetual entries in prize draws. Principal is 100% protected.",
+    "lifetimeWinningsTooltip": "Cumulative total of all prize payouts won across historical draws.",
+    "reinvestedWinningsTooltip": "Prize winnings automatically converted into new bonds to compound future draw chances.",
+    "nonReinvestedWinningsTooltip": "Fractional winnings under $5.00 held as dust, eligible for manual claim or future bond pooling.",
+    "annualDrawEntriesTooltip": "Total number of draw chances your bonds will participate in over a 12-month period.",
+    "bondsTimesDrawsTooltip": "Calculated from your {tickets} bonds entering {draws} weekly draws per year.",
+    "neverExpireTooltip": "Unlike traditional lotteries, your bonds remain active and eligible for every draw indefinitely."
   },
   "Activity": {
     "title": "Activity Feed",
