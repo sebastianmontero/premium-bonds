@@ -75,6 +75,7 @@ fn inject_pool(
         total_prizes_allocated: 1_000_000_000,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: if frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
@@ -620,6 +621,9 @@ fn test_reinvest_preserves_existing_pending_tickets() {
     let entry = common::read_registry_entry(&ctx.svm, ctx.registry, 0);
     assert_eq!(entry.active, 13);
     assert_eq!(entry.pending, 5);
+
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_prizes_distributed, 0);
 }
 
 #[test]

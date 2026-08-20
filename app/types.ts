@@ -40,6 +40,8 @@ export interface PoolInfo {
   lastSyncedAt?: number;
   /** Total unique depositors/participants registered on-chain in TicketRegistry */
   totalUsers?: number;
+  /** Total amount of prizes distributed over the lifetime of the pool (base units) */
+  totalPrizesDistributed?: number;
 }
 
 export interface YieldBreakdown {
@@ -122,6 +124,7 @@ export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
     underlyingApy: 0.085,
     lastSyncedAt: Math.floor(Date.now() / 1000),
     totalUsers: 0,
+    totalPrizesDistributed: 0,
   };
 }
 

@@ -87,6 +87,8 @@ export type PrizePool = {
   totalPrizesAllocated: bigint;
   /** Total outstanding pending redemptions. */
   totalPendingRedemptions: bigint;
+  /** Lifetime prizes awarded to winning tickets across all completed draws (net of dust). */
+  totalPrizesDistributed: bigint;
   /** Unique identifier for this prize pool. */
   poolId: number;
   /** The ID of the draw cycle currently being processed or the last completed cycle. */
@@ -142,6 +144,8 @@ export type PrizePoolArgs = {
   totalPrizesAllocated: number | bigint;
   /** Total outstanding pending redemptions. */
   totalPendingRedemptions: number | bigint;
+  /** Lifetime prizes awarded to winning tickets across all completed draws (net of dust). */
+  totalPrizesDistributed: number | bigint;
   /** Unique identifier for this prize pool. */
   poolId: number;
   /** The ID of the draw cycle currently being processed or the last completed cycle. */
@@ -191,6 +195,7 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["totalFeesWithdrawn", getU64Encoder()],
       ["totalPrizesAllocated", getU64Encoder()],
       ["totalPendingRedemptions", getU64Encoder()],
+      ["totalPrizesDistributed", getU64Encoder()],
       ["poolId", getU32Encoder()],
       ["currentDrawCycleId", getU32Encoder()],
       ["feeBasisPoints", getU16Encoder()],
@@ -226,6 +231,7 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["totalFeesWithdrawn", getU64Decoder()],
     ["totalPrizesAllocated", getU64Decoder()],
     ["totalPendingRedemptions", getU64Decoder()],
+    ["totalPrizesDistributed", getU64Decoder()],
     ["poolId", getU32Decoder()],
     ["currentDrawCycleId", getU32Decoder()],
     ["feeBasisPoints", getU16Decoder()],
@@ -304,5 +310,5 @@ export async function fetchAllMaybePrizePool(
 }
 
 export function getPrizePoolSize(): number {
-  return 416;
+  return 424;
 }

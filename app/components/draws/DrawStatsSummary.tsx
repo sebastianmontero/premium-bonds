@@ -10,6 +10,7 @@ interface DrawStatsSummaryProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   isLoading?: boolean;
+  isLifetimeYieldLoading?: boolean;
 }
 
 export function DrawStatsSummary({
@@ -17,8 +18,11 @@ export function DrawStatsSummary({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   isLoading = false,
+  isLifetimeYieldLoading,
 }: DrawStatsSummaryProps) {
   const t = useTranslations("DrawHistory");
+
+  const lifetimeLoading = isLifetimeYieldLoading ?? isLoading;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -49,7 +53,7 @@ export function DrawStatsSummary({
               {t("lifetimeYield")}
             </p>
           </div>
-          {isLoading ? (
+          {lifetimeLoading ? (
             <div className="h-9 w-36 rounded-lg skeleton-box mt-1" />
           ) : (
             <p className="font-display text-3xl font-bold tracking-tight text-on-surface">

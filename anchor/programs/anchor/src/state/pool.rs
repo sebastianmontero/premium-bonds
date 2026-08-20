@@ -90,6 +90,8 @@ pub struct PrizePool {
     pub total_prizes_allocated: u64,
     /// Total outstanding pending redemptions.
     pub total_pending_redemptions: u64,
+    /// Lifetime prizes awarded to winning tickets across all completed draws (net of dust).
+    pub total_prizes_distributed: u64,
 
     /// Unique identifier for this prize pool.
     pub pool_id: u32,
@@ -166,6 +168,34 @@ impl PrizePool {
             .ok_or(PremiumBondsError::MathOverflow)?;
         self.current_cycle_end_at = current_time
             .checked_add(added_seconds)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    /// Records prizes awarded to winners upon reveal, adjusting active liabilities and updating lifetime metrics.
+    pub fn record_prize_distribution(&mut self, total_distributed: u64, dust: u64) -> Result<()> {
+        if dust > 0 {
+            self.total_prizes_allocated = self
+                .total_prizes_allocated
+                .checked_sub(dust)
+                .ok_or(PremiumBondsError::MathOverflow)?;
+        }
+        self.total_prizes_distributed = self
+            .total_prizes_distributed
+            .checked_add(total_distributed)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    /// Rolls back prize distribution accounting when an admin voids a completed draw before payouts start.
+    pub fn rollback_prize_distribution(&mut self, total_distributed: u64) -> Result<()> {
+        self.total_prizes_allocated = self
+            .total_prizes_allocated
+            .checked_sub(total_distributed)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.total_prizes_distributed = self
+            .total_prizes_distributed
+            .checked_sub(total_distributed)
             .ok_or(PremiumBondsError::MathOverflow)?;
         Ok(())
     }
@@ -413,6 +443,7 @@ mod tests {
             total_fees_withdrawn: 0,
             total_prizes_allocated: 0,
             total_pending_redemptions: 0,
+            total_prizes_distributed: 0,
             version: 1,
             _reserved: [0; 128],
         }
@@ -988,6 +1019,7 @@ mod tests {
             total_fees_withdrawn: 0,
             total_prizes_allocated: 0,
             total_pending_redemptions: 0,
+            total_prizes_distributed: 0,
             version: 1,
             _reserved: [0; 128],
         };
@@ -1005,5 +1037,93 @@ mod tests {
         for i in 2..10 {
             assert_eq!(pool.prize_tiers[i], PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] });
         }
+    }
+
+    #[test]
+    fn test_record_and_rollback_prize_distribution() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 1_000_000; // committed from harvest
+
+        // Distribution of 999_990 with 10 dust
+        pool.record_prize_distribution(999_990, 10).unwrap();
+        assert_eq!(pool.total_prizes_allocated, 999_990); // dust deducted
+        assert_eq!(pool.total_prizes_distributed, 999_990);
+
+        // Next cycle distribution of 500_000 with 0 dust
+        pool.total_prizes_allocated += 500_000;
+        pool.record_prize_distribution(500_000, 0).unwrap();
+        assert_eq!(pool.total_prizes_allocated, 1_499_990);
+        assert_eq!(pool.total_prizes_distributed, 1_499_990); // accumulated
+
+        // Admin voids the last draw (reverses 500_000)
+        pool.rollback_prize_distribution(500_000).unwrap();
+        assert_eq!(pool.total_prizes_allocated, 999_990);
+        assert_eq!(pool.total_prizes_distributed, 999_990); // decremented
+    }
+
+    #[test]
+    fn test_record_prize_distribution_overflow() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 1_000_000;
+        pool.total_prizes_distributed = u64::MAX - 100;
+
+        // Distributing 101 must fail on math overflow
+        let err = pool.record_prize_distribution(101, 0).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
+    #[test]
+    fn test_record_prize_distribution_dust_exceeds_allocated_fails() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 50;
+
+        // Dust of 51 exceeds allocated 50
+        let err = pool.record_prize_distribution(100, 51).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
+    #[test]
+    fn test_record_prize_distribution_dust_exact_match() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 50;
+
+        // Dust exactly matches allocated
+        pool.record_prize_distribution(100, 50).unwrap();
+        assert_eq!(pool.total_prizes_allocated, 0);
+        assert_eq!(pool.total_prizes_distributed, 100);
+    }
+
+    #[test]
+    fn test_rollback_prize_distribution_underflow() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 100;
+        pool.total_prizes_distributed = 50;
+
+        // Rolling back 51 when distributed is 50 must fail
+        let err = pool.rollback_prize_distribution(51).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
+    #[test]
+    fn test_rollback_prize_distribution_exceeds_allocated_fails() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 50;
+        pool.total_prizes_distributed = 100;
+
+        // Rolling back 51 when allocated is 50 must fail
+        let err = pool.rollback_prize_distribution(51).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
+    #[test]
+    fn test_rollback_prize_distribution_exact_zero_reset() {
+        let mut pool = default_pool(250, 24);
+        pool.total_prizes_allocated = 100;
+        pool.total_prizes_distributed = 100;
+
+        // Rolling back exact amount resets both to 0
+        pool.rollback_prize_distribution(100).unwrap();
+        assert_eq!(pool.total_prizes_allocated, 0);
+        assert_eq!(pool.total_prizes_distributed, 0);
     }
 }

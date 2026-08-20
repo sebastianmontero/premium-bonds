@@ -193,6 +193,7 @@ fn inject_pool_custom(
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: cycle_end_at,
         is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: cycle_id,
@@ -555,6 +556,9 @@ fn test_harvest_happy_path_zero_yield() {
     let (active, pending) = read_registry_counts(&ctx.svm, ctx.ticket_registry);
     assert_eq!(active, 3); // pending merged
     assert_eq!(pending, 0);
+
+    let pool = read_pool(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_distributed, 0);
 }
 
 #[test]
@@ -586,6 +590,7 @@ fn test_harvest_happy_path_yield_no_eligible() {
 
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_fees_accrued, 0);
+    assert_eq!(pool.total_prizes_distributed, 0);
 }
 
 #[test]

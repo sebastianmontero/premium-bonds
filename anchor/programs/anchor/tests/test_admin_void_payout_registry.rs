@@ -148,6 +148,7 @@ fn test_admin_void_payout_registry_success() {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
         pool.total_prizes_allocated = 99_998;
+        pool.total_prizes_distributed = 99_998;
         pool.total_fees_accrued = 5_000;
         pool.total_fees_withdrawn = 0;
         svm.set_account(pool_pda_addr, acc).unwrap();
@@ -198,6 +199,7 @@ fn test_admin_void_payout_registry_success() {
     let pool_acc = svm.get_account(&pool_pda_addr).unwrap();
     let pool = bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc.data[8..]);
     assert_eq!(pool.total_prizes_allocated, 0, "Prizes allocated should be rolled back to 0");
+    assert_eq!(pool.total_prizes_distributed, 0, "Prizes distributed should be rolled back to 0");
     assert_eq!(pool.total_fees_accrued, 0, "Fees accrued should be rolled back to 0");
 
     // Verify PayoutRegistry status
@@ -236,6 +238,7 @@ fn test_admin_void_fails_if_payouts_already_started() {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
         pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
         pool.total_fees_accrued = 5_000;
         svm.set_account(pool_pda_addr, acc).unwrap();
     }
@@ -290,6 +293,7 @@ fn test_admin_void_fails_if_fees_already_withdrawn() {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
         pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
         pool.total_fees_accrued = 5_000;
         pool.total_fees_withdrawn = 5_000; // All fees withdrawn!
         svm.set_account(pool_pda_addr, acc).unwrap();
@@ -390,6 +394,7 @@ fn test_admin_void_fails_if_pool_is_closed() {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
         pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
         pool.total_fees_accrued = 5_000;
         svm.set_account(pool_pda_addr, acc).unwrap();
     }
@@ -421,5 +426,107 @@ fn test_admin_void_fails_if_pool_is_closed() {
     assert!(res.is_err(), "Voiding must fail when pool is closed");
     let err_str = format!("{:?}", res.unwrap_err());
     assert!(err_str.contains("PoolClosed"), "got: {err_str}");
+}
+
+#[test]
+fn test_multi_cycle_cumulative_prize_distribution_and_void_recovery() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    // Initial state: Cycle 1 completed with 50_000 USDC distributed
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
+        pool.total_fees_accrued = 5_000;
+        pool.total_fees_withdrawn = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    // Cycle 2 completes: adds 75_000 USDC
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated += 75_000;
+        pool.total_prizes_distributed += 75_000;
+        pool.total_fees_accrued += 7_500;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    inject_draw_cycle(&mut svm, pool_id, 2, 75_000, 7_500, anchor::DrawStatus::Complete);
+
+    let winner_c2 = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 75_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: 1,
+        _reserved: [0; 9],
+    };
+
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        2,
+        vec![winner_c2],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    // Check pre-void state (total_prizes_distributed = 125_000)
+    {
+        let acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes::<anchor::PrizePool>(&acc.data[8..]);
+        assert_eq!(pool.total_prizes_distributed, 125_000);
+        assert_eq!(pool.total_prizes_allocated, 125_000);
+    }
+
+    // Admin voids Cycle 2 (reverses 75_000)
+    send_admin_void_payout_registry(&mut svm, &admin, pool_id, 2)
+        .expect("Voiding cycle 2 should succeed");
+
+    // Check post-void state: rolled back to 50_000
+    {
+        let acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes::<anchor::PrizePool>(&acc.data[8..]);
+        assert_eq!(pool.total_prizes_distributed, 50_000);
+        assert_eq!(pool.total_prizes_allocated, 50_000);
+        assert_eq!(pool.total_fees_accrued, 5_000);
+    }
+
+    // Cycle 3 completes: adds 100_000 USDC
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated += 100_000;
+        pool.total_prizes_distributed += 100_000;
+        pool.total_fees_accrued += 10_000;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    inject_draw_cycle(&mut svm, pool_id, 3, 100_000, 10_000, anchor::DrawStatus::Complete);
+
+    // Check final state: cumulative total = 150_000
+    {
+        let acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes::<anchor::PrizePool>(&acc.data[8..]);
+        assert_eq!(pool.total_prizes_distributed, 150_000);
+        assert_eq!(pool.total_prizes_allocated, 150_000);
+        assert_eq!(pool.total_fees_accrued, 15_000);
+    }
 }
 

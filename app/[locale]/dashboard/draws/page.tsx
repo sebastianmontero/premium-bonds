@@ -43,7 +43,12 @@ function DrawHistoryContent() {
     isLoading: isDrawsLoading,
     isRefetching: isDrawsRefetching,
     refetch: refetchDraws,
-  } = useDrawExplorer(1, onChainPool?.currentDrawCycleId, 100);
+  } = useDrawExplorer(
+    1,
+    onChainPool?.currentDrawCycleId,
+    100,
+    activePool.totalPrizesDistributed
+  );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -183,7 +188,8 @@ function DrawHistoryContent() {
         stats={stats}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
-        isLoading={isPoolLoading || isDrawsLoading}
+        isLoading={isDrawsLoading}
+        isLifetimeYieldLoading={isPoolLoading}
       />
 
       {/* ── Historical Draws List ─────────────────────────────────── */}

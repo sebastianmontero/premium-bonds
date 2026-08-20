@@ -275,6 +275,7 @@ pub fn inject_pool(
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: i64::MAX,
         is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,

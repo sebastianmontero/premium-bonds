@@ -129,6 +129,7 @@ fn inject_pool_with_next_redemption_id(
         total_prizes_allocated: 1_000_000_000,
         next_redemption_id,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
@@ -440,6 +441,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     let pool_account = ctx.svm.get_account(&pool_pda(1).0).unwrap();
     let pool = anchor::PrizePool::try_deserialize(&mut pool_account.data.as_slice()).unwrap();
     assert_eq!(pool.total_prizes_allocated, 500_000); // 1_000_000 - 500_000
+    assert_eq!(pool.total_prizes_distributed, 0); // Lifetime cumulative total remains invariant
     assert_eq!(pool.next_redemption_id, 1);
     assert_eq!(pool.total_pending_redemptions, 500_000);
 

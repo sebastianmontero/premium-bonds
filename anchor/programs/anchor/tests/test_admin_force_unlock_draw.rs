@@ -68,6 +68,7 @@ fn setup_with_amounts(
         total_prizes_allocated,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: i64::MAX,
         is_frozen_for_draw: 1,
         current_draw_cycle_id: 0,
@@ -275,4 +276,34 @@ fn test_admin_force_unlock_fails_invalid_draw_status() {
 
     let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
     assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+}
+
+#[test]
+fn test_admin_force_unlock_preserves_total_prizes_distributed() {
+    let admin = Keypair::new();
+    let mut ctx = setup_with_amounts(
+        &admin,
+        anchor::DrawStatus::AwaitingRandomness,
+        1_000_000, // prize_pot committed this draw
+        100_000,   // cycle_fee_collected
+        2_500_000, // total_prizes_allocated
+        300_000,   // total_fees_accrued
+    );
+
+    // Set existing cumulative prizes distributed from previous completed draws
+    {
+        let mut acc = ctx.svm.get_account(&ctx.pool_key).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_distributed = 750_000;
+        ctx.svm.set_account(ctx.pool_key, acc).unwrap();
+    }
+
+    send_force_unlock(&mut ctx, &admin).expect("force unlock should succeed");
+
+    // Pool accounting: total_prizes_allocated decremented by prize_pot (2.5M - 1M = 1.5M),
+    // but total_prizes_distributed strictly preserves 750_000!
+    let acc = ctx.svm.get_account(&ctx.pool_key).unwrap();
+    let pool = bytemuck::from_bytes::<anchor::PrizePool>(&acc.data[8..]);
+    assert_eq!(pool.total_prizes_allocated, 1_500_000);
+    assert_eq!(pool.total_prizes_distributed, 750_000);
 }

@@ -85,11 +85,8 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
         .try_fold(0u64, |acc, amt| acc.checked_add(amt))
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // 2. Decrement pool.total_prizes_allocated exactly by total_distributed
-    pool.total_prizes_allocated = pool
-        .total_prizes_allocated
-        .checked_sub(total_distributed)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    // 2. Decrement pool.total_prizes_allocated and pool.total_prizes_distributed exactly by total_distributed
+    pool.rollback_prize_distribution(total_distributed)?;
 
     // 3. Verify unwithdrawn fees and decrement pool.total_fees_accrued
     let unwithdrawn_fees = pool

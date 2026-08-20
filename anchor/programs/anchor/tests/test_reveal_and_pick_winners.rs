@@ -148,6 +148,7 @@ fn inject_pool_custom(
         total_prizes_allocated: 10_000_000_000,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: cycle_id,
@@ -681,9 +682,10 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
 
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
-    // After: unfrozen
+    // After: unfrozen and prizes accumulated
     let pool_after = read_pool(&ctx.svm, 1);
     assert_eq!(pool_after.is_frozen_for_draw, 0);
+    assert_eq!(pool_after.total_prizes_distributed, 100_000);
 
     // DrawCycle: Complete + seed stored
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
@@ -897,4 +899,33 @@ fn test_reveal_fails_math_overflow() {
 
     let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_reveal_multi_winner_dust_accounting_and_event() {
+    // Pot of 100_000 USDC with 1 tier of 3 winners (3,333 bps per winner = 9,999 bps total)
+    // 100_000 * 3,333 / 10,000 = 33,330 per winner -> total distributed = 99,990, dust = 10
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 3_333,
+        num_winners: 3,
+        _padding: [0, 0],
+    }];
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 100_000, 10);
+
+    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
+
+    // Verify CPI event emission includes exact distributed and cumulative amounts
+    let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.prize_pot, 100_000);
+    assert_eq!(event.winners_count, 3);
+    assert_eq!(event.total_distributed, 99_990);
+    assert_eq!(event.total_prizes_distributed, 99_990);
+
+    // Verify pool on-chain state:
+    // Initial total_prizes_allocated was 10_000_000_000; dust of 10 is deducted
+    let pool = read_pool(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_allocated, 10_000_000_000 - 10);
+    assert_eq!(pool.total_prizes_distributed, 99_990);
 }

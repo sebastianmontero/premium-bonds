@@ -475,6 +475,56 @@ async function runTests() {
   );
   assert.strictEqual(CANONICAL_DRAW_STATUS_ORDER.length, 8);
 
+  // 10. Test DrawHistoryStats Calculation Logic & Lifetime Prize Decoupling
+  console.log("  Testing DrawHistoryStats calculation logic & lifetime prize decoupling...");
+  const mockSummaries = [
+    { cycleId: 10, status: "Complete" as const, prizePot: 60_000_000, winnersCount: 2 },
+    { cycleId: 9, status: "Complete" as const, prizePot: 40_000_000, winnersCount: 1 },
+    { cycleId: 8, status: "Skipped" as const, prizePot: 0, winnersCount: 0 },
+    { cycleId: 7, status: "Complete" as const, prizePot: 50_000_000, winnersCount: 3 },
+  ];
+
+  // Helper simulating useDrawExplorer stats reducer
+  const computeStats = (
+    summaries: typeof mockSummaries,
+    poolTotalPrizesDistributed?: number
+  ) => {
+    let completedDraws = 0;
+    let batchTotalYield = 0;
+    let totalWinningBonds = 0;
+
+    for (const draw of summaries) {
+      if (draw.status === "Complete") {
+        completedDraws++;
+        batchTotalYield += draw.prizePot;
+        totalWinningBonds += draw.winnersCount;
+      }
+    }
+
+    const averagePrizePot = completedDraws > 0 ? Math.round(batchTotalYield / completedDraws) : 0;
+    const totalYieldDistributed = poolTotalPrizesDistributed ?? batchTotalYield;
+
+    return {
+      totalYieldDistributed,
+      totalDrawsCompleted: completedDraws,
+      totalWinningBonds,
+      averagePrizePot,
+    };
+  };
+
+  // 10a. With explicit on-chain lifetime pool counter (e.g. 500M lifetime across hundreds of draws)
+  const statsWithLifetime = computeStats(mockSummaries, 500_000_000);
+  assert.strictEqual(statsWithLifetime.totalYieldDistributed, 500_000_000);
+  assert.strictEqual(statsWithLifetime.totalDrawsCompleted, 3);
+  assert.strictEqual(statsWithLifetime.totalWinningBonds, 6);
+  // Average prize pot must be computed on the 3 completed draws in batch: (60M + 40M + 50M) / 3 = 50M
+  assert.strictEqual(statsWithLifetime.averagePrizePot, 50_000_000);
+
+  // 10b. Fallback when poolTotalPrizesDistributed is undefined
+  const statsFallback = computeStats(mockSummaries, undefined);
+  assert.strictEqual(statsFallback.totalYieldDistributed, 150_000_000);
+  assert.strictEqual(statsFallback.averagePrizePot, 50_000_000);
+
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }
 

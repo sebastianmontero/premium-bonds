@@ -238,18 +238,15 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         .prize_pot
         .checked_sub(total_distributed)
         .ok_or(PremiumBondsError::MathOverflow)?;
-    if dust > 0 {
-        pool.total_prizes_allocated = pool
-            .total_prizes_allocated
-            .checked_sub(dust)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
+    pool.record_prize_distribution(total_distributed, dust)?;
 
     emit_cpi!(DrawCompleted {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         prize_pot: draw_cycle.prize_pot,
         winners_count: payout_registry.winners_count,
+        total_distributed,
+        total_prizes_distributed: pool.total_prizes_distributed,
     });
 
     Ok(())

@@ -141,6 +141,11 @@ export function PoolCard({
           value={`${formatTokenAmount(pool.bondPrice, pool.tokenDecimals)} ${pool.tokenSymbol}`}
           accent="text-on-surface"
         />
+        <StatCell
+          label={t("totalPrizesDistributed")}
+          value={`${pool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(pool.totalPrizesDistributed ?? 0, pool.tokenDecimals, 0)}${pool.tokenSymbol !== "USDC" ? ` ${pool.tokenSymbol}` : ""}`}
+          accent="text-on-surface"
+        />
       </div>
 
       {/* ── Countdown & Minimum Threshold Status ─────────────────────── */}

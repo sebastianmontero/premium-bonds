@@ -21,12 +21,16 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
     ? `${activePool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(activePool.totalDepositedPrincipal, activePool.tokenDecimals, 0)}${activePool.tokenSymbol !== "USDC" ? ` ${activePool.tokenSymbol}` : ""}`
     : "$0";
 
+  const formattedDistributed = activePool
+    ? `${activePool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(activePool.totalPrizesDistributed ?? 0, activePool.tokenDecimals, 0)}${activePool.tokenSymbol !== "USDC" ? ` ${activePool.tokenSymbol}` : ""}`
+    : "$0";
+
   return (
     <section id="prizes" className="relative px-6 py-24">
-      <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-3">
+      <div className="mx-auto grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Value Locked */}
         <div
-          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
+          className="glass-strong rounded-2xl p-6 sm:p-8 space-y-3 animate-float"
           style={{ animationDelay: "0s" }}
         >
           <div className="flex items-center gap-2">
@@ -49,7 +53,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
             </p>
           </div>
           <p
-            className={`font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl ${
+            className={`font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-on-surface ${
               !activePool && isLoading ? "animate-pulse opacity-50" : ""
             }`}
           >
@@ -60,8 +64,8 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
 
         {/* Current Prize Pool & Countdown */}
         <div
-          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
-          style={{ animationDelay: "1s" }}
+          className="glass-strong rounded-2xl p-6 sm:p-8 space-y-3 animate-float"
+          style={{ animationDelay: "0.5s" }}
         >
           <div className="flex items-center gap-2">
             <svg
@@ -86,7 +90,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
             <LiveYieldTicker
               pool={activePool ?? undefined}
               showBadge={false}
-              valueClassName="font-display text-4xl font-bold tracking-tight text-gradient sm:text-5xl"
+              valueClassName="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-gradient"
               debugLabel="Homepage Hero Stats"
             />
           </div>
@@ -111,10 +115,50 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
           </div>
         </div>
 
+        {/* Total Prizes Distributed */}
+        <div
+          className="glass-strong rounded-2xl p-6 sm:p-8 space-y-3 animate-float"
+          style={{ animationDelay: "1s" }}
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-primary"
+            >
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+              <path d="M4 22h16" />
+              <path d="M10 14.66V17c0 .55-.45 1-1 1H7" />
+              <path d="M14 14.66V17c0 .55.45 1 1 1h2" />
+              <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+            </svg>
+            <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+              {t("totalPrizesLabel")}
+            </p>
+          </div>
+          <p
+            className={`font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-on-surface ${
+              !activePool && isLoading ? "animate-pulse opacity-50" : ""
+            }`}
+          >
+            {formattedDistributed}
+          </p>
+          <p className="text-sm text-on-surface-variant">
+            {t("totalPrizesSub")}
+          </p>
+        </div>
+
         {/* Active Savers */}
         <div
-          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
-          style={{ animationDelay: "2s" }}
+          className="glass-strong rounded-2xl p-6 sm:p-8 space-y-3 animate-float"
+          style={{ animationDelay: "1.5s" }}
         >
           <div className="flex items-center gap-2">
             <svg
@@ -138,7 +182,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
             </p>
           </div>
           <p
-            className={`font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl ${
+            className={`font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-on-surface ${
               !activePool && isLoading ? "animate-pulse opacity-50" : ""
             }`}
           >

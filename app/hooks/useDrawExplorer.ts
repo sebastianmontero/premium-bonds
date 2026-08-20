@@ -42,12 +42,13 @@ interface DrawExplorerResult {
 export function useDrawExplorer(
   poolId: number = 1,
   currentDrawCycleId: number | undefined,
-  maxCyclesToFetch: number = 100
+  maxCyclesToFetch: number = 100,
+  poolTotalPrizesDistributed?: number
 ): DrawExplorerResult {
   const client = useSolanaClient();
   const [drawSummaries, setDrawSummaries] = useState<DrawCycleSummary[]>([]);
   const [stats, setStats] = useState<DrawHistoryStats>({
-    totalYieldDistributed: 0,
+    totalYieldDistributed: poolTotalPrizesDistributed ?? 0,
     totalDrawsCompleted: 0,
     totalWinningBonds: 0,
     averagePrizePot: 0,
@@ -57,6 +58,15 @@ export function useDrawExplorer(
   const fetchIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
   const lastPoolIdRef = useRef(poolId);
+
+  useEffect(() => {
+    if (poolTotalPrizesDistributed !== undefined) {
+      setStats((prev) => ({
+        ...prev,
+        totalYieldDistributed: poolTotalPrizesDistributed,
+      }));
+    }
+  }, [poolTotalPrizesDistributed]);
 
   useEffect(() => {
     if (lastPoolIdRef.current !== poolId) {
@@ -69,7 +79,7 @@ export function useDrawExplorer(
     if (currentDrawCycleId === undefined || currentDrawCycleId < 0) {
       setDrawSummaries([]);
       setStats({
-        totalYieldDistributed: 0,
+        totalYieldDistributed: poolTotalPrizesDistributed ?? 0,
         totalDrawsCompleted: 0,
         totalWinningBonds: 0,
         averagePrizePot: 0,
@@ -185,9 +195,14 @@ export function useDrawExplorer(
 
       if (fetchId !== fetchIdRef.current) return;
 
+      const lifetimeYield =
+        poolTotalPrizesDistributed !== undefined
+          ? poolTotalPrizesDistributed
+          : totalYield;
+
       setDrawSummaries(summaries);
       setStats({
-        totalYieldDistributed: totalYield,
+        totalYieldDistributed: lifetimeYield,
         totalDrawsCompleted: completedDraws,
         totalWinningBonds,
         averagePrizePot: completedDraws > 0 ? totalYield / completedDraws : 0,
@@ -201,7 +216,13 @@ export function useDrawExplorer(
         setIsRefetching(false);
       }
     }
-  }, [client, poolId, currentDrawCycleId, maxCyclesToFetch]);
+  }, [
+    client,
+    poolId,
+    currentDrawCycleId,
+    maxCyclesToFetch,
+    poolTotalPrizesDistributed,
+  ]);
 
   useEffect(() => {
     fetchDraws();

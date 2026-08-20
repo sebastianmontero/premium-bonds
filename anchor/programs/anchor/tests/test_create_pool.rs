@@ -171,6 +171,7 @@ fn test_create_pool_succeeds() {
     assert_eq!(event.total_winners, 1);
 
     let pool_state = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_state.total_prizes_distributed, 0);
     assert_eq!(pool_state.max_yield_basis_points, 0);
     assert_eq!(pool_state.payout_timelock_seconds, 300);
     assert_eq!(pool_state.prize_tiers_count, 1);

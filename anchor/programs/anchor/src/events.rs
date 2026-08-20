@@ -80,6 +80,10 @@ pub struct DrawCompleted {
     pub prize_pot: u64,
     /// Total number of winners selected for the cycle.
     pub winners_count: u32,
+    /// Actual total amount distributed to winners in this draw (excluding dust).
+    pub total_distributed: u64,
+    /// Pool's lifetime cumulative prizes distributed across all completed draws.
+    pub total_prizes_distributed: u64,
 }
 
 /// Emitted when a draw cycle is skipped (due to insufficient yield or zero active tickets).

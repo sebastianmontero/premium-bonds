@@ -311,6 +311,7 @@ export function parsePrizePool(data: Uint8Array) {
     ticketRegistry: decoded.ticketRegistry,
     feeBasisPoints: Number(decoded.feeBasisPoints),
     minYieldThreshold: Number(decoded.minYieldThreshold),
+    totalPrizesDistributed: Number(decoded.totalPrizesDistributed),
     prizeTiersCount,
     prizeTiers,
   };
