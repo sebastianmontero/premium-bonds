@@ -8,6 +8,8 @@ import { formatLocalDate } from "@/app/lib/formatters";
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
   resyncIntervalMs?: number;
+  showExactDate?: boolean;
+  exactDateClassName?: string;
 }
 
 interface TimeLeft {
@@ -33,6 +35,8 @@ function calcTimeLeft(target: number, offset: number): TimeLeft {
 export function CountdownTimer({
   targetTimestamp,
   resyncIntervalMs,
+  showExactDate = false,
+  exactDateClassName,
 }: CountdownTimerProps) {
   const t = useTranslations("Countdown");
   const format = useFormatter();
@@ -77,61 +81,83 @@ export function CountdownTimer({
     };
   }, [targetTimestamp, clockOffset]);
 
-  if (!isMounted) {
+  const renderDisplay = () => {
+    if (!isMounted) {
+      return (
+        <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
+          <TimeUnit value={0} label={t("days")} />
+          <span className="text-on-surface-variant/50">:</span>
+          <TimeUnit value={0} label={t("hours")} />
+          <span className="text-on-surface-variant/50">:</span>
+          <TimeUnit value={0} label={t("minutes")} />
+          <span className="text-on-surface-variant/50">:</span>
+          <TimeUnit value={0} label={t("seconds")} />
+        </div>
+      );
+    }
+
+    if (timeLeft.total <= 0) {
+      return (
+        <span
+          className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap"
+          title={formattedTargetDate}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {t("awaitingDraw")}
+        </span>
+      );
+    }
+
+    if (timeLeft.total < 3600) {
+      return (
+        <span
+          className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap"
+          title={formattedTargetDate}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {t("drawImminent")}&nbsp;
+          <span className="font-mono">
+            {String(timeLeft.minutes).padStart(2, "0")}
+            {t("minutes")} {String(timeLeft.seconds).padStart(2, "0")}
+            {t("seconds")}
+          </span>
+        </span>
+      );
+    }
+
     return (
-      <div className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface opacity-50 shrink-0">
-        <TimeUnit value={0} label={t("days")} />
+      <div
+        className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0"
+        title={formattedTargetDate}
+      >
+        <TimeUnit value={timeLeft.days} label={t("days")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label={t("hours")} />
+        <TimeUnit value={timeLeft.hours} label={t("hours")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label={t("minutes")} />
+        <TimeUnit value={timeLeft.minutes} label={t("minutes")} />
         <span className="text-on-surface-variant/50">:</span>
-        <TimeUnit value={0} label={t("seconds")} />
+        <TimeUnit value={timeLeft.seconds} label={t("seconds")} />
       </div>
     );
-  }
+  };
 
-  if (timeLeft.total <= 0) {
-    return (
-      <span
-        className="pill pill-warning animate-yield-pulse shrink-0 whitespace-nowrap"
-        title={formattedTargetDate}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        {t("awaitingDraw")}
-      </span>
-    );
-  }
-
-  if (timeLeft.total < 3600) {
-    return (
-      <span
-        className="pill pill-error animate-yield-pulse shrink-0 whitespace-nowrap"
-        title={formattedTargetDate}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        {t("drawImminent")}&nbsp;
-        <span className="font-mono">
-          {String(timeLeft.minutes).padStart(2, "0")}
-          {t("minutes")} {String(timeLeft.seconds).padStart(2, "0")}
-          {t("seconds")}
-        </span>
-      </span>
-    );
+  if (!showExactDate) {
+    return renderDisplay();
   }
 
   return (
-    <div
-      className="flex items-center gap-1 font-mono text-sm countdown-glow text-on-surface shrink-0"
-      title={formattedTargetDate}
-    >
-      <TimeUnit value={timeLeft.days} label={t("days")} />
-      <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.hours} label={t("hours")} />
-      <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.minutes} label={t("minutes")} />
-      <span className="text-on-surface-variant/50">:</span>
-      <TimeUnit value={timeLeft.seconds} label={t("seconds")} />
+    <div className="flex flex-col items-end gap-0.5">
+      {renderDisplay()}
+      {formattedTargetDate && isMounted && (
+        <span
+          className={
+            exactDateClassName ||
+            "text-[11px] font-medium text-on-surface-variant/80 tracking-tight"
+          }
+        >
+          {formattedTargetDate}
+        </span>
+      )}
     </div>
   );
 }

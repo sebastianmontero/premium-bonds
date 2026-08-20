@@ -286,9 +286,9 @@ export default function DashboardPage() {
 
     const claimAmount = activeUnclaimedWinnings;
     setTxError(null);
-    setActionModalTitle("Claim Dust Winnings");
+    setActionModalTitle("Claim Remaining Winnings");
     setActionSuccessMsg(
-      `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC.`
+      `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC.`
     );
 
     try {
@@ -303,7 +303,7 @@ export default function DashboardPage() {
               id: `act-claim-dust-${Date.now()}`,
               date: new Date().toISOString(),
               type: "win",
-              description: `Claimed accumulated dust winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
+              description: `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
               amount: claimAmount,
               txSignature: capturedSig,
             };
@@ -312,7 +312,7 @@ export default function DashboardPage() {
         );
       }
     } catch (err) {
-      handleTxError(err, "Claim dust winnings", () =>
+      handleTxError(err, "Claim remaining winnings", () =>
         handleClaimNonReinvestedWinnings()
       );
     }
@@ -476,7 +476,7 @@ export default function DashboardPage() {
         entries={activePrizeHistory}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
-        ticketPrice={activePool.bondPrice}
+        bondPrice={activePool.bondPrice}
         unclaimedTotal={activeUnclaimedWinnings}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
@@ -546,7 +546,7 @@ export default function DashboardPage() {
         onClose={() => setShowCompleteLedger(false)}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
-        ticketPrice={activePool.bondPrice}
+        bondPrice={activePool.bondPrice}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         crankingCycles={crankingCycles}

@@ -18,12 +18,12 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
   const activePool = initialPool ?? fetchedPool;
 
   const formattedTvl = activePool
-    ? `$${formatTokenAmount(activePool.totalDepositedPrincipal, activePool.tokenDecimals, 0)}`
+    ? `${activePool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(activePool.totalDepositedPrincipal, activePool.tokenDecimals, 0)}${activePool.tokenSymbol !== "USDC" ? ` ${activePool.tokenSymbol}` : ""}`
     : "$0";
 
   return (
     <section id="prizes" className="relative px-6 py-24">
-      <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-2">
+      <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-3">
         {/* Total Value Locked */}
         <div
           className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
@@ -100,6 +100,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
               {activePool && activePool.currentCycleEndAt > 0 ? (
                 <CountdownTimer
                   targetTimestamp={activePool.currentCycleEndAt}
+                  showExactDate
                 />
               ) : (
                 <span className="font-mono text-sm text-on-surface-variant opacity-50">
@@ -108,6 +109,44 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Active Savers */}
+        <div
+          className="glass-strong rounded-2xl p-8 space-y-3 animate-float"
+          style={{ animationDelay: "2s" }}
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-tertiary"
+            >
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 00-3-3.87" />
+              <path d="M16 3.13a4 4 0 010 7.75" />
+            </svg>
+            <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+              {t("activeSaversLabel")}
+            </p>
+          </div>
+          <p
+            className={`font-display text-4xl font-bold tracking-tight text-on-surface sm:text-5xl ${
+              !activePool && isLoading ? "animate-pulse opacity-50" : ""
+            }`}
+          >
+            {(activePool?.totalUsers ?? 0).toLocaleString("en-US")}
+          </p>
+          <p className="text-sm text-on-surface-variant">
+            {t("activeSaversSub")}
+          </p>
         </div>
       </div>
     </section>

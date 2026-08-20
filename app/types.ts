@@ -38,6 +38,8 @@ export interface PoolInfo {
   underlyingApy?: number;
   /** Unix timestamp (in seconds) when the on-chain yield snapshot was fetched */
   lastSyncedAt?: number;
+  /** Total unique depositors/participants registered on-chain in TicketRegistry */
+  totalUsers?: number;
 }
 
 export interface YieldBreakdown {
@@ -119,6 +121,7 @@ export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
     minYieldThreshold: 0,
     underlyingApy: 0.085,
     lastSyncedAt: Math.floor(Date.now() / 1000),
+    totalUsers: 0,
   };
 }
 

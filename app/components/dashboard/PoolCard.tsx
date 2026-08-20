@@ -107,10 +107,10 @@ export function PoolCard({
       </div>
 
       {/* ── Stats Grid ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCell
           label={t("totalDeposited")}
-          value={`$${formatTokenAmount(pool.totalDepositedPrincipal, pool.tokenDecimals, 0)}`}
+          value={`${pool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(pool.totalDepositedPrincipal, pool.tokenDecimals, 0)}${pool.tokenSymbol !== "USDC" ? ` ${pool.tokenSymbol}` : ""}`}
           accent="text-on-surface"
         />
         <div className="space-y-0.5">
@@ -126,6 +126,11 @@ export function PoolCard({
             valueClassName="font-display text-xl font-bold tracking-tight text-gradient"
           />
         </div>
+        <StatCell
+          label={t("activeSavers")}
+          value={(pool.totalUsers ?? 0).toLocaleString("en-US")}
+          accent="text-on-surface"
+        />
         <StatCell
           label={t("yourTickets")}
           value={activeTicketsCount.toLocaleString("en-US")}
@@ -160,7 +165,10 @@ export function PoolCard({
               {t("drawIn")}
             </span>
           </div>
-          <CountdownTimer targetTimestamp={pool.currentCycleEndAt} />
+          <CountdownTimer
+            targetTimestamp={pool.currentCycleEndAt}
+            showExactDate
+          />
         </div>
         <div className="pt-2 border-t border-outline-variant/10">
           <MinimumYieldStatus pool={pool} />
@@ -276,23 +284,39 @@ export function PoolCard({
       )}
 
       {/* ── Actions ──────────────────────────────────────────────────── */}
-      <div className="flex gap-3 relative z-0">
-        <button
-          onClick={onDeposit}
-          disabled={isFrozen || pool.status !== "Active"}
-          className="btn-gradient flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {t("depositButton")}
-        </button>
-        <button
-          onClick={onWithdraw}
-          disabled={
-            isFrozen || pool.status === "Paused" || totalTicketsCount === 0
-          }
-          className="btn-ghost flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {t("withdrawButton")}
-        </button>
+      <div className="space-y-2.5 relative z-0">
+        <div className="flex gap-3">
+          <button
+            onClick={onDeposit}
+            disabled={isFrozen || pool.status !== "Active"}
+            className="btn-gradient flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {t("depositButton")}
+          </button>
+          <button
+            onClick={onWithdraw}
+            disabled={
+              isFrozen || pool.status === "Paused" || totalTicketsCount === 0
+            }
+            className="btn-ghost flex-1 rounded-xl px-4 py-3 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {t("withdrawButton")}
+          </button>
+        </div>
+        <div className="flex items-center justify-center gap-1.5 text-center text-[11px] font-medium text-on-surface-variant/75 pt-0.5">
+          <svg
+            className="w-3.5 h-3.5 text-secondary shrink-0"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <span>{t("principalProtectionNotice")}</span>
+        </div>
       </div>
 
       {/* ── Frozen Message ───────────────────────────────────────────── */}

@@ -164,6 +164,7 @@ export function useBondsContract(poolId: number = 1) {
 
       // 1. Fetch Prize Pool account
       let poolInfo: ExtendedPoolInfo | null = null;
+      let cachedRegistryBytes: Uint8Array | null = null;
       try {
         const poolAcc = await rpc
           .getAccountInfo(poolPda, { encoding: "base64" })
@@ -179,7 +180,38 @@ export function useBondsContract(poolId: number = 1) {
             tokenDecimals: 6,
             estimatedPrizePot: 0,
             ticketRegistry: parsed.ticketRegistry.toString(),
+            totalUsers: 0,
           };
+
+          // Fetch TicketRegistry account once to read user_count (totalUsers) & cache for user tickets
+          if (currentPool.ticketRegistry) {
+            try {
+              const registryAcc = await rpc
+                .getAccountInfo(address(currentPool.ticketRegistry), {
+                  encoding: "base64",
+                })
+                .send();
+              if (registryAcc && registryAcc.value) {
+                cachedRegistryBytes = new Uint8Array(
+                  base64Encoder.encode(registryAcc.value.data[0])
+                );
+                const regView = new DataView(
+                  cachedRegistryBytes.buffer,
+                  cachedRegistryBytes.byteOffset,
+                  cachedRegistryBytes.byteLength
+                );
+                // user_count is located at offset 16 in the TicketRegistry header
+                if (cachedRegistryBytes.byteLength >= 20) {
+                  currentPool.totalUsers = regView.getUint32(16, true);
+                }
+              }
+            } catch (err) {
+              console.warn(
+                "Could not fetch ticket registry for pool totalUsers:",
+                err
+              );
+            }
+          }
 
           // Fetch estimated prize pot using on-chain PST yield accounting
           try {
@@ -371,14 +403,20 @@ export function useBondsContract(poolId: number = 1) {
         try {
           const registryAddrStr = poolInfo?.ticketRegistry;
           if (registryAddrStr && registryEntryIndex !== 0xffffffff) {
-            const registryPda = address(registryAddrStr);
-            const registryAcc = await rpc
-              .getAccountInfo(registryPda, { encoding: "base64" })
-              .send();
-            if (registryAcc && registryAcc.value) {
-              const bytes = new Uint8Array(
-                base64Encoder.encode(registryAcc.value.data[0])
-              );
+            let bytes = cachedRegistryBytes;
+            if (!bytes) {
+              const registryPda = address(registryAddrStr);
+              const registryAcc = await rpc
+                .getAccountInfo(registryPda, { encoding: "base64" })
+                .send();
+              if (registryAcc && registryAcc.value) {
+                bytes = new Uint8Array(
+                  base64Encoder.encode(registryAcc.value.data[0])
+                );
+              }
+            }
+
+            if (bytes) {
               const view = new DataView(
                 bytes.buffer,
                 bytes.byteOffset,

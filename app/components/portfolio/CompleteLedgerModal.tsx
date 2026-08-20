@@ -15,6 +15,7 @@ import { exportToCsv } from "@/app/lib/export-utils";
 import { useTranslations, useFormatter } from "next-intl";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
+import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -22,6 +23,8 @@ interface CompleteLedgerModalProps {
   onClose: () => void;
   tokenDecimals: number;
   tokenSymbol: string;
+  bondPrice?: number;
+  /** @deprecated Use `bondPrice` */
   ticketPrice?: number;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
@@ -35,6 +38,7 @@ export default function CompleteLedgerModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
+  bondPrice,
   ticketPrice = 5_000_000,
   onSimulateCrank,
   onViewDetails,
@@ -43,6 +47,7 @@ export default function CompleteLedgerModal({
 }: CompleteLedgerModalProps) {
   const t = useTranslations("Ledger");
   const format = useFormatter();
+  const effectiveBondPrice = bondPrice ?? ticketPrice;
   // Stateful Filtering
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -529,7 +534,7 @@ export default function CompleteLedgerModal({
                                 <BonusBondDustBadge
                                   bondsBought={entry.reinvestedTickets}
                                   amountWon={entry.amount}
-                                  bondPrice={ticketPrice || 5_000_000}
+                                  bondPrice={effectiveBondPrice}
                                   usedPriorDust={entry.usedPriorDust}
                                   tokenDecimals={tokenDecimals}
                                   tokenSymbol={tokenSymbol}
@@ -538,32 +543,13 @@ export default function CompleteLedgerModal({
                               )}
                             {entry.dustAccumulated !== undefined &&
                               entry.dustAccumulated > 0 && (
-                                <div
-                                  data-prevent-row-click="true"
-                                  className="relative group/dust shrink-0"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help whitespace-nowrap">
-                                    $
-                                    {formatTokenAmount(
-                                      entry.dustAccumulated,
-                                      tokenDecimals
-                                    )}{" "}
-                                    dust
-                                  </span>
-                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
-                                    <strong className="text-tertiary block mb-0.5">
-                                      {t("dustRemainder")}
-                                    </strong>
-                                    {t("dustRemainderDesc", {
-                                      bondPrice: formatTokenAmount(
-                                        ticketPrice,
-                                        tokenDecimals
-                                      ),
-                                      symbol: tokenSymbol,
-                                    })}
-                                  </div>
-                                </div>
+                                <RemainingWinningsBadge
+                                  amount={entry.dustAccumulated}
+                                  tokenDecimals={tokenDecimals}
+                                  tokenSymbol={tokenSymbol}
+                                  bondPrice={effectiveBondPrice}
+                                  tooltipAlign="center"
+                                />
                               )}
                           </div>
                         </div>
@@ -759,7 +745,7 @@ export default function CompleteLedgerModal({
                                   <BonusBondDustBadge
                                     bondsBought={entry.reinvestedTickets}
                                     amountWon={entry.amount}
-                                    bondPrice={ticketPrice || 5_000_000}
+                                    bondPrice={effectiveBondPrice}
                                     usedPriorDust={entry.usedPriorDust}
                                     tokenDecimals={tokenDecimals}
                                     tokenSymbol={tokenSymbol}
@@ -768,32 +754,13 @@ export default function CompleteLedgerModal({
                                 )}
                               {entry.dustAccumulated !== undefined &&
                                 entry.dustAccumulated > 0 && (
-                                  <div
-                                    data-prevent-row-click="true"
-                                    className="relative group/dust shrink-0"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help whitespace-nowrap">
-                                      $
-                                      {formatTokenAmount(
-                                        entry.dustAccumulated,
-                                        tokenDecimals
-                                      )}{" "}
-                                      dust
-                                    </span>
-                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
-                                      <strong className="text-tertiary block mb-0.5">
-                                        {t("dustRemainder")}
-                                      </strong>
-                                      {t("dustRemainderDesc", {
-                                        bondPrice: formatTokenAmount(
-                                          ticketPrice,
-                                          tokenDecimals
-                                        ),
-                                        symbol: tokenSymbol,
-                                      })}
-                                    </div>
-                                  </div>
+                                  <RemainingWinningsBadge
+                                    amount={entry.dustAccumulated}
+                                    tokenDecimals={tokenDecimals}
+                                    tokenSymbol={tokenSymbol}
+                                    bondPrice={effectiveBondPrice}
+                                    tooltipAlign="center"
+                                  />
                                 )}
                             </div>
                           </td>

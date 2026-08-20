@@ -123,7 +123,7 @@ export function DepositModal({
         stage={txStage}
         customSuccessMessage={
           txStage === "success"
-            ? `Successfully purchased ${parsedTickets} bonds for ${formatTokenAmount(totalCostBase, pool.tokenDecimals)} ${pool.tokenSymbol}!`
+            ? `Successfully purchased ${parsedTickets.toLocaleString("en-US")} bonds for ${formatTokenAmount(totalCostBase, pool.tokenDecimals)} ${pool.tokenSymbol}!`
             : undefined
         }
         txSignature={txSignature}
@@ -391,7 +391,7 @@ export function DepositModal({
                 key={parsedTickets > 0 ? parsedTickets : "zero"}
                 className={`font-semibold text-on-surface ${parsedTickets > 0 ? "text-primary animate-scale-pop" : ""}`}
               >
-                {parsedTickets}
+                {parsedTickets.toLocaleString("en-US")}
               </span>
             </div>
             <div className="flex justify-between text-on-surface-variant">
@@ -415,6 +415,27 @@ export function DepositModal({
             <TransactionFeeSummary isFirstDeposit={isFirstDeposit} />
           </div>
         )}
+
+        {/* ── Principal Protection Guarantee ────────────────────────── */}
+        <div className="flex items-center gap-2.5 rounded-xl bg-secondary/10 border border-secondary/20 px-3.5 py-2.5 text-xs text-on-surface-variant">
+          <svg
+            className="w-4 h-4 text-secondary shrink-0"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <p className="leading-snug">
+            <strong className="text-on-surface font-semibold">
+              {t("principalSafeBold")}
+            </strong>{" "}
+            {t("withdrawAnytimeText")}
+          </p>
+        </div>
 
         {/* ── CTA ────────────────────────────────────────────────────── */}
         <button

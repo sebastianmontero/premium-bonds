@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import {
   formatTokenAmount,
   calculateAnnualDrawEntries,
 } from "@/app/lib/formatters";
+import {
+  InteractiveTooltip,
+  InfoIcon,
+} from "@/app/components/common/InteractiveTooltip";
 import { useTranslations } from "next-intl";
 
 interface PortfolioHeroRowProps {
@@ -131,7 +134,7 @@ export function PortfolioHeroRow({
           {unclaimedAmount > 0 && (
             <InteractiveTooltip
               content={t("unclaimedDustTooltip")}
-              ariaLabel="Unclaimed Dust Status"
+              ariaLabel="Unclaimed Remaining Status"
               align="left"
             >
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] leading-tight text-amber-300 backdrop-blur-sm cursor-help hover:border-amber-500/45 hover:bg-amber-500/20 transition-all">
@@ -264,7 +267,7 @@ export function PortfolioHeroRow({
 
           <InteractiveTooltip
             content={t("nonReinvestedWinningsTooltip")}
-            ariaLabel="Non-reinvested Dust Status"
+            ariaLabel="Remaining Winnings Status"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
               <span className="font-mono font-medium text-on-surface">
@@ -341,107 +344,6 @@ export function PortfolioHeroRow({
           </InteractiveTooltip>
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * Reusable info question-mark icon with consistent styling.
- */
-function InfoIcon() {
-  return (
-    <span className="cursor-help text-on-surface-variant/70 hover:text-primary transition-colors inline-flex items-center">
-      <svg
-        className="w-3.5 h-3.5"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <circle cx="12" cy="12" r="10" strokeWidth="2" />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          d="M12 16v-4m0-4h.01"
-        />
-      </svg>
-    </span>
-  );
-}
-
-/**
- * Accessible touch- & keyboard-friendly tooltip wrapper with high-contrast opaque container
- * and directional alignment support to prevent clipping on boundaries.
- */
-function InteractiveTooltip({
-  content,
-  ariaLabel,
-  children,
-  align = "center",
-}: {
-  content: string;
-  ariaLabel: string;
-  children: React.ReactNode;
-  align?: "left" | "center" | "right";
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  const getPositionClasses = () => {
-    switch (align) {
-      case "left":
-        return "left-0 translate-x-0";
-      case "right":
-        return "right-0 left-auto translate-x-0";
-      case "center":
-      default:
-        return "left-1/2 -translate-x-1/2";
-    }
-  };
-
-  const getArrowClasses = () => {
-    switch (align) {
-      case "left":
-        return "left-4 translate-x-0";
-      case "right":
-        return "right-4 left-auto translate-x-0";
-      case "center":
-      default:
-        return "left-1/2 -translate-x-1/2";
-    }
-  };
-
-  return (
-    <div
-      className="relative inline-flex items-center"
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <button
-        type="button"
-        aria-label={ariaLabel}
-        onClick={() => setIsOpen((prev) => !prev)}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => setIsOpen(false)}
-        className="inline-flex items-center cursor-pointer text-left bg-transparent border-0 p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-md"
-      >
-        {children}
-      </button>
-
-      {isOpen && (
-        <div
-          role="tooltip"
-          className={`absolute bottom-full mb-2.5 z-50 w-56 sm:w-64 rounded-xl shadow-2xl p-3 text-xs text-on-surface leading-relaxed border border-outline-variant/40 animate-fadeIn pointer-events-none ${getPositionClasses()}`}
-          style={{ backgroundColor: "rgba(16, 23, 38, 0.98)" }}
-        >
-          <div className="relative z-10 font-normal text-on-surface">
-            {content}
-          </div>
-          {/* Opaque Arrow */}
-          <div
-            className={`absolute top-full -mt-px w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-[#101726] ${getArrowClasses()}`}
-          />
-        </div>
-      )}
     </div>
   );
 }

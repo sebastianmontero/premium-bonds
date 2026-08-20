@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { useTranslations } from "next-intl";
 
 interface UnclaimedBannerProps {
@@ -20,41 +21,7 @@ export function UnclaimedBanner({
   onClaim,
 }: UnclaimedBannerProps) {
   const [dismissed, setDismissed] = useState(false);
-  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
-  const tooltipContainerRef = useRef<HTMLDivElement>(null);
-  const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const t = useTranslations("Unclaimed");
-
-  // Handle outside clicks and Escape key with focus restoration
-  useEffect(() => {
-    if (!isTooltipOpen) return;
-
-    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      if (
-        tooltipContainerRef.current &&
-        !tooltipContainerRef.current.contains(event.target as Node)
-      ) {
-        setIsTooltipOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsTooltipOpen(false);
-        triggerButtonRef.current?.focus();
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isTooltipOpen]);
 
   if (dismissed || totalUnclaimed <= 0) return null;
 
@@ -101,45 +68,16 @@ export function UnclaimedBanner({
               </span>
               <span>{t("description")}</span>
 
-              {/* Dust info tooltip trigger & popover */}
-              <div
-                ref={tooltipContainerRef}
-                className="relative inline-flex items-center"
-                onMouseEnter={() => setIsTooltipOpen(true)}
-                onMouseLeave={() => setIsTooltipOpen(false)}
-              >
-                <button
-                  ref={triggerButtonRef}
-                  type="button"
-                  onClick={() => setIsTooltipOpen((prev) => !prev)}
-                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-amber-300/80 hover:text-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50 cursor-help transition-colors"
-                  aria-label={t("dustTooltipTrigger")}
-                  aria-expanded={isTooltipOpen}
-                  aria-haspopup="dialog"
-                >
-                  <svg
-                    className="h-3.5 w-3.5 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" strokeWidth="2" />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M12 16v-4m0-4h.01"
-                    />
-                  </svg>
-                </button>
-
-                {/* Floating Tooltip Popover */}
-                {isTooltipOpen && (
-                  <div
-                    role="tooltip"
-                    className="absolute top-full left-0 mt-2.5 w-72 sm:w-80 max-w-[calc(100vw-3rem)] rounded-xl border border-amber-500/30 bg-[#0F111A]/95 p-3.5 text-left text-xs font-normal text-on-surface shadow-2xl backdrop-blur-xl z-50 animate-in fade-in zoom-in-95 duration-150"
-                  >
+              {/* Remaining winnings info tooltip trigger & popover */}
+              <InteractiveTooltip
+                ariaLabel={t("dustTooltipTrigger")}
+                align="left"
+                side="bottom"
+                role="dialog"
+                triggerClassName="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-amber-300/80 hover:text-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400/50 cursor-help transition-colors"
+                panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                content={
+                  <div>
                     <div className="flex items-center gap-1.5 text-amber-300 font-semibold mb-1">
                       <svg
                         className="h-4 w-4 shrink-0 text-amber-400"
@@ -165,8 +103,8 @@ export function UnclaimedBanner({
                       })}
                     </p>
                   </div>
-                )}
-              </div>
+                }
+              />
             </div>
           </div>
         </div>

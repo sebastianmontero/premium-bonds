@@ -10,12 +10,16 @@ import {
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
+import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
   tokenDecimals: number;
   tokenSymbol: string;
+  bondPrice?: number;
+  /** @deprecated Use `bondPrice` */
   ticketPrice?: number;
   unclaimedTotal?: number;
   onClaim?: () => void;
@@ -30,6 +34,7 @@ export function PrizeHistoryLedger({
   entries,
   tokenDecimals,
   tokenSymbol,
+  bondPrice,
   ticketPrice = 5_000_000,
   unclaimedTotal = 0,
   onClaim,
@@ -41,6 +46,7 @@ export function PrizeHistoryLedger({
 }: PrizeHistoryLedgerProps) {
   const t = useTranslations("Ledger");
   const format = useFormatter();
+  const effectiveBondPrice = bondPrice ?? ticketPrice;
 
   const formatDate = (isoDate: string): string => {
     return formatLocalDate(
@@ -71,13 +77,39 @@ export function PrizeHistoryLedger({
           </p>
         </div>
         {unclaimedTotal > 0 && (
-          <button
-            onClick={onClaim}
-            className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
-          >
-            {t("claimAll")} ({formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
-            {tokenSymbol})
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onClaim}
+              className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
+            >
+              {t("claimAll")} (
+              {formatTokenAmount(unclaimedTotal, tokenDecimals)} {tokenSymbol})
+            </button>
+            <InteractiveTooltip
+              ariaLabel={t("claimTooltipTrigger")}
+              align="right"
+              side="bottom"
+              role="dialog"
+              triggerClassName="p-2 text-on-surface-variant/80 hover:text-primary transition-colors cursor-help rounded-lg hover:bg-surface-container/60"
+              content={
+                <div className="space-y-1 text-left">
+                  <p className="font-semibold text-primary flex items-center gap-1.5">
+                    <span>💡</span>
+                    <span>{t("claimTooltipTitle")}</span>
+                  </p>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    {t("claimTooltipExplanation", {
+                      bondPrice: formatTokenAmount(
+                        effectiveBondPrice,
+                        tokenDecimals
+                      ),
+                      symbol: tokenSymbol,
+                    })}
+                  </p>
+                </div>
+              }
+            />
+          </div>
         )}
       </div>
 
@@ -274,7 +306,7 @@ export function PrizeHistoryLedger({
                             <BonusBondDustBadge
                               bondsBought={entry.reinvestedTickets}
                               amountWon={entry.amount}
-                              bondPrice={ticketPrice || 5_000_000}
+                              bondPrice={effectiveBondPrice}
                               usedPriorDust={entry.usedPriorDust}
                               tokenDecimals={tokenDecimals}
                               tokenSymbol={tokenSymbol}
@@ -283,32 +315,13 @@ export function PrizeHistoryLedger({
                           )}
                         {entry.dustAccumulated !== undefined &&
                           entry.dustAccumulated > 0 && (
-                            <div
-                              data-prevent-row-click="true"
-                              className="relative group/dust shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help whitespace-nowrap">
-                                $
-                                {formatTokenAmount(
-                                  entry.dustAccumulated,
-                                  tokenDecimals
-                                )}{" "}
-                                dust
-                              </span>
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
-                                <strong className="text-tertiary block mb-0.5">
-                                  {t("dustRemainder")}
-                                </strong>
-                                {t("dustRemainderDesc", {
-                                  bondPrice: formatTokenAmount(
-                                    ticketPrice,
-                                    tokenDecimals
-                                  ),
-                                  symbol: tokenSymbol,
-                                })}
-                              </div>
-                            </div>
+                            <RemainingWinningsBadge
+                              amount={entry.dustAccumulated}
+                              tokenDecimals={tokenDecimals}
+                              tokenSymbol={tokenSymbol}
+                              bondPrice={effectiveBondPrice}
+                              tooltipAlign="center"
+                            />
                           )}
                       </div>
                     </div>
@@ -505,7 +518,7 @@ export function PrizeHistoryLedger({
                               <BonusBondDustBadge
                                 bondsBought={entry.reinvestedTickets}
                                 amountWon={entry.amount}
-                                bondPrice={ticketPrice || 5_000_000}
+                                bondPrice={effectiveBondPrice}
                                 usedPriorDust={entry.usedPriorDust}
                                 tokenDecimals={tokenDecimals}
                                 tokenSymbol={tokenSymbol}
@@ -514,32 +527,13 @@ export function PrizeHistoryLedger({
                             )}
                           {entry.dustAccumulated !== undefined &&
                             entry.dustAccumulated > 0 && (
-                              <div
-                                data-prevent-row-click="true"
-                                className="relative group/dust shrink-0"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help whitespace-nowrap">
-                                  $
-                                  {formatTokenAmount(
-                                    entry.dustAccumulated,
-                                    tokenDecimals
-                                  )}{" "}
-                                  dust
-                                </span>
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 max-w-[calc(100vw-32px)] p-2.5 rounded-xl bg-[#0F111A] border border-surface-bright/10 text-on-surface text-[10px] leading-normal font-sans font-normal opacity-0 pointer-events-none group-hover/dust:opacity-100 transition-opacity duration-200 shadow-xl z-50 text-center whitespace-normal">
-                                  <strong className="text-tertiary block mb-0.5">
-                                    {t("dustRemainder")}
-                                  </strong>
-                                  {t("dustRemainderDesc", {
-                                    bondPrice: formatTokenAmount(
-                                      ticketPrice,
-                                      tokenDecimals
-                                    ),
-                                    symbol: tokenSymbol,
-                                  })}
-                                </div>
-                              </div>
+                              <RemainingWinningsBadge
+                                amount={entry.dustAccumulated}
+                                tokenDecimals={tokenDecimals}
+                                tokenSymbol={tokenSymbol}
+                                bondPrice={effectiveBondPrice}
+                                tooltipAlign="center"
+                              />
                             )}
                         </div>
                       </td>

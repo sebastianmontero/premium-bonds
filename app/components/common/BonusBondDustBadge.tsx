@@ -59,8 +59,8 @@ export function BonusBondDustBadge({
         <div className="relative group/priorDust shrink-0 inline-flex items-center">
           <span
             className="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help whitespace-nowrap"
-            title={`+${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust used`}
-            aria-label={`Reinvested ${bondsBought} bonds using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior dust`}
+            title={`+${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior remaining balance used`}
+            aria-label={`Reinvested ${bondsBought} bonds using ${formatTokenAmount(priorDustApplied, tokenDecimals)} ${tokenSymbol} prior remaining balance`}
           >
             <span className="text-tertiary-bright font-bold">
               {tInspector("bonusBondWithDust")}
