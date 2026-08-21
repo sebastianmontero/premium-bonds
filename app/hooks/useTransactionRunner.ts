@@ -5,6 +5,7 @@ import {
   parseTransactionError,
   ParsedTransactionError,
 } from "@/app/lib/errors";
+import { notifyBalanceUpdate } from "@/app/hooks/useUserTokenBalance";
 import type { TransactionStage } from "@/app/components/dashboard/TransactionProgressModal";
 
 export function useTransactionRunner() {
@@ -32,6 +33,7 @@ export function useTransactionRunner() {
         setStage("confirming");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         setStage("success");
+        notifyBalanceUpdate();
 
         if (onSuccess) {
           onSuccess(capturedSig);

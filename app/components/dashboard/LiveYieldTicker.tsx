@@ -25,6 +25,14 @@ export interface LiveYieldTickerProps {
   valueClassName?: string;
   /** Optional label for console debug logs */
   debugLabel?: string;
+  /** Whether to split major ($1,250.00) and micro (3412) decimal parts */
+  splitDecimals?: boolean;
+  /** Custom className for the major dollar text when splitDecimals is true */
+  majorClassName?: string;
+  /** Custom className for the micro decimal fraction text when splitDecimals is true */
+  microClassName?: string;
+  /** Currency symbol or token name suffix */
+  tokenSuffix?: string;
 }
 
 export function LiveYieldTicker({
@@ -35,6 +43,10 @@ export function LiveYieldTicker({
   className = "",
   valueClassName = "",
   debugLabel,
+  splitDecimals = false,
+  majorClassName = "",
+  microClassName = "",
+  tokenSuffix,
 }: LiveYieldTickerProps) {
   const t = useTranslations("Dashboard");
 
@@ -47,6 +59,7 @@ export function LiveYieldTicker({
   });
 
   const spanRef = useRef<HTMLSpanElement>(null);
+  const microSpanRef = useRef<HTMLSpanElement>(null);
 
   // Cached Intl.NumberFormat from module cache for 60 FPS animation loop performance
   const numberFormatter = useMemo(
@@ -59,27 +72,82 @@ export function LiveYieldTicker({
     [numberFormatter]
   );
 
+  const formatParts = useCallback(
+    (currentVal: number): [string, string] => {
+      const formatted = numberFormatter.format(currentVal);
+      const dotIndex = formatted.indexOf(".");
+      if (dotIndex === -1) {
+        return [`$${formatted}`, ""];
+      }
+      // Major: dollar sign + integer + standard 2-decimal cents (e.g. "$0.00")
+      const major = `$${formatted.slice(0, dotIndex + 3)}`;
+      // Micro: remaining sub-cent fraction (e.g. "0031")
+      const micro = formatted.slice(dotIndex + 3);
+      return [major, micro];
+    },
+    [numberFormatter]
+  );
+
   useLiveTickerText({
     calculateValue: calculateCurrentValue,
-    formatValue,
+    formatValue: splitDecimals ? undefined : formatValue,
+    formatParts: splitDecimals ? formatParts : undefined,
     spanRef,
+    microSpanRef: splitDecimals ? microSpanRef : undefined,
     enabled: !pool?.isFrozenForDraw,
   });
 
-  // Initial SSR / pre-hydration display value
+  // Initial SSR / pre-hydration display values
+  const [initialMajor, initialMicro] = useMemo(
+    () => formatParts(baseUi),
+    [formatParts, baseUi]
+  );
   const initialFormatted = `$${numberFormatter.format(baseUi)}`;
 
   return (
-    <div className={`inline-flex items-center gap-3 ${className}`}>
-      <span
-        ref={spanRef}
-        className={`font-mono tabular-nums whitespace-nowrap ${valueClassName}`}
-      >
+    <div className={`inline-flex items-baseline gap-3 ${className}`}>
+      {/* Screen-reader accessible static announcement */}
+      <span className="sr-only" aria-live="polite">
         {initialFormatted}
       </span>
 
+      {splitDecimals ? (
+        <span
+          aria-hidden="true"
+          className="inline-flex items-baseline whitespace-nowrap"
+        >
+          <span
+            ref={spanRef}
+            className={`font-display font-bold tabular-nums tracking-tight ${majorClassName}`}
+          >
+            {initialMajor}
+          </span>
+          {initialMicro && (
+            <span
+              ref={microSpanRef}
+              className={`font-mono tabular-nums ${microClassName}`}
+            >
+              {initialMicro}
+            </span>
+          )}
+          {tokenSuffix && (
+            <span className="ms-2 text-xs sm:text-sm font-semibold uppercase tracking-wider text-on-surface-variant">
+              {tokenSuffix}
+            </span>
+          )}
+        </span>
+      ) : (
+        <span
+          ref={spanRef}
+          aria-hidden="true"
+          className={`font-mono tabular-nums whitespace-nowrap ${valueClassName}`}
+        >
+          {initialFormatted}
+        </span>
+      )}
+
       {showBadge && (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-xs font-semibold text-secondary animate-yield-pulse shrink-0">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-xs font-semibold text-secondary animate-yield-pulse shrink-0 self-center">
           <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
           {t("liveYielding")}
         </span>

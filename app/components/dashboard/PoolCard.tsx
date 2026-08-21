@@ -8,7 +8,7 @@ import { TierPrizeTicker } from "./TierPrizeTicker";
 import { YieldBreakdownTooltip } from "./YieldBreakdownTooltip";
 import { MinimumYieldStatus } from "./MinimumYieldStatus";
 import {
-  formatTokenAmount,
+  formatCurrencyAmount,
   getLocalizedTierLabel,
   formatApy,
   DEFAULT_APY,
@@ -110,7 +110,12 @@ export function PoolCard({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCell
           label={t("totalDeposited")}
-          value={`${pool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(pool.totalDepositedPrincipal, pool.tokenDecimals, 0)}${pool.tokenSymbol !== "USDC" ? ` ${pool.tokenSymbol}` : ""}`}
+          value={formatCurrencyAmount(
+            pool.totalDepositedPrincipal,
+            pool.tokenSymbol,
+            pool.tokenDecimals,
+            0
+          )}
           accent="text-on-surface"
         />
         <div className="space-y-0.5">
@@ -138,12 +143,22 @@ export function PoolCard({
         />
         <StatCell
           label={t("bondPrice")}
-          value={`${formatTokenAmount(pool.bondPrice, pool.tokenDecimals)} ${pool.tokenSymbol}`}
+          value={formatCurrencyAmount(
+            pool.bondPrice,
+            pool.tokenSymbol,
+            pool.tokenDecimals,
+            2
+          )}
           accent="text-on-surface"
         />
         <StatCell
           label={t("totalPrizesDistributed")}
-          value={`${pool.tokenSymbol === "USDC" ? "$" : ""}${formatTokenAmount(pool.totalPrizesDistributed ?? 0, pool.tokenDecimals, 0)}${pool.tokenSymbol !== "USDC" ? ` ${pool.tokenSymbol}` : ""}`}
+          value={formatCurrencyAmount(
+            pool.totalPrizesDistributed ?? 0,
+            pool.tokenSymbol,
+            pool.tokenDecimals,
+            0
+          )}
           accent="text-on-surface"
         />
       </div>

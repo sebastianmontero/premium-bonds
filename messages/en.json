@@ -42,7 +42,9 @@
     "yieldSourceLabel": "Yield Source",
     "yieldSourceSub": "Institutional RWA credit yield powered by Huma Finance",
     "securityLabel": "Verified Security",
-    "securitySub": "Non-custodial Anchor smart contracts on Solana"
+    "securitySub": "Non-custodial Anchor smart contracts on Solana",
+    "depositCta": "Deposit to Enter Draw",
+    "humaYieldBadge": "8.5% APY · Powered by Huma"
   },
   "HowItWorks": {
     "tag": "How It Works",
@@ -147,7 +149,7 @@
     "yourBalance": "Your Balance",
     "yourTickets": "Your Bonds",
     "activeSavers": "Active Savers",
-    "totalPrizesDistributed": "Prizes Distributed",
+    "totalPrizesDistributed": "Total Prizes Distributed",
     "principalProtectionNotice": "Never lose your principal. Withdraw anytime.",
     "bondPrice": "Bond Price",
     "prizeTiers": "Prize Tiers",

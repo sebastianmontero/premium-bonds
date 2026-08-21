@@ -257,6 +257,40 @@ export async function findAtaAddress(
   return addr;
 }
 
+/**
+ * Fetches and parses a user's SPL token account balance from the RPC.
+ * Returns raw base units as a number (e.g. 6 decimals = micro-USDC).
+ * Returns 0 if the ATA does not exist or cannot be parsed.
+ */
+export async function fetchUserAtaBalance(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: any,
+  userAddress: string,
+  mintAddress: string = USDC_MINT
+): Promise<number> {
+  try {
+    const userAta = await findAtaAddress(userAddress, mintAddress);
+    const ataAcc = await rpc
+      .getAccountInfo(userAta, { encoding: "base64" })
+      .send();
+
+    if (ataAcc && ataAcc.value && ataAcc.value.data?.[0]) {
+      const tokenBytes = getBase64Encoder().encode(ataAcc.value.data[0]);
+      if (tokenBytes.byteLength >= 72) {
+        const tokenView = new DataView(
+          tokenBytes.buffer,
+          tokenBytes.byteOffset,
+          tokenBytes.byteLength
+        );
+        return Number(tokenView.getBigUint64(64, true));
+      }
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Codama Account Decoders ─────────────────────────────────────────────────
 
 function mockAccount(data: Uint8Array) {

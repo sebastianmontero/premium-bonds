@@ -411,6 +411,28 @@ export function formatTokenAmount(
   });
 }
 
+/**
+ * Formats a token base-unit amount into a currency-aware string.
+ * - For USDC (case-insensitive): "$5.00" (minFractionDigits=2) or "$100,000" (minFractionDigits=0)
+ * - For non-USDC (e.g. SOL): "0.05 SOL" or "1.50 WBTC"
+ */
+export function formatCurrencyAmount(
+  amountBase: number,
+  tokenSymbol: string = "USDC",
+  decimals: number = USDC_DECIMALS,
+  minFractionDigits: number = 2,
+  maxFractionDigits?: number
+): string {
+  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
+  const formatted = formatTokenAmount(
+    amountBase,
+    decimals,
+    minFractionDigits,
+    maxFractionDigits
+  );
+  return isUsd ? `$${formatted}` : `${formatted} ${tokenSymbol}`;
+}
+
 /** Map tier index to a human label. */
 export function tierLabel(tierIndex: number): string {
   switch (tierIndex) {

@@ -42,7 +42,9 @@
     "yieldSourceLabel": "Fuente de Rendimiento",
     "yieldSourceSub": "Rendimiento de crédito RWA impulsado por Huma Finance",
     "securityLabel": "Seguridad Verificada",
-    "securitySub": "Contratos inteligentes Anchor no custodiales en Solana"
+    "securitySub": "Contratos inteligentes Anchor no custodiales en Solana",
+    "depositCta": "Depositar y Participar",
+    "humaYieldBadge": "8.5% APY · Desarrollado con Huma"
   },
   "HowItWorks": {
     "tag": "Cómo Funciona",

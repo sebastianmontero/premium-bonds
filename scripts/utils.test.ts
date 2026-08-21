@@ -4,6 +4,7 @@ import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
   DEFAULT_LIVE_YIELD_PRECISION,
   formatTokenAmount,
+  formatCurrencyAmount,
   calculateAnnualDrawEntries,
 } from "../app/lib/formatters";
 import { COMMAND_REGISTRY } from "./pb-cli";
@@ -415,6 +416,40 @@ function runTests() {
     );
 
     console.log("✓ Passed Test 11\n");
+  }
+
+  // Test 12: formatCurrencyAmount token-aware formatting
+  {
+    console.log("Test 12: formatCurrencyAmount token-aware formatting");
+    // USDC bond price (2 fraction digits)
+    const usdcBondPrice = formatCurrencyAmount(5_000_000, "USDC", 6, 2);
+    assert(
+      usdcBondPrice === "$5.00",
+      `Expected '$5.00', got '${usdcBondPrice}'`
+    );
+
+    // USDC total deposited (0 fraction digits)
+    const usdcTvl = formatCurrencyAmount(100_000_000_000, "USDC", 6, 0);
+    assert(
+      usdcTvl === "$100,000",
+      `Expected '$100,000', got '${usdcTvl}'`
+    );
+
+    // Case-insensitive USDC
+    const lowerUsdc = formatCurrencyAmount(1_000_000, "usdc", 6, 2);
+    assert(
+      lowerUsdc === "$1.00",
+      `Expected '$1.00', got '${lowerUsdc}'`
+    );
+
+    // Non-USDC token (e.g. SOL with 9 decimals)
+    const solBondPrice = formatCurrencyAmount(50_000_000, "SOL", 9, 2);
+    assert(
+      solBondPrice === "0.05 SOL",
+      `Expected '0.05 SOL', got '${solBondPrice}'`
+    );
+
+    console.log("✓ Passed Test 12\n");
   }
 
   console.log("All unit tests completed successfully!");

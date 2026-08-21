@@ -2,11 +2,20 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletConnection, useSolanaClient } from "@solana/react-hooks";
-import { getBase64Encoder } from "@solana/kit";
-import { USDC_MINT, findAtaAddress } from "../lib/bonds-sdk";
+import { USDC_MINT, fetchUserAtaBalance } from "../lib/bonds-sdk";
 import { formatTokenAmount, USDC_DECIMALS } from "../lib/formatters";
 
-const base64Encoder = getBase64Encoder();
+export const PB_BALANCE_UPDATE_EVENT = "pb:balance-update";
+
+/**
+ * Dispatches a protocol-wide custom event notifying all balance tracking hooks
+ * (such as header balance pills and wallet dropdowns) to refresh token balances.
+ */
+export function notifyBalanceUpdate(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(PB_BALANCE_UPDATE_EVENT));
+  }
+}
 
 export interface UseUserTokenBalanceResult {
   /** Raw base units balance (e.g. lamports/micro-USDC) */
@@ -41,6 +50,7 @@ export function useUserTokenBalance(
 
   const fetchIdRef = useRef<number>(0);
   const lastUserRef = useRef<string | undefined>(userAddress);
+  const trailingTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
   const refetch = useCallback(async () => {
     const fetchId = ++fetchIdRef.current;
@@ -52,31 +62,15 @@ export function useUserTokenBalance(
     }
 
     try {
-      const userAta = await findAtaAddress(userAddress, mintAddress);
       const rpc = client.runtime.rpc;
-      const ataAcc = await rpc
-        .getAccountInfo(userAta, { encoding: "base64" })
-        .send();
+      const rawBalance = await fetchUserAtaBalance(
+        rpc,
+        userAddress,
+        mintAddress
+      );
 
       if (fetchId !== fetchIdRef.current) return;
-
-      if (ataAcc && ataAcc.value && ataAcc.value.data?.[0]) {
-        const tokenBytes = base64Encoder.encode(ataAcc.value.data[0]);
-        if (tokenBytes.byteLength >= 72) {
-          const tokenView = new DataView(
-            tokenBytes.buffer,
-            tokenBytes.byteOffset,
-            tokenBytes.byteLength
-          );
-          const rawBalance = Number(tokenView.getBigUint64(64, true));
-          setBalance(rawBalance);
-        } else {
-          setBalance(0);
-        }
-      } else {
-        // ATA does not exist yet (brand new wallet) -> safe 0 balance
-        setBalance(0);
-      }
+      setBalance(rawBalance);
     } catch {
       if (fetchId === fetchIdRef.current) {
         setBalance(0);
@@ -100,14 +94,27 @@ export function useUserTokenBalance(
   // Listen for custom protocol balance update events and window focus
   useEffect(() => {
     const handleBalanceUpdate = () => {
+      // 1. Immediate refetch for instant UI responsiveness
       refetch();
+
+      // 2. Trailing refetch (~1000ms) to guarantee sync across delayed RPC slot propagation
+      if (trailingTimerRef.current) {
+        clearTimeout(trailingTimerRef.current);
+      }
+      trailingTimerRef.current = setTimeout(() => {
+        refetch();
+      }, 1000);
     };
 
-    window.addEventListener("pb:balance-update", handleBalanceUpdate);
+    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
     window.addEventListener("focus", handleBalanceUpdate);
 
     return () => {
-      window.removeEventListener("pb:balance-update", handleBalanceUpdate);
+      if (trailingTimerRef.current) {
+        clearTimeout(trailingTimerRef.current);
+        trailingTimerRef.current = null;
+      }
+      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
       window.removeEventListener("focus", handleBalanceUpdate);
     };
   }, [refetch]);
@@ -121,3 +128,4 @@ export function useUserTokenBalance(
     refetch,
   };
 }
+

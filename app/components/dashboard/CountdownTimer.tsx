@@ -10,6 +10,8 @@ interface CountdownTimerProps {
   resyncIntervalMs?: number;
   showExactDate?: boolean;
   exactDateClassName?: string;
+  variant?: "inline" | "card-footer" | "compact";
+  className?: string;
 }
 
 interface TimeLeft {
@@ -37,6 +39,8 @@ export function CountdownTimer({
   resyncIntervalMs,
   showExactDate = false,
   exactDateClassName,
+  variant = "card-footer",
+  className = "",
 }: CountdownTimerProps) {
   const t = useTranslations("Countdown");
   const format = useFormatter();
@@ -141,12 +145,12 @@ export function CountdownTimer({
     );
   };
 
-  if (!showExactDate) {
-    return renderDisplay();
+  if (variant === "inline" || !showExactDate) {
+    return <div className={`inline-flex items-center ${className}`}>{renderDisplay()}</div>;
   }
 
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    <div className={`flex flex-col items-end gap-0.5 ${className}`}>
       {renderDisplay()}
       {formattedTargetDate && isMounted && (
         <span

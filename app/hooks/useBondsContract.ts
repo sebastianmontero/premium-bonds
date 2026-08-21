@@ -38,9 +38,14 @@ import {
   fetchPoolYieldOnChainState,
   buildReinvestWinningsInstruction,
   resolveWinnerAddress,
+  fetchUserAtaBalance,
   RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
+import {
+  notifyBalanceUpdate,
+  PB_BALANCE_UPDATE_EVENT,
+} from "./useUserTokenBalance";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { sanitizeErrorMessage } from "../lib/errors";
 import { formatTokenAmount } from "../lib/formatters";
@@ -324,24 +329,10 @@ export function useBondsContract(poolId: number = 1) {
       if (userAddress) {
         const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
 
-        // Fetch User's USDC wallet balance
+        // Fetch User's USDC wallet balance using shared helper
         try {
-          const userUsdcAta = await findAtaAddress(userAddress, USDC_MINT);
-          const usdcAcc = await rpc
-            .getAccountInfo(userUsdcAta, { encoding: "base64" })
-            .send();
-          if (usdcAcc && usdcAcc.value) {
-            const tokenBytes = base64Encoder.encode(usdcAcc.value.data[0]);
-            const tokenView = new DataView(
-              tokenBytes.buffer,
-              tokenBytes.byteOffset,
-              tokenBytes.byteLength
-            );
-            const balance = Number(tokenView.getBigUint64(64, true));
-            setWalletBalance(balance);
-          } else {
-            setWalletBalance(0);
-          }
+          const balance = await fetchUserAtaBalance(rpc, userAddress, USDC_MINT);
+          setWalletBalance(balance);
         } catch (err) {
           console.warn(
             "User USDC ATA not found, defaulting balance to 0.",
@@ -551,6 +542,26 @@ export function useBondsContract(poolId: number = 1) {
     refetch();
   }, [refetch]);
 
+  // Synchronize wallet balance upon protocol balance update events
+  useEffect(() => {
+    const handleBalanceUpdate = async () => {
+      if (userAddress) {
+        try {
+          const rpc = client.runtime.rpc;
+          const balance = await fetchUserAtaBalance(rpc, userAddress, USDC_MINT);
+          setWalletBalance(balance);
+        } catch {
+          // ignore transient balance fetch error
+        }
+      }
+    };
+
+    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
+    return () => {
+      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
+    };
+  }, [userAddress, client]);
+
   // ─── Transaction actions ───────────────────────────────────────────────────
 
   /**
@@ -626,6 +637,7 @@ export function useBondsContract(poolId: number = 1) {
 
       // Refresh state after transaction
       await refetch();
+      notifyBalanceUpdate();
       return signature;
     },
     [userAddress, pool, poolId, send, refetch]
@@ -787,6 +799,7 @@ export function useBondsContract(poolId: number = 1) {
       try {
         const signature = await executeTx(pendingToSell, activeToSell);
         await refetch();
+        notifyBalanceUpdate();
         return signature;
       } catch (err: unknown) {
         // Concurrency Auto-Recovery: Catch InsufficientPendingTickets
@@ -801,6 +814,7 @@ export function useBondsContract(poolId: number = 1) {
           const totalToSell = pendingToSell + activeToSell;
           const retrySignature = await executeTx(0, totalToSell);
           await refetch();
+          notifyBalanceUpdate();
           return retrySignature;
         }
         throw err;
@@ -867,6 +881,7 @@ export function useBondsContract(poolId: number = 1) {
       });
 
       await refetch();
+      notifyBalanceUpdate();
       return signature;
     },
     [userAddress, pool, poolId, send, refetch]
@@ -933,6 +948,7 @@ export function useBondsContract(poolId: number = 1) {
     });
 
     await refetch();
+    notifyBalanceUpdate();
     return signature;
   }, [userAddress, pool, poolId, send, refetch]);
 
@@ -981,6 +997,7 @@ export function useBondsContract(poolId: number = 1) {
       });
 
       await refetch();
+      notifyBalanceUpdate();
       return signature;
     },
     [userAddress, pool, poolId, send, refetch, client]
