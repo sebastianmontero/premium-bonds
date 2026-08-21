@@ -12,7 +12,7 @@ pub enum PremiumBondsError {
     #[msg("The current stake cycle has not yet ended.")]
     CycleNotEnded,
     /// Invalid bond quantity.
-    #[msg("Invalid bond quanitity.")]
+    #[msg("Invalid bond quantity.")]
     InvalidBondQuantity,
     /// The prize pool registration capability has hit absolute capacity constraints.
     #[msg("The prize pool registration capability has hit absolute capacity constraints.")]
@@ -68,8 +68,8 @@ pub enum PremiumBondsError {
     /// Huma redemption has not been settled yet.
     #[msg("Huma redemption has not been settled yet.")]
     HumaRedemptionNotSettled,
-    /// This pending redemption does not belong to the signer.
-    #[msg("This pending redemption does not belong to the signer.")]
+    /// Beneficiary does not match the pending redemption owner.
+    #[msg("Beneficiary does not match pending redemption owner.")]
     InvalidRedemptionOwner,
     /// Insufficient accrued fee balance for withdrawal.
     #[msg("Insufficient accrued fee balance for withdrawal.")]

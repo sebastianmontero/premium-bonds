@@ -212,7 +212,7 @@ export type InitializeHumaLenderAsyncInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
@@ -436,7 +436,7 @@ export type InitializeHumaLenderInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
@@ -643,7 +643,7 @@ export type ParsedInitializeHumaLenderInstruction<
     humaConfig: TAccountMetas[5];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaPoolConfig: TAccountMetas[6];
-    /** and validity are fully validated by the Huma program during the CPI call. */
+    /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
     humaPoolState: TAccountMetas[7];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaModeConfig: TAccountMetas[8];

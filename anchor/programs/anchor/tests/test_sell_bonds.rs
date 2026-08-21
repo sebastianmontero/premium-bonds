@@ -78,12 +78,13 @@ fn send_e2e_claim_redemption_for_user(
     let dummy = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user: user.pubkey(),
+        caller: user.pubkey(),
+        beneficiary: user.pubkey(),
         pool: pool_pda_key,
         pending_redemption,
         token_mint: ctx.usdc_mint,
         pool_vault_account: pool_vault,
-        user_token_account,
+        beneficiary_token_account: user_token_account,
         huma_program: huma_program_id(),
         huma_config,
         huma_pool_config: dummy,
@@ -990,5 +991,16 @@ fn test_sell_bonds_fails_math_overflow() {
     assert!(
         err.contains("MathOverflow"),
         "Expected MathOverflow, got: {err}"
+    );
+}
+
+#[test]
+fn test_sell_bonds_fails_u32_overflow() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    // active_to_sell = u32::MAX, pending_to_sell = 1 -> should fail with MathOverflow
+    let err = send_sell_guard(&mut ctx, u32::MAX, 1).unwrap_err();
+    assert!(
+        err.contains("MathOverflow") || err.contains("InvalidBondQuantity"),
+        "Expected MathOverflow on u32 overflow, got: {err}"
     );
 }

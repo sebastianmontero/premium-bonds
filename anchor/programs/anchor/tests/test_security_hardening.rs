@@ -114,12 +114,13 @@ fn build_claim_redemption_ix(
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user,
+        caller: user,
+        beneficiary: user,
         pool,
         pending_redemption,
         token_mint,
         pool_vault_account,
-        user_token_account,
+        beneficiary_token_account: user_token_account,
         huma_program,
         huma_config,
         huma_pool_config,
@@ -156,12 +157,13 @@ fn send_e2e_claim_redemption_for_user(
     let dummy = Keypair::new().pubkey();
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user: user.pubkey(),
+        caller: user.pubkey(),
+        beneficiary: user.pubkey(),
         pool: pool_pda_key,
         pending_redemption,
         token_mint: ctx.usdc_mint,
         pool_vault_account: pool_vault,
-        user_token_account,
+        beneficiary_token_account: user_token_account,
         huma_program: huma_program_id(),
         huma_config,
         huma_pool_config: dummy,
@@ -1019,4 +1021,133 @@ fn test_claim_redemption_reentrancy_protection() {
     // Verify user received 3 USDC and pending_redemption PDA is closed (rent returned/not found)
     assert_eq!(read_token_balance(&ctx.svm, user_token_account), 93_000_000);
     assert!(ctx.svm.get_account(&pending_pda).is_none());
+}
+
+#[test]
+fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
+    let mut ctx = setup_e2e();
+    let wrong_pool_state = Keypair::new().pubkey();
+    // Initialize account owned by System Program instead of Huma Program
+    ctx.svm.set_account(
+        wrong_pool_state,
+        solana_sdk::account::Account {
+            lamports: 1_000_000,
+            data: vec![0u8; 100],
+            owner: anchor_lang::system_program::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    ).unwrap();
+
+    let (pool_pda_key, _) = pool_pda(1);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (user_winnings_pda_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::BuyBonds {
+        user: ctx.user.pubkey(),
+        user_winnings: user_winnings_pda_key,
+        pool: pool_pda_key,
+        ticket_registry: ctx.ticket_registry,
+        user_token_account: ctx.user_usdc_account,
+        token_mint: ctx.usdc_mint,
+        pool_vault_account: pool_vault,
+        pool_pst_vault,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: wrong_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = solana_program::instruction::Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
+        solana_sdk::message::VersionedMessage::Legacy(msg),
+        &[&ctx.user],
+    ).unwrap();
+
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("ConstraintRaw") || err_str.contains("ConstraintOwner") || err_str.contains("Custom"),
+        "Expected owner constraint error, got: {err_str}"
+    );
+}
+
+#[test]
+fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
+    let mut ctx = setup_e2e();
+    let wrong_pool_state = Keypair::new().pubkey();
+    ctx.svm.set_account(
+        wrong_pool_state,
+        solana_sdk::account::Account {
+            lamports: 1_000_000,
+            data: vec![0u8; 100],
+            owner: anchor_lang::system_program::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    ).unwrap();
+
+    let (global_config, _) = global_config_pda();
+    let (pool_pda_key, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::InitializeHumaLender {
+        admin: ctx.admin.pubkey(),
+        global_config,
+        pool: pool_pda_key,
+        pool_pst_vault,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: wrong_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_lender_state: dummy,
+        huma_lender_mode_token: dummy,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        associated_token_program: anchor_spl::associated_token::ID,
+        system_program: anchor_lang::system_program::ID,
+    }
+    .to_account_metas(None);
+
+    let ix = solana_program::instruction::Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::InitializeHumaLender {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
+        solana_sdk::message::VersionedMessage::Legacy(msg),
+        &[&ctx.admin],
+    ).unwrap();
+
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("ConstraintRaw") || err_str.contains("ConstraintOwner") || err_str.contains("Custom"),
+        "Expected owner constraint error, got: {err_str}"
+    );
 }

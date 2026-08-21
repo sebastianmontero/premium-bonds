@@ -58,8 +58,11 @@ pub struct InitializeHumaLender<'info> {
     /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_pool_config: UncheckedAccount<'info>,
 
-    /// CHECK: This is the Huma pool state account. It is unchecked here because its structure
-    /// and validity are fully validated by the Huma program during the CPI call.
+    /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
+    /// to ensure it is owned by the Huma program, and further validated during the Huma CPI.
+    #[account(
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+    )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
     /// CHECK: This is the Huma mode configuration account. It is unchecked here because its

@@ -142,9 +142,11 @@ pub fn handle(
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     // How many total bonds can be bought with the total available?
-    let mut bonds_to_buy = (total_available
+    let mut bonds_to_buy: u32 = total_available
         .checked_div(pool.bond_price)
-        .ok_or(PremiumBondsError::MathOverflow)?) as u32;
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
 
     // Graceful fallback for exited users when registry is full:
     // If an exited user (registry_entry_index == u32::MAX) wins a prize and reinvest_winnings is called

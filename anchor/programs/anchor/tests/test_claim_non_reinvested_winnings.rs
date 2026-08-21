@@ -458,3 +458,83 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(pr.version, 1);
     assert_eq!(pr.redemption_type, anchor::state::RedemptionType::PrizeClaim);
 }
+
+fn inject_pool_with_frozen(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    token_mint: Pubkey,
+    status: anchor::PoolStatus,
+    is_frozen_for_draw: u8,
+) -> Pubkey {
+    use anchor_lang::Discriminator;
+    let (pda, bump) = pool_pda(pool_id);
+    let pool = anchor::PrizePool {
+        vault_authority_bump: bump,
+        pool_id,
+        token_mint,
+        ticket_registry: Pubkey::default(),
+        fee_wallet: Pubkey::default(),
+        bond_price: 1_000_000,
+        stake_cycle_duration_hrs: 24,
+        min_yield_threshold: 0,
+        fee_basis_points: 100,
+        max_yield_basis_points: 0,
+        payout_timelock_seconds: 300,
+        status: status as u8,
+        total_deposited_principal: 0,
+        total_fees_accrued: 0,
+        total_fees_withdrawn: 0,
+        total_prizes_allocated: 1_000_000_000,
+        next_redemption_id: 0,
+        total_pending_redemptions: 0,
+        total_prizes_distributed: 0,
+        current_cycle_end_at: 0,
+        is_frozen_for_draw,
+        current_draw_cycle_id: 0,
+        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers_count: 0,
+        _padding: [0; 3],
+        version: 1,
+        _reserved: [0; 128],
+    };
+    let mut data = vec![];
+    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    data.extend_from_slice(bytemuck::bytes_of(&pool));
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    pda
+}
+
+#[test]
+fn test_claim_non_reinvested_winnings_fails_when_frozen() {
+    let mut ctx = setup_claim_guard(100_000, anchor::PoolStatus::Active);
+    // Freeze pool for draw
+    inject_pool_with_frozen(&mut ctx.svm, 1, ctx.token_mint, anchor::PoolStatus::Active, 1);
+
+    let ix = build_claim_ix_with_redemption_id(
+        ctx.user.pubkey(),
+        1,
+        ctx.pst_mint,
+        0,
+        ctx.huma_pool_state,
+        ctx.huma_pool_mode_token,
+    );
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("AwaitingRandomnessFreeze") || err_str.contains("Custom(6008)"),
+        "Expected AwaitingRandomnessFreeze error, got: {err_str}"
+    );
+}

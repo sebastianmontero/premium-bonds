@@ -85,12 +85,13 @@ fn inject_pending_redemption(
 }
 
 fn build_claim_redemption_ix(
-    user: Pubkey,
+    caller: Pubkey,
+    beneficiary: Pubkey,
     pool_id: u32,
     redemption_id: u64,
     token_mint: Pubkey,
     pool_vault_account: Pubkey,
-    user_token_account: Pubkey,
+    beneficiary_token_account: Pubkey,
     huma_program: Pubkey,
     huma_config: Pubkey,
     huma_pool_config: Pubkey,
@@ -104,12 +105,13 @@ fn build_claim_redemption_ix(
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user,
+        caller,
+        beneficiary,
         pool,
         pending_redemption,
         token_mint,
         pool_vault_account,
-        user_token_account,
+        beneficiary_token_account,
         huma_program,
         huma_config,
         huma_pool_config,
@@ -142,6 +144,26 @@ fn send_e2e_claim_redemption_for_user(
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
 ) -> Result<litesvm::types::TransactionMetadata, String> {
+    send_e2e_claim_redemption_full(
+        ctx,
+        user,
+        user.pubkey(),
+        user_token_account,
+        redemption_id,
+        huma_config,
+        huma_lender_state,
+    )
+}
+
+fn send_e2e_claim_redemption_full(
+    ctx: &mut E2eContext,
+    caller: &Keypair,
+    beneficiary: Pubkey,
+    beneficiary_token_account: Pubkey,
+    redemption_id: u64,
+    huma_config: Pubkey,
+    huma_lender_state: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (pool_pda_key, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
@@ -153,12 +175,13 @@ fn send_e2e_claim_redemption_for_user(
     };
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user: user.pubkey(),
+        caller: caller.pubkey(),
+        beneficiary,
         pool: pool_pda_key,
         pending_redemption,
         token_mint: ctx.usdc_mint,
         pool_vault_account: pool_vault,
-        user_token_account,
+        beneficiary_token_account,
         huma_program: huma_program_id(),
         huma_config,
         huma_pool_config: dummy,
@@ -181,8 +204,8 @@ fn send_e2e_claim_redemption_for_user(
     };
 
     let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
+    let msg = Message::new_with_blockhash(&[ix], Some(&caller.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller]).unwrap();
     ctx.svm
         .send_transaction(tx)
         .map_err(|e| format!("{e:?}"))
@@ -275,7 +298,8 @@ fn setup_claim_redemption_guard(
 
 fn send_claim_redemption_guard(
     ctx: &mut ClaimGuardCtx,
-    user_kp: &Keypair,
+    caller_kp: &Keypair,
+    beneficiary: Option<Pubkey>,
     pool_id: u32,
     redemption_id: u64,
     override_token_mint: Option<Pubkey>,
@@ -283,8 +307,10 @@ fn send_claim_redemption_guard(
     override_user_token_account: Option<Pubkey>,
     override_huma_program: Option<Pubkey>,
 ) -> Result<(), String> {
+    let beneficiary = beneficiary.unwrap_or_else(|| ctx.user.pubkey());
     let ix = build_claim_redemption_ix(
-        user_kp.pubkey(),
+        caller_kp.pubkey(),
+        beneficiary,
         pool_id,
         redemption_id,
         override_token_mint.unwrap_or(ctx.token_mint),
@@ -300,8 +326,8 @@ fn send_claim_redemption_guard(
         ctx.huma_pool_underlying_token,
     );
     let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_kp.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user_kp]).unwrap();
+    let msg = Message::new_with_blockhash(&[ix], Some(&caller_kp.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller_kp]).unwrap();
     ctx.svm
         .send_transaction(tx)
         .map(|_| ())
@@ -319,7 +345,7 @@ fn test_claim_redemption_fails_wrong_user() {
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
     let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, 1, 0, None, None, None, None).unwrap_err();
+        send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None).unwrap_err();
     assert!(err.contains("InvalidRedemptionOwner"), "got: {err}");
 }
 
@@ -330,7 +356,7 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
     let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, 1, 0, Some(wrong_mint), None, None, None)
+        send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, Some(wrong_mint), None, None, None)
             .unwrap_err();
     assert!(
         err.contains("ConstraintAddress") || err.contains("ConstraintRaw"),
@@ -344,7 +370,7 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. It will fail to resolve pool account or pending redemption constraint checks.
     let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, 2, 0, None, None, None, None).unwrap_err();
+        send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None).unwrap_err();
     assert!(
         err.contains("AccountNotFound")
             || err.contains("ConstraintSeeds")
@@ -363,6 +389,7 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
     let err = send_claim_redemption_guard(
         &mut ctx,
         &user_kp,
+        None,
         1,
         0,
         None,
@@ -922,4 +949,146 @@ fn test_claim_redemption_case_b_accrued_yield() {
     // Vault should have 0 USDC left
     let (pool_vault, _) = pool_vault_pda(1);
     assert_eq!(read_token_balance(&ctx.svm, pool_vault), 0);
+}
+
+#[test]
+fn test_claim_redemption_e2e_permissionless_crank() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    // Buy 10 bonds
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // Sell 3 pending bonds -> creates PendingRedemption 0
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let user_sol_before = ctx.svm.get_account(&user_a.pubkey()).unwrap().lamports;
+
+    // Crank keypair that executes the transaction
+    let crank = Keypair::new();
+    ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Crank calls claim redemption on behalf of user_a
+    send_e2e_claim_redemption_full(
+        &mut ctx,
+        &crank,
+        user_a.pubkey(),
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .expect("crank claim redemption should succeed");
+
+    // User A receives 3 USDC (93 USDC total)
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+
+    // User A received the PDA rent refund (lamports increased)
+    let user_sol_after = ctx.svm.get_account(&user_a.pubkey()).unwrap().lamports;
+    assert!(
+        user_sol_after > user_sol_before,
+        "User should have received the closed pending redemption PDA rent refund"
+    );
+
+    // PendingRedemption PDA closed
+    let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
+    assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
+}
+
+#[test]
+fn test_claim_redemption_fails_diverted_token_account() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    let user_a = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let crank = Keypair::new();
+    ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
+
+    // Attacker crank tries to pass their own token account as the recipient
+    let crank_usdc = create_spl_token_account(
+        &mut ctx.svm,
+        &crank,
+        &ctx.usdc_mint,
+        &crank.pubkey(),
+    );
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let err = send_e2e_claim_redemption_full(
+        &mut ctx,
+        &crank,
+        user_a.pubkey(),
+        crank_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .unwrap_err();
+
+    assert!(
+        err.contains("ConstraintTokenOwner") || err.contains("ConstraintRaw"),
+        "Expected token owner constraint failure when diverting USDC, got: {err}"
+    );
 }

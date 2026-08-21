@@ -49,11 +49,10 @@ pub fn read_mode_assets(pool_state_info: &AccountInfo) -> Result<u128> {
         data.len() >= MODE_STATES_OFFSET + 4,
         PremiumBondsError::MathOverflow
     );
-    let vec_len = u32::from_le_bytes(
-        data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
-            .try_into()
-            .unwrap(),
-    ) as usize;
+    let vec_len_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let vec_len = u32::from_le_bytes(vec_len_bytes) as usize;
 
     require!(vec_len > 0, PremiumBondsError::MathOverflow);
 
@@ -64,7 +63,10 @@ pub fn read_mode_assets(pool_state_info: &AccountInfo) -> Result<u128> {
         data.len() >= assets_start + 16,
         PremiumBondsError::MathOverflow
     );
-    let assets = u128::from_le_bytes(data[assets_start..assets_start + 16].try_into().unwrap());
+    let assets_bytes: [u8; 16] = data[assets_start..assets_start + 16]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let assets = u128::from_le_bytes(assets_bytes);
 
     Ok(assets)
 }
@@ -73,7 +75,7 @@ use crate::error::PremiumBondsError;
 
 /// Calculates the number of $PST shares equivalent to a given USDC amount.
 ///
-/// Formula: `shares = usdc_amount × pst_supply / total_assets` (rounds up to avoid dust creation).
+/// Formula: `shares = usdc_amount × pst_supply / total_assets` (strict ceiling division).
 /// Uses u128 intermediate math to avoid overflow.
 ///
 /// # Parameters
@@ -82,22 +84,35 @@ use crate::error::PremiumBondsError;
 /// * `total_assets` - Total assets deposited inside the Huma pool.
 ///
 /// # Returns
-/// * `u64` - Equivalent amount of $PST shares.
-pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128) -> u64 {
-    if total_assets == 0 {
-        return usdc_amount; // 1:1 if pool is empty
+/// * `Result<u64>` - Equivalent amount of $PST shares.
+pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128) -> Result<u64> {
+    if usdc_amount == 0 {
+        return Ok(0);
     }
+    // 1:1 initial parity applies strictly when both supply and assets are zero
+    if pst_supply == 0 && total_assets == 0 {
+        return Ok(usdc_amount);
+    }
+    require!(total_assets > 0, PremiumBondsError::MathOverflow);
+
     let numerator = (usdc_amount as u128)
-        .saturating_mul(pst_supply as u128)
-        .saturating_add(total_assets)
-        .saturating_sub(1);
-    let shares = numerator / total_assets;
-    shares.try_into().unwrap_or(u64::MAX)
+        .checked_mul(pst_supply as u128)
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .checked_add(total_assets.checked_sub(1).ok_or(PremiumBondsError::MathOverflow)?)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    let shares = numerator
+        .checked_div(total_assets)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    shares
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))
 }
 
 /// Calculates the USDC value of a given number of $PST shares.
 ///
-/// Formula: `usdc_value = pst_amount × total_assets / pst_supply`
+/// Formula: `usdc_value = pst_amount × total_assets / pst_supply` (strict floor division).
 /// Uses u128 intermediate math to avoid overflow.
 ///
 /// # Parameters
@@ -106,15 +121,23 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
 /// * `total_assets` - Total assets deposited inside the Huma pool.
 ///
 /// # Returns
-/// * `u64` - Equivalent USDC amount in base units.
-pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) -> u64 {
+/// * `Result<u64>` - Equivalent USDC amount in base units.
+pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) -> Result<u64> {
+    if pst_amount == 0 || total_assets == 0 {
+        return Ok(0);
+    }
     if pst_supply == 0 {
-        return pst_amount; // 1:1 if no supply
+        return Ok(pst_amount);
     }
     let value = (pst_amount as u128)
-        .saturating_mul(total_assets)
-        / (pst_supply as u128);
-    value.try_into().unwrap_or(u64::MAX)
+        .checked_mul(total_assets)
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .checked_div(pst_supply as u128)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
+    value
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -490,11 +513,10 @@ pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128
         data.len() >= MODE_STATES_OFFSET + 4,
         PremiumBondsError::MathOverflow
     );
-    let num_modes = u32::from_le_bytes(
-        data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
-            .try_into()
-            .unwrap(),
-    ) as usize;
+    let num_modes_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let num_modes = u32::from_le_bytes(num_modes_bytes) as usize;
 
     // Locate mode_config_keys length prefix offset
     let mode_config_keys_offset = 30 + num_modes * 216;
@@ -504,11 +526,10 @@ pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128
     );
 
     // Read mode_config_keys length prefix (u32 LE)
-    let num_config_keys = u32::from_le_bytes(
-        data[mode_config_keys_offset..mode_config_keys_offset + 4]
-            .try_into()
-            .unwrap(),
-    ) as usize;
+    let num_config_keys_bytes: [u8; 4] = data[mode_config_keys_offset..mode_config_keys_offset + 4]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let num_config_keys = u32::from_le_bytes(num_config_keys_bytes) as usize;
 
     // Locate redemption offset
     let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
@@ -518,16 +539,59 @@ pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128
     );
 
     // Read next_request_id and last_request_id
-    let next_request_id = u128::from_le_bytes(
-        data[redemption_offset..redemption_offset + 16]
-            .try_into()
-            .unwrap(),
-    );
-    let last_request_id = u128::from_le_bytes(
-        data[redemption_offset + 16..redemption_offset + 32]
-            .try_into()
-            .unwrap(),
-    );
+    let next_req_bytes: [u8; 16] = data[redemption_offset..redemption_offset + 16]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let next_request_id = u128::from_le_bytes(next_req_bytes);
+
+    let last_req_bytes: [u8; 16] = data[redemption_offset + 16..redemption_offset + 32]
+        .try_into()
+        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    let last_request_id = u128::from_le_bytes(last_req_bytes);
 
     Ok((next_request_id, last_request_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_usdc_to_pst_shares_zero_amount() {
+        assert_eq!(usdc_to_pst_shares(0, 1_000_000, 1_000_000).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_usdc_to_pst_shares_initial_parity() {
+        assert_eq!(usdc_to_pst_shares(1_000_000, 0, 0).unwrap(), 1_000_000);
+    }
+
+    #[test]
+    fn test_usdc_to_pst_shares_zero_assets_with_supply_fails() {
+        assert!(usdc_to_pst_shares(1_000_000, 1_000_000, 0).is_err());
+    }
+
+    #[test]
+    fn test_usdc_to_pst_shares_ceiling_rounding() {
+        // 100 USDC, supply 1000, assets 300 -> 100 * 1000 / 300 = 333.333 -> ceil = 334
+        assert_eq!(usdc_to_pst_shares(100, 1000, 300).unwrap(), 334);
+    }
+
+    #[test]
+    fn test_pst_shares_to_usdc_zero_inputs() {
+        assert_eq!(pst_shares_to_usdc(0, 1_000_000, 1_000_000).unwrap(), 0);
+        assert_eq!(pst_shares_to_usdc(1_000_000, 1_000_000, 0).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_pst_shares_to_usdc_zero_assets_returns_zero() {
+        assert_eq!(pst_shares_to_usdc(1_000_000, 0, 0).unwrap(), 0);
+        assert_eq!(pst_shares_to_usdc(1_000_000, 1_000_000, 0).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_pst_shares_to_usdc_floor_rounding() {
+        // 334 shares, supply 1000, assets 300 -> 334 * 300 / 1000 = 100.2 -> floor = 100
+        assert_eq!(pst_shares_to_usdc(334, 1000, 300).unwrap(), 100);
+    }
 }

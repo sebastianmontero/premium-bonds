@@ -858,12 +858,13 @@ export function useBondsContract(poolId: number = 1) {
       ixData.set([109, 110, 9, 188, 195, 217, 112, 83], 0);
 
       const accounts = [
-        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER },
+        { address: address(userAddress), role: AccountRole.WRITABLE_SIGNER }, // caller
+        { address: address(userAddress), role: AccountRole.WRITABLE }, // beneficiary
         { address: poolPda, role: AccountRole.WRITABLE },
         { address: pendingRedemptionPda, role: AccountRole.WRITABLE },
         { address: USDC_MINT, role: AccountRole.READONLY },
         { address: poolVault, role: AccountRole.WRITABLE },
-        { address: userTokenAccount, role: AccountRole.WRITABLE },
+        { address: userTokenAccount, role: AccountRole.WRITABLE }, // beneficiary_token_account
         { address: HUMA_PROGRAM_ID, role: AccountRole.READONLY },
         { address: HUMA_CONFIG, role: AccountRole.READONLY },
         { address: HUMA_POOL_CONFIG, role: AccountRole.READONLY },

@@ -182,7 +182,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let pool_pst_balance = ctx.accounts.pool_pst_vault.amount;
 
     // current_value = pool_pst_balance × total_assets / pst_supply
-    let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets);
+    let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets)?;
 
     let fees_in_vault = pool
         .total_fees_accrued

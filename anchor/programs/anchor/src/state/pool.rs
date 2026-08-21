@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 /// Represents the administrative and lifecycle state of a liquidity pool.
-/// Represents the administrative and lifecycle state of a liquidity pool.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
 #[repr(u8)]
 pub enum PoolStatus {
@@ -202,7 +201,7 @@ impl PrizePool {
 
     /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
     ///
-    /// These checks run before any token transfers or Kamino CPI calls.
+    /// These checks run before any token transfers or Huma CPI calls.
     /// Extracted here so they can be unit-tested without a full Anchor context.
     pub fn validate_buy_bonds(&self, bonds_to_buy: u32) -> Result<u64> {
         require!(

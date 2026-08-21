@@ -210,9 +210,11 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     // Calculate $PST shares for the fee amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let pst_shares = huma::usdc_to_pst_shares(amount, pst_supply, total_assets);
+    let pst_shares = huma::usdc_to_pst_shares(amount, pst_supply, total_assets)?;
 
-    // Read current last_request_id from the queue before Huma increments it
+    // Read current last_request_id from the queue before Huma increments it.
+    // Huma assigns the new request ID as the pre-increment `last_request_id` (0-indexed).
+    // When Huma settles request M, `next_request_id` becomes M + 1, making `next_request_id > M` true.
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 

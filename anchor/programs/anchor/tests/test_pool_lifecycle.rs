@@ -228,12 +228,13 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     inject_dummy_huma_account(&mut svm, huma_pool_underlying_token);
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user: user.pubkey(),
+        caller: user.pubkey(),
+        beneficiary: user.pubkey(),
         pool: pool_pda_addr,
         pending_redemption,
         token_mint,
         pool_vault_account: pool_vault,
-        user_token_account,
+        beneficiary_token_account: user_token_account,
         huma_program: huma_program_id(),
         huma_config: Pubkey::default(),
         huma_pool_config: Pubkey::default(),

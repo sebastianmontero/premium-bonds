@@ -20,7 +20,7 @@ export const ANCHOR_ERROR__POOL_NOT_ACTIVE = 0x1770; // 6000
 export const ANCHOR_ERROR__INVALID_POOL_STATUS = 0x1771; // 6001
 /** CycleNotEnded: The current stake cycle has not yet ended. */
 export const ANCHOR_ERROR__CYCLE_NOT_ENDED = 0x1772; // 6002
-/** InvalidBondQuantity: Invalid bond quanitity. */
+/** InvalidBondQuantity: Invalid bond quantity. */
 export const ANCHOR_ERROR__INVALID_BOND_QUANTITY = 0x1773; // 6003
 /** RegistryFull: The prize pool registration capability has hit absolute capacity constraints. */
 export const ANCHOR_ERROR__REGISTRY_FULL = 0x1774; // 6004
@@ -58,7 +58,7 @@ export const ANCHOR_ERROR__INVALID_BOND_PRICE = 0x1783; // 6019
 export const ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION = 0x1784; // 6020
 /** HumaRedemptionNotSettled: Huma redemption has not been settled yet. */
 export const ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED = 0x1785; // 6021
-/** InvalidRedemptionOwner: This pending redemption does not belong to the signer. */
+/** InvalidRedemptionOwner: Beneficiary does not match pending redemption owner. */
 export const ANCHOR_ERROR__INVALID_REDEMPTION_OWNER = 0x1786; // 6022
 /** InsufficientFeeBalance: Insufficient accrued fee balance for withdrawal. */
 export const ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE = 0x1787; // 6023
@@ -186,7 +186,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
     [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: `Insufficient pending tickets for this transaction`,
     [ANCHOR_ERROR__INVALID_BOND_PRICE]: `Bond price must be greater than 0.`,
-    [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: `Invalid bond quanitity.`,
+    [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: `Invalid bond quantity.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATE]: `The draw cycle has an invalid locked count or prize pot.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATUS]: `The draw cycle is in an invalid phase for this operation`,
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
@@ -197,7 +197,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_POOL_STATUS]: `Invalid pool status value.`,
     [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: `Invalid prize tier configuration.`,
     [ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT]: `The provided randomness account is invalid or does not belong to Switchboard.`,
-    [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `This pending redemption does not belong to the signer.`,
+    [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `Beneficiary does not match pending redemption owner.`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,

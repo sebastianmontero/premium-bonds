@@ -25,6 +25,7 @@ fn build_buy_bonds_ix(
     pst_mint: Pubkey,
     user_token_account: Pubkey,
     ticket_registry: Pubkey,
+    huma_pool_state: Pubkey,
     bonds_to_buy: u32,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
@@ -46,7 +47,7 @@ fn build_buy_bonds_ix(
         huma_program: anchor::constants::HUMA_PROGRAM_ID,
         huma_config: dummy,
         huma_pool_config: dummy,
-        huma_pool_state: dummy,
+        huma_pool_state,
         huma_mode_config: dummy,
         huma_mode_mint: dummy,
         huma_pool_authority: dummy,
@@ -78,6 +79,7 @@ struct BuyBondsCtx {
     pst_mint: Pubkey,
     user_token_account: Pubkey,
     ticket_registry: Pubkey,
+    huma_pool_state: Pubkey,
 }
 
 fn setup_buy_bonds(
@@ -132,6 +134,9 @@ fn setup_buy_bonds(
         is_frozen,
     );
 
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
     BuyBondsCtx {
         svm,
         user,
@@ -139,6 +144,7 @@ fn setup_buy_bonds(
         pst_mint,
         user_token_account,
         ticket_registry,
+        huma_pool_state,
     }
 }
 
@@ -150,6 +156,7 @@ fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String
         ctx.pst_mint,
         ctx.user_token_account,
         ctx.ticket_registry,
+        ctx.huma_pool_state,
         bonds_to_buy,
     );
     let bh = ctx.svm.latest_blockhash();
@@ -521,6 +528,7 @@ fn test_buy_bonds_fails_invalid_registry_has_one() {
         ctx.pst_mint,
         ctx.user_token_account,
         fake_registry, // Invalid registry address
+        ctx.huma_pool_state,
         1,
     );
 
@@ -550,6 +558,7 @@ fn test_buy_bonds_fails_invalid_token_mint() {
         ctx.pst_mint,
         ctx.user_token_account,
         ctx.ticket_registry,
+        ctx.huma_pool_state,
         1,
     );
 
@@ -591,7 +600,7 @@ fn test_buy_bonds_fails_invalid_huma_program() {
         huma_program: fake_huma, // Mismatched huma_program address
         huma_config: dummy,
         huma_pool_config: dummy,
-        huma_pool_state: dummy,
+        huma_pool_state: ctx.huma_pool_state,
         huma_mode_config: dummy,
         huma_mode_mint: dummy,
         huma_pool_authority: dummy,

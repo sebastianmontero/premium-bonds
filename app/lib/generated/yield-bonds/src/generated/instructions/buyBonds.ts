@@ -219,10 +219,6 @@ export type BuyBondsAsyncInput<
    * and accumulated winnings for this pool.
    *
    * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-   * The user winnings/metadata PDA. It tracks the user's active/pending tickets
-   * and accumulated winnings for this pool.
-   *
-   * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
    */
   userWinnings: Address<TAccountUserWinnings>;
   /**
@@ -256,7 +252,7 @@ export type BuyBondsAsyncInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
@@ -511,10 +507,6 @@ export type BuyBondsInput<
    * and accumulated winnings for this pool.
    *
    * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-   * The user winnings/metadata PDA. It tracks the user's active/pending tickets
-   * and accumulated winnings for this pool.
-   *
-   * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
    */
   userWinnings: Address<TAccountUserWinnings>;
   /**
@@ -548,7 +540,7 @@ export type BuyBondsInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
@@ -781,10 +773,6 @@ export type ParsedBuyBondsInstruction<
      * and accumulated winnings for this pool.
      *
      * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-     * The user winnings/metadata PDA. It tracks the user's active/pending tickets
-     * and accumulated winnings for this pool.
-     *
-     * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
      */
     userWinnings: TAccountMetas[1];
     /**
@@ -818,7 +806,7 @@ export type ParsedBuyBondsInstruction<
     humaConfig: TAccountMetas[9];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaPoolConfig: TAccountMetas[10];
-    /** and validity are fully validated by the Huma program during the CPI call. */
+    /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
     humaPoolState: TAccountMetas[11];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaModeConfig: TAccountMetas[12];

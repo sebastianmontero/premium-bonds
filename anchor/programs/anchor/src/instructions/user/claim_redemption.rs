@@ -8,12 +8,20 @@ use anchor_spl::token_interface::{
     transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked,
 };
 
-/// Accounts required for a user to claim their settled USDC redemption.
+/// Accounts required for a caller/crank or user to claim a settled USDC redemption.
 #[derive(Accounts)]
 pub struct ClaimRedemption<'info> {
-    /// The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA.
+    /// The caller/crank executing the claim transaction (pays transaction fee).
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub caller: Signer<'info>,
+
+    /// CHECK: The redemption beneficiary receiving the claimed USDC and PDA rent refund.
+    /// Validated strictly against pending_redemption.user.
+    #[account(
+        mut,
+        address = pending_redemption.user @ PremiumBondsError::InvalidRedemptionOwner
+    )]
+    pub beneficiary: UncheckedAccount<'info>,
 
     /// The prize pool state account.
     ///
@@ -26,8 +34,8 @@ pub struct ClaimRedemption<'info> {
     )]
     pub pool: AccountLoader<'info, PrizePool>,
 
-    /// The PendingRedemption PDA representing the user's withdrawal request.
-    /// Closes and refunds its rent to `user` upon successful completion.
+    /// The PendingRedemption PDA representing the withdrawal request.
+    /// Closes and refunds its rent directly to `beneficiary` upon successful completion.
     ///
     /// PDA seeds: `[PENDING_REDEMPTION_SEED, pending_redemption.pool_id.to_le_bytes().as_ref(), pending_redemption.redemption_id.to_le_bytes().as_ref()]`.
     #[account(
@@ -39,8 +47,7 @@ pub struct ClaimRedemption<'info> {
         ],
         bump = pending_redemption.bump,
         constraint = pending_redemption.pool_id == pool.load()?.pool_id,
-        constraint = pending_redemption.user == user.key() @ PremiumBondsError::InvalidRedemptionOwner,
-        close = user
+        close = beneficiary
     )]
     pub pending_redemption: Box<Account<'info, PendingRedemption>>,
 
@@ -63,14 +70,14 @@ pub struct ClaimRedemption<'info> {
     )]
     pub pool_vault_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    /// The user's underlying token account (receives the claimed USDC).
+    /// The beneficiary's underlying token account (receives the claimed USDC).
     #[account(
         mut,
         token::mint = token_mint,
-        token::authority = user,
+        token::authority = beneficiary,
         token::token_program = token_program
     )]
-    pub user_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub beneficiary_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     // ── Huma Finance accounts ───────────────────────────────────────────────
     /// CHECK: This is the Huma Finance program account. It is validated via the address constraint
@@ -130,8 +137,8 @@ pub struct ClaimRedemption<'info> {
 ///
 /// Flow:
 /// 1. CPI → Huma `disburse` to pull settled USDC into pool vault.
-/// 2. Transfer the owed amount from pool vault to the user.
-/// 3. Close the PendingRedemption PDA, returning rent to user.
+/// 2. Transfer the owed amount from pool vault to the beneficiary.
+/// 3. Close the PendingRedemption PDA, returning 100% of rent to the beneficiary.
 ///
 /// # Parameters
 /// * `ctx` - The context of the claim redemption instruction.
@@ -193,11 +200,11 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    // Transfer owed USDC to user
+    // Transfer owed USDC to beneficiary
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.pool_vault_account.to_account_info(),
         mint: ctx.accounts.token_mint.to_account_info(),
-        to: ctx.accounts.user_token_account.to_account_info(),
+        to: ctx.accounts.beneficiary_token_account.to_account_info(),
         authority: ctx.accounts.pool.to_account_info(),
     };
     transfer_checked(
@@ -208,21 +215,22 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "ClaimRedemption: user={}, amount={}, redemption_id={}, huma_request_id={}",
-        ctx.accounts.user.key(),
+        "ClaimRedemption: caller={}, beneficiary={}, amount={}, redemption_id={}, huma_request_id={}",
+        ctx.accounts.caller.key(),
+        ctx.accounts.beneficiary.key(),
         redemption_amount,
         redemption_id,
         huma_request_id,
     );
 
     emit_cpi!(RedemptionClaimed {
-        user: ctx.accounts.user.key(),
+        user: ctx.accounts.beneficiary.key(),
         pool_id,
         amount: redemption_amount,
         redemption_id,
     });
 
-    // PendingRedemption is closed automatically via `close = user` constraint
+    // PendingRedemption is closed automatically via `close = beneficiary` constraint
 
     Ok(())
 }

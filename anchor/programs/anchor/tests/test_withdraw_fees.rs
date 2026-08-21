@@ -1015,8 +1015,9 @@ fn test_withdraw_fees_and_claim_e2e() {
         &ctx.admin.pubkey(),
     );
 
-    // Build and send claim_redemption signed by admin (fee wallet owner)
+    // Build and send claim_redemption signed by admin (or crank on behalf of fee wallet owner)
     let ix_claim = build_claim_redemption_ix(
+        ctx.admin.pubkey(),
         ctx.admin.pubkey(),
         1,
         0, // redemption_id = 0
@@ -1053,12 +1054,13 @@ fn test_withdraw_fees_and_claim_e2e() {
 }
 
 fn build_claim_redemption_ix(
-    user: Pubkey,
+    caller: Pubkey,
+    beneficiary: Pubkey,
     pool_id: u32,
     redemption_id: u64,
     token_mint: Pubkey,
     pool_vault_account: Pubkey,
-    user_token_account: Pubkey,
+    beneficiary_token_account: Pubkey,
     huma_program: Pubkey,
     huma_config: Pubkey,
     huma_pool_config: Pubkey,
@@ -1072,12 +1074,13 @@ fn build_claim_redemption_ix(
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
 
     let accounts = anchor::accounts::ClaimRedemption {
-        user,
+        caller,
+        beneficiary,
         pool,
         pending_redemption,
         token_mint,
         pool_vault_account,
-        user_token_account,
+        beneficiary_token_account,
         huma_program,
         huma_config,
         huma_pool_config,

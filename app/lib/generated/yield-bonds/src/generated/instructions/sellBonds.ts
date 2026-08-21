@@ -229,9 +229,6 @@ export type SellBondsAsyncInput<
    * The user winnings/metadata PDA tracking the user's registry index and winnings.
    *
    * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-   * The user winnings/metadata PDA tracking the user's registry index and winnings.
-   *
-   * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
    */
   userWinnings: Address<TAccountUserWinnings>;
   /**
@@ -530,9 +527,6 @@ export type SellBondsInput<
    * The user winnings/metadata PDA tracking the user's registry index and winnings.
    *
    * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-   * The user winnings/metadata PDA tracking the user's registry index and winnings.
-   *
-   * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
    */
   userWinnings: Address<TAccountUserWinnings>;
   /**
@@ -805,9 +799,6 @@ export type ParsedSellBondsInstruction<
     /** The user selling the bonds. Signs and pays for the `pending_redemption` account rent. */
     user: TAccountMetas[0];
     /**
-     * The user winnings/metadata PDA tracking the user's registry index and winnings.
-     *
-     * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
      * The user winnings/metadata PDA tracking the user's registry index and winnings.
      *
      * PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.

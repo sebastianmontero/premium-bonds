@@ -25,9 +25,6 @@ pub struct SellBonds<'info> {
     /// The user winnings/metadata PDA tracking the user's registry index and winnings.
     ///
     /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
-    /// The user winnings/metadata PDA tracking the user's registry index and winnings.
-    ///
-    /// PDA seeds: `[b"user_winnings", pool.pool_id.to_le_bytes().as_ref(), user.key().as_ref()]`.
     #[account(
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
@@ -182,7 +179,9 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         (pool.bond_price, pool.pool_id)
     };
 
-    let bonds_to_sell = active_to_sell + pending_to_sell;
+    let bonds_to_sell = active_to_sell
+        .checked_add(pending_to_sell)
+        .ok_or(PremiumBondsError::MathOverflow)?;
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
     let expected_principal = (bonds_to_sell as u64)
@@ -337,9 +336,11 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     // Calculate $PST shares to redeem for the principal amount
     let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let pst_shares = huma::usdc_to_pst_shares(expected_principal, pst_supply, total_assets);
+    let pst_shares = huma::usdc_to_pst_shares(expected_principal, pst_supply, total_assets)?;
 
-    // Read current last_request_id from the queue before Huma increments it
+    // Read current last_request_id from the queue before Huma increments it.
+    // Huma assigns the new request ID as the pre-increment `last_request_id` (0-indexed).
+    // When Huma settles request M, `next_request_id` becomes M + 1, making `next_request_id > M` true.
     let (_, huma_request_id) =
         huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
 

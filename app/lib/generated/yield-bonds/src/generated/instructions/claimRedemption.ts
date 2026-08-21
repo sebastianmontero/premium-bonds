@@ -57,12 +57,13 @@ export function getClaimRedemptionDiscriminatorBytes(): ReadonlyUint8Array {
 
 export type ClaimRedemptionInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
-  TAccountUser extends string | AccountMeta<string> = string,
+  TAccountCaller extends string | AccountMeta<string> = string,
+  TAccountBeneficiary extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
   TAccountTokenMint extends string | AccountMeta<string> = string,
   TAccountPoolVaultAccount extends string | AccountMeta<string> = string,
-  TAccountUserTokenAccount extends string | AccountMeta<string> = string,
+  TAccountBeneficiaryTokenAccount extends string | AccountMeta<string> = string,
   TAccountHumaProgram extends string | AccountMeta<string> =
     "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
   TAccountHumaConfig extends string | AccountMeta<string> = string,
@@ -84,9 +85,13 @@ export type ClaimRedemptionInstruction<
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
-      TAccountUser extends string
-        ? WritableSignerAccount<TAccountUser> & AccountSignerMeta<TAccountUser>
-        : TAccountUser,
+      TAccountCaller extends string
+        ? WritableSignerAccount<TAccountCaller> &
+            AccountSignerMeta<TAccountCaller>
+        : TAccountCaller,
+      TAccountBeneficiary extends string
+        ? WritableAccount<TAccountBeneficiary>
+        : TAccountBeneficiary,
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
@@ -99,9 +104,9 @@ export type ClaimRedemptionInstruction<
       TAccountPoolVaultAccount extends string
         ? WritableAccount<TAccountPoolVaultAccount>
         : TAccountPoolVaultAccount,
-      TAccountUserTokenAccount extends string
-        ? WritableAccount<TAccountUserTokenAccount>
-        : TAccountUserTokenAccount,
+      TAccountBeneficiaryTokenAccount extends string
+        ? WritableAccount<TAccountBeneficiaryTokenAccount>
+        : TAccountBeneficiaryTokenAccount,
       TAccountHumaProgram extends string
         ? ReadonlyAccount<TAccountHumaProgram>
         : TAccountHumaProgram,
@@ -172,12 +177,13 @@ export function getClaimRedemptionInstructionDataCodec(): FixedSizeCodec<
 }
 
 export type ClaimRedemptionAsyncInput<
-  TAccountUser extends string = string,
+  TAccountCaller extends string = string,
+  TAccountBeneficiary extends string = string,
   TAccountPool extends string = string,
   TAccountPendingRedemption extends string = string,
   TAccountTokenMint extends string = string,
   TAccountPoolVaultAccount extends string = string,
-  TAccountUserTokenAccount extends string = string,
+  TAccountBeneficiaryTokenAccount extends string = string,
   TAccountHumaProgram extends string = string,
   TAccountHumaConfig extends string = string,
   TAccountHumaPoolConfig extends string = string,
@@ -191,8 +197,10 @@ export type ClaimRedemptionAsyncInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA. */
-  user: TransactionSigner<TAccountUser>;
+  /** The caller/crank executing the claim transaction (pays transaction fee). */
+  caller: TransactionSigner<TAccountCaller>;
+  /** Validated strictly against pending_redemption.user. */
+  beneficiary: Address<TAccountBeneficiary>;
   /**
    * The prize pool state account.
    *
@@ -201,8 +209,8 @@ export type ClaimRedemptionAsyncInput<
    */
   pool: Address<TAccountPool>;
   /**
-   * The PendingRedemption PDA representing the user's withdrawal request.
-   * Closes and refunds its rent to `user` upon successful completion.
+   * The PendingRedemption PDA representing the withdrawal request.
+   * Closes and refunds its rent directly to `beneficiary` upon successful completion.
    *
    * PDA seeds: `[PENDING_REDEMPTION_SEED, pending_redemption.pool_id.to_le_bytes().as_ref(), pending_redemption.redemption_id.to_le_bytes().as_ref()]`.
    */
@@ -215,8 +223,8 @@ export type ClaimRedemptionAsyncInput<
    * PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
    */
   poolVaultAccount: Address<TAccountPoolVaultAccount>;
-  /** The user's underlying token account (receives the claimed USDC). */
-  userTokenAccount: Address<TAccountUserTokenAccount>;
+  /** The beneficiary's underlying token account (receives the claimed USDC). */
+  beneficiaryTokenAccount: Address<TAccountBeneficiaryTokenAccount>;
   /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
   humaProgram?: Address<TAccountHumaProgram>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
@@ -246,12 +254,13 @@ export type ClaimRedemptionAsyncInput<
 };
 
 export async function getClaimRedemptionInstructionAsync<
-  TAccountUser extends string,
+  TAccountCaller extends string,
+  TAccountBeneficiary extends string,
   TAccountPool extends string,
   TAccountPendingRedemption extends string,
   TAccountTokenMint extends string,
   TAccountPoolVaultAccount extends string,
-  TAccountUserTokenAccount extends string,
+  TAccountBeneficiaryTokenAccount extends string,
   TAccountHumaProgram extends string,
   TAccountHumaConfig extends string,
   TAccountHumaPoolConfig extends string,
@@ -267,12 +276,13 @@ export async function getClaimRedemptionInstructionAsync<
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimRedemptionAsyncInput<
-    TAccountUser,
+    TAccountCaller,
+    TAccountBeneficiary,
     TAccountPool,
     TAccountPendingRedemption,
     TAccountTokenMint,
     TAccountPoolVaultAccount,
-    TAccountUserTokenAccount,
+    TAccountBeneficiaryTokenAccount,
     TAccountHumaProgram,
     TAccountHumaConfig,
     TAccountHumaPoolConfig,
@@ -290,12 +300,13 @@ export async function getClaimRedemptionInstructionAsync<
 ): Promise<
   ClaimRedemptionInstruction<
     TProgramAddress,
-    TAccountUser,
+    TAccountCaller,
+    TAccountBeneficiary,
     TAccountPool,
     TAccountPendingRedemption,
     TAccountTokenMint,
     TAccountPoolVaultAccount,
-    TAccountUserTokenAccount,
+    TAccountBeneficiaryTokenAccount,
     TAccountHumaProgram,
     TAccountHumaConfig,
     TAccountHumaPoolConfig,
@@ -315,7 +326,8 @@ export async function getClaimRedemptionInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    user: { value: input.user ?? null, isWritable: true },
+    caller: { value: input.caller ?? null, isWritable: true },
+    beneficiary: { value: input.beneficiary ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
@@ -326,8 +338,8 @@ export async function getClaimRedemptionInstructionAsync<
       value: input.poolVaultAccount ?? null,
       isWritable: true,
     },
-    userTokenAccount: {
-      value: input.userTokenAccount ?? null,
+    beneficiaryTokenAccount: {
+      value: input.beneficiaryTokenAccount ?? null,
       isWritable: true,
     },
     humaProgram: { value: input.humaProgram ?? null, isWritable: false },
@@ -378,12 +390,16 @@ export async function getClaimRedemptionInstructionAsync<
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
-      getAccountMeta("user", accounts.user),
+      getAccountMeta("caller", accounts.caller),
+      getAccountMeta("beneficiary", accounts.beneficiary),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
       getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("poolVaultAccount", accounts.poolVaultAccount),
-      getAccountMeta("userTokenAccount", accounts.userTokenAccount),
+      getAccountMeta(
+        "beneficiaryTokenAccount",
+        accounts.beneficiaryTokenAccount
+      ),
       getAccountMeta("humaProgram", accounts.humaProgram),
       getAccountMeta("humaConfig", accounts.humaConfig),
       getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
@@ -404,12 +420,13 @@ export async function getClaimRedemptionInstructionAsync<
     programAddress,
   } as ClaimRedemptionInstruction<
     TProgramAddress,
-    TAccountUser,
+    TAccountCaller,
+    TAccountBeneficiary,
     TAccountPool,
     TAccountPendingRedemption,
     TAccountTokenMint,
     TAccountPoolVaultAccount,
-    TAccountUserTokenAccount,
+    TAccountBeneficiaryTokenAccount,
     TAccountHumaProgram,
     TAccountHumaConfig,
     TAccountHumaPoolConfig,
@@ -426,12 +443,13 @@ export async function getClaimRedemptionInstructionAsync<
 }
 
 export type ClaimRedemptionInput<
-  TAccountUser extends string = string,
+  TAccountCaller extends string = string,
+  TAccountBeneficiary extends string = string,
   TAccountPool extends string = string,
   TAccountPendingRedemption extends string = string,
   TAccountTokenMint extends string = string,
   TAccountPoolVaultAccount extends string = string,
-  TAccountUserTokenAccount extends string = string,
+  TAccountBeneficiaryTokenAccount extends string = string,
   TAccountHumaProgram extends string = string,
   TAccountHumaConfig extends string = string,
   TAccountHumaPoolConfig extends string = string,
@@ -445,8 +463,10 @@ export type ClaimRedemptionInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA. */
-  user: TransactionSigner<TAccountUser>;
+  /** The caller/crank executing the claim transaction (pays transaction fee). */
+  caller: TransactionSigner<TAccountCaller>;
+  /** Validated strictly against pending_redemption.user. */
+  beneficiary: Address<TAccountBeneficiary>;
   /**
    * The prize pool state account.
    *
@@ -455,8 +475,8 @@ export type ClaimRedemptionInput<
    */
   pool: Address<TAccountPool>;
   /**
-   * The PendingRedemption PDA representing the user's withdrawal request.
-   * Closes and refunds its rent to `user` upon successful completion.
+   * The PendingRedemption PDA representing the withdrawal request.
+   * Closes and refunds its rent directly to `beneficiary` upon successful completion.
    *
    * PDA seeds: `[PENDING_REDEMPTION_SEED, pending_redemption.pool_id.to_le_bytes().as_ref(), pending_redemption.redemption_id.to_le_bytes().as_ref()]`.
    */
@@ -469,8 +489,8 @@ export type ClaimRedemptionInput<
    * PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
    */
   poolVaultAccount: Address<TAccountPoolVaultAccount>;
-  /** The user's underlying token account (receives the claimed USDC). */
-  userTokenAccount: Address<TAccountUserTokenAccount>;
+  /** The beneficiary's underlying token account (receives the claimed USDC). */
+  beneficiaryTokenAccount: Address<TAccountBeneficiaryTokenAccount>;
   /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
   humaProgram?: Address<TAccountHumaProgram>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
@@ -500,12 +520,13 @@ export type ClaimRedemptionInput<
 };
 
 export function getClaimRedemptionInstruction<
-  TAccountUser extends string,
+  TAccountCaller extends string,
+  TAccountBeneficiary extends string,
   TAccountPool extends string,
   TAccountPendingRedemption extends string,
   TAccountTokenMint extends string,
   TAccountPoolVaultAccount extends string,
-  TAccountUserTokenAccount extends string,
+  TAccountBeneficiaryTokenAccount extends string,
   TAccountHumaProgram extends string,
   TAccountHumaConfig extends string,
   TAccountHumaPoolConfig extends string,
@@ -521,12 +542,13 @@ export function getClaimRedemptionInstruction<
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: ClaimRedemptionInput<
-    TAccountUser,
+    TAccountCaller,
+    TAccountBeneficiary,
     TAccountPool,
     TAccountPendingRedemption,
     TAccountTokenMint,
     TAccountPoolVaultAccount,
-    TAccountUserTokenAccount,
+    TAccountBeneficiaryTokenAccount,
     TAccountHumaProgram,
     TAccountHumaConfig,
     TAccountHumaPoolConfig,
@@ -543,12 +565,13 @@ export function getClaimRedemptionInstruction<
   config?: { programAddress?: TProgramAddress }
 ): ClaimRedemptionInstruction<
   TProgramAddress,
-  TAccountUser,
+  TAccountCaller,
+  TAccountBeneficiary,
   TAccountPool,
   TAccountPendingRedemption,
   TAccountTokenMint,
   TAccountPoolVaultAccount,
-  TAccountUserTokenAccount,
+  TAccountBeneficiaryTokenAccount,
   TAccountHumaProgram,
   TAccountHumaConfig,
   TAccountHumaPoolConfig,
@@ -567,7 +590,8 @@ export function getClaimRedemptionInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    user: { value: input.user ?? null, isWritable: true },
+    caller: { value: input.caller ?? null, isWritable: true },
+    beneficiary: { value: input.beneficiary ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
     pendingRedemption: {
       value: input.pendingRedemption ?? null,
@@ -578,8 +602,8 @@ export function getClaimRedemptionInstruction<
       value: input.poolVaultAccount ?? null,
       isWritable: true,
     },
-    userTokenAccount: {
-      value: input.userTokenAccount ?? null,
+    beneficiaryTokenAccount: {
+      value: input.beneficiaryTokenAccount ?? null,
       isWritable: true,
     },
     humaProgram: { value: input.humaProgram ?? null, isWritable: false },
@@ -627,12 +651,16 @@ export function getClaimRedemptionInstruction<
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
-      getAccountMeta("user", accounts.user),
+      getAccountMeta("caller", accounts.caller),
+      getAccountMeta("beneficiary", accounts.beneficiary),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("pendingRedemption", accounts.pendingRedemption),
       getAccountMeta("tokenMint", accounts.tokenMint),
       getAccountMeta("poolVaultAccount", accounts.poolVaultAccount),
-      getAccountMeta("userTokenAccount", accounts.userTokenAccount),
+      getAccountMeta(
+        "beneficiaryTokenAccount",
+        accounts.beneficiaryTokenAccount
+      ),
       getAccountMeta("humaProgram", accounts.humaProgram),
       getAccountMeta("humaConfig", accounts.humaConfig),
       getAccountMeta("humaPoolConfig", accounts.humaPoolConfig),
@@ -653,12 +681,13 @@ export function getClaimRedemptionInstruction<
     programAddress,
   } as ClaimRedemptionInstruction<
     TProgramAddress,
-    TAccountUser,
+    TAccountCaller,
+    TAccountBeneficiary,
     TAccountPool,
     TAccountPendingRedemption,
     TAccountTokenMint,
     TAccountPoolVaultAccount,
-    TAccountUserTokenAccount,
+    TAccountBeneficiaryTokenAccount,
     TAccountHumaProgram,
     TAccountHumaConfig,
     TAccountHumaPoolConfig,
@@ -680,58 +709,60 @@ export type ParsedClaimRedemptionInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** The user claiming the settled USDC. Receives the refunded rent of the closed pending redemption PDA. */
-    user: TAccountMetas[0];
+    /** The caller/crank executing the claim transaction (pays transaction fee). */
+    caller: TAccountMetas[0];
+    /** Validated strictly against pending_redemption.user. */
+    beneficiary: TAccountMetas[1];
     /**
      * The prize pool state account.
      *
      * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
      * Bump is verified from the pool's initialized authority bump.
      */
-    pool: TAccountMetas[1];
+    pool: TAccountMetas[2];
     /**
-     * The PendingRedemption PDA representing the user's withdrawal request.
-     * Closes and refunds its rent to `user` upon successful completion.
+     * The PendingRedemption PDA representing the withdrawal request.
+     * Closes and refunds its rent directly to `beneficiary` upon successful completion.
      *
      * PDA seeds: `[PENDING_REDEMPTION_SEED, pending_redemption.pool_id.to_le_bytes().as_ref(), pending_redemption.redemption_id.to_le_bytes().as_ref()]`.
      */
-    pendingRedemption: TAccountMetas[2];
+    pendingRedemption: TAccountMetas[3];
     /** The underlying token mint (e.g. USDC). */
-    tokenMint: TAccountMetas[3];
+    tokenMint: TAccountMetas[4];
     /**
      * The pool's underlying token vault (receives disbursed USDC from Huma program).
      *
      * PDA seeds: `[POOL_VAULT_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"pool_vault"` + pool_id).
      */
-    poolVaultAccount: TAccountMetas[4];
-    /** The user's underlying token account (receives the claimed USDC). */
-    userTokenAccount: TAccountMetas[5];
+    poolVaultAccount: TAccountMetas[5];
+    /** The beneficiary's underlying token account (receives the claimed USDC). */
+    beneficiaryTokenAccount: TAccountMetas[6];
     /** to ensure it matches the hardcoded `HUMA_PROGRAM_ID`. It is used to target the CPI call. */
-    humaProgram: TAccountMetas[6];
+    humaProgram: TAccountMetas[7];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaConfig: TAccountMetas[7];
+    humaConfig: TAccountMetas[8];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaPoolConfig: TAccountMetas[8];
+    humaPoolConfig: TAccountMetas[9];
     /**
      * to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
      * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
      */
-    humaPoolState: TAccountMetas[9];
+    humaPoolState: TAccountMetas[10];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
-    humaModeConfig: TAccountMetas[10];
+    humaModeConfig: TAccountMetas[11];
     /** ownership, and authorization are fully validated by the Huma program during the CPI call. */
-    humaLenderState: TAccountMetas[11];
+    humaLenderState: TAccountMetas[12];
     /** pool's authority is fully validated by the Huma program during the CPI call. */
-    humaPoolAuthority: TAccountMetas[12];
+    humaPoolAuthority: TAccountMetas[13];
     /** and token authority are fully validated by the Huma program during the CPI call. */
-    humaPoolUnderlyingToken: TAccountMetas[13];
+    humaPoolUnderlyingToken: TAccountMetas[14];
     /** The SPL Token program interface for underlying tokens. */
-    tokenProgram: TAccountMetas[14];
+    tokenProgram: TAccountMetas[15];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[15];
-    eventAuthority: TAccountMetas[16];
+    systemProgram: TAccountMetas[16];
+    eventAuthority: TAccountMetas[17];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[17];
+    program: TAccountMetas[18];
   };
   data: ClaimRedemptionInstructionData;
 };
@@ -744,12 +775,12 @@ export function parseClaimRedemptionInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedClaimRedemptionInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 18) {
+  if (instruction.accounts.length < 19) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 18,
+        expectedAccountMetas: 19,
       }
     );
   }
@@ -762,12 +793,13 @@ export function parseClaimRedemptionInstruction<
   return {
     programAddress: instruction.programAddress,
     accounts: {
-      user: getNextAccount(),
+      caller: getNextAccount(),
+      beneficiary: getNextAccount(),
       pool: getNextAccount(),
       pendingRedemption: getNextAccount(),
       tokenMint: getNextAccount(),
       poolVaultAccount: getNextAccount(),
-      userTokenAccount: getNextAccount(),
+      beneficiaryTokenAccount: getNextAccount(),
       humaProgram: getNextAccount(),
       humaConfig: getNextAccount(),
       humaPoolConfig: getNextAccount(),
