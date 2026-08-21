@@ -10,6 +10,7 @@ import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
+import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -19,6 +20,8 @@ interface PayoutWinnersTableProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   bondPrice?: number;
+  revealedAt?: number;
+  payoutTimelockSeconds?: number;
   onCrankWinner?: (winnerIndex: number, winnerAddress: string) => void;
   crankingWinnerIndices?: Record<number, boolean>;
 }
@@ -29,6 +32,8 @@ export function PayoutWinnersTable({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   bondPrice = 5_000_000,
+  revealedAt,
+  payoutTimelockSeconds = 300,
   onCrankWinner,
   crankingWinnerIndices = {},
 }: PayoutWinnersTableProps) {
@@ -36,6 +41,8 @@ export function PayoutWinnersTable({
   const [tierFilter, setTierFilter] = useState("all");
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
+
+  const timelockState = usePayoutTimelock(revealedAt, payoutTimelockSeconds);
 
   const connectedUserWinsCount = useMemo(() => {
     if (!connectedUserAddress) return 0;
@@ -251,15 +258,40 @@ export function PayoutWinnersTable({
                   {/* Status */}
                   <td className="py-3 px-4 text-center">
                     <StatusBadge
-                      status={winner.processed ? "reinvested" : "processing"}
+                      status={
+                        winner.processed
+                          ? "reinvested"
+                          : timelockState.isTimelocked
+                            ? "timelocked"
+                            : "processing"
+                      }
                       isCranking={isCranking}
                       size="sm"
+                      title={
+                        !winner.processed && timelockState.isTimelocked
+                          ? `${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`
+                          : undefined
+                      }
                     />
                   </td>
 
                   {/* Actions / Permissionless Crank Trigger */}
                   <td className="py-3 px-4 text-right">
-                    {!winner.processed && onCrankWinner ? (
+                    {winner.processed ? (
+                      <span className="text-[10px] text-on-surface-variant/40">
+                        Disbursed
+                      </span>
+                    ) : timelockState.isTimelocked ? (
+                      <button
+                        disabled={true}
+                        aria-disabled="true"
+                        aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${timelockState.formattedRemaining}`}
+                        title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
+                        className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1"
+                      >
+                        <span>🔒</span> {timelockState.formattedRemaining}
+                      </button>
+                    ) : onCrankWinner ? (
                       <button
                         onClick={() =>
                           onCrankWinner(
@@ -274,7 +306,7 @@ export function PayoutWinnersTable({
                       </button>
                     ) : (
                       <span className="text-[10px] text-on-surface-variant/40">
-                        {winner.processed ? "Disbursed" : "Pending"}
+                        Pending
                       </span>
                     )}
                   </td>

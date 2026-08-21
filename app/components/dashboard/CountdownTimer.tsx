@@ -146,7 +146,11 @@ export function CountdownTimer({
   };
 
   if (variant === "inline" || !showExactDate) {
-    return <div className={`inline-flex items-center ${className}`}>{renderDisplay()}</div>;
+    return (
+      <div className={`inline-flex items-center ${className}`}>
+        {renderDisplay()}
+      </div>
+    );
   }
 
   return (

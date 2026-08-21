@@ -291,6 +291,9 @@ export function useDrawHistory(
                   ? `#${winningTicketIdx}`
                   : undefined,
               vrfSeed,
+              revealedAt: payout.revealedAt
+                ? Number(payout.revealedAt)
+                : undefined,
             });
           }
         }

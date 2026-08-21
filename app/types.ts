@@ -42,6 +42,8 @@ export interface PoolInfo {
   totalUsers?: number;
   /** Total amount of prizes distributed over the lifetime of the pool (base units) */
   totalPrizesDistributed?: number;
+  /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s) */
+  payoutTimelockSeconds?: number;
 }
 
 export interface YieldBreakdown {
@@ -125,6 +127,7 @@ export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
     lastSyncedAt: Math.floor(Date.now() / 1000),
     totalUsers: 0,
     totalPrizesDistributed: 0,
+    payoutTimelockSeconds: 300,
   };
 }
 
@@ -178,6 +181,7 @@ export interface PrizeHistoryEntry {
   winningTicket?: string;
   vrfSeed?: string;
   txSignature?: string;
+  revealedAt?: number; // unix timestamp (seconds) from PayoutRegistry
 }
 
 export type ActivityType =

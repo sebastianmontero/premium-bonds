@@ -212,6 +212,7 @@ function DrawHistoryContent() {
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}
+        payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}
       />

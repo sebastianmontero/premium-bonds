@@ -477,6 +477,7 @@ export default function DashboardPage() {
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}
+        payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         unclaimedTotal={activeUnclaimedWinnings}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
@@ -536,6 +537,7 @@ export default function DashboardPage() {
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         ticketPrice={activePool.bondPrice}
+        payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         onSimulateCrank={handleSimulateCrank}
         crankingCycles={crankingCycles}
       />
@@ -547,6 +549,7 @@ export default function DashboardPage() {
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}
+        payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
         crankingCycles={crankingCycles}

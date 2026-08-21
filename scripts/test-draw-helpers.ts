@@ -11,6 +11,7 @@ import {
   CANONICAL_DRAW_STATUS_ORDER,
   DRAW_STATUS_TRANSLATION_KEYS,
   getDrawStatusTranslationKey,
+  getPayoutTimelockState,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -476,12 +477,29 @@ async function runTests() {
   assert.strictEqual(CANONICAL_DRAW_STATUS_ORDER.length, 8);
 
   // 10. Test DrawHistoryStats Calculation Logic & Lifetime Prize Decoupling
-  console.log("  Testing DrawHistoryStats calculation logic & lifetime prize decoupling...");
+  console.log(
+    "  Testing DrawHistoryStats calculation logic & lifetime prize decoupling..."
+  );
   const mockSummaries = [
-    { cycleId: 10, status: "Complete" as const, prizePot: 60_000_000, winnersCount: 2 },
-    { cycleId: 9, status: "Complete" as const, prizePot: 40_000_000, winnersCount: 1 },
+    {
+      cycleId: 10,
+      status: "Complete" as const,
+      prizePot: 60_000_000,
+      winnersCount: 2,
+    },
+    {
+      cycleId: 9,
+      status: "Complete" as const,
+      prizePot: 40_000_000,
+      winnersCount: 1,
+    },
     { cycleId: 8, status: "Skipped" as const, prizePot: 0, winnersCount: 0 },
-    { cycleId: 7, status: "Complete" as const, prizePot: 50_000_000, winnersCount: 3 },
+    {
+      cycleId: 7,
+      status: "Complete" as const,
+      prizePot: 50_000_000,
+      winnersCount: 3,
+    },
   ];
 
   // Helper simulating useDrawExplorer stats reducer
@@ -501,7 +519,8 @@ async function runTests() {
       }
     }
 
-    const averagePrizePot = completedDraws > 0 ? Math.round(batchTotalYield / completedDraws) : 0;
+    const averagePrizePot =
+      completedDraws > 0 ? Math.round(batchTotalYield / completedDraws) : 0;
     const totalYieldDistributed = poolTotalPrizesDistributed ?? batchTotalYield;
 
     return {
@@ -524,6 +543,56 @@ async function runTests() {
   const statsFallback = computeStats(mockSummaries, undefined);
   assert.strictEqual(statsFallback.totalYieldDistributed, 150_000_000);
   assert.strictEqual(statsFallback.averagePrizePot, 50_000_000);
+
+  // 11. Test getPayoutTimelockState Calculation Helper
+  console.log("  Testing getPayoutTimelockState calculation & formatting...");
+
+  // 11a. Missing or invalid revealedAt
+  const noRevealed = getPayoutTimelockState(undefined, 300, 1723900100);
+  assert.strictEqual(noRevealed.isTimelocked, false);
+  assert.strictEqual(noRevealed.remainingSeconds, 0);
+  assert.strictEqual(noRevealed.formattedRemaining, "00:00");
+  assert.strictEqual(noRevealed.formattedUnlockTime, "—");
+  assert.strictEqual(noRevealed.progressPercent, 100);
+
+  // 11b. Zero timelock seconds
+  const zeroTimelock = getPayoutTimelockState(1723900000, 0, 1723900000);
+  assert.strictEqual(zeroTimelock.isTimelocked, false);
+  assert.strictEqual(zeroTimelock.remainingSeconds, 0);
+  assert.strictEqual(zeroTimelock.progressPercent, 100);
+
+  // 11c. Active timelock mid-way (revealedAt: 1000, timelock: 300, now: 1100 -> 200s remaining = 03:20, 33% progress)
+  const activeTimelock = getPayoutTimelockState(1000, 300, 1100);
+  assert.strictEqual(activeTimelock.isTimelocked, true);
+  assert.strictEqual(activeTimelock.remainingSeconds, 200);
+  assert.strictEqual(activeTimelock.formattedRemaining, "03:20");
+  assert.strictEqual(activeTimelock.progressPercent, 33);
+  assert.strictEqual(activeTimelock.timelockExpiresAt, 1300);
+  assert.ok(
+    activeTimelock.formattedUnlockTime.length > 0 &&
+      activeTimelock.formattedUnlockTime !== "—"
+  );
+
+  // 11d. Active timelock near completion (5s remaining -> 00:05)
+  const nearEndTimelock = getPayoutTimelockState(1000, 300, 1295);
+  assert.strictEqual(nearEndTimelock.isTimelocked, true);
+  assert.strictEqual(nearEndTimelock.remainingSeconds, 5);
+  assert.strictEqual(nearEndTimelock.formattedRemaining, "00:05");
+  assert.strictEqual(nearEndTimelock.progressPercent, 98);
+
+  // 11e. Exact expiration boundary (now === revealedAt + 300)
+  const exactEndTimelock = getPayoutTimelockState(1000, 300, 1300);
+  assert.strictEqual(exactEndTimelock.isTimelocked, false);
+  assert.strictEqual(exactEndTimelock.remainingSeconds, 0);
+  assert.strictEqual(exactEndTimelock.formattedRemaining, "00:00");
+  assert.strictEqual(exactEndTimelock.progressPercent, 100);
+
+  // 11f. Well past expiration (now > revealedAt + 300)
+  const pastTimelock = getPayoutTimelockState(1000, 300, 2000);
+  assert.strictEqual(pastTimelock.isTimelocked, false);
+  assert.strictEqual(pastTimelock.remainingSeconds, 0);
+  assert.strictEqual(pastTimelock.formattedRemaining, "00:00");
+  assert.strictEqual(pastTimelock.progressPercent, 100);
 
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }

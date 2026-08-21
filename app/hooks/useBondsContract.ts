@@ -331,7 +331,11 @@ export function useBondsContract(poolId: number = 1) {
 
         // Fetch User's USDC wallet balance using shared helper
         try {
-          const balance = await fetchUserAtaBalance(rpc, userAddress, USDC_MINT);
+          const balance = await fetchUserAtaBalance(
+            rpc,
+            userAddress,
+            USDC_MINT
+          );
           setWalletBalance(balance);
         } catch (err) {
           console.warn(
@@ -548,7 +552,11 @@ export function useBondsContract(poolId: number = 1) {
       if (userAddress) {
         try {
           const rpc = client.runtime.rpc;
-          const balance = await fetchUserAtaBalance(rpc, userAddress, USDC_MINT);
+          const balance = await fetchUserAtaBalance(
+            rpc,
+            userAddress,
+            USDC_MINT
+          );
           setWalletBalance(balance);
         } catch {
           // ignore transient balance fetch error

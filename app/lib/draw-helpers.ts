@@ -349,3 +349,85 @@ export function calculatePriorDustApplied(
   if (bondsBought <= 0 || bondPrice <= 0) return 0;
   return Math.max(0, bondsBought * bondPrice - amountWon);
 }
+
+/**
+ * Encapsulates the complete settlement timelock state for a draw cycle or winner payout.
+ */
+export interface PayoutTimelockState {
+  /** Whether the settlement timelock is currently active */
+  isTimelocked: boolean;
+  /** Unix timestamp (in seconds) when the timelock window expires */
+  timelockExpiresAt: number;
+  /** Remaining duration in seconds until crank settlement is permitted */
+  remainingSeconds: number;
+  /** Percentage (0-100) of the timelock window that has elapsed */
+  progressPercent: number;
+  /** Formatted countdown string (e.g. "04:12" or "1h 15m") */
+  formattedRemaining: string;
+  /** Formatted time string when the settlement unlocks */
+  formattedUnlockTime: string;
+}
+
+/**
+ * Calculates the live Payout Settlement Timelock state from on-chain timestamps.
+ *
+ * @param revealedAt - Unix timestamp (in seconds) when reveal_and_pick_winners was finalized.
+ * @param payoutTimelockSeconds - Configured timelock duration in seconds (default: 300).
+ * @param currentUnixTimestamp - Current Solana on-chain or local unix timestamp in seconds.
+ * @returns PayoutTimelockState object.
+ */
+export function getPayoutTimelockState(
+  revealedAt: number | undefined,
+  payoutTimelockSeconds: number = 300,
+  currentUnixTimestamp: number = Math.floor(Date.now() / 1000)
+): PayoutTimelockState {
+  if (!revealedAt || revealedAt <= 0 || payoutTimelockSeconds <= 0) {
+    return {
+      isTimelocked: false,
+      timelockExpiresAt: 0,
+      remainingSeconds: 0,
+      progressPercent: 100,
+      formattedRemaining: "00:00",
+      formattedUnlockTime: "—",
+    };
+  }
+
+  const timelockExpiresAt = revealedAt + payoutTimelockSeconds;
+  const remainingSeconds = Math.max(
+    0,
+    timelockExpiresAt - currentUnixTimestamp
+  );
+  const isTimelocked = remainingSeconds > 0;
+  const elapsed = payoutTimelockSeconds - remainingSeconds;
+  const progressPercent = Math.min(
+    100,
+    Math.max(0, Math.round((elapsed / payoutTimelockSeconds) * 100))
+  );
+
+  let formattedRemaining: string;
+  if (remainingSeconds >= 3600) {
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    formattedRemaining = `${hours}h ${minutes}m`;
+  } else {
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+    formattedRemaining = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  const unlockDate = new Date(timelockExpiresAt * 1000);
+  const formattedUnlockTime = unlockDate.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  return {
+    isTimelocked,
+    timelockExpiresAt,
+    remainingSeconds,
+    progressPercent,
+    formattedRemaining,
+    formattedUnlockTime,
+  };
+}

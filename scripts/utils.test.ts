@@ -430,17 +430,11 @@ function runTests() {
 
     // USDC total deposited (0 fraction digits)
     const usdcTvl = formatCurrencyAmount(100_000_000_000, "USDC", 6, 0);
-    assert(
-      usdcTvl === "$100,000",
-      `Expected '$100,000', got '${usdcTvl}'`
-    );
+    assert(usdcTvl === "$100,000", `Expected '$100,000', got '${usdcTvl}'`);
 
     // Case-insensitive USDC
     const lowerUsdc = formatCurrencyAmount(1_000_000, "usdc", 6, 2);
-    assert(
-      lowerUsdc === "$1.00",
-      `Expected '$1.00', got '${lowerUsdc}'`
-    );
+    assert(lowerUsdc === "$1.00", `Expected '$1.00', got '${lowerUsdc}'`);
 
     // Non-USDC token (e.g. SOL with 9 decimals)
     const solBondPrice = formatCurrencyAmount(50_000_000, "SOL", 9, 2);

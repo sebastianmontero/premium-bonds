@@ -6,11 +6,13 @@ import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
   buildDrawStatusOptions,
+  getPayoutTimelockState,
 } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
+import { useOnChainClock } from "@/app/hooks/useOnChainClock";
 import type { DrawCycleSummary } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -19,6 +21,7 @@ interface DrawHistoryListProps {
   onSelectDraw: (cycleId: number) => void;
   tokenDecimals?: number;
   tokenSymbol?: string;
+  payoutTimelockSeconds?: number;
   isLoading?: boolean;
   isSyncing?: boolean;
 }
@@ -28,6 +31,7 @@ export function DrawHistoryList({
   onSelectDraw,
   tokenDecimals = 6,
   tokenSymbol = "USDC",
+  payoutTimelockSeconds = 300,
   isLoading = false,
   isSyncing = false,
 }: DrawHistoryListProps) {
@@ -36,6 +40,8 @@ export function DrawHistoryList({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const t = useTranslations("DrawHistory");
+  const { clockOffset } = useOnChainClock();
+  const [now] = useState(() => Math.floor(Date.now() / 1000) + clockOffset);
 
   const statusOptions = useMemo(() => {
     return buildDrawStatusOptions(draws, t);
@@ -317,9 +323,33 @@ export function DrawHistoryList({
                     </p>
                     <div className="mt-0.5">
                       {draw.hasPayoutRegistry ? (
-                        <span className="font-mono text-xs font-semibold text-tertiary">
-                          {draw.payoutsCompleted} / {draw.winnersCount}
-                        </span>
+                        (() => {
+                          const timelock = getPayoutTimelockState(
+                            draw.revealedAt,
+                            payoutTimelockSeconds,
+                            now
+                          );
+                          if (
+                            draw.status === "Complete" &&
+                            timelock.isTimelocked &&
+                            draw.payoutsCompleted === 0
+                          ) {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md"
+                                title={`Payout settlement timelocked (${timelock.formattedRemaining} remaining)`}
+                              >
+                                <span>🔒</span> {draw.payoutsCompleted} /{" "}
+                                {draw.winnersCount}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="font-mono text-xs font-semibold text-tertiary">
+                              {draw.payoutsCompleted} / {draw.winnersCount}
+                            </span>
+                          );
+                        })()
                       ) : (
                         <span className="text-xs text-on-surface-variant/40">
                           —
@@ -440,9 +470,33 @@ export function DrawHistoryList({
                     {/* Payout Progress */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-center">
                       {draw.hasPayoutRegistry ? (
-                        <span className="font-mono text-xs font-semibold text-tertiary">
-                          {draw.payoutsCompleted} / {draw.winnersCount}
-                        </span>
+                        (() => {
+                          const timelock = getPayoutTimelockState(
+                            draw.revealedAt,
+                            payoutTimelockSeconds,
+                            now
+                          );
+                          if (
+                            draw.status === "Complete" &&
+                            timelock.isTimelocked &&
+                            draw.payoutsCompleted === 0
+                          ) {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md"
+                                title={`Payout settlement timelocked (${timelock.formattedRemaining} remaining)`}
+                              >
+                                <span>🔒</span> {draw.payoutsCompleted} /{" "}
+                                {draw.winnersCount}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="font-mono text-xs font-semibold text-tertiary">
+                              {draw.payoutsCompleted} / {draw.winnersCount}
+                            </span>
+                          );
+                        })()
                       ) : (
                         <span className="text-xs text-on-surface-variant/40">
                           —

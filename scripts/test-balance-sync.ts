@@ -190,7 +190,10 @@ async function main() {
       dummyUser,
       USDC_MINT
     );
-    assert(nullBalance === 0, `Expected 0 for null account, got ${nullBalance}`);
+    assert(
+      nullBalance === 0,
+      `Expected 0 for null account, got ${nullBalance}`
+    );
 
     // 3d. RPC network/connection error
     const mockRpcError = {
@@ -205,10 +208,7 @@ async function main() {
       dummyUser,
       USDC_MINT
     );
-    assert(
-      errorBalance === 0,
-      `Expected 0 on RPC error, got ${errorBalance}`
-    );
+    assert(errorBalance === 0, `Expected 0 on RPC error, got ${errorBalance}`);
 
     console.log("  ✓ fetchUserAtaBalance parsing & error handling verified.");
   }

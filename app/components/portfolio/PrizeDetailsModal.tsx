@@ -8,6 +8,7 @@ import {
   tierBadgeClass,
   formatLocalDate,
 } from "@/app/lib/formatters";
+import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { getExplorerUrl } from "@/app/lib/errors";
 import { useTranslations, useFormatter } from "next-intl";
 
@@ -18,6 +19,7 @@ interface PrizeDetailsModalProps {
   tokenDecimals: number;
   tokenSymbol: string;
   ticketPrice?: number;
+  payoutTimelockSeconds?: number;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -41,6 +43,7 @@ export default function PrizeDetailsModal({
   tokenDecimals,
   tokenSymbol,
   ticketPrice = 5_000_000,
+  payoutTimelockSeconds = 300,
   onSimulateCrank,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
@@ -49,6 +52,11 @@ export default function PrizeDetailsModal({
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
   const format = useFormatter();
+
+  const timelockState = usePayoutTimelock(
+    entry?.revealedAt,
+    payoutTimelockSeconds
+  );
 
   // Close on Escape key press
   useEffect(() => {
@@ -241,25 +249,48 @@ export default function PrizeDetailsModal({
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
                     {tLedger("cranking")}
                   </span>
+                ) : entry.status === "reinvested" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {tLedger("reinvested")}
+                  </span>
+                ) : timelockState.isTimelocked ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300"
+                    title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                    🔒 {tLedger("timelocked")}
+                  </span>
                 ) : (
-                  <>
-                    {entry.status === "processing" && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                        {tLedger("processing")}
-                      </span>
-                    )}
-                    {entry.status === "reinvested" && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        {tLedger("reinvested")}
-                      </span>
-                    )}
-                  </>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    {tLedger("processing")}
+                  </span>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Timelock Security Notice when processing */}
+          {entry.status === "processing" && timelockState.isTimelocked && (
+            <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-500/10 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                <span className="flex items-center gap-1.5">
+                  <span>🔒</span> {t("timelockActiveTitle")}
+                </span>
+                <span className="font-mono bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-md text-amber-200">
+                  {timelockState.formattedRemaining}
+                </span>
+              </div>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                {t("timelockActiveDesc", {
+                  unlockTime: timelockState.formattedUnlockTime,
+                  remaining: timelockState.formattedRemaining,
+                })}
+              </p>
+            </div>
+          )}
 
           {/* Auto-Reinvestment Detail Section */}
           {entry.status === "reinvested" && (
@@ -603,42 +634,58 @@ export default function PrizeDetailsModal({
               {t("close")}
             </button>
 
-            {entry.status === "processing" && (
-              <button
-                disabled={
-                  !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                }
-                onClick={() =>
-                  onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
-                }
-                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
-                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                    ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                    : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
-                }`}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`animate-spin ${
+            {entry.status === "processing" &&
+              (timelockState.isTimelocked ? (
+                <button
+                  disabled={true}
+                  aria-disabled="true"
+                  aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${timelockState.formattedRemaining}`}
+                  title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
+                  className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
+                >
+                  <span>🔒</span> {tLedger("timelocked")} (
+                  {timelockState.formattedRemaining})
+                </button>
+              ) : (
+                <button
+                  disabled={
+                    !!crankingCycles[
+                      `${entry.drawCycleId}-${entry.winnerIndex}`
+                    ]
+                  }
+                  onClick={() =>
+                    onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
+                  }
+                  className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
                     crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                      ? "duration-1000 text-on-surface-variant/40"
-                      : "duration-3000"
+                      ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                      : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
                   }`}
                 >
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-                </svg>
-                {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                  ? tLedger("cranking")
-                  : tLedger("runCrank")}
-              </button>
-            )}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={`animate-spin ${
+                      crankingCycles[
+                        `${entry.drawCycleId}-${entry.winnerIndex}`
+                      ]
+                        ? "duration-1000 text-on-surface-variant/40"
+                        : "duration-3000"
+                    }`}
+                  >
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                  </svg>
+                  {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                    ? tLedger("cranking")
+                    : tLedger("runCrank")}
+                </button>
+              ))}
           </div>
         </div>
       </div>

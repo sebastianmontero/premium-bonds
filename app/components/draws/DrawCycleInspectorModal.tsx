@@ -22,6 +22,7 @@ interface DrawCycleInspectorModalProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   bondPrice?: number;
+  payoutTimelockSeconds?: number;
   onCrankWinner?: (
     drawCycleId: number,
     winnerIndex: number,
@@ -39,6 +40,7 @@ export function DrawCycleInspectorModal({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   bondPrice = 5_000_000,
+  payoutTimelockSeconds = 300,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
@@ -224,6 +226,7 @@ export function DrawCycleInspectorModal({
                 draw={details}
                 tokenDecimals={tokenDecimals}
                 tokenSymbol={tokenSymbol}
+                payoutTimelockSeconds={payoutTimelockSeconds}
               />
 
               {/* Active Tab View */}
@@ -246,6 +249,8 @@ export function DrawCycleInspectorModal({
                     tokenDecimals={tokenDecimals}
                     tokenSymbol={tokenSymbol}
                     bondPrice={bondPrice}
+                    revealedAt={details.revealedAt}
+                    payoutTimelockSeconds={payoutTimelockSeconds}
                     onCrankWinner={
                       onCrankWinner
                         ? async (wIdx, wAddr) => {

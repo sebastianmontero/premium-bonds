@@ -15,6 +15,7 @@ export type AnyStatus =
   | "Halted"
   | "processing"
   | "reinvested"
+  | "timelocked"
   | "Active"
   | "Paused"
   | "Closed"
@@ -26,6 +27,8 @@ interface StatusBadgeProps {
   isCranking?: boolean;
   size?: "sm" | "md";
   className?: string;
+  labelOverride?: string;
+  title?: string;
 }
 
 export function StatusBadge({
@@ -33,6 +36,8 @@ export function StatusBadge({
   isCranking = false,
   size = "md",
   className = "",
+  labelOverride,
+  title,
 }: StatusBadgeProps) {
   const tDraws = useTranslations("DrawHistory");
   const tLedger = useTranslations("Ledger");
@@ -149,6 +154,17 @@ export function StatusBadge({
       );
 
     // ── Prize History Statuses ───────────────────────────────────────────────
+    case "timelocked":
+      return (
+        <span
+          className={`${baseClasses} border-amber-500/30 bg-amber-500/10 text-amber-300`}
+          title={title}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          🔒 {labelOverride || tLedger("timelocked")}
+        </span>
+      );
+
     case "processing":
       return (
         <span

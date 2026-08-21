@@ -1137,6 +1137,19 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     category: "anchor",
   },
+  {
+    code: "6046",
+    name: "PayoutTimelockActive",
+    summary: {
+      en: "Payout settlement timelock is active to protect against race conditions.",
+      es: "El bloqueo temporal de liquidación de premios está activo para evitar condiciones de carrera.",
+    },
+    solution: {
+      en: "Wait for the countdown timer on the prize row or inspector to expire (typically 5 minutes) before running the crank.",
+      es: "Espera a que expire el temporizador de cuenta regresiva en la fila del premio o inspector (típicamente 5 minutos) antes de ejecutar el crank.",
+    },
+    category: "anchor",
+  },
 ];
 
 export function getDocArticle(

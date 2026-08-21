@@ -346,6 +346,7 @@ export function parsePrizePool(data: Uint8Array) {
     feeBasisPoints: Number(decoded.feeBasisPoints),
     minYieldThreshold: Number(decoded.minYieldThreshold),
     totalPrizesDistributed: Number(decoded.totalPrizesDistributed),
+    payoutTimelockSeconds: Number(decoded.payoutTimelockSeconds),
     prizeTiersCount,
     prizeTiers,
   };
