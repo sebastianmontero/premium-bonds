@@ -279,7 +279,7 @@ export function PayoutWinnersTable({
                   <td className="py-3 px-4 text-right">
                     {winner.processed ? (
                       <span className="text-[10px] text-on-surface-variant/40">
-                        Disbursed
+                        {tLedger("disbursed")}
                       </span>
                     ) : timelockState.isTimelocked ? (
                       <button
@@ -306,7 +306,7 @@ export function PayoutWinnersTable({
                       </button>
                     ) : (
                       <span className="text-[10px] text-on-surface-variant/40">
-                        Pending
+                        {tLedger("pending")}
                       </span>
                     )}
                   </td>

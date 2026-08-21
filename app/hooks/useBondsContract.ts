@@ -172,7 +172,10 @@ export function useBondsContract(poolId: number = 1) {
       let cachedRegistryBytes: Uint8Array | null = null;
       try {
         const poolAcc = await rpc
-          .getAccountInfo(poolPda, { encoding: "base64" })
+          .getAccountInfo(poolPda, {
+            encoding: "base64",
+            commitment: "confirmed",
+          })
           .send();
         if (poolAcc && poolAcc.value) {
           const bytes = new Uint8Array(
@@ -194,6 +197,7 @@ export function useBondsContract(poolId: number = 1) {
               const registryAcc = await rpc
                 .getAccountInfo(address(currentPool.ticketRegistry), {
                   encoding: "base64",
+                  commitment: "confirmed",
                 })
                 .send();
               if (registryAcc && registryAcc.value) {
@@ -349,7 +353,10 @@ export function useBondsContract(poolId: number = 1) {
         // Fetch UserWinnings account
         try {
           const winningsAcc = await rpc
-            .getAccountInfo(userWinningsPda, { encoding: "base64" })
+            .getAccountInfo(userWinningsPda, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
             .send();
           if (winningsAcc && winningsAcc.value) {
             const bytes = new Uint8Array(
@@ -402,7 +409,10 @@ export function useBondsContract(poolId: number = 1) {
             if (!bytes) {
               const registryPda = address(registryAddrStr);
               const registryAcc = await rpc
-                .getAccountInfo(registryPda, { encoding: "base64" })
+                .getAccountInfo(registryPda, {
+                  encoding: "base64",
+                  commitment: "confirmed",
+                })
                 .send();
               if (registryAcc && registryAcc.value) {
                 bytes = new Uint8Array(
@@ -472,6 +482,7 @@ export function useBondsContract(poolId: number = 1) {
                 },
               ],
               encoding: "base64",
+              commitment: "confirmed",
             })
             .send();
 
@@ -479,7 +490,10 @@ export function useBondsContract(poolId: number = 1) {
           let nextHumaRequestId = BigInt(0);
           try {
             const humaAcc = await rpc
-              .getAccountInfo(HUMA_POOL_STATE, { encoding: "base64" })
+              .getAccountInfo(HUMA_POOL_STATE, {
+                encoding: "base64",
+                commitment: "confirmed",
+              })
               .send();
             if (humaAcc && humaAcc.value) {
               const humaBytes = new Uint8Array(
@@ -679,7 +693,10 @@ export function useBondsContract(poolId: number = 1) {
       let registryEntryIndex = 0xffffffff;
 
       const winningsAcc = await rpc
-        .getAccountInfo(userWinningsPda, { encoding: "base64" })
+        .getAccountInfo(userWinningsPda, {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
         .send();
 
       if (winningsAcc && winningsAcc.value) {
@@ -690,7 +707,10 @@ export function useBondsContract(poolId: number = 1) {
 
       // 2. Fetch registry details
       const registryAcc = await rpc
-        .getAccountInfo(address(registryAddrStr), { encoding: "base64" })
+        .getAccountInfo(address(registryAddrStr), {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
         .send();
       if (!registryAcc || !registryAcc.value)
         throw new Error("Ticket registry account not found on-chain");

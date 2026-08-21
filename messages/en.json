@@ -329,6 +329,8 @@
     "timelockTooltip": "Payout settlement timelock active ({remaining} remaining)",
     "reinvesting": "Reinvesting",
     "reinvested": "Reinvested",
+    "disbursed": "Disbursed",
+    "pending": "Pending",
     "viewComplete": "View Complete Ledger ({count} Draws) →",
     "details": "Details",
     "runCrank": "Run Crank",

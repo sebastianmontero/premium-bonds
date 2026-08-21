@@ -7,7 +7,7 @@ import {
   formatLocalDate,
 } from "@/app/lib/formatters";
 import { getPayoutTimelockState } from "@/app/lib/draw-helpers";
-import { useOnChainClock } from "@/app/hooks/useOnChainClock";
+import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
@@ -15,7 +15,6 @@ import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinning
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { useTranslations, useFormatter } from "next-intl";
-import { useState, useEffect } from "react";
 
 interface PrizeHistoryLedgerProps {
   entries: PrizeHistoryEntry[];
@@ -51,27 +50,7 @@ export function PrizeHistoryLedger({
 }: PrizeHistoryLedgerProps) {
   const t = useTranslations("Ledger");
   const format = useFormatter();
-  const { clockOffset } = useOnChainClock();
-
-  const [now, setNow] = useState(
-    () => Math.floor(Date.now() / 1000) + clockOffset
-  );
-
-  useEffect(() => {
-    const hasProcessingTimelock = entries.some(
-      (e) =>
-        e.status === "processing" &&
-        e.revealedAt &&
-        e.revealedAt + payoutTimelockSeconds >
-          Math.floor(Date.now() / 1000) + clockOffset
-    );
-    if (!hasProcessingTimelock) return;
-
-    const interval = setInterval(() => {
-      setNow(Math.floor(Date.now() / 1000) + clockOffset);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [entries, payoutTimelockSeconds, clockOffset]);
+  const { now } = useClusterTime({ tick: true });
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
 

@@ -13,6 +13,7 @@ import {
   PayoutRegistryInfo,
 } from "../lib/bonds-sdk";
 import { formatDrawCycleSummary } from "../lib/draw-helpers";
+import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
 import type { DrawCycleSummary, DrawHistoryStats } from "../types";
 
 const base64Encoder = getBase64Encoder();
@@ -58,6 +59,7 @@ export function useDrawExplorer(
   const fetchIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
   const lastPoolIdRef = useRef(poolId);
+  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
   useEffect(() => {
     if (poolTotalPrizesDistributed !== undefined) {
@@ -145,7 +147,12 @@ export function useDrawExplorer(
       const pdaChunks = chunkArray(pdaKeys, 80);
       const accountsResArrays = await Promise.all(
         pdaChunks.map((chunk) =>
-          rpc.getMultipleAccounts(chunk, { encoding: "base64" }).send()
+          rpc
+            .getMultipleAccounts(chunk, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
+            .send()
         )
       );
 
@@ -226,6 +233,32 @@ export function useDrawExplorer(
 
   useEffect(() => {
     fetchDraws();
+  }, [fetchDraws]);
+
+  // Listen for custom protocol balance/reinvestment events with 150ms debounce
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleSync = () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        fetchDraws();
+      }, 150);
+    };
+
+    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+    window.addEventListener("focus", handleSync);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+      window.removeEventListener("focus", handleSync);
+    };
   }, [fetchDraws]);
 
   return {

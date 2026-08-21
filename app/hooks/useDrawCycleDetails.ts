@@ -14,20 +14,31 @@ import {
 import {
   formatDrawCycleSummary,
   parseWinnersWithVrf,
+  getWinnerKey,
 } from "../lib/draw-helpers";
+import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
 import type { DetailedDrawCycle } from "../types";
 
 const base64Encoder = getBase64Encoder();
+const OPTIMISTIC_TTL_MS = 30_000;
 
 interface DrawCycleDetailsResult {
   /** Detailed draw cycle with parsed winners and VRF derivations. */
   details: DetailedDrawCycle | null;
-  /** Loading state indicator. */
+  /** Initial loading state indicator (true only before first data load). */
   isLoading: boolean;
+  /** Background refetching indicator (true during silent background refreshes). */
+  isRefetching: boolean;
   /** Error message if fetch failed. */
   error: string | null;
-  /** Refetch function. */
-  refetch: () => void;
+  /** Refetch function returning a Promise. */
+  refetch: () => Promise<void>;
+  /** Optimistically marks a winner as processed to guarantee immediate zero-flicker UI updates. */
+  markWinnerOptimisticallyProcessed: (
+    winnerIndex: number,
+    bondsBought?: number,
+    bondPrice?: number
+  ) => void;
 }
 
 /**
@@ -42,19 +53,95 @@ export function useDrawCycleDetails(
   const client = useSolanaClient();
   const [details, setDetails] = useState<DetailedDrawCycle | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
+  const detailsRef = useRef<DetailedDrawCycle | null>(null);
+  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  // Cycle-scoped optimistic winner tracker with 30s TTL
+  const optimisticProcessedWinnersRef = useRef<
+    Map<string, { bondsBought: number; timestamp: number }>
+  >(new Map());
+
+  // Keep detailsRef in sync with state
+  useEffect(() => {
+    detailsRef.current = details;
+  }, [details]);
+
+  // Reset optimistic tracker and state when cycleId or poolId changes
+  useEffect(() => {
+    setDetails(null);
+    detailsRef.current = null;
+    setError(null);
+    optimisticProcessedWinnersRef.current.clear();
+  }, [poolId, cycleId]);
+
+  const markWinnerOptimisticallyProcessed = useCallback(
+    (
+      winnerIndex: number,
+      bondsBought?: number,
+      bondPrice: number = 5_000_000
+    ) => {
+      if (cycleId === null || cycleId === undefined) return;
+      const key = getWinnerKey(cycleId, winnerIndex);
+
+      setDetails((prev) => {
+        if (!prev) return prev;
+        const targetWinner = prev.winners.find(
+          (w) => w.winnerIndex === winnerIndex
+        );
+        const alreadyProcessed = targetWinner?.processed ?? false;
+
+        const estimatedBonds =
+          bondsBought ??
+          (targetWinner && targetWinner.amountOwed > 0
+            ? Math.floor(targetWinner.amountOwed / (bondPrice || 5_000_000))
+            : 0);
+
+        optimisticProcessedWinnersRef.current.set(key, {
+          bondsBought: estimatedBonds,
+          timestamp: Date.now(),
+        });
+
+        const updatedWinners = prev.winners.map((w) => {
+          if (w.winnerIndex === winnerIndex) {
+            return {
+              ...w,
+              processed: true,
+              bondsBought: estimatedBonds,
+            };
+          }
+          return w;
+        });
+
+        return {
+          ...prev,
+          winners: updatedWinners,
+          payoutsCompleted: alreadyProcessed
+            ? prev.payoutsCompleted
+            : prev.payoutsCompleted + 1,
+        };
+      });
+    },
+    [cycleId]
+  );
 
   const fetchDetails = useCallback(async () => {
     if (cycleId === null || cycleId === undefined || cycleId < 0) {
       setDetails(null);
       setIsLoading(false);
+      setIsRefetching(false);
       setError(null);
       return;
     }
 
     const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
+    if (!detailsRef.current) {
+      setIsLoading(true);
+    } else {
+      setIsRefetching(true);
+    }
     setError(null);
 
     try {
@@ -63,7 +150,10 @@ export function useDrawCycleDetails(
       const payoutPda = await findPayoutRegistryPda(poolId, cycleId);
 
       const accountsRes = await rpc
-        .getMultipleAccounts([drawPda, payoutPda], { encoding: "base64" })
+        .getMultipleAccounts([drawPda, payoutPda], {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
         .send();
 
       if (fetchId !== fetchIdRef.current) return;
@@ -74,7 +164,6 @@ export function useDrawCycleDetails(
       if (!drawAcc?.data) {
         setDetails(null);
         setError(`Draw cycle #${cycleId} account not found on-chain.`);
-        setIsLoading(false);
         return;
       }
 
@@ -90,15 +179,40 @@ export function useDrawCycleDetails(
       }
 
       const summary = formatDrawCycleSummary(drawCycle, payout);
-      const winners = payout
+      const parsedWinners = payout
         ? await parseWinnersWithVrf(payout, drawCycle)
         : [];
+
+      // Reconcile on-chain winners with optimistic tracker ref
+      const now = Date.now();
+      let optimisticOverridesCount = 0;
+
+      const reconciledWinners = parsedWinners.map((w) => {
+        const key = getWinnerKey(cycleId, w.winnerIndex);
+        const opt = optimisticProcessedWinnersRef.current.get(key);
+
+        if (opt) {
+          if (w.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
+            // Reconciled with on-chain truth or expired TTL
+            optimisticProcessedWinnersRef.current.delete(key);
+          } else {
+            // Keep optimistic override active
+            optimisticOverridesCount++;
+            return {
+              ...w,
+              processed: true,
+              bondsBought: w.bondsBought > 0 ? w.bondsBought : opt.bondsBought,
+            };
+          }
+        }
+        return w;
+      });
 
       let isUserWinner = false;
       let userWinningsTotal = 0;
 
       if (userAddress) {
-        const userMatches = winners.filter(
+        const userMatches = reconciledWinners.filter(
           (w) => w.winnerAddress.toLowerCase() === userAddress.toLowerCase()
         );
         if (userMatches.length > 0) {
@@ -116,7 +230,8 @@ export function useDrawCycleDetails(
         ...summary,
         payoutRegistryStatus:
           payout && payout.status === 1 ? "Voided" : "Active",
-        winners,
+        payoutsCompleted: summary.payoutsCompleted + optimisticOverridesCount,
+        winners: reconciledWinners,
         isUserWinner,
         userWinningsTotal,
       });
@@ -136,6 +251,7 @@ export function useDrawCycleDetails(
     } finally {
       if (fetchId === fetchIdRef.current) {
         setIsLoading(false);
+        setIsRefetching(false);
       }
     }
   }, [client, poolId, cycleId, userAddress]);
@@ -144,10 +260,38 @@ export function useDrawCycleDetails(
     fetchDetails();
   }, [fetchDetails]);
 
+  // Listen for custom protocol balance/reinvestment events with 150ms debounce
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleSync = () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        fetchDetails();
+      }, 150);
+    };
+
+    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+    window.addEventListener("focus", handleSync);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+      window.removeEventListener("focus", handleSync);
+    };
+  }, [fetchDetails]);
+
   return {
     details,
     isLoading,
+    isRefetching,
     error,
     refetch: fetchDetails,
+    markWinnerOptimisticallyProcessed,
   };
 }

@@ -16,11 +16,37 @@ const SYSVAR_CLOCK_ADDRESS = address(
 );
 const base64Encoder = getBase64Encoder();
 
+interface SharedClockState {
+  clockOffset: number;
+  isSynced: boolean;
+  lastSyncTime: number;
+  activeRequests: number;
+  listeners: Set<(offset: number, synced: boolean) => void>;
+  syncTimer: NodeJS.Timeout | null;
+}
+
+const sharedClockState: SharedClockState = {
+  clockOffset: 0,
+  isSynced: false,
+  lastSyncTime: 0,
+  activeRequests: 0,
+  listeners: new Set(),
+  syncTimer: null,
+};
+
+function notifyListeners() {
+  sharedClockState.listeners.forEach((listener) => {
+    listener(sharedClockState.clockOffset, sharedClockState.isSynced);
+  });
+}
+
 export function useOnChainClock(options: UseOnChainClockOptions = {}) {
   const { resyncIntervalMs = DEFAULT_RESYNC_INTERVAL_MS } = options;
   const client = useSolanaClient();
-  const [clockOffset, setClockOffset] = useState<number>(0);
-  const [isSynced, setIsSynced] = useState<boolean>(false);
+  const [clockOffset, setClockOffset] = useState<number>(
+    sharedClockState.clockOffset
+  );
+  const [isSynced, setIsSynced] = useState<boolean>(sharedClockState.isSynced);
   const reqIdRef = useRef<number>(0);
 
   const syncClock = useCallback(async () => {
@@ -31,7 +57,10 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
     try {
       const rpc = client.runtime.rpc;
       const clockAcc = await rpc
-        .getAccountInfo(SYSVAR_CLOCK_ADDRESS, { encoding: "base64" })
+        .getAccountInfo(SYSVAR_CLOCK_ADDRESS, {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
         .send();
 
       if (clockAcc && clockAcc.value && clockAcc.value.data[0]) {
@@ -47,8 +76,13 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
           const onChainTime = Number(view.getBigInt64(32, true));
 
           if (currentReqId === reqIdRef.current) {
-            setClockOffset(onChainTime - startSystemNow);
+            const newOffset = onChainTime - startSystemNow;
+            sharedClockState.clockOffset = newOffset;
+            sharedClockState.isSynced = true;
+            sharedClockState.lastSyncTime = Date.now();
+            setClockOffset(newOffset);
             setIsSynced(true);
+            notifyListeners();
           }
           return;
         }
@@ -63,12 +97,17 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
     // Fallback to getBlockTime if sysvar account fetch fails
     try {
       const rpc = client.runtime.rpc;
-      const slot = await rpc.getSlot().send();
+      const slot = await rpc.getSlot({ commitment: "confirmed" }).send();
       const blockTime = await rpc.getBlockTime(slot).send();
 
       if (blockTime !== null && currentReqId === reqIdRef.current) {
-        setClockOffset(Number(blockTime) - startSystemNow);
+        const newOffset = Number(blockTime) - startSystemNow;
+        sharedClockState.clockOffset = newOffset;
+        sharedClockState.isSynced = true;
+        sharedClockState.lastSyncTime = Date.now();
+        setClockOffset(newOffset);
         setIsSynced(true);
+        notifyListeners();
       }
     } catch {
       // Retain existing clockOffset on failure
@@ -78,11 +117,26 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
   useEffect(() => {
     let active = true;
 
-    queueMicrotask(() => {
+    const listener = (offset: number, synced: boolean) => {
       if (active) {
-        syncClock();
+        setClockOffset(offset);
+        setIsSynced(synced);
       }
-    });
+    };
+
+    sharedClockState.listeners.add(listener);
+
+    // Initial sync if not synced or older than resync interval
+    if (
+      !sharedClockState.isSynced ||
+      Date.now() - sharedClockState.lastSyncTime > resyncIntervalMs
+    ) {
+      queueMicrotask(() => {
+        if (active) {
+          syncClock();
+        }
+      });
+    }
 
     // Re-sync immediately when tab becomes visible after being backgrounded
     function handleVisibilityChange() {
@@ -100,10 +154,70 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
     return () => {
       active = false;
+      sharedClockState.listeners.delete(listener);
       window.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(intervalId);
     };
   }, [syncClock, resyncIntervalMs]);
 
   return { clockOffset, isSynced, resync: syncClock };
+}
+
+export interface UseClusterTimeOptions {
+  tick?: boolean;
+  tickIntervalMs?: number;
+  resyncIntervalMs?: number;
+}
+
+export interface ClusterTimeState {
+  now: number;
+  clockOffset: number;
+  isSynced: boolean;
+  resync: () => Promise<void>;
+  getNow: () => number;
+}
+
+/**
+ * React hook that returns a reactive, cluster-synchronized unix timestamp (seconds).
+ * Automatically ticks at `tickIntervalMs` (default 1000ms) and updates immediately
+ * when Solana cluster clock synchronization finishes.
+ */
+export function useClusterTime(
+  options: UseClusterTimeOptions = {}
+): ClusterTimeState {
+  const { tick = true, tickIntervalMs = 1000, resyncIntervalMs } = options;
+  const { clockOffset, isSynced, resync } = useOnChainClock({
+    resyncIntervalMs,
+  });
+
+  const getNow = useCallback(
+    () => Math.floor(Date.now() / 1000) + clockOffset,
+    [clockOffset]
+  );
+
+  const [now, setNow] = useState<number>(getNow);
+
+  // Immediately update when clockOffset finishes syncing or changes
+  useEffect(() => {
+    setNow(getNow());
+  }, [getNow]);
+
+  // Periodic active ticker
+  useEffect(() => {
+    if (!tick || !tickIntervalMs || tickIntervalMs <= 0) return;
+
+    const intervalId = setInterval(() => {
+      setNow(getNow());
+    }, tickIntervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [tick, tickIntervalMs, getNow]);
+
+  return {
+    now,
+    clockOffset,
+    isSynced,
+    resync,
+    getNow,
+  };
 }

@@ -12,7 +12,7 @@ import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
-import { useOnChainClock } from "@/app/hooks/useOnChainClock";
+import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import type { DrawCycleSummary } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -40,8 +40,7 @@ export function DrawHistoryList({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const t = useTranslations("DrawHistory");
-  const { clockOffset } = useOnChainClock();
-  const [now] = useState(() => Math.floor(Date.now() / 1000) + clockOffset);
+  const { now } = useClusterTime({ tick: true });
 
   const statusOptions = useMemo(() => {
     return buildDrawStatusOptions(draws, t);

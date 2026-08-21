@@ -13,22 +13,40 @@ import {
   PayoutRegistryInfo,
 } from "../lib/bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "../lib/vrf-utils";
-import { resolveDrawCycleTimestamp } from "../lib/draw-helpers";
+import {
+  resolveDrawCycleTimestamp,
+  getWinnerKey,
+  calculateReinvestmentBreakdown,
+} from "../lib/draw-helpers";
+import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
 import type { PrizeHistoryEntry, RecentWinner, PrizeStatus } from "../types";
 
 const base64Encoder = getBase64Encoder();
+const OPTIMISTIC_TTL_MS = 30_000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface OptimisticPrizeParams {
+  drawCycleId: number;
+  winnerIndex: number;
+  bondsBought?: number;
+  bondPrice?: number;
+  unclaimedDust?: number;
+}
 
 interface DrawHistoryResult {
   /** Prize history for the connected user (sorted by cycle, newest first). */
   prizeHistory: PrizeHistoryEntry[];
   /** Recent winners from the latest completed draw cycle. */
   recentWinners: RecentWinner[];
-  /** Whether data is currently loading. */
+  /** Initial loading state indicator. */
   isLoading: boolean;
-  /** Refetch all data. */
-  refetch: () => void;
+  /** Background refetching indicator. */
+  isRefetching: boolean;
+  /** Refetch all data returning a Promise. */
+  refetch: () => Promise<void>;
+  /** Optimistically mark a user's prize as reinvested/disbursed. */
+  markPrizeOptimisticallyProcessed: (params: OptimisticPrizeParams) => void;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -65,11 +83,18 @@ export function useDrawHistory(
   const [prizeHistory, setPrizeHistory] = useState<PrizeHistoryEntry[]>([]);
   const [recentWinners, setRecentWinners] = useState<RecentWinner[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const fetchIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
   const lastUserAddressRef = useRef<string | undefined>(userAddress);
   const lastPoolIdRef = useRef<number>(poolId);
   const lastDrawCycleIdRef = useRef<number | undefined>(currentDrawCycleId);
+  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
+
+  // Optimistic prize tracker map keyed by `${drawCycleId}-${winnerIndex}` with 30s TTL
+  const optimisticProcessedPrizesRef = useRef<
+    Map<string, { bondsBought: number; timestamp: number }>
+  >(new Map());
 
   useEffect(() => {
     if (
@@ -81,20 +106,69 @@ export function useDrawHistory(
       lastPoolIdRef.current = poolId;
       lastDrawCycleIdRef.current = currentDrawCycleId;
       hasLoadedRef.current = false;
+      optimisticProcessedPrizesRef.current.clear();
     }
   }, [userAddress, poolId, currentDrawCycleId]);
+
+  const markPrizeOptimisticallyProcessed = useCallback(
+    ({
+      drawCycleId,
+      winnerIndex,
+      bondsBought,
+      bondPrice: price = 5_000_000,
+      unclaimedDust = 0,
+    }: OptimisticPrizeParams) => {
+      const key = getWinnerKey(drawCycleId, winnerIndex);
+
+      setPrizeHistory((prev) =>
+        prev.map((entry) => {
+          if (
+            entry.drawCycleId === drawCycleId &&
+            entry.winnerIndex === winnerIndex
+          ) {
+            const breakdown = calculateReinvestmentBreakdown(
+              entry.amount,
+              unclaimedDust,
+              price,
+              bondsBought
+            );
+
+            optimisticProcessedPrizesRef.current.set(key, {
+              bondsBought: breakdown.bondsBought,
+              timestamp: Date.now(),
+            });
+
+            return {
+              ...entry,
+              status: "reinvested" as PrizeStatus,
+              bondsBought: breakdown.bondsBought,
+              reinvestedTickets: breakdown.bondsBought,
+              usedPriorDust: breakdown.usedPriorDust,
+              dustAccumulated: breakdown.dustAccumulated,
+            };
+          }
+          return entry;
+        })
+      );
+    },
+    []
+  );
 
   const fetchHistory = useCallback(async () => {
     if (currentDrawCycleId === undefined || currentDrawCycleId < 0) {
       setPrizeHistory([]);
       setRecentWinners([]);
       hasLoadedRef.current = false;
+      setIsLoading(false);
+      setIsRefetching(false);
       return;
     }
 
     const fetchId = ++fetchIdRef.current;
     if (!hasLoadedRef.current) {
       setIsLoading(true);
+    } else {
+      setIsRefetching(true);
     }
 
     try {
@@ -119,6 +193,7 @@ export function useDrawHistory(
           setRecentWinners([]);
           hasLoadedRef.current = true;
           setIsLoading(false);
+          setIsRefetching(false);
         }
         return;
       }
@@ -144,7 +219,12 @@ export function useDrawHistory(
       const pdaChunks = chunkArray(pdaKeys, 80);
       const accountsResArrays = await Promise.all(
         pdaChunks.map((chunk) =>
-          rpc.getMultipleAccounts(chunk, { encoding: "base64" }).send()
+          rpc
+            .getMultipleAccounts(chunk, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
+            .send()
         )
       );
 
@@ -153,6 +233,8 @@ export function useDrawHistory(
       const accountValues = accountsResArrays.flatMap(
         (res) => res?.value || []
       );
+
+      const now = Date.now();
 
       // Process each cycle pair in memory
       for (let i = 0; i < pdaPairs.length; i++) {
@@ -212,12 +294,29 @@ export function useDrawHistory(
 
             if (winner.winner !== userAddress) continue;
 
+            const amountOwed = Number(winner.amountOwed);
+            const key = getWinnerKey(cycleId, wi);
+            const opt = optimisticProcessedPrizesRef.current.get(key);
+
+            let isProcessed = !!winner.processed;
+            let effectiveBondsBought = winner.bondsBought ?? 0;
+
+            if (opt) {
+              if (winner.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
+                optimisticProcessedPrizesRef.current.delete(key);
+              } else {
+                isProcessed = true;
+                effectiveBondsBought =
+                  effectiveBondsBought > 0
+                    ? effectiveBondsBought
+                    : opt.bondsBought;
+              }
+            }
+
             // Determine status
-            const status: PrizeStatus = winner.processed
+            const status: PrizeStatus = isProcessed
               ? "reinvested"
               : "processing";
-            const amountOwed = Number(winner.amountOwed);
-            const bondsBought = winner.bondsBought ?? 0;
 
             // Derive winning ticket index via client-side VRF
             let winningTicketIdx: number | undefined;
@@ -238,21 +337,22 @@ export function useDrawHistory(
               // VRF derivation failed — non-critical
             }
 
-            // Compute reinvested tickets count, used prior dust, and leftover dust:
+            // Compute reinvested tickets count, used prior dust, and leftover dust
             let reinvestedTickets: number | undefined;
             let usedPriorDust: number | undefined;
             let dustAccumulated: number | undefined;
 
-            if (winner.processed) {
-              reinvestedTickets = bondsBought;
-              const totalTicketValue = bondsBought * bondPrice;
-
-              if (totalTicketValue > amountOwed) {
-                usedPriorDust = totalTicketValue - amountOwed;
-                dustAccumulated = 0;
-              } else {
-                dustAccumulated = amountOwed - totalTicketValue;
-              }
+            if (isProcessed) {
+              const breakdown = calculateReinvestmentBreakdown(
+                amountOwed,
+                0,
+                bondPrice,
+                effectiveBondsBought
+              );
+              reinvestedTickets = breakdown.bondsBought;
+              effectiveBondsBought = breakdown.bondsBought;
+              usedPriorDust = breakdown.usedPriorDust;
+              dustAccumulated = breakdown.dustAccumulated;
             }
 
             const { timestamp: drawDateTimestamp } = resolveDrawCycleTimestamp(
@@ -282,7 +382,7 @@ export function useDrawHistory(
               amount: amountOwed,
               winnerIndex: wi,
               status,
-              bondsBought,
+              bondsBought: effectiveBondsBought,
               dustAccumulated,
               usedPriorDust,
               reinvestedTickets,
@@ -307,7 +407,9 @@ export function useDrawHistory(
       console.error("useDrawHistory fetch error:", err);
     } finally {
       if (fetchId === fetchIdRef.current) {
+        hasLoadedRef.current = true;
         setIsLoading(false);
+        setIsRefetching(false);
       }
     }
   }, [
@@ -326,10 +428,38 @@ export function useDrawHistory(
     fetchHistory();
   }, [fetchHistory]);
 
+  // Listen for custom protocol balance/reinvestment events with 150ms debounce
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleSync = () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        fetchHistory();
+      }, 150);
+    };
+
+    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+    window.addEventListener("focus", handleSync);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
+      window.removeEventListener("focus", handleSync);
+    };
+  }, [fetchHistory]);
+
   return {
     prizeHistory,
     recentWinners,
     isLoading,
+    isRefetching,
     refetch: fetchHistory,
+    markPrizeOptimisticallyProcessed,
   };
 }

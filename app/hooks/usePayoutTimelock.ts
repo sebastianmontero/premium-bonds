@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useOnChainClock } from "./useOnChainClock";
+import { useMemo } from "react";
+import { useClusterTime } from "./useOnChainClock";
 import {
   getPayoutTimelockState,
   PayoutTimelockState,
@@ -15,8 +15,7 @@ interface UsePayoutTimelockOptions {
  * React hook that manages a live, Solana-cluster-synchronized countdown for the
  * Payout Settlement Timelock of a draw cycle or prize win.
  *
- * Automatically ticks every second only while `isTimelocked` is true and stops
- * ticking once the timelock window elapses.
+ * Automatically ticks every second and updates synchronously with cluster time.
  *
  * @param revealedAt - Unix timestamp (in seconds) when the draw was finalized.
  * @param payoutTimelockSeconds - Timelock delay in seconds (default: 300).
@@ -28,41 +27,12 @@ export function usePayoutTimelock(
   payoutTimelockSeconds: number = 300,
   options: UsePayoutTimelockOptions = {}
 ): PayoutTimelockState {
-  const { clockOffset } = useOnChainClock({
+  const { now } = useClusterTime({
     resyncIntervalMs: options.resyncIntervalMs,
+    tick: true,
   });
 
-  const getNow = useCallback(
-    () => Math.floor(Date.now() / 1000) + clockOffset,
-    [clockOffset]
-  );
-
-  const [timelockState, setTimelockState] = useState<PayoutTimelockState>(() =>
-    getPayoutTimelockState(revealedAt, payoutTimelockSeconds, getNow())
-  );
-
-  useEffect(() => {
-    const initial = getPayoutTimelockState(
-      revealedAt,
-      payoutTimelockSeconds,
-      getNow()
-    );
-    if (!initial.isTimelocked) return;
-
-    const intervalId = setInterval(() => {
-      const current = getPayoutTimelockState(
-        revealedAt,
-        payoutTimelockSeconds,
-        getNow()
-      );
-      setTimelockState(current);
-      if (!current.isTimelocked) {
-        clearInterval(intervalId);
-      }
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [revealedAt, payoutTimelockSeconds, getNow]);
-
-  return timelockState;
+  return useMemo(() => {
+    return getPayoutTimelockState(revealedAt, payoutTimelockSeconds, now);
+  }, [revealedAt, payoutTimelockSeconds, now]);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useTranslations } from "next-intl";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
@@ -66,6 +66,7 @@ export default function DashboardPage() {
     recentWinners: onChainRecentWinners,
     isLoading: isDrawHistoryLoading,
     refetch: refetchDrawHistory,
+    markPrizeOptimisticallyProcessed,
   } = useDrawHistory(
     1,
     onChainPool ? onChainPool.currentDrawCycleId : undefined,
@@ -107,8 +108,10 @@ export default function DashboardPage() {
     ParsedTransactionError | string | null
   >(null);
   const [lastTxAction, setLastTxAction] = useState<(() => void) | null>(null);
-  const [selectedPrizeDetails, setSelectedPrizeDetails] =
-    useState<PrizeHistoryEntry | null>(null);
+  const [selectedPrizeKey, setSelectedPrizeKey] = useState<{
+    drawCycleId: number;
+    winnerIndex: number;
+  } | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
   const [showCompleteActivity, setShowCompleteActivity] = useState(false);
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
@@ -159,13 +162,26 @@ export default function DashboardPage() {
     activeLifetimeWinnings - activeAutoReinvestedTotal;
 
   // Hydrated data: real when connected / public from RPC
-  const activePrizeHistory: PrizeHistoryEntry[] = isConnected
-    ? onChainPrizeHistory
-    : [];
+  const activePrizeHistory: PrizeHistoryEntry[] = useMemo(
+    () => (isConnected ? onChainPrizeHistory : []),
+    [isConnected, onChainPrizeHistory]
+  );
   const activeActivityFeed: ActivityEntry[] = isConnected
     ? onChainActivityFeed
     : [];
   const activeRecentWinners: RecentWinner[] = onChainRecentWinners;
+
+  // Derive selectedPrizeDetails dynamically from activePrizeHistory via ID selector
+  const selectedPrizeDetails = useMemo(() => {
+    if (!selectedPrizeKey) return null;
+    return (
+      activePrizeHistory.find(
+        (p) =>
+          p.drawCycleId === selectedPrizeKey.drawCycleId &&
+          p.winnerIndex === selectedPrizeKey.winnerIndex
+      ) ?? null
+    );
+  }, [selectedPrizeKey, activePrizeHistory]);
 
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
   const pendingRedemptionsTotal = activePendingRedemptions.reduce(
@@ -259,12 +275,20 @@ export default function DashboardPage() {
     try {
       if (isConnected) {
         await runActionTx(
-          () =>
-            actions.reinvestWinnings(
+          async () => {
+            const sig = await actions.reinvestWinnings(
               drawCycleId,
               entry.winnerIndex,
               userAddress
-            ),
+            );
+            markPrizeOptimisticallyProcessed({
+              drawCycleId,
+              winnerIndex: entry.winnerIndex,
+              bondPrice: activePool.bondPrice,
+              unclaimedDust: activeUnclaimedWinnings,
+            });
+            return sig;
+          },
           () => {
             refetch();
             refetchDrawHistory();
@@ -481,7 +505,12 @@ export default function DashboardPage() {
         unclaimedTotal={activeUnclaimedWinnings}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
-        onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
+        onViewDetails={(entry) =>
+          setSelectedPrizeKey({
+            drawCycleId: entry.drawCycleId,
+            winnerIndex: entry.winnerIndex,
+          })
+        }
         onViewCompleteLedger={() => setShowCompleteLedger(true)}
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
@@ -527,13 +556,13 @@ export default function DashboardPage() {
 
       <PrizeDetailsModal
         key={
-          selectedPrizeDetails
-            ? `prize-details-${selectedPrizeDetails.drawCycleId}-${selectedPrizeDetails.tierIndex}-${selectedPrizeDetails.winningTicket || ""}`
+          selectedPrizeKey
+            ? `prize-details-${selectedPrizeKey.drawCycleId}-${selectedPrizeKey.winnerIndex}`
             : "prize-details-none"
         }
         entry={selectedPrizeDetails}
         isOpen={selectedPrizeDetails !== null}
-        onClose={() => setSelectedPrizeDetails(null)}
+        onClose={() => setSelectedPrizeKey(null)}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         ticketPrice={activePool.bondPrice}
@@ -551,7 +580,12 @@ export default function DashboardPage() {
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         onSimulateCrank={handleSimulateCrank}
-        onViewDetails={(entry) => setSelectedPrizeDetails(entry)}
+        onViewDetails={(entry) =>
+          setSelectedPrizeKey({
+            drawCycleId: entry.drawCycleId,
+            winnerIndex: entry.winnerIndex,
+          })
+        }
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
       />

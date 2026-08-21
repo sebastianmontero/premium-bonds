@@ -329,6 +329,8 @@
     "timelockTooltip": "Bloqueo temporal de liquidación activo ({remaining} restantes)",
     "reinvesting": "Reinvirtiendo",
     "reinvested": "Reinvertido",
+    "disbursed": "Desembolsado",
+    "pending": "Pendiente",
     "viewComplete": "Ver Historial Completo ({count} Sorteos) →",
     "details": "Detalles",
     "runCrank": "Ejecutar Crank",

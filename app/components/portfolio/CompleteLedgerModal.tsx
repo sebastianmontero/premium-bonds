@@ -9,7 +9,7 @@ import {
   formatLocalDate,
 } from "@/app/lib/formatters";
 import { getPayoutTimelockState } from "@/app/lib/draw-helpers";
-import { useOnChainClock } from "@/app/hooks/useOnChainClock";
+import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { PaginationControls } from "./PaginationControls";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
@@ -51,27 +51,7 @@ export default function CompleteLedgerModal({
 }: CompleteLedgerModalProps) {
   const t = useTranslations("Ledger");
   const format = useFormatter();
-  const { clockOffset } = useOnChainClock();
-
-  const [now, setNow] = useState(
-    () => Math.floor(Date.now() / 1000) + clockOffset
-  );
-
-  useEffect(() => {
-    const hasProcessingTimelock = entries.some(
-      (e) =>
-        e.status === "processing" &&
-        e.revealedAt &&
-        e.revealedAt + payoutTimelockSeconds >
-          Math.floor(Date.now() / 1000) + clockOffset
-    );
-    if (!hasProcessingTimelock) return;
-
-    const interval = setInterval(() => {
-      setNow(Math.floor(Date.now() / 1000) + clockOffset);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [entries, payoutTimelockSeconds, clockOffset]);
+  const { now } = useClusterTime({ tick: true });
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
   // Stateful Filtering

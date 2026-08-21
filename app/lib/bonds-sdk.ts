@@ -271,7 +271,10 @@ export async function fetchUserAtaBalance(
   try {
     const userAta = await findAtaAddress(userAddress, mintAddress);
     const ataAcc = await rpc
-      .getAccountInfo(userAta, { encoding: "base64" })
+      .getAccountInfo(userAta, {
+        encoding: "base64",
+        commitment: "confirmed",
+      })
       .send();
 
     if (ataAcc && ataAcc.value && ataAcc.value.data?.[0]) {
@@ -610,14 +613,34 @@ export async function fetchPoolYieldOnChainState(
   const [humaRes, pstMintRes, poolPstVaultRes, humaModeConfigRes] =
     await Promise.allSettled([
       humaPoolState
-        ? rpc.getAccountInfo(humaPoolState, { encoding: "base64" }).send()
+        ? rpc
+            .getAccountInfo(humaPoolState, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
+            .send()
         : Promise.resolve(null),
       pstMint
-        ? rpc.getAccountInfo(pstMint, { encoding: "base64" }).send()
+        ? rpc
+            .getAccountInfo(pstMint, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
+            .send()
         : Promise.resolve(null),
-      rpc.getAccountInfo(poolPstVault, { encoding: "base64" }).send(),
+      rpc
+        .getAccountInfo(poolPstVault, {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
+        .send(),
       humaModeConfig
-        ? rpc.getAccountInfo(humaModeConfig, { encoding: "base64" }).send()
+        ? rpc
+            .getAccountInfo(humaModeConfig, {
+              encoding: "base64",
+              commitment: "confirmed",
+            })
+            .send()
         : Promise.resolve(null),
     ]);
 
@@ -1092,7 +1115,10 @@ export async function resolveWinnerAddress(
   try {
     const payoutPda = await findPayoutRegistryPda(poolId, cycleId);
     const payoutAcc = await rpc
-      .getAccountInfo(payoutPda, { encoding: "base64" })
+      .getAccountInfo(payoutPda, {
+        encoding: "base64",
+        commitment: "confirmed",
+      })
       .send();
     if (payoutAcc?.value?.data) {
       const payoutBytes = new Uint8Array(

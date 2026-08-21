@@ -431,3 +431,57 @@ export function getPayoutTimelockState(
     formattedUnlockTime,
   };
 }
+
+/**
+ * Standard trailing RPC consensus grace period in milliseconds.
+ */
+export const RPC_PROPAGATION_GRACE_PERIOD_MS = 1200;
+
+/**
+ * Single source of truth for composite winner key formatting.
+ */
+export function getWinnerKey(drawCycleId: number, winnerIndex: number): string {
+  return `${drawCycleId}-${winnerIndex}`;
+}
+
+/**
+ * Breakdown of on-chain reinvestment bond purchasing and dust accounting.
+ */
+export interface ReinvestmentBreakdown {
+  bondsBought: number;
+  usedPriorDust: number;
+  dustAccumulated: number;
+  totalAvailable: number;
+}
+
+/**
+ * Computes reinvestment bonds and dust accounting matching Anchor smart contract parity (reinvest_winnings.rs).
+ *
+ * @param amountWon - Current claimable prize amount owed in base units.
+ * @param unclaimedDust - Previously accumulated unclaimed non-reinvested dust in base units.
+ * @param bondPrice - Cost of 1 bond in base units (defaults to 5_000_000 / 5 USDC).
+ * @param explicitBondsBought - Explicit count of bonds bought if known from on-chain event/data.
+ */
+export function calculateReinvestmentBreakdown(
+  amountWon: number,
+  unclaimedDust: number = 0,
+  bondPrice: number = 5_000_000,
+  explicitBondsBought?: number
+): ReinvestmentBreakdown {
+  const price = bondPrice > 0 ? bondPrice : 5_000_000;
+  const totalAvailable = amountWon + (unclaimedDust > 0 ? unclaimedDust : 0);
+  const bondsBought =
+    explicitBondsBought !== undefined
+      ? explicitBondsBought
+      : Math.floor(totalAvailable / price);
+  const totalCost = bondsBought * price;
+  const usedPriorDust = totalCost > amountWon ? totalCost - amountWon : 0;
+  const dustAccumulated = totalCost < amountWon ? amountWon - totalCost : 0;
+
+  return {
+    bondsBought,
+    usedPriorDust,
+    dustAccumulated,
+    totalAvailable,
+  };
+}

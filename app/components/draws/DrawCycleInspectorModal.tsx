@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useDrawCycleDetails } from "@/app/hooks/useDrawCycleDetails";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
@@ -10,6 +10,7 @@ import { DrawExportActions } from "./DrawExportActions";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
+  RPC_PROPAGATION_GRACE_PERIOD_MS,
 } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
@@ -18,13 +19,13 @@ interface DrawCycleInspectorModalProps {
   cycleId: number | null;
   isOpen: boolean;
   onClose: () => void;
-  userAddress?: string;
-  tokenDecimals?: number;
-  tokenSymbol?: string;
+  tokenDecimals: number;
+  tokenSymbol: string;
   bondPrice?: number;
   payoutTimelockSeconds?: number;
+  userAddress?: string;
   onCrankWinner?: (
-    drawCycleId: number,
+    cycleId: number,
     winnerIndex: number,
     winnerAddress?: string
   ) => Promise<unknown> | void;
@@ -36,11 +37,11 @@ export function DrawCycleInspectorModal({
   cycleId,
   isOpen,
   onClose,
-  userAddress,
-  tokenDecimals = 6,
-  tokenSymbol = "USDC",
+  tokenDecimals,
+  tokenSymbol,
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
+  userAddress,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
@@ -48,15 +49,29 @@ export function DrawCycleInspectorModal({
     "winners"
   );
   const t = useTranslations("DrawInspector");
+  const trailingTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
-  const { details, isLoading, error, refetch } = useDrawCycleDetails(
-    poolId,
-    isOpen ? cycleId : null,
-    userAddress
-  );
+  const {
+    details,
+    isLoading,
+    isRefetching,
+    error,
+    refetch,
+    markWinnerOptimisticallyProcessed,
+  } = useDrawCycleDetails(poolId, isOpen ? cycleId : null, userAddress);
 
   const hasVrfRandomness = hasDrawVrfRandomness(details ?? undefined);
   const activeTab = hasVrfRandomness ? selectedTab : "winners";
+
+  // Cleanup trailing timers on unmount or cycle change
+  useEffect(() => {
+    return () => {
+      if (trailingTimerRef.current) {
+        clearTimeout(trailingTimerRef.current as number);
+        trailingTimerRef.current = null;
+      }
+    };
+  }, [cycleId]);
 
   // Close on Escape key press
   useEffect(() => {
@@ -109,13 +124,13 @@ export function DrawCycleInspectorModal({
           <div className="flex items-center gap-2">
             <button
               onClick={() => refetch()}
-              disabled={isLoading}
+              disabled={isLoading || isRefetching}
               title={t("refreshDetails")}
               aria-label={t("refreshDetails")}
               className="h-9 w-9 rounded-xl border border-surface-bright/15 bg-surface-container/60 hover:bg-surface-container hover:border-surface-bright/30 text-on-surface-variant hover:text-on-surface flex items-center justify-center transition cursor-pointer shadow-xs disabled:opacity-40"
             >
               <svg
-                className={`w-4 h-4 ${isLoading ? "animate-spin text-primary" : ""}`}
+                className={`w-4 h-4 ${isLoading || isRefetching ? "animate-spin text-primary" : ""}`}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={2}
@@ -256,10 +271,18 @@ export function DrawCycleInspectorModal({
                         ? async (wIdx, wAddr) => {
                             try {
                               await onCrankWinner(details.cycleId, wIdx, wAddr);
+                              markWinnerOptimisticallyProcessed(
+                                wIdx,
+                                undefined,
+                                bondPrice
+                              );
                               await refetch();
-                              setTimeout(() => {
+                              if (trailingTimerRef.current) {
+                                clearTimeout(trailingTimerRef.current);
+                              }
+                              trailingTimerRef.current = setTimeout(() => {
                                 refetch();
-                              }, 1000);
+                              }, RPC_PROPAGATION_GRACE_PERIOD_MS);
                             } catch {
                               // Handled by global transaction runner / error alert
                             }
