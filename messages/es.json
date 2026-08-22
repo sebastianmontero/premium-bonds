@@ -116,6 +116,10 @@
     "dustTooltipExplanation": "Los premios se reinvierten automáticamente en bonos completos de {bondPrice} {symbol}. Los montos restantes menores a {bondPrice} {symbol} se mantienen en tu saldo, el cual se combinará automáticamente con futuras ganancias para comprar nuevos bonos, o puedes reclamarlo a tu billetera en cualquier momento.",
     "dustTooltipTrigger": "Información sobre las ganancias restantes",
     "claimNow": "Reclamar Ahora",
+    "claiming": "Reclamando...",
+    "claimingPaused": "Reclamos Pausados",
+    "frozenNotice": "Sorteo en curso · reclamos pausados",
+    "frozenTooltip": "El reclamo de ganancias restantes está pausado temporalmente mientras se resuelve el sorteo. Tus fondos están seguros y podrás reclamarlos en cuanto termine.",
     "dismiss": "Descartar"
   },
   "Dashboard": {
@@ -324,6 +328,11 @@
     "status": "Estado",
     "actions": "Acciones",
     "cranking": "Ejecutando...",
+    "claiming": "Reclamando...",
+    "claimingPaused": "Reclamos Pausados",
+    "frozenDrawStatus": "Sorteo en Progreso",
+    "frozenCrankTooltip": "La reinversión y reclamo de premios están pausados temporalmente mientras se resuelve el sorteo en curso.",
+    "frozenTooltip": "El reclamo de ganancias restantes está pausado temporalmente mientras se resuelve el sorteo. Tus fondos están seguros y podrás reclamarlos en cuanto termine.",
     "processing": "Procesando",
     "timelocked": "Bloqueado",
     "timelockTooltip": "Bloqueo temporal de liquidación activo ({remaining} restantes)",

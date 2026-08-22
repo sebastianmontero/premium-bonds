@@ -485,3 +485,116 @@ export function calculateReinvestmentBreakdown(
     totalAvailable,
   };
 }
+
+/**
+ * Machine-readable reason why an action is disabled.
+ */
+export type ActionDisabledReason =
+  | "frozen_for_draw"
+  | "timelocked"
+  | "zero_amount"
+  | "in_progress"
+  | "not_connected";
+
+/**
+ * Complete capability state for a user or crank action button/banner.
+ */
+export interface ActionCapability {
+  /** Whether the user can actively execute the transaction */
+  canExecute: boolean;
+  /** Machine-readable reason for disabled state if canExecute is false */
+  disabledReason?: ActionDisabledReason;
+  /** Translation key under Unclaimed.* or Ledger.* for the button text */
+  buttonLabelKey: string;
+  /** Optional translation key for rich status or tooltip explanation */
+  tooltipKey?: string;
+  /** Optional inline status notice key (e.g. 'Unclaimed.frozenNotice') */
+  statusBadgeKey?: string;
+}
+
+/**
+ * Evaluates the execution capability for claiming non-reinvested winnings.
+ */
+export function getClaimWinningsCapability(params: {
+  pool?: { isFrozenForDraw?: boolean } | null;
+  unclaimedAmount: number | bigint;
+  isClaiming?: boolean;
+}): ActionCapability {
+  const { pool, unclaimedAmount, isClaiming } = params;
+  const hasAmount =
+    typeof unclaimedAmount === "bigint"
+      ? unclaimedAmount > 0n
+      : unclaimedAmount > 0;
+
+  if (isClaiming) {
+    return {
+      canExecute: false,
+      disabledReason: "in_progress",
+      buttonLabelKey: "claiming",
+    };
+  }
+
+  if (pool?.isFrozenForDraw) {
+    return {
+      canExecute: false,
+      disabledReason: "frozen_for_draw",
+      buttonLabelKey: "claimingPaused",
+      statusBadgeKey: "frozenNotice",
+      tooltipKey: "frozenTooltip",
+    };
+  }
+
+  if (!hasAmount) {
+    return {
+      canExecute: false,
+      disabledReason: "zero_amount",
+      buttonLabelKey: "claimNow",
+    };
+  }
+
+  return {
+    canExecute: true,
+    buttonLabelKey: "claimNow",
+  };
+}
+
+/**
+ * Evaluates the execution capability for settling/cranking prize entries.
+ */
+export function getCrankActionCapability(params: {
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isTimelocked: boolean;
+  isCranking?: boolean;
+}): ActionCapability {
+  const { pool, isTimelocked, isCranking } = params;
+
+  if (isCranking) {
+    return {
+      canExecute: false,
+      disabledReason: "in_progress",
+      buttonLabelKey: "processing",
+    };
+  }
+
+  if (pool?.isFrozenForDraw) {
+    return {
+      canExecute: false,
+      disabledReason: "frozen_for_draw",
+      buttonLabelKey: "claimingPaused",
+      tooltipKey: "frozenCrankTooltip",
+    };
+  }
+
+  if (isTimelocked) {
+    return {
+      canExecute: false,
+      disabledReason: "timelocked",
+      buttonLabelKey: "reinvest",
+    };
+  }
+
+  return {
+    canExecute: true,
+    buttonLabelKey: "reinvest",
+  };
+}

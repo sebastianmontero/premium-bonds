@@ -104,7 +104,10 @@ export function DepositModal({
       if (parsed.isCancellation) {
         console.warn("Deposit transaction cancelled by user.");
       } else {
-        console.error("Deposit transaction failed:", err);
+        console.error(
+          `Deposit transaction failed: ${parsed.message || parsed.title}`,
+          err
+        );
       }
       setParsedError(parsed);
       setTxStage(null);

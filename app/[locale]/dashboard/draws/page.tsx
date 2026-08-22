@@ -129,11 +129,19 @@ function DrawHistoryContent() {
       }
     } catch (err) {
       const parsed = parseTransactionError(err);
+      if (parsed.isCancellation) {
+        console.warn("Draw crank transaction cancelled by user.");
+      } else {
+        console.error(
+          `Draw crank failed: ${parsed.message || parsed.title}`,
+          err
+        );
+      }
       setTxError(parsed);
       setLastTxAction(
         () => () => handleCrankWinner(drawCycleId, winnerIndex, winnerAddress)
       );
-      throw parsed;
+      throw err;
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
@@ -213,6 +221,7 @@ function DrawHistoryContent() {
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
+        pool={activePool}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}
       />

@@ -5,6 +5,12 @@ import React, { useState, useRef, useEffect } from "react";
 export interface InteractiveTooltipProps {
   content: React.ReactNode;
   ariaLabel: string;
+  /**
+   * Optional custom trigger content rendered inside the root trigger `<button>`.
+   * @remarks
+   * Must be inline/phrasing content (e.g. `<span>`, `<svg>`, text) and NEVER
+   * interactive elements like `<button>` or `<a>` to avoid invalid HTML nesting and React hydration errors.
+   */
   children?: React.ReactNode;
   align?: "left" | "center" | "right";
   side?: "top" | "bottom";

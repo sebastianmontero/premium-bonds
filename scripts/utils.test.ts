@@ -33,7 +33,7 @@ function runTests() {
     console.log("✓ Passed Test 1a\n");
 
     console.log(
-      "Test 1b: Anchor Framework Error Decoding (3005 RequireGteViolated / 0xbbd)"
+      "Test 1b: Anchor Framework Error Decoding (3005 AccountNotEnoughKeys / 0xbbd)"
     );
     const matchedFw = matchAnchorError("custom program error: 0xbbd");
     assert(matchedFw !== null, "Should match 0xbbd");
@@ -42,8 +42,8 @@ function runTests() {
       `Code should be 3005, got ${matchedFw?.code}`
     );
     assert(
-      matchedFw?.info.name === "RequireGteViolated",
-      `Name should be RequireGteViolated, got ${matchedFw?.info.name}`
+      matchedFw?.info.name === "AccountNotEnoughKeys",
+      `Name should be AccountNotEnoughKeys, got ${matchedFw?.info.name}`
     );
     console.log("✓ Passed Test 1b\n");
   }

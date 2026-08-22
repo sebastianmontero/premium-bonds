@@ -42,10 +42,9 @@ import {
   RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
-import {
-  notifyBalanceUpdate,
-  PB_BALANCE_UPDATE_EVENT,
-} from "./useUserTokenBalance";
+import { notifyBalanceUpdate } from "./useUserTokenBalance";
+import { notifyProtocolUpdate } from "../lib/protocol-sync-bus";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { sanitizeErrorMessage } from "../lib/errors";
 import { formatTokenAmount } from "../lib/formatters";
@@ -560,29 +559,16 @@ export function useBondsContract(poolId: number = 1) {
     refetch();
   }, [refetch]);
 
-  // Synchronize wallet balance upon protocol balance update events
-  useEffect(() => {
-    const handleBalanceUpdate = async () => {
-      if (userAddress) {
-        try {
-          const rpc = client.runtime.rpc;
-          const balance = await fetchUserAtaBalance(
-            rpc,
-            userAddress,
-            USDC_MINT
-          );
-          setWalletBalance(balance);
-        } catch {
-          // ignore transient balance fetch error
-        }
-      }
-    };
-
-    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
-    return () => {
-      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
-    };
-  }, [userAddress, client]);
+  // Synchronize state and wallet balance upon scoped protocol updates or focus
+  useProtocolSyncSubscription(
+    async () => {
+      await refetch();
+    },
+    {
+      scopes: ["all", "pool", "redemptions", "clock", "user"],
+      debounceMs: 100,
+    }
+  );
 
   // ─── Transaction actions ───────────────────────────────────────────────────
 
@@ -603,6 +589,9 @@ export function useBondsContract(poolId: number = 1) {
             ? "Pool is paused due to emergency circuit breaker"
             : "Pool is closed permanently"
         );
+      }
+      if (pool.isFrozenForDraw) {
+        throw new Error("Pool is frozen while draw is being resolved");
       }
 
       const poolPda = await findPrizePoolPda(poolId);
@@ -927,6 +916,12 @@ export function useBondsContract(poolId: number = 1) {
     if (pool.status === "Paused") {
       throw new Error("Pool is currently paused");
     }
+    if (pool.isFrozenForDraw) {
+      throw new Error("Pool is frozen while draw is being resolved");
+    }
+    if (!userWinnings || userWinnings.unclaimedNonReinvestedWinnings <= 0n) {
+      throw new Error("No non-reinvested prize winnings to claim");
+    }
 
     const poolPda = await findPrizePoolPda(poolId);
     const poolPstVault = await findPoolPstVaultPda(poolId);
@@ -977,9 +972,10 @@ export function useBondsContract(poolId: number = 1) {
     });
 
     await refetch();
+    notifyProtocolUpdate("all", { poolId, reason: "claim_winnings_settled" });
     notifyBalanceUpdate();
     return signature;
-  }, [userAddress, pool, poolId, send, refetch]);
+  }, [userAddress, pool, userWinnings, poolId, send, refetch]);
 
   /**
    * Submits a transaction to manually reinvest won prizes into bonds.
@@ -997,6 +993,9 @@ export function useBondsContract(poolId: number = 1) {
     ) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
+      if (pool.isFrozenForDraw) {
+        throw new Error("Pool is frozen while draw is being resolved");
+      }
 
       const targetWinner = await resolveWinnerAddress(
         client.runtime.rpc,
@@ -1026,6 +1025,7 @@ export function useBondsContract(poolId: number = 1) {
       });
 
       await refetch();
+      notifyProtocolUpdate("all", { poolId, reason: "reinvest_settled" });
       notifyBalanceUpdate();
       return signature;
     },

@@ -10,6 +10,7 @@ import {
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { getExplorerUrl } from "@/app/lib/errors";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeDetailsModalProps {
@@ -20,6 +21,8 @@ interface PrizeDetailsModalProps {
   tokenSymbol: string;
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -44,6 +47,8 @@ export default function PrizeDetailsModal({
   tokenSymbol,
   ticketPrice = 5_000_000,
   payoutTimelockSeconds = 300,
+  pool,
+  isFrozenForDraw,
   onSimulateCrank,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
@@ -52,6 +57,9 @@ export default function PrizeDetailsModal({
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
   const format = useFormatter();
+
+  const effectivePool =
+    pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
   const timelockState = usePayoutTimelock(
     entry?.revealedAt,
@@ -646,6 +654,26 @@ export default function PrizeDetailsModal({
                   <span>🔒</span> {tLedger("timelocked")} (
                   {timelockState.formattedRemaining})
                 </button>
+              ) : effectivePool?.isFrozenForDraw ? (
+                <InteractiveTooltip
+                  ariaLabel={tLedger("frozenCrankTooltip")}
+                  align="right"
+                  side="top"
+                  triggerClassName="inline-flex"
+                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                  content={
+                    <p className="text-xs leading-relaxed text-amber-200">
+                      {tLedger("frozenCrankTooltip")}
+                    </p>
+                  }
+                >
+                  <span
+                    aria-disabled="true"
+                    className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs shrink-0"
+                  >
+                    <span>⏸️</span> {tLedger("frozenDrawStatus")}
+                  </span>
+                </InteractiveTooltip>
               ) : (
                 <button
                   disabled={

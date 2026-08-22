@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useWalletConnection, useSolanaClient } from "@solana/react-hooks";
 import { USDC_MINT, fetchUserAtaBalance } from "../lib/bonds-sdk";
 import { formatTokenAmount, USDC_DECIMALS } from "../lib/formatters";
+import { notifyProtocolUpdate } from "../lib/protocol-sync-bus";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 
 export const PB_BALANCE_UPDATE_EVENT = "pb:balance-update";
 
@@ -12,6 +14,7 @@ export const PB_BALANCE_UPDATE_EVENT = "pb:balance-update";
  * (such as header balance pills and wallet dropdowns) to refresh token balances.
  */
 export function notifyBalanceUpdate(): void {
+  notifyProtocolUpdate("user", { reason: "balance_update" });
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(PB_BALANCE_UPDATE_EVENT));
   }
@@ -92,8 +95,8 @@ export function useUserTokenBalance(
   }, [userAddress, mintAddress, refetch]);
 
   // Listen for custom protocol balance update events and window focus
-  useEffect(() => {
-    const handleBalanceUpdate = () => {
+  useProtocolSyncSubscription(
+    () => {
       // 1. Immediate refetch for instant UI responsiveness
       refetch();
 
@@ -104,20 +107,12 @@ export function useUserTokenBalance(
       trailingTimerRef.current = setTimeout(() => {
         refetch();
       }, 1000);
-    };
-
-    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
-    window.addEventListener("focus", handleBalanceUpdate);
-
-    return () => {
-      if (trailingTimerRef.current) {
-        clearTimeout(trailingTimerRef.current);
-        trailingTimerRef.current = null;
-      }
-      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleBalanceUpdate);
-      window.removeEventListener("focus", handleBalanceUpdate);
-    };
-  }, [refetch]);
+    },
+    {
+      scopes: ["all", "user"],
+      debounceMs: 50,
+    }
+  );
 
   const formattedBalance = formatTokenAmount(balance, decimals, 2, 2);
 

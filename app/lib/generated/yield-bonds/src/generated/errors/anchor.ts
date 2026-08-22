@@ -116,6 +116,8 @@ export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x17a0; // 6048
 export const ANCHOR_ERROR__UNAUTHORIZED = 0x17a1; // 6049
 /** WinnerMismatch: Winner account does not match the payout registry entry. */
 export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a2; // 6050
+/** UnsupportedAccountVersion: Account schema version is invalid or unsupported. */
+export const ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION = 0x17a3; // 6051
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -166,6 +168,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
   | typeof ANCHOR_ERROR__UNAUTHORIZED_TICKET
+  | typeof ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION
   | typeof ANCHOR_ERROR__WINNER_MISMATCH
   | typeof ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED
   | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT;
@@ -221,6 +224,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,
     [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: `The ticket does not belong to the user.`,
+    [ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: `Account schema version is invalid or unsupported.`,
     [ANCHOR_ERROR__WINNER_MISMATCH]: `Winner account does not match the payout registry entry.`,
     [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: `Yield velocity limit exceeded.`,
     [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: `Yield venue is insolvent.`,

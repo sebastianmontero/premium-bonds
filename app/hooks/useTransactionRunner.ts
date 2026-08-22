@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import {
   parseTransactionError,
   ParsedTransactionError,
+  TransactionError,
 } from "@/app/lib/errors";
 import { notifyBalanceUpdate } from "@/app/hooks/useUserTokenBalance";
 import type { TransactionStage } from "@/app/components/dashboard/TransactionProgressModal";
@@ -43,7 +44,7 @@ export function useTransactionRunner() {
         const parsed = parseTransactionError(err);
         setError(parsed);
         setStage(null);
-        throw parsed;
+        throw new TransactionError(parsed, err);
       }
     },
     []

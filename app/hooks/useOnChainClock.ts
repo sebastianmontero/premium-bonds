@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
 import { address, getBase64Encoder } from "@solana/kit";
+import { notifyProtocolUpdate } from "../lib/protocol-sync-bus";
 
 interface UseOnChainClockOptions {
   resyncIntervalMs?: number;
@@ -77,12 +78,20 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
           if (currentReqId === reqIdRef.current) {
             const newOffset = onChainTime - startSystemNow;
+            const hasJump =
+              !sharedClockState.isSynced ||
+              Math.abs(newOffset - sharedClockState.clockOffset) >= 3;
+
             sharedClockState.clockOffset = newOffset;
             sharedClockState.isSynced = true;
             sharedClockState.lastSyncTime = Date.now();
             setClockOffset(newOffset);
             setIsSynced(true);
             notifyListeners();
+
+            if (hasJump) {
+              notifyProtocolUpdate("clock", { reason: "clock_offset_jump" });
+            }
           }
           return;
         }
@@ -102,12 +111,20 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
       if (blockTime !== null && currentReqId === reqIdRef.current) {
         const newOffset = Number(blockTime) - startSystemNow;
+        const hasJump =
+          !sharedClockState.isSynced ||
+          Math.abs(newOffset - sharedClockState.clockOffset) >= 3;
+
         sharedClockState.clockOffset = newOffset;
         sharedClockState.isSynced = true;
         sharedClockState.lastSyncTime = Date.now();
         setClockOffset(newOffset);
         setIsSynced(true);
         notifyListeners();
+
+        if (hasJump) {
+          notifyProtocolUpdate("clock", { reason: "clock_offset_jump" });
+        }
       }
     } catch {
       // Retain existing clockOffset on failure

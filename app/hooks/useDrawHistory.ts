@@ -18,7 +18,7 @@ import {
   getWinnerKey,
   calculateReinvestmentBreakdown,
 } from "../lib/draw-helpers";
-import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import type { PrizeHistoryEntry, RecentWinner, PrizeStatus } from "../types";
 
 const base64Encoder = getBase64Encoder();
@@ -89,7 +89,6 @@ export function useDrawHistory(
   const lastUserAddressRef = useRef<string | undefined>(userAddress);
   const lastPoolIdRef = useRef<number>(poolId);
   const lastDrawCycleIdRef = useRef<number | undefined>(currentDrawCycleId);
-  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
   // Optimistic prize tracker map keyed by `${drawCycleId}-${winnerIndex}` with 30s TTL
   const optimisticProcessedPrizesRef = useRef<
@@ -428,31 +427,11 @@ export function useDrawHistory(
     fetchHistory();
   }, [fetchHistory]);
 
-  // Listen for custom protocol balance/reinvestment events with 150ms debounce
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleSync = () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        fetchHistory();
-      }, 150);
-    };
-
-    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-    window.addEventListener("focus", handleSync);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-      window.removeEventListener("focus", handleSync);
-    };
-  }, [fetchHistory]);
+  // Listen for custom protocol draw/settlement events with scoped filtering
+  useProtocolSyncSubscription(fetchHistory, {
+    scopes: ["all", "draws"],
+    debounceMs: 150,
+  });
 
   return {
     prizeHistory,

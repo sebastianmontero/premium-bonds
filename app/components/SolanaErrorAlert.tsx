@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ParsedTransactionError, parseTransactionError } from "../lib/errors";
+import {
+  ParsedTransactionError,
+  TransactionError,
+  parseTransactionError,
+} from "../lib/errors";
 
 interface SolanaErrorAlertProps {
-  error: ParsedTransactionError | string | null;
+  error: ParsedTransactionError | TransactionError | Error | string | null;
   onDismiss?: () => void;
   onRetry?: () => void;
   className?: string;
@@ -23,9 +27,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
   const [isPaused, setIsPaused] = useState(false);
 
   const parsed: ParsedTransactionError | null = error
-    ? typeof error === "string"
-      ? parseTransactionError(error)
-      : error
+    ? parseTransactionError(error)
     : null;
 
   // Auto-dismiss cancellations after 4 seconds when in toast mode (pauses on hover)

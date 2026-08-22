@@ -36,12 +36,18 @@ impl TicketRegistry {
     /// Current schema version of the TicketRegistry account.
     pub const CURRENT_VERSION: u8 = 1;
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
+    /// Read-only version check to guard against unsupported account versions.
+    pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
             PremiumBondsError::UnsupportedAccountVersion
         );
+        Ok(())
+    }
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;

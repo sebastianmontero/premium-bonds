@@ -13,7 +13,7 @@ import {
   PayoutRegistryInfo,
 } from "../lib/bonds-sdk";
 import { formatDrawCycleSummary } from "../lib/draw-helpers";
-import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import type { DrawCycleSummary, DrawHistoryStats } from "../types";
 
 const base64Encoder = getBase64Encoder();
@@ -59,7 +59,6 @@ export function useDrawExplorer(
   const fetchIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
   const lastPoolIdRef = useRef(poolId);
-  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
   useEffect(() => {
     if (poolTotalPrizesDistributed !== undefined) {
@@ -235,31 +234,11 @@ export function useDrawExplorer(
     fetchDraws();
   }, [fetchDraws]);
 
-  // Listen for custom protocol balance/reinvestment events with 150ms debounce
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleSync = () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        fetchDraws();
-      }, 150);
-    };
-
-    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-    window.addEventListener("focus", handleSync);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-      window.removeEventListener("focus", handleSync);
-    };
-  }, [fetchDraws]);
+  // Listen for custom protocol draw events with scoped filtering
+  useProtocolSyncSubscription(fetchDraws, {
+    scopes: ["all", "draws"],
+    debounceMs: 150,
+  });
 
   return {
     drawSummaries,

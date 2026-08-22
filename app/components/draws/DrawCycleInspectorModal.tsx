@@ -24,6 +24,8 @@ interface DrawCycleInspectorModalProps {
   bondPrice?: number;
   payoutTimelockSeconds?: number;
   userAddress?: string;
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onCrankWinner?: (
     cycleId: number,
     winnerIndex: number,
@@ -42,6 +44,8 @@ export function DrawCycleInspectorModal({
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   userAddress,
+  pool,
+  isFrozenForDraw,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
@@ -274,6 +278,8 @@ export function DrawCycleInspectorModal({
                     bondPrice={bondPrice}
                     revealedAt={details.revealedAt}
                     payoutTimelockSeconds={payoutTimelockSeconds}
+                    pool={pool}
+                    isFrozenForDraw={isFrozenForDraw}
                     onCrankWinner={
                       onCrankWinner
                         ? async (wIdx, wAddr) => {

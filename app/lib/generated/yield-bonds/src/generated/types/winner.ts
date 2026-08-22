@@ -45,7 +45,9 @@ export type Winner = {
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size). */
+  /** Explicit padding to ensure 8-byte alignment for reserved space (1 byte: offset 47..48). */
+  padding: ReadonlyUint8Array;
+  /** Reserved space for future upgrades (8 bytes: offset 48..56, 56 bytes struct size total). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -62,7 +64,9 @@ export type WinnerArgs = {
   tierIndex: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size). */
+  /** Explicit padding to ensure 8-byte alignment for reserved space (1 byte: offset 47..48). */
+  padding: ReadonlyUint8Array;
+  /** Reserved space for future upgrades (8 bytes: offset 48..56, 56 bytes struct size total). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -74,7 +78,8 @@ export function getWinnerEncoder(): FixedSizeEncoder<WinnerArgs> {
     ["processed", getU8Encoder()],
     ["tierIndex", getU8Encoder()],
     ["version", getU8Encoder()],
-    ["reserved", fixEncoderSize(getBytesEncoder(), 9)],
+    ["padding", fixEncoderSize(getBytesEncoder(), 1)],
+    ["reserved", fixEncoderSize(getBytesEncoder(), 8)],
   ]);
 }
 
@@ -86,7 +91,8 @@ export function getWinnerDecoder(): FixedSizeDecoder<Winner> {
     ["processed", getU8Decoder()],
     ["tierIndex", getU8Decoder()],
     ["version", getU8Decoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 9)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 1)],
+    ["reserved", fixDecoderSize(getBytesDecoder(), 8)],
   ]);
 }
 

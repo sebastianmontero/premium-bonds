@@ -66,6 +66,7 @@ pub struct RevealAndPickWinners<'info> {
     pub pool: AccountLoader<'info, PrizePool>,
 
     /// The ticket registry account loader holding all the user entries.
+    #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
     /// CHECK: This is the raw Switchboard On-Demand randomness account. It is unchecked because it belongs to the Switchboard program. We validate it by checking that its owner matches the Switchboard On-Demand program ID and its address matches `current_draw_cycle.randomness_account`. Additionally, in the instruction handler, the account data is parsed and validated using `RandomnessAccountData::parse` to extract the randomness value.
@@ -130,8 +131,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     // Enforce that all user entries have been prepared.
     let user_count = {
-        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
-        registry.ensure_current_version()?;
+        let registry = ctx.accounts.ticket_registry.load()?;
+        registry.check_version()?;
         require!(
             registry.draw_prepared_up_to == registry.user_count,
             PremiumBondsError::InvalidDrawStatus

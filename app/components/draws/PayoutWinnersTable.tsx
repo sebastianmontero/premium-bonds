@@ -10,6 +10,7 @@ import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -23,6 +24,8 @@ interface PayoutWinnersTableProps {
   bondPrice?: number;
   revealedAt?: number;
   payoutTimelockSeconds?: number;
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onCrankWinner?: (winnerIndex: number, winnerAddress: string) => void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -36,6 +39,8 @@ export function PayoutWinnersTable({
   bondPrice = 5_000_000,
   revealedAt,
   payoutTimelockSeconds = 300,
+  pool,
+  isFrozenForDraw,
   onCrankWinner,
   crankingCycles = {},
 }: PayoutWinnersTableProps) {
@@ -43,6 +48,9 @@ export function PayoutWinnersTable({
   const [tierFilter, setTierFilter] = useState("all");
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
+
+  const effectivePool =
+    pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
   const timelockState = usePayoutTimelock(revealedAt, payoutTimelockSeconds);
 
@@ -361,6 +369,26 @@ export function PayoutWinnersTable({
                         >
                           <span>🔒</span> {timelockState.formattedRemaining}
                         </button>
+                      ) : effectivePool?.isFrozenForDraw ? (
+                        <InteractiveTooltip
+                          ariaLabel={tLedger("frozenCrankTooltip")}
+                          align="right"
+                          side="top"
+                          triggerClassName="inline-flex"
+                          panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                          content={
+                            <p className="text-xs leading-relaxed text-amber-200">
+                              {tLedger("frozenCrankTooltip")}
+                            </p>
+                          }
+                        >
+                          <span
+                            aria-disabled="true"
+                            className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1"
+                          >
+                            <span>❄️</span> {tLedger("claimingPaused")}
+                          </span>
+                        </InteractiveTooltip>
                       ) : onCrankWinner ? (
                         <button
                           onClick={() =>

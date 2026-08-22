@@ -6,7 +6,10 @@ import {
   tierBadgeClass,
   formatLocalDate,
 } from "@/app/lib/formatters";
-import { getPayoutTimelockState } from "@/app/lib/draw-helpers";
+import {
+  getPayoutTimelockState,
+  getClaimWinningsCapability,
+} from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
@@ -25,6 +28,8 @@ interface PrizeHistoryLedgerProps {
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
   unclaimedTotal?: number;
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onClaim?: () => void;
   onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails?: (entry: PrizeHistoryEntry) => void;
@@ -41,6 +46,8 @@ export function PrizeHistoryLedger({
   ticketPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   unclaimedTotal = 0,
+  pool,
+  isFrozenForDraw,
   onClaim,
   onSimulateCrank,
   onViewDetails,
@@ -51,6 +58,13 @@ export function PrizeHistoryLedger({
   const t = useTranslations("Ledger");
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
+
+  const effectivePool =
+    pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
+  const claimCapability = getClaimWinningsCapability({
+    pool: effectivePool,
+    unclaimedAmount: unclaimedTotal,
+  });
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
 
@@ -97,13 +111,40 @@ export function PrizeHistoryLedger({
         </div>
         {unclaimedTotal > 0 && (
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onClaim}
-              className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
-            >
-              {t("claimAll")} (
-              {formatTokenAmount(unclaimedTotal, tokenDecimals)} {tokenSymbol})
-            </button>
+            {claimCapability.canExecute ? (
+              <button
+                onClick={onClaim}
+                className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
+              >
+                {t("claimAll")} (
+                {formatTokenAmount(unclaimedTotal, tokenDecimals)} {tokenSymbol}
+                )
+              </button>
+            ) : (
+              claimCapability.disabledReason === "frozen_for_draw" && (
+                <InteractiveTooltip
+                  ariaLabel={t("frozenTooltip")}
+                  align="right"
+                  side="bottom"
+                  triggerClassName="inline-flex"
+                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                  content={
+                    <p className="text-xs leading-relaxed text-amber-200">
+                      {t("frozenTooltip")}
+                    </p>
+                  }
+                >
+                  <span
+                    aria-disabled="true"
+                    className="rounded-xl px-5 py-2.5 text-sm font-semibold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 inline-flex items-center justify-center"
+                  >
+                    {t(claimCapability.buttonLabelKey)} (
+                    {formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
+                    {tokenSymbol})
+                  </span>
+                </InteractiveTooltip>
+              )
+            )}
             <InteractiveTooltip
               ariaLabel={t("claimTooltipTrigger")}
               align="right"
@@ -387,6 +428,26 @@ export function PrizeHistoryLedger({
                         >
                           <span>🔒</span> {entryTimelock.formattedRemaining}
                         </button>
+                      ) : effectivePool?.isFrozenForDraw ? (
+                        <InteractiveTooltip
+                          ariaLabel={t("frozenCrankTooltip")}
+                          align="right"
+                          side="top"
+                          triggerClassName="inline-flex"
+                          panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                          content={
+                            <p className="text-xs leading-relaxed text-amber-200">
+                              {t("frozenCrankTooltip")}
+                            </p>
+                          }
+                        >
+                          <span
+                            aria-disabled="true"
+                            className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                          >
+                            <span>⏸️</span> {t("frozenDrawStatus")}
+                          </span>
+                        </InteractiveTooltip>
                       ) : (
                         entry.status === "processing" &&
                         onSimulateCrank && (
@@ -623,6 +684,26 @@ export function PrizeHistoryLedger({
                             >
                               <span>🔒</span> {entryTimelock.formattedRemaining}
                             </button>
+                          ) : effectivePool?.isFrozenForDraw ? (
+                            <InteractiveTooltip
+                              ariaLabel={t("frozenCrankTooltip")}
+                              align="right"
+                              side="top"
+                              triggerClassName="inline-flex"
+                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                              content={
+                                <p className="text-xs leading-relaxed text-amber-200">
+                                  {t("frozenCrankTooltip")}
+                                </p>
+                              }
+                            >
+                              <span
+                                aria-disabled="true"
+                                className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                              >
+                                <span>⏸️</span> {t("frozenDrawStatus")}
+                              </span>
+                            </InteractiveTooltip>
                           ) : (
                             hasCrankAction && (
                               <button

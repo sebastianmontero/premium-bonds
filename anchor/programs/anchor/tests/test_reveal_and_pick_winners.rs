@@ -497,6 +497,29 @@ fn test_reveal_fails_invalid_draw_status() {
 }
 
 #[test]
+fn test_reveal_fails_unsupported_ticket_registry_version() {
+    let mut ctx = setup_reveal(
+        anchor::PoolStatus::Active,
+        true,
+        vec![anchor::PrizeTier {
+            basis_points: 10000,
+            num_winners: 1,
+            _padding: [0, 0],
+        }],
+        5,
+        1_000_000,
+        5,
+    );
+    // Mutate registry account to have unsupported future version
+    let mut reg_acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acc.data[36] = anchor::state::TicketRegistry::CURRENT_VERSION + 1;
+    ctx.svm.set_account(ctx.ticket_registry, reg_acc).unwrap();
+
+    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
+    assert!(err.contains("UnsupportedAccountVersion"), "got: {err}");
+}
+
+#[test]
 fn test_reveal_fails_prize_tiers_not_configured() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,

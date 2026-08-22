@@ -209,7 +209,8 @@ export function serializeTicketRegistry(
     drawCycleId: options.drawCycleId ?? 0,
     drawPreparedUpTo: options.drawPreparedUpTo ?? 0,
     version: options.version ?? USER_ENTRY_VERSION,
-    reserved: new Uint8Array(67),
+    padding: new Uint8Array(3),
+    reserved: new Uint8Array(64),
   };
 
   const headerBytes = getTicketRegistryEncoder().encode(headerArgs);

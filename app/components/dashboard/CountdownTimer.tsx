@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
 import { useOnChainClock } from "@/app/hooks/useOnChainClock";
 import { formatLocalDate } from "@/app/lib/formatters";
+import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
@@ -46,6 +47,7 @@ export function CountdownTimer({
   const format = useFormatter();
   const [isMounted, setIsMounted] = useState(false);
   const { clockOffset } = useOnChainClock({ resyncIntervalMs });
+  const prevTotalRef = useRef<number>(999999);
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -65,16 +67,25 @@ export function CountdownTimer({
 
   useEffect(() => {
     let active = true;
+    const updateTime = () => {
+      const calculated = calcTimeLeft(targetTimestamp, clockOffset);
+      if (prevTotalRef.current > 0 && calculated.total <= 0) {
+        notifyProtocolUpdate("clock", { reason: "countdown_reached_zero" });
+      }
+      prevTotalRef.current = calculated.total;
+      setTimeLeft(calculated);
+    };
+
     const frame = requestAnimationFrame(() => {
       if (active) {
         setIsMounted(true);
-        setTimeLeft(calcTimeLeft(targetTimestamp, clockOffset));
+        updateTime();
       }
     });
 
     const id = setInterval(() => {
       if (active) {
-        setTimeLeft(calcTimeLeft(targetTimestamp, clockOffset));
+        updateTime();
       }
     }, 1000);
 

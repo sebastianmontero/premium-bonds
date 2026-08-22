@@ -12,6 +12,8 @@ import {
   DRAW_STATUS_TRANSLATION_KEYS,
   getDrawStatusTranslationKey,
   getPayoutTimelockState,
+  getClaimWinningsCapability,
+  getCrankActionCapability,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -593,6 +595,93 @@ async function runTests() {
   assert.strictEqual(pastTimelock.remainingSeconds, 0);
   assert.strictEqual(pastTimelock.formattedRemaining, "00:00");
   assert.strictEqual(pastTimelock.progressPercent, 100);
+
+  // 12. Test getClaimWinningsCapability
+  console.log("  Testing getClaimWinningsCapability...");
+  // 12a. Claiming in progress
+  const capClaiming = getClaimWinningsCapability({
+    pool: { isFrozenForDraw: false },
+    unclaimedAmount: 10_000_000,
+    isClaiming: true,
+  });
+  assert.strictEqual(capClaiming.canExecute, false);
+  assert.strictEqual(capClaiming.disabledReason, "in_progress");
+  assert.strictEqual(capClaiming.buttonLabelKey, "claiming");
+
+  // 12b. Frozen for draw
+  const capFrozen = getClaimWinningsCapability({
+    pool: { isFrozenForDraw: true },
+    unclaimedAmount: 10_000_000,
+    isClaiming: false,
+  });
+  assert.strictEqual(capFrozen.canExecute, false);
+  assert.strictEqual(capFrozen.disabledReason, "frozen_for_draw");
+  assert.strictEqual(capFrozen.buttonLabelKey, "claimingPaused");
+  assert.strictEqual(capFrozen.statusBadgeKey, "frozenNotice");
+  assert.strictEqual(capFrozen.tooltipKey, "frozenTooltip");
+
+  // 12c. Zero amount
+  const capZero = getClaimWinningsCapability({
+    pool: { isFrozenForDraw: false },
+    unclaimedAmount: 0,
+    isClaiming: false,
+  });
+  assert.strictEqual(capZero.canExecute, false);
+  assert.strictEqual(capZero.disabledReason, "zero_amount");
+  assert.strictEqual(capZero.buttonLabelKey, "claimNow");
+
+  // 12d. Normal executable claim
+  const capReady = getClaimWinningsCapability({
+    pool: { isFrozenForDraw: false },
+    unclaimedAmount: 5_000_000,
+    isClaiming: false,
+  });
+  assert.strictEqual(capReady.canExecute, true);
+  assert.strictEqual(capReady.disabledReason, undefined);
+  assert.strictEqual(capReady.buttonLabelKey, "claimNow");
+
+  // 13. Test getCrankActionCapability
+  console.log("  Testing getCrankActionCapability...");
+  // 13a. Cranking in progress
+  const crankInProgress = getCrankActionCapability({
+    pool: { isFrozenForDraw: false },
+    isTimelocked: false,
+    isCranking: true,
+  });
+  assert.strictEqual(crankInProgress.canExecute, false);
+  assert.strictEqual(crankInProgress.disabledReason, "in_progress");
+  assert.strictEqual(crankInProgress.buttonLabelKey, "processing");
+
+  // 13b. Frozen for draw
+  const crankFrozen = getCrankActionCapability({
+    pool: { isFrozenForDraw: true },
+    isTimelocked: false,
+    isCranking: false,
+  });
+  assert.strictEqual(crankFrozen.canExecute, false);
+  assert.strictEqual(crankFrozen.disabledReason, "frozen_for_draw");
+  assert.strictEqual(crankFrozen.buttonLabelKey, "claimingPaused");
+  assert.strictEqual(crankFrozen.tooltipKey, "frozenCrankTooltip");
+
+  // 13c. Timelocked
+  const crankTimelocked = getCrankActionCapability({
+    pool: { isFrozenForDraw: false },
+    isTimelocked: true,
+    isCranking: false,
+  });
+  assert.strictEqual(crankTimelocked.canExecute, false);
+  assert.strictEqual(crankTimelocked.disabledReason, "timelocked");
+  assert.strictEqual(crankTimelocked.buttonLabelKey, "reinvest");
+
+  // 13d. Ready to crank
+  const crankReady = getCrankActionCapability({
+    pool: { isFrozenForDraw: false },
+    isTimelocked: false,
+    isCranking: false,
+  });
+  assert.strictEqual(crankReady.canExecute, true);
+  assert.strictEqual(crankReady.disabledReason, undefined);
+  assert.strictEqual(crankReady.buttonLabelKey, "reinvest");
 
   console.log("✅ All Draw Helpers & SDK Unit Tests Passed Successfully!");
 }

@@ -50,6 +50,7 @@ import {
   ANCHOR_ERROR__YIELD_VENUE_INSOLVENT,
   ANCHOR_ERROR__UNAUTHORIZED,
   ANCHOR_ERROR__WINNER_MISMATCH,
+  ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorCategory =
@@ -59,6 +60,7 @@ export type ErrorCategory =
   | "anchor_custom"
   | "anchor_constraint"
   | "blockhash_expired"
+  | "duplicate_transaction"
   | "network_rpc"
   | "unknown";
 
@@ -131,9 +133,9 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: {
     name: "AwaitingRandomnessFreeze",
     message:
-      "Withdrawals and deposits are momentarily paused during draw snapshotting.",
+      "Transactions, prize claims, and withdrawals are momentarily paused during draw snapshotting.",
     actionable:
-      "Please try your request again in a few seconds after the draw snapshot resolves.",
+      "Please try your request again in a few moments after the draw snapshot resolves.",
   },
   [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: {
     name: "UnauthorizedTicket",
@@ -339,6 +341,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     actionable:
       "Ensure you are targeting the correct winner address when executing payout or reinvestment cranks.",
   },
+  [ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: {
+    name: "UnsupportedAccountVersion",
+    message: "Account schema version is invalid or unsupported.",
+    actionable:
+      "Please refresh your client or upgrade your dApp interface to match the current smart contract schema.",
+  },
 };
 
 /**
@@ -432,91 +440,112 @@ export const ANCHOR_FRAMEWORK_ERRORS: Record<
     message: "Account is header constraint check failed.",
   },
 
-  // Require & Account Errors (3000-3020)
-  3000: {
+  // Require Errors (2500-2506)
+  2500: {
     name: "RequireViolated",
     message: "Require constraint check failed.",
   },
-  3001: {
+  2501: {
     name: "RequireEqViolated",
     message: "Require eq constraint check failed.",
   },
-  3002: {
+  2502: {
     name: "RequireKeysEqViolated",
     message: "Require keys eq constraint check failed.",
   },
-  3003: {
+  2503: {
     name: "RequireNeqViolated",
     message: "Require neq constraint check failed.",
   },
-  3004: {
+  2504: {
+    name: "RequireKeysNeqViolated",
+    message: "Require keys neq constraint check failed.",
+  },
+  2505: {
     name: "RequireGtViolated",
     message: "Require gt constraint check failed.",
   },
-  3005: {
+  2506: {
     name: "RequireGteViolated",
-    message: "Require gte constraint check failed (0xbbd).",
+    message: "Require gte constraint check failed.",
   },
-  3006: {
-    name: "RequireLtViolated",
-    message: "Require lt constraint check failed.",
-  },
-  3007: {
-    name: "RequireLteViolated",
-    message: "Require lte constraint check failed.",
-  },
-  3008: {
+
+  // Account Errors (3000-3017)
+  3000: {
     name: "AccountDiscriminatorAlreadySet",
     message: "Account discriminator already set.",
   },
-  3009: {
+  3001: {
     name: "AccountDiscriminatorNotFound",
     message: "Account discriminator not found.",
   },
-  3010: {
+  3002: {
     name: "AccountDiscriminatorMismatch",
     message: "Account discriminator mismatch.",
   },
-  3011: {
+  3003: {
     name: "AccountDidNotDeserialize",
     message: "Account deserialization failed.",
   },
-  3012: {
+  3004: {
     name: "AccountDidNotSerialize",
     message: "Account serialization failed.",
   },
-  3013: {
+  3005: {
     name: "AccountNotEnoughKeys",
-    message: "Not enough account keys provided for instruction (0xbc5).",
+    message: "Not enough account keys provided for instruction.",
     actionable:
       "Ensure all required instruction accounts (including event_authority and program ID) are provided.",
   },
-  3014: {
+  3006: {
     name: "AccountNotMutable",
     message: "Account is required to be mutable.",
   },
-  3015: {
+  3007: {
     name: "AccountOwnedByWrongProgram",
     message: "Account owned by wrong program.",
   },
-  3016: { name: "InvalidProgramId", message: "Invalid program ID provided." },
-  3017: {
+  3008: {
+    name: "InvalidProgramId",
+    message: "Invalid program ID provided.",
+  },
+  3009: {
     name: "InvalidProgramExecutable",
     message: "Invalid program executable provided.",
   },
-  3018: {
+  3010: {
     name: "AccountNotSigner",
     message: "Account is required to sign transaction.",
   },
-  3019: {
+  3011: {
     name: "AccountNotSystemOwned",
     message: "Account is not system owned.",
   },
-  3020: {
+  3012: {
     name: "AccountNotInitialized",
     message: "Required program account is not initialized.",
     actionable:
       "Ensure the account has been initialized before invoking this instruction.",
+  },
+  3013: {
+    name: "AccountNotProgramData",
+    message: "Account is not a program data account.",
+  },
+  3014: {
+    name: "AccountNotAssociatedTokenAccount",
+    message: "Account is not an associated token account.",
+  },
+  3015: {
+    name: "AccountSysvarMismatch",
+    message: "Account sysvar mismatch.",
+  },
+  3016: {
+    name: "AccountReallocExceedsLimit",
+    message: "Account realloc exceeds 10KB limit per instruction.",
+  },
+  3017: {
+    name: "AccountDuplicateReallocs",
+    message: "Account duplicate reallocs detected.",
   },
 };
 
@@ -819,7 +848,46 @@ function isGenericBoilerplate(msg: string): boolean {
   );
 }
 
+export function isParsedTransactionError(
+  err: unknown
+): err is ParsedTransactionError {
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as Record<string, unknown>;
+  return (
+    typeof candidate.isCancellation === "boolean" &&
+    typeof candidate.layer === "string" &&
+    typeof candidate.category === "string" &&
+    typeof candidate.title === "string" &&
+    typeof candidate.message === "string"
+  );
+}
+
+/**
+ * Custom Error subclass wrapping structured transaction error details.
+ * Preserves Error prototype, stack traces, and cause chaining.
+ */
+export class TransactionError extends Error {
+  public readonly parsed: ParsedTransactionError;
+  public readonly rawError?: unknown;
+
+  constructor(parsed: ParsedTransactionError, rawError?: unknown) {
+    super(parsed.message || parsed.title || "Transaction execution failed.", {
+      cause: rawError,
+    });
+    this.name = "TransactionError";
+    this.parsed = parsed;
+    this.rawError = rawError;
+    Object.setPrototypeOf(this, TransactionError.prototype);
+  }
+}
+
 export function parseTransactionError(err: unknown): ParsedTransactionError {
+  if (err instanceof TransactionError) {
+    return err.parsed;
+  }
+  if (isParsedTransactionError(err)) {
+    return err;
+  }
   if (!err) {
     return {
       isCancellation: false,
@@ -957,7 +1025,31 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
     };
   }
 
-  // 6. Fallback for general errors (using sanitizeErrorMessage)
+  // 6. Duplicate Transaction / Solana RPC -32002 / SDK Preflight TypeError
+  const isDuplicateTx =
+    /already been processed|alreadyprocessed|this transaction has already been processed|cannot destructure property 'err' of 'data'/i.test(
+      combinedSearchText
+    ) ||
+    errorObj?.code === -32002 ||
+    errorObj?.cause?.code === -32002;
+
+  if (isDuplicateTx) {
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "duplicate_transaction",
+      title: "Transaction Already Processed",
+      message:
+        "This transaction was already submitted and processed by the network.",
+      code: -32002,
+      actionableStep:
+        "If retrying, create a fresh transaction with a new blockhash.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 7. Fallback for general errors (using sanitizeErrorMessage)
   let displayMsg = innerPlanErr || rawMsg;
   if (isGenericBoilerplate(displayMsg)) {
     if (

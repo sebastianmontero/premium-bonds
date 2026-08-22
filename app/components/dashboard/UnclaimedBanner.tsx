@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
+import { getClaimWinningsCapability } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
 interface UnclaimedBannerProps {
@@ -10,6 +11,8 @@ interface UnclaimedBannerProps {
   tokenSymbol: string;
   tokenDecimals: number;
   bondPrice: number; // base units
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onClaim: () => void;
 }
 
@@ -18,10 +21,19 @@ export function UnclaimedBanner({
   tokenSymbol,
   tokenDecimals,
   bondPrice,
+  pool,
+  isFrozenForDraw,
   onClaim,
 }: UnclaimedBannerProps) {
   const [dismissed, setDismissed] = useState(false);
   const t = useTranslations("Unclaimed");
+
+  const effectivePool =
+    pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
+  const capability = getClaimWinningsCapability({
+    pool: effectivePool,
+    unclaimedAmount: totalUnclaimed,
+  });
 
   if (dismissed || totalUnclaimed <= 0) return null;
 
@@ -37,7 +49,7 @@ export function UnclaimedBanner({
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-amber-400/15 blur-[60px]" />
       </div>
 
-      <div className="relative flex items-center justify-between gap-4">
+      <div className="relative flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
         <div className="flex items-center gap-4">
           {/* Trophy icon */}
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20">
@@ -61,7 +73,23 @@ export function UnclaimedBanner({
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-amber-200">{t("title")}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-amber-200">
+                {t("title")}
+              </p>
+              {!capability.canExecute &&
+                capability.disabledReason === "frozen_for_draw" && (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 animate-yield-pulse"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
+                    {t("frozenNotice")}
+                  </span>
+                )}
+            </div>
+
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-amber-200/70">
               <span className="font-mono font-semibold text-amber-300">
                 {formatTokenAmount(totalUnclaimed, tokenDecimals)} {tokenSymbol}
@@ -109,13 +137,35 @@ export function UnclaimedBanner({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onClaim}
-            className="shrink-0 rounded-xl bg-amber-500/90 px-5 py-2 text-sm font-semibold text-black transition hover:bg-amber-400 cursor-pointer"
-          >
-            {t("claimNow")}
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {capability.canExecute ? (
+            <button
+              onClick={onClaim}
+              className="shrink-0 rounded-xl bg-amber-500/90 px-5 py-2 text-sm font-semibold text-black transition hover:bg-amber-400 cursor-pointer"
+            >
+              {t("claimNow")}
+            </button>
+          ) : (
+            <InteractiveTooltip
+              ariaLabel={t("frozenTooltip")}
+              align="right"
+              side="top"
+              triggerClassName="inline-flex"
+              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+              content={
+                <p className="text-xs leading-relaxed text-amber-200">
+                  {t("frozenTooltip")}
+                </p>
+              }
+            >
+              <span
+                aria-disabled="true"
+                className="shrink-0 rounded-xl bg-amber-500/30 px-5 py-2 text-sm font-semibold text-amber-200/60 cursor-not-allowed opacity-75 border border-amber-500/20 transition inline-flex items-center justify-center"
+              >
+                {t(capability.buttonLabelKey)}
+              </span>
+            </InteractiveTooltip>
+          )}
           <button
             onClick={() => setDismissed(true)}
             className="shrink-0 rounded-lg p-1.5 text-amber-300/60 transition hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer"

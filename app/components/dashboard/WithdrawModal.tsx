@@ -84,7 +84,10 @@ export function WithdrawModal({
       if (parsed.isCancellation) {
         console.warn("Withdraw transaction cancelled by user.");
       } else {
-        console.error("Withdraw transaction failed:", err);
+        console.error(
+          `Withdraw transaction failed: ${parsed.message || parsed.title}`,
+          err
+        );
       }
       setParsedError(parsed);
       setStage(null);

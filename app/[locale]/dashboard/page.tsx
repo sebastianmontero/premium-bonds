@@ -8,6 +8,7 @@ import {
   parseTransactionError,
   ParsedTransactionError,
 } from "@/app/lib/errors";
+import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
 import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
@@ -246,7 +247,18 @@ export default function DashboardPage() {
     if (parsed.isCancellation) {
       console.warn(`${actionName} cancelled by user.`);
     } else {
-      console.error(`${actionName} failed:`, err);
+      console.error(
+        `${actionName} failed: ${parsed.message || parsed.title}`,
+        err
+      );
+    }
+    // Auto-sync if error is caused by draw freeze constraint (code 6007 / AwaitingRandomnessFreeze)
+    if (
+      parsed.code === 6007 ||
+      parsed.message?.includes("AwaitingRandomnessFreeze") ||
+      parsed.message?.includes("0x1777")
+    ) {
+      notifyProtocolUpdate("pool", { reason: "freeze_error_recovery" });
     }
     setTxError(parsed);
     if (retryAction) {
@@ -398,6 +410,7 @@ export default function DashboardPage() {
           tokenSymbol={activePool.tokenSymbol}
           tokenDecimals={activePool.tokenDecimals}
           bondPrice={activePool.bondPrice}
+          pool={activePool}
           onClaim={handleClaimNonReinvestedWinnings}
         />
       )}
@@ -503,6 +516,7 @@ export default function DashboardPage() {
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         unclaimedTotal={activeUnclaimedWinnings}
+        pool={activePool}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) =>
@@ -567,6 +581,7 @@ export default function DashboardPage() {
         tokenSymbol={activePool.tokenSymbol}
         ticketPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
+        pool={activePool}
         onSimulateCrank={handleSimulateCrank}
         crankingCycles={crankingCycles}
       />
@@ -579,6 +594,7 @@ export default function DashboardPage() {
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
+        pool={activePool}
         onSimulateCrank={handleSimulateCrank}
         onViewDetails={(entry) =>
           setSelectedPrizeKey({

@@ -67,7 +67,9 @@ export type TicketRegistry = {
   drawPreparedUpTo: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (96 bytes struct size total). */
+  /** Explicit padding to ensure 8-byte alignment for reserved space (3 bytes: 29..32). */
+  padding: ReadonlyUint8Array;
+  /** Reserved space for future upgrades (64 bytes: 32..96, 96 bytes struct size total). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -88,7 +90,9 @@ export type TicketRegistryArgs = {
   drawPreparedUpTo: number;
   /** Schema version of the struct. */
   version: number;
-  /** Reserved space for future upgrades (96 bytes struct size total). */
+  /** Explicit padding to ensure 8-byte alignment for reserved space (3 bytes: 29..32). */
+  padding: ReadonlyUint8Array;
+  /** Reserved space for future upgrades (64 bytes: 32..96, 96 bytes struct size total). */
   reserved: ReadonlyUint8Array;
 };
 
@@ -105,7 +109,8 @@ export function getTicketRegistryEncoder(): FixedSizeEncoder<TicketRegistryArgs>
       ["drawCycleId", getU32Encoder()],
       ["drawPreparedUpTo", getU32Encoder()],
       ["version", getU8Encoder()],
-      ["reserved", fixEncoderSize(getBytesEncoder(), 67)],
+      ["padding", fixEncoderSize(getBytesEncoder(), 3)],
+      ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({ ...value, discriminator: TICKET_REGISTRY_DISCRIMINATOR })
   );
@@ -123,7 +128,8 @@ export function getTicketRegistryDecoder(): FixedSizeDecoder<TicketRegistry> {
     ["drawCycleId", getU32Decoder()],
     ["drawPreparedUpTo", getU32Decoder()],
     ["version", getU8Decoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 67)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 3)],
+    ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
 

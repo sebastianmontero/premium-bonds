@@ -81,6 +81,12 @@ import {
   DEFAULT_PRIZE_TIERS,
 } from "../app/lib/bonds-sdk";
 
+// Switchboard On-Demand binary account layout constants
+const SB_RANDOMNESS_ACCOUNT_SIZE = 408;
+const SB_REQUEST_SLOT_OFFSET = 104;
+const SB_REVEAL_SLOT_OFFSET = 144;
+const SB_SEED_OFFSET = 152;
+
 // ─── Help / Usage & Command Registry ─────────────────────────────────────────
 
 export interface CommandOption {
@@ -1166,45 +1172,31 @@ export async function executeReveal({
     const currentSlot = await rpc.getSlot().send();
     console.log(`Current slot: ${currentSlot}`);
 
-    const buffer = new Uint8Array(408);
+    const buffer = new Uint8Array(SB_RANDOMNESS_ACCOUNT_SIZE);
     const view = new DataView(buffer.buffer);
     const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
     buffer.set(discriminator, 0);
-    buffer.set(new Uint8Array(seed), 152);
+    buffer.set(new Uint8Array(seed), SB_SEED_OFFSET);
 
     const sbProgramId =
       process.env.SB_ENV === "devnet"
         ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
         : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
 
-    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-    const message = setTransactionMessageLifetimeUsingBlockhash(
-      latestBlockhash,
-      setTransactionMessageFeePayerSigner(
-        signer,
-        appendTransactionMessageInstruction(
-          ix,
-          createTransactionMessage({ version: 0 })
-        )
-      )
-    );
-    const signedTx = await signTransactionMessageWithSigners(message);
-    const wireTx = getBase64EncodedWireTransaction(signedTx);
-
     const offsets = [1n, 2n, 0n, 3n];
     let confirmed = false;
     let lastError: unknown = null;
 
-    const baseSlot =
-      currentSlot >= drawCycleState.harvestSlot
-        ? currentSlot
-        : drawCycleState.harvestSlot;
-
     for (const offset of offsets) {
+      const currentSlot = await rpc.getSlot().send();
+      const baseSlot =
+        currentSlot >= drawCycleState.harvestSlot
+          ? currentSlot
+          : drawCycleState.harvestSlot;
       const targetSlot = baseSlot + offset;
 
-      view.setBigUint64(104, baseSlot, true);
-      view.setBigUint64(144, targetSlot, true);
+      view.setBigUint64(SB_REQUEST_SLOT_OFFSET, baseSlot, true);
+      view.setBigUint64(SB_REVEAL_SLOT_OFFSET, targetSlot, true);
 
       const dataHex = Buffer.from(buffer).toString("hex");
 
@@ -1217,52 +1209,18 @@ export async function executeReveal({
         false
       );
 
+      console.log(
+        `Mock randomness account injected (seed_slot: ${baseSlot}, reveal_slot: ${targetSlot}). Submitting reveal transaction...`
+      );
+
       try {
-        const signature = await rpc
-          .sendTransaction(wireTx, {
-            encoding: "base64",
-            skipPreflight: true,
-          })
-          .send();
-
-        console.log(
-          `Transaction sent: ${signature}. Checking confirmation status...`
-        );
-
-        let txSuccess = false;
-        for (let i = 0; i < 15; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          const status = await rpc.getSignatureStatuses([signature]).send();
-          if (status && status.value && status.value[0]) {
-            const err = status.value[0].err;
-            if (err) {
-              const errDetails = safeStringify(err);
-              const matched = matchAnchorError(errDetails);
-              const msg = matched
-                ? `Transaction failed: AnchorError ${matched.code} (${matched.info.name}): ${matched.info.message}`
-                : `Transaction failed: ${errDetails}`;
-              const txError = new Error(msg);
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (txError as any).signature = signature;
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (txError as any).rawError = err;
-              throw txError;
-            }
-            txSuccess = true;
-            break;
-          }
-        }
-
-        if (txSuccess) {
-          console.log("Transaction confirmed successfully!");
-          confirmed = true;
-          break;
-        }
+        await sendTx(rpc, ix, signer);
+        confirmed = true;
+        break;
       } catch (err: unknown) {
         lastError = err;
-        const logs = extractAllLogs(err).join(" ");
         const parsed = parseTransactionError(err);
-        const errStr = `${String(err)} ${safeStringify(err)} ${logs}`;
+        const errStr = `${String(err)} ${safeStringify(err)} ${parsed.message}`;
         if (
           parsed.code === 6030 ||
           parsed.code === 6031 ||
@@ -1273,6 +1231,10 @@ export async function executeReveal({
           errStr.includes("0x178e") ||
           errStr.includes("0x178f")
         ) {
+          console.log(
+            `Randomness resolution retry needed (attempt offset +${offset} resulted in ${parsed.title}). Retrying next slot offset...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, 300));
           continue;
         }
         throw err;

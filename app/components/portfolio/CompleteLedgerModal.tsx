@@ -18,6 +18,7 @@ import { useTranslations, useFormatter } from "next-intl";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
+import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 
 interface CompleteLedgerModalProps {
   entries: PrizeHistoryEntry[];
@@ -29,6 +30,8 @@ interface CompleteLedgerModalProps {
   /** @deprecated Use `bondPrice` */
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
+  pool?: { isFrozenForDraw?: boolean } | null;
+  isFrozenForDraw?: boolean;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
@@ -44,6 +47,8 @@ export default function CompleteLedgerModal({
   bondPrice,
   ticketPrice = 5_000_000,
   payoutTimelockSeconds = 300,
+  pool,
+  isFrozenForDraw,
   onSimulateCrank,
   onViewDetails,
   crankingCycles = {},
@@ -52,6 +57,9 @@ export default function CompleteLedgerModal({
   const t = useTranslations("Ledger");
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
+
+  const effectivePool =
+    pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
   // Stateful Filtering
@@ -625,6 +633,26 @@ export default function CompleteLedgerModal({
                             >
                               <span>🔒</span> {entryTimelock.formattedRemaining}
                             </button>
+                          ) : effectivePool?.isFrozenForDraw ? (
+                            <InteractiveTooltip
+                              ariaLabel={t("frozenCrankTooltip")}
+                              align="right"
+                              side="top"
+                              triggerClassName="inline-flex"
+                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                              content={
+                                <p className="text-xs leading-relaxed text-amber-200">
+                                  {t("frozenCrankTooltip")}
+                                </p>
+                              }
+                            >
+                              <span
+                                aria-disabled="true"
+                                className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                              >
+                                <span>⏸️</span> {t("frozenDrawStatus")}
+                              </span>
+                            </InteractiveTooltip>
                           ) : (
                             entry.status === "processing" && (
                               <button
@@ -876,6 +904,26 @@ export default function CompleteLedgerModal({
                                   <span>🔒</span>{" "}
                                   {entryTimelock.formattedRemaining}
                                 </button>
+                              ) : effectivePool?.isFrozenForDraw ? (
+                                <InteractiveTooltip
+                                  ariaLabel={t("frozenCrankTooltip")}
+                                  align="right"
+                                  side="top"
+                                  triggerClassName="inline-flex"
+                                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                                  content={
+                                    <p className="text-xs leading-relaxed text-amber-200">
+                                      {t("frozenCrankTooltip")}
+                                    </p>
+                                  }
+                                >
+                                  <span
+                                    aria-disabled="true"
+                                    className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                                  >
+                                    <span>⏸️</span> {t("frozenDrawStatus")}
+                                  </span>
+                                </InteractiveTooltip>
                               ) : (
                                 hasCrankAction && (
                                   <button

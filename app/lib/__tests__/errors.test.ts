@@ -1,4 +1,9 @@
-import { parseTransactionError, matchAnchorError } from "../errors";
+import {
+  parseTransactionError,
+  matchAnchorError,
+  isParsedTransactionError,
+  TransactionError,
+} from "../errors";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -9,7 +14,7 @@ function assert(condition: boolean, message: string) {
 function runTests() {
   console.log("Running app/lib/__tests__/errors.test.ts unit tests...\n");
 
-  // Test 1: Anchor Framework Error 0xbbd (3005 RequireGteViolated)
+  // Test 1: Anchor Framework Error 0xbbd (3005 AccountNotEnoughKeys)
   {
     console.log("Test 1: Framework Error 0xbbd parsing");
     const rawErr = new Error(
@@ -26,8 +31,8 @@ function runTests() {
     );
     assert(parsed.code === 3005, `Expected code 3005, got ${parsed.code}`);
     assert(
-      parsed.title === "Constraint Error: RequireGteViolated",
-      `Expected title Constraint Error: RequireGteViolated, got ${parsed.title}`
+      parsed.title === "Constraint Error: AccountNotEnoughKeys",
+      `Expected title Constraint Error: AccountNotEnoughKeys, got ${parsed.title}`
     );
     console.log("✓ Passed Test 1\n");
   }
@@ -86,8 +91,8 @@ function runTests() {
     );
     assert(parsed.code === 3005, `Expected code 3005, got ${parsed.code}`);
     assert(
-      parsed.title === "Constraint Error: RequireGteViolated",
-      `Expected title Constraint Error: RequireGteViolated, got ${parsed.title}`
+      parsed.title === "Constraint Error: AccountNotEnoughKeys",
+      `Expected title Constraint Error: AccountNotEnoughKeys, got ${parsed.title}`
     );
     console.log("✓ Passed Test 3\n");
   }
@@ -133,8 +138,8 @@ function runTests() {
     assert(matched !== null, "Should match code 3013");
     assert(matched?.code === 3013, `Expected code 3013, got ${matched?.code}`);
     assert(
-      matched?.info.name === "AccountNotEnoughKeys",
-      `Expected name AccountNotEnoughKeys, got ${matched?.info.name}`
+      matched?.info.name === "AccountNotProgramData",
+      `Expected name AccountNotProgramData, got ${matched?.info.name}`
     );
     console.log("✓ Passed Test 6\n");
   }
@@ -230,6 +235,84 @@ function runTests() {
       `Expected title Transaction Expired, got ${parsed.title}`
     );
     console.log("✓ Passed Test 11\n");
+  }
+
+  // Test 12: Duplicate transaction error string
+  {
+    console.log("Test 12: Duplicate transaction error string parsing");
+    const dupErr = new Error(
+      'Transaction verification failed for transaction Internal error: "Transaction error: This transaction has already been processed"'
+    );
+    const parsed = parseTransactionError(dupErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "duplicate_transaction",
+      `Expected category duplicate_transaction, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Already Processed",
+      `Expected title Transaction Already Processed, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 12\n");
+  }
+
+  // Test 13: @solana/errors uncaught TypeError on -32002 without data
+  {
+    console.log("Test 13: @solana/errors destructuring TypeError parsing");
+    const typeErr = new TypeError(
+      "Cannot destructure property 'err' of 'data' as it is undefined."
+    );
+    const parsed = parseTransactionError(typeErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "duplicate_transaction",
+      `Expected category duplicate_transaction, got ${parsed.category}`
+    );
+    assert(
+      parsed.title === "Transaction Already Processed",
+      `Expected title Transaction Already Processed, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 13\n");
+  }
+
+  // Test 14: isParsedTransactionError type guard
+  {
+    console.log("Test 14: isParsedTransactionError type guard");
+    const rawParsed = parseTransactionError(new Error("custom program error: 0x1770"));
+    assert(isParsedTransactionError(rawParsed) === true, "Should recognize parsed transaction error");
+    assert(isParsedTransactionError(null) === false, "null is not parsed error");
+    assert(isParsedTransactionError({}) === false, "empty object is not parsed error");
+    assert(isParsedTransactionError(new Error("fail")) === false, "Error instance is not parsed error");
+    console.log("✓ Passed Test 14\n");
+  }
+
+  // Test 15: TransactionError class creation and inheritance
+  {
+    console.log("Test 15: TransactionError class instantiation and prototype");
+    const parsed = parseTransactionError(new Error("custom program error: 0x1770"));
+    const rawCause = new Error("Underlying RPC failure");
+    const txErr = new TransactionError(parsed, rawCause);
+
+    assert(txErr instanceof Error, "TransactionError must be instanceof Error");
+    assert(txErr instanceof TransactionError, "TransactionError must be instanceof TransactionError");
+    assert(txErr.name === "TransactionError", `Expected name TransactionError, got ${txErr.name}`);
+    assert(txErr.message === parsed.message, `Expected message ${parsed.message}, got ${txErr.message}`);
+    assert(txErr.parsed === parsed, "TransactionError must expose parsed payload");
+    assert(txErr.cause === rawCause, "TransactionError must preserve cause");
+    console.log("✓ Passed Test 15\n");
+  }
+
+  // Test 16: parseTransactionError idempotency with TransactionError and ParsedTransactionError
+  {
+    console.log("Test 16: parseTransactionError idempotency");
+    const initialParsed = parseTransactionError(new Error("custom program error: 0x1770"));
+    const reParsed = parseTransactionError(initialParsed);
+    assert(reParsed === initialParsed, "Re-parsing ParsedTransactionError must be strictly idempotent");
+
+    const txErr = new TransactionError(initialParsed);
+    const parsedFromTxErr = parseTransactionError(txErr);
+    assert(parsedFromTxErr === initialParsed, "Parsing TransactionError must cleanly unwrap .parsed");
+    console.log("✓ Passed Test 16\n");
   }
 
   console.log(

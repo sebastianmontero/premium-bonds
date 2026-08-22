@@ -116,6 +116,10 @@
     "dustTooltipExplanation": "Prizes automatically compound into whole {bondPrice} {symbol} bonds. Fractional winnings under {bondPrice} {symbol} are held as remaining balance, which will automatically combine with future prize winnings to purchase new bonds, or can be claimed to your wallet at any time.",
     "dustTooltipTrigger": "Learn about remaining winnings",
     "claimNow": "Claim Now",
+    "claiming": "Claiming...",
+    "claimingPaused": "Claiming Paused",
+    "frozenNotice": "Draw in progress · claiming paused",
+    "frozenTooltip": "Claiming remaining winnings is temporarily paused while the prize draw is being resolved. Your winnings are safe and will be ready to claim as soon as the draw finishes.",
     "dismiss": "Dismiss"
   },
   "Dashboard": {
@@ -324,6 +328,11 @@
     "status": "Status",
     "actions": "Actions",
     "cranking": "Cranking...",
+    "claiming": "Claiming...",
+    "claimingPaused": "Claiming Paused",
+    "frozenDrawStatus": "Draw in Progress",
+    "frozenCrankTooltip": "Prize reinvestment and claiming are temporarily paused while the current draw snapshot resolves.",
+    "frozenTooltip": "Claiming remaining winnings is temporarily paused while the prize draw is being resolved. Your winnings are safe and will be ready to claim as soon as the draw finishes.",
     "processing": "Processing",
     "timelocked": "Timelocked",
     "timelockTooltip": "Payout settlement timelock active ({remaining} remaining)",
