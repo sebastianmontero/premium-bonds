@@ -111,8 +111,9 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
     let mut fixed_winners = [default_winner; 50];
     let count = winners.len().min(50);
@@ -124,7 +125,7 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         payouts_completed: 0,
         revealed_at: 0,
         status: anchor::PayoutRegistryStatus::Active as u8,
-        version: 1,
+        version: anchor::PayoutRegistry::CURRENT_VERSION,
         _padding: [0; 6],
         _reserved: [0; 64],
         winners: fixed_winners,
@@ -154,8 +155,9 @@ fn w(winner: Pubkey, owed: u64, tier: u8, bonds_bought: u32, processed: bool) ->
         bonds_bought,
         processed: if processed { 1 } else { 0 },
         tier_index: tier,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     }
 }
 
@@ -266,8 +268,9 @@ fn setup(
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
@@ -501,8 +504,9 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
         anchor::state::UserEntry {
             owner: other_user,
@@ -510,14 +514,15 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
     ];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1000, &entries);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
-    inject_payout(&mut ctx.svm, 1, 0, vec![anchor::Winner { winner: ctx.winner, amount_owed: 3_000_000, bonds_bought: 0, processed: 0, tier_index: 0, version: 1, _reserved: [0; 9] }]);
+    inject_payout(&mut ctx.svm, 1, 0, vec![w(ctx.winner, 3_000_000, 0, 0, false)]);
 
     let err = send(&mut ctx, 0, 0).unwrap_err();
     assert!(err.contains("InvalidUserEntryHint"), "got: {err}");
@@ -528,7 +533,7 @@ fn test_reinvest_exited_user_full_registry_fallback() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
-    inject_payout(&mut ctx.svm, 1, 0, vec![anchor::Winner { winner: ctx.winner, amount_owed: 3_000_000, bonds_bought: 0, processed: 0, tier_index: 0, version: 1, _reserved: [0; 9] }]);
+    inject_payout(&mut ctx.svm, 1, 0, vec![w(ctx.winner, 3_000_000, 0, 0, false)]);
 
     let entries = vec![anchor::state::UserEntry {
         owner: Keypair::new().pubkey(),
@@ -536,8 +541,9 @@ fn test_reinvest_exited_user_full_registry_fallback() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1, &entries);
 
@@ -595,8 +601,9 @@ fn test_reinvest_preserves_existing_pending_tickets() {
         pending: 5,
         merged_through_cycle: 1,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
@@ -676,8 +683,9 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
         pending: 6,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
@@ -723,8 +731,9 @@ fn test_reinvest_fails_payout_timelock_active() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 

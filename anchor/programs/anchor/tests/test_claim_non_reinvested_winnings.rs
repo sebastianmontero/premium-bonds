@@ -455,7 +455,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(pr.amount, 500_000);
     assert!(pr.pst_shares_locked > 0);
     assert_eq!(pr.huma_request_id, 0);
-    assert_eq!(pr.version, 1);
+    assert_eq!(pr.version, anchor::PendingRedemption::CURRENT_VERSION);
     assert_eq!(pr.redemption_type, anchor::state::RedemptionType::PrizeClaim);
 }
 
@@ -494,7 +494,7 @@ fn inject_pool_with_frozen(
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
-        version: 1,
+        version: anchor::PrizePool::CURRENT_VERSION,
         _reserved: [0; 128],
     };
     let mut data = vec![];

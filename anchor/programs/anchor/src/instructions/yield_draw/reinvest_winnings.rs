@@ -103,12 +103,14 @@ pub fn handle(
 ) -> Result<()> {
     // ── 1. Validate winner entry & statuses ──────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
+    payout_registry.ensure_current_version()?;
     require!(
         payout_registry.status == (crate::state::PayoutRegistryStatus::Active as u8),
         PremiumBondsError::DrawVoided
     );
 
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     require!(
         pool.status == (crate::state::PoolStatus::Active as u8),
         PremiumBondsError::PoolNotActive
@@ -131,6 +133,7 @@ pub fn handle(
     }
 
     let user_winnings = &mut ctx.accounts.user_winnings;
+    user_winnings.ensure_current_version()?;
     let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
 
     // ── 2. Calculate remaining amount and bonds for atomic reinvestment ──────
@@ -220,6 +223,7 @@ pub fn handle(
 
         if is_new {
             let mut registry = registry_loader.load_mut()?;
+            registry.ensure_current_version()?;
             require!(
                 registry.user_count < registry.capacity,
                 crate::error::PremiumBondsError::RegistryFull
@@ -236,6 +240,7 @@ pub fn handle(
                 .ok_or(PremiumBondsError::MathOverflow)?;
         } else {
             let mut registry = registry_loader.load_mut()?;
+            registry.ensure_current_version()?;
             registry.total_active_tickets = registry
                 .total_active_tickets
                 .checked_add(bonds_to_buy)
@@ -252,8 +257,9 @@ pub fn handle(
                 pending: 0,
                 merged_through_cycle: current_cycle,
                 cumulative_active: 0,
-                version: 1,
-                _reserved: [0; 15],
+                version: crate::state::UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
             };
             registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
         } else {

@@ -167,7 +167,8 @@ pub struct SellBonds<'info> {
 /// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
     let (bond_price, pool_id_for_seeds) = {
-        let pool = ctx.accounts.pool.load()?;
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         require!(
             pool.status != (crate::state::PoolStatus::Paused as u8),
             PremiumBondsError::PoolPaused
@@ -190,6 +191,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
     let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
+    user_winnings.ensure_current_version()?;
     let registry_loader = &ctx.accounts.ticket_registry;
     let user_entry_idx = user_winnings.registry_entry_index;
 
@@ -199,7 +201,8 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     );
 
     let (current_cycle, last_entry_idx) = {
-        let registry = registry_loader.load()?;
+        let mut registry = registry_loader.load_mut()?;
+        registry.ensure_current_version()?;
         let last_idx = if registry.user_count > 0 {
             registry.user_count - 1
         } else {
@@ -380,7 +383,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     pending.requested_at = clock.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
-    pending.version = 1;
+    pending.version = PendingRedemption::CURRENT_VERSION;
     pending.redemption_type = RedemptionType::BondSale;
 
     #[cfg(feature = "debug-logs")]

@@ -152,6 +152,7 @@ pub struct BuyBonds<'info> {
 pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let (amount, pool_id, pool_id_bytes, authority_bump) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         let amount = pool.validate_buy_bonds(bonds_to_buy)?;
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
@@ -211,7 +212,9 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         user_winnings.user = user_key;
         user_winnings.bump = ctx.bumps.user_winnings;
         user_winnings.registry_entry_index = u32::MAX;
-        user_winnings.version = 1;
+        user_winnings.version = crate::state::UserWinnings::CURRENT_VERSION;
+    } else {
+        user_winnings.ensure_current_version()?;
     }
 
     let registry_loader = &ctx.accounts.ticket_registry;
@@ -226,6 +229,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
 
     if is_new {
         let mut registry = registry_loader.load_mut()?;
+        registry.ensure_current_version()?;
         require!(
             registry.user_count < registry.capacity,
             crate::error::PremiumBondsError::RegistryFull
@@ -242,6 +246,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
     } else {
         let mut registry = registry_loader.load_mut()?;
+        registry.ensure_current_version()?;
         registry.total_pending_tickets = registry
             .total_pending_tickets
             .checked_add(bonds_to_buy)
@@ -259,8 +264,9 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             pending: bonds_to_buy,
             merged_through_cycle: current_cycle,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         };
         crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
     } else {

@@ -96,8 +96,9 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
@@ -372,8 +373,9 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
@@ -389,7 +391,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         cycle_id: 0,
         locked_ticket_count: 10,
         status: anchor::DrawStatus::AwaitingRandomness,
-        version: 1,
+        version: anchor::DrawCycle::CURRENT_VERSION,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };

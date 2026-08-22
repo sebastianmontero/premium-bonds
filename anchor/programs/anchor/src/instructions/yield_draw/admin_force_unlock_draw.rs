@@ -60,9 +60,11 @@ pub struct AdminForceUnlockDraw<'info> {
 /// amounts committed during harvest to prevent corrupting future yield calculations.
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     pool.is_frozen_for_draw = 0;
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
+    draw_cycle.ensure_current_version()?;
     require!(
         draw_cycle.status == DrawStatus::AwaitingRandomness,
         PremiumBondsError::InvalidDrawStatus

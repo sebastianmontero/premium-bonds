@@ -50,8 +50,9 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
     let mut fixed_winners = [default_winner; 50];
     let count = winners.len().min(50);
@@ -63,7 +64,7 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         payouts_completed: 0,
         revealed_at: 0,
         status: anchor::PayoutRegistryStatus::Active as u8,
-        version: 1,
+        version: anchor::PayoutRegistry::CURRENT_VERSION,
         _padding: [0; 6],
         _reserved: [0; 64],
         winners: fixed_winners,
@@ -99,13 +100,13 @@ fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::sta
 }
 
 #[test]
-fn test_reinvest_after_user_index_swap() {
+fn test_winner_swap_resilience_preserves_payout_claim() {
     let (mut svm, _admin) = setup_global_config();
-    let crank = Keypair::new();
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
 
     let user_a = Keypair::new().pubkey();
     let user_b = Keypair::new().pubkey();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
 
     // 1. Initial registry entries: User A at index 0, User B at index 1
     let entries = vec![
@@ -115,8 +116,9 @@ fn test_reinvest_after_user_index_swap() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 5,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
         anchor::state::UserEntry {
             owner: user_b,
@@ -124,8 +126,9 @@ fn test_reinvest_after_user_index_swap() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 10,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
     ];
 
@@ -162,7 +165,7 @@ fn test_reinvest_after_user_index_swap() {
         prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
-        version: 1,
+        version: anchor::PrizePool::CURRENT_VERSION,
         _reserved: [0; 128],
     };
     let mut d = vec![];
@@ -191,8 +194,9 @@ fn test_reinvest_after_user_index_swap() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
     inject_payout(&mut svm, 1, 0, vec![winner_b]);
 
@@ -203,8 +207,9 @@ fn test_reinvest_after_user_index_swap() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 5,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     inject_registry_with_entries(&mut svm, reg, 1, 100, &swapped_entries);
 

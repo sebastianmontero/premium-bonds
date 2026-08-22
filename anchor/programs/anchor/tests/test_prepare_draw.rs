@@ -74,7 +74,7 @@ fn setup(
         harvest_slot: 0,
         initiated_at: 1_700_000_000,
         completed_at: 0,
-        version: 1,
+        version: anchor::DrawCycle::CURRENT_VERSION,
         _reserved: [0; 64],
     };
     let mut data = vec![];
@@ -199,8 +199,9 @@ fn test_prepare_draw_happy_path() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
         anchor::state::UserEntry {
             owner: user_b,
@@ -208,8 +209,9 @@ fn test_prepare_draw_happy_path() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
     ];
 
@@ -254,8 +256,9 @@ fn test_prepare_draw_fails_math_overflow() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
         anchor::state::UserEntry {
             owner: Keypair::new().pubkey(),
@@ -263,8 +266,9 @@ fn test_prepare_draw_fails_math_overflow() {
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         },
     ];
 
@@ -283,8 +287,9 @@ fn test_prepare_draw_excludes_pending_tickets() {
         pending: 5,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
@@ -322,8 +327,9 @@ fn test_prepare_draw_idempotent_when_fully_prepared() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);

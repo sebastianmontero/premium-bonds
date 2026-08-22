@@ -38,6 +38,7 @@ pub fn handle(
     new_jobs_account: Option<Pubkey>,
 ) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
+    global_config.ensure_current_version()?;
 
     if let Some(admin) = new_admin {
         global_config.admin = admin;

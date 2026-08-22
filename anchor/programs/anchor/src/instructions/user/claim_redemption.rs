@@ -144,7 +144,8 @@ pub struct ClaimRedemption<'info> {
 /// * `ctx` - The context of the claim redemption instruction.
 pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     let (pool_id_bytes, authority_bump, pool_id) = {
-        let pool = ctx.accounts.pool.load()?;
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         require!(
             pool.status != (crate::state::PoolStatus::Paused as u8),
             PremiumBondsError::PoolPaused
@@ -155,7 +156,8 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
 
     // Copy pending values locally to avoid borrow conflicts and correctly report amounts in events/logs
     let (redemption_amount, redemption_id, huma_request_id) = {
-        let p = &ctx.accounts.pending_redemption;
+        let p = &mut ctx.accounts.pending_redemption;
+        p.ensure_current_version()?;
         (p.amount, p.redemption_id, p.huma_request_id)
     };
 

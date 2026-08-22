@@ -134,6 +134,22 @@ use crate::error::PremiumBondsError;
 use crate::utils::calculate_percentage_fee;
 
 impl PrizePool {
+    /// Current schema version of the PrizePool account.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
+
     /// Gets the strongly-typed PoolStatus enum.
     pub fn status(&self) -> PoolStatus {
         PoolStatus::try_from(self.status).unwrap_or(PoolStatus::Closed)
@@ -400,6 +416,24 @@ pub struct UserWinnings {
     pub _reserved: [u8; 64],
 }
 
+impl UserWinnings {
+    /// Current schema version of the UserWinnings account.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
+}
+
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -443,7 +477,7 @@ mod tests {
             total_prizes_allocated: 0,
             total_pending_redemptions: 0,
             total_prizes_distributed: 0,
-            version: 1,
+            version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         }
     }
@@ -1019,7 +1053,7 @@ mod tests {
             total_prizes_allocated: 0,
             total_pending_redemptions: 0,
             total_prizes_distributed: 0,
-            version: 1,
+            version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         };
 

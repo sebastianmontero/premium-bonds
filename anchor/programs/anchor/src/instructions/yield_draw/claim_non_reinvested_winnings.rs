@@ -144,6 +144,7 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let user_winnings = &mut ctx.accounts.user_winnings;
+    user_winnings.ensure_current_version()?;
     let claimable = user_winnings.unclaimed_non_reinvested_winnings;
 
     require!(claimable > 0, PremiumBondsError::NoWinningsToClaim);
@@ -157,6 +158,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     let (pool_id, pool_id_bytes, authority_bump, current_redemption_id) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
 
         require!(
             pool.status != (PoolStatus::Paused as u8),
@@ -243,7 +245,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     pending.requested_at = clock.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
-    pending.version = 1;
+    pending.version = PendingRedemption::CURRENT_VERSION;
     pending.redemption_type = RedemptionType::PrizeClaim;
 
     #[cfg(feature = "debug-logs")]

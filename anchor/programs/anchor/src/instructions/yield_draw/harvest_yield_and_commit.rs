@@ -131,6 +131,7 @@ pub struct HarvestYieldAndCommit<'info> {
 /// tickets from the previous cycle into active tickets for the next cycle.
 pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
 
     require!(
         pool.status == (PoolStatus::Active as u8),
@@ -153,6 +154,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let eligible_locked_count;
     {
         let mut ticket_registry = ctx.accounts.ticket_registry.load_mut()?;
+        ticket_registry.ensure_current_version()?;
 
         // Snapshot mature active tickets BEFORE merging.
         eligible_locked_count = ticket_registry.total_active_tickets;
@@ -204,7 +206,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     draw_cycle.harvest_slot = clock.slot;
     draw_cycle.initiated_at = current_time;
     draw_cycle.completed_at = 0;
-    draw_cycle.version = 1;
+    draw_cycle.version = DrawCycle::CURRENT_VERSION;
 
     // ── Circuit Breaker 1: On-Chain Solvency Guard ───────────────────────────
     if current_value < book_value {

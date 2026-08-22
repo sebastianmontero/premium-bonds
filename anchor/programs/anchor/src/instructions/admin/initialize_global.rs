@@ -59,10 +59,11 @@ pub struct InitializeGlobal<'info> {
 pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
     let global_config = &mut ctx.accounts.global_config;
 
-    global_config.admin = ctx.accounts.admin.key();
-    global_config.guardian = ctx.accounts.guardian.key();
-    global_config.jobs_account = ctx.accounts.jobs_account.key();
-    global_config.version = 1;
+    global_config.init(
+        ctx.accounts.admin.key(),
+        ctx.accounts.guardian.key(),
+        ctx.accounts.jobs_account.key(),
+    );
 
     emit!(GlobalConfigUpdated {
         admin: global_config.admin,

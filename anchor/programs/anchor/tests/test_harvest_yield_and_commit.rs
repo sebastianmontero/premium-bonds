@@ -111,8 +111,9 @@ fn inject_registry(
                 pending,
                 merged_through_cycle: 0,
                 cumulative_active: active,
-                version: 1,
-                _reserved: [0; 15],
+                version: anchor::state::UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
             });
         }
     } else {
@@ -125,8 +126,9 @@ fn inject_registry(
                 pending: 0,
                 merged_through_cycle: 0,
                 cumulative_active: cum,
-                version: 1,
-                _reserved: [0; 15],
+                version: anchor::state::UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
             });
         }
     }
@@ -137,6 +139,7 @@ fn inject_registry(
     data[24..28].copy_from_slice(&pending.to_le_bytes()); // total_pending_tickets
     data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
     data[32..36].copy_from_slice(&user_count.to_le_bytes()); // draw_prepared_up_to = user_count
+    data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
 
     for (i, entry) in entries.iter().enumerate() {
         anchor::utils::registry_set_entry(&mut data, i, entry);

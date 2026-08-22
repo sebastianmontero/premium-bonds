@@ -434,7 +434,7 @@ fn test_buy_bonds_fails_registry_full() {
         data[24..28].copy_from_slice(&0u32.to_le_bytes()); // total_pending_tickets = 0
         data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
         data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
-        data[36] = 1; // version = 1
+        data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
 
         ctx.svm
             .set_account(
@@ -723,8 +723,9 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
         pending: 0,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
 

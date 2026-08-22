@@ -157,4 +157,7 @@ pub enum PremiumBondsError {
     /// Winner account does not match the payout registry entry.
     #[msg("Winner account does not match the payout registry entry.")]
     WinnerMismatch,
+    /// Account schema version is invalid or unsupported.
+    #[msg("Account schema version is invalid or unsupported.")]
+    UnsupportedAccountVersion,
 }

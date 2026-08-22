@@ -80,8 +80,9 @@ fn inject_payout_registry(
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
     let mut fixed_winners = [default_winner; 50];
     let count = winners.len().min(50);
@@ -94,7 +95,7 @@ fn inject_payout_registry(
         payouts_completed,
         revealed_at: 1000,
         status: status as u8,
-        version: 1,
+        version: anchor::PayoutRegistry::CURRENT_VERSION,
         _padding: [0; 6],
         _reserved: [0; 64],
         winners: fixed_winners,
@@ -162,8 +163,9 @@ fn test_admin_void_payout_registry_success() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
     let winner2 = anchor::Winner {
         winner: Keypair::new().pubkey(),
@@ -171,8 +173,9 @@ fn test_admin_void_payout_registry_success() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     let payout_pda_addr = inject_payout_registry(
@@ -251,8 +254,9 @@ fn test_admin_void_fails_if_payouts_already_started() {
         bonds_bought: 0,
         processed: 1, // Already processed
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     inject_payout_registry(
@@ -307,8 +311,9 @@ fn test_admin_void_fails_if_fees_already_withdrawn() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     inject_payout_registry(
@@ -354,8 +359,9 @@ fn test_unauthorized_user_cannot_void_draw() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     inject_payout_registry(
@@ -409,8 +415,9 @@ fn test_admin_void_fails_if_pool_is_closed() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     inject_payout_registry(
@@ -474,8 +481,9 @@ fn test_multi_cycle_cumulative_prize_distribution_and_void_recovery() {
         bonds_bought: 0,
         processed: 0,
         tier_index: 0,
-        version: 1,
-        _reserved: [0; 9],
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
     };
 
     inject_payout_registry(

@@ -45,3 +45,21 @@ pub struct PendingRedemption {
     /// Reserved space for future upgrades.
     pub _reserved: [u8; 64],
 }
+
+impl PendingRedemption {
+    /// Current schema version of the PendingRedemption account.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            crate::error::PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
+}

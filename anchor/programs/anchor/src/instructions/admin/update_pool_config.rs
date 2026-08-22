@@ -58,6 +58,7 @@ pub fn handle(
     new_payout_timelock_seconds: Option<u32>,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
 
     require!(
         pool.is_frozen_for_draw == 0,

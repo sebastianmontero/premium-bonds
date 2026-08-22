@@ -158,7 +158,7 @@ pub fn handle(
     pool.total_prizes_allocated = 0;
     pool.total_pending_redemptions = 0;
     pool.total_prizes_distributed = 0;
-    pool.version = 1;
+    pool.version = PrizePool::CURRENT_VERSION;
     pool._reserved = [0; 128];
 
     let clock = Clock::get()?;
@@ -178,7 +178,9 @@ pub fn handle(
     ticket_registry.total_pending_tickets = 0;
     ticket_registry.draw_cycle_id = 0;
     ticket_registry.draw_prepared_up_to = 0;
-    ticket_registry.version = 1;
+    ticket_registry.version = TicketRegistry::CURRENT_VERSION;
+    ticket_registry._padding = [0; 3];
+    ticket_registry._reserved = [0; 64];
 
     emit!(PoolCreated {
         pool_id,

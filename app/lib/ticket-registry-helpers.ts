@@ -162,11 +162,18 @@ export interface SerializeTicketRegistryOptions {
   entries?: UserEntryInfo[];
 }
 
+export const USER_ENTRY_VERSION = 1;
+export const USER_ENTRY_SIZE = 64;
+export const REGISTRY_HEADER_SIZE = 104;
+
 /**
  * Serializes a single UserEntry struct into a 64-byte binary buffer.
  */
-export function serializeUserEntry(entry: UserEntryInfo): Uint8Array {
-  const buf = new Uint8Array(64);
+export function serializeUserEntry(
+  entry: UserEntryInfo,
+  version: number = USER_ENTRY_VERSION
+): Uint8Array {
+  const buf = new Uint8Array(USER_ENTRY_SIZE);
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const ownerBytes = base58Encoder.encode(entry.owner);
   buf.set(ownerBytes, 0);
@@ -174,7 +181,9 @@ export function serializeUserEntry(entry: UserEntryInfo): Uint8Array {
   view.setUint32(36, entry.pending, true);
   view.setUint32(40, entry.mergedThroughCycle, true);
   view.setUint32(44, entry.cumulativeActive, true);
-  view.setUint8(48, 1); // version = 1
+  view.setUint8(48, version);
+  // Bytes 49-51 are padding [u8; 3] (0)
+  // Bytes 52-63 are reserved [u8; 12] (0)
   return buf;
 }
 
@@ -185,7 +194,9 @@ export function serializeTicketRegistry(
   options: SerializeTicketRegistryOptions
 ): Uint8Array {
   const totalSizeBytes = options.totalSizeBytes ?? 262248;
-  const capacity = options.capacity ?? Math.floor((totalSizeBytes - 104) / 64);
+  const capacity =
+    options.capacity ??
+    Math.floor((totalSizeBytes - REGISTRY_HEADER_SIZE) / USER_ENTRY_SIZE);
   const entries = options.entries ?? [];
   const userCount = options.userCount ?? entries.length;
 
@@ -197,7 +208,7 @@ export function serializeTicketRegistry(
     totalPendingTickets: options.totalPendingTickets ?? 0,
     drawCycleId: options.drawCycleId ?? 0,
     drawPreparedUpTo: options.drawPreparedUpTo ?? 0,
-    version: options.version ?? 1,
+    version: options.version ?? USER_ENTRY_VERSION,
     reserved: new Uint8Array(67),
   };
 
@@ -206,8 +217,8 @@ export function serializeTicketRegistry(
   fullBuffer.set(headerBytes, 0);
 
   entries.forEach((entry, idx) => {
-    const entryOffset = 104 + idx * 64;
-    if (entryOffset + 64 <= totalSizeBytes) {
+    const entryOffset = REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
+    if (entryOffset + USER_ENTRY_SIZE <= totalSizeBytes) {
       fullBuffer.set(serializeUserEntry(entry), entryOffset);
     }
   });

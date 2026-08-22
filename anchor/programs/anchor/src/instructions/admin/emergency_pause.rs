@@ -32,6 +32,7 @@ pub struct PausePool<'info> {
 /// Immediately transitions a pool to `PoolStatus::Paused`.
 pub fn handle_pause_pool(ctx: Context<PausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     require!(
         pool.status != (PoolStatus::Closed as u8),
         PremiumBondsError::PoolClosed
@@ -76,6 +77,7 @@ pub struct UnpausePool<'info> {
 /// Transitions a paused pool back to `PoolStatus::Active`.
 pub fn handle_unpause_pool(ctx: Context<UnpausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     require!(
         pool.status == (PoolStatus::Paused as u8),
         PremiumBondsError::PoolNotActive
@@ -120,6 +122,7 @@ pub struct ClosePool<'info> {
 /// Permanently transitions a pool to `PoolStatus::Closed`.
 pub fn handle_close_pool(ctx: Context<ClosePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     require!(
         pool.status != (PoolStatus::Closed as u8),
         PremiumBondsError::PoolClosed

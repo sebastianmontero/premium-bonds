@@ -76,6 +76,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
 /// reset the harvest slot, enabling the draw cycle resolution flow to be retried.
 pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
+    draw_cycle.ensure_current_version()?;
     require!(
         draw_cycle.status == DrawStatus::AwaitingRandomness,
         PremiumBondsError::InvalidDrawStatus

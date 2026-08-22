@@ -61,12 +61,14 @@ pub struct AdminVoidPayoutRegistry<'info> {
 /// Reverses `pool.total_fees_accrued` by `draw_cycle.cycle_fee_collected` after verifying unwithdrawn fees.
 pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
     require!(
         pool.status != (crate::state::PoolStatus::Closed as u8),
         PremiumBondsError::PoolClosed
     );
 
     let mut payout_registry = ctx.accounts.payout_registry.load_mut()?;
+    payout_registry.ensure_current_version()?;
     require!(
         payout_registry.payouts_completed == 0,
         PremiumBondsError::PayoutsAlreadyStarted
@@ -77,6 +79,7 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
     );
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
+    draw_cycle.ensure_current_version()?;
 
     // 1. Calculate actual distributed prize sum (excluding dust)
     let total_distributed: u64 = payout_registry.winners[..payout_registry.winners_count as usize]

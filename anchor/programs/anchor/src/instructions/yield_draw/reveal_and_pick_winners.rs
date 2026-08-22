@@ -109,6 +109,8 @@ use switchboard_on_demand::accounts::RandomnessAccountData;
 /// prize tiers is deducted from the pool's allocated prizes.
 pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
+
     require!(
         pool.status == (PoolStatus::Active as u8),
         PremiumBondsError::PoolNotActive
@@ -120,6 +122,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     );
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
+    draw_cycle.ensure_current_version()?;
     require!(
         draw_cycle.status == DrawStatus::AwaitingRandomness,
         PremiumBondsError::InvalidDrawStatus
@@ -127,7 +130,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
 
     // Enforce that all user entries have been prepared.
     let user_count = {
-        let registry = ctx.accounts.ticket_registry.load()?;
+        let mut registry = ctx.accounts.ticket_registry.load_mut()?;
+        registry.ensure_current_version()?;
         require!(
             registry.draw_prepared_up_to == registry.user_count,
             PremiumBondsError::InvalidDrawStatus
@@ -177,7 +181,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let mut payout_registry = ctx.accounts.payout_registry.load_init()?;
     payout_registry.pool_id = draw_cycle.pool_id;
     payout_registry.cycle_id = draw_cycle.cycle_id;
-    payout_registry.version = 1;
+    payout_registry.version = PayoutRegistry::CURRENT_VERSION;
     payout_registry.payouts_completed = 0;
     payout_registry.revealed_at = clock.unix_timestamp;
     payout_registry.status = crate::state::PayoutRegistryStatus::Active as u8;
@@ -220,8 +224,9 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 bonds_bought: 0,
                 processed: 0,
                 tier_index: tier_idx as u8,
-                version: 1,
-                _reserved: [0; 9],
+                version: Winner::CURRENT_VERSION,
+                _padding: [0; 1],
+                _reserved: [0; 8],
             };
 
             winner_count += 1;

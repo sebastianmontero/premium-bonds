@@ -160,6 +160,7 @@ pub struct WithdrawFees<'info> {
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
 
         require!(
             pool.status != (crate::state::PoolStatus::Paused as u8),
@@ -252,7 +253,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     pending.requested_at = Clock::get()?.unix_timestamp;
     pending.huma_request_id = huma_request_id;
     pending.bump = ctx.bumps.pending_redemption;
-    pending.version = 1;
+    pending.version = PendingRedemption::CURRENT_VERSION;
     pending.redemption_type = RedemptionType::FeeWithdrawal;
 
     #[cfg(feature = "debug-logs")]

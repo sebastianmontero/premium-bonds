@@ -276,8 +276,9 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
         pending,
         merged_through_cycle: 0,
         cumulative_active: 0,
-        version: 1,
-        _reserved: [0; 15],
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
     }];
 
     for &pk in tickets {
@@ -288,8 +289,9 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
                 pending: 0,
                 merged_through_cycle: 0,
                 cumulative_active: 0,
-                version: 1,
-                _reserved: [0; 15],
+                version: anchor::state::UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
             });
         }
     }

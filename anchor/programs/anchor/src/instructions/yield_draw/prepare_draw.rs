@@ -61,7 +61,8 @@ pub struct PrepareDraw<'info> {
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     let registry_loader = &ctx.accounts.ticket_registry;
     let (merge_cycle_id, start, end) = {
-        let registry = registry_loader.load_mut()?;
+        let mut registry = registry_loader.load_mut()?;
+        registry.ensure_current_version()?;
         let cycle_id = registry.draw_cycle_id.saturating_sub(1);
         let start = registry.draw_prepared_up_to;
         let end = (start + batch_size).min(registry.user_count);

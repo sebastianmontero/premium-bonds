@@ -46,6 +46,7 @@ pub struct SetPrizeTiers<'info> {
 /// * `tiers` - The list of prize tiers to configure.
 pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
+    pool.ensure_current_version()?;
 
     require!(
         pool.is_frozen_for_draw == 0,

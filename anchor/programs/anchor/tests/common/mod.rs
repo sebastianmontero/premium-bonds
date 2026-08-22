@@ -1,4 +1,6 @@
-use anchor_lang::{AccountSerialize, AnchorDeserialize, InstructionData, Space, ToAccountMetas};
+use anchor_lang::{
+    AccountSerialize, AnchorDeserialize, Discriminator, InstructionData, Space, ToAccountMetas,
+};
 use litesvm::LiteSVM;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -286,7 +288,7 @@ pub fn inject_pool(
         }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
-        version: 1,
+        version: anchor::PrizePool::CURRENT_VERSION,
         _reserved: [0; 128],
     };
 
@@ -334,7 +336,7 @@ pub fn default_draw_cycle(
         cycle_id,
         locked_ticket_count: 100,
         status,
-        version: 1,
+        version: anchor::DrawCycle::CURRENT_VERSION,
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     }
@@ -348,21 +350,20 @@ pub fn inject_draw_cycle(
 ) -> Pubkey {
     use anchor_lang::AccountSerialize;
     let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
-    let mut data = vec![];
-    draw_cycle.try_serialize(&mut data).unwrap();
-
+    let mut d = vec![];
+    draw_cycle.try_serialize(&mut d).unwrap();
+    d.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
     svm.set_account(
         pda,
         Account {
-            lamports: 1_000_000_000,
-            data,
+            lamports: 10_000_000,
+            data: d,
             owner: anchor::id(),
             executable: false,
             rent_epoch: 0,
         },
     )
     .unwrap();
-
     pda
 }
 
@@ -384,25 +385,29 @@ pub fn inject_registry_with_entries(
     capacity: u32,
     entries: &[anchor::state::UserEntry],
 ) {
-    let mut data = vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE];
-    data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
-    data[8..12].copy_from_slice(&pool_id.to_le_bytes());
-    data[12..16].copy_from_slice(&capacity.to_le_bytes());
-    data[16..20].copy_from_slice(&(entries.len() as u32).to_le_bytes()); // user_count
-
+    let user_count = entries.len() as u32;
     let mut total_active: u32 = 0;
     let mut total_pending: u32 = 0;
-    for (i, entry) in entries.iter().enumerate() {
-        total_active = total_active.wrapping_add(entry.active);
-        total_pending = total_pending.wrapping_add(entry.pending);
-        anchor::utils::registry_set_entry(&mut data, i, entry);
+    for e in entries {
+        total_active = total_active.wrapping_add(e.active);
+        total_pending = total_pending.wrapping_add(e.pending);
     }
+
+    let mut data = vec![0u8; 104 + (capacity as usize) * 64];
+    data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
+    data[8..12].copy_from_slice(&pool_id.to_le_bytes());
+    data[12..16].copy_from_slice(&capacity.to_le_bytes());
+    data[16..20].copy_from_slice(&user_count.to_le_bytes());
 
     data[20..24].copy_from_slice(&total_active.to_le_bytes());
     data[24..28].copy_from_slice(&total_pending.to_le_bytes());
     data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
     data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
-    data[36] = 1; // version = 1
+    data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
+
+    for (i, entry) in entries.iter().enumerate() {
+        anchor::utils::registry_set_entry(&mut data, i, entry);
+    }
 
     svm.set_account(
         address,
@@ -434,8 +439,9 @@ pub fn inject_registry_with_tickets(
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         });
     }
     if tickets.is_empty() && (active > 0 || pending > 0) {
@@ -445,8 +451,9 @@ pub fn inject_registry_with_tickets(
             pending,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         });
     }
     inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
@@ -708,7 +715,7 @@ pub fn inject_user_winnings_with_index(
         total_reinvested,
         registry_entry_index,
         bump,
-        version: 1,
+        version: anchor::state::UserWinnings::CURRENT_VERSION,
         _reserved: [0; 64],
     };
     let mut d = vec![];

@@ -251,6 +251,7 @@ mod tests {
     fn test_user_entry_size_and_alignment() {
         use crate::state::UserEntry;
         assert_eq!(std::mem::size_of::<UserEntry>(), 64);
+        assert_eq!(std::mem::align_of::<UserEntry>(), 4);
 
         // Check field offsets manually using raw pointers
         let entry = UserEntry::default();
@@ -261,6 +262,8 @@ mod tests {
         let merged_ptr = &entry.merged_through_cycle as *const u32 as usize;
         let cumulative_ptr = &entry.cumulative_active as *const u32 as usize;
         let version_ptr = &entry.version as *const u8 as usize;
+        let padding_ptr = &entry._padding as *const [u8; 3] as usize;
+        let reserved_ptr = &entry._reserved as *const [u8; 12] as usize;
 
         assert_eq!(owner_ptr - base_ptr, 0);
         assert_eq!(active_ptr - base_ptr, 32);
@@ -268,6 +271,68 @@ mod tests {
         assert_eq!(merged_ptr - base_ptr, 40);
         assert_eq!(cumulative_ptr - base_ptr, 44);
         assert_eq!(version_ptr - base_ptr, 48);
+        assert_eq!(padding_ptr - base_ptr, 49);
+        assert_eq!(reserved_ptr - base_ptr, 52);
+    }
+
+    #[test]
+    fn test_ticket_registry_size_and_alignment() {
+        use crate::state::TicketRegistry;
+        assert_eq!(std::mem::size_of::<TicketRegistry>(), 96);
+        assert_eq!(std::mem::align_of::<TicketRegistry>(), 4);
+
+        let reg = TicketRegistry {
+            pool_id: 0,
+            capacity: 0,
+            user_count: 0,
+            total_active_tickets: 0,
+            total_pending_tickets: 0,
+            draw_cycle_id: 0,
+            draw_prepared_up_to: 0,
+            version: TicketRegistry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 64],
+        };
+
+        let base = &reg as *const TicketRegistry as usize;
+        assert_eq!(&reg.pool_id as *const u32 as usize - base, 0);
+        assert_eq!(&reg.capacity as *const u32 as usize - base, 4);
+        assert_eq!(&reg.user_count as *const u32 as usize - base, 8);
+        assert_eq!(&reg.total_active_tickets as *const u32 as usize - base, 12);
+        assert_eq!(&reg.total_pending_tickets as *const u32 as usize - base, 16);
+        assert_eq!(&reg.draw_cycle_id as *const u32 as usize - base, 20);
+        assert_eq!(&reg.draw_prepared_up_to as *const u32 as usize - base, 24);
+        assert_eq!(&reg.version as *const u8 as usize - base, 28);
+        assert_eq!(&reg._padding as *const [u8; 3] as usize - base, 29);
+        assert_eq!(&reg._reserved as *const [u8; 64] as usize - base, 32);
+    }
+
+    #[test]
+    fn test_winner_size_and_alignment() {
+        use crate::state::Winner;
+        assert_eq!(std::mem::size_of::<Winner>(), 56);
+        assert_eq!(std::mem::align_of::<Winner>(), 8);
+
+        let winner = Winner {
+            winner: Pubkey::default(),
+            amount_owed: 0,
+            bonds_bought: 0,
+            processed: 0,
+            tier_index: 0,
+            version: Winner::CURRENT_VERSION,
+            _padding: [0; 1],
+            _reserved: [0; 8],
+        };
+
+        let base = &winner as *const Winner as usize;
+        assert_eq!(&winner.winner as *const Pubkey as usize - base, 0);
+        assert_eq!(&winner.amount_owed as *const u64 as usize - base, 32);
+        assert_eq!(&winner.bonds_bought as *const u32 as usize - base, 40);
+        assert_eq!(&winner.processed as *const u8 as usize - base, 44);
+        assert_eq!(&winner.tier_index as *const u8 as usize - base, 45);
+        assert_eq!(&winner.version as *const u8 as usize - base, 46);
+        assert_eq!(&winner._padding as *const [u8; 1] as usize - base, 47);
+        assert_eq!(&winner._reserved as *const [u8; 8] as usize - base, 48);
     }
 
     #[test]
@@ -350,8 +415,9 @@ mod tests {
             pending: 5,
             merged_through_cycle: 2,
             cumulative_active: 15,
-            version: 1,
-            _reserved: [0; 15],
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         };
         let entry2 = crate::state::UserEntry {
             owner: pk(2),
@@ -359,8 +425,9 @@ mod tests {
             pending: 50,
             merged_through_cycle: 4,
             cumulative_active: 150,
-            version: 1,
-            _reserved: [0; 15],
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         };
 
         registry_set_entry(&mut data, 0, &entry1);
@@ -406,8 +473,9 @@ mod tests {
             pending: 5,
             merged_through_cycle: 2,
             cumulative_active: 0,
-            version: 1,
-            _reserved: [0; 15],
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
         };
 
         // Case 1: merged_through_cycle < current_cycle_id -> should merge
@@ -432,5 +500,120 @@ mod tests {
         // Case 4: overflow check -> should fail
         entry.pending = u32::MAX;
         assert!(entry.lazy_merge(4).is_err());
+    }
+
+    #[test]
+    fn test_ensure_current_version_guards() {
+        use crate::state::{GlobalConfig, PrizePool, TicketRegistry, UserEntry, Winner};
+
+        // Current version is Ok
+        let mut config = GlobalConfig {
+            admin: Pubkey::default(),
+            guardian: Pubkey::default(),
+            jobs_account: Pubkey::default(),
+            version: GlobalConfig::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        assert!(config.ensure_current_version().is_ok());
+
+        // Zero / past version migrates to CURRENT_VERSION
+        config.version = 0;
+        assert!(config.ensure_current_version().is_ok());
+        assert_eq!(config.version, GlobalConfig::CURRENT_VERSION);
+
+        // Future unsupported version fails with UnsupportedAccountVersion
+        config.version = GlobalConfig::CURRENT_VERSION + 1;
+        let err = config.ensure_current_version().unwrap_err();
+        assert_eq!(
+            err,
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // Test PrizePool
+        let mut pool = PrizePool {
+            vault_authority_bump: 0,
+            pool_id: 1,
+            token_mint: Pubkey::default(),
+            ticket_registry: Pubkey::default(),
+            fee_wallet: Pubkey::default(),
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs: 24,
+            min_yield_threshold: 0,
+            fee_basis_points: 500,
+            max_yield_basis_points: 0,
+            payout_timelock_seconds: 300,
+            status: 0,
+            total_deposited_principal: 0,
+            current_cycle_end_at: 0,
+            is_frozen_for_draw: 0,
+            current_draw_cycle_id: 0,
+            prize_tiers_count: 0,
+            _padding: [0; 3],
+            prize_tiers: [crate::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
+            next_redemption_id: 0,
+            total_fees_accrued: 0,
+            total_fees_withdrawn: 0,
+            total_prizes_allocated: 0,
+            total_pending_redemptions: 0,
+            total_prizes_distributed: 0,
+            version: PrizePool::CURRENT_VERSION,
+            _reserved: [0; 128],
+        };
+        assert!(pool.ensure_current_version().is_ok());
+        pool.version = PrizePool::CURRENT_VERSION + 1;
+        assert_eq!(
+            pool.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // Test TicketRegistry
+        let mut reg = TicketRegistry {
+            pool_id: 0,
+            capacity: 0,
+            user_count: 0,
+            total_active_tickets: 0,
+            total_pending_tickets: 0,
+            draw_cycle_id: 0,
+            draw_prepared_up_to: 0,
+            version: TicketRegistry::CURRENT_VERSION + 1,
+            _padding: [0; 3],
+            _reserved: [0; 64],
+        };
+        assert_eq!(
+            reg.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // Test UserEntry
+        let mut entry = UserEntry {
+            owner: Pubkey::default(),
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: UserEntry::CURRENT_VERSION + 1,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        };
+        assert_eq!(
+            entry.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // Test Winner
+        let mut winner = Winner {
+            winner: Pubkey::default(),
+            amount_owed: 0,
+            bonds_bought: 0,
+            processed: 0,
+            tier_index: 0,
+            version: Winner::CURRENT_VERSION + 1,
+            _padding: [0; 1],
+            _reserved: [0; 8],
+        };
+        assert_eq!(
+            winner.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
     }
 }

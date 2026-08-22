@@ -65,6 +65,24 @@ pub struct DrawCycle {
     pub _reserved: [u8; 64],
 }
 
+impl DrawCycle {
+    /// Current schema version of the DrawCycle account.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
+}
+
 /// Registry of winners and payouts computed for a completed draw cycle.
 ///
 /// PDA seeds: [b"payout", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]
@@ -94,6 +112,22 @@ pub struct PayoutRegistry {
 }
 
 impl PayoutRegistry {
+    /// Current schema version of the PayoutRegistry account.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
+
     /// Validates the winner entry at `winner_index`:
     /// - index is in bounds
     /// - winner pubkey matches the user_winnings user key
@@ -145,6 +179,26 @@ pub struct Winner {
     pub tier_index: u8,
     /// Schema version of the struct.
     pub version: u8,
-    /// Reserved space for future upgrades (9 bytes to maintain 8-byte alignment, 56 bytes struct size).
-    pub _reserved: [u8; 9],
+    /// Explicit padding to ensure 8-byte alignment for reserved space (1 byte: offset 47..48).
+    pub _padding: [u8; 1],
+    /// Reserved space for future upgrades (8 bytes: offset 48..56, 56 bytes struct size total).
+    pub _reserved: [u8; 8],
+}
+
+impl Winner {
+    /// Current schema version of the Winner struct.
+    pub const CURRENT_VERSION: u8 = 1;
+
+    /// Lazily migrates this winner entry to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        require!(
+            self.version <= Self::CURRENT_VERSION,
+            PremiumBondsError::UnsupportedAccountVersion
+        );
+        if self.version < Self::CURRENT_VERSION {
+            // Future schema migrations will be handled here.
+            self.version = Self::CURRENT_VERSION;
+        }
+        Ok(())
+    }
 }
