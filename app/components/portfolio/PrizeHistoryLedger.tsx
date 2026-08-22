@@ -54,10 +54,23 @@ export function PrizeHistoryLedger({
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
 
-  const formatDate = (isoDate: string): string => {
+  const formatDateOnly = (isoDate: string): string => {
     return formatLocalDate(
       isoDate,
-      { month: "short", day: "numeric", year: "numeric" },
+      {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        includeTimeIfPresent: false,
+      },
+      format.dateTime
+    );
+  };
+
+  const formatTimeOnly = (isoDate: string): string => {
+    return formatLocalDate(
+      isoDate,
+      { hour: "2-digit", minute: "2-digit", hour12: true },
       format.dateTime
     );
   };
@@ -149,37 +162,37 @@ export function PrizeHistoryLedger({
           </div>
 
           {/* Desktop Table Skeleton (>= xl) */}
-          <div className="hidden xl:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
-            <table className="w-full min-w-[860px] text-left text-xs border-collapse">
+          <div className="hidden xl:block overflow-x-auto overflow-y-hidden rounded-xl border border-surface-bright/10 bg-surface-container/20">
+            <table className="w-full min-w-[750px] text-left text-xs border-separate border-spacing-0">
               <thead>
-                <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="py-3.5 px-4 w-16">{t("draw")}</th>
-                  <th className="py-3.5 px-4">{t("date")}</th>
-                  <th className="py-3.5 px-4">{t("tier")}</th>
-                  <th className="py-3.5 px-4 text-right">{t("amountWon")}</th>
-                  <th className="py-3.5 px-4">{t("status")}</th>
-                  <th className="py-3.5 px-4 text-right">{t("actions")}</th>
+                <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-3 w-16">{t("draw")}</th>
+                  <th className="py-3 px-3">{t("date")}</th>
+                  <th className="py-3 px-3">{t("tier")}</th>
+                  <th className="py-3 px-3 text-right">{t("amountWon")}</th>
+                  <th className="py-3 px-3">{t("status")}</th>
+                  <th className="py-3 px-3.5 text-right">{t("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-bright/5">
                 {[1, 2, 3, 4].map((i) => (
                   <tr key={i} className="p-4">
-                    <td className="py-3.5 px-4">
+                    <td className="py-3 px-3">
                       <div className="h-8 w-11 rounded-lg skeleton-box" />
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className="py-3 px-3">
                       <div className="h-4 w-24 rounded skeleton-box" />
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className="py-3 px-3">
                       <div className="h-5 w-20 rounded-full skeleton-box" />
                     </td>
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-3 px-3 text-right">
                       <div className="h-4 w-24 rounded skeleton-box ml-auto" />
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className="py-3 px-3">
                       <div className="h-5 w-28 rounded-full skeleton-box" />
                     </td>
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-3 px-3.5 text-right">
                       <div className="h-8 w-24 rounded-lg skeleton-box ml-auto" />
                     </td>
                   </tr>
@@ -272,7 +285,10 @@ export function PrizeHistoryLedger({
                           className="text-xs font-semibold text-on-surface"
                           suppressHydrationWarning
                         >
-                          {formatDate(entry.date)}
+                          {formatDateOnly(entry.date)}{" "}
+                          <span className="text-[10px] text-on-surface-variant/60 font-mono font-normal">
+                            {formatTimeOnly(entry.date)}
+                          </span>
                         </p>
                         <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider font-semibold">
                           {t("date")}
@@ -429,31 +445,31 @@ export function PrizeHistoryLedger({
           </div>
 
           {/* ── Desktop Semantic Table Layout (>= xl) ─────────────────── */}
-          <div className="hidden xl:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
-            <table className="w-full min-w-[860px] text-left text-xs border-collapse">
+          <div className="hidden xl:block overflow-x-auto overflow-y-hidden rounded-xl border border-surface-bright/10 bg-surface-container/20">
+            <table className="w-full min-w-[750px] text-left text-xs border-separate border-spacing-0">
               <thead>
-                <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
-                  <th scope="col" className="py-3.5 px-4 w-16">
+                <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                  <th scope="col" className="py-3 px-3 w-16">
                     {t("draw")}
                   </th>
-                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap">
                     {t("date")}
                   </th>
-                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap">
                     {t("tier")}
                   </th>
                   <th
                     scope="col"
-                    className="py-3.5 px-4 text-right whitespace-nowrap"
+                    className="py-3 px-3 text-right whitespace-nowrap"
                   >
                     {t("amountWon")}
                   </th>
-                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                  <th scope="col" className="py-3 px-3 whitespace-nowrap">
                     {t("status")}
                   </th>
                   <th
                     scope="col"
-                    className="py-3.5 px-4 text-right whitespace-nowrap min-w-[190px]"
+                    className="py-3 px-3.5 text-right whitespace-nowrap"
                   >
                     {t("actions")}
                   </th>
@@ -509,7 +525,7 @@ export function PrizeHistoryLedger({
                       className="hover:bg-surface-container/40 transition-colors cursor-pointer group focus-visible:bg-surface-container/40 outline-none"
                     >
                       {/* Draw ID */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <div className="flex h-8 w-11 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
                           #{entry.drawCycleId}
                         </div>
@@ -517,21 +533,28 @@ export function PrizeHistoryLedger({
 
                       {/* Date */}
                       <td
-                        className="py-3.5 px-4 whitespace-nowrap text-on-surface font-medium"
+                        className="py-3 px-3 whitespace-nowrap text-on-surface font-medium"
                         suppressHydrationWarning
                       >
-                        {formatDate(entry.date)}
+                        <div className="flex flex-col">
+                          <span className="text-xs text-on-surface font-medium">
+                            {formatDateOnly(entry.date)}
+                          </span>
+                          <span className="text-[10px] text-on-surface-variant/70 font-mono">
+                            {formatTimeOnly(entry.date)}
+                          </span>
+                        </div>
                       </td>
 
                       {/* Tier Badge */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <span className={tierBadgeClass(entry.tierIndex)}>
                           {tierLabel(entry.tierIndex)}
                         </span>
                       </td>
 
                       {/* Amount Won */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold">
+                      <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
                         <span
                           className={
                             entry.tierIndex === 0
@@ -547,8 +570,8 @@ export function PrizeHistoryLedger({
                       </td>
 
                       {/* Status + Badges */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 flex-nowrap">
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
                           <StatusBadge
                             status={
                               isEntryTimelocked ? "timelocked" : entry.status
@@ -587,8 +610,8 @@ export function PrizeHistoryLedger({
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                        <div className="inline-flex items-center justify-end gap-2.5 font-sans">
+                      <td className="py-3 px-3.5 whitespace-nowrap text-right">
+                        <div className="inline-flex items-center justify-end gap-2 font-sans">
                           {isEntryTimelocked ? (
                             <button
                               disabled={true}
@@ -643,7 +666,8 @@ export function PrizeHistoryLedger({
                             <VrfSeedBadge
                               seedHex={entry.vrfSeed}
                               drawCycleId={entry.drawCycleId}
-                              variant={hasCrankAction ? "compact" : "default"}
+                              variant="compact"
+                              tooltipAlign="right"
                             />
                           )}
 

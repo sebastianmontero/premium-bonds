@@ -61,10 +61,23 @@ export default function CompleteLedgerModal({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const formatDate = (isoDate: string): string => {
+  const formatDateOnly = (isoDate: string): string => {
     return formatLocalDate(
       isoDate,
-      { month: "short", day: "numeric", year: "numeric" },
+      {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        includeTimeIfPresent: false,
+      },
+      format.dateTime
+    );
+  };
+
+  const formatTimeOnly = (isoDate: string): string => {
+    return formatLocalDate(
+      isoDate,
+      { hour: "2-digit", minute: "2-digit", hour12: true },
       format.dateTime
     );
   };
@@ -171,7 +184,7 @@ export default function CompleteLedgerModal({
         role="dialog"
         aria-modal="true"
         aria-label={t("modalTitle")}
-        className="relative w-full max-w-5xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong"
+        className="relative w-full max-w-5xl 2xl:max-w-6xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
@@ -336,15 +349,15 @@ export default function CompleteLedgerModal({
           </div>
         </div>
 
-        {/* Scrollable list */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-3 min-h-0">
+        {/* Content area: Mobile card scroll & Desktop table scroll */}
+        <div className="flex-1 min-h-0 flex flex-col p-2">
           {isLoading ? (
             <div
-              className="space-y-3 pointer-events-none select-none"
+              className="flex-1 min-h-0 flex flex-col space-y-3 pointer-events-none select-none"
               aria-hidden="true"
             >
               {/* Mobile/Tablet Skeleton Cards (< lg) */}
-              <div className="lg:hidden space-y-3">
+              <div className="lg:hidden flex-1 overflow-y-auto space-y-3 pr-1">
                 {[1, 2, 3, 4].map((i) => (
                   <div
                     key={i}
@@ -370,39 +383,49 @@ export default function CompleteLedgerModal({
               </div>
 
               {/* Desktop Table Skeleton (>= lg) */}
-              <div className="hidden lg:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
-                <table className="w-full min-w-[820px] text-left text-xs border-collapse">
+              <div className="hidden lg:block flex-1 min-h-0 overflow-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
+                <table className="w-full min-w-[750px] text-left text-xs border-separate border-spacing-0">
                   <thead>
-                    <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
-                      <th className="py-3.5 px-4 w-16">{t("draw")}</th>
-                      <th className="py-3.5 px-4">{t("date")}</th>
-                      <th className="py-3.5 px-4">{t("tier")}</th>
-                      <th className="py-3.5 px-4 text-right">
+                    <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 w-16">
+                        {t("draw")}
+                      </th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3">
+                        {t("date")}
+                      </th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3">
+                        {t("tier")}
+                      </th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 text-right">
                         {t("amountWon")}
                       </th>
-                      <th className="py-3.5 px-4">{t("status")}</th>
-                      <th className="py-3.5 px-4 text-right">{t("actions")}</th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3">
+                        {t("status")}
+                      </th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3.5 text-right">
+                        {t("actions")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-bright/5">
-                    {[1, 2, 3, 4, 5].map((i) => (
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
                       <tr key={i} className="p-4">
-                        <td className="py-3.5 px-4">
+                        <td className="py-3 px-3">
                           <div className="h-8 w-11 rounded-lg skeleton-box" />
                         </td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-3 px-3">
                           <div className="h-4 w-24 rounded skeleton-box" />
                         </td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-3 px-3">
                           <div className="h-5 w-20 rounded-full skeleton-box" />
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3 px-3 text-right">
                           <div className="h-4 w-24 rounded skeleton-box ml-auto" />
                         </td>
-                        <td className="py-3.5 px-4">
+                        <td className="py-3 px-3">
                           <div className="h-5 w-28 rounded-full skeleton-box" />
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3 px-3.5 text-right">
                           <div className="h-8 w-24 rounded-lg skeleton-box ml-auto" />
                         </td>
                       </tr>
@@ -412,7 +435,7 @@ export default function CompleteLedgerModal({
               </div>
             </div>
           ) : filteredEntries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40 mt-4">
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40">
               <svg
                 className="w-10 h-10 text-on-surface-variant/20 mb-3"
                 fill="none"
@@ -440,9 +463,9 @@ export default function CompleteLedgerModal({
               </button>
             </div>
           ) : (
-            <>
+            <div className="flex-1 min-h-0 flex flex-col">
               {/* ── Mobile & Tablet Card Layout (< lg) ─────────────────── */}
-              <div className="lg:hidden space-y-3">
+              <div className="lg:hidden flex-1 overflow-y-auto space-y-3 pr-1">
                 {paginatedEntries.map((entry, index) => {
                   const isCranking =
                     !!crankingCycles[
@@ -500,7 +523,10 @@ export default function CompleteLedgerModal({
                               className="text-xs font-semibold text-on-surface"
                               suppressHydrationWarning
                             >
-                              {formatDate(entry.date)}
+                              {formatDateOnly(entry.date)}{" "}
+                              <span className="text-[10px] text-on-surface-variant/60 font-mono font-normal">
+                                {formatTimeOnly(entry.date)}
+                              </span>
                             </p>
                             <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider font-semibold">
                               {t("date")}
@@ -656,31 +682,43 @@ export default function CompleteLedgerModal({
               </div>
 
               {/* ── Desktop Semantic Table Layout (>= lg) ─────────────────── */}
-              <div className="hidden lg:block overflow-x-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
-                <table className="w-full min-w-[820px] text-left text-xs border-collapse">
+              <div className="hidden lg:block flex-1 min-h-0 overflow-auto rounded-xl border border-surface-bright/10 bg-surface-container/20">
+                <table className="w-full min-w-[750px] text-left text-xs border-separate border-spacing-0">
                   <thead>
-                    <tr className="border-b border-surface-bright/10 bg-surface-container/40 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
-                      <th scope="col" className="py-3.5 px-4 w-16">
+                    <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
+                      <th
+                        scope="col"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 w-16"
+                      >
                         {t("draw")}
                       </th>
-                      <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                      <th
+                        scope="col"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 whitespace-nowrap"
+                      >
                         {t("date")}
                       </th>
-                      <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                      <th
+                        scope="col"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 whitespace-nowrap"
+                      >
                         {t("tier")}
                       </th>
                       <th
                         scope="col"
-                        className="py-3.5 px-4 text-right whitespace-nowrap"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 text-right whitespace-nowrap"
                       >
                         {t("amountWon")}
                       </th>
-                      <th scope="col" className="py-3.5 px-4 whitespace-nowrap">
+                      <th
+                        scope="col"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 whitespace-nowrap"
+                      >
                         {t("status")}
                       </th>
                       <th
                         scope="col"
-                        className="py-3.5 px-4 text-right whitespace-nowrap min-w-[190px]"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3.5 text-right whitespace-nowrap"
                       >
                         {t("actions")}
                       </th>
@@ -737,7 +775,7 @@ export default function CompleteLedgerModal({
                           className="hover:bg-surface-container/40 transition-colors cursor-pointer group focus-visible:bg-surface-container/40 outline-none"
                         >
                           {/* Draw ID */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             <div className="flex h-8 w-11 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
                               #{entry.drawCycleId}
                             </div>
@@ -745,21 +783,28 @@ export default function CompleteLedgerModal({
 
                           {/* Date */}
                           <td
-                            className="py-3.5 px-4 whitespace-nowrap text-on-surface font-medium"
+                            className="py-3 px-3 whitespace-nowrap text-on-surface font-medium"
                             suppressHydrationWarning
                           >
-                            {formatDate(entry.date)}
+                            <div className="flex flex-col">
+                              <span className="text-xs text-on-surface font-medium">
+                                {formatDateOnly(entry.date)}
+                              </span>
+                              <span className="text-[10px] text-on-surface-variant/70 font-mono">
+                                {formatTimeOnly(entry.date)}
+                              </span>
+                            </div>
                           </td>
 
                           {/* Tier Badge */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             <span className={tierBadgeClass(entry.tierIndex)}>
                               {tierLabel(entry.tierIndex)}
                             </span>
                           </td>
 
                           {/* Amount Won */}
-                          <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold">
+                          <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
                             <span
                               className={
                                 entry.tierIndex === 0
@@ -775,8 +820,8 @@ export default function CompleteLedgerModal({
                           </td>
 
                           {/* Status + Badges */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 flex-nowrap">
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
                               <StatusBadge
                                 status={
                                   isEntryTimelocked
@@ -817,8 +862,8 @@ export default function CompleteLedgerModal({
                           </td>
 
                           {/* Actions */}
-                          <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                            <div className="inline-flex items-center justify-end gap-2.5 font-sans">
+                          <td className="py-3 px-3.5 whitespace-nowrap text-right">
+                            <div className="inline-flex items-center justify-end gap-2 font-sans">
                               {isEntryTimelocked ? (
                                 <button
                                   disabled={true}
@@ -874,9 +919,8 @@ export default function CompleteLedgerModal({
                                 <VrfSeedBadge
                                   seedHex={entry.vrfSeed}
                                   drawCycleId={entry.drawCycleId}
-                                  variant={
-                                    hasCrankAction ? "compact" : "default"
-                                  }
+                                  variant="compact"
+                                  tooltipAlign="right"
                                 />
                               )}
 
@@ -902,7 +946,7 @@ export default function CompleteLedgerModal({
                   </tbody>
                 </table>
               </div>
-            </>
+            </div>
           )}
         </div>
 

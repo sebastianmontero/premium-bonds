@@ -101,7 +101,7 @@ export function DrawCycleInspectorModal({
       />
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-4xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[88vh] glass-strong">
+      <div className="relative w-full max-w-4xl 2xl:max-w-5xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
           <div className="flex items-center gap-3">
@@ -213,11 +213,14 @@ export function DrawCycleInspectorModal({
           )}
         </div>
 
-        {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1 min-h-0">
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 flex flex-col py-3 gap-3">
           {isLoading ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div
+              className="flex-1 min-h-0 flex flex-col space-y-3 pointer-events-none select-none"
+              aria-hidden="true"
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
                 {[1, 2, 3, 4].map((i) => (
                   <div
                     key={i}
@@ -228,28 +231,32 @@ export function DrawCycleInspectorModal({
                   </div>
                 ))}
               </div>
-              <div className="h-48 rounded-xl skeleton-card" />
+              <div className="flex-1 min-h-0 rounded-xl skeleton-card" />
             </div>
           ) : error ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-red-500/20 rounded-2xl bg-red-500/5">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-red-500/20 rounded-2xl bg-red-500/5">
               <p className="text-sm font-semibold text-red-400">{error}</p>
             </div>
           ) : details ? (
             <>
-              {/* Telemetry Summary Grid */}
-              <DrawTelemetryGrid
-                draw={details}
-                tokenDecimals={tokenDecimals}
-                tokenSymbol={tokenSymbol}
-                payoutTimelockSeconds={payoutTimelockSeconds}
-              />
+              {/* Telemetry Summary Grid - Fixed */}
+              <div className="shrink-0">
+                <DrawTelemetryGrid
+                  draw={details}
+                  tokenDecimals={tokenDecimals}
+                  tokenSymbol={tokenSymbol}
+                  payoutTimelockSeconds={payoutTimelockSeconds}
+                />
+              </div>
 
               {/* Active Tab View */}
               {activeTab === "winners" ? (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between">
+                <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between shrink-0">
                     <h4 className="font-display text-sm font-bold text-on-surface">
-                      {t("payoutRegistryRosterTitle")}
+                      {t("payoutRegistryRosterTitle", {
+                        count: details.winners.length,
+                      })}
                     </h4>
                     {details.isUserWinner && (
                       <span className="text-xs font-semibold text-primary">
@@ -259,6 +266,7 @@ export function DrawCycleInspectorModal({
                   </div>
 
                   <PayoutWinnersTable
+                    cycleId={details.cycleId}
                     winners={details.winners}
                     connectedUserAddress={userAddress}
                     tokenDecimals={tokenDecimals}
@@ -289,27 +297,20 @@ export function DrawCycleInspectorModal({
                           }
                         : undefined
                     }
-                    crankingWinnerIndices={Object.entries(
-                      crankingCycles
-                    ).reduce<Record<number, boolean>>((acc, [key, val]) => {
-                      if (key.startsWith(`${details.cycleId}-`) && val) {
-                        const parts = key.split("-");
-                        const wIdx = parseInt(parts[1], 10);
-                        if (!isNaN(wIdx)) acc[wIdx] = true;
-                      }
-                      return acc;
-                    }, {})}
+                    crankingCycles={crankingCycles}
                   />
                 </div>
               ) : (
-                <ProvableFairnessVerifier draw={details} />
+                <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                  <ProvableFairnessVerifier draw={details} />
+                </div>
               )}
             </>
           ) : null}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-4 border-t border-surface-bright/5 shrink-0 mt-auto">
+        <div className="flex items-center justify-between pt-3 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
             {t("cryptographicProofFooter")}
           </p>

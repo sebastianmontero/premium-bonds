@@ -30,28 +30,28 @@ export function DrawTelemetryGrid({
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {/* 1. Prize Pot */}
-      <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("prizePot")}
         </p>
         <p className="text-base font-bold font-mono text-primary mt-1 truncate">
-          ${formatTokenAmount(draw.prizePot, tokenDecimals)} {tokenSymbol}
+          {formatTokenAmount(draw.prizePot, tokenDecimals)} {tokenSymbol}
         </p>
       </div>
 
       {/* 2. Protocol Fee */}
-      <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("protocolFee")}
         </p>
         <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-          ${formatTokenAmount(draw.cycleFeeCollected, tokenDecimals)}{" "}
+          {formatTokenAmount(draw.cycleFeeCollected, tokenDecimals)}{" "}
           {tokenSymbol}
         </p>
       </div>
 
       {/* 3. Locked Bonds Denominator */}
-      <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("participatingBonds")}
         </p>
@@ -61,7 +61,7 @@ export function DrawTelemetryGrid({
       </div>
 
       {/* 4. Payout Progress */}
-      <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+      <div className="p-2.5 sm:p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
         <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
           {t("payoutProgress")}
         </p>
@@ -78,7 +78,7 @@ export function DrawTelemetryGrid({
 
       {/* 5. Settlement Timelock */}
       <div
-        className={`col-span-2 sm:col-span-1 p-3.5 rounded-xl border flex flex-col justify-between transition-colors ${
+        className={`col-span-2 sm:col-span-1 p-2.5 sm:p-3.5 rounded-xl border flex flex-col justify-between transition-colors ${
           timelockState.isTimelocked
             ? "bg-amber-500/10 border-amber-500/30"
             : "bg-surface-container/20 border-surface-bright/5"
