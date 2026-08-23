@@ -248,3 +248,21 @@ pub struct FeesWithdrawn {
     pub pst_shares: u64,
     pub redemption_id: u64,
 }
+
+/// Emitted when a batch of draw preparation entries is processed.
+#[event]
+pub struct DrawPreparationProgress {
+    /// Pool ID for the draw being prepared.
+    pub pool_id: u32,
+    /// Draw cycle ID being prepared.
+    pub cycle_id: u32,
+    /// Starting index of this batch (inclusive).
+    pub batch_start: u32,
+    /// Ending index of this batch (exclusive).
+    pub batch_end: u32,
+    /// Total user count requiring preparation.
+    pub user_count: u32,
+    /// Whether this batch completed the full preparation.
+    pub is_complete: bool,
+}
+

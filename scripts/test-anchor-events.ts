@@ -22,6 +22,10 @@ const DISCRIMINATORS = {
   DrawForceUnlocked: new Uint8Array([
     0x1a, 0x1d, 0xc5, 0x3c, 0xe5, 0x04, 0xde, 0x2d,
   ]),
+  DrawVoided: new Uint8Array([0x99, 0x2d, 0x33, 0xee, 0x8e, 0x91, 0x03, 0x0c]),
+  DrawPreparationProgress: new Uint8Array([
+    0xb0, 0x87, 0x00, 0x12, 0xac, 0xfe, 0x87, 0x82,
+  ]),
 };
 
 // ANCHOR_EVENT_IX_TAG: sha256("anchor:event")[..8]
@@ -195,6 +199,112 @@ async function runTests() {
     console.log(
       "✓ CPI WinningsReinvested inner instruction event decoded successfully!"
     );
+  }
+
+  // 3b. Mock CPI DrawVoided event parsing
+  {
+    // Payload for DrawVoided: u32 pool_id(4) + u32 cycle_id(4) + Pubkey admin(32) + u64 prizes_reversed(8) + u64 fees_reversed(8) = 56 bytes
+    const fields = new Uint8Array(56);
+    const view = new DataView(
+      fields.buffer,
+      fields.byteOffset,
+      fields.byteLength
+    );
+    view.setUint32(0, 1, true); // pool_id
+    view.setUint32(4, 2, true); // cycle_id
+    fields.set(dummyPubkeyBytes, 8); // admin
+    view.setBigUint64(40, 50_000_000n, true); // prizes_reversed
+    view.setBigUint64(48, 5_000_000n, true); // fees_reversed
+
+    const disc = DISCRIMINATORS.DrawVoided;
+    const cpiBytes = new Uint8Array(
+      ANCHOR_EVENT_IX_TAG.length + disc.length + fields.length
+    );
+    cpiBytes.set(ANCHOR_EVENT_IX_TAG, 0);
+    cpiBytes.set(disc, ANCHOR_EVENT_IX_TAG.length);
+    cpiBytes.set(fields, ANCHOR_EVENT_IX_TAG.length + disc.length);
+
+    const mockRpc = {
+      getSignaturesForAddress: () => ({
+        send: async () => [
+          { signature: "sig_cpi_void", blockTime: 1700000300, err: null },
+        ],
+      }),
+      getTransaction: () => ({
+        send: async () => ({
+          meta: {
+            innerInstructions: [
+              {
+                index: 0,
+                instructions: [
+                  {
+                    programIdIndex: 1,
+                    data: cpiBytes,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      }),
+    };
+
+    const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
+    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events[0].type, "DrawVoided");
+    assert.strictEqual(res.events[0].data.poolId, 1);
+    assert.strictEqual(res.events[0].data.cycleId, 2);
+    assert.strictEqual(res.events[0].data.admin, dummyPubkeyStr);
+    assert.strictEqual(res.events[0].data.prizesReversed, 50_000_000n);
+    assert.strictEqual(res.events[0].data.feesReversed, 5_000_000n);
+    console.log(
+      "✓ CPI DrawVoided inner instruction event decoded successfully!"
+    );
+  }
+
+  // 3c. Mock DrawPreparationProgress log event parsing
+  {
+    // Payload: u32 pool_id(4) + u32 cycle_id(4) + u32 batch_start(4) + u32 batch_end(4) + u32 user_count(4) + bool is_complete(1) = 21 bytes
+    const fields = new Uint8Array(21);
+    const view = new DataView(
+      fields.buffer,
+      fields.byteOffset,
+      fields.byteLength
+    );
+    view.setUint32(0, 1, true); // pool_id
+    view.setUint32(4, 5, true); // cycle_id
+    view.setUint32(8, 0, true); // batch_start
+    view.setUint32(12, 10, true); // batch_end
+    view.setUint32(16, 10, true); // user_count
+    view.setUint8(20, 1); // is_complete = true
+
+    const logMessage = buildLogPayload("DrawPreparationProgress", fields);
+
+    const mockRpc = {
+      getSignaturesForAddress: () => ({
+        send: async () => [
+          { signature: "sig_prep_prog", blockTime: 1700000400, err: null },
+        ],
+      }),
+      getTransaction: () => ({
+        send: async () => ({
+          meta: {
+            logMessages: [logMessage],
+          },
+        }),
+      }),
+    };
+
+    const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
+    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events[0].type, "DrawPreparationProgress");
+    assert.strictEqual(res.events[0].data.poolId, 1);
+    assert.strictEqual(res.events[0].data.cycleId, 5);
+    assert.strictEqual(res.events[0].data.batchStart, 0);
+    assert.strictEqual(res.events[0].data.batchEnd, 10);
+    assert.strictEqual(res.events[0].data.userCount, 10);
+    assert.strictEqual(res.events[0].data.isComplete, true);
+    console.log("✓ DrawPreparationProgress log event decoded successfully!");
   }
 
   // 4. Test Event Cache, Genesis Hash Validation & Invalidation

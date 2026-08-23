@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const ADMIN_FORCE_UNLOCK_DRAW_DISCRIMINATOR: ReadonlyUint8Array =
@@ -61,6 +61,9 @@ export type AdminForceUnlockDrawInstruction<
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -79,6 +82,12 @@ export type AdminForceUnlockDrawInstruction<
       TAccountCurrentDrawCycle extends string
         ? WritableAccount<TAccountCurrentDrawCycle>
         : TAccountCurrentDrawCycle,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -120,6 +129,8 @@ export type AdminForceUnlockDrawAsyncInput<
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration account, validated to contain the admin address. */
   globalConfig?: Address<TAccountGlobalConfig>;
@@ -129,6 +140,9 @@ export type AdminForceUnlockDrawAsyncInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account, validated to be awaiting randomness. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getAdminForceUnlockDrawInstructionAsync<
@@ -136,13 +150,17 @@ export async function getAdminForceUnlockDrawInstructionAsync<
   TAccountAdmin extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: AdminForceUnlockDrawAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
-    TAccountCurrentDrawCycle
+    TAccountCurrentDrawCycle,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -151,7 +169,9 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
-    TAccountCurrentDrawCycle
+    TAccountCurrentDrawCycle,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -166,6 +186,8 @@ export async function getAdminForceUnlockDrawInstructionAsync<
       value: input.currentDrawCycle ?? null,
       isWritable: true,
     },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -176,6 +198,13 @@ export async function getAdminForceUnlockDrawInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -184,6 +213,8 @@ export async function getAdminForceUnlockDrawInstructionAsync<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getAdminForceUnlockDrawInstructionDataEncoder().encode({}),
     programAddress,
@@ -192,7 +223,9 @@ export async function getAdminForceUnlockDrawInstructionAsync<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
-    TAccountCurrentDrawCycle
+    TAccountCurrentDrawCycle,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -201,6 +234,8 @@ export type AdminForceUnlockDrawInput<
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration account, validated to contain the admin address. */
   globalConfig: Address<TAccountGlobalConfig>;
@@ -210,6 +245,9 @@ export type AdminForceUnlockDrawInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account, validated to be awaiting randomness. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getAdminForceUnlockDrawInstruction<
@@ -217,13 +255,17 @@ export function getAdminForceUnlockDrawInstruction<
   TAccountAdmin extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: AdminForceUnlockDrawInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
-    TAccountCurrentDrawCycle
+    TAccountCurrentDrawCycle,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): AdminForceUnlockDrawInstruction<
@@ -231,7 +273,9 @@ export function getAdminForceUnlockDrawInstruction<
   TAccountGlobalConfig,
   TAccountAdmin,
   TAccountPool,
-  TAccountCurrentDrawCycle
+  TAccountCurrentDrawCycle,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -245,11 +289,19 @@ export function getAdminForceUnlockDrawInstruction<
       value: input.currentDrawCycle ?? null,
       isWritable: true,
     },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
+
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -258,6 +310,8 @@ export function getAdminForceUnlockDrawInstruction<
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getAdminForceUnlockDrawInstructionDataEncoder().encode({}),
     programAddress,
@@ -266,7 +320,9 @@ export function getAdminForceUnlockDrawInstruction<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountPool,
-    TAccountCurrentDrawCycle
+    TAccountCurrentDrawCycle,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -284,6 +340,9 @@ export type ParsedAdminForceUnlockDrawInstruction<
     pool: TAccountMetas[2];
     /** The current draw cycle account, validated to be awaiting randomness. */
     currentDrawCycle: TAccountMetas[3];
+    eventAuthority: TAccountMetas[4];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[5];
   };
   data: AdminForceUnlockDrawInstructionData;
 };
@@ -296,12 +355,12 @@ export function parseAdminForceUnlockDrawInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedAdminForceUnlockDrawInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+  if (instruction.accounts.length < 6) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 4,
+        expectedAccountMetas: 6,
       }
     );
   }
@@ -318,6 +377,8 @@ export function parseAdminForceUnlockDrawInstruction<
       admin: getNextAccount(),
       pool: getNextAccount(),
       currentDrawCycle: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getAdminForceUnlockDrawInstructionDataDecoder().decode(
       instruction.data

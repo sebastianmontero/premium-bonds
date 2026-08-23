@@ -149,6 +149,8 @@ fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::
         admin: signer.pubkey(),
         pool: ctx.pool_key,
         current_draw_cycle: ctx.current_draw_cycle,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -179,7 +181,7 @@ fn test_admin_force_unlock_happy_path() {
     );
 
     let meta = send_force_unlock(&mut ctx, &admin).unwrap();
-    let event = assert_log_event::<anchor::events::DrawForceUnlocked>(&meta);
+    let event = assert_cpi_event::<anchor::events::DrawForceUnlocked>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.admin, admin.pubkey());
@@ -307,3 +309,39 @@ fn test_admin_force_unlock_preserves_total_prizes_distributed() {
     assert_eq!(pool.total_prizes_allocated, 1_500_000);
     assert_eq!(pool.total_prizes_distributed, 750_000);
 }
+
+#[test]
+fn test_admin_force_unlock_fails_invalid_event_authority() {
+    let admin = Keypair::new();
+    let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
+
+    let (global_config, _) = global_config_pda();
+    let fake_event_authority = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::AdminForceUnlockDraw {
+        global_config,
+        admin: admin.pubkey(),
+        pool: ctx.pool_key,
+        current_draw_cycle: ctx.current_draw_cycle,
+        event_authority: fake_event_authority,
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
+        "expected ConstraintSeeds error on invalid event authority, got: {err_str}"
+    );
+}
+

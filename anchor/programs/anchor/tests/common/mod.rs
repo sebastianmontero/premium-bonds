@@ -1316,6 +1316,8 @@ pub fn build_admin_void_payout_registry_ix(admin: &Pubkey, pool_id: u32, cycle_i
         pool,
         current_draw_cycle,
         payout_registry,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 

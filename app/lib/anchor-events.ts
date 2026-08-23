@@ -63,6 +63,23 @@ export interface DrawForceUnlockedEvent {
   cycleFeeCollected: bigint;
 }
 
+export interface DrawVoidedEvent {
+  poolId: number;
+  cycleId: number;
+  admin: string;
+  prizesReversed: bigint;
+  feesReversed: bigint;
+}
+
+export interface DrawPreparationProgressEvent {
+  poolId: number;
+  cycleId: number;
+  batchStart: number;
+  batchEnd: number;
+  userCount: number;
+  isComplete: boolean;
+}
+
 export type ProgramEvent =
   | {
       type: "BondsPurchased";
@@ -105,6 +122,18 @@ export type ProgramEvent =
       data: DrawForceUnlockedEvent;
       signature: string;
       blockTime: number;
+    }
+  | {
+      type: "DrawVoided";
+      data: DrawVoidedEvent;
+      signature: string;
+      blockTime: number;
+    }
+  | {
+      type: "DrawPreparationProgress";
+      data: DrawPreparationProgressEvent;
+      signature: string;
+      blockTime: number;
     };
 
 // ─── Discriminator computation ───────────────────────────────────────────────
@@ -122,6 +151,8 @@ const DISCRIMINATOR_MAP: Record<string, string> = {
   "6bfbc7d53bad35bd": "RedemptionClaimed",
   c1882558b47c6014: "DrawCompleted",
   "1a1dc53ce504de2d": "DrawForceUnlocked",
+  "992d33ee8e91030c": "DrawVoided",
+  b0870012acfe8782: "DrawPreparationProgress",
 };
 
 // ─── Borsh Decoders ──────────────────────────────────────────────────────────
@@ -129,6 +160,10 @@ const DISCRIMINATOR_MAP: Record<string, string> = {
 function readPubkey(view: DataView, data: Uint8Array, offset: number): string {
   const bytes = data.slice(offset, offset + 32);
   return base58Decoder.decode(bytes) as string;
+}
+
+function readBool(view: DataView, offset: number): boolean {
+  return view.getUint8(offset) !== 0;
 }
 
 function readU32(view: DataView, offset: number): number {
@@ -226,6 +261,29 @@ function decodeEventData(
         prizePot: readU64(view, 40),
         cycleFeeCollected: readU64(view, 48),
       } as DrawForceUnlockedEvent;
+    }
+    case "DrawVoided": {
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) = 56
+      if (payload.length < 56) return null;
+      return {
+        poolId: readU32(view, 0),
+        cycleId: readU32(view, 4),
+        admin: readPubkey(view, payload, 8),
+        prizesReversed: readU64(view, 40),
+        feesReversed: readU64(view, 48),
+      } as DrawVoidedEvent;
+    }
+    case "DrawPreparationProgress": {
+      // u32(4) + u32(4) + u32(4) + u32(4) + u32(4) + bool(1) = 21
+      if (payload.length < 21) return null;
+      return {
+        poolId: readU32(view, 0),
+        cycleId: readU32(view, 4),
+        batchStart: readU32(view, 8),
+        batchEnd: readU32(view, 12),
+        userCount: readU32(view, 16),
+        isComplete: readBool(view, 20),
+      } as DrawPreparationProgressEvent;
     }
     default:
       return null;

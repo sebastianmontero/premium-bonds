@@ -278,26 +278,54 @@ function runTests() {
   // Test 14: isParsedTransactionError type guard
   {
     console.log("Test 14: isParsedTransactionError type guard");
-    const rawParsed = parseTransactionError(new Error("custom program error: 0x1770"));
-    assert(isParsedTransactionError(rawParsed) === true, "Should recognize parsed transaction error");
-    assert(isParsedTransactionError(null) === false, "null is not parsed error");
-    assert(isParsedTransactionError({}) === false, "empty object is not parsed error");
-    assert(isParsedTransactionError(new Error("fail")) === false, "Error instance is not parsed error");
+    const rawParsed = parseTransactionError(
+      new Error("custom program error: 0x1770")
+    );
+    assert(
+      isParsedTransactionError(rawParsed) === true,
+      "Should recognize parsed transaction error"
+    );
+    assert(
+      isParsedTransactionError(null) === false,
+      "null is not parsed error"
+    );
+    assert(
+      isParsedTransactionError({}) === false,
+      "empty object is not parsed error"
+    );
+    assert(
+      isParsedTransactionError(new Error("fail")) === false,
+      "Error instance is not parsed error"
+    );
     console.log("✓ Passed Test 14\n");
   }
 
   // Test 15: TransactionError class creation and inheritance
   {
     console.log("Test 15: TransactionError class instantiation and prototype");
-    const parsed = parseTransactionError(new Error("custom program error: 0x1770"));
+    const parsed = parseTransactionError(
+      new Error("custom program error: 0x1770")
+    );
     const rawCause = new Error("Underlying RPC failure");
     const txErr = new TransactionError(parsed, rawCause);
 
     assert(txErr instanceof Error, "TransactionError must be instanceof Error");
-    assert(txErr instanceof TransactionError, "TransactionError must be instanceof TransactionError");
-    assert(txErr.name === "TransactionError", `Expected name TransactionError, got ${txErr.name}`);
-    assert(txErr.message === parsed.message, `Expected message ${parsed.message}, got ${txErr.message}`);
-    assert(txErr.parsed === parsed, "TransactionError must expose parsed payload");
+    assert(
+      txErr instanceof TransactionError,
+      "TransactionError must be instanceof TransactionError"
+    );
+    assert(
+      txErr.name === "TransactionError",
+      `Expected name TransactionError, got ${txErr.name}`
+    );
+    assert(
+      txErr.message === parsed.message,
+      `Expected message ${parsed.message}, got ${txErr.message}`
+    );
+    assert(
+      txErr.parsed === parsed,
+      "TransactionError must expose parsed payload"
+    );
     assert(txErr.cause === rawCause, "TransactionError must preserve cause");
     console.log("✓ Passed Test 15\n");
   }
@@ -305,13 +333,21 @@ function runTests() {
   // Test 16: parseTransactionError idempotency with TransactionError and ParsedTransactionError
   {
     console.log("Test 16: parseTransactionError idempotency");
-    const initialParsed = parseTransactionError(new Error("custom program error: 0x1770"));
+    const initialParsed = parseTransactionError(
+      new Error("custom program error: 0x1770")
+    );
     const reParsed = parseTransactionError(initialParsed);
-    assert(reParsed === initialParsed, "Re-parsing ParsedTransactionError must be strictly idempotent");
+    assert(
+      reParsed === initialParsed,
+      "Re-parsing ParsedTransactionError must be strictly idempotent"
+    );
 
     const txErr = new TransactionError(initialParsed);
     const parsedFromTxErr = parseTransactionError(txErr);
-    assert(parsedFromTxErr === initialParsed, "Parsing TransactionError must cleanly unwrap .parsed");
+    assert(
+      parsedFromTxErr === initialParsed,
+      "Parsing TransactionError must cleanly unwrap .parsed"
+    );
     console.log("✓ Passed Test 16\n");
   }
 

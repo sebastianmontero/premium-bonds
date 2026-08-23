@@ -50,6 +50,13 @@ pub struct AdminForceUnlockDraw<'info> {
         bump,
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Force unlocks a prize pool and completes the draw cycle.
@@ -86,7 +93,7 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    emit!(DrawForceUnlocked {
+    emit_cpi!(DrawForceUnlocked {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         admin: ctx.accounts.admin.key(),

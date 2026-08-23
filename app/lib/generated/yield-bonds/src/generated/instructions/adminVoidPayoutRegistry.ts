@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const ADMIN_VOID_PAYOUT_REGISTRY_DISCRIMINATOR: ReadonlyUint8Array =
@@ -62,6 +62,9 @@ export type AdminVoidPayoutRegistryInstruction<
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
   TAccountPayoutRegistry extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -83,6 +86,12 @@ export type AdminVoidPayoutRegistryInstruction<
       TAccountPayoutRegistry extends string
         ? WritableAccount<TAccountPayoutRegistry>
         : TAccountPayoutRegistry,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -125,6 +134,8 @@ export type AdminVoidPayoutRegistryAsyncInput<
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountPayoutRegistry extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration state, used to verify the admin signature. */
   globalConfig?: Address<TAccountGlobalConfig>;
@@ -136,6 +147,9 @@ export type AdminVoidPayoutRegistryAsyncInput<
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   /** The payout registry account to void. */
   payoutRegistry: Address<TAccountPayoutRegistry>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getAdminVoidPayoutRegistryInstructionAsync<
@@ -144,6 +158,8 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountPayoutRegistry extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: AdminVoidPayoutRegistryAsyncInput<
@@ -151,7 +167,9 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountPayoutRegistry
+    TAccountPayoutRegistry,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -161,7 +179,9 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountPayoutRegistry
+    TAccountPayoutRegistry,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -177,6 +197,8 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
       isWritable: true,
     },
     payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -187,6 +209,13 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -196,6 +225,8 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("payoutRegistry", accounts.payoutRegistry),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getAdminVoidPayoutRegistryInstructionDataEncoder().encode({}),
     programAddress,
@@ -205,7 +236,9 @@ export async function getAdminVoidPayoutRegistryInstructionAsync<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountPayoutRegistry
+    TAccountPayoutRegistry,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -215,6 +248,8 @@ export type AdminVoidPayoutRegistryInput<
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountPayoutRegistry extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration state, used to verify the admin signature. */
   globalConfig: Address<TAccountGlobalConfig>;
@@ -226,6 +261,9 @@ export type AdminVoidPayoutRegistryInput<
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   /** The payout registry account to void. */
   payoutRegistry: Address<TAccountPayoutRegistry>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getAdminVoidPayoutRegistryInstruction<
@@ -234,6 +272,8 @@ export function getAdminVoidPayoutRegistryInstruction<
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountPayoutRegistry extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: AdminVoidPayoutRegistryInput<
@@ -241,7 +281,9 @@ export function getAdminVoidPayoutRegistryInstruction<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountPayoutRegistry
+    TAccountPayoutRegistry,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): AdminVoidPayoutRegistryInstruction<
@@ -250,7 +292,9 @@ export function getAdminVoidPayoutRegistryInstruction<
   TAccountAdmin,
   TAccountPool,
   TAccountCurrentDrawCycle,
-  TAccountPayoutRegistry
+  TAccountPayoutRegistry,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -265,11 +309,19 @@ export function getAdminVoidPayoutRegistryInstruction<
       isWritable: true,
     },
     payoutRegistry: { value: input.payoutRegistry ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
+
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -279,6 +331,8 @@ export function getAdminVoidPayoutRegistryInstruction<
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("payoutRegistry", accounts.payoutRegistry),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getAdminVoidPayoutRegistryInstructionDataEncoder().encode({}),
     programAddress,
@@ -288,7 +342,9 @@ export function getAdminVoidPayoutRegistryInstruction<
     TAccountAdmin,
     TAccountPool,
     TAccountCurrentDrawCycle,
-    TAccountPayoutRegistry
+    TAccountPayoutRegistry,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -308,6 +364,9 @@ export type ParsedAdminVoidPayoutRegistryInstruction<
     currentDrawCycle: TAccountMetas[3];
     /** The payout registry account to void. */
     payoutRegistry: TAccountMetas[4];
+    eventAuthority: TAccountMetas[5];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[6];
   };
   data: AdminVoidPayoutRegistryInstructionData;
 };
@@ -320,12 +379,12 @@ export function parseAdminVoidPayoutRegistryInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedAdminVoidPayoutRegistryInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 5) {
+  if (instruction.accounts.length < 7) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 5,
+        expectedAccountMetas: 7,
       }
     );
   }
@@ -343,6 +402,8 @@ export function parseAdminVoidPayoutRegistryInstruction<
       pool: getNextAccount(),
       currentDrawCycle: getNextAccount(),
       payoutRegistry: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getAdminVoidPayoutRegistryInstructionDataDecoder().decode(
       instruction.data

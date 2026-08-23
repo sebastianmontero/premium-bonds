@@ -1,5 +1,6 @@
 use crate::constants::{DRAW_CYCLE_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
+use crate::events::DrawPreparationProgress;
 use crate::state::{DrawCycle, DrawStatus, PrizePool, TicketRegistry};
 use crate::utils::{registry_get_entry, registry_set_entry};
 use anchor_lang::prelude::*;
@@ -96,6 +97,16 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
 
     let mut registry = registry_loader.load_mut()?;
     registry.draw_prepared_up_to = end;
+
+    emit!(DrawPreparationProgress {
+        pool_id: ctx.accounts.pool.load()?.pool_id,
+        cycle_id: ctx.accounts.draw_cycle.cycle_id,
+        batch_start: start,
+        batch_end: end,
+        user_count: registry.user_count,
+        is_complete: end >= registry.user_count,
+    });
+
     #[cfg(feature = "debug-logs")]
     msg!(
         "Prepared entries from index {} to {}. Cumulative active: {}",

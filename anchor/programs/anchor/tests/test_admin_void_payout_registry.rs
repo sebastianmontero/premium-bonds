@@ -12,6 +12,8 @@ use {
     anchor_lang::prelude::Pubkey,
     anchor_lang::AccountDeserialize,
     anchor_lang::Discriminator,
+    anchor_lang::InstructionData,
+    anchor_lang::ToAccountMetas,
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_sdk::account::Account,
@@ -191,7 +193,7 @@ fn test_admin_void_payout_registry_success() {
     let meta = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id)
         .expect("admin_void_payout_registry should succeed");
 
-    let event = assert_log_event::<anchor::events::DrawVoided>(&meta);
+    let event = assert_cpi_event::<anchor::events::DrawVoided>(&meta);
     assert_eq!(event.pool_id, pool_id);
     assert_eq!(event.cycle_id, cycle_id);
     assert_eq!(event.admin, admin.pubkey());
@@ -537,4 +539,84 @@ fn test_multi_cycle_cumulative_prize_distribution_and_void_recovery() {
         assert_eq!(pool.total_fees_accrued, 15_000);
     }
 }
+
+#[test]
+fn test_admin_void_payout_registry_fails_invalid_event_authority() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    let _ = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, 100_000, 5_000, anchor::DrawStatus::Complete);
+
+    let winner = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 100_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    let _ = inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
+    let fake_event_authority = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
+        global_config,
+        admin: admin.pubkey(),
+        pool,
+        current_draw_cycle,
+        payout_registry,
+        event_authority: fake_event_authority,
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = solana_program::instruction::Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
+    };
+
+    let bh = svm.latest_blockhash();
+    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
+        solana_sdk::message::VersionedMessage::Legacy(msg),
+        &[&admin],
+    )
+    .unwrap();
+    let err = svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
+        "expected ConstraintSeeds error on invalid event authority, got: {err_str}"
+    );
+}
+
 

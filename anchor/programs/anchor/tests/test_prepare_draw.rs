@@ -164,7 +164,7 @@ fn inject_pool_custom(
     .unwrap();
 }
 
-fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<(), String> {
+fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<litesvm::types::TransactionMetadata, String> {
     let accounts = anchor::accounts::PrepareDraw {
         crank: ctx.crank.pubkey(),
         pool: ctx.pool_key,
@@ -184,7 +184,6 @@ fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<(), String> {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     ctx.svm
         .send_transaction(tx)
-        .map(|_| ())
         .map_err(|e| format!("{e:?}"))
 }
 
@@ -217,7 +216,14 @@ fn test_prepare_draw_happy_path() {
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
-    send_prepare(&mut ctx, 2).unwrap();
+    let meta = send_prepare(&mut ctx, 2).unwrap();
+    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.batch_start, 0);
+    assert_eq!(event.batch_end, 2);
+    assert_eq!(event.user_count, 2);
+    assert_eq!(event.is_complete, true);
 
     let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
@@ -351,3 +357,43 @@ fn test_prepare_draw_idempotent_when_fully_prepared() {
     let draw_prepared_up_to2 = u32::from_le_bytes(reg_acct2.data[32..36].try_into().unwrap());
     assert_eq!(draw_prepared_up_to2, 1);
 }
+
+#[test]
+fn test_prepare_draw_multi_batch_events() {
+    let entries = (0..4)
+        .map(|_| anchor::state::UserEntry {
+            owner: Keypair::new().pubkey(),
+            active: 10,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        })
+        .collect::<Vec<_>>();
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Batch 1: Process 2 of 4 entries (partial)
+    let meta1 = send_prepare(&mut ctx, 2).expect("Batch 1 should succeed");
+    let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
+    assert_eq!(event1.pool_id, 1);
+    assert_eq!(event1.cycle_id, 0);
+    assert_eq!(event1.batch_start, 0);
+    assert_eq!(event1.batch_end, 2);
+    assert_eq!(event1.user_count, 4);
+    assert_eq!(event1.is_complete, false);
+
+    // Batch 2: Process remaining 2 entries (complete)
+    ctx.svm.expire_blockhash();
+    let meta2 = send_prepare(&mut ctx, 2).expect("Batch 2 should succeed");
+    let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
+    assert_eq!(event2.pool_id, 1);
+    assert_eq!(event2.cycle_id, 0);
+    assert_eq!(event2.batch_start, 2);
+    assert_eq!(event2.batch_end, 4);
+    assert_eq!(event2.user_count, 4);
+    assert_eq!(event2.is_complete, true);
+}
+

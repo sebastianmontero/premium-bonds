@@ -52,6 +52,13 @@ pub struct AdminVoidPayoutRegistry<'info> {
         bump
     )]
     pub payout_registry: AccountLoader<'info, PayoutRegistry>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Voids a completed draw and cleanly rolls back accounting without corrupting invariants.
@@ -110,7 +117,7 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
     draw_cycle.status = DrawStatus::Voided;
     draw_cycle.completed_at = Clock::get()?.unix_timestamp;
 
-    emit!(DrawVoided {
+    emit_cpi!(DrawVoided {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         admin: ctx.accounts.admin.key(),
