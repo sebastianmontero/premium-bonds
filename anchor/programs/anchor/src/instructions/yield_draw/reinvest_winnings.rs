@@ -261,9 +261,9 @@ pub fn handle(
                 _padding: [0; 3],
                 _reserved: [0; 12],
             };
-            registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
+            registry_set_entry(&mut data, user_entry_idx as usize, &new_entry)?;
         } else {
-            let mut entry = registry_get_entry(&data, user_entry_idx as usize);
+            let mut entry = registry_get_entry(&data, user_entry_idx as usize)?;
             require!(
                 entry.owner == ctx.accounts.winner.key(),
                 PremiumBondsError::InvalidUserEntryHint
@@ -275,7 +275,7 @@ pub fn handle(
                 .checked_add(bonds_to_buy)
                 .ok_or(PremiumBondsError::MathOverflow)?;
 
-            registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+            registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
         }
     }
 

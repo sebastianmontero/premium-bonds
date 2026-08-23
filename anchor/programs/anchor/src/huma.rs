@@ -47,25 +47,25 @@ pub fn read_mode_assets(pool_state_info: &AccountInfo) -> Result<u128> {
     // Read Vec length (u32 LE) at MODE_STATES_OFFSET
     require!(
         data.len() >= MODE_STATES_OFFSET + 4,
-        PremiumBondsError::MathOverflow
+        PremiumBondsError::InvalidModeMint
     );
     let vec_len_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let vec_len = u32::from_le_bytes(vec_len_bytes) as usize;
 
-    require!(vec_len > 0, PremiumBondsError::MathOverflow);
+    require!(vec_len > 0, PremiumBondsError::InvalidModeMint);
 
     // First ModeState starts right after the 4-byte length prefix.
     // `assets` is the first field (u128, 16 bytes).
     let assets_start = MODE_STATES_OFFSET + 4;
     require!(
         data.len() >= assets_start + 16,
-        PremiumBondsError::MathOverflow
+        PremiumBondsError::InvalidModeMint
     );
     let assets_bytes: [u8; 16] = data[assets_start..assets_start + 16]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let assets = u128::from_le_bytes(assets_bytes);
 
     Ok(assets)
@@ -89,11 +89,11 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
     if usdc_amount == 0 {
         return Ok(0);
     }
-    // 1:1 initial parity applies strictly when both supply and assets are zero
-    if pst_supply == 0 && total_assets == 0 {
+    // 1:1 initial parity applies strictly when both supply and assets are zero (or supply is 0)
+    if pst_supply == 0 {
         return Ok(usdc_amount);
     }
-    require!(total_assets > 0, PremiumBondsError::MathOverflow);
+    require!(total_assets > 0, PremiumBondsError::YieldVenueInsolvent);
 
     let numerator = (usdc_amount as u128)
         .checked_mul(pst_supply as u128)
@@ -511,42 +511,42 @@ pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128
     // Read mode_states length prefix (u32 LE) at offset 26
     require!(
         data.len() >= MODE_STATES_OFFSET + 4,
-        PremiumBondsError::MathOverflow
+        PremiumBondsError::InvalidModeMint
     );
     let num_modes_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let num_modes = u32::from_le_bytes(num_modes_bytes) as usize;
 
     // Locate mode_config_keys length prefix offset
     let mode_config_keys_offset = 30 + num_modes * 216;
     require!(
         data.len() >= mode_config_keys_offset + 4,
-        PremiumBondsError::MathOverflow
+        PremiumBondsError::InvalidModeMint
     );
 
     // Read mode_config_keys length prefix (u32 LE)
     let num_config_keys_bytes: [u8; 4] = data[mode_config_keys_offset..mode_config_keys_offset + 4]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let num_config_keys = u32::from_le_bytes(num_config_keys_bytes) as usize;
 
     // Locate redemption offset
     let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
     require!(
         data.len() >= redemption_offset + 32,
-        PremiumBondsError::MathOverflow
+        PremiumBondsError::InvalidModeMint
     );
 
     // Read next_request_id and last_request_id
     let next_req_bytes: [u8; 16] = data[redemption_offset..redemption_offset + 16]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let next_request_id = u128::from_le_bytes(next_req_bytes);
 
     let last_req_bytes: [u8; 16] = data[redemption_offset + 16..redemption_offset + 32]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
     let last_request_id = u128::from_le_bytes(last_req_bytes);
 
     Ok((next_request_id, last_request_id))

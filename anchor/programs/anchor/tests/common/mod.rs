@@ -770,7 +770,7 @@ pub fn read_registry_user_count(svm: &LiteSVM, address: Pubkey) -> u32 {
 
 pub fn read_registry_entry(svm: &LiteSVM, address: Pubkey, idx: usize) -> anchor::state::UserEntry {
     let acct = svm.get_account(&address).expect("registry should exist");
-    anchor::utils::registry_get_entry(&acct.data, idx)
+    anchor::utils::registry_get_entry(&acct.data, idx).expect("valid registry entry")
 }
 
 /// Returns the default 1-winner 10,000 bps prize tier vector for testing.
@@ -1091,14 +1091,16 @@ pub fn send_e2e_sell_bonds_for_user(
             let registry_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
             let user_count = u32::from_le_bytes(registry_acct.data[16..20].try_into().unwrap());
             let entry =
-                anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize);
+                anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize)
+                    .unwrap();
             let will_exit = (entry.active <= active_to_sell) && (entry.pending <= pending_to_sell);
 
             if will_exit && user_count > 0 && user_entry_idx != user_count - 1 {
                 let last_entry = anchor::utils::registry_get_entry(
                     &registry_acct.data,
                     (user_count - 1) as usize,
-                );
+                )
+                .unwrap();
                 let (last_winnings, _) = user_winnings_pda(1, &last_entry.owner);
                 swapped_user_winnings = Some(last_winnings);
             }

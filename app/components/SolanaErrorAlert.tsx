@@ -30,7 +30,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
     ? parseTransactionError(error)
     : null;
 
-  // Auto-dismiss cancellations after 4 seconds when in toast mode (pauses on hover)
+  // Auto-dismiss cancellations after 2.5 seconds when in toast mode (pauses on hover)
   useEffect(() => {
     if (
       variant === "toast" &&
@@ -40,7 +40,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
     ) {
       const timer = setTimeout(() => {
         onDismiss();
-      }, 4000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [variant, error, parsed?.isCancellation, onDismiss, isPaused]);
@@ -58,19 +58,19 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
 
   if (!parsed) return null;
 
-  // 1. Cancellation: High contrast, warm amber status presentation
+  // 1. Cancellation: Quiet, polite neutral slate presentation
   if (parsed.isCancellation) {
     const cancelContent = (
       <div
         onMouseEnter={() => setIsPaused(true)}
         onMouseLeave={() => setIsPaused(false)}
-        className={`group relative overflow-hidden rounded-xl bg-surface-container-highest/95 backdrop-blur-xl border border-amber-500/40 border-l-4 border-l-amber-400 p-3.5 text-xs text-on-surface flex flex-col gap-2.5 animate-fade-in shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_24px_rgba(245,158,11,0.18)] ${className}`}
+        className={`group relative overflow-hidden rounded-xl bg-surface-container-highest/95 backdrop-blur-xl border border-surface-bright/50 border-l-4 border-l-surface-variant p-3.5 text-xs text-on-surface flex flex-col gap-2.5 animate-fade-in shadow-ambient ${className}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <div
               aria-hidden="true"
-              className="bg-amber-500/20 text-amber-300 border border-amber-500/35 p-2 rounded-xl shrink-0 flex items-center justify-center shadow-inner"
+              className="bg-white/5 text-on-surface-variant border border-white/10 p-2 rounded-xl shrink-0 flex items-center justify-center shadow-inner"
             >
               <svg
                 className="w-4 h-4"
@@ -82,15 +82,15 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  d="M6 18L18 6M6 6l12 12"
                 />
               </svg>
             </div>
             <div className="space-y-0.5">
-              <h4 className="font-semibold text-xs text-amber-300">
-                Transaction Canceled
+              <h4 className="font-semibold text-xs text-on-surface">
+                Transaction Cancelled
               </h4>
-              <p className="text-on-surface/90 text-xs leading-relaxed">
+              <p className="text-on-surface-variant text-xs leading-relaxed">
                 {parsed.message ||
                   "You cancelled the transaction request in your wallet."}
               </p>
@@ -117,10 +117,10 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
         {variant === "toast" && (
           <div
             aria-hidden="true"
-            className="w-full bg-amber-500/20 h-1 rounded-full overflow-hidden mt-0.5"
+            className="w-full bg-white/10 h-1 rounded-full overflow-hidden mt-0.5"
           >
             <div
-              className={`bg-amber-400 h-full animate-toast-progress ${
+              className={`bg-surface-variant h-full animate-toast-progress ${
                 isPaused ? "[animation-play-state:paused]" : ""
               }`}
             />

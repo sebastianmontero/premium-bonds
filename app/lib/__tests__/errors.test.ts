@@ -3,6 +3,8 @@ import {
   matchAnchorError,
   isParsedTransactionError,
   TransactionError,
+  sanitizeErrorMessage,
+  SPL_TOKEN_ERRORS,
 } from "../errors";
 
 function assert(condition: boolean, message: string) {
@@ -349,6 +351,149 @@ function runTests() {
       "Parsing TransactionError must cleanly unwrap .parsed"
     );
     console.log("✓ Passed Test 16\n");
+  }
+
+  // Test 17: System Program Insufficient Funds (0x1)
+  {
+    console.log("Test 17: System Program Insufficient Funds (0x1)");
+    const rawErr = new Error(
+      "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1"
+    );
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "system", `Expected layer system, got ${parsed.layer}`);
+    assert(
+      parsed.category === "insufficient_sol",
+      `Expected category insufficient_sol, got ${parsed.category}`
+    );
+    assert(parsed.code === "0x1", `Expected code 0x1, got ${parsed.code}`);
+    assert(
+      parsed.title === "Insufficient SOL",
+      `Expected title Insufficient SOL, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 17\n");
+  }
+
+  // Test 18: SPL Token Insufficient Funds (0x3)
+  {
+    console.log("Test 18: SPL Token Insufficient Funds (0x3)");
+    const rawErr = new Error(
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x3"
+    );
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "spl", `Expected layer spl, got ${parsed.layer}`);
+    assert(
+      parsed.category === "insufficient_tokens",
+      `Expected category insufficient_tokens, got ${parsed.category}`
+    );
+    assert(parsed.code === 3, `Expected code 3, got ${parsed.code}`);
+    assert(
+      parsed.title === "Token Error: InsufficientFunds",
+      `Expected title Token Error: InsufficientFunds, got ${parsed.title}`
+    );
+    assert(
+      parsed.message === SPL_TOKEN_ERRORS[3].message,
+      `Expected message from SPL_TOKEN_ERRORS, got ${parsed.message}`
+    );
+    console.log("✓ Passed Test 18\n");
+  }
+
+  // Test 19: SPL Token Mint Mismatch (0x4)
+  {
+    console.log("Test 19: SPL Token Mint Mismatch (0x4)");
+    const rawErr = new Error(
+      "Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x4"
+    );
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "spl", `Expected layer spl, got ${parsed.layer}`);
+    assert(parsed.code === 4, `Expected code 4, got ${parsed.code}`);
+    assert(
+      parsed.title === "Token Error: MintMismatch",
+      `Expected title Token Error: MintMismatch, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 19\n");
+  }
+
+  // Test 20: RPC Rate Limit 429
+  {
+    console.log("Test 20: RPC Rate Limit 429");
+    const rawErr = new Error("429 Too Many Requests: rate limit exceeded on RPC cluster");
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "network_rpc",
+      `Expected category network_rpc, got ${parsed.category}`
+    );
+    assert(parsed.code === "429", `Expected code 429, got ${parsed.code}`);
+    assert(
+      parsed.title === "Network Busy",
+      `Expected title Network Busy, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 20\n");
+  }
+
+  // Test 21: Network FETCH_FAILED
+  {
+    console.log("Test 21: Network FETCH_FAILED");
+    const rawErr = new Error("TypeError: Failed to fetch");
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "network_rpc",
+      `Expected category network_rpc, got ${parsed.category}`
+    );
+    assert(
+      parsed.code === "FETCH_FAILED",
+      `Expected code FETCH_FAILED, got ${parsed.code}`
+    );
+    assert(
+      parsed.title === "Connection Error",
+      `Expected title Connection Error, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 21\n");
+  }
+
+  // Test 22: Compute Unit (CU) Budget Exhaustion
+  {
+    console.log("Test 22: Compute Unit Budget Exhaustion");
+    const rawErr = new Error(
+      "Program failed to complete: exceeded maximum number of instructions allowed"
+    );
+    const parsed = parseTransactionError(rawErr);
+    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
+    assert(
+      parsed.category === "network_rpc",
+      `Expected category network_rpc, got ${parsed.category}`
+    );
+    assert(
+      parsed.code === "COMPUTE_BUDGET_EXCEEDED",
+      `Expected code COMPUTE_BUDGET_EXCEEDED, got ${parsed.code}`
+    );
+    assert(
+      parsed.title === "Compute Budget Exceeded",
+      `Expected title Compute Budget Exceeded, got ${parsed.title}`
+    );
+    console.log("✓ Passed Test 22\n");
+  }
+
+  // Test 23: sanitizeErrorMessage URL scrubbing & ANSI color codes
+  {
+    console.log("Test 23: sanitizeErrorMessage URL scrubbing & ANSI cleaning");
+    const technicalRaw =
+      "\u001b[31mError\u001b[0m: Connection refused to https://api.devnet.solana.com/rpc/v1 at line 42:10";
+    const sanitized = sanitizeErrorMessage(technicalRaw);
+    assert(
+      !sanitized.includes("https://api.devnet.solana.com"),
+      "Should redact raw RPC endpoint URL"
+    );
+    assert(
+      sanitized.includes("[RPC Endpoint]"),
+      "Should replace URL with [RPC Endpoint]"
+    );
+    assert(
+      !sanitized.includes("\u001b[31m"),
+      "Should strip ANSI escape sequences"
+    );
+    console.log("✓ Passed Test 23\n");
   }
 
   console.log(

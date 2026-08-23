@@ -49,9 +49,13 @@ Anchor's `emit_cpi!` macro provides native, runtime-enforced event verification 
 
 #### Anchor Rust Implementation:
 
+> [!IMPORTANT]
+> In Anchor 0.29+, the program module **MUST** be decorated with `#[event_cpi]` above `#[program]` to generate the required CPI event dispatcher and authority verification hooks.
+
 ```rust
 use anchor_lang::prelude::*;
 
+#[event_cpi]
 #[program]
 pub mod my_protocol {
     use super::*;
@@ -84,7 +88,17 @@ pub struct Deposit<'info> {
 
 ---
 
-### Strategy B: Strict Program Context Validation (For Log-Based `emit!`)
+### Strategy B: Protecting Governance & Administrative Telemetry
+
+Governance actions (e.g. updating fees, changing multisig authorities, emergency pausing) are prime targets for log spoofing. Malicious actors could emit fake `FeeUpdated` or `EmergencyPaused` logs to trigger fake off-chain liquidation freezes or front-run user reactions.
+
+1. **Prefer `emit_cpi!` for Governance**: Use `emit_cpi!` for any instruction that changes protocol-wide configuration.
+2. **Strict Verification on Log Indexers**: If using log-based `emit!`, indexers must strictly verify the program execution stack depth (Strategy C below) and cross-reference the `authority` signer key.
+
+---
+
+### Strategy C: Strict Program Context Validation (For Log-Based `emit!`)
+
 
 If `emit!` is used due to account constraints or CU budget limits, off-chain indexers **MUST** implement stateful log context parsing:
 

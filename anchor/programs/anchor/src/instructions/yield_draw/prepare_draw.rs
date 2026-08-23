@@ -76,11 +76,11 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     let mut cumulative = if start == 0 {
         0
     } else {
-        registry_get_entry(&data, (start - 1) as usize).cumulative_active
+        registry_get_entry(&data, (start - 1) as usize)?.cumulative_active
     };
 
     for i in start..end {
-        let mut entry = registry_get_entry(&data, i as usize);
+        let mut entry = registry_get_entry(&data, i as usize)?;
 
         // Apply lazy merge
         entry.lazy_merge(merge_cycle_id)?;
@@ -90,7 +90,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
         entry.cumulative_active = cumulative;
 
-        registry_set_entry(&mut data, i as usize, &entry);
+        registry_set_entry(&mut data, i as usize, &entry)?;
     }
 
     drop(data);

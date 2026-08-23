@@ -101,6 +101,7 @@ function DrawHistoryContent() {
   const {
     stage: actionStage,
     txSignature: actionTxSignature,
+    error: actionRunnerError,
     runTransaction: runActionTx,
     reset: resetActionRunner,
   } = useTransactionRunner();
@@ -232,6 +233,8 @@ function DrawHistoryContent() {
         stage={actionStage}
         title={t("crankModalTitle")}
         customSuccessMessage={t("crankSuccessMsg")}
+        errorMessage={actionRunnerError?.message}
+        actionableStep={actionRunnerError?.actionableStep}
         txSignature={actionTxSignature}
         onClose={resetActionRunner}
       />

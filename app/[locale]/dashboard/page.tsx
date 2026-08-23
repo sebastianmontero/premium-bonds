@@ -121,6 +121,7 @@ export default function DashboardPage() {
   const {
     stage: actionStage,
     txSignature: actionTxSignature,
+    error: actionError,
     runTransaction: runActionTx,
     reset: resetActionRunner,
   } = useTransactionRunner();
@@ -564,6 +565,8 @@ export default function DashboardPage() {
         stage={actionStage}
         title={actionModalTitle}
         customSuccessMessage={actionSuccessMsg}
+        errorMessage={actionError?.message}
+        actionableStep={actionError?.actionableStep}
         txSignature={actionTxSignature}
         onClose={resetActionRunner}
       />

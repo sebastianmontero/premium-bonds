@@ -43,7 +43,11 @@ export function useTransactionRunner() {
       } catch (err) {
         const parsed = parseTransactionError(err);
         setError(parsed);
-        setStage(null);
+        if (parsed.isCancellation) {
+          setStage(null);
+        } else {
+          setStage("error");
+        }
         throw new TransactionError(parsed, err);
       }
     },

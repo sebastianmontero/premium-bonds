@@ -209,7 +209,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
             let mut hi = user_count.saturating_sub(1);
             while lo < hi {
                 let mid = (lo + hi) / 2;
-                let mid_entry = registry_get_entry(&data, mid as usize);
+                let mid_entry = registry_get_entry(&data, mid as usize)?;
                 if (mid_entry.cumulative_active as u64) <= winning_index {
                     lo = mid + 1;
                 } else {
@@ -217,7 +217,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 }
             }
 
-            let winning_entry = registry_get_entry(&data, lo as usize);
+            let winning_entry = registry_get_entry(&data, lo as usize)?;
 
             payout_registry.winners[winner_count] = Winner {
                 winner: winning_entry.owner,

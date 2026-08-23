@@ -263,9 +263,9 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             _padding: [0; 3],
             _reserved: [0; 12],
         };
-        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry);
+        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry)?;
     } else {
-        let mut entry = crate::utils::registry_get_entry(&data, user_entry_idx as usize);
+        let mut entry = crate::utils::registry_get_entry(&data, user_entry_idx as usize)?;
         require!(
             entry.owner == user_key,
             crate::error::PremiumBondsError::InvalidUserEntryHint
@@ -275,7 +275,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             .pending
             .checked_add(bonds_to_buy)
             .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
     }
 
     emit_cpi!(BondsPurchased {

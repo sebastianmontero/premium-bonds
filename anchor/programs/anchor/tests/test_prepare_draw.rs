@@ -229,10 +229,10 @@ fn test_prepare_draw_happy_path() {
     let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
     assert_eq!(draw_prepared_up_to, 2);
 
-    let entry_a = anchor::utils::registry_get_entry(&reg_acct.data, 0);
+    let entry_a = anchor::utils::registry_get_entry(&reg_acct.data, 0).unwrap();
     assert_eq!(entry_a.cumulative_active, 5);
 
-    let entry_b = anchor::utils::registry_get_entry(&reg_acct.data, 1);
+    let entry_b = anchor::utils::registry_get_entry(&reg_acct.data, 1).unwrap();
     assert_eq!(entry_b.cumulative_active, 8);
 }
 
@@ -316,7 +316,7 @@ fn test_prepare_draw_excludes_pending_tickets() {
     let draw_prepared_up_to = u32::from_le_bytes(reg_acct_after.data[32..36].try_into().unwrap());
     assert_eq!(draw_prepared_up_to, 1);
 
-    let entry_after = anchor::utils::registry_get_entry(&reg_acct_after.data, 0);
+    let entry_after = anchor::utils::registry_get_entry(&reg_acct_after.data, 0).unwrap();
 
     assert_eq!(entry_after.active, 10);
     assert_eq!(entry_after.pending, 5);

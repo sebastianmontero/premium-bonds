@@ -131,11 +131,48 @@ When a transaction update arrives via gRPC, iterate through `tx.meta.inner_instr
 
 ---
 
-## 3. Testing Event Emission in Rust Integration Tests (LiteSVM)
+## 3. Indexing Governance Deltas & Account Closure Finality
 
-In-process testing with **LiteSVM** is the fastest way to verify event emission logic without running localvalidator nodes.
+### Ingesting Parameter Changes (`FeeBpsUpdated`)
+For administrative events (Pillar 2), indexers should store historical time-series diffs to construct protocol audit trails:
 
-### LiteSVM Event Verification Pattern in Rust
+```typescript
+export function recordGovernanceEvent(event: {
+  authority: string;
+  config: string;
+  oldFeeBps: number;
+  newFeeBps: number;
+  timestamp: number;
+}) {
+  console.log(`[Governance] Config ${event.config} updated by ${event.authority}`);
+  console.log(`Fee changed from ${event.oldFeeBps} bps -> ${event.newFeeBps} bps`);
+  // Insert into historical parameter audit table
+}
+```
+
+### Ingesting Pre-Closure Finality Events (`PositionClosed`)
+When accounts are closed with `close = destination`, on-chain account queries return `null`. Indexers must treat pre-closure events as the definitive tombstone record:
+
+```typescript
+export function recordAccountClosure(event: {
+  user: string;
+  position: string;
+  principalReturned: bigint;
+  finalRewardPaid: bigint;
+  timestamp: number;
+}) {
+  // Mark position as CLOSED in off-chain database and record final settled payout
+  console.log(`Position ${event.position} closed. Final reward: ${event.finalRewardPaid}`);
+}
+```
+
+---
+
+## 4. Testing Event Emission in Rust Integration Tests (LiteSVM)
+
+In-process testing with **LiteSVM** is the fastest way to verify event emission logic without running local validator nodes.
+
+### LiteSVM Event Verification Patterns in Rust
 
 ```rust
 use litesvm::LiteSVM;
@@ -147,7 +184,7 @@ use solana_sdk::{
 };
 
 #[test]
-fn test_verify_bonds_purchased_event_emission() {
+fn test_verify_program_log_and_cpi_event_emission() {
     let mut svm = LiteSVM::new();
     let program_id = Pubkey::new_unique();
     let program_bytes = include_bytes!("../target/deploy/my_protocol.so");
@@ -171,18 +208,27 @@ fn test_verify_bonds_purchased_event_emission() {
 
     let tx_result = svm.send_transaction(tx).expect("Transaction failed");
 
-    // 1. Verify log messages contain expected Anchor event marker
-    let logs = tx_result.meta.log_messages;
-    let event_logged = logs.iter().any(|line| line.contains("Program data:"));
+    // ========================================================================
+    // 1. Asserting Standard emit! (Program Log Emission)
+    // ========================================================================
+    let event_logged = tx_result.logs.iter().any(|line| line.contains("Program data:"));
     assert!(event_logged, "Expected transaction logs to contain emitted event data");
 
-    // 2. Optional: Parse base64 payload and assert field contents
-    let event_line = logs
+    let event_line = tx_result
+        .logs
         .iter()
         .find(|line| line.contains("Program data:"))
-        .expect("Event line not found");
-
+        .expect("Event line not found in logs");
     let base64_payload = event_line.replace("Program data: ", "");
     println!("Emitted Event Base64: {}", base64_payload);
+
+    // ========================================================================
+    // 2. Asserting Secure emit_cpi! (Inner Instructions Emission)
+    // ========================================================================
+    let cpi_event_emitted = tx_result.inner_instructions.iter().any(|inner_ix_set| {
+        inner_ix_set.iter().any(|ix| ix.instruction.program_id == program_id)
+    });
+    assert!(cpi_event_emitted, "Expected CPI inner instruction event from target program");
 }
 ```
+

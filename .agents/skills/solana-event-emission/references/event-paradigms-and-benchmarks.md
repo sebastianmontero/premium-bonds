@@ -117,6 +117,14 @@ pub struct OrderFillSummary {
 }
 ```
 
+#### Vector Batching 10 KB Log Budget Sizing Formula
+
+When using standard `emit!` for batched payloads, use this sizing formula to ensure your vector length $N$ never breaches the 10,240 byte runtime log limit:
+
+$$\text{Total Base64 Log Bytes} \approx \left( 8\text{ [Disc]} + 4\text{ [Vec Len]} + (N \times \text{ItemBytes}) \right) \times 1.3333 + 20\text{ [Prefix]} \le 10,240\text{ bytes}$$
+
+**Example**: If `OrderFillSummary` is 80 bytes, the maximum batch size $N_{\text{max}} \approx \lfloor(7680 - 12) / 80\rfloor = 95\text{ items}$. Enforce `require!(fills.len() <= 50, CustomError::BatchTooLarge);` to leave headroom for other instruction logs.
+
 ### Pattern 2: Zero-Copy Memory Slicing for Heavy Events
 
 For ultra-large event payloads, avoid Rust stack frame allocation and heap re-allocations during serialization. Use pre-allocated slices or write binary fields directly into fixed-size byte buffers before passing to `sol_log_data`.
@@ -130,3 +138,14 @@ buffer[40..48].copy_from_slice(&amount.to_le_bytes());
 
 anchor_lang::solana_program::log::sol_log_data(&[&buffer]);
 ```
+
+---
+
+## 4. Strategic Paradigm Selection by Event Criticality
+
+Choose the emission paradigm based on the event's functional pillar (see [event-trigger-taxonomy-and-missing-events-audit.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-event-emission/references/event-trigger-taxonomy-and-missing-events-audit.md)):
+
+- **Financial & Governance Mutations (Pillars 1 & 2)**: Prefer `emit_cpi!` with `#[event_cpi]` when account budgets allow, ensuring 100% cryptographic anti-spoofing and zero log buffer consumption.
+- **Protocol Lifecycle & Account Closures (Pillars 3 & 5)**: Use `emit_cpi!` or `emit!` with state snapshots before `close = destination` data clearing.
+- **High-Frequency Keeper Cranks (Pillar 4)**: Use Vector Batched `emit!` or `spl-noop` to avoid both CU blowup and 10KB log buffer overflow.
+

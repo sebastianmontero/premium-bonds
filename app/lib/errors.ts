@@ -550,6 +550,45 @@ export const ANCHOR_FRAMEWORK_ERRORS: Record<
 };
 
 /**
+ * SPL Token Program & Token-2022 Error Codes Map (0x0 - 0x1e)
+ */
+export const SPL_TOKEN_ERRORS: Record<
+  number,
+  { name: string; message: string; actionable?: string }
+> = {
+  0: {
+    name: "AlreadyInUse",
+    message: "Token account is already initialized or in use.",
+  },
+  1: {
+    name: "InvalidState",
+    message: "Token account or mint is in an invalid state.",
+  },
+  2: {
+    name: "UninitializedState",
+    message: "Token account is not initialized.",
+  },
+  3: {
+    name: "InsufficientFunds",
+    message: "Insufficient token balance to complete this transfer.",
+    actionable: "Deposit additional tokens or lower the transaction amount.",
+  },
+  4: {
+    name: "MintMismatch",
+    message: "Provided token mint does not match the token account.",
+    actionable: "Ensure your wallet is using the correct token mint.",
+  },
+  5: {
+    name: "UninitializedMint",
+    message: "Token mint account is not initialized.",
+  },
+  23: {
+    name: "Overflow",
+    message: "Token calculation overflow occurred.",
+  },
+};
+
+/**
  * Helper to test whether an error is a user wallet rejection (code 4001 or cancellation text).
  */
 function isWalletCancellation(err: unknown): boolean {
@@ -966,6 +1005,32 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
     }
   }
 
+  // 3b. Check for SPL Token Program Errors (0x0 - 0x1e)
+  for (const [codeStr, info] of Object.entries(SPL_TOKEN_ERRORS)) {
+    const code = Number(codeStr);
+    const hexCode = `0x${code.toString(16)}`;
+    if (
+      combinedSearchText.includes(`Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: ${hexCode}`) ||
+      combinedSearchText.includes(`Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: ${hexCode}`) ||
+      combinedSearchText.includes(`custom program error: ${hexCode}`) && (combinedSearchText.includes("Token") || combinedSearchText.includes("transfer")) ||
+      combinedSearchText.includes(`InstructionError: [1, {"Custom":${code}}]`) ||
+      combinedSearchText.includes(`InstructionError: [0, {"Custom":${code}}]`) ||
+      (code === 3 && (combinedSearchText.toLowerCase().includes("insufficient token balance") || combinedSearchText.toLowerCase().includes("insufficient funds for transfer")))
+    ) {
+      return {
+        isCancellation: false,
+        layer: "spl",
+        category: code === 3 ? "insufficient_tokens" : "anchor_custom",
+        title: `Token Error: ${info.name}`,
+        message: info.message,
+        code,
+        actionableStep: info.actionable || "Check token balance and account state.",
+        logs,
+        rawError: err,
+      };
+    }
+  }
+
   // 4. RPC Rate Limit (429) & Network Disconnections
   if (
     rawMsg.includes("429") ||
@@ -998,6 +1063,26 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
       message: "Unable to reach the Solana network cluster.",
       code: "FETCH_FAILED",
       actionableStep: "Check your internet connection or try again shortly.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 4b. Compute Unit (CU) Budget Exhaustion
+  const isCuExhausted =
+    /exceeded maximum number of instructions allowed|program failed to complete: exceeded compute units|computebudgetexceeded|consumed \d+ of \d+ compute units/i.test(
+      combinedSearchText
+    );
+  if (isCuExhausted) {
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "network_rpc",
+      title: "Compute Budget Exceeded",
+      message:
+        "Transaction execution ran out of compute units before completing.",
+      code: "COMPUTE_BUDGET_EXCEEDED",
+      actionableStep: "Retry the transaction with higher priority fees or a larger compute budget.",
       logs,
       rawError: err,
     };

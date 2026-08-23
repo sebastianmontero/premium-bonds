@@ -83,7 +83,7 @@ impl TicketRegistry {
 /// Zero-copy representation of a user's ticket balance in the TicketRegistry.
 #[zero_copy(unsafe)]
 #[repr(C)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct UserEntry {
     /// The owner's public key.
     pub owner: Pubkey,

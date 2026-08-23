@@ -78,13 +78,13 @@ fn get_user_entry_start_offset(data_len: usize, idx: usize) -> Option<usize> {
 /// * `idx` - The zero-based user entry index to fetch.
 ///
 /// # Returns
-/// * `UserEntry` - Deserialized user entry struct.
-pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
+/// * `Result<UserEntry>` - Deserialized user entry struct or error if out of bounds.
+pub fn registry_get_entry(data: &[u8], idx: usize) -> Result<crate::state::UserEntry> {
     let start = get_user_entry_start_offset(data.len(), idx)
-        .expect("Out of bounds read in registry_get_entry");
+        .ok_or_else(|| error!(PremiumBondsError::InvalidUserEntryHint))?;
     unsafe {
         let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
-        std::ptr::read_unaligned(ptr)
+        Ok(std::ptr::read_unaligned(ptr))
     }
 }
 
@@ -94,12 +94,16 @@ pub fn registry_get_entry(data: &[u8], idx: usize) -> crate::state::UserEntry {
 /// * `data` - Mutable raw bytes slice of the TicketRegistry account data.
 /// * `idx` - The zero-based user entry index to write.
 /// * `entry` - Reference to the UserEntry struct to be written.
-pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) {
+///
+/// # Returns
+/// * `Result<()>` - Ok if successfully written or error if out of bounds.
+pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) -> Result<()> {
     let start = get_user_entry_start_offset(data.len(), idx)
-        .expect("Out of bounds write in registry_set_entry");
+        .ok_or_else(|| error!(PremiumBondsError::InvalidUserEntryHint))?;
     unsafe {
         let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
         std::ptr::write_unaligned(ptr, *entry);
+        Ok(())
     }
 }
 
@@ -430,11 +434,11 @@ mod tests {
             _reserved: [0; 12],
         };
 
-        registry_set_entry(&mut data, 0, &entry1);
-        registry_set_entry(&mut data, 2, &entry2);
+        registry_set_entry(&mut data, 0, &entry1).unwrap();
+        registry_set_entry(&mut data, 2, &entry2).unwrap();
 
-        let read1 = registry_get_entry(&data, 0);
-        let read2 = registry_get_entry(&data, 2);
+        let read1 = registry_get_entry(&data, 0).unwrap();
+        let read2 = registry_get_entry(&data, 2).unwrap();
 
         assert_eq!(read1.owner, entry1.owner);
         assert_eq!(read1.active, entry1.active);
@@ -450,19 +454,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Out of bounds read in registry_get_entry")]
-    fn test_user_entry_get_out_of_bounds_panics() {
+    fn test_user_entry_get_out_of_bounds_returns_error() {
         let data = make_entry_data(2);
         // capacity is 2 (valid indices 0 and 1)
-        let _ = registry_get_entry(&data, 2);
+        let err = registry_get_entry(&data, 2).unwrap_err();
+        assert_eq!(
+            err,
+            crate::error::PremiumBondsError::InvalidUserEntryHint.into()
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Out of bounds write in registry_set_entry")]
-    fn test_user_entry_set_out_of_bounds_panics() {
+    fn test_user_entry_set_out_of_bounds_returns_error() {
         let mut data = make_entry_data(2);
         let entry = crate::state::UserEntry::default();
-        registry_set_entry(&mut data, 2, &entry);
+        let err = registry_set_entry(&mut data, 2, &entry).unwrap_err();
+        assert_eq!(
+            err,
+            crate::error::PremiumBondsError::InvalidUserEntryHint.into()
+        );
     }
 
     #[test]

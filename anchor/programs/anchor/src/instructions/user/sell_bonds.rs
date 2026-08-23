@@ -219,7 +219,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     // 1. First scope: read, validate, merge, check exit status, write entries.
     {
         let mut data = registry_ai.try_borrow_mut_data()?;
-        let mut entry = registry_get_entry(&data, user_entry_idx as usize);
+        let mut entry = registry_get_entry(&data, user_entry_idx as usize)?;
         require!(
             entry.owner == user_key,
             PremiumBondsError::InvalidUserEntryHint
@@ -250,17 +250,17 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         if will_exit {
             user_winnings.registry_entry_index = u32::MAX;
             if user_entry_idx != last_entry_idx {
-                let last_entry = registry_get_entry(&data, last_entry_idx as usize);
+                let last_entry = registry_get_entry(&data, last_entry_idx as usize)?;
                 swapped_owner = last_entry.owner;
-                registry_set_entry(&mut data, user_entry_idx as usize, &last_entry);
+                registry_set_entry(&mut data, user_entry_idx as usize, &last_entry)?;
             }
             registry_set_entry(
                 &mut data,
                 last_entry_idx as usize,
                 &crate::state::UserEntry::default(),
-            );
+            )?;
         } else {
-            registry_set_entry(&mut data, user_entry_idx as usize, &entry);
+            registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
         }
     }
 

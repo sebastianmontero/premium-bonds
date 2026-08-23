@@ -1,73 +1,102 @@
-//! Anchor Event Emission Showcase
+//! Anchor Event Emission & Missing Event Prevention Showcase
 //!
 //! Demonstrates best practices for:
-//! 1. Standard Anchor `emit!` log-based events.
-//! 2. Secure `emit_cpi!` events (Anchor 0.29+) with Event Authority PDA.
-//! 3. Vector batched event emission for loop efficiency.
-//! 4. Direct low-CU `sol_log_data` syscall emission.
+//! 1. `#[event_cpi]` macro configuration for Anchor 0.29+.
+//! 2. Pillar 1 (Financial Flow): Self-healing deposit with delta + post-vault snapshot.
+//! 3. Pillar 2 (Governance Mutation): Admin fee update recording `old_value` -> `new_value`.
+//! 4. Pillar 3 (Lifecycle Finality): Account closure event immediately prior to `close = destination`.
+//! 5. Pillar 4 (Crank/Keeper Action): Vector batched liquidation event to avoid 10KB log limits.
+//! 6. Secure Cryptographic CPI Event Emission (`emit_cpi!`) with `__event_authority` PDA.
 
 use anchor_lang::prelude::*;
 
 declare_id!("EventShowcase1111111111111111111111111111111");
 
+#[event_cpi]
 #[program]
 pub mod anchor_events_showcase {
     use super::*;
 
-    /// 1. Standard Log Event Emission using `emit!`
-    pub fn emit_standard_deposit(ctx: Context<EmitStandard>, amount: u64) -> Result<()> {
+    /// 1. Pillar 1: Financial Deposit with Self-Healing Snapshot
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        let vault = &mut ctx.accounts.vault;
         let clock = Clock::get()?;
 
+        vault.total_deposited = vault.total_deposited.checked_add(amount).unwrap();
+
+        // Emit self-healing telemetry: delta + post-state aggregate snapshot
         emit!(TokensDeposited {
             user: ctx.accounts.user.key(),
-            amount,
+            vault: vault.key(),
+            delta_amount: amount,
+            new_total_vault_deposits: vault.total_deposited,
             timestamp: clock.unix_timestamp,
         });
 
         Ok(())
     }
 
-    /// 2. Secure Cryptographic Event Emission using `emit_cpi!`
-    /// Requires `event_authority` PDA and `program` (Self) in context accounts.
-    pub fn emit_secure_deposit(ctx: Context<EmitSecure>, amount: u64) -> Result<()> {
-        let clock = Clock::get()?;
+    /// 2. Pillar 2: Governance Parameter Mutation (Old vs. New Values)
+    pub fn update_fee_bps(ctx: Context<UpdateFeeBps>, new_fee_bps: u16) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        let old_fee_bps = config.fee_bps;
+        config.fee_bps = new_fee_bps;
 
-        emit_cpi!(SecureTokensDeposited {
-            user: ctx.accounts.user.key(),
-            amount,
-            timestamp: clock.unix_timestamp,
-        });
-
-        Ok(())
-    }
-
-    /// 3. Batched Event Emission for high-frequency iteration loops
-    pub fn emit_batched_fills(ctx: Context<EmitBatched>, fills: Vec<FillSummary>) -> Result<()> {
-        require!(!fills.is_empty(), EventErrorCode::EmptyBatch);
-        require!(fills.len() <= 50, EventErrorCode::BatchTooLarge);
-
-        emit!(BatchOrdersFilled {
-            pool_id: 1,
-            fill_count: fills.len() as u32,
-            fills,
+        // Emit complete audit trail with authority, old value, and new value
+        emit!(FeeBpsUpdated {
+            authority: ctx.accounts.authority.key(),
+            config: config.key(),
+            old_fee_bps,
+            new_fee_bps,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
         Ok(())
     }
 
-    /// 4. Direct Syscall Zero-Copy Emission (`sol_log_data`) for ultra-low CU budget
-    pub fn emit_zero_copy_sys_log(_ctx: Context<EmitZeroCopy>, user: Pubkey, amount: u64) -> Result<()> {
-        // Custom 8-byte discriminator for event identification
-        const CUSTOM_DISCRIMINATOR: [u8; 8] = [0xFE, 0xED, 0xFA, 0xCE, 0x01, 0x02, 0x03, 0x04];
+    /// 3. Pillar 3: Lifecycle Finality & Account Closure Event
+    /// Emitted immediately prior to Anchor zeroing account memory via `close = user`.
+    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {
+        let position = &ctx.accounts.position;
+        let final_payout = position.principal.checked_add(position.accrued_yield).unwrap();
 
-        let mut payload = [0u8; 48];
-        payload[0..8].copy_from_slice(&CUSTOM_DISCRIMINATOR);
-        payload[8..40].copy_from_slice(user.as_ref());
-        payload[40..48].copy_from_slice(&amount.to_le_bytes());
+        // Final immutable proof of account state before memory wipe
+        emit!(PositionClosed {
+            user: ctx.accounts.user.key(),
+            position: position.key(),
+            principal_returned: position.principal,
+            yield_paid: position.accrued_yield,
+            final_payout,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
-        // Syscall directly logging raw binary slices (runtime base64-encodes)
-        anchor_lang::solana_program::log::sol_log_data(&[&payload]);
+        Ok(())
+    }
+
+    /// 4. Pillar 4: Vector Batched Keeper Liquidations
+    /// Aggregates multiple liquidation actions into a single event to avoid 10KB log limits.
+    pub fn liquidate_batch(ctx: Context<LiquidateBatch>, liquidations: Vec<LiquidationSummary>) -> Result<()> {
+        require!(!liquidations.is_empty(), EventErrorCode::EmptyBatch);
+        require!(liquidations.len() <= 50, EventErrorCode::BatchTooLarge);
+
+        emit!(BatchLiquidationsExecuted {
+            keeper: ctx.accounts.keeper.key(),
+            count: liquidations.len() as u32,
+            liquidations,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    /// 5. Secure Cryptographic Event Emission using `emit_cpi!`
+    /// Requires `event_authority` PDA and `program` (Self) in context accounts.
+    pub fn emit_secure_vault_transfer(ctx: Context<EmitSecure>, amount: u64) -> Result<()> {
+        emit_cpi!(SecureVaultTransferred {
+            user: ctx.accounts.user.key(),
+            amount,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }
@@ -78,8 +107,38 @@ pub mod anchor_events_showcase {
 // ============================================================================
 
 #[derive(Accounts)]
-pub struct EmitStandard<'info> {
+pub struct Deposit<'info> {
+    #[account(mut)]
     pub user: Signer<'info>,
+    #[account(mut)]
+    pub vault: Account<'info, VaultAccount>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateFeeBps<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        has_one = authority,
+    )]
+    pub config: Account<'info, ConfigAccount>,
+}
+
+#[derive(Accounts)]
+pub struct ClosePosition<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        has_one = user,
+        close = user, // Anchor zeroes memory and reclaims rent
+    )]
+    pub position: Account<'info, UserPosition>,
+}
+
+#[derive(Accounts)]
+pub struct LiquidateBatch<'info> {
+    pub keeper: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -97,52 +156,85 @@ pub struct EmitSecure<'info> {
     pub program: Program<'info, AnchorEventsShowcase>,
 }
 
-#[derive(Accounts)]
-pub struct EmitBatched<'info> {
-    pub user: Signer<'info>,
+// ============================================================================
+// STATE ACCOUNT STRUCTS
+// ============================================================================
+
+#[account]
+pub struct VaultAccount {
+    pub total_deposited: u64,
 }
 
-#[derive(Accounts)]
-pub struct EmitZeroCopy<'info> {
-    pub user: Signer<'info>,
+#[account]
+pub struct ConfigAccount {
+    pub authority: Pubkey,
+    pub fee_bps: u16,
+}
+
+#[account]
+pub struct UserPosition {
+    pub user: Pubkey,
+    pub principal: u64,
+    pub accrued_yield: u64,
 }
 
 // ============================================================================
 // EVENT STRUCT DEFINITIONS
 // ============================================================================
 
-/// Standard Log Event Struct
+/// Pillar 1: Financial Deposit Event (Self-Healing)
 #[event]
 pub struct TokensDeposited {
     pub user: Pubkey,
-    pub amount: u64,
+    pub vault: Pubkey,
+    pub delta_amount: u64,
+    pub new_total_vault_deposits: u64,
     pub timestamp: i64,
 }
 
-/// Secure CPI Event Struct
+/// Pillar 2: Governance Parameter Mutation Event
 #[event]
-pub struct SecureTokensDeposited {
+pub struct FeeBpsUpdated {
+    pub authority: Pubkey,
+    pub config: Pubkey,
+    pub old_fee_bps: u16,
+    pub new_fee_bps: u16,
+    pub timestamp: i64,
+}
+
+/// Pillar 3: Account Closure Finality Event
+#[event]
+pub struct PositionClosed {
     pub user: Pubkey,
-    pub amount: u64,
+    pub position: Pubkey,
+    pub principal_returned: u64,
+    pub yield_paid: u64,
+    pub final_payout: u64,
     pub timestamp: i64,
 }
 
-/// Batched Event Struct
+/// Pillar 4: Batched Crank Liquidation Event
 #[event]
-pub struct BatchOrdersFilled {
-    pub pool_id: u32,
-    pub fill_count: u32,
-    pub fills: Vec<FillSummary>,
+pub struct BatchLiquidationsExecuted {
+    pub keeper: Pubkey,
+    pub count: u32,
+    pub liquidations: Vec<LiquidationSummary>,
     pub timestamp: i64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct FillSummary {
-    pub order_id: u64,
-    pub maker: Pubkey,
-    pub taker: Pubkey,
-    pub price: u64,
-    pub quantity: u64,
+pub struct LiquidationSummary {
+    pub borrower: Pubkey,
+    pub collateral_seized: u64,
+    pub debt_repaid: u64,
+}
+
+/// Secure CPI Event
+#[event]
+pub struct SecureVaultTransferred {
+    pub user: Pubkey,
+    pub amount: u64,
+    pub timestamp: i64,
 }
 
 // ============================================================================
@@ -153,6 +245,6 @@ pub struct FillSummary {
 pub enum EventErrorCode {
     #[msg("Cannot emit empty batch event.")]
     EmptyBatch,
-    #[msg("Batch event size exceeds 50 fill limit.")]
+    #[msg("Batch event size exceeds 50 liquidation limit.")]
     BatchTooLarge,
 }
