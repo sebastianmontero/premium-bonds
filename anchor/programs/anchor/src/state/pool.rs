@@ -232,29 +232,11 @@ impl PrizePool {
         let amount = (bonds_to_buy as u64)
             .checked_mul(self.bond_price)
             .ok_or(PremiumBondsError::MathOverflow)?;
+        // Defense-in-depth: pre-check principal overflow before CPIs.
+        self.total_deposited_principal
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
         Ok(amount)
-    }
-
-    /// Validates that the registry has enough capacity for `bonds_to_buy` new tickets.
-    ///
-    /// This check runs after the CPI calls succeed, before writing ticket data.
-    pub fn validate_registry_capacity(
-        bonds_to_buy: u32,
-        active_count: u32,
-        pending_count: u32,
-        capacity: u32,
-    ) -> Result<()> {
-        let current_total = active_count
-            .checked_add(pending_count)
-            .ok_or(PremiumBondsError::RegistryFull)?;
-        let new_total = current_total
-            .checked_add(bonds_to_buy)
-            .ok_or(PremiumBondsError::RegistryFull)?;
-        require!(
-            new_total <= capacity,
-            PremiumBondsError::RegistryFull
-        );
-        Ok(())
     }
 
     /// Validates bond price.
@@ -266,8 +248,9 @@ impl PrizePool {
     /// Validates stake cycle duration in hours.
     pub fn validate_stake_cycle_duration(stake_cycle_duration_hrs: i64) -> Result<()> {
         require!(
-            stake_cycle_duration_hrs >= crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
-                && stake_cycle_duration_hrs <= crate::constants::MAX_STAKE_CYCLE_DURATION_HRS,
+            (crate::constants::MIN_STAKE_CYCLE_DURATION_HRS
+                ..=crate::constants::MAX_STAKE_CYCLE_DURATION_HRS)
+                .contains(&stake_cycle_duration_hrs),
             PremiumBondsError::InvalidStakeCycleDuration
         );
         Ok(())
@@ -419,6 +402,23 @@ pub struct UserWinnings {
 impl UserWinnings {
     /// Current schema version of the UserWinnings account.
     pub const CURRENT_VERSION: u8 = 1;
+    /// Sentinel value indicating the user has no active slot in the TicketRegistry.
+    pub const UNASSIGNED_ENTRY_INDEX: u32 = u32::MAX;
+
+    /// Returns true if this account was just created via `init_if_needed`
+    /// and has never been populated with user data.
+    #[inline]
+    pub fn is_uninitialized(&self) -> bool {
+        self.user == Pubkey::default()
+    }
+
+    /// Returns true if this user has no active slot in the TicketRegistry.
+    /// Covers both brand-new users and re-entering users who previously
+    /// sold all their bonds (registry_entry_index reset to UNASSIGNED_ENTRY_INDEX).
+    #[inline]
+    pub fn needs_registry_slot(&self) -> bool {
+        self.is_uninitialized() || self.registry_entry_index == Self::UNASSIGNED_ENTRY_INDEX
+    }
 
     /// Lazily migrates this account to the current schema version and guards against invalid versions.
     pub fn ensure_current_version(&mut self) -> Result<()> {
@@ -813,61 +813,68 @@ mod tests {
         assert_eq!(err, PremiumBondsError::AwaitingRandomnessFreeze.into(),);
     }
 
+    #[test]
+    fn buy_bonds_fails_principal_overflow() {
+        let mut pool = default_pool(500, 24);
+        pool.bond_price = 10;
+        pool.total_deposited_principal = u64::MAX - 5;
+        let err = pool.validate_buy_bonds(1).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
-    // PrizePool::validate_registry_capacity
+    // UserWinnings Predicate Tests
     // ═══════════════════════════════════════════════════════════════════════════
 
     #[test]
-    fn registry_capacity_happy_path() {
-        assert!(PrizePool::validate_registry_capacity(5, 0, 0, 100).is_ok());
+    fn test_user_winnings_uninitialized_predicates() {
+        let winnings = UserWinnings {
+            unclaimed_non_reinvested_winnings: 0,
+            total_claimed: 0,
+            total_reinvested: 0,
+            pool_id: 1,
+            registry_entry_index: UserWinnings::UNASSIGNED_ENTRY_INDEX,
+            user: Pubkey::default(),
+            bump: 254,
+            version: UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        assert!(winnings.is_uninitialized());
+        assert!(winnings.needs_registry_slot());
     }
 
     #[test]
-    fn registry_capacity_exact_fit() {
-        // 8 active + 0 pending + 2 new = 10 capacity → exact fit
-        assert!(PrizePool::validate_registry_capacity(2, 8, 0, 10).is_ok());
+    fn test_user_winnings_active_user_predicates() {
+        let winnings = UserWinnings {
+            unclaimed_non_reinvested_winnings: 0,
+            total_claimed: 0,
+            total_reinvested: 0,
+            pool_id: 1,
+            registry_entry_index: 42,
+            user: Pubkey::new_unique(),
+            bump: 254,
+            version: UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        assert!(!winnings.is_uninitialized());
+        assert!(!winnings.needs_registry_slot());
     }
 
     #[test]
-    fn registry_capacity_with_pending() {
-        // 3 active + 4 pending + 3 new = 10 capacity → exact fit
-        assert!(PrizePool::validate_registry_capacity(3, 3, 4, 10).is_ok());
-    }
-
-    #[test]
-    fn registry_capacity_fails_completely_full() {
-        let err = PrizePool::validate_registry_capacity(1, 10, 0, 10).unwrap_err();
-        assert_eq!(err, PremiumBondsError::RegistryFull.into());
-    }
-
-    #[test]
-    fn registry_capacity_fails_insufficient_slots() {
-        // 8 active + 0 pending → 2 free, but requesting 3
-        let err = PrizePool::validate_registry_capacity(3, 8, 0, 10).unwrap_err();
-        assert_eq!(err, PremiumBondsError::RegistryFull.into());
-    }
-
-    #[test]
-    fn registry_capacity_fails_pending_fills_remaining() {
-        // 5 active + 5 pending → 0 free
-        let err = PrizePool::validate_registry_capacity(1, 5, 5, 10).unwrap_err();
-        assert_eq!(err, PremiumBondsError::RegistryFull.into());
-    }
-
-    #[test]
-    fn registry_capacity_zero_bonds_always_ok() {
-        // Edge case: buying 0 bonds should always pass capacity check
-        // (the quantity guard catches this separately)
-        assert!(PrizePool::validate_registry_capacity(0, 10, 0, 10).is_ok());
-    }
-
-    #[test]
-    fn registry_capacity_large_values() {
-        // Realistic large pool: 100k capacity, 90k used
-        assert!(PrizePool::validate_registry_capacity(100, 50_000, 40_000, 100_000).is_ok());
-        let err =
-            PrizePool::validate_registry_capacity(10_001, 50_000, 40_000, 100_000).unwrap_err();
-        assert_eq!(err, PremiumBondsError::RegistryFull.into());
+    fn test_user_winnings_reentering_user_predicates() {
+        let winnings = UserWinnings {
+            unclaimed_non_reinvested_winnings: 100,
+            total_claimed: 500,
+            total_reinvested: 200,
+            pool_id: 1,
+            registry_entry_index: UserWinnings::UNASSIGNED_ENTRY_INDEX,
+            user: Pubkey::new_unique(),
+            bump: 254,
+            version: UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        assert!(!winnings.is_uninitialized());
+        assert!(winnings.needs_registry_slot());
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

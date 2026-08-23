@@ -54,6 +54,30 @@ impl TicketRegistry {
         }
         Ok(())
     }
+
+    /// Validates that the registry has remaining user slot capacity.
+    /// Caller is responsible for version checks.
+    #[inline]
+    pub fn validate_can_add_user(&self) -> Result<()> {
+        require!(
+            self.user_count < self.capacity,
+            PremiumBondsError::RegistryFull
+        );
+        Ok(())
+    }
+
+    /// Validates pre-CPI conditions for purchasing bonds.
+    #[inline]
+    pub fn validate_buy_bonds(&self, needs_slot: bool, bonds_to_buy: u32) -> Result<()> {
+        self.check_version()?;
+        if needs_slot {
+            self.validate_can_add_user()?;
+        }
+        self.total_pending_tickets
+            .checked_add(bonds_to_buy)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
 }
 
 /// Zero-copy representation of a user's ticket balance in the TicketRegistry.
@@ -113,3 +137,79 @@ impl UserEntry {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_registry(capacity: u32, user_count: u32, pending: u32) -> TicketRegistry {
+        TicketRegistry {
+            pool_id: 1,
+            capacity,
+            user_count,
+            total_active_tickets: 0,
+            total_pending_tickets: pending,
+            draw_cycle_id: 1,
+            draw_prepared_up_to: 0,
+            version: TicketRegistry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 64],
+        }
+    }
+
+    #[test]
+    fn test_validate_can_add_user_success() {
+        let reg = sample_registry(10, 9, 0);
+        assert!(reg.validate_can_add_user().is_ok());
+    }
+
+    #[test]
+    fn test_validate_can_add_user_full() {
+        let reg = sample_registry(10, 10, 0);
+        assert_eq!(
+            reg.validate_can_add_user().unwrap_err(),
+            PremiumBondsError::RegistryFull.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_buy_bonds_new_user_success() {
+        let reg = sample_registry(10, 9, 5);
+        assert!(reg.validate_buy_bonds(true, 5).is_ok());
+    }
+
+    #[test]
+    fn test_validate_buy_bonds_new_user_fails_capacity() {
+        let reg = sample_registry(10, 10, 5);
+        assert_eq!(
+            reg.validate_buy_bonds(true, 5).unwrap_err(),
+            PremiumBondsError::RegistryFull.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_buy_bonds_existing_user_succeeds_at_capacity() {
+        let reg = sample_registry(10, 10, 5);
+        assert!(reg.validate_buy_bonds(false, 5).is_ok());
+    }
+
+    #[test]
+    fn test_validate_buy_bonds_pending_overflow() {
+        let reg = sample_registry(10, 5, u32::MAX - 2);
+        assert_eq!(
+            reg.validate_buy_bonds(false, 3).unwrap_err(),
+            PremiumBondsError::MathOverflow.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_buy_bonds_unsupported_version() {
+        let mut reg = sample_registry(10, 5, 0);
+        reg.version = TicketRegistry::CURRENT_VERSION + 1;
+        assert_eq!(
+            reg.validate_buy_bonds(false, 1).unwrap_err(),
+            PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+    }
+}
+

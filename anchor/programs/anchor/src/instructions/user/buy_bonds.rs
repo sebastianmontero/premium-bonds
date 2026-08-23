@@ -160,6 +160,18 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         (amount, pool_id, pool_id_bytes, authority_bump)
     };
 
+    // Fail-Fast: Pre-CPI capacity, overflow, and version validation
+    let is_uninit = ctx.accounts.user_winnings.is_uninitialized();
+    let needs_slot = ctx.accounts.user_winnings.needs_registry_slot();
+    if !is_uninit {
+        ctx.accounts.user_winnings.ensure_current_version()?;
+    }
+    let current_cycle = {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        registry.validate_buy_bonds(needs_slot, bonds_to_buy)?;
+        registry.draw_cycle_id
+    };
+
     // 1. Transfer USDC from user → pool vault
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.user_token_account.to_account_info(),
@@ -207,46 +219,29 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
 
     let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
-    if user_winnings.user == Pubkey::default() {
+    if is_uninit {
         user_winnings.pool_id = pool_id;
         user_winnings.user = user_key;
         user_winnings.bump = ctx.bumps.user_winnings;
-        user_winnings.registry_entry_index = u32::MAX;
+        user_winnings.registry_entry_index = crate::state::UserWinnings::UNASSIGNED_ENTRY_INDEX;
         user_winnings.version = crate::state::UserWinnings::CURRENT_VERSION;
-    } else {
-        user_winnings.ensure_current_version()?;
     }
 
     let registry_loader = &ctx.accounts.ticket_registry;
     let mut user_entry_idx = user_winnings.registry_entry_index;
 
-    let current_cycle = {
-        let registry = registry_loader.load()?;
-        registry.draw_cycle_id
-    };
-
-    let is_new = user_entry_idx == u32::MAX;
-
-    if is_new {
+    // Consolidated post-CPI registry header mutation
+    {
         let mut registry = registry_loader.load_mut()?;
         registry.ensure_current_version()?;
-        require!(
-            registry.user_count < registry.capacity,
-            crate::error::PremiumBondsError::RegistryFull
-        );
-        user_entry_idx = registry.user_count;
-        user_winnings.registry_entry_index = user_entry_idx;
-        registry.user_count = registry
-            .user_count
-            .checked_add(1)
-            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-        registry.total_pending_tickets = registry
-            .total_pending_tickets
-            .checked_add(bonds_to_buy)
-            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-    } else {
-        let mut registry = registry_loader.load_mut()?;
-        registry.ensure_current_version()?;
+        if needs_slot {
+            user_entry_idx = registry.user_count;
+            user_winnings.registry_entry_index = user_entry_idx;
+            registry.user_count = registry
+                .user_count
+                .checked_add(1)
+                .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
+        }
         registry.total_pending_tickets = registry
             .total_pending_tickets
             .checked_add(bonds_to_buy)
@@ -257,7 +252,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let registry_ai = registry_loader.to_account_info();
     let mut data = registry_ai.try_borrow_mut_data()?;
 
-    if is_new {
+    if needs_slot {
         let new_entry = crate::state::UserEntry {
             owner: user_key,
             active: 0,

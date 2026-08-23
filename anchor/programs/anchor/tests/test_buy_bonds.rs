@@ -236,6 +236,55 @@ fn test_buy_bonds_passes_guards() {
     );
 }
 
+/// Buying bonds when registry is full for a new user must fail with `RegistryFull` pre-CPI.
+#[test]
+fn test_buy_bonds_fails_registry_full_pre_cpi() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 10, 0, 0);
+    let dummy_users: Vec<Pubkey> = (0..10).map(|_| Keypair::new().pubkey()).collect();
+    inject_registry_with_tickets(&mut ctx.svm, ctx.ticket_registry, 1, 10, 10, 0, &dummy_users);
+
+    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
+    assert!(
+        err.contains("RegistryFull"),
+        "Expected RegistryFull pre-CPI, got: {err}"
+    );
+}
+
+/// Total pending tickets overflow must fail with `MathOverflow` pre-CPI.
+#[test]
+fn test_buy_bonds_fails_total_pending_overflow_pre_cpi() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, u32::MAX - 2);
+    let err = send_buy_bonds(&mut ctx, 5).unwrap_err();
+    assert!(
+        err.contains("MathOverflow"),
+        "Expected MathOverflow pre-CPI on pending overflow, got: {err}"
+    );
+}
+
+/// A re-entering user (has user_winnings with UNASSIGNED_ENTRY_INDEX) fails with RegistryFull when capacity is full.
+#[test]
+fn test_buy_bonds_reentering_user_fails_registry_full() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 10, 0, 0);
+    let dummy_users: Vec<Pubkey> = (0..10).map(|_| Keypair::new().pubkey()).collect();
+    inject_registry_with_tickets(&mut ctx.svm, ctx.ticket_registry, 1, 10, 10, 0, &dummy_users);
+
+    inject_user_winnings_with_index(
+        &mut ctx.svm,
+        1,
+        ctx.user.pubkey(),
+        50,
+        200,
+        100,
+        anchor::state::UserWinnings::UNASSIGNED_ENTRY_INDEX,
+    );
+
+    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
+    assert!(
+        err.contains("RegistryFull"),
+        "Expected RegistryFull for re-entering user when registry is full, got: {err}"
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // E2E happy-path tests (with mock-huma program)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -756,3 +805,70 @@ fn test_buy_bonds_fails_math_overflow() {
         "Expected MathOverflow, got: {err}"
     );
 }
+
+/// An existing user with an assigned registry entry can buy more bonds even when user_count == capacity.
+#[test]
+fn test_buy_bonds_existing_user_succeeds_at_max_capacity() {
+    let mut ctx = setup_e2e();
+    let user_pubkey = ctx.user.pubkey();
+
+    // 1. Initial purchase creates a slot in registry
+    send_e2e_buy_bonds(&mut ctx, 1).expect("initial buy 1 bond should succeed");
+
+    // 2. Artificially set capacity = 1 on the registry account data so user_count (1) == capacity (1)
+    let mut account = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    account.data[12..16].copy_from_slice(&1u32.to_le_bytes());
+    ctx.svm.set_account(ctx.ticket_registry, account).unwrap();
+
+    // 3. Existing user buying more bonds should succeed because needs_slot is false
+    send_e2e_buy_bonds(&mut ctx, 2)
+        .expect("existing user should be able to buy bonds when capacity is full");
+
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &user_pubkey);
+    let entry = read_registry_entry(
+        &ctx.svm,
+        ctx.ticket_registry,
+        winnings.registry_entry_index as usize,
+    );
+    assert_eq!(entry.owner, user_pubkey);
+    assert_eq!(entry.pending, 3); // 1 + 2
+}
+
+/// A re-entering user (has user_winnings with UNASSIGNED_ENTRY_INDEX) successfully acquires a new registry slot
+/// and preserves historical claimed/reinvested winnings.
+#[test]
+fn test_buy_bonds_reentering_user_succeeds_e2e() {
+    let mut ctx = setup_e2e();
+    let user_pubkey = ctx.user.pubkey();
+
+    // Inject user_winnings with historical data and UNASSIGNED_ENTRY_INDEX
+    common::inject_user_winnings_with_index(
+        &mut ctx.svm,
+        1,
+        user_pubkey,
+        50_000,
+        200_000,
+        100_000,
+        anchor::state::UserWinnings::UNASSIGNED_ENTRY_INDEX,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 3).expect("re-entering user buy 3 bonds should succeed");
+
+    let winnings = read_user_winnings_state(&ctx.svm, 1, &user_pubkey);
+    assert_ne!(
+        winnings.registry_entry_index,
+        anchor::state::UserWinnings::UNASSIGNED_ENTRY_INDEX
+    );
+    assert_eq!(winnings.unclaimed_non_reinvested_winnings, 50_000);
+    assert_eq!(winnings.total_claimed, 200_000);
+    assert_eq!(winnings.total_reinvested, 100_000);
+
+    let entry = read_registry_entry(
+        &ctx.svm,
+        ctx.ticket_registry,
+        winnings.registry_entry_index as usize,
+    );
+    assert_eq!(entry.owner, user_pubkey);
+    assert_eq!(entry.pending, 3);
+}
+
