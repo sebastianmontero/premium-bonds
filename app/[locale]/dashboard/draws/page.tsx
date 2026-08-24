@@ -7,11 +7,6 @@ import { useWalletConnection } from "@solana/react-hooks";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
 import { useDrawExplorer } from "@/app/hooks/useDrawExplorer";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
-import {
-  parseTransactionError,
-  ParsedTransactionError,
-} from "@/app/lib/errors";
-import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 import { TransactionProgressModal } from "@/app/components/dashboard/TransactionProgressModal";
 import { DrawStatsSummary } from "@/app/components/draws/DrawStatsSummary";
 import { DrawHistoryList } from "@/app/components/draws/DrawHistoryList";
@@ -93,16 +88,13 @@ function DrawHistoryContent() {
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
     {}
   );
-  const [txError, setTxError] = useState<
-    ParsedTransactionError | string | null
-  >(null);
-  const [lastTxAction, setLastTxAction] = useState<(() => void) | null>(null);
 
   const {
     stage: actionStage,
     txSignature: actionTxSignature,
     error: actionRunnerError,
     runTransaction: runActionTx,
+    retry: retryActionRunner,
     reset: resetActionRunner,
   } = useTransactionRunner();
 
@@ -115,7 +107,6 @@ function DrawHistoryContent() {
     if (crankingCycles[key]) return;
 
     setCrankingCycles((prev) => ({ ...prev, [key]: true }));
-    setTxError(null);
 
     try {
       if (isConnected) {
@@ -129,19 +120,7 @@ function DrawHistoryContent() {
         );
       }
     } catch (err) {
-      const parsed = parseTransactionError(err);
-      if (parsed.isCancellation) {
-        console.warn("Draw crank transaction cancelled by user.");
-      } else {
-        console.error(
-          `Draw crank failed: ${parsed.message || parsed.title}`,
-          err
-        );
-      }
-      setTxError(parsed);
-      setLastTxAction(
-        () => () => handleCrankWinner(drawCycleId, winnerIndex, winnerAddress)
-      );
+      console.error("Draw crank failed:", err);
       throw err;
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
@@ -233,31 +212,11 @@ function DrawHistoryContent() {
         stage={actionStage}
         title={t("crankModalTitle")}
         customSuccessMessage={t("crankSuccessMsg")}
-        errorMessage={actionRunnerError?.message}
-        actionableStep={actionRunnerError?.actionableStep}
+        error={actionRunnerError}
         txSignature={actionTxSignature}
+        onRetry={retryActionRunner}
         onClose={resetActionRunner}
       />
-
-      {/* Floating Transaction Error Toast */}
-      {txError && (
-        <SolanaErrorAlert
-          error={txError}
-          variant="toast"
-          onDismiss={() => {
-            setTxError(null);
-            setLastTxAction(null);
-          }}
-          onRetry={
-            lastTxAction
-              ? () => {
-                  setTxError(null);
-                  lastTxAction();
-                }
-              : undefined
-          }
-        />
-      )}
     </div>
   );
 }

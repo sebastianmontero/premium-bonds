@@ -53,6 +53,14 @@ import {
   ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION,
 } from "./generated/yield-bonds/src/generated";
 
+export type ErrorLayer =
+  | "wallet"
+  | "anchor"
+  | "spl"
+  | "system"
+  | "rpc"
+  | "unknown";
+
 export type ErrorCategory =
   | "wallet_cancellation"
   | "insufficient_sol"
@@ -64,6 +72,77 @@ export type ErrorCategory =
   | "network_rpc"
   | "unknown";
 
+export interface ErrorThemeConfig {
+  icon: string;
+  borderColor: string;
+  bgBadgeColor: string;
+  titleColor: string;
+  accentBorder: string;
+  ringBorder: string;
+}
+
+export function getErrorCategoryTheme(
+  category: ErrorCategory = "unknown"
+): ErrorThemeConfig {
+  switch (category) {
+    case "blockhash_expired":
+      return {
+        icon: "⏱️",
+        borderColor: "border-sky-500/30",
+        bgBadgeColor: "bg-sky-500/10",
+        titleColor: "text-sky-300",
+        accentBorder: "border-l-sky-400",
+        ringBorder: "border-sky-500/30",
+      };
+    case "insufficient_sol":
+    case "insufficient_tokens":
+      return {
+        icon: "⛽",
+        borderColor: "border-amber-500/30",
+        bgBadgeColor: "bg-amber-500/10",
+        titleColor: "text-amber-300",
+        accentBorder: "border-l-amber-400",
+        ringBorder: "border-amber-500/30",
+      };
+    case "network_rpc":
+      return {
+        icon: "📡",
+        borderColor: "border-amber-500/30",
+        bgBadgeColor: "bg-amber-500/10",
+        titleColor: "text-amber-300",
+        accentBorder: "border-l-amber-400",
+        ringBorder: "border-amber-500/30",
+      };
+    case "duplicate_transaction":
+      return {
+        icon: "ℹ️",
+        borderColor: "border-sky-500/30",
+        bgBadgeColor: "bg-sky-500/10",
+        titleColor: "text-sky-300",
+        accentBorder: "border-l-sky-400",
+        ringBorder: "border-sky-500/30",
+      };
+    case "wallet_cancellation":
+      return {
+        icon: "✕",
+        borderColor: "border-surface-bright/50",
+        bgBadgeColor: "bg-surface-variant/20",
+        titleColor: "text-on-surface",
+        accentBorder: "border-l-surface-variant",
+        ringBorder: "border-surface-variant/30",
+      };
+    default:
+      return {
+        icon: "⚠️",
+        borderColor: "border-error/30",
+        bgBadgeColor: "bg-error/10",
+        titleColor: "text-red-400",
+        accentBorder: "border-l-error",
+        ringBorder: "border-error/30",
+      };
+  }
+}
+
 /**
  * Structured output of a parsed transaction error.
  */
@@ -71,7 +150,7 @@ export interface ParsedTransactionError {
   /** True if the user intentionally rejected or cancelled the transaction. */
   isCancellation: boolean;
   /** High-level layer where error originated. */
-  layer: "wallet" | "anchor" | "spl" | "system" | "rpc" | "unknown";
+  layer: ErrorLayer;
   /** Categorized error classification. */
   category: ErrorCategory;
   /** Short human-readable title. */
@@ -1010,12 +1089,28 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
     const code = Number(codeStr);
     const hexCode = `0x${code.toString(16)}`;
     if (
-      combinedSearchText.includes(`Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: ${hexCode}`) ||
-      combinedSearchText.includes(`Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: ${hexCode}`) ||
-      combinedSearchText.includes(`custom program error: ${hexCode}`) && (combinedSearchText.includes("Token") || combinedSearchText.includes("transfer")) ||
-      combinedSearchText.includes(`InstructionError: [1, {"Custom":${code}}]`) ||
-      combinedSearchText.includes(`InstructionError: [0, {"Custom":${code}}]`) ||
-      (code === 3 && (combinedSearchText.toLowerCase().includes("insufficient token balance") || combinedSearchText.toLowerCase().includes("insufficient funds for transfer")))
+      combinedSearchText.includes(
+        `Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: ${hexCode}`
+      ) ||
+      combinedSearchText.includes(
+        `Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: ${hexCode}`
+      ) ||
+      (combinedSearchText.includes(`custom program error: ${hexCode}`) &&
+        (combinedSearchText.includes("Token") ||
+          combinedSearchText.includes("transfer"))) ||
+      combinedSearchText.includes(
+        `InstructionError: [1, {"Custom":${code}}]`
+      ) ||
+      combinedSearchText.includes(
+        `InstructionError: [0, {"Custom":${code}}]`
+      ) ||
+      (code === 3 &&
+        (combinedSearchText
+          .toLowerCase()
+          .includes("insufficient token balance") ||
+          combinedSearchText
+            .toLowerCase()
+            .includes("insufficient funds for transfer")))
     ) {
       return {
         isCancellation: false,
@@ -1024,7 +1119,8 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
         title: `Token Error: ${info.name}`,
         message: info.message,
         code,
-        actionableStep: info.actionable || "Check token balance and account state.",
+        actionableStep:
+          info.actionable || "Check token balance and account state.",
         logs,
         rawError: err,
       };
@@ -1082,7 +1178,8 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
       message:
         "Transaction execution ran out of compute units before completing.",
       code: "COMPUTE_BUDGET_EXCEEDED",
-      actionableStep: "Retry the transaction with higher priority fees or a larger compute budget.",
+      actionableStep:
+        "Retry the transaction with higher priority fees or a larger compute budget.",
       logs,
       rawError: err,
     };
@@ -1099,12 +1196,12 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
       isCancellation: false,
       layer: "rpc",
       category: "blockhash_expired",
-      title: "Transaction Expired",
+      title: "Request Timed Out",
       message:
-        "Approval took too long or the network was busy, causing the transaction blockhash to expire.",
+        "Wallet approval took longer than expected and the transaction expired, or the network was busy.",
       code: "EXPIRED_BLOCKHASH",
       actionableStep:
-        "Please try again and approve the prompt in your wallet promptly.",
+        "Click retry to send a fresh transaction and approve the prompt in your wallet.",
       logs,
       rawError: err,
     };

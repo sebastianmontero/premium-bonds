@@ -134,6 +134,7 @@ When a transaction update arrives via gRPC, iterate through `tx.meta.inner_instr
 ## 3. Indexing Governance Deltas & Account Closure Finality
 
 ### Ingesting Parameter Changes (`FeeBpsUpdated`)
+
 For administrative events (Pillar 2), indexers should store historical time-series diffs to construct protocol audit trails:
 
 ```typescript
@@ -144,13 +145,18 @@ export function recordGovernanceEvent(event: {
   newFeeBps: number;
   timestamp: number;
 }) {
-  console.log(`[Governance] Config ${event.config} updated by ${event.authority}`);
-  console.log(`Fee changed from ${event.oldFeeBps} bps -> ${event.newFeeBps} bps`);
+  console.log(
+    `[Governance] Config ${event.config} updated by ${event.authority}`
+  );
+  console.log(
+    `Fee changed from ${event.oldFeeBps} bps -> ${event.newFeeBps} bps`
+  );
   // Insert into historical parameter audit table
 }
 ```
 
 ### Ingesting Pre-Closure Finality Events (`PositionClosed`)
+
 When accounts are closed with `close = destination`, on-chain account queries return `null`. Indexers must treat pre-closure events as the definitive tombstone record:
 
 ```typescript
@@ -162,7 +168,9 @@ export function recordAccountClosure(event: {
   timestamp: number;
 }) {
   // Mark position as CLOSED in off-chain database and record final settled payout
-  console.log(`Position ${event.position} closed. Final reward: ${event.finalRewardPaid}`);
+  console.log(
+    `Position ${event.position} closed. Final reward: ${event.finalRewardPaid}`
+  );
 }
 ```
 
@@ -231,4 +239,3 @@ fn test_verify_program_log_and_cpi_event_emission() {
     assert!(cpi_event_emitted, "Expected CPI inner instruction event from target program");
 }
 ```
-

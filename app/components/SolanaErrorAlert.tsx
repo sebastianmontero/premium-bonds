@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   ParsedTransactionError,
   TransactionError,
   parseTransactionError,
+  getErrorCategoryTheme,
 } from "../lib/errors";
+import { TransactionErrorDetails } from "@/app/components/common/TransactionErrorDetails";
 
 interface SolanaErrorAlertProps {
   error: ParsedTransactionError | TransactionError | Error | string | null;
   onDismiss?: () => void;
   onRetry?: () => void;
   className?: string;
-  variant?: "inline" | "toast";
+  variant?: "inline";
 }
 
 export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
@@ -20,50 +22,17 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
   onDismiss,
   onRetry,
   className = "",
-  variant = "inline",
 }) => {
-  const [copied, setCopied] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-
   const parsed: ParsedTransactionError | null = error
     ? parseTransactionError(error)
     : null;
-
-  // Auto-dismiss cancellations after 2.5 seconds when in toast mode (pauses on hover)
-  useEffect(() => {
-    if (
-      variant === "toast" &&
-      parsed?.isCancellation &&
-      onDismiss &&
-      !isPaused
-    ) {
-      const timer = setTimeout(() => {
-        onDismiss();
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [variant, error, parsed?.isCancellation, onDismiss, isPaused]);
-
-  // Keyboard Escape key listener for toast dismissal
-  useEffect(() => {
-    if (variant === "toast" && onDismiss) {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Escape") onDismiss();
-      };
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-    }
-  }, [variant, onDismiss]);
 
   if (!parsed) return null;
 
   // 1. Cancellation: Quiet, polite neutral slate presentation
   if (parsed.isCancellation) {
-    const cancelContent = (
+    return (
       <div
-        onMouseEnter={() => setIsPaused(true)}
-        onMouseLeave={() => setIsPaused(false)}
         className={`group relative overflow-hidden rounded-xl bg-surface-container-highest/95 backdrop-blur-xl border border-surface-bright/50 border-l-4 border-l-surface-variant p-3.5 text-xs text-on-surface flex flex-col gap-2.5 animate-fade-in shadow-ambient ${className}`}
       >
         <div className="flex items-start justify-between gap-3">
@@ -99,6 +68,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
 
           {onDismiss && (
             <button
+              type="button"
               onClick={onDismiss}
               aria-label="Dismiss alert"
               className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition cursor-pointer"
@@ -113,136 +83,46 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
             </button>
           )}
         </div>
-
-        {variant === "toast" && (
-          <div
-            aria-hidden="true"
-            className="w-full bg-white/10 h-1 rounded-full overflow-hidden mt-0.5"
-          >
-            <div
-              className={`bg-surface-variant h-full animate-toast-progress ${
-                isPaused ? "[animation-play-state:paused]" : ""
-              }`}
-            />
-          </div>
-        )}
       </div>
     );
-
-    if (variant === "toast") {
-      return (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-md sm:w-full z-[110] animate-slide-up pointer-events-auto"
-        >
-          {cancelContent}
-        </div>
-      );
-    }
-
-    return cancelContent;
   }
 
-  // 2. Determine Styling based on Error Category
-  const isToast = variant === "toast";
+  // 2. Determine Styling based on Error Category Theme
+  const theme = getErrorCategoryTheme(parsed.category);
 
-  let containerStyles = isToast
-    ? "bg-surface-container-highest/95 backdrop-blur-xl border border-error/40 border-l-4 border-l-error text-on-surface shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_24px_rgba(239,68,68,0.18)]"
-    : "bg-error/15 border-error/30 text-error";
-  let icon = "⚠️";
-  let titleColor = isToast ? "text-red-400" : "text-error";
-  let iconBadgeBg = "bg-error/20 text-red-300 border-error/35";
-
-  if (parsed.category === "insufficient_sol") {
-    containerStyles = isToast
-      ? "bg-surface-container-highest/95 backdrop-blur-xl border border-amber-500/40 border-l-4 border-l-amber-400 text-on-surface shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_24px_rgba(245,158,11,0.18)]"
-      : "bg-amber-500/15 border-amber-500/30 text-amber-300";
-    icon = "⛽";
-    titleColor = "text-amber-300";
-    iconBadgeBg = "bg-amber-500/20 text-amber-300 border-amber-500/35";
-  } else if (parsed.category === "blockhash_expired") {
-    containerStyles = isToast
-      ? "bg-surface-container-highest/95 backdrop-blur-xl border border-sky-500/40 border-l-4 border-l-sky-400 text-on-surface shadow-[0_12px_40px_rgba(0,0,0,0.6),0_0_24px_rgba(14,165,233,0.18)]"
-      : "bg-sky-500/15 border-sky-500/30 text-sky-300";
-    icon = "⏱️";
-    titleColor = "text-sky-300";
-    iconBadgeBg = "bg-sky-500/20 text-sky-300 border-sky-500/35";
-  }
-
-  const handleCopy = () => {
-    const details = [
-      `Title: ${parsed.title}`,
-      `Message: ${parsed.message}`,
-      parsed.code ? `Code: ${parsed.code}` : "",
-      parsed.layer ? `Layer: ${parsed.layer}` : "",
-      parsed.logs?.length ? `Logs:\n${parsed.logs.join("\n")}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    navigator.clipboard.writeText(details);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const alertContent = (
+  return (
     <div
-      className={`rounded-xl border p-4 text-xs flex flex-col gap-2.5 animate-fade-in backdrop-blur-md ${containerStyles} ${className}`}
+      role="alert"
+      className={`rounded-xl border border-l-4 p-4 text-xs flex flex-col gap-2.5 animate-fade-in backdrop-blur-md bg-surface-container-highest/95 text-on-surface ${theme.borderColor} ${theme.accentBorder} ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {isToast ? (
-            <div
-              aria-hidden="true"
-              className={`${iconBadgeBg} border p-2 rounded-xl shrink-0 flex items-center justify-center shadow-inner text-base`}
-            >
-              {icon}
-            </div>
-          ) : (
-            <span className="text-base shrink-0 mt-0.5">{icon}</span>
-          )}
-          <div className="space-y-1">
-            <h4 className={`font-semibold text-sm ${titleColor}`}>
-              {parsed.title || "Transaction Error"}
-            </h4>
-            <p
-              className={
-                isToast
-                  ? "text-on-surface/90 text-xs leading-relaxed"
-                  : "leading-relaxed opacity-95"
-              }
-            >
-              {parsed.message}
-            </p>
-            {parsed.actionableStep && (
-              <p
-                className={
-                  isToast
-                    ? "text-xs font-medium mt-1 text-on-surface opacity-95 flex items-center gap-1"
-                    : "text-[11px] font-medium mt-1 text-on-surface opacity-90 flex items-center gap-1"
-                }
-              >
-                <span>👉</span> {parsed.actionableStep}
-              </p>
-            )}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div
+            aria-hidden="true"
+            className={`${theme.bgBadgeColor} ${theme.borderColor} border p-2 rounded-xl shrink-0 flex items-center justify-center shadow-inner text-base`}
+          >
+            {theme.icon}
+          </div>
+          <div className="flex-1 min-w-0">
+            <TransactionErrorDetails
+              error={parsed}
+              showTitle={true}
+              showExplorerLink={false}
+            />
           </div>
         </div>
 
         {onDismiss && (
           <button
+            type="button"
             onClick={onDismiss}
             aria-label="Dismiss alert"
-            className={
-              isToast
-                ? "p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition cursor-pointer"
-                : "opacity-70 hover:opacity-100 transition cursor-pointer text-base font-bold px-1"
-            }
+            className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition cursor-pointer shrink-0"
             title="Dismiss"
           >
             <span
               aria-hidden="true"
-              className={isToast ? "text-base font-bold leading-none" : ""}
+              className="text-base font-bold leading-none"
             >
               &times;
             </span>
@@ -250,64 +130,17 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
         )}
       </div>
 
-      {/* Logs / Action Buttons */}
-      <div
-        className={`flex items-center justify-between pt-1 border-t text-[11px] ${isToast ? "border-white/10 text-on-surface-variant" : "border-current/15"}`}
-      >
-        <div className="flex items-center gap-3">
-          {parsed.logs && parsed.logs.length > 0 && (
-            <button
-              onClick={() => setShowLogs(!showLogs)}
-              className="underline font-mono opacity-80 hover:opacity-100 transition cursor-pointer"
-            >
-              {showLogs ? "Hide Technical Logs" : "View Technical Logs"}
-            </button>
-          )}
+      {onRetry && (
+        <div className="flex justify-end pt-1 border-t border-white/10">
           <button
-            onClick={handleCopy}
-            className="opacity-80 hover:opacity-100 transition cursor-pointer font-mono flex items-center gap-1"
-          >
-            {copied ? "✓ Copied!" : "📋 Copy Debug Info"}
-          </button>
-        </div>
-
-        {onRetry && (
-          <button
+            type="button"
             onClick={onRetry}
-            className="px-3 py-1 rounded-lg bg-surface-container-highest/80 hover:bg-surface-container-highest text-on-surface font-semibold text-xs transition cursor-pointer shadow-sm border border-white/10"
+            className="px-3 py-1.5 rounded-lg bg-surface-container-highest/80 hover:bg-surface-container-highest text-on-surface font-semibold text-xs transition cursor-pointer shadow-sm border border-white/10"
           >
             🔄 Retry Transaction
           </button>
-        )}
-      </div>
-
-      {/* Expandable Technical Logs */}
-      {showLogs && parsed.logs && parsed.logs.length > 0 && (
-        <div className="mt-1 p-2.5 rounded-lg bg-black/40 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto text-on-surface-variant break-all border border-white/5">
-          <p className="font-semibold text-on-surface border-b border-white/10 pb-1 mb-1">
-            Solana Execution Logs:
-          </p>
-          {parsed.logs.map((log, idx) => (
-            <p key={idx} className="leading-tight">
-              {log}
-            </p>
-          ))}
         </div>
       )}
     </div>
   );
-
-  if (variant === "toast") {
-    return (
-      <div
-        role="alert"
-        aria-live="assertive"
-        className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-md sm:w-full z-[110] shadow-2xl animate-slide-up pointer-events-auto"
-      >
-        {alertContent}
-      </div>
-    );
-  }
-
-  return alertContent;
 };

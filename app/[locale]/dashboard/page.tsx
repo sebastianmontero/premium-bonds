@@ -4,12 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useTranslations } from "next-intl";
 import { useBondsContract } from "@/app/hooks/useBondsContract";
-import {
-  parseTransactionError,
-  ParsedTransactionError,
-} from "@/app/lib/errors";
-import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
-import { SolanaErrorAlert } from "@/app/components/SolanaErrorAlert";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
@@ -105,10 +99,6 @@ export default function DashboardPage() {
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [txError, setTxError] = useState<
-    ParsedTransactionError | string | null
-  >(null);
-  const [lastTxAction, setLastTxAction] = useState<(() => void) | null>(null);
   const [selectedPrizeKey, setSelectedPrizeKey] = useState<{
     drawCycleId: number;
     winnerIndex: number;
@@ -123,6 +113,7 @@ export default function DashboardPage() {
     txSignature: actionTxSignature,
     error: actionError,
     runTransaction: runActionTx,
+    retry: retryActionTx,
     reset: resetActionRunner,
   } = useTransactionRunner();
   const [actionModalTitle, setActionModalTitle] = useState<string>("");
@@ -238,35 +229,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Unified Transaction Error Helper (DRY logging and retry setup)
-  const handleTxError = (
-    err: unknown,
-    actionName: string,
-    retryAction?: () => void
-  ) => {
-    const parsed = parseTransactionError(err);
-    if (parsed.isCancellation) {
-      console.warn(`${actionName} cancelled by user.`);
-    } else {
-      console.error(
-        `${actionName} failed: ${parsed.message || parsed.title}`,
-        err
-      );
-    }
-    // Auto-sync if error is caused by draw freeze constraint (code 6007 / AwaitingRandomnessFreeze)
-    if (
-      parsed.code === 6007 ||
-      parsed.message?.includes("AwaitingRandomnessFreeze") ||
-      parsed.message?.includes("0x1777")
-    ) {
-      notifyProtocolUpdate("pool", { reason: "freeze_error_recovery" });
-    }
-    setTxError(parsed);
-    if (retryAction) {
-      setLastTxAction(() => retryAction);
-    }
-  };
-
   // Handlers for Prize Crank Reinvestment & Dust Claiming
   const handleSimulateCrank = async (
     drawCycleId: number,
@@ -281,7 +243,6 @@ export default function DashboardPage() {
     if (crankingCycles[key]) return;
 
     setCrankingCycles((prev) => ({ ...prev, [key]: true }));
-    setTxError(null);
     setActionModalTitle("Run Reinvestment Crank");
     setActionSuccessMsg("Prize draw winnings successfully reinvested!");
 
@@ -310,9 +271,7 @@ export default function DashboardPage() {
         );
       }
     } catch (err) {
-      handleTxError(err, "Reinvest crank", () =>
-        handleSimulateCrank(drawCycleId, winnerIndex)
-      );
+      console.error("Reinvest crank failed:", err);
     } finally {
       setCrankingCycles((prev) => ({ ...prev, [key]: false }));
     }
@@ -322,7 +281,6 @@ export default function DashboardPage() {
     if (activeUnclaimedWinnings === 0) return;
 
     const claimAmount = activeUnclaimedWinnings;
-    setTxError(null);
     setActionModalTitle("Claim Remaining Winnings");
     setActionSuccessMsg(
       `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC.`
@@ -349,9 +307,7 @@ export default function DashboardPage() {
         );
       }
     } catch (err) {
-      handleTxError(err, "Claim remaining winnings", () =>
-        handleClaimNonReinvestedWinnings()
-      );
+      console.error("Claim remaining winnings failed:", err);
     }
   };
 
@@ -366,7 +322,6 @@ export default function DashboardPage() {
     );
     if (!redemption) return;
 
-    setTxError(null);
     setActionModalTitle("Claim Settled Redemption");
     setActionSuccessMsg(
       `Successfully claimed settled ${
@@ -398,7 +353,7 @@ export default function DashboardPage() {
         );
       }
     } catch (err) {
-      handleTxError(err, "Claim redemption", () => handleClaimRedemption(id));
+      console.error("Claim redemption failed:", err);
     }
   };
 
@@ -565,9 +520,9 @@ export default function DashboardPage() {
         stage={actionStage}
         title={actionModalTitle}
         customSuccessMessage={actionSuccessMsg}
-        errorMessage={actionError?.message}
-        actionableStep={actionError?.actionableStep}
+        error={actionError}
         txSignature={actionTxSignature}
+        onRetry={retryActionTx}
         onClose={resetActionRunner}
       />
 
@@ -620,29 +575,6 @@ export default function DashboardPage() {
         onLoadMore={loadMoreActivity}
         onFetchUntilMatches={fetchUntilMatchesActivity}
       />
-
-      {/* Floating Transaction Error Toast (Bottom-Right Viewport Overlay) */}
-      {txError && (
-        <SolanaErrorAlert
-          key={
-            typeof txError === "string" ? txError : txError.message + Date.now()
-          }
-          error={txError}
-          variant="toast"
-          onDismiss={() => {
-            setTxError(null);
-            setLastTxAction(null);
-          }}
-          onRetry={
-            lastTxAction
-              ? () => {
-                  setTxError(null);
-                  lastTxAction();
-                }
-              : undefined
-          }
-        />
-      )}
     </div>
   );
 }

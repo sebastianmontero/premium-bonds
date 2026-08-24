@@ -148,4 +148,3 @@ Choose the emission paradigm based on the event's functional pillar (see [event-
 - **Financial & Governance Mutations (Pillars 1 & 2)**: Prefer `emit_cpi!` with `#[event_cpi]` when account budgets allow, ensuring 100% cryptographic anti-spoofing and zero log buffer consumption.
 - **Protocol Lifecycle & Account Closures (Pillars 3 & 5)**: Use `emit_cpi!` or `emit!` with state snapshots before `close = destination` data clearing.
 - **High-Frequency Keeper Cranks (Pillar 4)**: Use Vector Batched `emit!` or `spl-noop` to avoid both CU blowup and 10KB log buffer overflow.
-

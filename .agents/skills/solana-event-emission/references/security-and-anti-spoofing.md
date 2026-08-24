@@ -99,7 +99,6 @@ Governance actions (e.g. updating fees, changing multisig authorities, emergency
 
 ### Strategy C: Strict Program Context Validation (For Log-Based `emit!`)
 
-
 If `emit!` is used due to account constraints or CU budget limits, off-chain indexers **MUST** implement stateful log context parsing:
 
 #### Defensive Log Parsing Logic (TypeScript / Node.js):

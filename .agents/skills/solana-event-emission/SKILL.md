@@ -46,27 +46,28 @@ Solana accounts only store their **current, active state**. Past state transitio
 ### Pillar Summary & Emission Rules:
 
 1. **Pillar 1: Financial & Asset Flows (Value Movement)**
-   - *Trigger*: Token transfers, mints, burns, swaps, staking, reward distributions, collateral deposits.
-   - *Requirement*: Emit caller, target vault, gross/net amounts, pool share deltas, and **post-state aggregate snapshot** (`new_total_vault_deposits`).
-   - *Token-2022 Invariant*: For tokens with transfer fees, always calculate and emit `net_amount_received` alongside gross requested amount.
+   - _Trigger_: Token transfers, mints, burns, swaps, staking, reward distributions, collateral deposits.
+   - _Requirement_: Emit caller, target vault, gross/net amounts, pool share deltas, and **post-state aggregate snapshot** (`new_total_vault_deposits`).
+   - _Token-2022 Invariant_: For tokens with transfer fees, always calculate and emit `net_amount_received` alongside gross requested amount.
 
 2. **Pillar 2: Governance, Administration & Privilege Mutations**
-   - *Trigger*: Authority transfers, parameter/fee updates, timelock adjustments, whitelist/blacklist changes.
-   - *Requirement*: Always emit the acting `authority`, `config` account, **`old_value`**, and **`new_value`**.
+   - _Trigger_: Authority transfers, parameter/fee updates, timelock adjustments, whitelist/blacklist changes.
+   - _Requirement_: Always emit the acting `authority`, `config` account, **`old_value`**, and **`new_value`**.
 
 3. **Pillar 3: Lifecycle Milestones & Account Closure Finality**
-   - *Trigger*: Protocol bootstrapping (`init`), round/phase state shifts, and account closing (`close = destination`).
-   - *Requirement*: Emit milestone events. For account closures, emit a finality event **immediately prior to completion** to record final payouts before account memory is zeroed out.
+   - _Trigger_: Protocol bootstrapping (`init`), round/phase state shifts, and account closing (`close = destination`).
+   - _Requirement_: Emit milestone events. For account closures, emit a finality event **immediately prior to completion** to record final payouts before account memory is zeroed out.
 
 4. **Pillar 4: Crank, Keeper & Autonomous Actions**
-   - *Trigger*: Liquidations, batch prize drawings, automated yield compounding, order book fills, stale account sweeps.
-   - *Requirement*: Emit keeper identity, affected user keys, and execution results. For loops, use **Vector Batching** (`Vec<Summary>`).
+   - _Trigger_: Liquidations, batch prize drawings, automated yield compounding, order book fills, stale account sweeps.
+   - _Requirement_: Emit keeper identity, affected user keys, and execution results. For loops, use **Vector Batching** (`Vec<Summary>`).
 
 5. **Pillar 5: Emergency & Risk Circuit Breakers**
-   - *Trigger*: Emergency pauses, freeze toggles, bad debt socialization, oracle circuit breaker triggers.
-   - *Requirement*: Emit trigger authority, reason code, affected accounts count, and timestamp.
+   - _Trigger_: Emergency pauses, freeze toggles, bad debt socialization, oracle circuit breaker triggers.
+   - _Requirement_: Emit trigger authority, reason code, affected accounts count, and timestamp.
 
 ### Negative Triggers (When NOT to Emit):
+
 - ❌ **Pure Read/View Calls**: RPC `simulateTransaction` handles data return without consuming CUs on logs.
 - ❌ **Internal Transient State**: Scratchpad calculations within instruction logic.
 - ❌ **Unbatched Loop Iterations**: Emitting per loop iteration blows through the 10KB log buffer.
@@ -99,13 +100,13 @@ Use the **State Mutation vs. Event Cross-Matrix (SM-ECM)** during code reviews a
 
 ### SM-ECM Audit Checklist Matrix:
 
-| Instruction | Mutated Accounts | 5-Pillar Category | Emitted Event | Payload Complete? | Verdict |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `initialize_pool` | `pool`, `payer` | Pillar 3 (Lifecycle) | `PoolInitialized` | Yes (keys, initial config) | ✅ PASS |
-| `deposit` | `vault`, `user_stake` | Pillar 1 (Financial) | `TokensDeposited` | Missing `post_vault_balance` | ⚠️ DEFICIENT |
-| `set_fee` | `config` | Pillar 2 (Governance) | *None* | *None* | ❌ MISSING EVENT |
-| `liquidate` | `user_collateral`, `loan`| Pillar 4 (Crank/Keeper) | `PositionLiquidated` | Yes (keeper, user, seized) | ✅ PASS |
-| `close_account` | `user_account` (`close`) | Pillar 3 (Lifecycle) | *None* | *None* | ❌ MISSING EVENT |
+| Instruction       | Mutated Accounts          | 5-Pillar Category       | Emitted Event        | Payload Complete?            | Verdict          |
+| :---------------- | :------------------------ | :---------------------- | :------------------- | :--------------------------- | :--------------- |
+| `initialize_pool` | `pool`, `payer`           | Pillar 3 (Lifecycle)    | `PoolInitialized`    | Yes (keys, initial config)   | ✅ PASS          |
+| `deposit`         | `vault`, `user_stake`     | Pillar 1 (Financial)    | `TokensDeposited`    | Missing `post_vault_balance` | ⚠️ DEFICIENT     |
+| `set_fee`         | `config`                  | Pillar 2 (Governance)   | _None_               | _None_                       | ❌ MISSING EVENT |
+| `liquidate`       | `user_collateral`, `loan` | Pillar 4 (Crank/Keeper) | `PositionLiquidated` | Yes (keeper, user, seized)   | ✅ PASS          |
+| `close_account`   | `user_account` (`close`)  | Pillar 3 (Lifecycle)    | _None_               | _None_                       | ❌ MISSING EVENT |
 
 ---
 

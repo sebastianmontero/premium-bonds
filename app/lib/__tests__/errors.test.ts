@@ -4,6 +4,7 @@ import {
   isParsedTransactionError,
   TransactionError,
   sanitizeErrorMessage,
+  getErrorCategoryTheme,
   SPL_TOKEN_ERRORS,
 } from "../errors";
 
@@ -112,8 +113,8 @@ function runTests() {
       `Expected category blockhash_expired, got ${parsed.category}`
     );
     assert(
-      parsed.title === "Transaction Expired",
-      `Expected title Transaction Expired, got ${parsed.title}`
+      parsed.title === "Request Timed Out",
+      `Expected title Request Timed Out, got ${parsed.title}`
     );
     console.log("✓ Passed Test 4\n");
   }
@@ -159,8 +160,8 @@ function runTests() {
       `Expected category blockhash_expired, got ${parsed.category}`
     );
     assert(
-      parsed.title === "Transaction Expired",
-      `Expected title Transaction Expired, got ${parsed.title}`
+      parsed.title === "Request Timed Out",
+      `Expected title Request Timed Out, got ${parsed.title}`
     );
     console.log("✓ Passed Test 7\n");
   }
@@ -182,8 +183,8 @@ function runTests() {
       `Expected category blockhash_expired, got ${parsed.category}`
     );
     assert(
-      parsed.title === "Transaction Expired",
-      `Expected title Transaction Expired, got ${parsed.title}`
+      parsed.title === "Request Timed Out",
+      `Expected title Request Timed Out, got ${parsed.title}`
     );
     console.log("✓ Passed Test 8\n");
   }
@@ -213,8 +214,8 @@ function runTests() {
       `Expected category blockhash_expired, got ${parsed.category}`
     );
     assert(
-      parsed.title === "Transaction Expired",
-      `Expected title Transaction Expired, got ${parsed.title}`
+      parsed.title === "Request Timed Out",
+      `Expected title Request Timed Out, got ${parsed.title}`
     );
     console.log("✓ Passed Test 10\n");
   }
@@ -233,8 +234,8 @@ function runTests() {
       `Expected category blockhash_expired, got ${parsed.category}`
     );
     assert(
-      parsed.title === "Transaction Expired",
-      `Expected title Transaction Expired, got ${parsed.title}`
+      parsed.title === "Request Timed Out",
+      `Expected title Request Timed Out, got ${parsed.title}`
     );
     console.log("✓ Passed Test 11\n");
   }
@@ -360,7 +361,10 @@ function runTests() {
       "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "system", `Expected layer system, got ${parsed.layer}`);
+    assert(
+      parsed.layer === "system",
+      `Expected layer system, got ${parsed.layer}`
+    );
     assert(
       parsed.category === "insufficient_sol",
       `Expected category insufficient_sol, got ${parsed.category}`
@@ -416,7 +420,9 @@ function runTests() {
   // Test 20: RPC Rate Limit 429
   {
     console.log("Test 20: RPC Rate Limit 429");
-    const rawErr = new Error("429 Too Many Requests: rate limit exceeded on RPC cluster");
+    const rawErr = new Error(
+      "429 Too Many Requests: rate limit exceeded on RPC cluster"
+    );
     const parsed = parseTransactionError(rawErr);
     assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
     assert(
@@ -494,6 +500,41 @@ function runTests() {
       "Should strip ANSI escape sequences"
     );
     console.log("✓ Passed Test 23\n");
+  }
+
+  // Test 24: getErrorCategoryTheme theme mapping validation
+  {
+    console.log("Test 24: getErrorCategoryTheme theme mapping validation");
+    const timeoutTheme = getErrorCategoryTheme("blockhash_expired");
+    assert(timeoutTheme.icon === "⏱️", `Expected ⏱️, got ${timeoutTheme.icon}`);
+    assert(
+      timeoutTheme.titleColor === "text-sky-300",
+      `Expected text-sky-300, got ${timeoutTheme.titleColor}`
+    );
+
+    const fundsTheme = getErrorCategoryTheme("insufficient_sol");
+    assert(fundsTheme.icon === "⛽", `Expected ⛽, got ${fundsTheme.icon}`);
+    assert(
+      fundsTheme.titleColor === "text-amber-300",
+      `Expected text-amber-300, got ${fundsTheme.titleColor}`
+    );
+
+    const contractTheme = getErrorCategoryTheme("anchor_custom");
+    assert(
+      contractTheme.icon === "⚠️",
+      `Expected ⚠️, got ${contractTheme.icon}`
+    );
+    assert(
+      contractTheme.titleColor === "text-red-400",
+      `Expected text-red-400, got ${contractTheme.titleColor}`
+    );
+
+    const cancelTheme = getErrorCategoryTheme("wallet_cancellation");
+    assert(cancelTheme.icon === "✕", `Expected ✕, got ${cancelTheme.icon}`);
+
+    const defaultTheme = getErrorCategoryTheme("unknown");
+    assert(defaultTheme.icon === "⚠️", `Expected ⚠️, got ${defaultTheme.icon}`);
+    console.log("✓ Passed Test 24\n");
   }
 
   console.log(
