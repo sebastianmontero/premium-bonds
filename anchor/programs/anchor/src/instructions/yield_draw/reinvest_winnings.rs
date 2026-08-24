@@ -192,7 +192,7 @@ pub fn handle(
     }
 
     // Mark winner as processed
-    payout_registry.mark_processed(winner_index);
+    payout_registry.mark_processed(winner_index)?;
 
     // ── 3. Reinvest: accounting-only bond registration ──────────────────────
     //

@@ -156,10 +156,14 @@ impl PayoutRegistry {
     }
 
     /// Marks a winner as fully processed and increments the completed counter.
-    pub fn mark_processed(&mut self, winner_index: u32) {
+    pub fn mark_processed(&mut self, winner_index: u32) -> Result<()> {
         let idx = winner_index as usize;
         self.winners[idx].processed = 1;
-        self.payouts_completed += 1;
+        self.payouts_completed = self
+            .payouts_completed
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
     }
 }
 
