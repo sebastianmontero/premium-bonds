@@ -27,6 +27,13 @@ pub struct PausePool<'info> {
         bump = pool.load()?.vault_authority_bump,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Immediately transitions a pool to `PoolStatus::Paused`.
@@ -40,11 +47,12 @@ pub fn handle_pause_pool(ctx: Context<PausePool>) -> Result<()> {
     let previous_status = pool.status;
     pool.status = PoolStatus::Paused as u8;
 
-    emit!(PoolStatusChanged {
+    emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status: pool.status,
         authority: ctx.accounts.signer.key(),
+        timestamp: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
@@ -72,6 +80,13 @@ pub struct UnpausePool<'info> {
         bump = pool.load()?.vault_authority_bump,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Transitions a paused pool back to `PoolStatus::Active`.
@@ -85,11 +100,12 @@ pub fn handle_unpause_pool(ctx: Context<UnpausePool>) -> Result<()> {
     let previous_status = pool.status;
     pool.status = PoolStatus::Active as u8;
 
-    emit!(PoolStatusChanged {
+    emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status: pool.status,
         authority: ctx.accounts.admin.key(),
+        timestamp: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }
@@ -117,6 +133,13 @@ pub struct ClosePool<'info> {
         bump = pool.load()?.vault_authority_bump,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Permanently transitions a pool to `PoolStatus::Closed`.
@@ -134,11 +157,12 @@ pub fn handle_close_pool(ctx: Context<ClosePool>) -> Result<()> {
     let previous_status = pool.status;
     pool.status = PoolStatus::Closed as u8;
 
-    emit!(PoolStatusChanged {
+    emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
         new_status: pool.status,
         authority: ctx.accounts.admin.key(),
+        timestamp: Clock::get()?.unix_timestamp,
     });
     Ok(())
 }

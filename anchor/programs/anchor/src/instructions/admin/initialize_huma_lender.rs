@@ -138,6 +138,7 @@ pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
     emit!(HumaLenderInitialized {
         pool_id: pool.pool_id,
         admin: ctx.accounts.admin.key(),
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

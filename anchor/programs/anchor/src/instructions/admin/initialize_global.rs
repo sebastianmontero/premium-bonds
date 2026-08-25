@@ -1,6 +1,6 @@
 use crate::constants::{DISCRIMINATOR, GLOBAL_CONFIG_SEED};
 use crate::error::PremiumBondsError;
-use crate::events::GlobalConfigUpdated;
+use crate::events::GlobalConfigInitialized;
 use crate::state::GlobalConfig;
 use anchor_lang::prelude::*;
 
@@ -65,10 +65,11 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
         ctx.accounts.jobs_account.key(),
     );
 
-    emit!(GlobalConfigUpdated {
+    emit!(GlobalConfigInitialized {
         admin: global_config.admin,
         guardian: global_config.guardian,
         jobs_account: global_config.jobs_account,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

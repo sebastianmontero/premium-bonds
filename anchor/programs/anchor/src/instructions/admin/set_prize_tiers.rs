@@ -23,13 +23,20 @@ pub struct SetPrizeTiers<'info> {
 
     /// The prize pool state account to update.
     ///
-    /// PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+    /// PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Sets the prize tiers distribution config for a prize pool.
@@ -53,13 +60,23 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
+    let old_tiers_count = pool.prize_tiers_count;
+    let old_total_winners: u32 = pool.prize_tiers[..old_tiers_count as usize]
+        .iter()
+        .try_fold(0u32, |acc, t| acc.checked_add(t.num_winners))
+        .ok_or(PremiumBondsError::MathOverflow)?;
+
     let total_winners = pool.set_prize_tiers(&tiers)?;
 
-    emit!(PrizeTiersUpdated {
+    emit_cpi!(PrizeTiersUpdated {
         pool_id: pool.pool_id,
         admin: ctx.accounts.admin.key(),
-        tiers_count: pool.prize_tiers_count,
-        total_winners,
+        old_tiers_count,
+        old_total_winners,
+        new_tiers_count: pool.prize_tiers_count,
+        new_total_winners: total_winners,
+        tiers,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

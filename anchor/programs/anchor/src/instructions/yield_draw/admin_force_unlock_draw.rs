@@ -99,6 +99,7 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
         admin: ctx.accounts.admin.key(),
         prize_pot: draw_cycle.prize_pot,
         cycle_fee_collected: draw_cycle.cycle_fee_collected,
+        timestamp: draw_cycle.completed_at,
     });
 
     #[cfg(feature = "debug-logs")]

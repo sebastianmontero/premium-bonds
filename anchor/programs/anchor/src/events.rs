@@ -1,3 +1,4 @@
+use crate::state::PrizeTier;
 use anchor_lang::prelude::*;
 
 /// Emitted when a user purchases bonds.
@@ -11,6 +12,12 @@ pub struct BondsPurchased {
     pub bonds: u32,
     /// Amount of USDC deposited (in base units).
     pub amount: u64,
+    /// Pool's total deposited principal after this purchase.
+    pub new_total_deposited_principal: u64,
+    /// User's total bonds after this purchase (active + pending).
+    pub user_total_bonds: u32,
+    /// Unix timestamp of the purchase.
+    pub timestamp: i64,
 }
 
 /// Emitted when a user sells bonds and initiates an async redemption.
@@ -26,6 +33,12 @@ pub struct BondsSold {
     pub principal: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
+    /// Pool's total deposited principal after this sale.
+    pub new_total_deposited_principal: u64,
+    /// User's remaining bonds after this sale (active + pending), or 0 if exited.
+    pub user_remaining_bonds: u32,
+    /// Unix timestamp of the sale.
+    pub timestamp: i64,
 }
 
 /// Emitted when a winner's prize is reinvested into new bonds by the crank.
@@ -41,6 +54,8 @@ pub struct WinningsReinvested {
     pub bonds_bought: u32,
     /// Amount of USDC reinvested (in base units).
     pub amount_reinvested: u64,
+    /// Unix timestamp of the reinvestment.
+    pub timestamp: i64,
 }
 
 /// Emitted when a user claims non-reinvested winnings (initiates async redemption).
@@ -54,9 +69,11 @@ pub struct WinningsClaimed {
     pub amount: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
+    /// Unix timestamp of the claim request.
+    pub timestamp: i64,
 }
 
-/// Emitted when a user claims a settled redemption (receives USDC).
+/// Emitted when a user claims a settled redemption (receives USDC) and closes PendingRedemption.
 #[event]
 pub struct RedemptionClaimed {
     /// Public key of the user receiving the disbursed USDC.
@@ -67,6 +84,14 @@ pub struct RedemptionClaimed {
     pub amount: u64,
     /// Unique identifier of the redeemed pending redemption.
     pub redemption_id: u64,
+    /// Origin type of the redemption (0 = BondSale, 1 = PrizeClaim, 2 = FeeWithdrawal).
+    pub redemption_type: u8,
+    /// $PST shares that were locked in the original redemption request.
+    pub pst_shares_locked: u64,
+    /// Unix timestamp when the redemption was originally requested.
+    pub requested_at: i64,
+    /// Unix timestamp when this claim was executed.
+    pub timestamp: i64,
 }
 
 /// Emitted when a draw cycle is completed and winners are picked.
@@ -84,6 +109,8 @@ pub struct DrawCompleted {
     pub total_distributed: u64,
     /// Pool's lifetime cumulative prizes distributed across all completed draws.
     pub total_prizes_distributed: u64,
+    /// Unix timestamp when the draw was completed.
+    pub timestamp: i64,
 }
 
 /// Emitted when a draw cycle is skipped (due to insufficient yield or zero active tickets).
@@ -97,6 +124,8 @@ pub struct DrawSkipped {
     pub raw_yield: u64,
     /// Pool's minimum yield threshold.
     pub threshold: u64,
+    /// Unix timestamp when the draw was skipped.
+    pub timestamp: i64,
 }
 
 /// Emitted when an admin force unlocks a stuck draw cycle.
@@ -112,6 +141,8 @@ pub struct DrawForceUnlocked {
     pub prize_pot: u64,
     /// Protocol cycle fee amount (in base units) that was reversed during unlock.
     pub cycle_fee_collected: u64,
+    /// Unix timestamp when the force unlock was executed.
+    pub timestamp: i64,
 }
 
 /// Emitted when a new pool is created by an admin.
@@ -131,6 +162,7 @@ pub struct PoolCreated {
     pub payout_timelock_seconds: u32,
     pub tiers_count: u8,
     pub total_winners: u32,
+    pub timestamp: i64,
 }
 
 /// Emitted when a Huma lender is initialized for a pool.
@@ -138,14 +170,30 @@ pub struct PoolCreated {
 pub struct HumaLenderInitialized {
     pub pool_id: u32,
     pub admin: Pubkey,
+    pub timestamp: i64,
 }
 
-/// Emitted when global configuration is updated.
+/// Emitted when global configuration is initialized for the first time.
 #[event]
-pub struct GlobalConfigUpdated {
+pub struct GlobalConfigInitialized {
     pub admin: Pubkey,
     pub guardian: Pubkey,
     pub jobs_account: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when global configuration is updated (old → new values for audit trail).
+#[event]
+pub struct GlobalConfigUpdated {
+    /// The admin authority who performed the change.
+    pub authority: Pubkey,
+    pub old_admin: Pubkey,
+    pub new_admin: Pubkey,
+    pub old_guardian: Pubkey,
+    pub new_guardian: Pubkey,
+    pub old_jobs_account: Pubkey,
+    pub new_jobs_account: Pubkey,
+    pub timestamp: i64,
 }
 
 /// Emitted when pool configuration is updated.
@@ -153,13 +201,21 @@ pub struct GlobalConfigUpdated {
 pub struct PoolConfigUpdated {
     pub pool_id: u32,
     pub admin: Pubkey,
-    pub fee_basis_points: u16,
-    pub bond_price: u64,
-    pub fee_wallet: Pubkey,
-    pub min_yield_threshold: u64,
-    pub stake_cycle_duration_hrs: i64,
-    pub max_yield_basis_points: u16,
-    pub payout_timelock_seconds: u32,
+    pub old_fee_basis_points: u16,
+    pub new_fee_basis_points: u16,
+    pub old_bond_price: u64,
+    pub new_bond_price: u64,
+    pub old_fee_wallet: Pubkey,
+    pub new_fee_wallet: Pubkey,
+    pub old_min_yield_threshold: u64,
+    pub new_min_yield_threshold: u64,
+    pub old_stake_cycle_duration_hrs: i64,
+    pub new_stake_cycle_duration_hrs: i64,
+    pub old_max_yield_basis_points: u16,
+    pub new_max_yield_basis_points: u16,
+    pub old_payout_timelock_seconds: u32,
+    pub new_payout_timelock_seconds: u32,
+    pub timestamp: i64,
 }
 
 /// Emitted when a pool's administrative lifecycle status is changed (pause, unpause, close).
@@ -169,6 +225,7 @@ pub struct PoolStatusChanged {
     pub previous_status: u8,
     pub new_status: u8,
     pub authority: Pubkey,
+    pub timestamp: i64,
 }
 
 /// Emitted when the on-chain solvency circuit breaker trips due to venue deficit.
@@ -178,6 +235,7 @@ pub struct EmergencyInsolvencyDetected {
     pub current_value: u64,
     pub book_value: u64,
     pub deficit: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when single-cycle yield breaches the configured velocity ceiling.
@@ -186,6 +244,7 @@ pub struct YieldVelocityBreached {
     pub pool_id: u32,
     pub yield_generated: u64,
     pub max_allowed_yield: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when a completed draw is voided and rolled back by an administrator.
@@ -196,6 +255,7 @@ pub struct DrawVoided {
     pub admin: Pubkey,
     pub prizes_reversed: u64,
     pub fees_reversed: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when prize tiers are updated for a pool.
@@ -203,8 +263,12 @@ pub struct DrawVoided {
 pub struct PrizeTiersUpdated {
     pub pool_id: u32,
     pub admin: Pubkey,
-    pub tiers_count: u8,
-    pub total_winners: u32,
+    pub old_tiers_count: u8,
+    pub old_total_winners: u32,
+    pub new_tiers_count: u8,
+    pub new_total_winners: u32,
+    pub tiers: Vec<PrizeTier>,
+    pub timestamp: i64,
 }
 
 /// Emitted when a pool's ticket registry is resized.
@@ -214,6 +278,7 @@ pub struct RegistryResized {
     pub caller: Pubkey,
     pub old_capacity: u32,
     pub new_capacity: u32,
+    pub timestamp: i64,
 }
 
 /// Emitted when yield is harvested and committed for a cycle.
@@ -226,6 +291,7 @@ pub struct YieldHarvested {
     pub prize_pot: u64,
     pub locked_ticket_count: u32,
     pub randomness_account: Pubkey,
+    pub timestamp: i64,
 }
 
 /// Emitted when expired randomness is rebound for a pool.
@@ -236,6 +302,7 @@ pub struct RandomnessRebound {
     pub old_randomness_account: Pubkey,
     pub new_randomness_account: Pubkey,
     pub harvest_slot: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when fees are withdrawn by an admin.
@@ -247,6 +314,7 @@ pub struct FeesWithdrawn {
     pub amount: u64,
     pub pst_shares: u64,
     pub redemption_id: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when a batch of draw preparation entries is processed.
@@ -264,5 +332,7 @@ pub struct DrawPreparationProgress {
     pub user_count: u32,
     /// Whether this batch completed the full preparation.
     pub is_complete: bool,
+    /// Unix timestamp when this preparation progress was recorded.
+    pub timestamp: i64,
 }
 

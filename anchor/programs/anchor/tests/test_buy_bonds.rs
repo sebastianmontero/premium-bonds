@@ -751,6 +751,9 @@ fn test_buy_bonds_initializes_user_winnings() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.bonds, 1);
     assert_eq!(event.amount, 1_000_000);
+    assert_eq!(event.new_total_deposited_principal, 1_000_000);
+    assert_eq!(event.user_total_bonds, 1);
+    assert!(event.timestamp > 0);
 
     // After: user_winnings account should exist and be initialized
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());

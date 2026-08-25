@@ -90,6 +90,8 @@ fn send_set_prize_tiers(
         global_config,
         admin: admin_account_override.unwrap_or_else(|| admin.pubkey()),
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -149,11 +151,16 @@ fn test_set_prize_tiers_succeeds() {
 
     let meta = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone(), None, None)
         .expect("Setting valid prize tiers should succeed");
-    let event = assert_log_event::<anchor::events::PrizeTiersUpdated>(&meta);
+    let event = assert_cpi_event::<anchor::events::PrizeTiersUpdated>(&meta);
     assert_eq!(event.pool_id, pool_id);
     assert_eq!(event.admin, admin.pubkey());
-    assert_eq!(event.tiers_count, 2);
-    assert_eq!(event.total_winners, 6);
+    assert_eq!(event.old_tiers_count, 0);
+    assert_eq!(event.old_total_winners, 0);
+    assert_eq!(event.new_tiers_count, 2);
+    assert_eq!(event.new_total_winners, 6);
+    assert_eq!(event.tiers.len(), 2);
+    assert_eq!(event.tiers[0].basis_points, 5000);
+    assert!(event.timestamp > 0);
 
     let pool = read_prize_pool(&svm, pool_id);
     assert_eq!(pool.prize_tiers_count, 2);

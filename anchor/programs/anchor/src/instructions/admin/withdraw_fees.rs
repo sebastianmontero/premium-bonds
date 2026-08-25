@@ -272,6 +272,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         amount,
         pst_shares,
         redemption_id: current_redemption_id,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

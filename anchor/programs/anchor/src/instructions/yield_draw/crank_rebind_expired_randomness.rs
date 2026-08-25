@@ -112,6 +112,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
         old_randomness_account: old_randomness,
         new_randomness_account: draw_cycle.randomness_account,
         harvest_slot: clock.slot,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

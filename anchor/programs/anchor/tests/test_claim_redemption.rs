@@ -864,6 +864,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.amount, 3_000_000);
     assert_eq!(event.redemption_id, 0);
+    assert_eq!(event.redemption_type, 0); // BondSale
+    assert!(event.pst_shares_locked > 0);
+    assert!(event.requested_at > 0);
+    assert!(event.timestamp > 0);
 
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
 

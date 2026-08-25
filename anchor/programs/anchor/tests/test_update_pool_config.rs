@@ -108,6 +108,8 @@ fn build_update_pool_config_full_ix(
         global_config,
         admin,
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -143,10 +145,7 @@ fn test_update_pool_config_succeeds_empty() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(
-        res.is_ok(),
-        "update_pool_config should succeed with all None"
-    );
+    assert!(res.is_ok());
 }
 
 #[test]
@@ -161,11 +160,14 @@ fn test_update_pool_config_succeeds_one_field() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating one field");
-    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, admin.pubkey());
-    assert_eq!(event.fee_basis_points, 200);
-    assert_eq!(event.stake_cycle_duration_hrs, 24);
+    assert_eq!(event.old_fee_basis_points, 100);
+    assert_eq!(event.new_fee_basis_points, 200);
+    assert_eq!(event.old_stake_cycle_duration_hrs, 24);
+    assert_eq!(event.new_stake_cycle_duration_hrs, 24);
+    assert!(event.timestamp > 0);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
@@ -198,8 +200,12 @@ fn test_update_pool_config_succeeds_all_fields() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating all fields");
-    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
-    assert_eq!(event.stake_cycle_duration_hrs, 168);
+    let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.old_stake_cycle_duration_hrs, 24);
+    assert_eq!(event.new_stake_cycle_duration_hrs, 168);
+    assert_eq!(event.old_fee_basis_points, 100);
+    assert_eq!(event.new_fee_basis_points, 50);
+    assert!(event.timestamp > 0);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
@@ -224,9 +230,11 @@ fn test_update_pool_config_succeeds_stake_cycle_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating duration");
-    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1);
-    assert_eq!(event.stake_cycle_duration_hrs, 72);
+    assert_eq!(event.old_stake_cycle_duration_hrs, 24);
+    assert_eq!(event.new_stake_cycle_duration_hrs, 72);
+    assert!(event.timestamp > 0);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
@@ -571,6 +579,8 @@ fn test_update_pool_config_fails_missing_fee_wallet_account() {
         global_config,
         admin: admin.pubkey(),
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -707,9 +717,12 @@ fn test_update_pool_config_succeeds_max_yield_and_timelock() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let meta = svm.send_transaction(tx).expect("update should succeed");
-    let event = assert_log_event::<anchor::events::PoolConfigUpdated>(&meta);
-    assert_eq!(event.max_yield_basis_points, 500);
-    assert_eq!(event.payout_timelock_seconds, 600);
+    let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.old_max_yield_basis_points, 0);
+    assert_eq!(event.new_max_yield_basis_points, 500);
+    assert_eq!(event.old_payout_timelock_seconds, 300);
+    assert_eq!(event.new_payout_timelock_seconds, 600);
+    assert!(event.timestamp > 0);
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;

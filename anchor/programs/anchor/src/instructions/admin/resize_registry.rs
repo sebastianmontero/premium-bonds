@@ -66,6 +66,7 @@ pub fn handle(ctx: Context<ResizeRegistry>) -> Result<()> {
         caller: ctx.accounts.payer.key(),
         old_capacity,
         new_capacity,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

@@ -53,6 +53,8 @@ fn send_update_global_config(
     let mut accounts = anchor::accounts::UpdateGlobalConfig {
         global_config: global_config_account,
         admin: admin_account_override.unwrap_or_else(|| admin.pubkey()),
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -130,9 +132,13 @@ fn test_update_global_config_admin_only() {
         None,
     )
     .expect("Updating admin should succeed");
-    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.admin, new_admin);
-    assert_eq!(event.jobs_account, jobs);
+    let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.authority, admin.pubkey());
+    assert_eq!(event.old_admin, admin.pubkey());
+    assert_eq!(event.new_admin, new_admin);
+    assert_eq!(event.old_jobs_account, jobs);
+    assert_eq!(event.new_jobs_account, jobs);
+    assert!(event.timestamp > 0);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, new_admin);
@@ -143,6 +149,7 @@ fn test_update_global_config_admin_only() {
 fn test_update_global_config_guardian_only() {
     let (mut svm, admin, jobs) = setup_and_initialize();
     let (global_config, _) = global_config_pda();
+    let initial_config = read_global_config(&svm);
 
     let new_guardian = Keypair::new().pubkey();
 
@@ -157,10 +164,15 @@ fn test_update_global_config_guardian_only() {
         None,
     )
     .expect("Updating guardian should succeed");
-    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.admin, admin.pubkey());
-    assert_eq!(event.guardian, new_guardian);
-    assert_eq!(event.jobs_account, jobs);
+    let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.authority, admin.pubkey());
+    assert_eq!(event.old_admin, admin.pubkey());
+    assert_eq!(event.new_admin, admin.pubkey());
+    assert_eq!(event.old_guardian, initial_config.guardian);
+    assert_eq!(event.new_guardian, new_guardian);
+    assert_eq!(event.old_jobs_account, jobs);
+    assert_eq!(event.new_jobs_account, jobs);
+    assert!(event.timestamp > 0);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey());

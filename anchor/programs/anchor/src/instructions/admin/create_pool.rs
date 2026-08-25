@@ -197,6 +197,7 @@ pub fn handle(
         payout_timelock_seconds,
         tiers_count: pool.prize_tiers_count,
         total_winners,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

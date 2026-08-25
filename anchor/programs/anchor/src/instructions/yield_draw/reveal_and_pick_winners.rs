@@ -253,6 +253,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         winners_count: payout_registry.winners_count,
         total_distributed,
         total_prizes_distributed: pool.total_prizes_distributed,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

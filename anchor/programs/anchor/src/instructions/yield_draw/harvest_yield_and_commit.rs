@@ -229,6 +229,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
                 current_value,
                 book_value,
                 deficit,
+                timestamp: current_time,
             });
             return Ok(());
         }
@@ -265,6 +266,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
                 pool_id: pool.pool_id,
                 yield_generated,
                 max_allowed_yield: max_allowed_yield as u64,
+                timestamp: current_time,
             });
             return Ok(());
         }
@@ -305,6 +307,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             prize_pot: net_yield,
             locked_ticket_count: eligible_locked_count,
             randomness_account: ctx.accounts.randomness_account.key(),
+            timestamp: current_time,
         });
     } else {
         draw_cycle.status = DrawStatus::Skipped;
@@ -314,6 +317,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             cycle_id: pool.current_draw_cycle_id,
             raw_yield: yield_generated,
             threshold: pool.min_yield_threshold,
+            timestamp: current_time,
         });
     }
 

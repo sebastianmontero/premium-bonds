@@ -31,6 +31,13 @@ pub struct UpdatePoolConfig<'info> {
         bump = pool.load()?.vault_authority_bump,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Updates a prize pool's configuration parameters.
@@ -64,6 +71,14 @@ pub fn handle(
         pool.is_frozen_for_draw == 0,
         PremiumBondsError::AwaitingRandomnessFreeze
     );
+
+    let old_fee_basis_points = pool.fee_basis_points;
+    let old_bond_price = pool.bond_price;
+    let old_fee_wallet = pool.fee_wallet;
+    let old_min_yield_threshold = pool.min_yield_threshold;
+    let old_stake_cycle_duration_hrs = pool.stake_cycle_duration_hrs;
+    let old_max_yield_basis_points = pool.max_yield_basis_points;
+    let old_payout_timelock_seconds = pool.payout_timelock_seconds;
 
     if let Some(v) = new_stake_cycle_duration_hrs {
         PrizePool::validate_stake_cycle_duration(v)?;
@@ -117,16 +132,24 @@ pub fn handle(
         pool.payout_timelock_seconds = v;
     }
 
-    emit!(PoolConfigUpdated {
+    emit_cpi!(PoolConfigUpdated {
         pool_id: pool.pool_id,
         admin: ctx.accounts.admin.key(),
-        fee_basis_points: pool.fee_basis_points,
-        bond_price: pool.bond_price,
-        fee_wallet: pool.fee_wallet,
-        min_yield_threshold: pool.min_yield_threshold,
-        stake_cycle_duration_hrs: pool.stake_cycle_duration_hrs,
-        max_yield_basis_points: pool.max_yield_basis_points,
-        payout_timelock_seconds: pool.payout_timelock_seconds,
+        old_fee_basis_points,
+        new_fee_basis_points: pool.fee_basis_points,
+        old_bond_price,
+        new_bond_price: pool.bond_price,
+        old_fee_wallet,
+        new_fee_wallet: pool.fee_wallet,
+        old_min_yield_threshold,
+        new_min_yield_threshold: pool.min_yield_threshold,
+        old_stake_cycle_duration_hrs,
+        new_stake_cycle_duration_hrs: pool.stake_cycle_duration_hrs,
+        old_max_yield_basis_points,
+        new_max_yield_basis_points: pool.max_yield_basis_points,
+        old_payout_timelock_seconds,
+        new_payout_timelock_seconds: pool.payout_timelock_seconds,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

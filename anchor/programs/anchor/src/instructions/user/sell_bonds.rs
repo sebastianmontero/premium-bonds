@@ -217,7 +217,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let will_exit;
 
     // 1. First scope: read, validate, merge, check exit status, write entries.
-    {
+    let user_remaining_bonds = {
         let mut data = registry_ai.try_borrow_mut_data()?;
         let mut entry = registry_get_entry(&data, user_entry_idx as usize)?;
         require!(
@@ -247,7 +247,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
         will_exit = entry.active == 0 && entry.pending == 0;
 
-        if will_exit {
+        let remaining = if will_exit {
             user_winnings.registry_entry_index = u32::MAX;
             if user_entry_idx != last_entry_idx {
                 let last_entry = registry_get_entry(&data, last_entry_idx as usize)?;
@@ -259,10 +259,16 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
                 last_entry_idx as usize,
                 &crate::state::UserEntry::default(),
             )?;
+            0u32
         } else {
             registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
-        }
-    }
+            entry
+                .active
+                .checked_add(entry.pending)
+                .ok_or(PremiumBondsError::MathOverflow)?
+        };
+        remaining
+    };
 
     // 2. Second scope: update global counters, decrement user count, handle swapped winnings pda.
     {
@@ -306,7 +312,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     }
 
     // Update pool principal & redemption counter in a scoped borrow
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id) = {
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, new_total_deposited_principal) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.total_deposited_principal = pool
             .total_deposited_principal
@@ -327,7 +333,14 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
         let authority_bump = pool.vault_authority_bump;
-        (pool_id, pool_id_bytes, authority_bump, current_redemption_id)
+        let new_principal = pool.total_deposited_principal;
+        (
+            pool_id,
+            pool_id_bytes,
+            authority_bump,
+            current_redemption_id,
+            new_principal,
+        )
     };
 
     // Verify that the huma_mode_mint matches the pool_pst_vault mint
@@ -402,6 +415,9 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         bonds: bonds_to_sell,
         principal: expected_principal,
         redemption_id: pending.redemption_id,
+        new_total_deposited_principal,
+        user_remaining_bonds,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

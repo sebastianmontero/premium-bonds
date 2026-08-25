@@ -49,10 +49,11 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
     let meta = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("initialize_global should succeed");
 
-    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
     assert_eq!(event.admin, authority.pubkey());
     assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);
+    assert!(event.timestamp > 0);
 
     let (pda, _) = global_config_pda();
     assert!(
@@ -79,10 +80,11 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
     let meta = send_initialize_global(&mut svm, &authority, &designated_admin, &guardian, &jobs)
         .expect("initialize_global should succeed with separate admin");
 
-    let event = assert_log_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
     assert_eq!(event.admin, designated_admin);
     assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);
+    assert!(event.timestamp > 0);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, designated_admin);

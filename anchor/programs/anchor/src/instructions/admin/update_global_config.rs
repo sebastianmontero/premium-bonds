@@ -20,6 +20,13 @@ pub struct UpdateGlobalConfig<'info> {
 
     /// The admin authority.
     pub admin: Signer<'info>,
+
+    /// CHECK: The event authority PDA for CPI event emission.
+    #[account(seeds = [b"__event_authority"], bump)]
+    pub event_authority: UncheckedAccount<'info>,
+
+    /// The YieldBonds program itself.
+    pub program: Program<'info, crate::program::Anchor>,
 }
 
 /// Updates the global program configuration parameters.
@@ -40,6 +47,10 @@ pub fn handle(
     let global_config = &mut ctx.accounts.global_config;
     global_config.ensure_current_version()?;
 
+    let old_admin = global_config.admin;
+    let old_guardian = global_config.guardian;
+    let old_jobs_account = global_config.jobs_account;
+
     if let Some(admin) = new_admin {
         global_config.admin = admin;
     }
@@ -52,10 +63,15 @@ pub fn handle(
         global_config.jobs_account = jobs_account;
     }
 
-    emit!(GlobalConfigUpdated {
-        admin: global_config.admin,
-        guardian: global_config.guardian,
-        jobs_account: global_config.jobs_account,
+    emit_cpi!(GlobalConfigUpdated {
+        authority: ctx.accounts.admin.key(),
+        old_admin,
+        new_admin: global_config.admin,
+        old_guardian,
+        new_guardian: global_config.guardian,
+        old_jobs_account,
+        new_jobs_account: global_config.jobs_account,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

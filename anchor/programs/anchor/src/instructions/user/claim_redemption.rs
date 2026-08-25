@@ -155,10 +155,24 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     };
 
     // Copy pending values locally to avoid borrow conflicts and correctly report amounts in events/logs
-    let (redemption_amount, redemption_id, huma_request_id) = {
+    let (
+        redemption_amount,
+        redemption_id,
+        huma_request_id,
+        pst_shares_locked,
+        requested_at,
+        redemption_type,
+    ) = {
         let p = &mut ctx.accounts.pending_redemption;
         p.ensure_current_version()?;
-        (p.amount, p.redemption_id, p.huma_request_id)
+        (
+            p.amount,
+            p.redemption_id,
+            p.huma_request_id,
+            p.pst_shares_locked,
+            p.requested_at,
+            p.redemption_type as u8,
+        )
     };
 
     let signer_seeds: &[&[&[u8]]] =
@@ -230,6 +244,10 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         pool_id,
         amount: redemption_amount,
         redemption_id,
+        redemption_type,
+        pst_shares_locked,
+        requested_at,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     // PendingRedemption is closed automatically via `close = beneficiary` constraint

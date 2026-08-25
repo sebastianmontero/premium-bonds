@@ -858,6 +858,10 @@ pub fn setup_e2e() -> E2eContext {
         include_bytes!("../../../../target/deploy/mock_huma.so"),
     );
 
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.unix_timestamp = 1_700_000_000;
+    svm.set_sysvar(&clock);
+
     let admin = Keypair::new();
     let user = Keypair::new();
     svm.airdrop(&admin.pubkey(), 50_000_000_000).unwrap();
@@ -1224,6 +1228,8 @@ pub fn build_pause_pool_ix(signer: &Pubkey, pool_id: u32) -> Instruction {
         global_config,
         signer: *signer,
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -1254,6 +1260,8 @@ pub fn build_unpause_pool_ix(admin: &Pubkey, pool_id: u32) -> Instruction {
         global_config,
         admin: *admin,
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -1284,6 +1292,8 @@ pub fn build_close_pool_ix(admin: &Pubkey, pool_id: u32) -> Instruction {
         global_config,
         admin: *admin,
         pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
     }
     .to_account_metas(None);
 
@@ -1300,6 +1310,154 @@ pub fn send_close_pool(
     pool_id: u32,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let ix = build_close_pool_ix(&admin.pubkey(), pool_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_update_global_config_ix(
+    admin: &Pubkey,
+    new_admin: Option<Pubkey>,
+    new_guardian: Option<Pubkey>,
+    new_jobs_account: Option<Pubkey>,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::UpdateGlobalConfig {
+        global_config,
+        admin: *admin,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::UpdateGlobalConfig {
+            new_admin,
+            new_guardian,
+            new_jobs_account,
+        }
+        .data(),
+    }
+}
+
+pub fn send_update_global_config(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    new_admin: Option<Pubkey>,
+    new_guardian: Option<Pubkey>,
+    new_jobs_account: Option<Pubkey>,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_update_global_config_ix(&admin.pubkey(), new_admin, new_guardian, new_jobs_account);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_update_pool_config_ix(
+    admin: &Pubkey,
+    pool_id: u32,
+    new_fee_basis_points: Option<u16>,
+    new_bond_price: Option<u64>,
+    new_fee_wallet: Option<Pubkey>,
+    new_min_yield_threshold: Option<u64>,
+    new_stake_cycle_duration_hrs: Option<i64>,
+    new_max_yield_basis_points: Option<u16>,
+    new_payout_timelock_seconds: Option<u32>,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let mut accounts = anchor::accounts::UpdatePoolConfig {
+        global_config,
+        admin: *admin,
+        pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    if let Some(fw) = new_fee_wallet {
+        accounts.push(AccountMeta::new_readonly(fw, false));
+    }
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::UpdatePoolConfig {
+            new_fee_basis_points,
+            new_bond_price,
+            new_fee_wallet,
+            new_min_yield_threshold,
+            new_stake_cycle_duration_hrs,
+            new_max_yield_basis_points,
+            new_payout_timelock_seconds,
+        }
+        .data(),
+    }
+}
+
+pub fn send_update_pool_config(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+    new_fee_basis_points: Option<u16>,
+    new_bond_price: Option<u64>,
+    new_fee_wallet: Option<Pubkey>,
+    new_min_yield_threshold: Option<u64>,
+    new_stake_cycle_duration_hrs: Option<i64>,
+    new_max_yield_basis_points: Option<u16>,
+    new_payout_timelock_seconds: Option<u32>,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_update_pool_config_ix(
+        &admin.pubkey(),
+        pool_id,
+        new_fee_basis_points,
+        new_bond_price,
+        new_fee_wallet,
+        new_min_yield_threshold,
+        new_stake_cycle_duration_hrs,
+        new_max_yield_basis_points,
+        new_payout_timelock_seconds,
+    );
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_set_prize_tiers_ix(
+    admin: &Pubkey,
+    pool_id: u32,
+    tiers: Vec<anchor::state::PrizeTier>,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let accounts = anchor::accounts::SetPrizeTiers {
+        global_config,
+        admin: *admin,
+        pool,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::SetPrizeTiers { tiers }.data(),
+    }
+}
+
+pub fn send_set_prize_tiers(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+    tiers: Vec<anchor::state::PrizeTier>,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_set_prize_tiers_ix(&admin.pubkey(), pool_id, tiers);
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();

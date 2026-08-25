@@ -64,11 +64,12 @@ fn test_guardian_can_pause_active_pool() {
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Active as u8);
 
     let meta = send_pause_pool(&mut svm, &guardian, 1).expect("Guardian should be able to pause pool");
-    let event = assert_log_event::<anchor::events::PoolStatusChanged>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.previous_status, anchor::PoolStatus::Active as u8);
     assert_eq!(event.new_status, anchor::PoolStatus::Paused as u8);
     assert_eq!(event.authority, guardian.pubkey());
+    assert!(event.timestamp > 0);
 
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Paused as u8);
 }
@@ -78,10 +79,11 @@ fn test_admin_can_pause_active_pool() {
     let (mut svm, admin, _guardian, pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let meta = send_pause_pool(&mut svm, &admin, 1).expect("Admin should be able to pause pool");
-    let event = assert_log_event::<anchor::events::PoolStatusChanged>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.new_status, anchor::PoolStatus::Paused as u8);
     assert_eq!(event.authority, admin.pubkey());
+    assert!(event.timestamp > 0);
 
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Paused as u8);
 }
@@ -102,11 +104,12 @@ fn test_admin_can_unpause_paused_pool() {
     let (mut svm, admin, _guardian, pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Paused);
 
     let meta = send_unpause_pool(&mut svm, &admin, 1).expect("Admin should be able to unpause pool");
-    let event = assert_log_event::<anchor::events::PoolStatusChanged>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.previous_status, anchor::PoolStatus::Paused as u8);
     assert_eq!(event.new_status, anchor::PoolStatus::Active as u8);
     assert_eq!(event.authority, admin.pubkey());
+    assert!(event.timestamp > 0);
 
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Active as u8);
 }
@@ -125,11 +128,12 @@ fn test_admin_can_close_pool() {
     let (mut svm, admin, _guardian, pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let meta = send_close_pool(&mut svm, &admin, 1).expect("Admin should be able to close pool");
-    let event = assert_log_event::<anchor::events::PoolStatusChanged>(&meta);
+    let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.previous_status, anchor::PoolStatus::Active as u8);
     assert_eq!(event.new_status, anchor::PoolStatus::Closed as u8);
     assert_eq!(event.authority, admin.pubkey());
+    assert!(event.timestamp > 0);
 
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Closed as u8);
 }

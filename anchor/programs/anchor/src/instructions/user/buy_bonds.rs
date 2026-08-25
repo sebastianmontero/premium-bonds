@@ -209,13 +209,14 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     )?;
 
     // 3. Update State
-    {
+    let new_total_deposited_principal = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.total_deposited_principal = pool
             .total_deposited_principal
             .checked_add(amount)
             .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-    }
+        pool.total_deposited_principal
+    };
 
     let user_key = ctx.accounts.user.key();
     let user_winnings = &mut ctx.accounts.user_winnings;
@@ -248,11 +249,11 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
     }
 
-    // Now borrow data mutably to write/update entry
+    // Borrow data mutably to write/update entry
     let registry_ai = registry_loader.to_account_info();
     let mut data = registry_ai.try_borrow_mut_data()?;
 
-    if needs_slot {
+    let user_total_bonds = if needs_slot {
         let new_entry = crate::state::UserEntry {
             owner: user_key,
             active: 0,
@@ -264,6 +265,7 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             _reserved: [0; 12],
         };
         crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry)?;
+        bonds_to_buy
     } else {
         let mut entry = crate::utils::registry_get_entry(&data, user_entry_idx as usize)?;
         require!(
@@ -275,14 +277,23 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
             .pending
             .checked_add(bonds_to_buy)
             .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
+        let total = entry
+            .active
+            .checked_add(entry.pending)
+            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
         crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
-    }
+        total
+    };
+    drop(data);
 
     emit_cpi!(BondsPurchased {
         user: ctx.accounts.user.key(),
         pool_id,
         bonds: bonds_to_buy,
         amount,
+        new_total_deposited_principal,
+        user_total_bonds,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())

@@ -105,6 +105,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
         batch_end: end,
         user_count: registry.user_count,
         is_complete: end >= registry.user_count,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     #[cfg(feature = "debug-logs")]

@@ -612,6 +612,8 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(event_a.bonds, 1);
     assert_eq!(event_a.principal, 1_000_000);
     assert_eq!(event_a.redemption_id, 0);
+    assert_eq!(event_a.user_remaining_bonds, 2);
+    assert!(event_a.timestamp > 0);
 
     // Verify active count and entry updates
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 4);

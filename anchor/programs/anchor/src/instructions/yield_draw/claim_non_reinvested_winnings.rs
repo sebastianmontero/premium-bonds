@@ -262,6 +262,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         pool_id,
         amount: claimable,
         redemption_id: pending.redemption_id,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())

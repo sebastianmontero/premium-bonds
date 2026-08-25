@@ -123,6 +123,7 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
         admin: ctx.accounts.admin.key(),
         prizes_reversed: total_distributed,
         fees_reversed: draw_cycle.cycle_fee_collected,
+        timestamp: draw_cycle.completed_at,
     });
 
     Ok(())

@@ -294,6 +294,7 @@ pub fn handle(
         cycle_id: _cycle_id,
         bonds_bought: bonds_to_buy,
         amount_reinvested: cost,
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())
