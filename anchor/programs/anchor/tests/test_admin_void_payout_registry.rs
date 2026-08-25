@@ -681,4 +681,215 @@ fn test_admin_void_fails_on_sequential_second_call() {
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
+// ─── Zero-Prize Void Tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_admin_void_draw_with_zero_truncated_prize_succeeds_before_crank() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    let prize_pot = 100_000;
+    let cycle_fee = 5_000;
+
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
+        pool.total_fees_accrued = 5_000;
+        pool.total_fees_withdrawn = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, prize_pot, cycle_fee, anchor::DrawStatus::Complete);
+
+    let winner1 = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 50_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+    let winner2 = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 0,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 1,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    let payout_pda_addr = inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner1, winner2],
+        0, // 0 completed
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    // Execute void
+    let meta = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id)
+        .expect("admin_void_payout_registry should succeed");
+
+    let event = assert_cpi_event::<anchor::events::DrawVoided>(&meta);
+    assert_eq!(event.pool_id, pool_id);
+    assert_eq!(event.cycle_id, cycle_id);
+    assert_eq!(event.admin, admin.pubkey());
+    assert_eq!(event.prizes_reversed, 50_000);
+    assert_eq!(event.fees_reversed, cycle_fee);
+
+    // Verify Pool accounting
+    let pool_acc = svm.get_account(&pool_pda_addr).unwrap();
+    let pool = bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc.data[8..]);
+    assert_eq!(pool.total_prizes_allocated, 0);
+    assert_eq!(pool.total_prizes_distributed, 0);
+    assert_eq!(pool.total_fees_accrued, 0);
+
+    // Verify PayoutRegistry marked as Voided
+    let payout_acc = svm.get_account(&payout_pda_addr).unwrap();
+    let pr = bytemuck::from_bytes::<anchor::PayoutRegistry>(&payout_acc.data[8..]);
+    assert_eq!(pr.status, anchor::PayoutRegistryStatus::Voided as u8);
+
+    // Verify DrawCycle marked as Voided
+    let (dc_pda, _) = draw_cycle_pda(pool_id, cycle_id);
+    let dc_acc = svm.get_account(&dc_pda).unwrap();
+    let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+    assert_eq!(dc.status, anchor::DrawStatus::Voided);
+    assert!(dc.completed_at > 0);
+}
+
+#[test]
+fn test_admin_void_100_percent_zero_truncated_draw_succeeds() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    let prize_pot = 5_000;
+    let cycle_fee = 500;
+
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 0; // Full pot was deducted as dust at reveal
+        pool.total_prizes_distributed = 0;
+        pool.total_fees_accrued = cycle_fee;
+        pool.total_fees_withdrawn = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, prize_pot, cycle_fee, anchor::DrawStatus::Complete);
+
+    let winner = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 0,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    let meta = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id)
+        .expect("voiding 100% zero-truncated draw should succeed");
+
+    let event = assert_cpi_event::<anchor::events::DrawVoided>(&meta);
+    assert_eq!(event.prizes_reversed, 0);
+    assert_eq!(event.fees_reversed, cycle_fee);
+
+    let pool_acc = svm.get_account(&pool_pda_addr).unwrap();
+    let pool = bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc.data[8..]);
+    assert_eq!(pool.total_prizes_allocated, 0);
+    assert_eq!(pool.total_prizes_distributed, 0);
+    assert_eq!(pool.total_fees_accrued, 0);
+}
+
+#[test]
+fn test_admin_void_fails_if_zero_prize_winner_already_cranked() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, 5_000, 500, anchor::DrawStatus::Complete);
+
+    let winner = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 0,
+        bonds_bought: 0,
+        processed: 1, // Already cranked!
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner],
+        1, // payouts_completed = 1
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsAlreadyStarted);
+}
+
+
 

@@ -953,4 +953,175 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
 }
 
+// ─── Zero-Prize Reinvestment Tests ───────────────────────────────────────────
+
+#[test]
+fn test_reinvest_zero_prize_owed_without_prior_dust() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest of 0 prize should succeed");
+
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.winner, ctx.winner);
+    assert_eq!(event.bonds_bought, 0);
+    assert_eq!(event.amount_reinvested, 0);
+
+    // Verify PayoutRegistry is marked processed
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+    assert_eq!(pr.payouts_completed, 1);
+
+    // Verify UserWinnings remains 0
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(uw.total_reinvested, 0);
+
+    // Verify pool principal unchanged
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_deposited_principal, 0);
+
+    // Verify ticket registry unchanged
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 10);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+}
+
+#[test]
+fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    // Inject 400k lamports of prior dust (< bond_price of 1_000_000)
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 400_000, 0, 0, 0);
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest of 0 prize with sub-bond dust should succeed");
+
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.winner, ctx.winner);
+    assert_eq!(event.bonds_bought, 0);
+    assert_eq!(event.amount_reinvested, 0);
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+    assert_eq!(pr.payouts_completed, 1);
+
+    // Verify sub-bond dust is preserved exactly
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 400_000);
+    assert_eq!(uw.total_reinvested, 0);
+
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_deposited_principal, 0);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+}
+
+#[test]
+fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    // Inject 1.5 USDC of prior accumulated dust (1_500_000 lamports)
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 1_500_000, 0, 0, 0);
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest should auto-compound prior dust");
+
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.winner, ctx.winner);
+    assert_eq!(event.bonds_bought, 1);
+    assert_eq!(event.amount_reinvested, 1_000_000);
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 1);
+    assert_eq!(pr.payouts_completed, 1);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 500_000);
+    assert_eq!(uw.total_reinvested, 1_000_000);
+
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_deposited_principal, 1_000_000);
+
+    // Verify 1 new active ticket registered from compounding prior dust
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 11);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+}
+
+#[test]
+fn test_reinvest_sequential_multi_winner_zero_prizes() {
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner0 = Keypair::new().pubkey();
+    let winner1 = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: winner0,
+            active: 5,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: winner1,
+            active: 5,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+    ];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+    inject_pool(&mut svm, 1, Keypair::new().pubkey(), reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_payout(
+        &mut svm,
+        1,
+        0,
+        vec![
+            w(winner0, 0, 0, 0, false),
+            w(winner1, 0, 1, 0, false),
+        ],
+    );
+    common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
+    common::inject_user_winnings_with_index(&mut svm, 1, winner1, 0, 0, 0, 0);
+
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner: winner0,
+        registry: reg,
+    };
+
+    // Crank winner 0
+    send(&mut ctx, 0, 0).expect("crank winner 0 should succeed");
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.payouts_completed, 1);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[1].processed, 0);
+
+    // Crank winner 1
+    ctx.winner = winner1;
+    send(&mut ctx, 0, 1).expect("crank winner 1 should succeed");
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.payouts_completed, 2);
+    assert_eq!(pr.winners[1].processed, 1);
+}
+
+#[test]
+fn test_reinvest_fails_if_already_processed_zero_prize() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    send(&mut ctx, 0, 0).expect("first reinvest should succeed");
+
+    ctx.svm.expire_blockhash();
+
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("AlreadyClaimed") || err.contains("6012"), "got: {err}");
+}
+
+
 

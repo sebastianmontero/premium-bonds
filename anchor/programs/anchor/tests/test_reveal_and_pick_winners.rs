@@ -1083,3 +1083,80 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
     }
 }
 
+// ─── Zero-Prize Truncation Tests ─────────────────────────────────────────────
+
+#[test]
+fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
+    const INITIAL_ALLOCATED_PRIZES: u64 = 10_000_000_000;
+    // Pot of 5_000 lamports (0.005 USDC) with 1 tier of 1 winner at 1 bps (0.01%)
+    // calculate_prize: (5_000 * 1) / 10_000 = 0
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 1,
+        num_winners: 1,
+        _padding: [0, 0],
+    }];
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 5_000, 10);
+
+    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
+
+    let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.prize_pot, 5_000);
+    assert_eq!(event.winners_count, 1);
+    assert_eq!(event.total_distributed, 0);
+    assert_eq!(event.total_prizes_distributed, 0);
+
+    // Verify PayoutRegistry state: winner recorded with amount_owed = 0, processed = 0
+    let pr = read_payout_registry(&ctx.svm, 1, 0);
+    assert_eq!(pr.winners_count, 1);
+    assert_eq!(pr.payouts_completed, 0);
+    assert_eq!(pr.winners[0].amount_owed, 0);
+    assert_eq!(pr.winners[0].processed, 0);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+
+    // Verify pool on-chain state: full pot (5_000) deducted as dust from allocated liabilities
+    let pool = read_pool(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 5_000);
+    assert_eq!(pool.total_prizes_distributed, 0);
+}
+
+#[test]
+fn test_reveal_multi_tier_partial_truncation_to_zero() {
+    const INITIAL_ALLOCATED_PRIZES: u64 = 10_000_000_000;
+    // Pot of 5_000 lamports:
+    // Tier 1: 9_999 bps, 1 winner -> (5_000 * 9_999) / 10_000 = 4_999 lamports
+    // Tier 2: 1 bps, 1 winner -> (5_000 * 1) / 10_000 = 0 lamports
+    // total_distributed = 4_999, dust = 1
+    let tiers = vec![
+        anchor::PrizeTier {
+            basis_points: 9_999,
+            num_winners: 1,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            basis_points: 1,
+            num_winners: 1,
+            _padding: [0, 0],
+        },
+    ];
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 5_000, 10);
+
+    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
+
+    let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.total_distributed, 4_999);
+    assert_eq!(event.winners_count, 2);
+
+    let pr = read_payout_registry(&ctx.svm, 1, 0);
+    assert_eq!(pr.winners[0].amount_owed, 4_999);
+    assert_eq!(pr.winners[0].processed, 0);
+    assert_eq!(pr.winners[1].amount_owed, 0);
+    assert_eq!(pr.winners[1].processed, 0);
+
+    let pool = read_pool(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 1);
+    assert_eq!(pool.total_prizes_distributed, 4_999);
+}
+
+

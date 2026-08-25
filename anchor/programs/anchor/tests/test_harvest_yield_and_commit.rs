@@ -850,3 +850,38 @@ fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_depo
     assert_eq!(pool.prize_tiers_count, 1);
     assert_eq!(pool.prize_tiers[0], anchor::PrizeTier::default_single_winner());
 }
+
+// ─── Dust Rollover Verification ──────────────────────────────────────────────
+
+#[test]
+fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
+    // Initial pool state:
+    // deposited_principal = 10_000_000 (10 USDC)
+    // total_prizes_allocated = 0 (because prior cycle had 5_000 lamports dust rolled over/deducted)
+    // PST vault balance = 10_005_000 (representing 10 USDC principal + 0.005 USDC dust)
+    let mut ctx = setup_happy(
+        10,
+        0,
+        100, // 1% fee
+        default_prize_tiers(),
+        10_005_000,
+        10_000_000,
+        10_000_000,
+        10_000_000,
+    );
+
+    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with rolled-over dust should succeed");
+
+    let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    // Yield generated = current_value (10_005_000) - book_value (10_000_000) = 5_000
+    // Fee = 5_000 * 100 / 10_000 = 50 lamports
+    // Prize pot = 4_950 lamports
+    assert_eq!(event.raw_yield, 5_000);
+    assert_eq!(event.fee, 50);
+    assert_eq!(event.prize_pot, 4_950);
+
+    let updated_pool = read_pool(&ctx.svm, 1);
+    assert_eq!(updated_pool.total_prizes_allocated, 4_950);
+    assert_eq!(updated_pool.total_fees_accrued, 50);
+}
+
