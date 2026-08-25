@@ -161,12 +161,12 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         pool.ensure_current_version()?;
 
         require!(
-            pool.status != (PoolStatus::Paused as u8),
+            pool.status() != PoolStatus::Paused,
             PremiumBondsError::PoolPaused
         );
 
         require!(
-            pool.is_frozen_for_draw == 0,
+            !pool.is_frozen(),
             PremiumBondsError::AwaitingRandomnessFreeze
         );
 

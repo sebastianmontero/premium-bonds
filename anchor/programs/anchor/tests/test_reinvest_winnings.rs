@@ -441,10 +441,10 @@ fn test_reinvest_dust_only_no_bonds() {
 }
 
 #[test]
-fn test_reinvest_fails_pool_not_active() {
+fn test_reinvest_fails_pool_paused() {
     let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000, 0);
     let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("PoolNotActive"), "got: {err}");
+    assert!(err.contains("PoolPaused"), "got: {err}");
 }
 
 #[test]
@@ -793,4 +793,164 @@ fn test_reinvest_fails_draw_voided() {
     let err = send(&mut ctx, 0, 0).unwrap_err();
     assert!(err.contains("DrawVoided"), "got: {err}");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Closed Pool Graceful Fallback Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_reinvest_closed_pool_graceful_cash_fallback() {
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 3_000_000, 0);
+    let pool_before = read_pool(&ctx.svm);
+
+    let meta = send(&mut ctx, 0, 0).expect("closed pool reinvest");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.winner, ctx.winner);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.bonds_bought, 0);
+    assert_eq!(event.amount_reinvested, 0);
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+    assert_eq!(pr.payouts_completed, 1);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
+    assert_eq!(uw.total_reinvested, 0);
+
+    let pool_after = read_pool(&ctx.svm);
+    assert_eq!(pool_after.total_deposited_principal, 0);
+    // Liability total_prizes_allocated remains committed until claimed
+    assert_eq!(
+        pool_after.total_prizes_allocated,
+        pool_before.total_prizes_allocated
+    );
+
+    // Tickets remain unchanged (starts at 10)
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 10);
+    assert_eq!(read_reg_pending(&ctx.svm, ctx.registry), 0);
+}
+
+#[test]
+fn test_reinvest_closed_pool_with_existing_dust() {
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 2_000_000, 0);
+
+    // User already has 500_000 in unclaimed_non_reinvested_winnings
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 500_000, 0, 0, 0);
+
+    send(&mut ctx, 0, 0).expect("reinvest closed pool with dust");
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+    assert_eq!(pr.payouts_completed, 1);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    // 500_000 existing dust + 2_000_000 new prize = 2_500_000 total unclaimed
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 2_500_000);
+    assert_eq!(uw.total_reinvested, 0);
+
+    let pool = read_pool(&ctx.svm);
+    assert_eq!(pool.total_deposited_principal, 0);
+}
+
+#[test]
+fn test_reinvest_closed_pool_exited_user() {
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 4_000_000, 0);
+
+    // Exited user has registry_entry_index = u32::MAX
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest closed pool exited user");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.bonds_bought, 0);
+    assert_eq!(event.amount_reinvested, 0);
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].processed, 1);
+    assert_eq!(pr.winners[0].bonds_bought, 0);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 4_000_000);
+    assert_eq!(uw.total_reinvested, 0);
+    assert_eq!(uw.registry_entry_index, u32::MAX);
+
+    // Registry total active tickets remains unchanged (10)
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), 10);
+}
+
+#[test]
+fn test_reinvest_closed_pool_fails_when_frozen() {
+    let mut ctx = setup(anchor::PoolStatus::Closed, true, 1_000_000, 3_000_000, 0);
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("AwaitingRandomnessFreeze"), "got: {err}");
+}
+
+#[test]
+fn test_reinvest_closed_pool_fails_timelock_active() {
+    let (mut svm, _admin) = common::setup_global_config();
+    let crank = Keypair::new();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let winner = Keypair::new().pubkey();
+    let mint = Keypair::new().pubkey();
+    let reg = Keypair::new().pubkey();
+
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+    common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+    let pool_pda = inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Closed, false, 1_000_000);
+    {
+        let mut acc = svm.get_account(&pool_pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.payout_timelock_seconds = 300;
+        svm.set_account(pool_pda, acc).unwrap();
+    }
+
+    let (payout_pda, _) = payout_pda(1, 0);
+    inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
+    {
+        let mut acc = svm.get_account(&payout_pda).unwrap();
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        pr.revealed_at = 1_000;
+        svm.set_account(payout_pda, acc).unwrap();
+    }
+
+    common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.unix_timestamp = 1_200; // within 300s timelock (1_000 + 300 = 1_300)
+    svm.set_sysvar(&clock);
+
+    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("PayoutTimelockActive"), "got: {err}");
+
+    // Advance clock past timelock
+    clock.unix_timestamp = 1_300;
+    ctx.svm.set_sysvar(&clock);
+    let crank2 = Keypair::new();
+    ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
+    ctx.crank = crank2;
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest should succeed after timelock");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.bonds_bought, 0);
+    assert_eq!(event.amount_reinvested, 0);
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
+}
+
 

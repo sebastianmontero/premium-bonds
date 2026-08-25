@@ -14,6 +14,7 @@
 //! | `prepare_draw`                | ✅ Allowed    | ❌ Blocked   | ❌ Blocked   |
 //! | `crank_rebind_expired_randomness` | ✅ Allowed | ❌ Blocked   | ❌ Blocked   |
 //! | `admin_void_payout_registry`  | ✅ Allowed    | ✅ Allowed   | ❌ Blocked   |
+//! | `reinvest_winnings`           | ✅ Allowed    | ❌ Blocked   | ✅ Allowed   |
 
 use {
     anchor_lang::prelude::Pubkey,
@@ -574,3 +575,152 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     let err_str2 = format!("{:?}", res2.unwrap_err());
     assert!(err_str2.contains("PoolNotActive"), "got: {err_str2}");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7. reinvest_winnings: Active ✅, Paused ❌, Closed ✅
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_lifecycle_reinvest_winnings_permissions() {
+    let (mut svm, _admin) = setup_global_config();
+    let crank = Keypair::new();
+    let winner = Keypair::new().pubkey();
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let token_mint = Keypair::new().pubkey();
+    let ticket_registry = Keypair::new().pubkey();
+
+    let entries = vec![anchor::state::UserEntry {
+        owner: winner,
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+    inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
+
+    let winner_entry = anchor::Winner {
+        winner,
+        amount_owed: 3_000_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    let (pool_pda_addr, _) = pool_pda(pool_id);
+    let (user_winnings, _) = user_winnings_pda(pool_id, &winner);
+    let (payout_reg, _) = payout_pda(pool_id, 0);
+
+    // 1. Paused -> Blocked with PoolPaused
+    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, false);
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 1_000_000_000;
+        pool.payout_timelock_seconds = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+    inject_payout_registry(&mut svm, pool_id, 0, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
+
+    let accounts = anchor::accounts::ReinvestWinnings {
+        crank: crank.pubkey(),
+        winner,
+        payout_registry: payout_reg,
+        pool: pool_pda_addr,
+        user_winnings,
+        ticket_registry,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts: accounts.clone(),
+        data: anchor::instruction::ReinvestWinnings {
+            cycle_id: 0,
+            winner_index: 0,
+        }
+        .data(),
+    };
+
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert!(res.is_err());
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(err_str.contains("PoolPaused"), "got: {err_str}");
+
+    // 2. Active -> Allowed
+    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 1_000_000_000;
+        pool.payout_timelock_seconds = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+    inject_payout_registry(&mut svm, pool_id, 0, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
+
+    let crank2 = Keypair::new();
+    svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
+    let mut accounts_active = accounts.clone();
+    accounts_active[0].pubkey = crank2.pubkey();
+    let ix_active = Instruction {
+        program_id: anchor::id(),
+        accounts: accounts_active,
+        data: anchor::instruction::ReinvestWinnings {
+            cycle_id: 0,
+            winner_index: 0,
+        }
+        .data(),
+    };
+    let bh2 = svm.latest_blockhash();
+    let msg2 = Message::new_with_blockhash(&[ix_active], Some(&crank2.pubkey()), &bh2);
+    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
+    assert!(svm.send_transaction(tx2).is_ok());
+
+    // 3. Closed -> Allowed (graceful cash fallback)
+    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, false);
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 1_000_000_000;
+        pool.payout_timelock_seconds = 0;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+    inject_payout_registry(&mut svm, pool_id, 1, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
+
+    let (payout_reg_1, _) = payout_pda(pool_id, 1);
+    let crank3 = Keypair::new();
+    svm.airdrop(&crank3.pubkey(), 10_000_000_000).unwrap();
+    let mut accounts_closed = accounts;
+    accounts_closed[0].pubkey = crank3.pubkey();
+    accounts_closed[2].pubkey = payout_reg_1;
+    let ix_closed = Instruction {
+        program_id: anchor::id(),
+        accounts: accounts_closed,
+        data: anchor::instruction::ReinvestWinnings {
+            cycle_id: 1,
+            winner_index: 0,
+        }
+        .data(),
+    };
+    let bh3 = svm.latest_blockhash();
+    let msg3 = Message::new_with_blockhash(&[ix_closed], Some(&crank3.pubkey()), &bh3);
+    let tx3 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg3), &[&crank3]).unwrap();
+    assert!(svm.send_transaction(tx3).is_ok());
+}
+

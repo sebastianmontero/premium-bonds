@@ -128,6 +128,11 @@ impl PayoutRegistry {
         Ok(())
     }
 
+    /// Returns true if this PayoutRegistry is active and eligible for processing payouts.
+    pub fn is_active(&self) -> bool {
+        self.status == (PayoutRegistryStatus::Active as u8)
+    }
+
     /// Validates the winner entry at `winner_index`:
     /// - index is in bounds
     /// - winner pubkey matches the user_winnings user key

@@ -90,6 +90,10 @@ pub struct ReinvestWinnings<'info> {
 /// available winnings (including any previously accumulated non-reinvested winnings), and uses them to
 /// buy new bonds atomically.
 ///
+/// In `PoolStatus::Closed` pools, bond purchasing is disabled (`bonds_to_buy = 0`) to prevent minting new
+/// tickets during sunset. 100% of the prize is routed to `unclaimed_non_reinvested_winnings` so that the
+/// winner entry can be marked processed and the winner can subsequently withdraw their USDC via standard claims.
+///
 /// Because yield is tracked on-chain via $PST token balance and is not materialized into USDC, reinvesting
 /// does not require moving tokens or making external CPI calls. The pool simply registers the new tickets in
 /// the registry and increases the `total_deposited_principal` while decreasing `total_prizes_allocated`.
@@ -105,18 +109,18 @@ pub fn handle(
     let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
     payout_registry.ensure_current_version()?;
     require!(
-        payout_registry.status == (crate::state::PayoutRegistryStatus::Active as u8),
+        payout_registry.is_active(),
         PremiumBondsError::DrawVoided
     );
 
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
     require!(
-        pool.status == (crate::state::PoolStatus::Active as u8),
-        PremiumBondsError::PoolNotActive
+        pool.status() != PoolStatus::Paused,
+        PremiumBondsError::PoolPaused
     );
     require!(
-        pool.is_frozen_for_draw == 0,
+        !pool.is_frozen(),
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
@@ -145,20 +149,25 @@ pub fn handle(
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     // How many total bonds can be bought with the total available?
-    let mut bonds_to_buy: u32 = total_available
-        .checked_div(pool.bond_price)
-        .ok_or(PremiumBondsError::MathOverflow)?
-        .try_into()
-        .map_err(|_| error!(PremiumBondsError::MathOverflow))?;
+    // In Closed pools, bond purchasing is disabled to prevent minting new tickets in sunsetting pools.
+    let is_closed = pool.status() == PoolStatus::Closed;
+    let mut bonds_to_buy: u32 = if is_closed {
+        0
+    } else {
+        total_available
+            .checked_div(pool.bond_price)
+            .ok_or(PremiumBondsError::MathOverflow)?
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::MathOverflow))?
+    };
 
     // Graceful fallback for exited users when registry is full:
-    // If an exited user (registry_entry_index == u32::MAX) wins a prize and reinvest_winnings is called
+    // If an exited user (needs_registry_slot() == true) wins a prize and reinvest_winnings is called
     // while TicketRegistry is at 100% capacity, set bonds_to_buy = 0.
     // This routes 100% of their prize to unclaimed_non_reinvested_winnings (dust) and marks the winner as processed
     // so crank operations complete cleanly without reverting with RegistryFull.
-    let user_entry_idx = user_winnings.registry_entry_index;
-    let is_new = user_entry_idx == u32::MAX;
-    if is_new {
+    let is_new_user = user_winnings.needs_registry_slot();
+    if is_new_user && bonds_to_buy > 0 {
         let registry = ctx.accounts.ticket_registry.load()?;
         if registry.user_count >= registry.capacity {
             bonds_to_buy = 0;
@@ -169,20 +178,13 @@ pub fn handle(
         .checked_mul(pool.bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // How much of the cost is paid from the current winnings vs accumulated?
-    let from_current = cost.min(remaining_current);
-    let from_accumulated = cost
-        .checked_sub(from_current)
+    let remaining_unclaimed = total_available
+        .checked_sub(cost)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // Set bonds_bought and update user_winnings dust accounting
+    // Set bonds_bought and update user_winnings dust/unclaimed accounting
     payout_registry.winners[winner_index as usize].bonds_bought = bonds_to_buy;
-
-    user_winnings.unclaimed_non_reinvested_winnings = accumulated
-        .checked_sub(from_accumulated)
-        .ok_or(PremiumBondsError::MathOverflow)?
-        .checked_add(remaining_current.checked_sub(from_current).ok_or(PremiumBondsError::MathOverflow)?)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    user_winnings.unclaimed_non_reinvested_winnings = remaining_unclaimed;
 
     if bonds_to_buy > 0 {
         user_winnings.total_reinvested = user_winnings
@@ -213,7 +215,7 @@ pub fn handle(
 
         // Register new tickets
         let mut user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
-        let is_new = user_entry_idx == u32::MAX;
+        let is_new = is_new_user;
 
         let registry_loader = &ctx.accounts.ticket_registry;
         let current_cycle = {
