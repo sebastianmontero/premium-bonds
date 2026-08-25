@@ -1008,3 +1008,42 @@ fn test_sell_bonds_fails_u32_overflow() {
         "Expected MathOverflow on u32 overflow, got: {err}"
     );
 }
+
+#[test]
+fn test_sell_bonds_fails_yield_venue_insolvent() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    // Inject valid user entry in ticket registry
+    let entries = vec![anchor::state::UserEntry {
+        owner: ctx.user.pubkey(),
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+    inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
+
+    // Update pool total_deposited_principal so sell_bonds doesn't underflow on checked_sub
+    let (pool_pda_addr, _) = pool_pda(1);
+    let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
+    let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut pool_acc.data[8..]);
+    pool.total_deposited_principal = 10_000_000;
+    ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
+
+    // Set pst_mint supply > 0 (e.g. 1_000_000)
+    inject_mint_with_supply(&mut ctx.svm, ctx.huma_mode_mint, 6, 1_000_000);
+
+    // Set insolvent Huma pool state: total_assets = 0
+    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
+
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("YieldVenueInsolvent") || err.contains("Custom(6049)"),
+        "Expected YieldVenueInsolvent, got: {err}"
+    );
+}
+
+

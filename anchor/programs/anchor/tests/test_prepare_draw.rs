@@ -397,3 +397,35 @@ fn test_prepare_draw_multi_batch_events() {
     assert_eq!(event2.is_complete, true);
 }
 
+#[test]
+fn test_prepare_draw_with_zero_batch_size() {
+    let user_a = Keypair::new().pubkey();
+    let entries = vec![anchor::state::UserEntry {
+        owner: user_a,
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Call prepare_draw with batch_size = 0
+    let meta = send_prepare(&mut ctx, 0).expect("prepare with batch_size = 0 should succeed as no-op");
+    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.batch_start, 0);
+    assert_eq!(event.batch_end, 0);
+    assert_eq!(event.user_count, 1);
+    assert_eq!(event.is_complete, false);
+
+    let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
+    assert_eq!(draw_prepared_up_to, 0);
+}
+
+

@@ -67,60 +67,6 @@ fn inject_draw_cycle(
     pda
 }
 
-fn inject_payout_registry(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    cycle_id: u32,
-    winners: Vec<anchor::Winner>,
-    payouts_completed: u32,
-    status: anchor::PayoutRegistryStatus,
-) -> Pubkey {
-    let (pda, _) = payout_pda(pool_id, cycle_id);
-    let default_winner = anchor::Winner {
-        winner: Pubkey::default(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let mut fixed_winners = [default_winner; 50];
-    let count = winners.len().min(50);
-    fixed_winners[..count].copy_from_slice(&winners[..count]);
-
-    let pr = anchor::PayoutRegistry {
-        pool_id,
-        cycle_id,
-        winners_count: count as u32,
-        payouts_completed,
-        revealed_at: 1000,
-        status: status as u8,
-        version: anchor::PayoutRegistry::CURRENT_VERSION,
-        _padding: [0; 6],
-        _reserved: [0; 64],
-        winners: fixed_winners,
-    };
-
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pr));
-
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 10_000_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
-}
-
 #[test]
 fn test_admin_void_payout_registry_success() {
     let authority = Keypair::new();
@@ -617,6 +563,122 @@ fn test_admin_void_payout_registry_fails_invalid_event_authority() {
         err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
         "expected ConstraintSeeds error on invalid event authority, got: {err_str}"
     );
+}
+
+#[test]
+fn test_admin_void_fails_on_double_void_handler_guard() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
+        pool.total_fees_accrued = 5_000;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    // Injects DrawCycle with Complete status, but PayoutRegistry with Voided status
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, 50_000, 5_000, anchor::DrawStatus::Complete);
+
+    let winner = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 50_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner],
+        0,
+        anchor::PayoutRegistryStatus::Voided,
+    );
+
+    let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
+    assert_custom_error(res, anchor::error::PremiumBondsError::DrawAlreadyVoided);
+}
+
+#[test]
+fn test_admin_void_fails_on_sequential_second_call() {
+    let authority = Keypair::new();
+    let admin = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
+    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let cycle_id = 1;
+
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
+
+    {
+        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+        pool.total_prizes_allocated = 50_000;
+        pool.total_prizes_distributed = 50_000;
+        pool.total_fees_accrued = 5_000;
+        svm.set_account(pool_pda_addr, acc).unwrap();
+    }
+
+    inject_draw_cycle(&mut svm, pool_id, cycle_id, 50_000, 5_000, anchor::DrawStatus::Complete);
+
+    let winner = anchor::Winner {
+        winner: Keypair::new().pubkey(),
+        amount_owed: 50_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        cycle_id,
+        vec![winner],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
+
+    // First void succeeds
+    send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id)
+        .expect("First admin_void_payout_registry must succeed");
+
+    svm.expire_blockhash();
+
+    // Second sequential void on the same accounts fails via account constraint (InvalidDrawStatus)
+    let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 

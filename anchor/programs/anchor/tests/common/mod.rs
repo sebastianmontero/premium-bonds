@@ -207,7 +207,12 @@ pub fn assert_log_event<T: anchor_lang::Discriminator + AnchorDeserialize>(
 // ─── Account/Mint Injectors ──────────────────────────────────────────────────
 
 pub fn inject_mint(svm: &mut LiteSVM, address: Pubkey, decimals: u8) {
+    inject_mint_with_supply(svm, address, decimals, 0);
+}
+
+pub fn inject_mint_with_supply(svm: &mut LiteSVM, address: Pubkey, decimals: u8, supply: u64) {
     let mut data = vec![0u8; 82];
+    data[36..44].copy_from_slice(&supply.to_le_bytes());
     data[44] = decimals;
     data[45] = 1;
     svm.set_account(
@@ -367,6 +372,111 @@ pub fn inject_draw_cycle(
     pda
 }
 
+pub fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
+    inject_huma_pool_state_with_assets(svm, address, 0);
+}
+
+pub fn inject_huma_pool_state_with_assets(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    total_assets: u128,
+) {
+    let mut huma_pool_state_data = vec![0u8; 512];
+    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
+    huma_pool_state_data[30..46].copy_from_slice(&total_assets.to_le_bytes()); // assets field
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: huma_pool_state_data,
+            owner: huma_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+pub fn inject_payout_registry(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    cycle_id: u32,
+    winners: Vec<anchor::Winner>,
+    payouts_completed: u32,
+    status: anchor::PayoutRegistryStatus,
+) -> Pubkey {
+    let (pda, _) = payout_pda(pool_id, cycle_id);
+    let default_winner = anchor::Winner {
+        winner: Pubkey::default(),
+        amount_owed: 0,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: anchor::Winner::CURRENT_VERSION,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    };
+    let mut fixed_winners = [default_winner; 50];
+    let count = winners.len().min(50);
+    fixed_winners[..count].copy_from_slice(&winners[..count]);
+
+    let pr = anchor::PayoutRegistry {
+        pool_id,
+        cycle_id,
+        winners_count: count as u32,
+        payouts_completed,
+        revealed_at: 1_700_000_000,
+        status: status as u8,
+        version: anchor::PayoutRegistry::CURRENT_VERSION,
+        _padding: [0; 6],
+        _reserved: [0; 64],
+        winners: fixed_winners,
+    };
+
+    let mut d = vec![];
+    d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
+    d.extend_from_slice(bytemuck::bytes_of(&pr));
+
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 10_000_000_000,
+            data: d,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    pda
+}
+
+pub fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
+    let (pda, _) = payout_pda(pool_id, cycle_id);
+    let acc = svm.get_account(&pda).expect("payout registry account exists");
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+}
+
+pub fn assert_custom_error(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_error: anchor::error::PremiumBondsError,
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let err_str = format!("{err:?}");
+    let error_code_num = (expected_error as u32) + 6000;
+    let expected_name = format!("{:?}", expected_error);
+
+    assert!(
+        err_str.contains(&format!("Custom({error_code_num})"))
+            || err_str.contains(&expected_name)
+            || err_str.contains(&error_code_num.to_string()),
+        "Expected error {:?} (code {}), got: {}",
+        expected_error,
+        error_code_num,
+        err_str
+    );
+}
+
 pub fn inject_registry(
     svm: &mut LiteSVM,
     address: Pubkey,
@@ -378,11 +488,13 @@ pub fn inject_registry(
     inject_registry_with_tickets(svm, address, pool_id, capacity, active, pending, &[]);
 }
 
-pub fn inject_registry_with_entries(
+pub fn inject_registry_with_state(
     svm: &mut LiteSVM,
     address: Pubkey,
     pool_id: u32,
     capacity: u32,
+    draw_cycle_id: u32,
+    draw_prepared_up_to: u32,
     entries: &[anchor::state::UserEntry],
 ) {
     let user_count = entries.len() as u32;
@@ -401,8 +513,8 @@ pub fn inject_registry_with_entries(
 
     data[20..24].copy_from_slice(&total_active.to_le_bytes());
     data[24..28].copy_from_slice(&total_pending.to_le_bytes());
-    data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
-    data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
+    data[28..32].copy_from_slice(&draw_cycle_id.to_le_bytes());
+    data[32..36].copy_from_slice(&draw_prepared_up_to.to_le_bytes());
     data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
 
     for (i, entry) in entries.iter().enumerate() {
@@ -420,6 +532,16 @@ pub fn inject_registry_with_entries(
         },
     )
     .unwrap();
+}
+
+pub fn inject_registry_with_entries(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    pool_id: u32,
+    capacity: u32,
+    entries: &[anchor::state::UserEntry],
+) {
+    inject_registry_with_state(svm, address, pool_id, capacity, 0, 0, entries);
 }
 
 pub fn inject_registry_with_tickets(
@@ -1202,22 +1324,6 @@ pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count:
     }
 
     svm.set_account(huma_pool_state, account).unwrap();
-}
-
-pub fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: huma_pool_state_data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
 }
 
 pub fn build_pause_pool_ix(signer: &Pubkey, pool_id: u32) -> Instruction {

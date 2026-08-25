@@ -955,3 +955,131 @@ fn test_reveal_multi_winner_dust_accounting_and_event() {
     assert_eq!(pool.total_prizes_allocated, 10_000_000_000 - 10);
     assert_eq!(pool.total_prizes_distributed, 99_990);
 }
+
+#[test]
+fn test_reveal_fails_when_draw_preparation_incomplete() {
+    let mut ctx = setup_reveal(
+        anchor::PoolStatus::Active,
+        true,
+        vec![anchor::PrizeTier {
+            basis_points: 10000,
+            num_winners: 1,
+            _padding: [0, 0],
+        }],
+        10,
+        1_000_000,
+        2,
+    );
+    // Mutate registry to simulate partial preparation: user_count = 2, but draw_prepared_up_to = 1
+    let mut reg_acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acc.data[32..36].copy_from_slice(&1u32.to_le_bytes()); // draw_prepared_up_to = 1
+    ctx.svm.set_account(ctx.ticket_registry, reg_acc).unwrap();
+
+    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
+    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+}
+
+#[test]
+fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
+    let user1 = Keypair::new().pubkey();
+    let user2 = Keypair::new().pubkey();
+    let user3 = Keypair::new().pubkey();
+
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: user1,
+            active: 10,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 10,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user2,
+            active: 0,
+            pending: 5,
+            merged_through_cycle: 0,
+            cumulative_active: 10,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user3,
+            active: 20,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 30,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+    ];
+
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10000,
+        num_winners: 1,
+        _padding: [0, 0],
+    }];
+
+    // Helper closure to run reveal with a specific seed and return the picked winner
+    let run_reveal_with_seed = |target_index: u64| -> Pubkey {
+        let (mut svm, _admin, crank) = setup_global_with_crank();
+        let registry = Keypair::new().pubkey();
+        inject_registry_with_state(&mut svm, registry, 1, 100, 0, 3, &entries);
+        inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers.clone(), 0);
+
+        let randomness_account = Keypair::new().pubkey();
+        update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+        inject_draw_cycle(&mut svm, 1, 0, anchor::DrawStatus::AwaitingRandomness, 30, 1_000_000, randomness_account);
+
+        let mut ctx = RevealCtx {
+            svm,
+            crank,
+            ticket_registry: registry,
+            tickets: vec![user1, user2, user3],
+            randomness_account,
+        };
+
+        // Find deterministic seed that maps to target_index
+        let mut seed = [0u8; 32];
+        let mut found = false;
+        for nonce in 0..100_000u32 {
+            let mut candidate = [0u8; 32];
+            candidate[0..4].copy_from_slice(&nonce.to_le_bytes());
+            if local_derive_random_index(&candidate, 0, 0, 0, 30) == target_index {
+                seed = candidate;
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "Must find seed for index {target_index}");
+
+        send_reveal(&mut ctx, 1, 0, seed).expect("reveal should succeed");
+        let pr = read_payout_registry(&ctx.svm, 1, 0);
+        pr.winners[0].winner
+    };
+
+    // Index 0 -> User 1
+    assert_eq!(run_reveal_with_seed(0), user1, "Index 0 must pick User 1");
+    // Index 9 -> User 1
+    assert_eq!(run_reveal_with_seed(9), user1, "Index 9 must pick User 1");
+    // Index 10 -> User 3 (User 2 skipped!)
+    assert_eq!(run_reveal_with_seed(10), user3, "Index 10 must pick User 3 (skipping User 2 with 0 active tickets)");
+    // Index 29 -> User 3
+    assert_eq!(run_reveal_with_seed(29), user3, "Index 29 must pick User 3");
+
+    // Comprehensive boundary verification: Across all 30 ticket indices, User 2 is NEVER selected
+    for idx in 0..30 {
+        let winner = run_reveal_with_seed(idx);
+        assert_ne!(winner, user2, "User 2 with 0 active tickets must NEVER be picked as winner (checked at index {idx})");
+        if idx < 10 {
+            assert_eq!(winner, user1, "Indices 0..10 must pick User 1");
+        } else {
+            assert_eq!(winner, user3, "Indices 10..30 must pick User 3");
+        }
+    }
+}
+

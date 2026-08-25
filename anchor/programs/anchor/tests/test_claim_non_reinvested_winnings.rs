@@ -158,22 +158,6 @@ fn inject_pool_with_next_redemption_id(
 
 use common::*;
 
-fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: huma_pool_state_data,
-            owner: anchor::constants::HUMA_PROGRAM_ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 // ─── Instruction builder ─────────────────────────────────────────────────────
 
 fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
@@ -538,3 +522,79 @@ fn test_claim_non_reinvested_winnings_fails_when_frozen() {
         "Expected AwaitingRandomnessFreeze error, got: {err_str}"
     );
 }
+
+#[test]
+fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
+    let mut ctx = common::setup_e2e();
+    let pool_pst_vault = pool_pst_vault_pda(1).0;
+
+    let huma_pool_mode_token = common::create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // Setup pool in Closed state
+    inject_pool_with_frozen(&mut ctx.svm, 1, ctx.usdc_mint, anchor::PoolStatus::Closed, 0);
+
+    // Setup user winnings with 500_000 unclaimed winnings
+    let (user_winnings_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 500_000, 0, 0, 0);
+
+    // Update pool total_prizes_allocated = 1_000_000
+    set_pool_prizes_allocated(&mut ctx.svm, 1, 1_000_000);
+
+    // Fund pool_pst_vault with 1_000_000 PST tokens
+    inject_token_account(&mut ctx.svm, pool_pst_vault, ctx.pst_mint, pool_pda(1).0, 1_000_000);
+
+    // Send claim instruction on closed pool
+    let ix = build_claim_ix_with_redemption_id(
+        ctx.user.pubkey(),
+        1,
+        ctx.pst_mint,
+        0,
+        ctx.huma_pool_state,
+        huma_pool_mode_token,
+    );
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let meta = ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings on closed pool should succeed");
+    let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
+    assert_eq!(event.user, ctx.user.pubkey());
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.amount, 500_000);
+    assert_eq!(event.redemption_id, 0);
+
+    let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
+    let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+    assert_eq!(uw.total_claimed, 500_000);
+}
+
+#[test]
+fn test_claim_non_reinvested_winnings_fails_yield_venue_insolvent() {
+    let mut ctx = setup_claim_guard(100_000, anchor::PoolStatus::Active);
+
+    // Inject pst_mint with supply > 0 (e.g. 1_000_000)
+    inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
+
+    // Inject insolvent Huma pool state: total_assets = 0 (with vec_len = 1)
+    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
+
+    let ix = build_claim_ix_with_redemption_id(
+        ctx.user.pubkey(),
+        1,
+        ctx.pst_mint,
+        0,
+        ctx.huma_pool_state,
+        ctx.huma_pool_mode_token,
+    );
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
+}
+

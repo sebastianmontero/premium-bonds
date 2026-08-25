@@ -219,3 +219,15 @@ fn test_cannot_close_already_closed_pool() {
     assert!(res.is_err(), "Cannot close an already closed pool");
     assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Closed as u8);
 }
+
+#[test]
+fn test_unauthenticated_caller_cannot_close_pool() {
+    let (mut svm, _admin, _guardian, pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Active);
+    let attacker = Keypair::new();
+    svm.airdrop(&attacker.pubkey(), 10_000_000_000).unwrap();
+
+    let res = send_close_pool(&mut svm, &attacker, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_eq!(read_pool_status(&svm, &pool_pda), anchor::PoolStatus::Active as u8);
+}
+

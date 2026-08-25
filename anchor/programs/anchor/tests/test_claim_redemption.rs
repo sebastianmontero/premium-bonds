@@ -1096,3 +1096,82 @@ fn test_claim_redemption_fails_diverted_token_account() {
         "Expected token owner constraint failure when diverting USDC, got: {err}"
     );
 }
+
+#[test]
+fn test_claim_redemption_fails_on_double_claim() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    let user_a = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let user_a_usdc = create_spl_token_account(
+        &mut ctx.svm,
+        &user_a,
+        &ctx.usdc_mint,
+        &user_a.pubkey(),
+    );
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // First claim succeeds and closes the pending_redemption account (close = beneficiary)
+    let meta1 = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert!(meta1.is_ok(), "First claim redemption must succeed");
+
+    let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
+    assert!(ctx.svm.get_account(&pending_redemption_key).is_none(), "Pending redemption account must be closed");
+
+    // Second claim fails because the account is already closed and cannot be re-executed
+    ctx.svm.expire_blockhash();
+    let err = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .unwrap_err();
+    assert!(
+        err.contains("AccountNotInitialized") || err.contains("AccountNotFound") || err.contains("ConstraintOwner") || err.contains("3012") || err.contains("2003"),
+        "Expected account closed/not initialized failure on second claim, got: {err}"
+    );
+}
+
+
