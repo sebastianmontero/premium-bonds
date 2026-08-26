@@ -1123,5 +1123,41 @@ fn test_reinvest_fails_if_already_processed_zero_prize() {
     assert!(err.contains("AlreadyClaimed") || err.contains("6012"), "got: {err}");
 }
 
+#[test]
+fn test_reinvest_fails_pool_principal_overflow() {
+    // Setup pool with active status and winner owed 200
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 200, 0);
+
+    // Mutate pool total_deposited_principal to near max so checked_add(200) overflows
+    common::mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_deposited_principal = u64::MAX - 100;
+        pool.bond_price = 1;
+    });
+
+    let err = send(&mut ctx, 0, 0).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_reinvest_winnings_with_unit_bond_price() {
+    // Setup with bond_price = 1 and prize = 500
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 500, 0);
+
+    let initial_reg_active = read_reg_active(&ctx.svm, ctx.registry);
+    send(&mut ctx, 0, 0).expect("reinvest with unit bond price should succeed");
+
+    let uw = read_user_winnings(&ctx.svm, &ctx.winner);
+    assert_eq!(uw.total_reinvested, 500);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
+
+    let pr = read_payout(&ctx.svm, 0);
+    assert_eq!(pr.winners[0].bonds_bought, 500);
+    assert_eq!(pr.winners[0].processed, 1);
+
+    // Registry active tickets increased by exactly 500
+    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), initial_reg_active + 500);
+}
+
+
 
 

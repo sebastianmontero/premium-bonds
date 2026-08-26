@@ -428,4 +428,58 @@ fn test_prepare_draw_with_zero_batch_size() {
     assert_eq!(draw_prepared_up_to, 0);
 }
 
+#[test]
+fn test_prepare_draw_first_cycle_genesis() {
+    let user_a = Keypair::new().pubkey();
+    // User deposited in cycle 0: merged_through_cycle = 0, active = 0, pending = 10
+    let entries = vec![anchor::state::UserEntry {
+        owner: user_a,
+        active: 0,
+        pending: 10,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Genesis harvest: draw_cycle_id = 1, merge_cycle_id = 1.saturating_sub(1) = 0
+    let mut reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acct.data[28..32].copy_from_slice(&1u32.to_le_bytes()); // draw_cycle_id = 1
+    anchor::utils::registry_set_entry(&mut reg_acct.data, 0, &entries[0]);
+    ctx.svm.set_account(ctx.ticket_registry, reg_acct).unwrap();
+
+    // Prepare draw for cycle 1: 0 < 0 is false, so pending tickets do NOT merge (maturation delay)
+    let res = send_prepare(&mut ctx, 1);
+    assert!(res.is_ok(), "prepare genesis cycle should succeed: {:?}", res);
+
+    let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry1 = anchor::utils::registry_get_entry(&reg_acct1.data, 0).unwrap();
+    assert_eq!(entry1.active, 0);
+    assert_eq!(entry1.pending, 10);
+    assert_eq!(entry1.cumulative_active, 0);
+    assert_eq!(entry1.merged_through_cycle, 0);
+
+    // Now advance to cycle 2: draw_cycle_id = 2, merge_cycle_id = 2 - 1 = 1
+    let mut reg_acct2 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acct2.data[28..32].copy_from_slice(&2u32.to_le_bytes()); // draw_cycle_id = 2
+    reg_acct2.data[32..36].copy_from_slice(&0u32.to_le_bytes()); // reset draw_prepared_up_to = 0
+    ctx.svm.set_account(ctx.ticket_registry, reg_acct2).unwrap();
+    ctx.svm.expire_blockhash();
+
+    // Prepare draw for cycle 2: 0 < 1 is true, so pending tickets mature into active
+    let res2 = send_prepare(&mut ctx, 1);
+    assert!(res2.is_ok(), "prepare cycle 2 should succeed: {:?}", res2);
+
+    let reg_acct3 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry2 = anchor::utils::registry_get_entry(&reg_acct3.data, 0).unwrap();
+    assert_eq!(entry2.active, 10);
+    assert_eq!(entry2.pending, 0);
+    assert_eq!(entry2.cumulative_active, 10);
+    assert_eq!(entry2.merged_through_cycle, 1);
+}
+
+
 

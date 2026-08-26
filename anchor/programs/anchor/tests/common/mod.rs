@@ -1606,3 +1606,113 @@ pub fn send_admin_void_payout_registry(
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
     svm.send_transaction(tx)
 }
+
+// ─── Test Fixture & State Mutation Helpers ────────────────────────────────────
+
+pub fn clone_keypair(keypair: &Keypair) -> Keypair {
+    keypair.insecure_clone()
+}
+
+/// Safely mutate the PrizePool zero-copy account in LiteSVM state using a closure.
+pub fn mutate_pool_state<F>(svm: &mut LiteSVM, pool_id: u32, mutator: F)
+where
+    F: FnOnce(&mut anchor::PrizePool),
+{
+    let (pda, _) = pool_pda(pool_id);
+    let mut account = svm.get_account(&pda).expect("Pool account must exist");
+    let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut account.data[8..]);
+    mutator(pool);
+    svm.set_account(pda, account).expect("Set pool account failed");
+}
+
+/// Set mock Huma pool total_assets and pst_mint total supply to model yield accrual.
+pub fn inject_huma_yield_ratio(
+    svm: &mut LiteSVM,
+    huma_pool_state: Pubkey,
+    pst_mint: Pubkey,
+    total_assets: u64,
+    pst_supply: u64,
+) {
+    // 1. Update Huma pool state ModeState total_assets (offset 30..38)
+    let mut state_acc = svm.get_account(&huma_pool_state).expect("Huma pool state must exist");
+    state_acc.data[30..38].copy_from_slice(&total_assets.to_le_bytes());
+    svm.set_account(huma_pool_state, state_acc).unwrap();
+
+    // 2. Update PST token mint supply (offset 36..44)
+    let mut mint_acc = svm.get_account(&pst_mint).expect("PST mint must exist");
+    mint_acc.data[36..44].copy_from_slice(&pst_supply.to_le_bytes());
+    svm.set_account(pst_mint, mint_acc).unwrap();
+}
+
+pub fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String> {
+    let (global_config, _) = global_config_pda();
+    let (pool_key, _) = pool_pda(1);
+    let pool = read_pool_state(&ctx.svm, 1);
+
+    // Warp clock to current_cycle_end_at to satisfy time check
+    let clock = solana_sdk::clock::Clock {
+        unix_timestamp: pool.current_cycle_end_at,
+        ..Default::default()
+    };
+    ctx.svm.set_sysvar(&clock);
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (current_draw_cycle, _) = Pubkey::find_program_address(
+        &[
+            b"draw_cycle",
+            1u32.to_le_bytes().as_ref(),
+            pool.current_draw_cycle_id.to_le_bytes().as_ref(),
+        ],
+        &anchor::id(),
+    );
+
+    let randomness_account = Keypair::new().pubkey();
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    ctx.svm
+        .set_account(
+            randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: owner_pubkey,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let accounts = anchor::accounts::HarvestYieldAndCommit {
+        crank: ctx.admin.pubkey(),
+        global_config,
+        pool: pool_key,
+        ticket_registry: ctx.ticket_registry,
+        current_draw_cycle,
+        pool_pst_vault,
+        pst_mint: ctx.pst_mint,
+        huma_pool_state: ctx.huma_pool_state,
+        randomness_account,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    ctx.svm
+        .send_transaction(tx)
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
+}
+
+
+

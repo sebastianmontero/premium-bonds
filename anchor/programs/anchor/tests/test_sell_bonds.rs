@@ -115,76 +115,6 @@ fn send_e2e_claim_redemption_for_user(
         .map_err(|e| format!("{e:?}"))
 }
 
-fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String> {
-    let (global_config, _) = global_config_pda();
-    let (pool_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-
-    // Warp clock to current_cycle_end_at to satisfy time check
-    let clock = solana_sdk::clock::Clock {
-        unix_timestamp: pool.current_cycle_end_at,
-        ..Default::default()
-    };
-    ctx.svm.set_sysvar(&clock);
-
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (current_draw_cycle, _) = Pubkey::find_program_address(
-        &[
-            b"draw_cycle",
-            1u32.to_le_bytes().as_ref(),
-            pool.current_draw_cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    );
-
-    let randomness_account = Keypair::new().pubkey();
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    ctx.svm
-        .set_account(
-            randomness_account,
-            Account {
-                lamports: 1_000_000_000,
-                data: vec![],
-                owner: owner_pubkey,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: ctx.admin.pubkey(),
-        global_config,
-        pool: pool_key,
-        ticket_registry: ctx.ticket_registry,
-        current_draw_cycle,
-        pool_pst_vault,
-        pst_mint: ctx.pst_mint,
-        huma_pool_state: ctx.huma_pool_state,
-        randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
-}
-
 // ─── Instruction builder (for guard tests) ───────────────────────────────────
 
 fn build_sell_bonds_ix(
@@ -1045,5 +975,208 @@ fn test_sell_bonds_fails_yield_venue_insolvent() {
         "Expected YieldVenueInsolvent, got: {err}"
     );
 }
+
+#[test]
+fn test_sell_bonds_pst_share_accounting_with_accrued_yield() {
+    let mut ctx = setup_e2e();
+    let pool_pst_vault = pool_pst_vault_pda(1).0;
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // User A buys 10 bonds at 1 USDC each = 10,000,000 base units
+    send_e2e_buy_bonds(&mut ctx, 10).expect("buy 10 bonds");
+    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 10_000_000);
+
+    // Commit harvest so tickets become active
+    send_e2e_harvest_yield_and_commit(&mut ctx).expect("harvest and commit");
+
+    // Model yield in Huma: total_assets = 1_200_000, pst_supply = 1_000_000 (1.2x PST price)
+    common::inject_huma_yield_ratio(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 1_200_000, 1_000_000);
+
+    let initial_pool = read_pool_state(&ctx.svm, 1);
+    let user_a = clone_keypair(&ctx.user);
+
+    // User A sells 10 bonds (expected_principal = 10,000,000)
+    // pst_shares = ceil(10_000_000 * 1_000_000 / 1_200_000) = 8_333_334
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        10,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .expect("sell 10 active bonds with accrued yield");
+
+    let pool = read_pool_state(&ctx.svm, 1);
+    // 1. Total deposited principal decremented by exact expected principal
+    assert_eq!(pool.total_deposited_principal, initial_pool.total_deposited_principal - 10_000_000);
+    // 2. Pending redemptions incremented by expected principal
+    assert_eq!(pool.total_pending_redemptions, 10_000_000);
+
+    // 3. PendingRedemption PDA stores expected_principal amount and locked PST shares (< 10_000_000)
+    let (pending_pda, _) = pending_redemption_pda(1, 0);
+    let pending_acc = ctx.svm.get_account(&pending_pda).expect("PendingRedemption exists");
+    let pending = anchor::state::PendingRedemption::try_from_slice(&pending_acc.data[8..]).unwrap();
+    assert_eq!(pending.amount, 10_000_000);
+    assert_eq!(pending.pst_shares_locked, 8_333_334);
+}
+
+#[test]
+fn test_sell_bonds_succeeds_from_closed_pool() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // User buys 5 bonds
+    send_e2e_buy_bonds(&mut ctx, 5).expect("buy 5 bonds");
+
+    // Close the pool for sunset
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.status = anchor::PoolStatus::Closed as u8;
+    });
+
+    let user_a = clone_keypair(&ctx.user);
+
+    // Selling bonds from Closed pool must succeed for orderly user exit
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        5,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .expect("selling from closed pool should succeed");
+
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_pending_redemptions, 5_000_000);
+}
+
+#[test]
+fn test_sell_bonds_sole_user_full_exit_no_swap() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // Sole user buys 5 bonds
+    send_e2e_buy_bonds(&mut ctx, 5).expect("buy 5 bonds");
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
+
+    let user_a = clone_keypair(&ctx.user);
+
+    // Sole user sells all 5 bonds (index 0 == last_index 0, so no swap account needed)
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        5,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .expect("sole user exit should succeed without swap account");
+
+    // Registry user_count drops to 0
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 0);
+    assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), 0);
+    assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 0);
+
+    // Entry 0 should be zeroed
+    let entry_0 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_0.owner, Pubkey::default());
+    assert_eq!(entry_0.active, 0);
+    assert_eq!(entry_0.pending, 0);
+}
+
+#[test]
+fn test_sell_bonds_fails_next_redemption_id_overflow() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+
+    // Inject entry and winnings
+    let entries = vec![anchor::state::UserEntry {
+        owner: ctx.user.pubkey(),
+        active: 10,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+    inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
+
+    // Set pool next_redemption_id to u64::MAX
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.total_deposited_principal = 10_000_000;
+        p.next_redemption_id = u64::MAX;
+    });
+
+    let (pool, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, u64::MAX);
+    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::SellBonds {
+        user: ctx.user.pubkey(),
+        user_winnings,
+        pool,
+        ticket_registry: ctx.ticket_registry,
+        token_mint: ctx.token_mint,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.huma_mode_mint,
+        huma_redemption_request: dummy,
+        huma_lender_state: dummy,
+        huma_pool_authority: dummy,
+        huma_pool_mode_token: dummy,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::SellBonds {
+            active_to_sell: 1,
+            pending_to_sell: 0,
+        }
+        .data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+
 
 

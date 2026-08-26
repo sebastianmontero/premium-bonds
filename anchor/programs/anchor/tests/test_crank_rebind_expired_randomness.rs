@@ -225,8 +225,37 @@ fn test_rebind_fails_invalid_randomness_account() {
     assert!(err.contains("InvalidRandomnessAccount"), "got: {err}");
 }
 
+#[test]
+fn test_crank_rebind_exact_slot_boundary() {
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 100);
+
+    // Boundary 1: Exactly 1000 slots passed (100 -> 1100). 1100 - 100 = 1000 (not > 1000).
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1100;
+    ctx.svm.set_sysvar(&clock);
+
+    let crank = clone_keypair(&ctx.crank);
+    let err = send_rebind(&mut ctx, &crank).unwrap_err();
+    assert!(err.contains("RandomnessNotExpired"), "got: {err}");
+
+    // Boundary 2: 1001 slots passed (100 -> 1101). 1101 - 100 = 1001 (> 1000). Should succeed!
+    clock.slot = 1101;
+    ctx.svm.set_sysvar(&clock);
+    ctx.svm.expire_blockhash();
+
+    let meta = send_rebind(&mut ctx, &crank).expect("rebind at exact expiration slot boundary should succeed");
+    let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.old_randomness_account, Pubkey::default());
+    assert_eq!(event.new_randomness_account, ctx.new_randomness_account);
+    assert_eq!(event.harvest_slot, 1101);
+}
+
+
 fn clone_keypair(keypair: &Keypair) -> Keypair {
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&keypair.to_bytes()[..32]);
     Keypair::new_from_array(seed)
 }
+

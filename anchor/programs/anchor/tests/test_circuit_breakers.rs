@@ -387,3 +387,77 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
     assert_eq!(dc.locked_ticket_count, 0);
 }
 
+#[test]
+fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
+    let deposited_principal = 10_000_000u64;
+    let pst_supply = 10_000_000u64;
+    let pst_shares_amount = 10_000_000u64;
+
+    // Case 1: Deficit == SOLVENCY_DUST_TOLERANCE (1,000 lamports deficit -> total_assets = 9_999_000)
+    // Within dust tolerance -> does NOT halt, stays Active
+    let mut ctx_pass = setup_circuit_breaker_ctx(
+        0,
+        deposited_principal,
+        pst_shares_amount,
+        pst_supply,
+        9_999_000u128,
+    );
+    let meta_pass = send_harvest(&mut ctx_pass, 1, 0).expect("Deficit <= dust tolerance should proceed normally");
+    let pool_pass = read_pool_state(&ctx_pass.svm, 1);
+    assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
+
+    // Case 2: Deficit == SOLVENCY_DUST_TOLERANCE + 1 (1,001 lamports deficit -> total_assets = 9_998_999)
+    // Exceeds dust tolerance -> halts and pauses pool
+    let mut ctx_halt = setup_circuit_breaker_ctx(
+        0,
+        deposited_principal,
+        pst_shares_amount,
+        pst_supply,
+        9_998_999u128,
+    );
+    let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
+    let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
+    assert_eq!(event.deficit, 1001);
+    let pool_halt = read_pool_state(&ctx_halt.svm, 1);
+    assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
+}
+
+
+#[test]
+fn test_yield_velocity_spike_guard_exact_boundary() {
+    let deposited_principal = 10_000_000u64;
+    let pst_supply = 10_000_000u64;
+    let pst_shares_amount = 10_000_000u64;
+    let max_yield_basis_points = 500u16; // 5.0% = 500,000 lamports max allowed
+
+    // Case 1: Yield == max_allowed_yield (500_000 lamports -> total_assets = 10_500_000)
+    // Passes without halting
+    let mut ctx_pass = setup_circuit_breaker_ctx(
+        max_yield_basis_points,
+        deposited_principal,
+        pst_shares_amount,
+        pst_supply,
+        10_500_000u128,
+    );
+    let meta_pass = send_harvest(&mut ctx_pass, 1, 0).expect("Yield <= max allowed should proceed normally");
+    let pool_pass = read_pool_state(&ctx_pass.svm, 1);
+    assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
+
+    // Case 2: Yield == max_allowed_yield + 1 (500_001 lamports -> total_assets = 10_500_001)
+    // Exceeds limit by 1 lamport -> halts and pauses pool
+    let mut ctx_halt = setup_circuit_breaker_ctx(
+        max_yield_basis_points,
+        deposited_principal,
+        pst_shares_amount,
+        pst_supply,
+        10_500_001u128,
+    );
+    let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Yield > max allowed should halt");
+    let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta_halt);
+    assert_eq!(event.yield_generated, 500_001);
+    assert_eq!(event.max_allowed_yield, 500_000);
+    let pool_halt = read_pool_state(&ctx_halt.svm, 1);
+    assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
+}
+
+

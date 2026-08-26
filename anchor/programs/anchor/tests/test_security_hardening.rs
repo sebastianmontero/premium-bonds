@@ -1151,3 +1151,309 @@ fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
         "Expected owner constraint error, got: {err_str}"
     );
 }
+
+#[test]
+fn test_claim_redemption_account_closure_and_discriminator_zeroing() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_kp = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_kp,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let (pending_pda, _) = pending_redemption_pda(1, 0);
+    assert!(ctx.svm.get_account(&pending_pda).is_some());
+
+    let user_token_account = ctx.user_usdc_account;
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim redemption
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_kp,
+        user_token_account,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert!(res.is_ok(), "claim redemption should succeed: {:?}", res);
+
+    // Verify account is closed completely (lamports refunded, account removed)
+    assert!(ctx.svm.get_account(&pending_pda).is_none());
+}
+
+#[test]
+fn test_direct_vault_token_donation_does_not_break_solvency() {
+    let mut ctx = setup_e2e();
+    let pool_pst_vault = pool_pst_vault_pda(1).0;
+
+    // User buys 10 bonds (10,000,000 USDC -> 10,000,000 PST in vault)
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    // Directly donate 2_000_000 PST by mutating the vault's SPL token account amount (offset 64..72)
+    {
+        let mut vault_acc = ctx.svm.get_account(&pool_pst_vault).unwrap();
+        let cur_amount = u64::from_le_bytes(vault_acc.data[64..72].try_into().unwrap());
+        vault_acc.data[64..72].copy_from_slice(&(cur_amount + 2_000_000).to_le_bytes());
+        ctx.svm.set_account(pool_pst_vault, vault_acc).unwrap();
+    }
+
+    // Harvest should recognize increased value as surplus yield without failing solvency check
+    let meta = send_e2e_harvest_yield_and_commit(&mut ctx);
+    assert!(meta.is_ok(), "Harvest must succeed gracefully with donated tokens: {:?}", meta);
+}
+
+
+
+#[test]
+fn test_interleaved_async_redemption_fifo_queue_sequence() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        50_000_000,
+    );
+
+    // Setup User B
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc = create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b_usdc, &ctx.usdc_mint_authority, 100_000_000);
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // Users buy bonds
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 5, Pubkey::default()).unwrap();
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 5, Pubkey::default()).unwrap();
+
+    // User A sells bonds (Request 0)
+    send_e2e_sell_bonds_for_user(&mut ctx, &user_a, 0, 5, Pubkey::default(), Pubkey::default(), huma_pool_mode_token).unwrap();
+
+    // User B sells bonds (Request 1)
+    send_e2e_sell_bonds_for_user(&mut ctx, &user_b, 0, 5, Pubkey::default(), Pubkey::default(), huma_pool_mode_token).unwrap();
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
+
+    // Huma settles ONLY request 0 (next_request_id = 1)
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // User B tries to claim redemption 1 -> MUST FAIL with NotSettled
+    let err_b = send_e2e_claim_redemption_for_user(&mut ctx, &user_b, user_b_usdc, 1, Pubkey::default(), huma_lender_state).unwrap_err();
+    assert!(err_b.contains("HumaRedemptionNotSettled") || err_b.contains("6034"), "got: {err_b}");
+
+    // User A claims redemption 0 -> SUCCEEDS
+    let res_a = send_e2e_claim_redemption_for_user(&mut ctx, &user_a, user_a_usdc, 0, Pubkey::default(), huma_lender_state);
+    assert!(res_a.is_ok(), "User A claim should succeed");
+
+    // Now Huma settles request 1 (next_request_id = 2)
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 2);
+    ctx.svm.expire_blockhash();
+
+    // User B claims redemption 1 -> SUCCEEDS
+    let res_b = send_e2e_claim_redemption_for_user(&mut ctx, &user_b, user_b_usdc, 1, Pubkey::default(), huma_lender_state);
+    assert!(res_b.is_ok(), "User B claim should succeed after settlement");
+}
+
+#[test]
+fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
+    let mut ctx = setup_e2e();
+
+    // User buys 10 bonds in cycle 0 -> active = 0, pending = 10, merged_through_cycle = 0
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    let reg_acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry0 = anchor::utils::registry_get_entry(&reg_acc.data, 0).unwrap();
+    assert_eq!(entry0.active, 0);
+    assert_eq!(entry0.pending, 10);
+    assert_eq!(entry0.merged_through_cycle, 0);
+
+    // Advance 3 cycles by incrementing draw_cycle_id in registry directly
+    // Cycle 1: merge_cycle_id = 0 (tickets stay pending)
+    // Cycle 2: merge_cycle_id = 1 (tickets mature to active)
+    // Cycle 3: merge_cycle_id = 2 (already mature, no change)
+    let mut reg_data = reg_acc.data.clone();
+    reg_data[28..32].copy_from_slice(&3u32.to_le_bytes()); // draw_cycle_id = 3
+    ctx.svm.set_account(ctx.ticket_registry, Account {
+        lamports: reg_acc.lamports,
+        data: reg_data,
+        owner: reg_acc.owner,
+        executable: false,
+        rent_epoch: 0,
+    }).unwrap();
+
+    // Prepare draw for cycle 3: merge_cycle_id = 3 - 1 = 2
+    // Lazy merge merges all pending tickets up to cycle 2 in a single step
+    let (pool_pda_key, _) = pool_pda(1);
+    let dc3 = default_draw_cycle(1, 3, anchor::DrawStatus::AwaitingRandomness);
+    let draw_cycle_3 = inject_draw_cycle(&mut ctx.svm, 1, 3, &dc3);
+
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.is_frozen_for_draw = 1;
+        p.current_draw_cycle_id = 3;
+    });
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts: anchor::accounts::PrepareDraw {
+            crank: ctx.admin.pubkey(),
+            pool: pool_pda_key,
+            draw_cycle: draw_cycle_3,
+            ticket_registry: ctx.ticket_registry,
+        }
+        .to_account_metas(None),
+        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    ctx.svm.send_transaction(tx).expect("Prepare draw after multi-cycle skip should succeed");
+
+    let reg_acc_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry_after = anchor::utils::registry_get_entry(&reg_acc_after.data, 0).unwrap();
+    assert_eq!(entry_after.active, 10);
+    assert_eq!(entry_after.pending, 0);
+    assert_eq!(entry_after.cumulative_active, 10);
+    assert_eq!(entry_after.merged_through_cycle, 2);
+}
+
+#[test]
+fn test_event_emission_payload_verification_e2e() {
+    let mut ctx = setup_e2e();
+
+    // 1. Buy bonds event assertion
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+    let (pool_pda_key, _) = pool_pda(1);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (user_winnings_pda_key, _) = user_winnings_pda(1, &user_a.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::BuyBonds {
+        user: user_a.pubkey(),
+        user_winnings: user_winnings_pda_key,
+        pool: pool_pda_key,
+        ticket_registry: ctx.ticket_registry,
+        user_token_account: user_a_usdc,
+        token_mint: ctx.usdc_mint,
+        pool_vault_account: pool_vault,
+        pool_pst_vault,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::BuyBonds { tickets_to_buy: 5 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+    let meta = ctx.svm.send_transaction(tx).expect("Buy bonds should succeed");
+
+    let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.user, user_a.pubkey());
+    assert_eq!(event.bonds, 5);
+    assert_eq!(event.amount, 5_000_000);
+    assert_eq!(event.new_total_deposited_principal, 5_000_000);
+    assert_eq!(event.user_total_bonds, 5);
+    assert!(event.timestamp > 0);
+}
+
+#[test]
+fn test_pst_usdc_conversion_roundtrip_precision_bounds() {
+    // Test conversion precision across varying exchange rates and amounts
+    let test_cases: [(u128, u64, u64); 7] = [
+        // (total_assets, pst_supply, usdc_amount)
+        (1_000_000u128, 1_000_000u64, 1_000_000u64), // 1:1
+        (1_200_000, 1_000_000, 10_000_000),         // 1.2x (accrued yield)
+        (1_250_000, 1_000_000, 500_000),            // 1.25x
+        (2_000_000, 1_000_000, 100_000_000),        // 2.0x
+        (10_000_000, 1_000_000, 1),                 // 10x with 1 lamport
+        (950_000, 1_000_000, 10_000_000),           // 0.95x
+        (1_000_001, 1_000_000, 777_777),            // slight yield with odd amount
+    ];
+
+    for (total_assets, pst_supply, usdc_amount) in test_cases {
+        // USDC -> PST shares (ceiling division in protocol)
+        let pst_shares = anchor::huma::usdc_to_pst_shares(usdc_amount, pst_supply, total_assets)
+            .expect("USDC to PST conversion should succeed");
+
+        // PST shares -> USDC (floor division in protocol)
+        let roundtrip_usdc = anchor::huma::pst_shares_to_usdc(pst_shares, pst_supply, total_assets)
+            .expect("PST to USDC conversion should succeed");
+
+        // Invariant: ceiling division ensures roundtrip USDC is >= original USDC
+        assert!(
+            roundtrip_usdc >= usdc_amount,
+            "Protocol solvency favorability violated: roundtrip {roundtrip_usdc} < original {usdc_amount}"
+        );
+
+        // Invariant: precision difference is bounded to at most 1 lamport per share conversion unit
+        let diff = roundtrip_usdc - usdc_amount;
+        let max_expected_diff = ((total_assets / (pst_supply as u128)) as u64).max(1) + 1;
+        assert!(
+            diff <= max_expected_diff,
+            "Excessive rounding divergence: diff {diff} > max {max_expected_diff}"
+        );
+    }
+}
+
+
+
+

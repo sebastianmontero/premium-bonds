@@ -548,3 +548,37 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
     assert!(res.is_err());
     // Should fail with rent or signature/fee verification errors
 }
+
+#[test]
+fn test_resize_registry_to_exact_max_capacity() {
+    let (mut svm, payer) = setup_resize_registry_test();
+    let pool_id = 1;
+
+    let ticket_registry = Keypair::new().pubkey();
+    // Start at exactly the maximum resizeable size given Anchor's post-realloc constraint check
+    let initial_size = anchor::constants::REGISTRY_MAX_SIZE - 2 * anchor::constants::REGISTRY_REALLOC_STEP;
+    inject_ticket_registry_account(
+        &mut svm,
+        ticket_registry,
+        pool_id,
+        anchor::utils::registry_capacity_from_len(initial_size),
+        0,
+        0,
+        initial_size,
+    );
+    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+
+    // This resize should grow by REGISTRY_REALLOC_STEP successfully
+    let expected_new_size = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
+    let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
+    assert!(res.is_ok(), "Resize should succeed: {:?}", res);
+
+    let reg_acc = svm.get_account(&ticket_registry).unwrap();
+    assert_eq!(reg_acc.data.len(), expected_new_size);
+
+    // Verify capacity was correctly updated in the header
+    let header_capacity = u32::from_le_bytes(reg_acc.data[12..16].try_into().unwrap());
+    assert_eq!(header_capacity, anchor::utils::registry_capacity_from_len(expected_new_size));
+}
+
+

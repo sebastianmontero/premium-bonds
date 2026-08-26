@@ -1139,3 +1139,62 @@ fn test_withdraw_fees_fails_invalid_fee_wallet() {
         err_str
     );
 }
+
+#[test]
+fn test_withdraw_fees_succeeds_from_closed_pool() {
+    let mut ctx = setup_e2e();
+    let (pool_pda, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+
+    // Setup pool state with accrued fees and Closed status
+    common::mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.status = anchor::PoolStatus::Closed as u8;
+    });
+
+    // Set up mock $PST in pool's pst vault
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda,
+        10_000_000,
+    );
+
+    // Initialize huma_pool_mode_token owned by huma_pool_authority
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        huma_pool_mode_token,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        0,
+    );
+
+    let dummy = Keypair::new().pubkey();
+    let ix = build_withdraw_fees_ix(
+        &ctx.svm,
+        ctx.admin.pubkey(),
+        1,
+        0,
+        pool_pst_vault,
+        dummy,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        2_000_000,
+    );
+
+    let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
+    assert!(
+        res.is_ok(),
+        "Fee withdrawal must succeed from a Closed pool during sunset: {:?}",
+        res
+    );
+
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_fees_withdrawn, 2_000_000);
+}
+

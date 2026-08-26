@@ -731,3 +731,44 @@ fn test_update_pool_config_succeeds_max_yield_and_timelock() {
     assert_eq!(pool_state.payout_timelock_seconds, 600);
 }
 
+#[test]
+fn test_update_pool_config_bond_price_change_after_full_exit() {
+    let (mut svm, admin) = setup_global_config();
+    let pool_pda = inject_pool(&mut svm, 1);
+
+    // Ensure all liabilities are 0 (full exit state)
+    common::mutate_pool_state(&mut svm, 1, |p| {
+        p.total_deposited_principal = 0;
+        p.total_prizes_allocated = 0;
+        p.total_pending_redemptions = 0;
+        p.bond_price = 1_000_000;
+    });
+
+    let ix = build_update_pool_config_full_ix(
+        admin.pubkey(),
+        1,
+        None,
+        Some(5_000_000), // update bond_price from 1 to 5 USDC
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    let blockhash = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+
+    let meta = svm.send_transaction(tx).expect("bond price change after full exit should succeed");
+    let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
+    assert_eq!(event.old_bond_price, 1_000_000);
+    assert_eq!(event.new_bond_price, 5_000_000);
+
+    let pool_acc = svm.get_account(&pool_pda).unwrap();
+    let mut data_slice: &[u8] = &pool_acc.data;
+    let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
+    assert_eq!(pool_state.bond_price, 5_000_000);
+}
+
+

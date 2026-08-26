@@ -345,3 +345,26 @@ fn test_admin_force_unlock_fails_invalid_event_authority() {
     );
 }
 
+#[test]
+fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
+    let invalid_statuses = [
+        anchor::DrawStatus::Complete,
+        anchor::DrawStatus::ForceUnlocked,
+        anchor::DrawStatus::Skipped,
+        anchor::DrawStatus::Voided,
+        anchor::DrawStatus::HaltedInsolvent,
+        anchor::DrawStatus::HaltedYieldSpike,
+    ];
+
+    for status in invalid_statuses {
+        let admin = Keypair::new();
+        let mut ctx = setup(&admin, status);
+        let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
+        assert!(
+            err.contains("InvalidDrawStatus") || err.contains("6019"),
+            "Status {status:?} expected InvalidDrawStatus, got: {err}"
+        );
+    }
+}
+
+

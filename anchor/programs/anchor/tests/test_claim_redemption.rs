@@ -1174,4 +1174,132 @@ fn test_claim_redemption_fails_on_double_claim() {
     );
 }
 
+#[test]
+fn test_claim_redemption_fails_pending_redemptions_underflow() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let user_a_usdc = create_spl_token_account(
+        &mut ctx.svm,
+        &user_a,
+        &ctx.usdc_mint,
+        &user_a.pubkey(),
+    );
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Corrupt pool state: total_pending_redemptions is smaller than redemption amount (3_000_000)
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.total_pending_redemptions = 1_000_000;
+    });
+
+    let err = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .unwrap_err();
+
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_claim_redemption_succeeds_while_pool_frozen() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let user_a_usdc = create_spl_token_account(
+        &mut ctx.svm,
+        &user_a,
+        &ctx.usdc_mint,
+        &user_a.pubkey(),
+    );
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Freeze pool for draw
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.is_frozen_for_draw = 1;
+    });
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+
+    assert!(
+        res.is_ok(),
+        "Claiming settled redemption must succeed even while pool is frozen for draw: {:?}",
+        res
+    );
+}
+
+
 

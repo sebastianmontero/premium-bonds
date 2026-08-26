@@ -885,3 +885,75 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     assert_eq!(updated_pool.total_fees_accrued, 50);
 }
 
+#[test]
+fn test_harvest_fails_double_harvest_same_cycle() {
+    let mut ctx = setup_happy(
+        10,
+        0,
+        100,
+        default_prize_tiers(),
+        11_000_000,
+        10_000_000,
+        10_000_000,
+        10_000_000,
+    );
+
+    send_harvest(&mut ctx, 1, 0).expect("first harvest should succeed");
+
+    // Second harvest in same cycle should fail
+    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("AwaitingRandomnessFreeze") || err.contains("CycleNotEnded"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_harvest_fails_current_draw_cycle_id_overflow() {
+    let mut ctx = setup_happy(
+        10,
+        0,
+        100,
+        default_prize_tiers(),
+        11_000_000,
+        10_000_000,
+        10_000_000,
+        10_000_000,
+    );
+
+    common::mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.current_draw_cycle_id = u32::MAX;
+    });
+
+    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
+    assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_harvest_yield_fee_truncation_rounding() {
+    // Setup pool with fee_basis_points = 1 (0.01%) and yield = 9_999 lamports
+    // fee = 9_999 * 1 / 10_000 = 0 lamports (truncated)
+    // prize_pot = 9_999 - 0 = 9_999 lamports
+    let mut ctx = setup_happy(
+        10,
+        0,
+        1, // 1 bps fee
+        default_prize_tiers(),
+        10_009_999, // current value
+        10_000_000, // book value
+        10_000_000,
+        10_000_000,
+    );
+
+    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with fee truncation should succeed");
+    let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.raw_yield, 9_999);
+    assert_eq!(event.fee, 0);
+    assert_eq!(event.prize_pot, 9_999);
+
+    let updated_pool = read_pool(&ctx.svm, 1);
+    assert_eq!(updated_pool.total_prizes_allocated, 9_999);
+    assert_eq!(updated_pool.total_fees_accrued, 0);
+}
+
+

@@ -1159,4 +1159,41 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
     assert_eq!(pool.total_prizes_distributed, 4_999);
 }
 
+#[test]
+fn test_reveal_single_user_all_tickets_wins_all_tiers() {
+    let tiers = vec![
+        anchor::PrizeTier {
+            basis_points: 6_000,
+            num_winners: 1,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            basis_points: 2_000,
+            num_winners: 2,
+            _padding: [0, 0],
+        },
+    ];
+
+    // Single user with 1 ticket (user_count = 1, locked_ticket_count = 1)
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 1, 10_000_000, 1);
+
+    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed for sole user");
+    let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.winners_count, 3);
+    assert_eq!(event.total_distributed, 10_000_000);
+
+    let pr = read_payout_registry(&ctx.svm, 1, 0);
+    assert_eq!(pr.winners_count, 3);
+    let user_pubkey = ctx.tickets[0];
+    assert_eq!(pr.winners[0].winner, user_pubkey);
+    assert_eq!(pr.winners[0].amount_owed, 6_000_000);
+    assert_eq!(pr.winners[1].winner, user_pubkey);
+    assert_eq!(pr.winners[1].amount_owed, 2_000_000);
+    assert_eq!(pr.winners[2].winner, user_pubkey);
+    assert_eq!(pr.winners[2].amount_owed, 2_000_000);
+}
+
+
+
+
 
