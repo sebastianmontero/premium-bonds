@@ -48,3 +48,15 @@ bincode = "1.3.3"
 
 [lints]
 workspace = true
+
+
+# [package.metadata.mutants]
+# Restrict mutations to your program source code (skip test files)
+# examine_globs = ["programs/anchor/**/*.rs"]
+# exclude_globs = ["tests/**/*.rs", "programs/**/tests/**"]
+
+# Command to run for each mutant: rebuild .so then run LiteSVM tests
+# test_command = "cargo build-sbf && cargo test"
+
+# Optional: timeout per mutant (in seconds) to catch infinite loops
+# timeout = 60

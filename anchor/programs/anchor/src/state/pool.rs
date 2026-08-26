@@ -225,7 +225,7 @@ impl PrizePool {
             PremiumBondsError::PoolNotActive
         );
         require!(
-            self.is_frozen_for_draw == 0,
+            !self.is_frozen(),
             PremiumBondsError::AwaitingRandomnessFreeze
         );
         require!(bonds_to_buy > 0, PremiumBondsError::InvalidBondQuantity);
