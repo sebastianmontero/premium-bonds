@@ -510,21 +510,12 @@ fn test_reveal_multi_tier_multi_winner() {
         },
     ];
     let prize_pot = 1_000_000u64;
-    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, prize_pot, 10);
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers.clone(), 10, prize_pot, 10);
     send_reveal(&mut ctx, 1, 0, [7u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 4); // 1 + 3
-
-    // Tier 0: 7000bps of 1M = 700_000
-    assert_eq!(pr.winners[0].amount_owed, 700_000);
-    assert_eq!(pr.winners[0].tier_index, 0);
-
-    // Tier 1: 1000bps of 1M = 100_000 per winner
-    for i in 1..4 {
-        assert_eq!(pr.winners[i].amount_owed, 100_000);
-        assert_eq!(pr.winners[i].tier_index, 1);
-    }
+    assert_prize_tier_distribution(prize_pot, &tiers, &pr.winners, pr.winners_count as usize);
 }
 
 #[test]

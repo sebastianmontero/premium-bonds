@@ -218,7 +218,7 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
 
     // Now User B calls reinvest_winnings for winner slot 0.
     // Even though User B's registry_entry_index is now 0 (swapped), PayoutRegistry holds winner: user_b.
-    // reinvest_winnings MUST succeed without returning UnauthorizedTicket!
+    // reinvest_winnings MUST succeed cleanly for the rightful winner!
     let (user_winnings_b, _) = user_winnings_pda(1, &user_b);
     let (payout_reg, _) = payout_pda(1, 0);
 

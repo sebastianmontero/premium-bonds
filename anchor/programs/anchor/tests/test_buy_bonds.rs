@@ -875,3 +875,118 @@ fn test_buy_bonds_reentering_user_succeeds_e2e() {
     assert_eq!(entry.pending, 3);
 }
 
+/// MTR-003: Multi-User Deposit Commutativity
+/// Verifies that the order of user bond purchases produces identical global aggregates,
+/// principal values, PST vault balances, and user-level ticket mass.
+#[test]
+fn test_mtr003_deposit_order_commutativity() {
+    struct RunResult {
+        total_pending: u32,
+        total_principal: u64,
+        user_count: u32,
+        pst_vault_balance: u64,
+        alice_pending: u32,
+        bob_pending: u32,
+    }
+
+    let execute_run = |alice_first: bool| -> RunResult {
+        let mut ctx = setup_e2e();
+
+        let alice = Keypair::new();
+        ctx.svm.airdrop(&alice.pubkey(), 10_000_000_000).unwrap();
+        let alice_usdc =
+            create_spl_token_account(&mut ctx.svm, &alice, &ctx.usdc_mint, &alice.pubkey());
+        mint_tokens(
+            &mut ctx.svm,
+            &ctx.admin,
+            &ctx.usdc_mint,
+            &alice_usdc,
+            &ctx.usdc_mint_authority,
+            100_000_000,
+        );
+
+        let bob = Keypair::new();
+        ctx.svm.airdrop(&bob.pubkey(), 10_000_000_000).unwrap();
+        let bob_usdc =
+            create_spl_token_account(&mut ctx.svm, &bob, &ctx.usdc_mint, &bob.pubkey());
+        mint_tokens(
+            &mut ctx.svm,
+            &ctx.admin,
+            &ctx.usdc_mint,
+            &bob_usdc,
+            &ctx.usdc_mint_authority,
+            100_000_000,
+        );
+
+        if alice_first {
+            send_e2e_buy_bonds_for_user(&mut ctx, &alice, alice_usdc, 5, Pubkey::default())
+                .expect("Alice buy");
+            send_e2e_buy_bonds_for_user(&mut ctx, &bob, bob_usdc, 3, Pubkey::default())
+                .expect("Bob buy");
+        } else {
+            send_e2e_buy_bonds_for_user(&mut ctx, &bob, bob_usdc, 3, Pubkey::default())
+                .expect("Bob buy");
+            send_e2e_buy_bonds_for_user(&mut ctx, &alice, alice_usdc, 5, Pubkey::default())
+                .expect("Alice buy");
+        }
+
+        let pool = read_pool_state(&ctx.svm, 1);
+        let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
+        let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+        let pst_balance = read_token_balance(&ctx.svm, pool_pst_vault);
+
+        let reg_acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+        let user_count = u32::from_le_bytes(reg_acc.data[16..20].try_into().unwrap());
+
+        let alice_winnings = read_user_winnings_state(&ctx.svm, 1, &alice.pubkey());
+        let alice_entry = read_registry_entry(
+            &ctx.svm,
+            ctx.ticket_registry,
+            alice_winnings.registry_entry_index as usize,
+        );
+
+        let bob_winnings = read_user_winnings_state(&ctx.svm, 1, &bob.pubkey());
+        let bob_entry = read_registry_entry(
+            &ctx.svm,
+            ctx.ticket_registry,
+            bob_winnings.registry_entry_index as usize,
+        );
+
+        RunResult {
+            total_pending: pending,
+            total_principal: pool.total_deposited_principal,
+            user_count,
+            pst_vault_balance: pst_balance,
+            alice_pending: alice_entry.pending,
+            bob_pending: bob_entry.pending,
+        }
+    };
+
+    let result_a = execute_run(true); // Alice (5) -> Bob (3)
+    let result_b = execute_run(false); // Bob (3) -> Alice (5)
+
+    // Metamorphic Invariance: Global aggregates must be perfectly commutative
+    assert_eq!(result_a.total_pending, 8);
+    assert_eq!(result_b.total_pending, 8);
+    assert_eq!(
+        result_a.total_pending, result_b.total_pending,
+        "MTR-003 broken: total_pending differs"
+    );
+    assert_eq!(result_a.total_principal, 8_000_000);
+    assert_eq!(result_b.total_principal, 8_000_000);
+    assert_eq!(
+        result_a.total_principal, result_b.total_principal,
+        "MTR-003 broken: total_principal differs"
+    );
+    assert_eq!(result_a.user_count, 2);
+    assert_eq!(result_b.user_count, 2);
+    assert_eq!(
+        result_a.pst_vault_balance, result_b.pst_vault_balance,
+        "MTR-003 broken: PST balance differs"
+    );
+    assert_eq!(result_a.alice_pending, 5);
+    assert_eq!(result_b.alice_pending, 5);
+    assert_eq!(result_a.bob_pending, 3);
+    assert_eq!(result_b.bob_pending, 3);
+}
+

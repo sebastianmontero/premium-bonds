@@ -16,8 +16,11 @@ use {
     anchor_lang::ToAccountMetas,
     litesvm::LiteSVM,
     solana_keypair::Keypair,
+    solana_program::instruction::Instruction,
     solana_sdk::account::Account,
+    solana_sdk::message::{Message, VersionedMessage},
     solana_signer::Signer,
+    solana_transaction::versioned::VersionedTransaction,
 };
 
 mod common;
@@ -889,6 +892,153 @@ fn test_admin_void_fails_if_zero_prize_winner_already_cranked() {
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
     assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsAlreadyStarted);
+}
+
+/// MTR-007: Admin Draw Void Complete Rollback Equivalence
+/// Verifies: buy -> harvest -> prepare -> reveal -> void restores the complete BookValue
+/// and individual liability fields (allocated prizes, distributed prizes, accrued fees)
+/// while preserving physical token vault balances, cycle progression, and ticket maturation.
+#[test]
+fn test_mtr007_void_draw_complete_rollback_equivalence() {
+    let mut ctx = setup_e2e();
+
+    // User buys 10 bonds in Cycle 0 (10 pending tickets)
+    send_e2e_buy_bonds(&mut ctx, 10).expect("buy bonds should succeed");
+
+    // 1. Cycle 0 harvest matures pending tickets (10 pending -> 10 active) and advances pool to Cycle 1
+    send_e2e_harvest_yield_and_commit(&mut ctx).expect("cycle 0 maturation harvest");
+
+    // 2. Snapshot BookValue & constituent state BEFORE yield harvest in Cycle 1
+    let pool_before = read_pool_state(&ctx.svm, 1);
+    let book_value_before = pool_before.total_deposited_principal
+        + (pool_before.total_fees_accrued - pool_before.total_fees_withdrawn)
+        + pool_before.total_prizes_allocated;
+    assert_eq!(pool_before.total_prizes_allocated, 0);
+    assert_eq!(pool_before.total_prizes_distributed, 0);
+    assert_eq!(pool_before.total_fees_accrued, 0);
+
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let vault_usdc_before = read_token_balance(&ctx.svm, pool_vault);
+    let vault_pst_before = read_token_balance(&ctx.svm, pool_pst_vault);
+
+    // 3. Inject 5M USDC yield into Huma pool and harvest Cycle 1
+    inject_huma_yield_ratio(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 15_000_000, 10_000_000);
+    send_e2e_harvest_yield_and_commit(&mut ctx).expect("cycle 1 yield harvest");
+
+    // 4. Prepare draw for Cycle 1
+    {
+        let (pool, _) = pool_pda(1);
+        let (dc, _) = draw_cycle_pda(1, 1);
+        let accounts = anchor::accounts::PrepareDraw {
+            crank: ctx.admin.pubkey(),
+            pool,
+            draw_cycle: dc,
+            ticket_registry: ctx.ticket_registry,
+        }
+        .to_account_metas(None);
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+        ctx.svm.send_transaction(tx).expect("prepare_draw should succeed");
+    }
+
+    // 5. Inject resolved Switchboard Randomness into the EXACT account recorded by harvest in Cycle 1
+    let (dc_pda, _) = draw_cycle_pda(1, 1);
+    let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
+    let dc: anchor::DrawCycle =
+        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+
+    let mut sb_data =
+        vec![0u8; 8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()];
+    sb_data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
+    let mut rnd_struct: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
+    rnd_struct.seed_slot = dc.harvest_slot;
+    rnd_struct.reveal_slot = dc.harvest_slot;
+    rnd_struct.value = [42u8; 32];
+    let bytes: &[u8] = bytemuck::bytes_of(&rnd_struct);
+    sb_data[8..8 + bytes.len()].copy_from_slice(bytes);
+
+    let sb_owner =
+        Pubkey::new_from_array(switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes());
+    ctx.svm
+        .set_account(
+            dc.randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data: sb_data,
+                owner: sb_owner,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // 6. Reveal and pick winners for Cycle 1
+    {
+        let (gc, _) = global_config_pda();
+        let (pool, _) = pool_pda(1);
+        let (payout, _) = payout_pda(1, 1);
+        let accounts = anchor::accounts::RevealAndPickWinners {
+            crank: ctx.admin.pubkey(),
+            global_config: gc,
+            current_draw_cycle: dc_pda,
+            pool,
+            ticket_registry: ctx.ticket_registry,
+            randomness_account: dc.randomness_account,
+            payout_registry: payout,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+        .to_account_metas(None);
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::RevealAndPickWinners {}.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+        ctx.svm.send_transaction(tx).expect("reveal should succeed");
+    }
+
+    // 7. Execute Admin Void for Cycle 1
+    send_admin_void_payout_registry(&mut ctx.svm, &ctx.admin, 1, 1)
+        .expect("admin_void_payout_registry should succeed");
+
+    // 8. METAMORPHIC DEEP INVARIANT ASSERTIONS
+    let pool_after = read_pool_state(&ctx.svm, 1);
+    let book_value_after = pool_after.total_deposited_principal
+        + (pool_after.total_fees_accrued - pool_after.total_fees_withdrawn)
+        + pool_after.total_prizes_allocated;
+
+    // [A] Complete Ledger Conservation
+    assert_eq!(
+        book_value_after, book_value_before,
+        "MTR-007: BookValue not conserved after void"
+    );
+    assert_eq!(pool_after.total_deposited_principal, pool_before.total_deposited_principal);
+    assert_eq!(pool_after.total_prizes_allocated, 0);
+    assert_eq!(pool_after.total_prizes_distributed, 0);
+    assert_eq!(pool_after.total_fees_accrued, 0);
+    assert_eq!(pool_after.total_fees_withdrawn, 0);
+
+    // [B] Physical Vault Parity
+    let vault_usdc_after = read_token_balance(&ctx.svm, pool_vault);
+    let vault_pst_after = read_token_balance(&ctx.svm, pool_pst_vault);
+    assert_eq!(vault_usdc_after, vault_usdc_before, "Physical USDC vault altered");
+    assert_eq!(vault_pst_after, vault_pst_before, "Physical PST vault altered");
+
+    // [C] State Transition Integrity
+    assert_eq!(pool_after.is_frozen_for_draw, 0, "Pool must be unfrozen");
+    assert_eq!(pool_after.current_draw_cycle_id, 2, "Draw cycle ID should advance to 2");
 }
 
 

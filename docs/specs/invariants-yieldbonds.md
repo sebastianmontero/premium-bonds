@@ -3,7 +3,7 @@
 **Domain Context:** [README.md](file:///home/sebastian/vsc-workspace/premium-bonds/README.md), [ticket-registry-redesign.md](file:///home/sebastian/vsc-workspace/premium-bonds/ticket-registry-redesign.md), [docs/agents/domain.md](file:///home/sebastian/vsc-workspace/premium-bonds/docs/agents/domain.md)  
 **Extracted At:** 2026-08-27  
 **Audit Mode:** `reconciliation` (Mode 3 Formal Spec-Code Reconciliation & Drift Verification)  
-**Overall Conformance:** 22/22 Instructions Verified | 8 Conservation Laws Verified | 8 Metamorphic Relations Verified | 52 Error Codes Mapped (100% Conformance)
+**Overall Conformance:** 22/22 Instructions Verified | 8 Conservation Laws Verified | 8 Metamorphic Relations Verified | 51 Error Codes Mapped (100% Conformance)
 
 ---
 
@@ -800,50 +800,49 @@ stateDiagram-v2
 | `6005` | `RegistryTooSmall` | "The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes." | `create_pool` | `Boundary` |
 | `6006` | `RegistryAtMaxSize` | "The registry account has reached Solana's 10 MB maximum size." | `resize_registry` | `Boundary` |
 | `6007` | `AwaitingRandomnessFreeze` | "The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused." | `buy_bonds`, `sell_bonds`, `harvest_yield_and_commit`, `update_pool_config`, `set_prize_tiers` | `Lifecycle` |
-| `6008` | `UnauthorizedTicket` | "The ticket does not belong to the user." | Bond Redemptions | `Access` |
-| `6009` | `AlreadyClaimed` | "Trying to claim a prize that has already been claimed." | `reinvest_winnings`, `validate_winner` | `Lifecycle` |
-| `6010` | `MathOverflow` | "Calculation overflow occurred natively." | Math Utilities, Registry, Pool Accounting | `Math` |
-| `6011` | `InvalidWinnerIndex` | "Winner index is out of bounds." | `reinvest_winnings`, `validate_winner` | `Boundary` |
-| `6012` | `UnauthorizedCrank` | "Only the designated Switchboard Jobs Account can execute this crank." | `harvest_yield_and_commit`, `reveal_and_pick_winners`, `crank_rebind_expired_randomness` | `Access` |
-| `6013` | `InvalidPrizeTierConfig` | "Invalid prize tier configuration." | `create_pool`, `set_prize_tiers` | `Boundary` |
-| `6014` | `PrizeTiersNotConfigured` | "Prize tiers have not been configured for this pool." | `harvest_yield_and_commit`, `reveal_and_pick_winners` | `Lifecycle` |
-| `6015` | `BasisPointsMustEqual10000` | "Total basis points across all tiers must equal exactly 10,000 (100%)." | `create_pool`, `set_prize_tiers` | `Math` |
-| `6016` | `InvalidDrawStatus` | "The draw cycle is in an invalid phase for this operation" | `prepare_draw`, `reveal_and_pick_winners`, `admin_force_unlock_draw`, `admin_void_payout_registry` | `Lifecycle` |
-| `6017` | `InvalidDrawState` | "The draw cycle has an invalid locked count or prize pot." | `reveal_and_pick_winners` | `Boundary` |
-| `6018` | `UnauthorizedAdmin` | "Unauthorized admin." | `initialize_global`, `update_global_config`, `update_pool_config`, `close_pool`, `unpause_pool`, `withdraw_fees`, `admin_void_payout_registry` | `Access` |
-| `6019` | `InvalidBondPrice` | "Bond price must be greater than 0." | `create_pool`, `update_pool_config` | `Boundary` |
-| `6020` | `InvalidStakeCycleDuration` | "Stake cycle duration must be greater than 0 hours." | `create_pool`, `update_pool_config` | `Boundary` |
-| `6021` | `HumaRedemptionNotSettled` | "Huma redemption has not been settled yet." | `claim_redemption` | `Time` |
-| `6022` | `InvalidRedemptionOwner` | "Beneficiary does not match pending redemption owner." | `claim_redemption` | `Access` |
-| `6023` | `InsufficientFeeBalance` | "Insufficient accrued fee balance for withdrawal." | `withdraw_fees` | `Math` |
-| `6024` | `NoWinningsToClaim` | "No unclaimed non-reinvested winnings to claim." | `claim_non_reinvested_winnings` | `Boundary` |
-| `6025` | `InvalidFeeConfig` | "Fee basis points must be less than or equal to 10,000 (100%)." | `create_pool`, `update_pool_config` | `Boundary` |
-| `6026` | `InvalidMaxYieldBasisPoints` | "Max yield basis points must be less than or equal to 10,000 (100%)." | `create_pool`, `update_pool_config` | `Boundary` |
-| `6027` | `InvalidPayoutTimelock` | "Payout timelock delay must not exceed 86,400 seconds (24 hours)." | `create_pool`, `update_pool_config` | `Boundary` |
-| `6028` | `InvalidModeMint` | "The mode mint does not match the pool's mode mint." | Huma CPI Wrappers, `withdraw_fees`, `sell_bonds`, `claim_non_reinvested_winnings` | `CPI` |
-| `6029` | `InvalidRandomnessAccount` | "The provided randomness account is invalid or does not belong to Switchboard." | `reveal_and_pick_winners`, `crank_rebind_expired_randomness` | `Access` |
-| `6030` | `RandomnessNotResolved` | "The randomness request has not yet been resolved by the oracle network." | `reveal_and_pick_winners` | `Time` |
-| `6031` | `StaleRandomnessRequest` | "The randomness request is stale or was committed before the harvest freeze." | `reveal_and_pick_winners` | `Time` |
-| `6032` | `RandomnessNotExpired` | "The randomness account cannot be re-locked because the current one is not yet expired." | `crank_rebind_expired_randomness` | `Time` |
-| `6033` | `InvalidUserEntryHint` | "Invalid registry user entry hint provided" | Registry Access, `buy_bonds`, `sell_bonds` | `Access` |
-| `6034` | `InsufficientPendingTickets` | "Insufficient pending tickets for this transaction" | `sell_bonds` | `Boundary` |
-| `6035` | `InsufficientActiveTickets` | "Insufficient active tickets for this transaction" | `sell_bonds` | `Boundary` |
-| `6036` | `PoolNotFrozen` | "The prize pool must be frozen for draw preparation" | `prepare_draw` | `Lifecycle` |
-| `6037` | `MissingSwappedUserWinnings` | "Required remaining account for swapped user's UserWinnings is missing" | Swap-and-Pop, `sell_bonds` | `Realloc` |
-| `6038` | `InvalidFeeWallet` | "The provided fee wallet account is invalid or does not match the pool configuration" | `update_pool_config`, `withdraw_fees` | `Access` |
-| `6039` | `CannotModifyBondPriceWithActiveDeposits` | "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes." | `update_pool_config` | `Boundary` |
-| `6040` | `PoolPaused` | "The prize pool is paused." | Circuit Breakers, `buy_bonds`, `sell_bonds`, `withdraw_fees`, `claim_redemption`, `claim_non_reinvested_winnings`, `reinvest_winnings` | `Lifecycle` |
-| `6041` | `PoolClosed` | "The prize pool is closed permanently." | `emergency_pause`, `admin_void_payout_registry` | `Lifecycle` |
-| `6042` | `DrawVoided` | "This draw has been voided." | `reinvest_winnings` | `Lifecycle` |
-| `6043` | `DrawAlreadyVoided` | "This draw has already been voided." | `admin_void_payout_registry` | `Lifecycle` |
-| `6044` | `PayoutsAlreadyStarted` | "Winner payouts have already begun processing." | `admin_void_payout_registry` | `Lifecycle` |
-| `6045` | `PayoutTimelockActive` | "Payout settlement timelock is active." | `reinvest_winnings` | `Time` |
-| `6046` | `FeesAlreadyWithdrawn` | "Protocol fees from this cycle were already withdrawn." | `admin_void_payout_registry` | `Lifecycle` |
-| `6047` | `YieldVelocityExceeded` | "Yield velocity limit exceeded." | Safety Circuit Breaker | `Math` |
-| `6048` | `YieldVenueInsolvent` | "Yield venue is insolvent." | Solvency Circuit Breaker | `Boundary` |
-| `6049` | `Unauthorized` | "Unauthorized signer." | `pause_pool` | `Access` |
-| `6050` | `WinnerMismatch` | "Winner account does not match the payout registry entry." | `reinvest_winnings`, `validate_winner` | `Access` |
-| `6051` | `UnsupportedAccountVersion` | "Account schema version is invalid or unsupported." | Lazy Migration & Version Guards | `Lifecycle` |
+| `6008` | `AlreadyClaimed` | "Trying to claim a prize that has already been claimed." | `reinvest_winnings`, `validate_winner` | `Lifecycle` |
+| `6009` | `MathOverflow` | "Calculation overflow occurred natively." | Math Utilities, Registry, Pool Accounting | `Math` |
+| `6010` | `InvalidWinnerIndex` | "Winner index is out of bounds." | `reinvest_winnings`, `validate_winner` | `Boundary` |
+| `6011` | `UnauthorizedCrank` | "Only the designated Switchboard Jobs Account can execute this crank." | `harvest_yield_and_commit`, `reveal_and_pick_winners`, `crank_rebind_expired_randomness` | `Access` |
+| `6012` | `InvalidPrizeTierConfig` | "Invalid prize tier configuration." | `create_pool`, `set_prize_tiers` | `Boundary` |
+| `6013` | `PrizeTiersNotConfigured` | "Prize tiers have not been configured for this pool." | `harvest_yield_and_commit`, `reveal_and_pick_winners` | `Lifecycle` |
+| `6014` | `BasisPointsMustEqual10000` | "Total basis points across all tiers must equal exactly 10,000 (100%)." | `create_pool`, `set_prize_tiers` | `Math` |
+| `6015` | `InvalidDrawStatus` | "The draw cycle is in an invalid phase for this operation" | `prepare_draw`, `reveal_and_pick_winners`, `admin_force_unlock_draw`, `admin_void_payout_registry` | `Lifecycle` |
+| `6016` | `InvalidDrawState` | "The draw cycle has an invalid locked count or prize pot." | `reveal_and_pick_winners` | `Boundary` |
+| `6017` | `UnauthorizedAdmin` | "Unauthorized admin." | `initialize_global`, `update_global_config`, `update_pool_config`, `close_pool`, `unpause_pool`, `withdraw_fees`, `admin_void_payout_registry` | `Access` |
+| `6018` | `InvalidBondPrice` | "Bond price must be greater than 0." | `create_pool`, `update_pool_config` | `Boundary` |
+| `6019` | `InvalidStakeCycleDuration` | "Stake cycle duration must be greater than 0 hours." | `create_pool`, `update_pool_config` | `Boundary` |
+| `6020` | `HumaRedemptionNotSettled` | "Huma redemption has not been settled yet." | `claim_redemption` | `Time` |
+| `6021` | `InvalidRedemptionOwner` | "Beneficiary does not match pending redemption owner." | `claim_redemption` | `Access` |
+| `6022` | `InsufficientFeeBalance` | "Insufficient accrued fee balance for withdrawal." | `withdraw_fees` | `Math` |
+| `6023` | `NoWinningsToClaim` | "No unclaimed non-reinvested winnings to claim." | `claim_non_reinvested_winnings` | `Boundary` |
+| `6024` | `InvalidFeeConfig` | "Fee basis points must be less than or equal to 10,000 (100%)." | `create_pool`, `update_pool_config` | `Boundary` |
+| `6025` | `InvalidMaxYieldBasisPoints` | "Max yield basis points must be less than or equal to 10,000 (100%)." | `create_pool`, `update_pool_config` | `Boundary` |
+| `6026` | `InvalidPayoutTimelock` | "Payout timelock delay must not exceed 86,400 seconds (24 hours)." | `create_pool`, `update_pool_config` | `Boundary` |
+| `6027` | `InvalidModeMint` | "The mode mint does not match the pool's mode mint." | Huma CPI Wrappers, `withdraw_fees`, `sell_bonds`, `claim_non_reinvested_winnings` | `CPI` |
+| `6028` | `InvalidRandomnessAccount` | "The provided randomness account is invalid or does not belong to Switchboard." | `reveal_and_pick_winners`, `crank_rebind_expired_randomness` | `Access` |
+| `6029` | `RandomnessNotResolved` | "The randomness request has not yet been resolved by the oracle network." | `reveal_and_pick_winners` | `Time` |
+| `6030` | `StaleRandomnessRequest` | "The randomness request is stale or was committed before the harvest freeze." | `reveal_and_pick_winners` | `Time` |
+| `6031` | `RandomnessNotExpired` | "The randomness account cannot be re-locked because the current one is not yet expired." | `crank_rebind_expired_randomness` | `Time` |
+| `6032` | `InvalidUserEntryHint` | "Invalid registry user entry hint provided" | Registry Access, `buy_bonds`, `sell_bonds` | `Access` |
+| `6033` | `InsufficientPendingTickets` | "Insufficient pending tickets for this transaction" | `sell_bonds` | `Boundary` |
+| `6034` | `InsufficientActiveTickets` | "Insufficient active tickets for this transaction" | `sell_bonds` | `Boundary` |
+| `6035` | `PoolNotFrozen` | "The prize pool must be frozen for draw preparation" | `prepare_draw` | `Lifecycle` |
+| `6036` | `MissingSwappedUserWinnings` | "Required remaining account for swapped user's UserWinnings is missing" | Swap-and-Pop, `sell_bonds` | `Realloc` |
+| `6037` | `InvalidFeeWallet` | "The provided fee wallet account is invalid or does not match the pool configuration" | `update_pool_config`, `withdraw_fees` | `Access` |
+| `6038` | `CannotModifyBondPriceWithActiveDeposits` | "Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes." | `update_pool_config` | `Boundary` |
+| `6039` | `PoolPaused` | "The prize pool is paused." | Circuit Breakers, `buy_bonds`, `sell_bonds`, `withdraw_fees`, `claim_redemption`, `claim_non_reinvested_winnings`, `reinvest_winnings` | `Lifecycle` |
+| `6040` | `PoolClosed` | "The prize pool is closed permanently." | `emergency_pause`, `admin_void_payout_registry` | `Lifecycle` |
+| `6041` | `DrawVoided` | "This draw has been voided." | `reinvest_winnings` | `Lifecycle` |
+| `6042` | `DrawAlreadyVoided` | "This draw has already been voided." | `admin_void_payout_registry` | `Lifecycle` |
+| `6043` | `PayoutsAlreadyStarted` | "Winner payouts have already begun processing." | `admin_void_payout_registry` | `Lifecycle` |
+| `6044` | `PayoutTimelockActive` | "Payout settlement timelock is active." | `reinvest_winnings` | `Time` |
+| `6045` | `FeesAlreadyWithdrawn` | "Protocol fees from this cycle were already withdrawn." | `admin_void_payout_registry` | `Lifecycle` |
+| `6046` | `YieldVelocityExceeded` | "Yield velocity limit exceeded." | Safety Circuit Breaker | `Math` |
+| `6047` | `YieldVenueInsolvent` | "Yield venue is insolvent." | Solvency Circuit Breaker | `Boundary` |
+| `6048` | `Unauthorized` | "Unauthorized signer." | `pause_pool` | `Access` |
+| `6049` | `WinnerMismatch` | "Winner account does not match the payout registry entry." | `reinvest_winnings`, `validate_winner` | `Access` |
+| `6050` | `UnsupportedAccountVersion` | "Account schema version is invalid or unsupported." | Lazy Migration & Version Guards | `Lifecycle` |
 
 ---
 

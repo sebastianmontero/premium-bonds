@@ -1166,4 +1166,23 @@ mod tests {
         assert_eq!(pool.total_prizes_allocated, 0);
         assert_eq!(pool.total_prizes_distributed, 0);
     }
+
+    #[test]
+    fn test_pool_status_try_from_valid() {
+        assert_eq!(PoolStatus::try_from(0).unwrap(), PoolStatus::Active);
+        assert_eq!(PoolStatus::try_from(1).unwrap(), PoolStatus::Paused);
+        assert_eq!(PoolStatus::try_from(2).unwrap(), PoolStatus::Closed);
+    }
+
+    #[test]
+    fn test_pool_status_try_from_invalid() {
+        assert!(matches!(
+            PoolStatus::try_from(3),
+            Err(PremiumBondsError::InvalidPoolStatus)
+        ));
+        assert!(matches!(
+            PoolStatus::try_from(255),
+            Err(PremiumBondsError::InvalidPoolStatus)
+        ));
+    }
 }

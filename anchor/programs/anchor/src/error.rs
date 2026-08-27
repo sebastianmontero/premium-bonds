@@ -26,9 +26,6 @@ pub enum PremiumBondsError {
     /// The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.
     #[msg("The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.")]
     AwaitingRandomnessFreeze,
-    /// The ticket does not belong to the user.
-    #[msg("The ticket does not belong to the user.")]
-    UnauthorizedTicket,
     /// Trying to claim a prize that has already been claimed.
     #[msg("Trying to claim a prize that has already been claimed.")]
     AlreadyClaimed,

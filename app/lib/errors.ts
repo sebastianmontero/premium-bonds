@@ -7,7 +7,6 @@ import {
   ANCHOR_ERROR__REGISTRY_TOO_SMALL,
   ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE,
   ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE,
-  ANCHOR_ERROR__UNAUTHORIZED_TICKET,
   ANCHOR_ERROR__ALREADY_CLAIMED,
   ANCHOR_ERROR__MATH_OVERFLOW,
   ANCHOR_ERROR__INVALID_WINNER_INDEX,
@@ -215,10 +214,6 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
       "Transactions, prize claims, and withdrawals are momentarily paused during draw snapshotting.",
     actionable:
       "Please try your request again in a few moments after the draw snapshot resolves.",
-  },
-  [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: {
-    name: "UnauthorizedTicket",
-    message: "The ticket does not belong to the user.",
   },
   [ANCHOR_ERROR__ALREADY_CLAIMED]: {
     name: "AlreadyClaimed",

@@ -482,23 +482,20 @@ fn test_harvest_happy_path_yield_and_eligible() {
 
 #[test]
 fn test_harvest_happy_path_fee_exact() {
-    // yield=1M, fee_bps=250 (2.5%) → fee=25_000
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
         num_winners: 1,
         _padding: [0, 0],
     }];
-    // 1M PST, 1M supply, 2M total_assets, 1M principal → yield=1M
+    // 1M PST, 1M supply, 2M total_assets, 1M principal → yield=1M, fee_bps=250 (2.5%)
     let mut ctx = setup_happy(1, 0, 250, tiers, 1_000_000, 1_000_000, 2_000_000, 1_000_000);
     send_harvest(&mut ctx, 1, 0).expect("fee exact harvest");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    let expected_fee = 25_000u64;
-    assert_eq!(dc.cycle_fee_collected, expected_fee);
-    assert_eq!(dc.prize_pot, 1_000_000 - expected_fee);
+    assert_fee_partition_conserved(1_000_000, 250, dc.cycle_fee_collected, dc.prize_pot);
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_fees_accrued, expected_fee);
+    assert_eq!(pool.total_fees_accrued, dc.cycle_fee_collected);
 }
 
 #[test]

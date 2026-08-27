@@ -1990,5 +1990,102 @@ pub fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), Str
         .map_err(|e| format!("{e:?}"))
 }
 
+// ─── Math & Invariant Assertion Helpers ─────────────────────────────────────
+
+/// Asserts that protocol fee and prize pot form a mathematically exact floor partition
+/// of raw yield without duplicating integer division logic in test code.
+pub fn assert_fee_partition_conserved(
+    raw_yield: u64,
+    fee_bps: u16,
+    fee_collected: u64,
+    prize_pot: u64,
+) {
+    // 1. Global Mass Conservation
+    assert_eq!(
+        fee_collected + prize_pot,
+        raw_yield,
+        "INV-SOLV-008 broken: fee ({fee_collected}) + prize_pot ({prize_pot}) != raw_yield ({raw_yield})"
+    );
+
+    // 2. Exact Floor Bounding via Cross-Multiplication: 0 <= (Y * B) - (F * 10_000) < 10_000
+    let total_scaled_fee = (raw_yield as u128) * (fee_bps as u128);
+    let collected_scaled_fee = (fee_collected as u128) * 10_000u128;
+    assert!(
+        collected_scaled_fee <= total_scaled_fee,
+        "Fee overcharged: collected {fee_collected} but nominal share is {fee_bps} bps of {raw_yield}"
+    );
+    let fee_truncation_remainder = total_scaled_fee - collected_scaled_fee;
+    assert!(
+        fee_truncation_remainder < 10_000,
+        "Fee undercharged: truncation remainder {fee_truncation_remainder} >= 10,000 (lost whole base unit)"
+    );
+}
+
+/// Asserts that prize payout registry distribution matches configured prize tiers
+/// with intra-tier equality, non-negative payouts, and bounded remainder dust.
+pub fn assert_prize_tier_distribution(
+    prize_pot: u64,
+    tiers: &[anchor::PrizeTier],
+    winners: &[anchor::Winner],
+    winners_count: usize,
+) {
+    let mut total_distributed = 0u64;
+    let mut winner_cursor = 0;
+
+    for (tier_idx, tier) in tiers.iter().enumerate() {
+        let n_winners = tier.num_winners as usize;
+        assert!(
+            winner_cursor + n_winners <= winners_count,
+            "Winner count mismatch: cursor {winner_cursor} + tier winners {n_winners} > total winners {winners_count}"
+        );
+        let tier_slice = &winners[winner_cursor..winner_cursor + n_winners];
+        winner_cursor += n_winners;
+
+        let first_amount = tier_slice[0].amount_owed;
+
+        // 1. Intra-Tier Homogeneity: Every winner in tier gets identical payout
+        for (i, w) in tier_slice.iter().enumerate() {
+            let actual_amount = w.amount_owed;
+            assert_eq!(
+                w.tier_index, tier_idx as u8,
+                "Winner {i} has incorrect tier_index"
+            );
+            assert_eq!(
+                actual_amount, first_amount,
+                "Tier {tier_idx} winner {i} payout {actual_amount} != expected {first_amount}"
+            );
+        }
+
+        let tier_total = first_amount * (n_winners as u64);
+        total_distributed += tier_total;
+
+        // 2. Cross-Multiplied Tier Remainder Bounding (No Division Mirroring):
+        // 0 <= (prize_pot * bps * num_winners) - (tier_total * 10_000) < n_winners * 10_000
+        let nominal_winner_pot = (prize_pot as u128) * (tier.basis_points as u128);
+        let nominal_tier_pot = nominal_winner_pot * (n_winners as u128);
+        let allocated_tier_pot = (tier_total as u128) * 10_000u128;
+        assert!(
+            allocated_tier_pot <= nominal_tier_pot,
+            "Tier {tier_idx} over-allocated funds"
+        );
+        let tier_remainder = nominal_tier_pot - allocated_tier_pot;
+        assert!(
+            tier_remainder < (n_winners as u128) * 10_000u128,
+            "Tier {tier_idx} truncation remainder {tier_remainder} exceeded per-winner unit bound"
+        );
+    }
+
+    // 3. Global Conservation: Distributed + Dust == Prize Pot
+    assert!(
+        total_distributed <= prize_pot,
+        "Total distributed ({total_distributed}) exceeds prize pot ({prize_pot})"
+    );
+    let dust = prize_pot - total_distributed;
+    assert!(
+        dust < 10_000,
+        "Dust remainder ({dust}) exceeded 10,000 basis point limit"
+    );
+}
+
 
 
