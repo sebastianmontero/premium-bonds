@@ -252,10 +252,3 @@ fn test_crank_rebind_exact_slot_boundary() {
     assert_eq!(event.harvest_slot, 1101);
 }
 
-
-fn clone_keypair(keypair: &Keypair) -> Keypair {
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&keypair.to_bytes()[..32]);
-    Keypair::new_from_array(seed)
-}
-

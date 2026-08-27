@@ -1,128 +1,79 @@
 ---
 name: solana-formal-spec
-description: Single source of truth domain specification and formal invariant extraction skill for Solana & Web3 protocols. Extracts invariants, state transitions, conservation laws, and metamorphic relations from ADRs, PRDs, specs, and docs without reading implementation code, and interactively resolves gaps with user-friendly multiple-choice interviews.
+description: Single source of truth domain specification, code mining, and formal invariant extraction skill for Solana & Web3 protocols. Extracts and reconciles invariants, state transitions, conservation laws, and metamorphic relations across Greenfield (Clean-Room docs-only), Brownfield (Two-Pass Code Mining), and Reconciliation (Spec-Code Sync & Drift Detection) workflows.
 user-invocable: true
 license: MIT
 compatibility: Requires markdown environment, Node.js / Rust toolchain
 metadata:
   author: Solana Security & Testing Team
-  version: 1.0.0
+  version: 2.0.0
 ---
 
 # Solana Formal Specification & Invariant Extraction Skill (`solana-formal-spec`)
 
-## What this Skill is for
+## Overview & Operational Modes
 
-Use this Skill when:
-
-- **Extracting a formal Single Source of Truth (SSOT)** domain specification from `docs/adr/`, `CONTEXT.md`, PRDs, whitepapers, mathematical formulas, or GitHub issues.
-- **Enforcing strict Zero-Code Isolation (Clean-Room Phase 1)**: Formulating domain expectations, state transitions, and invariants _without_ peeking at program source code (`anchor/programs/` or `app/`) to eliminate implementation confirmation bias.
-- **Conducting User-Friendly Clarification Interviews**: Resolving domain ambiguities, unstated edge cases, and architectural trade-offs using structured multiple-choice questions with recommended defaults.
-- **Generating Machine-Verifiable Invariant Records**: Producing standardized markdown invariant catalogs (`docs/specs/invariants-<feature>.md`) tagged with 7-Vector Edge Case categories for downstream consumption by `solana-test-auditor` and property-testing suites.
-
----
-
-## Operating Modes
+`solana-formal-spec` is the protocol's Single Source of Truth (SSOT) specification engine. It operates in **three distinct modes** depending on project maturity and developer intent:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                               OPERATING MODES                                          │
-├───────────────────────────────────┬────────────────────────────────────────────────────┤
-│ INTERACTIVE INTERVIEW MODE        │ HEADLESS / BATCH MODE                              │
-├───────────────────────────────────┼────────────────────────────────────────────────────┤
-│ • Used during interactive chat    │ • Used in automated CI, scripts, or batch agents   │
-│ • Detects ambiguities in docs     │ • Emits formal spec with known rules               │
-│ • Presents multiple-choice prompts│ • Logs unresolved ambiguities as structured issues │
-│ • User selects preferred behavior │ • Writes questions to `CONTEXT.md` open items      │
-└───────────────────────────────────┴────────────────────────────────────────────────────┘
+│                               OPERATIONAL MODES ROUTER                                 │
+├──────────────────────┬───────────────────────────────┬─────────────────────────────────┤
+│ Mode                 │ Input Context                 │ Primary Output Target           │
+├──────────────────────┼───────────────────────────────┼─────────────────────────────────┤
+│ 1. `clean-room`      │ Docs, ADRs, PRDs ONLY         │ `docs/specs/invariants-*.md`    │
+│    (Greenfield)      │ (Strict Zero-Code Isolation)  │                                 │
+├──────────────────────┼───────────────────────────────┼─────────────────────────────────┤
+│ 2. `brownfield-mining`│ Smart contracts + partial docs│ `docs/specs/invariants-*.md`    │
+│    (Reverse Engine)  │ (Two-Pass Socratic Sifting)   │ `docs/qa/spec-reconciliation-*.md`│
+├──────────────────────┼───────────────────────────────┼─────────────────────────────────┤
+│ 3. `reconciliation`  │ Existing spec + updated code  │ `docs/specs/invariants-*.md`    │
+│    (Sync & Drift)    │ (3-Way Spec-Code Diff Matrix) │ `docs/qa/spec-reconciliation-*.md`│
+└──────────────────────┴───────────────────────────────┴─────────────────────────────────┘
 ```
 
 ---
 
-## Step-by-Step Execution Workflow
+## Fast Mode Selection Matrix
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                        SPECIFICATION EXTRACTION LIFECYCLE                              │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │
-    ┌───────────────────────┬───────────────┴───────────────┬────────────────────────┐
-    ▼                       ▼                               ▼                        ▼
-┌──────────────────┐   ┌────────────────────────┐   ┌─────────────────┐   ┌──────────────────┐
-│ Step 1:          │   │ Step 2:                │   │ Step 3:         │   │ Step 4:          │
-│ Ingest Specs     │──►│ Gap & Ambiguity        │──►│ User-Friendly   │──►│ Emit Canonical   │
-│ (Zero-Code)      │   │ Identification         │   │ Interview       │   │ Invariant Spec   │
-└──────────────────┘   └────────────────────────┘   └─────────────────┘   └──────────────────┘
-```
+When triggered, select or prompt for the operational mode based on user intent:
 
-### Step 1: Ingest Documentation (Zero-Code Black-Box Rule)
+| User Request / Trigger Context                                                                    |          Selected Mode          | Execution Playbook                                                                                                                                                     |
+| :------------------------------------------------------------------------------------------------ | :-----------------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Specify new feature from PRD/ADR", "Clean-room spec extraction", "Before code is written"        |    **Mode 1: `clean-room`**     | [clean-room-extraction-guide.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/clean-room-extraction-guide.md)       |
+| "Extract spec from existing code", "Mature project reverse-engineering", "Mine invariants"        | **Mode 2: `brownfield-mining`** | [code-to-spec-mining-guide.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/code-to-spec-mining-guide.md)           |
+| "Check spec against code", "Audit spec drift", "Update spec after code changes", "Reconcile spec" |  **Mode 3: `reconciliation`**   | [spec-code-reconciliation-guide.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/spec-code-reconciliation-guide.md) |
 
-- **Ingest ONLY:** `README.md`, `CONTEXT.md`, `docs/adr/*.md`, `docs/agents/domain.md`, PRDs, math specifications, and interface definitions (IDL / type definitions only).
-- **STRICT RULE:** Do **NOT** read `anchor/programs/**` or `app/**` implementation logic. The specification must describe _what should happen_, not _what the current code happens to do_.
-
-### Step 2: Identify Invariants, State Transitions, and Ambiguities
-
-Scan the documentation and formulate:
-
-1. **Global Conservation Laws:** System-wide equations that must hold across all transactions (e.g., Solvency: $\text{VaultBalance} \ge \sum \text{Principal} + \text{UnclaimedPrizes}$).
-2. **State Transition Rules:** Preconditions, actions, and postconditions for every lifecycle state (`Draft` $\rightarrow$ `Active` $\rightarrow$ `Frozen` $\rightarrow$ `Harvested` $\rightarrow$ `Completed`).
-3. **Negative Boundary Conditions:** What must fail when inputs are out of range, callers are unauthorized, or time windows expire.
-4. **Ambiguity Gaps:** Underspecified requirements (e.g. integer rounding direction, crank timeout fallback, dust balance handling).
-
-### Step 3: Interactive Clarification Interview
-
-For every identified ambiguity or gap:
-
-- Use the **Multiple-Choice Interview Framework** (see [interview-questionnaire-framework.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/interview-questionnaire-framework.md)).
-- Always provide:
-  - Concise problem context.
-  - 2–4 clear options formatted as direct user choices.
-  - Prefix the safest/standard pattern with `(Recommended)`.
-  - Concise trade-off explanation for each option.
-
-_Example Prompt Format:_
-
-> **Question:** In the yield harvesting instruction, if gross harvested yield calculation produces an odd atomic unit with a 5% fee (e.g. 15 atomic units), how should integer division truncation be handled?
->
-> 1. `(Recommended) Round down user prize payout and round up protocol fee` — Guarantees protocol solvency and prevents vault dust undercollateralization.
-> 2. `Standard integer truncation (round down both)` — Leaves 1 atomic unit of unclaimed dust in the vault.
-> 3. `Round down protocol fee and credit remainder to prize pool` — Favors participants over treasury.
-
-### Step 4: Emit Canonical Invariant Specification
-
-Write the final structured specification to `docs/specs/invariants-<feature>.md` using the canonical Invariant Record schema.
+> [!IMPORTANT]
+> If mode is not explicitly specified and intent is ambiguous, prompt the user with a multiple-choice question to pick between Mode 1 (Clean-Room), Mode 2 (Brownfield Mining), or Mode 3 (Reconciliation). Never blindly auto-select without confirming intent.
 
 ---
 
-## Canonical Invariant Schema
+## Socratic Adversarial Sifting & Anomaly Detection
 
-Every extracted invariant must conform to the 8-tuple Invariant Record:
+In Modes 2 and 3, `solana-formal-spec` runs the **Two-Pass Socratic Sifter** to inspect code without adopting bugs:
 
-```typescript
-interface InvariantRecord {
-  id: string; // Unique ID: INV-<DOMAIN>-<NUMBER> (e.g. INV-POOL-001)
-  domain: string; // Subsystem / Module (e.g. "Yield Draw / Commitment")
-  vectorTag: VectorCategory; // 'Boundary' | 'Lifecycle' | 'Access' | 'Math' | 'Realloc' | 'Time' | 'CPI'
-  precondition: string; // System state required prior to invocation
-  action: string; // Instruction or operation invoked
-  postcondition: string; // Observable state mutation upon success
-  conservationLaw?: string; // Algebraic invariant that must remain balanced
-  metamorphicRelation?: string; // Relational property across multiple inputs/runs
-  expectedErrors: string[]; // Specific custom error codes for negative boundary inputs
-}
-```
+1. **Pass 1 (Intent & Conservation Extraction):** Extracts global solvency conservation laws and FSMs from docs and account structs _before_ reading handler bodies.
+2. **Pass 2 (Adversarial Code Conformance):** Audits instruction handlers against the [adversarial-anomaly-heuristics.md](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/adversarial-anomaly-heuristics.md) 7-Vector taxonomy:
+   - **`CRITICAL` Anomalies** (solvency deficits, access bypasses, deadlocks): Triggers an immediate blocking multiple-choice prompt.
+   - **`WARN` Anomalies** (zero-amount accepts, stale oracle windows): Batched into a summary questionnaire.
+   - **`CODE_QUIRK`**: Silently annotated in the reconciliation report.
 
 ---
 
 ## Downstream Skill Integration
 
 - **`solana-test-auditor`**: Consumes `docs/specs/invariants-*.md` to build the Clean-Room Traceability Matrix, flag missing test coverage, and generate LiteSVM test stubs.
-- **`solana-test-smells`**: Audits test code quality to ensure test assertions verify the postconditions and conservation laws specified here, rather than internal implementation scratchpads.
-- **`solana-mutation-testing`**: Uses the invariant boundaries to evaluate whether surviving mutants violate core domain rules.
+- **`solana-mutation-testing`**: Uses formal invariant boundaries to evaluate whether surviving mutants violate core protocol rules.
+- **`solana-adversarial-review`**: Targets flagged anomalies in `docs/qa/spec-reconciliation-*.md` to synthesize empirical LiteSVM exploit PoCs.
 
 ---
 
 ## Progressive Disclosure References
 
-- [Canonical Invariant Record Schema & Catalog Template](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/invariant-record-schema.md): Complete schema definitions, markdown catalog template, and sample Solana invariants.
-- [Interactive Interview Questionnaire Framework](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/interview-questionnaire-framework.md): Pre-built decision questionnaires for Solana/DeFi edge cases (rounding, time windows, fee structures, circuit breakers).
+- [Discriminated Union Invariant Schema & Catalog Template](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/invariant-record-schema.md): Complete schema types (`GlobalConservationInvariant`, `InstructionTransitionInvariant`, `MetamorphicRelationInvariant`) and markdown template.
+- [Clean-Room Extraction Guide (Mode 1)](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/clean-room-extraction-guide.md): Phase 1 zero-code isolation protocol for greenfield specifications.
+- [Brownfield Code-to-Spec Mining Guide (Mode 2)](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/code-to-spec-mining-guide.md): Two-Pass reverse-engineering playbook for existing smart contract codebases.
+- [Spec-Code Reconciliation & Drift Guide (Mode 3)](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/spec-code-reconciliation-guide.md): 3-Way spec-code drift detection, coverage matrix, and QA reporting.
+- [Adversarial Anomaly Heuristics Taxonomy](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/adversarial-anomaly-heuristics.md): 7-vector code smells and 3-tier severity classification.
+- [Interactive Interview Questionnaire Framework](file:///home/sebastian/vsc-workspace/premium-bonds/.agents/skills/solana-formal-spec/references/interview-questionnaire-framework.md): Pre-built decision questionnaires for domain edge cases and code anomaly resolution.

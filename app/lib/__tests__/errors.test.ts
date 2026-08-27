@@ -1,3 +1,5 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
 import {
   parseTransactionError,
   matchAnchorError,
@@ -8,64 +10,28 @@ import {
   SPL_TOKEN_ERRORS,
 } from "../errors";
 
-function assert(condition: boolean, message: string) {
-  if (!condition) {
-    throw new Error(`Assertion failed: ${message}`);
-  }
-}
-
-function runTests() {
-  console.log("Running app/lib/__tests__/errors.test.ts unit tests...\n");
-
-  // Test 1: Anchor Framework Error 0xbbd (3005 AccountNotEnoughKeys)
-  {
-    console.log("Test 1: Framework Error 0xbbd parsing");
+describe("Transaction Error Parser & Sanitization Suite", () => {
+  it("should parse Anchor framework error 0xbbd (3005 AccountNotEnoughKeys)", () => {
     const rawErr = new Error(
       "Aug 06 15:35:59.835 ERROR Transaction simulation failed: Error processing Instruction 1: custom program error: 0xbbd"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(
-      parsed.layer === "anchor",
-      `Expected layer anchor, got ${parsed.layer}`
-    );
-    assert(
-      parsed.category === "anchor_constraint",
-      `Expected category anchor_constraint, got ${parsed.category}`
-    );
-    assert(parsed.code === 3005, `Expected code 3005, got ${parsed.code}`);
-    assert(
-      parsed.title === "Constraint Error: AccountNotEnoughKeys",
-      `Expected title Constraint Error: AccountNotEnoughKeys, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 1\n");
-  }
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_constraint");
+    assert.strictEqual(parsed.code, 3005);
+    assert.strictEqual(parsed.title, "Constraint Error: AccountNotEnoughKeys");
+  });
 
-  // Test 2: Anchor Custom Error 6000 (PoolNotActive)
-  {
-    console.log("Test 2: Custom Error 6000 parsing");
+  it("should parse Anchor custom error 6000 (PoolNotActive)", () => {
     const rawErr = new Error("Simulation failed: custom program error: 0x1770");
     const parsed = parseTransactionError(rawErr);
-    assert(
-      parsed.layer === "anchor",
-      `Expected layer anchor, got ${parsed.layer}`
-    );
-    assert(
-      parsed.category === "anchor_custom",
-      `Expected category anchor_custom, got ${parsed.category}`
-    );
-    assert(parsed.code === 6000, `Expected code 6000, got ${parsed.code}`);
-    assert(
-      parsed.title === "Program Error: PoolNotActive",
-      `Expected title Program Error: PoolNotActive, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 2\n");
-  }
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6000);
+    assert.strictEqual(parsed.title, "Program Error: PoolNotActive");
+  });
 
-  // Test 3: @solana/kit wrapped TransactionPlanError with embedded 0xbbd
-  {
-    console.log(
-      "Test 3: @solana/kit wrapped TransactionPlanError containing 0xbbd"
-    );
+  it("should parse @solana/kit wrapped TransactionPlanError containing 0xbbd", () => {
     const kitErr = {
       message:
         "The provided transaction plan failed to execute. See the transactionPlanResult attribute for more details.",
@@ -84,91 +50,49 @@ function runTests() {
     };
 
     const parsed = parseTransactionError(kitErr);
-    assert(
-      parsed.layer === "anchor",
-      `Expected layer anchor, got ${parsed.layer}`
-    );
-    assert(
-      parsed.category === "anchor_constraint",
-      `Expected category anchor_constraint, got ${parsed.category}`
-    );
-    assert(parsed.code === 3005, `Expected code 3005, got ${parsed.code}`);
-    assert(
-      parsed.title === "Constraint Error: AccountNotEnoughKeys",
-      `Expected title Constraint Error: AccountNotEnoughKeys, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 3\n");
-  }
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_constraint");
+    assert.strictEqual(parsed.code, 3005);
+    assert.strictEqual(parsed.title, "Constraint Error: AccountNotEnoughKeys");
+  });
 
-  // Test 4: True Blockhash Expiration Error
-  {
-    console.log("Test 4: True Blockhash Expiration Error");
+  it("should parse true blockhash expiration error", () => {
     const expErr = new Error(
       "Transaction failed: BlockheightExceeded. Blockhash expired."
     );
     const parsed = parseTransactionError(expErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "blockhash_expired",
-      `Expected category blockhash_expired, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Request Timed Out",
-      `Expected title Request Timed Out, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 4\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+  });
 
-  // Test 5: Wallet User Cancellation (4001)
-  {
-    console.log("Test 5: Wallet Cancellation 4001");
+  it("should parse wallet user cancellation 4001", () => {
     const walletErr = { code: 4001, message: "User rejected the request." };
     const parsed = parseTransactionError(walletErr);
-    assert(parsed.isCancellation === true, "Should be cancellation");
-    assert(parsed.code === 4001, `Expected code 4001, got ${parsed.code}`);
-    assert(
-      parsed.title === "Transaction Cancelled",
-      `Expected title Transaction Cancelled, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 5\n");
-  }
+    assert.strictEqual(parsed.isCancellation, true);
+    assert.strictEqual(parsed.code, 4001);
+    assert.strictEqual(parsed.title, "Transaction Cancelled");
+  });
 
-  // Test 6: Direct object code inspection in matchAnchorError
-  {
-    console.log("Test 6: Direct object code inspection in matchAnchorError");
+  it("should support direct object code inspection in matchAnchorError", () => {
     const errWithCode = { context: { code: 3013 } };
     const matched = matchAnchorError(errWithCode);
-    assert(matched !== null, "Should match code 3013");
-    assert(matched?.code === 3013, `Expected code 3013, got ${matched?.code}`);
-    assert(
-      matched?.info.name === "AccountNotProgramData",
-      `Expected name AccountNotProgramData, got ${matched?.info.name}`
-    );
-    console.log("✓ Passed Test 6\n");
-  }
+    assert.ok(matched !== null, "Should match code 3013");
+    assert.strictEqual(matched?.code, 3013);
+    assert.strictEqual(matched?.info.name, "AccountNotProgramData");
+  });
 
-  // Test 7: Uppercase prefix blockhash expiration (ERROR Transaction simulation failed: Blockhash not found)
-  {
-    console.log("Test 7: Uppercase prefix blockhash expiration parsing");
+  it("should parse uppercase prefix blockhash expiration error", () => {
     const rawErr = new Error(
       "ERROR Transaction simulation failed: Blockhash not found"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "blockhash_expired",
-      `Expected category blockhash_expired, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Request Timed Out",
-      `Expected title Request Timed Out, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 7\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+  });
 
-  // Test 8: @solana/kit object-wrapped error containing Blockhash not found
-  {
-    console.log("Test 8: @solana/kit object-wrapped Blockhash not found error");
+  it("should parse @solana/kit object-wrapped blockhash not found error", () => {
     const kitObjErr = {
       message: "The provided transaction plan failed to execute.",
       transactionPlanResult: {
@@ -178,368 +102,193 @@ function runTests() {
       },
     };
     const parsed = parseTransactionError(kitObjErr);
-    assert(
-      parsed.category === "blockhash_expired",
-      `Expected category blockhash_expired, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Request Timed Out",
-      `Expected title Request Timed Out, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 8\n");
-  }
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+  });
 
-  // Test 9: American spelling cancellation (canceled)
-  {
-    console.log("Test 9: American spelling cancellation parsing (canceled)");
+  it("should parse American spelling cancellation (canceled)", () => {
     const cancelErr = { message: "User canceled the request in Phantom." };
     const parsed = parseTransactionError(cancelErr);
-    assert(parsed.isCancellation === true, "Should be marked cancellation");
-    assert(
-      parsed.category === "wallet_cancellation",
-      `Expected wallet_cancellation, got ${parsed.category}`
-    );
-    console.log("✓ Passed Test 9\n");
-  }
+    assert.strictEqual(parsed.isCancellation, true);
+    assert.strictEqual(parsed.category, "wallet_cancellation");
+  });
 
-  // Test 10: Confirmation timeout error string
-  {
-    console.log("Test 10: Confirmation timeout parsing");
+  it("should parse confirmation timeout error string", () => {
     const timeoutErr = new Error(
       "Transaction was not confirmed in 60.00 seconds. Check your RPC."
     );
     const parsed = parseTransactionError(timeoutErr);
-    assert(
-      parsed.category === "blockhash_expired",
-      `Expected category blockhash_expired, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Request Timed Out",
-      `Expected title Request Timed Out, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 10\n");
-  }
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+  });
 
-  // Test 11: Generic error message wrapper with nested blockhash expiration cause
-  {
-    console.log(
-      "Test 11: Generic wrapper with nested cause containing Blockhash not found"
-    );
+  it("should parse generic wrapper with nested cause containing blockhash expiration", () => {
     const nestedErr = new Error("Transaction execution failed", {
       cause: new Error("Transaction simulation failed: Blockhash not found"),
     });
     const parsed = parseTransactionError(nestedErr);
-    assert(
-      parsed.category === "blockhash_expired",
-      `Expected category blockhash_expired, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Request Timed Out",
-      `Expected title Request Timed Out, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 11\n");
-  }
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+  });
 
-  // Test 12: Duplicate transaction error string
-  {
-    console.log("Test 12: Duplicate transaction error string parsing");
+  it("should parse duplicate transaction error string", () => {
     const dupErr = new Error(
       'Transaction verification failed for transaction Internal error: "Transaction error: This transaction has already been processed"'
     );
     const parsed = parseTransactionError(dupErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "duplicate_transaction",
-      `Expected category duplicate_transaction, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Transaction Already Processed",
-      `Expected title Transaction Already Processed, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 12\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "duplicate_transaction");
+    assert.strictEqual(parsed.title, "Transaction Already Processed");
+  });
 
-  // Test 13: @solana/errors uncaught TypeError on -32002 without data
-  {
-    console.log("Test 13: @solana/errors destructuring TypeError parsing");
+  it("should parse @solana/errors destructuring TypeError (-32002 without data)", () => {
     const typeErr = new TypeError(
       "Cannot destructure property 'err' of 'data' as it is undefined."
     );
     const parsed = parseTransactionError(typeErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "duplicate_transaction",
-      `Expected category duplicate_transaction, got ${parsed.category}`
-    );
-    assert(
-      parsed.title === "Transaction Already Processed",
-      `Expected title Transaction Already Processed, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 13\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "duplicate_transaction");
+    assert.strictEqual(parsed.title, "Transaction Already Processed");
+  });
 
-  // Test 14: isParsedTransactionError type guard
-  {
-    console.log("Test 14: isParsedTransactionError type guard");
+  it("should correctly identify parsed transaction errors with isParsedTransactionError", () => {
     const rawParsed = parseTransactionError(
       new Error("custom program error: 0x1770")
     );
-    assert(
-      isParsedTransactionError(rawParsed) === true,
-      "Should recognize parsed transaction error"
-    );
-    assert(
-      isParsedTransactionError(null) === false,
-      "null is not parsed error"
-    );
-    assert(
-      isParsedTransactionError({}) === false,
-      "empty object is not parsed error"
-    );
-    assert(
-      isParsedTransactionError(new Error("fail")) === false,
-      "Error instance is not parsed error"
-    );
-    console.log("✓ Passed Test 14\n");
-  }
+    assert.strictEqual(isParsedTransactionError(rawParsed), true);
+    assert.strictEqual(isParsedTransactionError(null), false);
+    assert.strictEqual(isParsedTransactionError({}), false);
+    assert.strictEqual(isParsedTransactionError(new Error("fail")), false);
+  });
 
-  // Test 15: TransactionError class creation and inheritance
-  {
-    console.log("Test 15: TransactionError class instantiation and prototype");
+  it("should instantiate TransactionError class preserving prototype, payload, and cause", () => {
     const parsed = parseTransactionError(
       new Error("custom program error: 0x1770")
     );
     const rawCause = new Error("Underlying RPC failure");
     const txErr = new TransactionError(parsed, rawCause);
 
-    assert(txErr instanceof Error, "TransactionError must be instanceof Error");
-    assert(
-      txErr instanceof TransactionError,
-      "TransactionError must be instanceof TransactionError"
-    );
-    assert(
-      txErr.name === "TransactionError",
-      `Expected name TransactionError, got ${txErr.name}`
-    );
-    assert(
-      txErr.message === parsed.message,
-      `Expected message ${parsed.message}, got ${txErr.message}`
-    );
-    assert(
-      txErr.parsed === parsed,
-      "TransactionError must expose parsed payload"
-    );
-    assert(txErr.cause === rawCause, "TransactionError must preserve cause");
-    console.log("✓ Passed Test 15\n");
-  }
+    assert.ok(txErr instanceof Error);
+    assert.ok(txErr instanceof TransactionError);
+    assert.strictEqual(txErr.name, "TransactionError");
+    assert.strictEqual(txErr.message, parsed.message);
+    assert.strictEqual(txErr.parsed, parsed);
+    assert.strictEqual(txErr.cause, rawCause);
+  });
 
-  // Test 16: parseTransactionError idempotency with TransactionError and ParsedTransactionError
-  {
-    console.log("Test 16: parseTransactionError idempotency");
+  it("should maintain strict parseTransactionError idempotency", () => {
     const initialParsed = parseTransactionError(
       new Error("custom program error: 0x1770")
     );
     const reParsed = parseTransactionError(initialParsed);
-    assert(
-      reParsed === initialParsed,
+    assert.strictEqual(
+      reParsed,
+      initialParsed,
       "Re-parsing ParsedTransactionError must be strictly idempotent"
     );
 
     const txErr = new TransactionError(initialParsed);
     const parsedFromTxErr = parseTransactionError(txErr);
-    assert(
-      parsedFromTxErr === initialParsed,
+    assert.strictEqual(
+      parsedFromTxErr,
+      initialParsed,
       "Parsing TransactionError must cleanly unwrap .parsed"
     );
-    console.log("✓ Passed Test 16\n");
-  }
+  });
 
-  // Test 17: System Program Insufficient Funds (0x1)
-  {
-    console.log("Test 17: System Program Insufficient Funds (0x1)");
+  it("should parse System Program insufficient funds (0x1)", () => {
     const rawErr = new Error(
       "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(
-      parsed.layer === "system",
-      `Expected layer system, got ${parsed.layer}`
-    );
-    assert(
-      parsed.category === "insufficient_sol",
-      `Expected category insufficient_sol, got ${parsed.category}`
-    );
-    assert(parsed.code === "0x1", `Expected code 0x1, got ${parsed.code}`);
-    assert(
-      parsed.title === "Insufficient SOL",
-      `Expected title Insufficient SOL, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 17\n");
-  }
+    assert.strictEqual(parsed.layer, "system");
+    assert.strictEqual(parsed.category, "insufficient_sol");
+    assert.strictEqual(parsed.code, "0x1");
+    assert.strictEqual(parsed.title, "Insufficient SOL");
+  });
 
-  // Test 18: SPL Token Insufficient Funds (0x3)
-  {
-    console.log("Test 18: SPL Token Insufficient Funds (0x3)");
+  it("should parse SPL Token insufficient funds (0x3)", () => {
     const rawErr = new Error(
       "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x3"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "spl", `Expected layer spl, got ${parsed.layer}`);
-    assert(
-      parsed.category === "insufficient_tokens",
-      `Expected category insufficient_tokens, got ${parsed.category}`
-    );
-    assert(parsed.code === 3, `Expected code 3, got ${parsed.code}`);
-    assert(
-      parsed.title === "Token Error: InsufficientFunds",
-      `Expected title Token Error: InsufficientFunds, got ${parsed.title}`
-    );
-    assert(
-      parsed.message === SPL_TOKEN_ERRORS[3].message,
-      `Expected message from SPL_TOKEN_ERRORS, got ${parsed.message}`
-    );
-    console.log("✓ Passed Test 18\n");
-  }
+    assert.strictEqual(parsed.layer, "spl");
+    assert.strictEqual(parsed.category, "insufficient_tokens");
+    assert.strictEqual(parsed.code, 3);
+    assert.strictEqual(parsed.title, "Token Error: InsufficientFunds");
+    assert.strictEqual(parsed.message, SPL_TOKEN_ERRORS[3].message);
+  });
 
-  // Test 19: SPL Token Mint Mismatch (0x4)
-  {
-    console.log("Test 19: SPL Token Mint Mismatch (0x4)");
+  it("should parse SPL Token mint mismatch (0x4)", () => {
     const rawErr = new Error(
       "Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x4"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "spl", `Expected layer spl, got ${parsed.layer}`);
-    assert(parsed.code === 4, `Expected code 4, got ${parsed.code}`);
-    assert(
-      parsed.title === "Token Error: MintMismatch",
-      `Expected title Token Error: MintMismatch, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 19\n");
-  }
+    assert.strictEqual(parsed.layer, "spl");
+    assert.strictEqual(parsed.code, 4);
+    assert.strictEqual(parsed.title, "Token Error: MintMismatch");
+  });
 
-  // Test 20: RPC Rate Limit 429
-  {
-    console.log("Test 20: RPC Rate Limit 429");
+  it("should parse RPC rate limit 429", () => {
     const rawErr = new Error(
       "429 Too Many Requests: rate limit exceeded on RPC cluster"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "network_rpc",
-      `Expected category network_rpc, got ${parsed.category}`
-    );
-    assert(parsed.code === "429", `Expected code 429, got ${parsed.code}`);
-    assert(
-      parsed.title === "Network Busy",
-      `Expected title Network Busy, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 20\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "network_rpc");
+    assert.strictEqual(parsed.code, "429");
+    assert.strictEqual(parsed.title, "Network Busy");
+  });
 
-  // Test 21: Network FETCH_FAILED
-  {
-    console.log("Test 21: Network FETCH_FAILED");
+  it("should parse network FETCH_FAILED error", () => {
     const rawErr = new Error("TypeError: Failed to fetch");
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "network_rpc",
-      `Expected category network_rpc, got ${parsed.category}`
-    );
-    assert(
-      parsed.code === "FETCH_FAILED",
-      `Expected code FETCH_FAILED, got ${parsed.code}`
-    );
-    assert(
-      parsed.title === "Connection Error",
-      `Expected title Connection Error, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 21\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "network_rpc");
+    assert.strictEqual(parsed.code, "FETCH_FAILED");
+    assert.strictEqual(parsed.title, "Connection Error");
+  });
 
-  // Test 22: Compute Unit (CU) Budget Exhaustion
-  {
-    console.log("Test 22: Compute Unit Budget Exhaustion");
+  it("should parse Compute Unit budget exhaustion", () => {
     const rawErr = new Error(
       "Program failed to complete: exceeded maximum number of instructions allowed"
     );
     const parsed = parseTransactionError(rawErr);
-    assert(parsed.layer === "rpc", `Expected layer rpc, got ${parsed.layer}`);
-    assert(
-      parsed.category === "network_rpc",
-      `Expected category network_rpc, got ${parsed.category}`
-    );
-    assert(
-      parsed.code === "COMPUTE_BUDGET_EXCEEDED",
-      `Expected code COMPUTE_BUDGET_EXCEEDED, got ${parsed.code}`
-    );
-    assert(
-      parsed.title === "Compute Budget Exceeded",
-      `Expected title Compute Budget Exceeded, got ${parsed.title}`
-    );
-    console.log("✓ Passed Test 22\n");
-  }
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "network_rpc");
+    assert.strictEqual(parsed.code, "COMPUTE_BUDGET_EXCEEDED");
+    assert.strictEqual(parsed.title, "Compute Budget Exceeded");
+  });
 
-  // Test 23: sanitizeErrorMessage URL scrubbing & ANSI color codes
-  {
-    console.log("Test 23: sanitizeErrorMessage URL scrubbing & ANSI cleaning");
+  it("should scrub URLs and strip ANSI escape sequences in sanitizeErrorMessage", () => {
     const technicalRaw =
       "\u001b[31mError\u001b[0m: Connection refused to https://api.devnet.solana.com/rpc/v1 at line 42:10";
     const sanitized = sanitizeErrorMessage(technicalRaw);
-    assert(
-      !sanitized.includes("https://api.devnet.solana.com"),
-      "Should redact raw RPC endpoint URL"
+    assert.strictEqual(
+      sanitized.includes("https://api.devnet.solana.com"),
+      false
     );
-    assert(
-      sanitized.includes("[RPC Endpoint]"),
-      "Should replace URL with [RPC Endpoint]"
-    );
-    assert(
-      !sanitized.includes("\u001b[31m"),
-      "Should strip ANSI escape sequences"
-    );
-    console.log("✓ Passed Test 23\n");
-  }
+    assert.strictEqual(sanitized.includes("[RPC Endpoint]"), true);
+    assert.strictEqual(sanitized.includes("\u001b[31m"), false);
+  });
 
-  // Test 24: getErrorCategoryTheme theme mapping validation
-  {
-    console.log("Test 24: getErrorCategoryTheme theme mapping validation");
+  it("should validate getErrorCategoryTheme category theme mappings", () => {
     const timeoutTheme = getErrorCategoryTheme("blockhash_expired");
-    assert(timeoutTheme.icon === "⏱️", `Expected ⏱️, got ${timeoutTheme.icon}`);
-    assert(
-      timeoutTheme.titleColor === "text-sky-300",
-      `Expected text-sky-300, got ${timeoutTheme.titleColor}`
-    );
+    assert.strictEqual(timeoutTheme.icon, "⏱️");
+    assert.strictEqual(timeoutTheme.titleColor, "text-sky-300");
 
     const fundsTheme = getErrorCategoryTheme("insufficient_sol");
-    assert(fundsTheme.icon === "⛽", `Expected ⛽, got ${fundsTheme.icon}`);
-    assert(
-      fundsTheme.titleColor === "text-amber-300",
-      `Expected text-amber-300, got ${fundsTheme.titleColor}`
-    );
+    assert.strictEqual(fundsTheme.icon, "⛽");
+    assert.strictEqual(fundsTheme.titleColor, "text-amber-300");
 
     const contractTheme = getErrorCategoryTheme("anchor_custom");
-    assert(
-      contractTheme.icon === "⚠️",
-      `Expected ⚠️, got ${contractTheme.icon}`
-    );
-    assert(
-      contractTheme.titleColor === "text-red-400",
-      `Expected text-red-400, got ${contractTheme.titleColor}`
-    );
+    assert.strictEqual(contractTheme.icon, "⚠️");
+    assert.strictEqual(contractTheme.titleColor, "text-red-400");
 
     const cancelTheme = getErrorCategoryTheme("wallet_cancellation");
-    assert(cancelTheme.icon === "✕", `Expected ✕, got ${cancelTheme.icon}`);
+    assert.strictEqual(cancelTheme.icon, "✕");
 
     const defaultTheme = getErrorCategoryTheme("unknown");
-    assert(defaultTheme.icon === "⚠️", `Expected ⚠️, got ${defaultTheme.icon}`);
-    console.log("✓ Passed Test 24\n");
-  }
-
-  console.log(
-    "All app/lib/__tests__/errors.test.ts tests completed successfully!"
-  );
-}
-
-runTests();
+    assert.strictEqual(defaultTheme.icon, "⚠️");
+  });
+});

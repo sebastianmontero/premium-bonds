@@ -17,6 +17,7 @@
 //! | `reinvest_winnings`           | ✅ Allowed    | ❌ Blocked   | ✅ Allowed   |
 
 use {
+    anchor::error::PremiumBondsError,
     anchor_lang::prelude::Pubkey,
     anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
@@ -160,9 +161,7 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolPaused"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -263,9 +262,7 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolPaused"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -348,9 +345,7 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolPaused"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -433,9 +428,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolNotActive"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
     inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, true);
@@ -458,9 +451,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
     let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
     let res2 = svm.send_transaction(tx2);
-    assert!(res2.is_err());
-    let err_str2 = format!("{:?}", res2.unwrap_err());
-    assert!(err_str2.contains("PoolNotActive"), "got: {err_str2}");
+    assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -536,9 +527,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolNotActive"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
     inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, true);
@@ -571,9 +560,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
     let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
     let res2 = svm.send_transaction(tx2);
-    assert!(res2.is_err());
-    let err_str2 = format!("{:?}", res2.unwrap_err());
-    assert!(err_str2.contains("PoolNotActive"), "got: {err_str2}");
+    assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -657,9 +644,7 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolPaused"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::PoolPaused);
 
     // 2. Active -> Allowed
     inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);

@@ -4,6 +4,7 @@ use anchor_lang::{
 use litesvm::LiteSVM;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
+    program_pack::Pack,
     pubkey::Pubkey,
 };
 use solana_sdk::{
@@ -211,10 +212,16 @@ pub fn inject_mint(svm: &mut LiteSVM, address: Pubkey, decimals: u8) {
 }
 
 pub fn inject_mint_with_supply(svm: &mut LiteSVM, address: Pubkey, decimals: u8, supply: u64) {
-    let mut data = vec![0u8; 82];
-    data[36..44].copy_from_slice(&supply.to_le_bytes());
-    data[44] = decimals;
-    data[45] = 1;
+    let mint_state = anchor_spl::token::spl_token::state::Mint {
+        mint_authority: solana_program::program_option::COption::None,
+        supply,
+        decimals,
+        is_initialized: true,
+        freeze_authority: solana_program::program_option::COption::None,
+    };
+    let mut data = vec![0u8; anchor_spl::token::spl_token::state::Mint::get_packed_len()];
+    Pack::pack_into_slice(&mint_state, &mut data);
+
     svm.set_account(
         address,
         Account {
@@ -235,11 +242,19 @@ pub fn inject_token_account(
     owner: Pubkey,
     amount: u64,
 ) {
-    let mut data = vec![0u8; 165];
-    data[0..32].copy_from_slice(&mint.to_bytes());
-    data[32..64].copy_from_slice(&owner.to_bytes());
-    data[64..72].copy_from_slice(&amount.to_le_bytes());
-    data[108] = 1;
+    let token_state = anchor_spl::token::spl_token::state::Account {
+        mint,
+        owner,
+        amount,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    let mut data = vec![0u8; anchor_spl::token::spl_token::state::Account::get_packed_len()];
+    Pack::pack_into_slice(&token_state, &mut data);
+
     svm.set_account(
         address,
         Account {
@@ -397,6 +412,22 @@ pub fn inject_huma_pool_state_with_assets(
     .unwrap();
 }
 
+pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![],
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
 pub fn inject_payout_registry(
     svm: &mut LiteSVM,
     pool_id: u32,
@@ -451,10 +482,85 @@ pub fn inject_payout_registry(
     pda
 }
 
+pub fn inject_lender_state(svm: &mut LiteSVM, address: Pubkey, amount: u64) {
+    let mut data = vec![0u8; 16];
+    data[8..16].copy_from_slice(&amount.to_le_bytes());
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: huma_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+pub fn inject_pending_redemption(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    redemption_id: u64,
+    user: Pubkey,
+    amount: u64,
+    pst_shares_locked: u64,
+) -> Pubkey {
+    let (pda, bump) = pending_redemption_pda(pool_id, redemption_id);
+    let pending = anchor::state::PendingRedemption {
+        pool_id,
+        redemption_id,
+        user,
+        amount,
+        pst_shares_locked,
+        requested_at: 0,
+        huma_request_id: 0,
+        bump,
+        version: 1,
+        redemption_type: anchor::state::RedemptionType::BondSale,
+        _reserved: [0; 64],
+    };
+    let mut data = vec![];
+    pending.try_serialize(&mut data).unwrap();
+    data.resize(8 + anchor::state::PendingRedemption::INIT_SPACE, 0);
+    svm.set_account(
+        pda,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    pda
+}
+
 pub fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
     let acc = svm.get_account(&pda).expect("payout registry account exists");
     *bytemuck::from_bytes::<anchor::PayoutRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+}
+
+pub fn read_pending_redemption(
+    svm: &LiteSVM,
+    pool_id: u32,
+    redemption_id: u64,
+) -> anchor::PendingRedemption {
+    use anchor_lang::AccountDeserialize;
+    let (pda, _) = pending_redemption_pda(pool_id, redemption_id);
+    let acct = svm
+        .get_account(&pda)
+        .expect("pending_redemption account should exist");
+    anchor::PendingRedemption::try_deserialize(&mut &acct.data[..]).unwrap()
+}
+
+pub fn extract_instruction_error(err: &litesvm::types::FailedTransactionMetadata) -> Option<&solana_program::instruction::InstructionError> {
+    match &err.err {
+        solana_sdk::transaction::TransactionError::InstructionError(_, ix_err) => Some(ix_err),
+        _ => None,
+    }
 }
 
 pub fn assert_custom_error(
@@ -462,18 +568,115 @@ pub fn assert_custom_error(
     expected_error: anchor::error::PremiumBondsError,
 ) {
     let err = res.expect_err("Expected transaction to fail, but it succeeded");
-    let err_str = format!("{err:?}");
-    let error_code_num = (expected_error as u32) + 6000;
+    let expected_code = (expected_error as u32) + anchor_lang::error::ERROR_CODE_OFFSET;
     let expected_name = format!("{:?}", expected_error);
+    let err_str = format!("{err:?}");
+
+    let matches_custom = match extract_instruction_error(&err) {
+        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
+        _ => false,
+    };
 
     assert!(
-        err_str.contains(&format!("Custom({error_code_num})"))
+        matches_custom
+            || err_str.contains(&format!("Custom({expected_code})"))
             || err_str.contains(&expected_name)
-            || err_str.contains(&error_code_num.to_string()),
-        "Expected error {:?} (code {}), got: {}",
+            || err_str.contains(&expected_code.to_string()),
+        "\n❌ Custom Error mismatch!\nExpected: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
         expected_error,
-        error_code_num,
-        err_str
+        expected_code,
+        err.err,
+        err.meta.logs
+    );
+}
+
+pub fn assert_anchor_error(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_error: anchor_lang::error::ErrorCode,
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let expected_code = expected_error as u32;
+    let expected_name = format!("{:?}", expected_error);
+    let err_str = format!("{err:?}");
+
+    let matches_custom = match extract_instruction_error(&err) {
+        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
+        _ => false,
+    };
+
+    assert!(
+        matches_custom
+            || err_str.contains(&format!("Custom({expected_code})"))
+            || err_str.contains(&expected_name)
+            || err_str.contains(&expected_code.to_string()),
+        "\n❌ Anchor Framework Error mismatch!\nExpected ErrorCode: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
+        expected_error,
+        expected_code,
+        err.err,
+        err.meta.logs
+    );
+}
+
+pub fn assert_token_error(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_error: anchor_spl::token::spl_token::error::TokenError,
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let expected_code = expected_error.clone() as u32;
+    let expected_name = format!("{:?}", expected_error);
+    let err_str = format!("{err:?}");
+
+    let matches_custom = match extract_instruction_error(&err) {
+        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
+        _ => false,
+    };
+
+    assert!(
+        matches_custom
+            || err_str.contains(&format!("Custom({expected_code})"))
+            || err_str.contains(&expected_name)
+            || err_str.contains(&expected_code.to_string()),
+        "\n❌ SPL Token Error mismatch!\nExpected TokenError: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
+        expected_error,
+        expected_code,
+        err.err,
+        err.meta.logs
+    );
+}
+
+pub fn assert_instruction_error(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_error: solana_program::instruction::InstructionError,
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+
+    let matches = match extract_instruction_error(&err) {
+        Some(actual) => *actual == expected_error,
+        _ => false,
+    };
+
+    assert!(
+        matches,
+        "\n❌ Native Instruction Error mismatch!\nExpected: {:?}\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
+        expected_error,
+        err.err,
+        err.meta.logs
+    );
+}
+
+pub fn assert_error_contains(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_substrings: &[&str],
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let err_str = format!("{err:?}");
+    let matched = expected_substrings.iter().any(|s| err_str.contains(s));
+    assert!(
+        matched,
+        "\n❌ Error substring mismatch!\nExpected one of: {:?}\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
+        expected_substrings,
+        err.err,
+        err.meta.logs
     );
 }
 
@@ -554,13 +757,15 @@ pub fn inject_registry_with_tickets(
     tickets: &[Pubkey],
 ) {
     let mut entries = Vec::new();
+    let mut cum = 0;
     for &owner in tickets {
+        cum += 1;
         entries.push(anchor::state::UserEntry {
             owner,
             active: 1,
             pending: 0,
             merged_through_cycle: 0,
-            cumulative_active: 0,
+            cumulative_active: cum,
             version: anchor::state::UserEntry::CURRENT_VERSION,
             _padding: [0; 3],
             _reserved: [0; 12],
@@ -572,13 +777,14 @@ pub fn inject_registry_with_tickets(
             active,
             pending,
             merged_through_cycle: 0,
-            cumulative_active: 0,
+            cumulative_active: active,
             version: anchor::state::UserEntry::CURRENT_VERSION,
             _padding: [0; 3],
             _reserved: [0; 12],
         });
     }
-    inject_registry_with_entries(svm, address, pool_id, capacity, &entries);
+    let user_count = entries.len() as u32;
+    inject_registry_with_state(svm, address, pool_id, capacity, 0, user_count, &entries);
 }
 
 use anchor_lang::solana_program::bpf_loader_upgradeable::{self, UpgradeableLoaderState};
@@ -803,6 +1009,76 @@ pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     let (pda, _) = pool_pda(pool_id);
     let acct = svm.get_account(&pda).expect("pool should exist");
     *bytemuck::from_bytes::<anchor::PrizePool>(&acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
+}
+
+pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::TicketRegistry {
+    let acc = svm.get_account(&address).expect("ticket registry account exists");
+    *bytemuck::from_bytes::<anchor::state::TicketRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()])
+}
+
+pub fn assert_pool_solvency(
+    svm: &LiteSVM,
+    pool_id: u32,
+    expected_principal: u64,
+    expected_fees_accrued: u64,
+    expected_prizes_allocated: u64,
+) {
+    let pool = read_pool_state(svm, pool_id);
+    let (vault_pda, _) = pool_vault_pda(pool_id);
+    let vault_balance = read_token_balance(svm, vault_pda);
+
+    assert_eq!(
+        pool.total_deposited_principal, expected_principal,
+        "Solvency check: total_deposited_principal mismatch"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, expected_fees_accrued,
+        "Solvency check: total_fees_accrued mismatch"
+    );
+    assert_eq!(
+        pool.total_prizes_allocated, expected_prizes_allocated,
+        "Solvency check: total_prizes_allocated mismatch"
+    );
+
+    let required_backing = pool.total_deposited_principal
+        .checked_add(pool.total_prizes_allocated).unwrap()
+        .checked_add(pool.total_fees_accrued).unwrap()
+        .saturating_sub(pool.total_fees_withdrawn)
+        .saturating_sub(pool.total_prizes_distributed);
+
+    assert!(
+        vault_balance >= required_backing,
+        "CRITICAL SOLVENCY VIOLATION: Pool vault balance ({}) is less than required protocol backing ({})",
+        vault_balance, required_backing
+    );
+}
+
+pub fn assert_ticket_registry_integrity(
+    svm: &LiteSVM,
+    registry_pda: Pubkey,
+    expected_user_count: u32,
+    expected_active_tickets: u32,
+    expected_pending_tickets: u32,
+) {
+    let reg = read_ticket_registry(svm, registry_pda);
+
+    assert_eq!(
+        reg.user_count, expected_user_count,
+        "Registry integrity: user_count mismatch"
+    );
+    assert_eq!(
+        reg.total_active_tickets, expected_active_tickets,
+        "Registry integrity: total_active mismatch"
+    );
+    assert_eq!(
+        reg.total_pending_tickets, expected_pending_tickets,
+        "Registry integrity: total_pending mismatch"
+    );
+    assert!(
+        reg.user_count <= reg.capacity,
+        "Registry integrity: user_count ({}) exceeds capacity ({})",
+        reg.user_count, reg.capacity
+    );
 }
 
 pub fn read_user_winnings_state(

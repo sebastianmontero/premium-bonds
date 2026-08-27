@@ -136,12 +136,6 @@ fn setup_with_amounts(
     }
 }
 
-fn clone_keypair(keypair: &Keypair) -> Keypair {
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&keypair.to_bytes()[..32]);
-    Keypair::new_from_array(seed)
-}
-
 fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::AdminForceUnlockDraw {

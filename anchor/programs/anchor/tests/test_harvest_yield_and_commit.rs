@@ -18,146 +18,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-const GLOBAL_CONFIG_SEED: &[u8] = b"global_config";
-const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
-const POOL_PST_SEED: &[u8] = b"pool_pst";
-const DRAW_CYCLE_SEED: &[u8] = b"draw_cycle";
-
-fn global_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[GLOBAL_CONFIG_SEED], &anchor::id())
-}
-fn pool_pda(id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[PRIZE_POOL_SEED, id.to_le_bytes().as_ref()], &anchor::id())
-}
-fn pool_pst_vault_pda(id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[POOL_PST_SEED, id.to_le_bytes().as_ref()], &anchor::id())
-}
-fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            DRAW_CYCLE_SEED,
-            pool_id.to_le_bytes().as_ref(),
-            cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-
-// ─── Account injection helpers ───────────────────────────────────────────────
-
-fn inject_mint(svm: &mut LiteSVM, address: Pubkey, decimals: u8, supply: u64) {
-    let mut data = vec![0u8; 82];
-    data[36..44].copy_from_slice(&supply.to_le_bytes());
-    data[44] = decimals;
-    data[45] = 1;
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_token_account(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    mint: Pubkey,
-    owner: Pubkey,
-    amount: u64,
-) {
-    let mut data = vec![0u8; 165];
-    data[0..32].copy_from_slice(&mint.to_bytes());
-    data[32..64].copy_from_slice(&owner.to_bytes());
-    data[64..72].copy_from_slice(&amount.to_le_bytes());
-    data[108] = 1;
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_registry(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    pool_id: u32,
-    capacity: u32,
-    active: u32,
-    pending: u32,
-    tickets: &[Pubkey],
-) {
-    let mut data = vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE];
-    data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
-    data[8..12].copy_from_slice(&pool_id.to_le_bytes());
-    data[12..16].copy_from_slice(&capacity.to_le_bytes());
-
-    let mut entries = Vec::new();
-    if tickets.is_empty() {
-        if active > 0 || pending > 0 {
-            entries.push(anchor::state::UserEntry {
-                owner: Pubkey::new_unique(),
-                active,
-                pending,
-                merged_through_cycle: 0,
-                cumulative_active: active,
-                version: anchor::state::UserEntry::CURRENT_VERSION,
-                _padding: [0; 3],
-                _reserved: [0; 12],
-            });
-        }
-    } else {
-        let mut cum = 0;
-        for &owner in tickets {
-            cum += 1;
-            entries.push(anchor::state::UserEntry {
-                owner,
-                active: 1,
-                pending: 0,
-                merged_through_cycle: 0,
-                cumulative_active: cum,
-                version: anchor::state::UserEntry::CURRENT_VERSION,
-                _padding: [0; 3],
-                _reserved: [0; 12],
-            });
-        }
-    }
-
-    let user_count = entries.len() as u32;
-    data[16..20].copy_from_slice(&user_count.to_le_bytes()); // user_count
-    data[20..24].copy_from_slice(&active.to_le_bytes()); // total_active_tickets
-    data[24..28].copy_from_slice(&pending.to_le_bytes()); // total_pending_tickets
-    data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
-    data[32..36].copy_from_slice(&user_count.to_le_bytes()); // draw_prepared_up_to = user_count
-    data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
-
-    for (i, entry) in entries.iter().enumerate() {
-        anchor::utils::registry_set_entry(&mut data, i, entry);
-    }
-
-    svm.set_account(
-        address,
-        Account {
-            lamports: 10_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 fn inject_pool_custom(
     svm: &mut LiteSVM,
     pool_id: u32,
@@ -371,12 +231,12 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
 
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, token_mint, 6, 0);
-    inject_mint(&mut svm, pst_mint, 6, 0);
+    inject_mint_with_supply(&mut svm, token_mint, 6, 0);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, 0);
 
     let fee_wallet = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    inject_registry(&mut svm, registry, 1, 1000, 0, 0, &[]);
+    inject_registry_with_tickets(&mut svm, registry, 1, 1000, 0, 0, &[]);
 
     let pool_key = pool_pda(1).0;
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -435,18 +295,12 @@ fn setup_happy(
 
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, token_mint, 6, 0);
-    inject_mint(&mut svm, pst_mint, 6, pst_supply);
+    inject_mint_with_supply(&mut svm, token_mint, 6, 0);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, pst_supply);
 
     let fee_wallet = Keypair::new().pubkey();
-
-    let mut tickets = Vec::new();
-    for _ in 0..(active + pending) {
-        tickets.push(Keypair::new().pubkey());
-    }
-
     let registry = Keypair::new().pubkey();
-    inject_registry(&mut svm, registry, 1, 1000, active, pending, &tickets);
+    inject_registry(&mut svm, registry, 1, 1000, active, pending);
 
     let pool_key = pool_pda(1).0;
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -737,7 +591,7 @@ fn test_harvest_fails_invalid_mint() {
     ctx.pst_mint = fake_mint;
 
     // Inject the fake mint into the SVM
-    inject_mint(&mut ctx.svm, fake_mint, 6, 0);
+    inject_mint_with_supply(&mut ctx.svm, fake_mint, 6, 0);
 
     let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
     assert!(
@@ -879,6 +733,14 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     assert_eq!(event.raw_yield, 5_000);
     assert_eq!(event.fee, 50);
     assert_eq!(event.prize_pot, 4_950);
+    assert_eq!(
+        event.fee + event.prize_pot,
+        event.raw_yield,
+        "Conservation: fee ({}) + prize_pot ({}) must equal raw_yield ({})",
+        event.fee,
+        event.prize_pot,
+        event.raw_yield
+    );
 
     let updated_pool = read_pool(&ctx.svm, 1);
     assert_eq!(updated_pool.total_prizes_allocated, 4_950);

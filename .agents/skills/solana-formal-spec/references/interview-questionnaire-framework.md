@@ -76,3 +76,31 @@ When conducting a clarification interview with the user:
 >
 > 1. `(Recommended) Automatically halt the pool, mark draw cycle as HaltedInsolvent, and emit EmergencyInsolvencyDetected` — Protects user principal by immediately stopping further operations.
 > 2. `Emit a warning event but continue normal draw execution` — Prioritizes liveness over safety; risks distributing unbacked yield.
+
+---
+
+## 3. Spec-Code Discrepancy & Code Anomaly Question Templates
+
+When the Adversarial Sifter flags a suspicious pattern during brownfield mining or reconciliation, use these templates to format the user interview:
+
+### Template 1: Critical Arithmetic / Truncation Anomaly
+
+> **Context:** In `[harvest_yield_and_commit.rs#L42](file:///path/to/file#L42)`, protocol fee calculation uses integer division `amount * fee_bps / 10000`. For small yield amounts ($< \$1.00$), this evaluates to `0` fee, allowing fee evasion.
+>
+> 1. `(Recommended) Mandate ceil_div / minimum 1-unit fee in spec and log bug issue for contract` — Ensures mathematical solvency and fee integrity across all transaction sizes.
+> 2. `Accept current code behavior (zero-fee on dust) as intentional domain design` — Document that small yield amounts are exempt from protocol fees.
+> 3. `Specify minimum gross yield threshold before harvesting is permitted` — Only allow harvesting if gross yield exceeds threshold.
+
+### Template 2: Asymmetric Access Control Discrepancy
+
+> **Context:** In `[pool_lifecycle.rs#L85](file:///path/to/file#L85)`, `pause_pool` allows Guardian or Admin, but `unpause_pool` only checks `signer.is_signer` without validating `admin_authority`.
+>
+> 1. `(Recommended) Mandate strict Admin authority check for unpause_pool in spec and flag code vulnerability` — Prevents arbitrary callers or compromised guardians from unpausing halted pools.
+> 2. `Accept symmetric Guardian unpause permission as intended` — Update spec to allow Guardian to unpause.
+
+### Template 3: Memory Safety / Unzeroed Realloc Slot
+
+> **Context:** In `[sell_bonds.rs#L120](file:///path/to/file#L120)`, complete exit via swap-and-pop decrements `user_count` but leaves vacated tail entry memory intact.
+>
+> 1. `(Recommended) Mandate explicit zeroing of vacated tail entry bytes in spec and log remediation` — Eliminates dirty byte resurrection risks when new users occupy vacated slots.
+> 2. `Accept non-zeroed tail memory with verified overwrite-on-allocate invariant` — Document that new user allocation must completely overwrite entry bytes.

@@ -13,7 +13,8 @@
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "start": "next start",
-    "test": "tsx scripts/test-sdk-parsers.ts && tsx scripts/test-anchor-events.ts && tsx scripts/test-error-mapping.ts && tsx scripts/utils.test.ts && tsx scripts/test-yield-ticker-sync.ts && tsx scripts/test-draw-helpers.ts && tsx scripts/test-tier-payouts.ts && tsx scripts/test-network-utils.ts && tsx scripts/test-balance-sync.ts && tsx scripts/test-crank-sync.ts",
+    "test": "tsx scripts/test-sdk-parsers.ts && tsx scripts/test-anchor-events.ts && tsx scripts/test-error-mapping.ts && tsx scripts/utils.test.ts && tsx scripts/test-yield-ticker-sync.ts && tsx scripts/test-draw-helpers.ts && tsx scripts/test-tier-payouts.ts && tsx scripts/test-network-utils.ts && tsx scripts/test-balance-sync.ts && tsx scripts/test-crank-sync.ts && tsx --test app/lib/__tests__/*.test.ts",
+    "test:unit": "tsx --test app/lib/__tests__/*.test.ts",
     "test:errors": "tsx scripts/test-error-mapping.ts"
   },
   "description": "Next.js, Tailwind, @solana/react-hooks",

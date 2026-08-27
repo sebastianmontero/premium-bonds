@@ -254,9 +254,7 @@ fn test_update_pool_config_fails_invalid_stake_cycle_duration_zero() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -271,9 +269,7 @@ fn test_update_pool_config_fails_negative_stake_cycle_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -288,9 +284,7 @@ fn test_update_pool_config_fails_exceeds_max_stake_cycle_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -305,9 +299,7 @@ fn test_update_pool_config_fails_invalid_bond_price() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidBondPrice"));
+    assert_custom_error(res, PremiumBondsError::InvalidBondPrice);
 }
 
 #[test]
@@ -325,9 +317,7 @@ fn test_update_pool_config_unauthorized_admin() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&hacker]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"));
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -342,9 +332,7 @@ fn test_update_pool_config_fails_invalid_fee() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidFeeConfig"));
+    assert_custom_error(res, PremiumBondsError::InvalidFeeConfig);
 }
 
 fn inject_pool_custom(
@@ -387,13 +375,7 @@ fn test_update_pool_config_fails_when_deposited_principal_non_zero() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("CannotModifyBondPriceWithActiveDeposits"),
-        "Expected CannotModifyBondPriceWithActiveDeposits error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
 }
 
 #[test]
@@ -408,13 +390,7 @@ fn test_update_pool_config_fails_when_prizes_allocated_non_zero() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("CannotModifyBondPriceWithActiveDeposits"),
-        "Expected CannotModifyBondPriceWithActiveDeposits error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
 }
 
 #[test]
@@ -429,13 +405,7 @@ fn test_update_pool_config_fails_when_pending_redemptions_non_zero() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("CannotModifyBondPriceWithActiveDeposits"),
-        "Expected CannotModifyBondPriceWithActiveDeposits error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
 }
 
 #[test]
@@ -451,13 +421,7 @@ fn test_update_pool_config_fails_when_frozen_for_draw() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -473,13 +437,7 @@ fn test_update_pool_config_fails_when_frozen_stake_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -605,9 +563,7 @@ fn test_update_pool_config_fails_missing_fee_wallet_account() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidFeeWallet"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
 }
 
 #[test]
@@ -636,9 +592,7 @@ fn test_update_pool_config_fails_invalid_fee_wallet_mint() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidFeeWallet"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
 }
 
 #[test]
@@ -663,9 +617,7 @@ fn test_update_pool_config_fails_timelock_exceeds_max() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidPayoutTimelock"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidPayoutTimelock);
 }
 
 #[test]
@@ -690,9 +642,7 @@ fn test_update_pool_config_fails_max_yield_exceeds_max() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidMaxYieldBasisPoints"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidMaxYieldBasisPoints);
 }
 
 #[test]

@@ -20,30 +20,6 @@ use {
 mod common;
 use common::*;
 
-fn pending_redemption_pda(pool_id: u32, redemption_id: u64) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"pending_redemption",
-            pool_id.to_le_bytes().as_ref(),
-            redemption_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-
-fn read_pending_redemption(
-    svm: &LiteSVM,
-    pool_id: u32,
-    redemption_id: u64,
-) -> anchor::PendingRedemption {
-    use anchor_lang::AccountDeserialize;
-    let (pda, _) = pending_redemption_pda(pool_id, redemption_id);
-    let acct = svm
-        .get_account(&pda)
-        .expect("pending_redemption account should exist");
-    anchor::PendingRedemption::try_deserialize(&mut &acct.data[..]).unwrap()
-}
-
 /// Build a `WithdrawFees` instruction.
 fn build_withdraw_fees_ix(
     svm: &LiteSVM,

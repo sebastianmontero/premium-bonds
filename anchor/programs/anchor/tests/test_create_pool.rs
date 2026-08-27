@@ -13,40 +13,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-fn inject_mint(svm: &mut LiteSVM, address: Pubkey) {
-    let mut data = vec![0; 82];
-    data[45] = 1; // is_initialized = true
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_token_account(svm: &mut LiteSVM, address: Pubkey, mint: Pubkey) {
-    let mut data = vec![0; 165];
-    data[0..32].copy_from_slice(&mint.to_bytes());
-    data[108] = 1; // state = Initialized
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 fn inject_zero_account(svm: &mut LiteSVM, address: Pubkey, size: usize) {
     svm.set_account(
         address,
@@ -78,9 +44,9 @@ fn setup_create_pool_context() -> TestContext {
     let fee_wallet = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
 
-    inject_mint(&mut svm, token_mint);
-    inject_mint(&mut svm, pst_mint);
-    inject_token_account(&mut svm, fee_wallet, token_mint);
+    inject_mint(&mut svm, token_mint, 6);
+    inject_mint(&mut svm, pst_mint, 6);
+    inject_token_account(&mut svm, fee_wallet, token_mint, fee_wallet, 0);
 
     // Inject the ticket registry with the minimum initial size
     inject_zero_account(
@@ -225,9 +191,7 @@ fn test_create_pool_fails_on_invalid_bond_price() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidBondPrice"));
+    assert_custom_error(res, PremiumBondsError::InvalidBondPrice);
 }
 
 #[test]
@@ -241,9 +205,7 @@ fn test_create_pool_fails_on_invalid_stake_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -257,9 +219,7 @@ fn test_create_pool_fails_on_negative_stake_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -273,9 +233,7 @@ fn test_create_pool_fails_on_exceeds_max_stake_duration() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidStakeCycleDuration"));
+    assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
 #[test]
@@ -298,9 +256,7 @@ fn test_create_pool_fails_on_registry_too_small() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("RegistryTooSmall"));
+    assert_custom_error(res, PremiumBondsError::RegistryTooSmall);
 }
 
 #[test]
@@ -330,9 +286,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&hacker]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"));
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -346,9 +300,7 @@ fn test_create_pool_fails_on_invalid_fee_config() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidFeeConfig"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidFeeConfig);
 }
 
 #[test]
@@ -362,9 +314,7 @@ fn test_create_pool_fails_on_invalid_max_yield_basis_points() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidMaxYieldBasisPoints"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidMaxYieldBasisPoints);
 }
 
 #[test]
@@ -378,9 +328,7 @@ fn test_create_pool_fails_on_invalid_payout_timelock() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidPayoutTimelock"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidPayoutTimelock);
 }
 
 #[test]
@@ -393,9 +341,7 @@ fn test_create_pool_fails_on_empty_prize_tiers() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidPrizeTierConfig);
 }
 
 #[test]
@@ -409,9 +355,7 @@ fn test_create_pool_fails_on_exceeding_max_prize_tiers() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidPrizeTierConfig);
 }
 
 #[test]
@@ -425,8 +369,7 @@ fn test_create_pool_fails_on_invalid_basis_points_or_winners() {
     let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &blockhash);
     let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
     let res1 = ctx.svm.send_transaction(tx1);
-    assert!(res1.is_err());
-    assert!(format!("{:?}", res1.unwrap_err()).contains("InvalidPrizeTierConfig"));
+    assert_custom_error(res1, PremiumBondsError::InvalidPrizeTierConfig);
 
     // 0 bps
     let zero_bps = vec![anchor::PrizeTier::new(1, 0)];
@@ -434,8 +377,7 @@ fn test_create_pool_fails_on_invalid_basis_points_or_winners() {
     let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &blockhash);
     let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
     let res2 = ctx.svm.send_transaction(tx2);
-    assert!(res2.is_err());
-    assert!(format!("{:?}", res2.unwrap_err()).contains("InvalidPrizeTierConfig"));
+    assert_custom_error(res2, PremiumBondsError::InvalidPrizeTierConfig);
 }
 
 #[test]
@@ -449,9 +391,7 @@ fn test_create_pool_fails_on_incorrect_total_basis_points() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("BasisPointsMustEqual10000"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::BasisPointsMustEqual10000);
 }
 
 #[test]
@@ -465,7 +405,5 @@ fn test_create_pool_fails_on_exceeding_total_winners() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("InvalidPrizeTierConfig"), "got: {err_str}");
+    assert_custom_error(res, PremiumBondsError::InvalidPrizeTierConfig);
 }

@@ -21,47 +21,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-const PENDING_REDEMPTION_SEED: &[u8] = b"pending_redemption";
-
-// ─── Keypair Helper ──────────────────────────────────────────────────────────
-
-fn clone_keypair(keypair: &Keypair) -> Keypair {
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(&keypair.to_bytes()[..32]);
-    Keypair::new_from_array(seed)
-}
-
-// ─── PDA helpers ─────────────────────────────────────────────────────────────
-
-fn pending_redemption_pda(pool_id: u32, redemption_id: u64) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PENDING_REDEMPTION_SEED,
-            pool_id.to_le_bytes().as_ref(),
-            redemption_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-
-// ─── Account injection helper ────────────────────────────────────────────────
-
-fn inject_lender_state(svm: &mut LiteSVM, address: Pubkey, amount: u64) {
-    let mut data = vec![0u8; 16];
-    data[8..16].copy_from_slice(&amount.to_le_bytes());
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 // ─── E2E Helpers ─────────────────────────────────────────────────────────────
 
 fn send_e2e_claim_redemption_for_user(

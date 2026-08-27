@@ -398,7 +398,7 @@ fn test_resize_registry_fails_unsigned_payer() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&non_payer_signer]).unwrap();
     let res = svm.send_transaction(tx);
 
-    assert!(res.is_err());
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn test_resize_registry_fails_wrong_pool_pda() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res = svm.send_transaction(tx);
 
-    assert!(res.is_err());
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -464,9 +464,7 @@ fn test_resize_registry_fails_pool_frozen() {
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, true);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("AwaitingRandomnessFreeze"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -491,9 +489,7 @@ fn test_resize_registry_fails_unauthorized_ticket() {
     inject_prize_pool_account(&mut svm, pool_id, other_registry, false);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("ConstraintHasOne") || err_str.contains("2001"));
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintHasOne);
 }
 
 #[test]
@@ -516,11 +512,9 @@ fn test_resize_registry_fails_registry_at_max_size() {
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
-    assert!(res.is_err());
-    let err_str = format!("{:?}", res.unwrap_err());
     // Since Anchor evaluates realloc before user constraints, growing beyond 10MB
     // fails at the Solana runtime system level with InvalidRealloc rather than RegistryAtMaxSize.
-    assert!(err_str.contains("RegistryAtMaxSize") || err_str.contains("InvalidRealloc"));
+    assert_error_contains(res, &["RegistryAtMaxSize", "InvalidRealloc"]);
 }
 
 #[test]
@@ -545,8 +539,7 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
     let poor_payer = Keypair::new();
 
     let res = send_resize_registry_simple(&mut svm, &poor_payer, pool_id, ticket_registry);
-    assert!(res.is_err());
-    // Should fail with rent or signature/fee verification errors
+    assert_error_contains(res, &["AccountNotFound", "InsufficientFunds"]);
 }
 
 #[test]

@@ -117,10 +117,6 @@ console.log("Running Codama error mapping verification tests...");
   console.log("✓ parseTransactionError verification tests passed");
 }
 
-// 4. Run solana-fees unit tests
-const { runFeeTests } = require("../app/lib/__tests__/solana-fees.test");
-runFeeTests();
-
 console.log(
   "All Codama error mapping verification tests completed successfully!"
 );

@@ -32,88 +32,6 @@ struct CircuitBreakerCtx {
     randomness_account: Pubkey,
 }
 
-fn inject_mint(svm: &mut LiteSVM, address: Pubkey, decimals: u8, supply: u64) {
-    let mut data = vec![0u8; 82];
-    data[36..44].copy_from_slice(&supply.to_le_bytes());
-    data[44] = decimals;
-    data[45] = 1;
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_token_account(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    mint: Pubkey,
-    owner: Pubkey,
-    amount: u64,
-) {
-    let mut data = vec![0u8; 165];
-    data[0..32].copy_from_slice(&mint.to_bytes());
-    data[32..64].copy_from_slice(&owner.to_bytes());
-    data[64..72].copy_from_slice(&amount.to_le_bytes());
-    data[108] = 1;
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_huma_pool_state_with_assets(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    _pst_mint: Pubkey,
-    total_assets: u128,
-) {
-    let size = 30 + 16 + 16 + 16 + 8 + 160;
-    let mut data = vec![0u8; size];
-    data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
-    data[30..46].copy_from_slice(&total_assets.to_le_bytes()); // assets (u128) at offset 30
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::constants::HUMA_PROGRAM_ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 fn setup_circuit_breaker_ctx(
     max_yield_basis_points: u16,
     deposited_principal: u64,
@@ -152,15 +70,15 @@ fn setup_circuit_breaker_ctx_with_tickets(
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();
 
-    inject_mint(&mut svm, token_mint, 6, 1_000_000_000_000);
-    inject_mint(&mut svm, pst_mint, 6, pst_supply);
+    inject_mint_with_supply(&mut svm, token_mint, 6, 1_000_000_000_000);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, pst_supply);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda, pst_shares_amount);
 
     let ticket_registry = Keypair::new().pubkey();
     inject_registry(&mut svm, ticket_registry, pool_id, 100, active_tickets, pending_tickets);
 
     let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, pst_mint, total_assets);
+    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, total_assets);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
