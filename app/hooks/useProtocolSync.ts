@@ -18,6 +18,7 @@ interface SyncCoordinatorState {
   settlingSubscribers: number;
   intervalTimer: NodeJS.Timeout | null;
   currentCadence: "fast" | "ambient" | "paused";
+  currentIntervalMs: number;
 }
 
 const coordinatorState: SyncCoordinatorState = {
@@ -26,6 +27,7 @@ const coordinatorState: SyncCoordinatorState = {
   settlingSubscribers: 0,
   intervalTimer: null,
   currentCadence: "paused",
+  currentIntervalMs: 0,
 };
 
 function evaluateAndScheduleCadence(
@@ -45,6 +47,7 @@ function evaluateAndScheduleCadence(
       coordinatorState.intervalTimer = null;
     }
     coordinatorState.currentCadence = "paused";
+    coordinatorState.currentIntervalMs = 0;
     return;
   }
 
@@ -54,6 +57,7 @@ function evaluateAndScheduleCadence(
 
   if (
     coordinatorState.currentCadence !== targetCadence ||
+    coordinatorState.currentIntervalMs !== targetInterval ||
     !coordinatorState.intervalTimer
   ) {
     if (coordinatorState.intervalTimer) {
@@ -61,6 +65,7 @@ function evaluateAndScheduleCadence(
     }
 
     coordinatorState.currentCadence = targetCadence;
+    coordinatorState.currentIntervalMs = targetInterval;
     coordinatorState.intervalTimer = setInterval(() => {
       // In fast-cadence volatile polling, only poll pool & redemptions to prevent RPC rate-limit exhaustion
       if (coordinatorState.settlingSubscribers > 0) {

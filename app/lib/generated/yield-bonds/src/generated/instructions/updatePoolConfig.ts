@@ -58,7 +58,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const UPDATE_POOL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
@@ -75,6 +75,9 @@ export type UpdatePoolConfigInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -90,6 +93,12 @@ export type UpdatePoolConfigInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -158,6 +167,8 @@ export type UpdatePoolConfigAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state, used to verify the admin signature.
@@ -174,6 +185,9 @@ export type UpdatePoolConfigAsyncInput<
    * Bump is verified from the pool's initialized authority bump.
    */
   pool: Address<TAccountPool>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
@@ -187,12 +201,16 @@ export async function getUpdatePoolConfigInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: UpdatePoolConfigAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -200,7 +218,9 @@ export async function getUpdatePoolConfigInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -211,6 +231,8 @@ export async function getUpdatePoolConfigInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -224,6 +246,13 @@ export async function getUpdatePoolConfigInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -231,6 +260,8 @@ export async function getUpdatePoolConfigInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUpdatePoolConfigInstructionDataEncoder().encode(
       args as UpdatePoolConfigInstructionDataArgs
@@ -240,7 +271,9 @@ export async function getUpdatePoolConfigInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -248,6 +281,8 @@ export type UpdatePoolConfigInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state, used to verify the admin signature.
@@ -264,6 +299,9 @@ export type UpdatePoolConfigInput<
    * Bump is verified from the pool's initialized authority bump.
    */
   pool: Address<TAccountPool>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   newFeeBasisPoints: UpdatePoolConfigInstructionDataArgs["newFeeBasisPoints"];
   newBondPrice: UpdatePoolConfigInstructionDataArgs["newBondPrice"];
   newFeeWallet: UpdatePoolConfigInstructionDataArgs["newFeeWallet"];
@@ -277,19 +315,25 @@ export function getUpdatePoolConfigInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: UpdatePoolConfigInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): UpdatePoolConfigInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
-  TAccountPool
+  TAccountPool,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -299,6 +343,8 @@ export function getUpdatePoolConfigInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -308,12 +354,20 @@ export function getUpdatePoolConfigInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
+
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUpdatePoolConfigInstructionDataEncoder().encode(
       args as UpdatePoolConfigInstructionDataArgs
@@ -323,7 +377,9 @@ export function getUpdatePoolConfigInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -348,6 +404,9 @@ export type ParsedUpdatePoolConfigInstruction<
      * Bump is verified from the pool's initialized authority bump.
      */
     pool: TAccountMetas[2];
+    eventAuthority: TAccountMetas[3];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[4];
   };
   data: UpdatePoolConfigInstructionData;
 };
@@ -360,12 +419,12 @@ export function parseUpdatePoolConfigInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedUpdatePoolConfigInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 5,
       }
     );
   }
@@ -381,6 +440,8 @@ export function parseUpdatePoolConfigInstruction<
       globalConfig: getNextAccount(),
       admin: getNextAccount(),
       pool: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getUpdatePoolConfigInstructionDataDecoder().decode(instruction.data),
   };

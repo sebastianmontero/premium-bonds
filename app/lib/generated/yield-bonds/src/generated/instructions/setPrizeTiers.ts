@@ -45,7 +45,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 import {
   getPrizeTierDecoder,
@@ -69,6 +69,9 @@ export type SetPrizeTiersInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -84,6 +87,12 @@ export type SetPrizeTiersInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -126,6 +135,8 @@ export type SetPrizeTiersAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state, used to verify the admin signature.
@@ -138,9 +149,12 @@ export type SetPrizeTiersAsyncInput<
   /**
    * The prize pool state account to update.
    *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+   * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
    */
   pool: Address<TAccountPool>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   tiers: SetPrizeTiersInstructionDataArgs["tiers"];
 };
 
@@ -148,12 +162,16 @@ export async function getSetPrizeTiersInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: SetPrizeTiersAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -161,7 +179,9 @@ export async function getSetPrizeTiersInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -172,6 +192,8 @@ export async function getSetPrizeTiersInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -185,6 +207,13 @@ export async function getSetPrizeTiersInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -192,6 +221,8 @@ export async function getSetPrizeTiersInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getSetPrizeTiersInstructionDataEncoder().encode(
       args as SetPrizeTiersInstructionDataArgs
@@ -201,7 +232,9 @@ export async function getSetPrizeTiersInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -209,6 +242,8 @@ export type SetPrizeTiersInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state, used to verify the admin signature.
@@ -221,9 +256,12 @@ export type SetPrizeTiersInput<
   /**
    * The prize pool state account to update.
    *
-   * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+   * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
    */
   pool: Address<TAccountPool>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   tiers: SetPrizeTiersInstructionDataArgs["tiers"];
 };
 
@@ -231,15 +269,25 @@ export function getSetPrizeTiersInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: SetPrizeTiersInput<TAccountGlobalConfig, TAccountAdmin, TAccountPool>,
+  input: SetPrizeTiersInput<
+    TAccountGlobalConfig,
+    TAccountAdmin,
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
+  >,
   config?: { programAddress?: TProgramAddress }
 ): SetPrizeTiersInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
-  TAccountPool
+  TAccountPool,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -249,6 +297,8 @@ export function getSetPrizeTiersInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: true },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -258,12 +308,20 @@ export function getSetPrizeTiersInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
+
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getSetPrizeTiersInstructionDataEncoder().encode(
       args as SetPrizeTiersInstructionDataArgs
@@ -273,7 +331,9 @@ export function getSetPrizeTiersInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -294,9 +354,12 @@ export type ParsedSetPrizeTiersInstruction<
     /**
      * The prize pool state account to update.
      *
-     * PDA seeds: `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
+     * PDA seeds: `[PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()]` (i.e., `b"prize_pool"` + pool_id).
      */
     pool: TAccountMetas[2];
+    eventAuthority: TAccountMetas[3];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[4];
   };
   data: SetPrizeTiersInstructionData;
 };
@@ -309,12 +372,12 @@ export function parseSetPrizeTiersInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedSetPrizeTiersInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 5,
       }
     );
   }
@@ -330,6 +393,8 @@ export function parseSetPrizeTiersInstruction<
       globalConfig: getNextAccount(),
       admin: getNextAccount(),
       pool: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getSetPrizeTiersInstructionDataDecoder().decode(instruction.data),
   };

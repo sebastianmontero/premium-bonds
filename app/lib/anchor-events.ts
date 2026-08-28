@@ -48,6 +48,23 @@ export interface RedemptionClaimedEvent {
   redemptionId: bigint;
 }
 
+export interface YieldHarvestedEvent {
+  poolId: number;
+  cycleId: number;
+  rawYield: bigint;
+  fee: bigint;
+  prizePot: bigint;
+  lockedTicketCount: number;
+  randomnessAccount: string;
+}
+
+export interface DrawSkippedEvent {
+  poolId: number;
+  cycleId: number;
+  rawYield: bigint;
+  threshold: bigint;
+}
+
 export interface DrawCompletedEvent {
   poolId: number;
   cycleId: number;
@@ -80,61 +97,61 @@ export interface DrawPreparationProgressEvent {
   isComplete: boolean;
 }
 
-export type ProgramEvent =
-  | {
-      type: "BondsPurchased";
-      data: BondsPurchasedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "BondsSold";
-      data: BondsSoldEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "WinningsReinvested";
-      data: WinningsReinvestedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "WinningsClaimed";
-      data: WinningsClaimedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "RedemptionClaimed";
-      data: RedemptionClaimedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "DrawCompleted";
-      data: DrawCompletedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "DrawForceUnlocked";
-      data: DrawForceUnlockedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "DrawVoided";
-      data: DrawVoidedEvent;
-      signature: string;
-      blockTime: number;
-    }
-  | {
-      type: "DrawPreparationProgress";
-      data: DrawPreparationProgressEvent;
-      signature: string;
-      blockTime: number;
-    };
+export type ParsedProgramEvent =
+  | { type: "BondsPurchased"; data: BondsPurchasedEvent }
+  | { type: "BondsSold"; data: BondsSoldEvent }
+  | { type: "WinningsReinvested"; data: WinningsReinvestedEvent }
+  | { type: "WinningsClaimed"; data: WinningsClaimedEvent }
+  | { type: "RedemptionClaimed"; data: RedemptionClaimedEvent }
+  | { type: "YieldHarvested"; data: YieldHarvestedEvent }
+  | { type: "DrawCompleted"; data: DrawCompletedEvent }
+  | { type: "DrawForceUnlocked"; data: DrawForceUnlockedEvent }
+  | { type: "DrawVoided"; data: DrawVoidedEvent }
+  | { type: "DrawSkipped"; data: DrawSkippedEvent }
+  | { type: "DrawPreparationProgress"; data: DrawPreparationProgressEvent };
+
+export type ProgramEvent = ParsedProgramEvent & {
+  signature: string;
+  blockTime: number;
+};
+
+export interface EventMetadata {
+  poolId: number;
+  userAddress?: string;
+  scope: "pool" | "draws" | "user" | "all";
+}
+
+export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
+  switch (evt.type) {
+    case "BondsPurchased":
+    case "BondsSold":
+      return {
+        poolId: evt.data.poolId,
+        userAddress: evt.data.user,
+        scope: "user",
+      };
+    case "WinningsReinvested":
+      return {
+        poolId: evt.data.poolId,
+        userAddress: evt.data.winner,
+        scope: "user",
+      };
+    case "WinningsClaimed":
+    case "RedemptionClaimed":
+      return {
+        poolId: evt.data.poolId,
+        userAddress: evt.data.user,
+        scope: "user",
+      };
+    case "YieldHarvested":
+    case "DrawCompleted":
+    case "DrawForceUnlocked":
+    case "DrawVoided":
+    case "DrawSkipped":
+    case "DrawPreparationProgress":
+      return { poolId: evt.data.poolId, scope: "draws" };
+  }
+}
 
 // ─── Discriminator computation ───────────────────────────────────────────────
 // Anchor event discriminators: SHA-256("event:<EventName>")[..8]
@@ -149,9 +166,11 @@ const DISCRIMINATOR_MAP: Record<string, string> = {
   aeeb2097b9e63e6e: "WinningsReinvested",
   bbb81dc436754696: "WinningsClaimed",
   "6bfbc7d53bad35bd": "RedemptionClaimed",
+  "31c5e2e89ad3f9de": "YieldHarvested",
   c1882558b47c6014: "DrawCompleted",
   "1a1dc53ce504de2d": "DrawForceUnlocked",
   "992d33ee8e91030c": "DrawVoided",
+  "270b1dbe81f95cb4": "DrawSkipped",
   b0870012acfe8782: "DrawPreparationProgress",
 };
 
@@ -241,6 +260,29 @@ function decodeEventData(
         redemptionId: readU64(view, 44),
       } as RedemptionClaimedEvent;
     }
+    case "YieldHarvested": {
+      // u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) = 68
+      if (payload.length < 68) return null;
+      return {
+        poolId: readU32(view, 0),
+        cycleId: readU32(view, 4),
+        rawYield: readU64(view, 8),
+        fee: readU64(view, 16),
+        prizePot: readU64(view, 24),
+        lockedTicketCount: readU32(view, 32),
+        randomnessAccount: readPubkey(view, payload, 36),
+      } as YieldHarvestedEvent;
+    }
+    case "DrawSkipped": {
+      // u32(4) + u32(4) + u64(8) + u64(8) = 24
+      if (payload.length < 24) return null;
+      return {
+        poolId: readU32(view, 0),
+        cycleId: readU32(view, 4),
+        rawYield: readU64(view, 8),
+        threshold: readU64(view, 16),
+      } as DrawSkippedEvent;
+    }
     case "DrawCompleted": {
       // u32(4) + u32(4) + u64(8) + u32(4) = 20
       if (payload.length < 20) return null;
@@ -297,10 +339,10 @@ function decodeEventData(
  * Anchor emits events as `Program data: <base64>` log entries (emit!)
  * and as inner instructions (emit_cpi!).
  */
-function parseEventsFromTxMeta(
+export function parseEventsFromTxMeta(
   meta: Record<string, unknown> | null | undefined
-): Array<{ type: string; data: ProgramEvent["data"] }> {
-  const events: Array<{ type: string; data: ProgramEvent["data"] }> = [];
+): ParsedProgramEvent[] {
+  const events: ParsedProgramEvent[] = [];
   if (!meta) return events;
 
   // 1. Parse log events (emit!)
@@ -328,7 +370,7 @@ function parseEventsFromTxMeta(
 
       const decoded = decodeEventData(eventName, bytes);
       if (decoded) {
-        events.push({ type: eventName, data: decoded });
+        events.push({ type: eventName, data: decoded } as ParsedProgramEvent);
       }
     }
   }
@@ -369,7 +411,7 @@ function parseEventsFromTxMeta(
 
         const decoded = decodeEventData(eventName, bytes.slice(8));
         if (decoded) {
-          events.push({ type: eventName, data: decoded });
+          events.push({ type: eventName, data: decoded } as ParsedProgramEvent);
         }
       }
     }

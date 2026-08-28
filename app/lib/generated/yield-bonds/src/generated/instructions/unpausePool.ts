@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const UNPAUSE_POOL_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -61,6 +61,9 @@ export type UnpausePoolInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -76,6 +79,12 @@ export type UnpausePoolInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -111,6 +120,8 @@ export type UnpausePoolAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration state, used to verify the admin signature. */
   globalConfig?: Address<TAccountGlobalConfig>;
@@ -118,18 +129,25 @@ export type UnpausePoolAsyncInput<
   admin: TransactionSigner<TAccountAdmin>;
   /** The prize pool state account to unpause. */
   pool: Address<TAccountPool>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export async function getUnpausePoolInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
   input: UnpausePoolAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
@@ -137,7 +155,9 @@ export async function getUnpausePoolInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -148,6 +168,8 @@ export async function getUnpausePoolInstructionAsync<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -158,6 +180,13 @@ export async function getUnpausePoolInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -165,6 +194,8 @@ export async function getUnpausePoolInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUnpausePoolInstructionDataEncoder().encode({}),
     programAddress,
@@ -172,7 +203,9 @@ export async function getUnpausePoolInstructionAsync<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -180,6 +213,8 @@ export type UnpausePoolInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountPool extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /** The global configuration state, used to verify the admin signature. */
   globalConfig: Address<TAccountGlobalConfig>;
@@ -187,21 +222,34 @@ export type UnpausePoolInput<
   admin: TransactionSigner<TAccountAdmin>;
   /** The prize pool state account to unpause. */
   pool: Address<TAccountPool>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
 };
 
 export function getUnpausePoolInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountPool extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UnpausePoolInput<TAccountGlobalConfig, TAccountAdmin, TAccountPool>,
+  input: UnpausePoolInput<
+    TAccountGlobalConfig,
+    TAccountAdmin,
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
+  >,
   config?: { programAddress?: TProgramAddress }
 ): UnpausePoolInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
-  TAccountPool
+  TAccountPool,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -211,11 +259,19 @@ export function getUnpausePoolInstruction<
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     admin: { value: input.admin ?? null, isWritable: false },
     pool: { value: input.pool ?? null, isWritable: true },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
     ResolvedInstructionAccount
   >;
+
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -223,6 +279,8 @@ export function getUnpausePoolInstruction<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUnpausePoolInstructionDataEncoder().encode({}),
     programAddress,
@@ -230,7 +288,9 @@ export function getUnpausePoolInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
-    TAccountPool
+    TAccountPool,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -246,6 +306,9 @@ export type ParsedUnpausePoolInstruction<
     admin: TAccountMetas[1];
     /** The prize pool state account to unpause. */
     pool: TAccountMetas[2];
+    eventAuthority: TAccountMetas[3];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[4];
   };
   data: UnpausePoolInstructionData;
 };
@@ -258,12 +321,12 @@ export function parseUnpausePoolInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedUnpausePoolInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 5) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 3,
+        expectedAccountMetas: 5,
       }
     );
   }
@@ -279,6 +342,8 @@ export function parseUnpausePoolInstruction<
       globalConfig: getNextAccount(),
       admin: getNextAccount(),
       pool: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
     },
     data: getUnpausePoolInstructionDataDecoder().decode(instruction.data),
   };

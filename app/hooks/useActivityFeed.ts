@@ -11,6 +11,8 @@ import {
   fetchClusterGenesisHash,
   clearCachedEvents,
 } from "../lib/anchor-events";
+import { formatActivityDescription } from "../lib/activity-helpers";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import type { ActivityEntry, ActivityType } from "../types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,17 +50,6 @@ interface ActivityFeedResult {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatAmount(
-  baseUnits: bigint | number,
-  decimals: number = 6
-): string {
-  const val = Number(baseUnits) / Math.pow(10, decimals);
-  return val.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 function eventToActivity(
   event: ProgramEvent,
   decimals: number = 6
@@ -68,70 +59,55 @@ function eventToActivity(
     : new Date().toISOString();
 
   const signature = event.signature;
+  let activityType: ActivityType | null = null;
+  let bonds: number | undefined;
+  let amountUsdc: bigint = 0n;
+  let cycleId: number | undefined;
 
   switch (event.type) {
-    case "BondsPurchased": {
-      const d = event.data;
-      return {
-        id: `evt-buy-${signature.slice(0, 8)}`,
-        date,
-        type: "deposit" as ActivityType,
-        description: `Deposited ${formatAmount(d.amount, decimals)} USDC → +${d.bonds} tickets`,
-        amount: Number(d.amount),
-        txSignature: signature,
-      };
-    }
-    case "BondsSold": {
-      const d = event.data;
-      return {
-        id: `evt-sell-${signature.slice(0, 8)}`,
-        date,
-        type: "withdraw" as ActivityType,
-        description: `Sold ${d.bonds} bonds (${formatAmount(d.principal, decimals)} USDC) · Pending settle`,
-        amount: Number(d.principal),
-        txSignature: signature,
-      };
-    }
-    case "WinningsReinvested": {
-      const d = event.data;
-      if (d.bondsBought === 0) return null; // Skip zero-bond batches
-      return {
-        id: `evt-reinvest-${signature.slice(0, 8)}`,
-        date,
-        type: "auto-reinvest" as ActivityType,
-        description: `Draw #${d.cycleId} reinvested: +${d.bondsBought} tickets from ${formatAmount(d.amountReinvested, decimals)} USDC`,
-        amount: Number(d.amountReinvested),
-        txSignature: signature,
-      };
-    }
-    case "WinningsClaimed": {
-      const d = event.data;
-      return {
-        id: `evt-claim-win-${signature.slice(0, 8)}`,
-        date,
-        type: "win" as ActivityType,
-        description: `Claimed accumulated winnings of ${formatAmount(d.amount, decimals)} USDC · Pending settle`,
-        amount: Number(d.amount),
-        txSignature: signature,
-      };
-    }
-    case "RedemptionClaimed": {
-      const d = event.data;
-      return {
-        id: `evt-redeem-${signature.slice(0, 8)}`,
-        date,
-        type: "claim-redemption" as ActivityType,
-        description: `Claimed settled redemption of ${formatAmount(d.amount, decimals)} USDC to wallet`,
-        amount: Number(d.amount),
-        txSignature: signature,
-      };
-    }
-    case "DrawCompleted":
-      // Draw completion events are global, not user-specific activity
-      return null;
+    case "BondsPurchased":
+      activityType = "deposit";
+      bonds = event.data.bonds;
+      amountUsdc = event.data.amount;
+      break;
+    case "BondsSold":
+      activityType = "withdraw";
+      bonds = event.data.bonds;
+      amountUsdc = event.data.principal;
+      break;
+    case "WinningsReinvested":
+      if (event.data.bondsBought === 0) return null;
+      activityType = "auto-reinvest";
+      bonds = event.data.bondsBought;
+      amountUsdc = event.data.amountReinvested;
+      cycleId = event.data.cycleId;
+      break;
+    case "WinningsClaimed":
+      activityType = "win";
+      amountUsdc = event.data.amount;
+      break;
+    case "RedemptionClaimed":
+      activityType = "claim-redemption";
+      amountUsdc = event.data.amount;
+      break;
     default:
       return null;
   }
+
+  return {
+    id: `evt-${activityType}-${signature.slice(0, 8)}-0`,
+    date,
+    type: activityType,
+    description: formatActivityDescription({
+      activityType,
+      bonds,
+      amountUsdc,
+      cycleId,
+      decimals,
+    }),
+    amount: Number(amountUsdc),
+    txSignature: signature,
+  };
 }
 
 /**
@@ -185,18 +161,7 @@ function mergeAndDeduplicate(
 
 /**
  * Fetches and parses Anchor program events for the connected user to build
- * a real-time activity feed with cursor-based lazy loading.
- *
- * Strategy:
- * 1. Initial load fetches a light batch (limit: 15) to keep page load fast.
- * 2. `loadMore()` uses the `oldestSignature` cursor pointer from raw RPC response
- *    to lazily fetch historical transaction batches without re-fetching non-program transactions.
- * 3. `fetchUntilMatches()` runs up to 5 background scan iterations when filtering to ensure page size is satisfied.
- * 4. Caches top 20 items in localStorage scoped by cluster genesis hash for fast subsequent mounts.
- *
- * @param userAddress - The base58 user wallet address.
- * @param tokenDecimals - Number of decimals for formatting USDC (defaults to 6).
- * @returns ActivityFeedResult containing entries, status flags, cursors, and fetch handlers.
+ * a real-time activity feed with dual-mode support (Indexer REST primary, RPC fallback).
  */
 export function useActivityFeed(
   userAddress: string | undefined,
@@ -211,6 +176,8 @@ export function useActivityFeed(
 
   const fetchIdRef = useRef(0);
   const oldestSignatureRef = useRef<string | null>(null);
+  const indexerCursorRef = useRef<string | null>(null);
+  const modeRef = useRef<"indexer" | "rpc">("indexer");
   const hasMoreRef = useRef(true);
   const isFetchingMoreRef = useRef(false);
   const entriesRef = useRef<ActivityEntry[]>([]);
@@ -247,6 +214,7 @@ export function useActivityFeed(
       setHasMore(false);
       hasMoreRef.current = false;
       oldestSignatureRef.current = null;
+      indexerCursorRef.current = null;
       hasLoadedRef.current = false;
       return;
     }
@@ -256,11 +224,42 @@ export function useActivityFeed(
       setIsLoading(true);
     }
 
+    // 1. Primary Path: Try Indexer REST API
+    try {
+      const res = await fetch(
+        `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=20`,
+        { cache: "no-store" }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.fallback !== true) {
+          if (fetchId !== fetchIdRef.current) return;
+
+          modeRef.current = "indexer";
+          indexerCursorRef.current = data.nextCursor || null;
+          const moreAvailable = Boolean(data.nextCursor);
+          hasMoreRef.current = moreAvailable;
+          setHasMore(moreAvailable);
+
+          const mergedEntries = mergeAndDeduplicate(
+            entriesRef.current,
+            data.entries || []
+          );
+          updateEntriesState(mergedEntries);
+          return;
+        }
+      }
+    } catch {
+      // Non-critical: Fallback cleanly to on-chain RPC scanning
+    }
+
+    // 2. Fallback Path: Client-Side RPC Scanning
+    modeRef.current = "rpc";
     try {
       const rpc = client.runtime.rpc;
       const walletAddr = userAddress as unknown as Address;
 
-      // 1. Check cluster genesis hash to detect live chain resets / environment switches
       const genesisHash = await fetchClusterGenesisHash(rpc);
 
       if (
@@ -268,7 +267,6 @@ export function useActivityFeed(
         lastGenesisHashRef.current &&
         lastGenesisHashRef.current !== genesisHash
       ) {
-        // Chain was restarted or ledger was deleted while tab was open!
         entriesRef.current = [];
         updateEntriesState([]);
         oldestSignatureRef.current = null;
@@ -280,7 +278,6 @@ export function useActivityFeed(
         lastGenesisHashRef.current = genesisHash;
       }
 
-      // 2. Check localStorage cache scoped by cluster genesis hash for incremental fetching
       const cached = getCachedEvents(userAddress, genesisHash ?? undefined);
 
       if (cached && cached.events.length > 0) {
@@ -298,16 +295,13 @@ export function useActivityFeed(
           ? { limit: 15, until: cached.lastSignature }
           : { limit: 15 };
 
-      // 3. Fetch initial batch from RPC
       const result = await fetchProgramEvents(rpc, walletAddr, fetchOpts);
 
       if (fetchId !== fetchIdRef.current) return;
 
       let allEvents: ProgramEvent[] = result.events;
 
-      // If incremental fetch with cache
       if (cached && cached.events.length > 0) {
-        // Guard against orphaned cursors: if the on-chain account has 0 total transactions on this cluster
         if (result.events.length === 0 && result.oldestRawSignature === null) {
           allEvents = [];
           clearCachedEvents(userAddress, genesisHash ?? undefined);
@@ -316,8 +310,6 @@ export function useActivityFeed(
         }
       }
 
-      // Update cursor refs: ONLY update if not doing an incremental `until` fetch
-      // or if oldestSignatureRef is not set yet
       if (!cached?.lastSignature) {
         if (result.oldestRawSignature) {
           oldestSignatureRef.current = result.oldestRawSignature;
@@ -328,12 +320,10 @@ export function useActivityFeed(
         oldestSignatureRef.current = result.oldestRawSignature;
       }
 
-      // Robust cursor fallback: Ensure oldestSignatureRef is populated if we have events
       if (!oldestSignatureRef.current && allEvents.length > 0) {
         oldestSignatureRef.current = allEvents[allEvents.length - 1].signature;
       }
 
-      // Save top 20 events to localStorage cache with history cursors and genesisHash
       if (allEvents.length > 0) {
         setCachedEvents(
           userAddress,
@@ -345,7 +335,6 @@ export function useActivityFeed(
         );
       }
 
-      // Convert events to ActivityEntry[]
       const parsedEntries: ActivityEntry[] = [];
       const seenIds = new Set<string>();
 
@@ -382,24 +371,63 @@ export function useActivityFeed(
     fetchFeed();
   }, [fetchFeed]);
 
+  // Subscribe to real-time invalidation push events
+  useProtocolSyncSubscription(fetchFeed, {
+    scopes: ["all", "user"],
+    debounceMs: 150,
+  });
+
   /**
-   * Lazily fetch the next batch of historical transactions using `before: oldestSignature`.
-   * Automatically scans up to 4 signature batches if non-program transactions are encountered.
+   * Lazily fetch the next batch of historical transactions.
    */
   const loadMore = useCallback(
     async (batchLimit: number = 15): Promise<boolean> => {
-      if (
-        !userAddress ||
-        !hasMoreRef.current ||
-        !oldestSignatureRef.current ||
-        isFetchingMoreRef.current
-      ) {
+      if (!userAddress || !hasMoreRef.current || isFetchingMoreRef.current) {
         return false;
       }
 
       const fetchId = fetchIdRef.current;
       isFetchingMoreRef.current = true;
       setIsFetchingMore(true);
+
+      // 1. Indexer Mode Pagination
+      if (modeRef.current === "indexer" && indexerCursorRef.current) {
+        try {
+          const res = await fetch(
+            `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=${batchLimit}&cursor=${encodeURIComponent(indexerCursorRef.current)}`,
+            { cache: "no-store" }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.fallback !== true) {
+              if (fetchId !== fetchIdRef.current) return false;
+
+              indexerCursorRef.current = data.nextCursor || null;
+              const moreAvailable = Boolean(data.nextCursor);
+              hasMoreRef.current = moreAvailable;
+              setHasMore(moreAvailable);
+
+              const merged = mergeAndDeduplicate(
+                entriesRef.current,
+                data.entries || []
+              );
+              updateEntriesState(merged);
+              return moreAvailable;
+            }
+          }
+        } catch {
+          // Switch to RPC mode if indexer fails during pagination
+          modeRef.current = "rpc";
+        }
+      }
+
+      // 2. RPC Mode Pagination
+      if (!oldestSignatureRef.current) {
+        isFetchingMoreRef.current = false;
+        setIsFetchingMore(false);
+        return false;
+      }
 
       try {
         const rpc = client.runtime.rpc;

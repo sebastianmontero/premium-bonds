@@ -38,6 +38,7 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type ReadonlyAccount,
   type ReadonlySignerAccount,
   type WritableAccount,
 } from "@solana/instructions";
@@ -49,7 +50,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const UPDATE_GLOBAL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
@@ -65,6 +66,9 @@ export type UpdateGlobalConfigInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
+  TAccountEventAuthority extends string | AccountMeta<string> = string,
+  TAccountProgram extends string | AccountMeta<string> =
+    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -77,6 +81,12 @@ export type UpdateGlobalConfigInstruction<
         ? ReadonlySignerAccount<TAccountAdmin> &
             AccountSignerMeta<TAccountAdmin>
         : TAccountAdmin,
+      TAccountEventAuthority extends string
+        ? ReadonlyAccount<TAccountEventAuthority>
+        : TAccountEventAuthority,
+      TAccountProgram extends string
+        ? ReadonlyAccount<TAccountProgram>
+        : TAccountProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -128,6 +138,8 @@ export function getUpdateGlobalConfigInstructionDataCodec(): Codec<
 export type UpdateGlobalConfigAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state account to update.
@@ -137,6 +149,9 @@ export type UpdateGlobalConfigAsyncInput<
   globalConfig?: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
+  eventAuthority?: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   newAdmin: UpdateGlobalConfigInstructionDataArgs["newAdmin"];
   newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
   newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
@@ -145,15 +160,24 @@ export type UpdateGlobalConfigAsyncInput<
 export async function getUpdateGlobalConfigInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigAsyncInput<TAccountGlobalConfig, TAccountAdmin>,
+  input: UpdateGlobalConfigAsyncInput<
+    TAccountGlobalConfig,
+    TAccountAdmin,
+    TAccountEventAuthority,
+    TAccountProgram
+  >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
   UpdateGlobalConfigInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountEventAuthority,
+    TAccountProgram
   >
 > {
   // Program address.
@@ -163,6 +187,8 @@ export async function getUpdateGlobalConfigInstructionAsync<
   const originalAccounts = {
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
     admin: { value: input.admin ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -176,12 +202,21 @@ export async function getUpdateGlobalConfigInstructionAsync<
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
   }
+  if (!accounts.eventAuthority.value) {
+    accounts.eventAuthority.value = await findEventAuthorityPda();
+  }
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUpdateGlobalConfigInstructionDataEncoder().encode(
       args as UpdateGlobalConfigInstructionDataArgs
@@ -190,13 +225,17 @@ export async function getUpdateGlobalConfigInstructionAsync<
   } as UpdateGlobalConfigInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
 export type UpdateGlobalConfigInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
+  TAccountEventAuthority extends string = string,
+  TAccountProgram extends string = string,
 > = {
   /**
    * The global configuration state account to update.
@@ -206,6 +245,9 @@ export type UpdateGlobalConfigInput<
   globalConfig: Address<TAccountGlobalConfig>;
   /** The admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
+  eventAuthority: Address<TAccountEventAuthority>;
+  /** The YieldBonds program itself. */
+  program?: Address<TAccountProgram>;
   newAdmin: UpdateGlobalConfigInstructionDataArgs["newAdmin"];
   newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
   newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
@@ -214,14 +256,23 @@ export type UpdateGlobalConfigInput<
 export function getUpdateGlobalConfigInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
+  TAccountEventAuthority extends string,
+  TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigInput<TAccountGlobalConfig, TAccountAdmin>,
+  input: UpdateGlobalConfigInput<
+    TAccountGlobalConfig,
+    TAccountAdmin,
+    TAccountEventAuthority,
+    TAccountProgram
+  >,
   config?: { programAddress?: TProgramAddress }
 ): UpdateGlobalConfigInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
-  TAccountAdmin
+  TAccountAdmin,
+  TAccountEventAuthority,
+  TAccountProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? ANCHOR_PROGRAM_ADDRESS;
@@ -230,6 +281,8 @@ export function getUpdateGlobalConfigInstruction<
   const originalAccounts = {
     globalConfig: { value: input.globalConfig ?? null, isWritable: true },
     admin: { value: input.admin ?? null, isWritable: false },
+    eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
+    program: { value: input.program ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -239,11 +292,19 @@ export function getUpdateGlobalConfigInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.program.value) {
+    accounts.program.value =
+      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+  }
+
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("admin", accounts.admin),
+      getAccountMeta("eventAuthority", accounts.eventAuthority),
+      getAccountMeta("program", accounts.program),
     ],
     data: getUpdateGlobalConfigInstructionDataEncoder().encode(
       args as UpdateGlobalConfigInstructionDataArgs
@@ -252,7 +313,9 @@ export function getUpdateGlobalConfigInstruction<
   } as UpdateGlobalConfigInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
-    TAccountAdmin
+    TAccountAdmin,
+    TAccountEventAuthority,
+    TAccountProgram
   >);
 }
 
@@ -270,6 +333,9 @@ export type ParsedUpdateGlobalConfigInstruction<
     globalConfig: TAccountMetas[0];
     /** The admin authority. */
     admin: TAccountMetas[1];
+    eventAuthority: TAccountMetas[2];
+    /** The YieldBonds program itself. */
+    program: TAccountMetas[3];
   };
   data: UpdateGlobalConfigInstructionData;
 };
@@ -282,12 +348,12 @@ export function parseUpdateGlobalConfigInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedUpdateGlobalConfigInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 2) {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 2,
+        expectedAccountMetas: 4,
       }
     );
   }
@@ -299,7 +365,12 @@ export function parseUpdateGlobalConfigInstruction<
   };
   return {
     programAddress: instruction.programAddress,
-    accounts: { globalConfig: getNextAccount(), admin: getNextAccount() },
+    accounts: {
+      globalConfig: getNextAccount(),
+      admin: getNextAccount(),
+      eventAuthority: getNextAccount(),
+      program: getNextAccount(),
+    },
     data: getUpdateGlobalConfigInstructionDataDecoder().decode(
       instruction.data
     ),

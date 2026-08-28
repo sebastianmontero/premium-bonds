@@ -18,6 +18,15 @@ import type { DrawCycleSummary, DrawHistoryStats } from "../types";
 
 const base64Encoder = getBase64Encoder();
 
+function parseSeedFromHex(hex?: string): Uint8Array {
+  if (!hex || hex.length !== 64) return new Uint8Array(32);
+  const arr = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    arr[i] = parseInt(hex.substr(i * 2, 2), 16) || 0;
+  }
+  return arr;
+}
+
 interface DrawExplorerResult {
   /** All historical draw summaries (newest first). */
   drawSummaries: DrawCycleSummary[];
@@ -32,13 +41,8 @@ interface DrawExplorerResult {
 }
 
 /**
- * Fetches lightweight DrawCycle headers for a pool with safe chunking.
- *
- * Strategy:
- * 1. Derives DrawCycle and PayoutRegistry PDAs for all historical cycles (cycleId = currentDrawCycleId ... 1).
- * 2. Fetches accounts in safe chunks of 80 accounts via `getMultipleAccounts`.
- * 3. Parses headers into `DrawCycleSummary` records with status, pot size, fees, and timestamps.
- * 4. Aggregates lifetime statistics (Total Yield Distributed, Completed Draws, Average Pot).
+ * Fetches lightweight DrawCycle headers for a pool with dual-mode support
+ * (Indexer REST primary with sub-10ms response, RPC batch scan fallback).
  */
 export function useDrawExplorer(
   poolId: number = 1,
@@ -98,6 +102,47 @@ export function useDrawExplorer(
       setIsRefetching(true);
     }
 
+    // 1. Primary Path: Try Indexer REST API
+    try {
+      const res = await fetch(
+        `/api/indexer/draws?poolId=${poolId}&limit=${maxCyclesToFetch}`,
+        { cache: "no-store" }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.fallback !== true && Array.isArray(data.draws)) {
+          if (fetchId !== fetchIdRef.current) return;
+
+          const hydratedSummaries: DrawCycleSummary[] = (
+            data.draws as Array<Omit<DrawCycleSummary, "randomnessSeed">>
+          ).map((d) => ({
+            ...d,
+            randomnessSeed: parseSeedFromHex(d.vrfSeedHex),
+          }));
+
+          setDrawSummaries(hydratedSummaries);
+          if (data.stats) {
+            setStats({
+              ...data.stats,
+              totalYieldDistributed:
+                poolTotalPrizesDistributed !== undefined
+                  ? poolTotalPrizesDistributed
+                  : data.stats.totalYieldDistributed,
+            });
+          }
+
+          hasLoadedRef.current = true;
+          setIsLoading(false);
+          setIsRefetching(false);
+          return;
+        }
+      }
+    } catch {
+      // Non-critical: Fallback cleanly to RPC
+    }
+
+    // 2. Fallback Path: Client-Side RPC Batch Query
     try {
       const rpc = client.runtime.rpc;
 
@@ -122,6 +167,7 @@ export function useDrawExplorer(
           });
           hasLoadedRef.current = true;
           setIsLoading(false);
+          setIsRefetching(false);
         }
         return;
       }

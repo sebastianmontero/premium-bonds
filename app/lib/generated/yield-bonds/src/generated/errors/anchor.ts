@@ -30,94 +30,92 @@ export const ANCHOR_ERROR__REGISTRY_TOO_SMALL = 0x1775; // 6005
 export const ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE = 0x1776; // 6006
 /** AwaitingRandomnessFreeze: The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused. */
 export const ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE = 0x1777; // 6007
-/** UnauthorizedTicket: The ticket does not belong to the user. */
-export const ANCHOR_ERROR__UNAUTHORIZED_TICKET = 0x1778; // 6008
 /** AlreadyClaimed: Trying to claim a prize that has already been claimed. */
-export const ANCHOR_ERROR__ALREADY_CLAIMED = 0x1779; // 6009
+export const ANCHOR_ERROR__ALREADY_CLAIMED = 0x1778; // 6008
 /** MathOverflow: Calculation overflow occurred natively. */
-export const ANCHOR_ERROR__MATH_OVERFLOW = 0x177a; // 6010
+export const ANCHOR_ERROR__MATH_OVERFLOW = 0x1779; // 6009
 /** InvalidWinnerIndex: Winner index is out of bounds. */
-export const ANCHOR_ERROR__INVALID_WINNER_INDEX = 0x177b; // 6011
+export const ANCHOR_ERROR__INVALID_WINNER_INDEX = 0x177a; // 6010
 /** UnauthorizedCrank: Only the designated Switchboard Jobs Account can execute this crank. */
-export const ANCHOR_ERROR__UNAUTHORIZED_CRANK = 0x177c; // 6012
+export const ANCHOR_ERROR__UNAUTHORIZED_CRANK = 0x177b; // 6011
 /** InvalidPrizeTierConfig: Invalid prize tier configuration. */
-export const ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG = 0x177d; // 6013
+export const ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG = 0x177c; // 6012
 /** PrizeTiersNotConfigured: Prize tiers have not been configured for this pool. */
-export const ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED = 0x177e; // 6014
+export const ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED = 0x177d; // 6013
 /** BasisPointsMustEqual10000: Total basis points across all tiers must equal exactly 10,000 (100%). */
-export const ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000 = 0x177f; // 6015
+export const ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000 = 0x177e; // 6014
 /** InvalidDrawStatus: The draw cycle is in an invalid phase for this operation */
-export const ANCHOR_ERROR__INVALID_DRAW_STATUS = 0x1780; // 6016
+export const ANCHOR_ERROR__INVALID_DRAW_STATUS = 0x177f; // 6015
 /** InvalidDrawState: The draw cycle has an invalid locked count or prize pot. */
-export const ANCHOR_ERROR__INVALID_DRAW_STATE = 0x1781; // 6017
+export const ANCHOR_ERROR__INVALID_DRAW_STATE = 0x1780; // 6016
 /** UnauthorizedAdmin: Unauthorized admin. */
-export const ANCHOR_ERROR__UNAUTHORIZED_ADMIN = 0x1782; // 6018
+export const ANCHOR_ERROR__UNAUTHORIZED_ADMIN = 0x1781; // 6017
 /** InvalidBondPrice: Bond price must be greater than 0. */
-export const ANCHOR_ERROR__INVALID_BOND_PRICE = 0x1783; // 6019
+export const ANCHOR_ERROR__INVALID_BOND_PRICE = 0x1782; // 6018
 /** InvalidStakeCycleDuration: Stake cycle duration must be greater than 0 hours. */
-export const ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION = 0x1784; // 6020
+export const ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION = 0x1783; // 6019
 /** HumaRedemptionNotSettled: Huma redemption has not been settled yet. */
-export const ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED = 0x1785; // 6021
+export const ANCHOR_ERROR__HUMA_REDEMPTION_NOT_SETTLED = 0x1784; // 6020
 /** InvalidRedemptionOwner: Beneficiary does not match pending redemption owner. */
-export const ANCHOR_ERROR__INVALID_REDEMPTION_OWNER = 0x1786; // 6022
+export const ANCHOR_ERROR__INVALID_REDEMPTION_OWNER = 0x1785; // 6021
 /** InsufficientFeeBalance: Insufficient accrued fee balance for withdrawal. */
-export const ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE = 0x1787; // 6023
+export const ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE = 0x1786; // 6022
 /** NoWinningsToClaim: No unclaimed non-reinvested winnings to claim. */
-export const ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM = 0x1788; // 6024
+export const ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM = 0x1787; // 6023
 /** InvalidFeeConfig: Fee basis points must be less than or equal to 10,000 (100%). */
-export const ANCHOR_ERROR__INVALID_FEE_CONFIG = 0x1789; // 6025
+export const ANCHOR_ERROR__INVALID_FEE_CONFIG = 0x1788; // 6024
 /** InvalidMaxYieldBasisPoints: Max yield basis points must be less than or equal to 10,000 (100%). */
-export const ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS = 0x178a; // 6026
+export const ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS = 0x1789; // 6025
 /** InvalidPayoutTimelock: Payout timelock delay must not exceed 86,400 seconds (24 hours). */
-export const ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK = 0x178b; // 6027
+export const ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK = 0x178a; // 6026
 /** InvalidModeMint: The mode mint does not match the pool's mode mint. */
-export const ANCHOR_ERROR__INVALID_MODE_MINT = 0x178c; // 6028
+export const ANCHOR_ERROR__INVALID_MODE_MINT = 0x178b; // 6027
 /** InvalidRandomnessAccount: The provided randomness account is invalid or does not belong to Switchboard. */
-export const ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT = 0x178d; // 6029
+export const ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT = 0x178c; // 6028
 /** RandomnessNotResolved: The randomness request has not yet been resolved by the oracle network. */
-export const ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED = 0x178e; // 6030
+export const ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED = 0x178d; // 6029
 /** StaleRandomnessRequest: The randomness request is stale or was committed before the harvest freeze. */
-export const ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST = 0x178f; // 6031
+export const ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST = 0x178e; // 6030
 /** RandomnessNotExpired: The randomness account cannot be re-locked because the current one is not yet expired. */
-export const ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED = 0x1790; // 6032
+export const ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED = 0x178f; // 6031
 /** InvalidUserEntryHint: Invalid registry user entry hint provided */
-export const ANCHOR_ERROR__INVALID_USER_ENTRY_HINT = 0x1791; // 6033
+export const ANCHOR_ERROR__INVALID_USER_ENTRY_HINT = 0x1790; // 6032
 /** InsufficientPendingTickets: Insufficient pending tickets for this transaction */
-export const ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS = 0x1792; // 6034
+export const ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS = 0x1791; // 6033
 /** InsufficientActiveTickets: Insufficient active tickets for this transaction */
-export const ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS = 0x1793; // 6035
+export const ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS = 0x1792; // 6034
 /** PoolNotFrozen: The prize pool must be frozen for draw preparation */
-export const ANCHOR_ERROR__POOL_NOT_FROZEN = 0x1794; // 6036
+export const ANCHOR_ERROR__POOL_NOT_FROZEN = 0x1793; // 6035
 /** MissingSwappedUserWinnings: Required remaining account for swapped user's UserWinnings is missing */
-export const ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS = 0x1795; // 6037
+export const ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS = 0x1794; // 6036
 /** InvalidFeeWallet: The provided fee wallet account is invalid or does not match the pool configuration */
-export const ANCHOR_ERROR__INVALID_FEE_WALLET = 0x1796; // 6038
+export const ANCHOR_ERROR__INVALID_FEE_WALLET = 0x1795; // 6037
 /** CannotModifyBondPriceWithActiveDeposits: Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes. */
-export const ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS = 0x1797; // 6039
+export const ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS = 0x1796; // 6038
 /** PoolPaused: The prize pool is paused. */
-export const ANCHOR_ERROR__POOL_PAUSED = 0x1798; // 6040
+export const ANCHOR_ERROR__POOL_PAUSED = 0x1797; // 6039
 /** PoolClosed: The prize pool is closed permanently. */
-export const ANCHOR_ERROR__POOL_CLOSED = 0x1799; // 6041
+export const ANCHOR_ERROR__POOL_CLOSED = 0x1798; // 6040
 /** DrawVoided: This draw has been voided. */
-export const ANCHOR_ERROR__DRAW_VOIDED = 0x179a; // 6042
+export const ANCHOR_ERROR__DRAW_VOIDED = 0x1799; // 6041
 /** DrawAlreadyVoided: This draw has already been voided. */
-export const ANCHOR_ERROR__DRAW_ALREADY_VOIDED = 0x179b; // 6043
+export const ANCHOR_ERROR__DRAW_ALREADY_VOIDED = 0x179a; // 6042
 /** PayoutsAlreadyStarted: Winner payouts have already begun processing. */
-export const ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED = 0x179c; // 6044
+export const ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED = 0x179b; // 6043
 /** PayoutTimelockActive: Payout settlement timelock is active. */
-export const ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE = 0x179d; // 6045
+export const ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE = 0x179c; // 6044
 /** FeesAlreadyWithdrawn: Protocol fees from this cycle were already withdrawn. */
-export const ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN = 0x179e; // 6046
+export const ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN = 0x179d; // 6045
 /** YieldVelocityExceeded: Yield velocity limit exceeded. */
-export const ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED = 0x179f; // 6047
+export const ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED = 0x179e; // 6046
 /** YieldVenueInsolvent: Yield venue is insolvent. */
-export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x17a0; // 6048
+export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x179f; // 6047
 /** Unauthorized: Unauthorized signer. */
-export const ANCHOR_ERROR__UNAUTHORIZED = 0x17a1; // 6049
+export const ANCHOR_ERROR__UNAUTHORIZED = 0x17a0; // 6048
 /** WinnerMismatch: Winner account does not match the payout registry entry. */
-export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a2; // 6050
+export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a1; // 6049
 /** UnsupportedAccountVersion: Account schema version is invalid or unsupported. */
-export const ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION = 0x17a3; // 6051
+export const ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION = 0x17a2; // 6050
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -167,7 +165,6 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__UNAUTHORIZED
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
-  | typeof ANCHOR_ERROR__UNAUTHORIZED_TICKET
   | typeof ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION
   | typeof ANCHOR_ERROR__WINNER_MISMATCH
   | typeof ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED
@@ -223,7 +220,6 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,
-    [ANCHOR_ERROR__UNAUTHORIZED_TICKET]: `The ticket does not belong to the user.`,
     [ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: `Account schema version is invalid or unsupported.`,
     [ANCHOR_ERROR__WINNER_MISMATCH]: `Winner account does not match the payout registry entry.`,
     [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: `Yield velocity limit exceeded.`,
