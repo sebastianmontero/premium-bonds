@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import {
   parseEventsFromTxMeta,
   resolveEventMetadata,
 } from "@/app/lib/anchor-events";
+import { isDatabaseConfigured } from "@/app/lib/db";
 import {
   ingestTransactionBatch,
   IngestTransactionItem,
@@ -12,23 +12,13 @@ import {
   broadcastAggregatedInvalidations,
   RealtimeBroadcastItem,
 } from "@/app/lib/realtime/server";
+import type { HeliusTransactionPayload } from "@/app/lib/types/webhook";
+import {
+  isTimingSafeAuthorized,
+  isSuccessfulHeliusTransaction,
+} from "@/app/lib/webhook-auth";
 
 export const dynamic = "force-dynamic";
-
-function isAuthorized(
-  authHeader: string | null,
-  expectedSecret: string
-): boolean {
-  if (!authHeader) return false;
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : authHeader;
-  if (token.length !== expectedSecret.length) return false;
-  return crypto.timingSafeEqual(
-    Buffer.from(token),
-    Buffer.from(expectedSecret)
-  );
-}
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -37,31 +27,38 @@ export async function POST(req: NextRequest) {
   if (!expectedSecret) {
     console.error("[Webhook Error] HELIUS_WEBHOOK_SECRET is not configured.");
     return NextResponse.json(
-      { error: "Server misconfiguration" },
+      { error: "Server misconfiguration: HELIUS_WEBHOOK_SECRET missing" },
       { status: 500 }
     );
   }
 
-  if (!isAuthorized(authHeader, expectedSecret)) {
+  if (!isTimingSafeAuthorized(authHeader, expectedSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isDatabaseConfigured) {
+    console.error("[Webhook Error] DATABASE_URL is not configured.");
+    return NextResponse.json(
+      { error: "Server misconfiguration: Database not configured" },
+      { status: 500 }
+    );
   }
 
   try {
     const payload = await req.json();
-    const transactions = Array.isArray(payload) ? payload : [payload];
+    const transactions: HeliusTransactionPayload[] = Array.isArray(payload)
+      ? payload
+      : [payload];
     const network = process.env.NEXT_PUBLIC_ENVIRONMENT || "mainnet-beta";
 
     // Strictly filter out null signatures and reverted/failed transactions
-    const validTransactions = transactions.filter((tx) => {
-      if (!tx?.signature) return false;
-      if (tx.err != null || tx.meta?.err != null || tx.transactionError != null)
-        return false;
-      return true;
-    });
+    const validTransactions = transactions.filter(
+      isSuccessfulHeliusTransaction
+    );
 
     const batch: IngestTransactionItem[] = validTransactions.map((tx) => ({
       context: {
-        signature: tx.signature as string,
+        signature: tx.signature,
         slot: Number(tx.slot || 0),
         blockTime: Number(tx.timestamp || Math.floor(Date.now() / 1000)),
         network,
