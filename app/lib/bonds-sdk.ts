@@ -13,6 +13,7 @@ import {
   getBase64Encoder,
   lamports,
   TransactionSigner,
+  IInstruction,
 } from "@solana/kit";
 import {
   ANCHOR_PROGRAM_ADDRESS,
@@ -730,6 +731,7 @@ import {
   getUnpausePoolInstructionAsync,
   getClosePoolInstructionAsync,
   getAdminVoidPayoutRegistryInstructionAsync,
+  getClaimRedemptionInstructionAsync,
 } from "./generated/yield-bonds/src/generated/instructions";
 
 import {
@@ -761,6 +763,7 @@ export {
   getUnpausePoolInstructionAsync,
   getClosePoolInstructionAsync,
   getAdminVoidPayoutRegistryInstructionAsync,
+  getClaimRedemptionInstructionAsync,
   getSimulateYieldInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
@@ -1314,4 +1317,105 @@ export async function buildCrankRebindExpiredRandomnessInstruction(params: {
     currentDrawCycle,
     newRandomnessAccount: params.newRandomnessAccount,
   });
+}
+
+export interface HumaPoolAddresses {
+  poolState: Address;
+  config?: Address;
+  poolConfig?: Address;
+  modeConfig?: Address;
+  lenderState?: Address;
+  poolUnderlyingToken?: Address;
+}
+
+export interface BuildClaimRedemptionParams {
+  crank: Address | TransactionSigner;
+  beneficiary: Address;
+  poolId: number;
+  redemptionId: bigint | number;
+  tokenMint: Address;
+  humaAddresses: HumaPoolAddresses;
+}
+
+export async function buildClaimRedemptionInstruction(
+  params: BuildClaimRedemptionParams
+) {
+  const pool = await findPrizePoolPda(params.poolId);
+  const poolVaultAccount = await findPoolVaultPda(params.poolId);
+  const pendingRedemption = await findPendingRedemptionPda(
+    params.poolId,
+    BigInt(params.redemptionId)
+  );
+  const beneficiaryTokenAccount = await findAtaAddress(
+    params.beneficiary,
+    params.tokenMint
+  );
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    params.humaAddresses.poolState
+  );
+  const eventAuthority = await findEventAuthorityPda();
+
+  return getClaimRedemptionInstructionAsync({
+    caller: params.crank as TransactionSigner,
+    beneficiary: params.beneficiary,
+    pool,
+    pendingRedemption,
+    tokenMint: params.tokenMint,
+    poolVaultAccount,
+    beneficiaryTokenAccount,
+    humaConfig: params.humaAddresses.config || SYSTEM_PROGRAM_ID,
+    humaPoolConfig: params.humaAddresses.poolConfig || SYSTEM_PROGRAM_ID,
+    humaPoolState: params.humaAddresses.poolState,
+    humaModeConfig: params.humaAddresses.modeConfig || SYSTEM_PROGRAM_ID,
+    humaLenderState: params.humaAddresses.lenderState || SYSTEM_PROGRAM_ID,
+    humaPoolAuthority,
+    humaPoolUnderlyingToken:
+      params.humaAddresses.poolUnderlyingToken || poolVaultAccount,
+    eventAuthority,
+  });
+}
+
+export async function buildPackedReinvestWinningsInstructions(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  cycleId: number;
+  winners: { winner: Address; winnerIndex: number }[];
+  ticketRegistry: Address;
+}): Promise<IInstruction[]> {
+  const instructions: IInstruction[] = [];
+  for (const item of params.winners) {
+    const ix = await buildReinvestWinningsInstruction({
+      crank: params.crank,
+      winner: item.winner,
+      poolId: params.poolId,
+      cycleId: params.cycleId,
+      winnerIndex: item.winnerIndex,
+      ticketRegistry: params.ticketRegistry,
+    });
+    instructions.push(ix);
+  }
+  return instructions;
+}
+
+export async function buildAtomicRevealAndPickWinnersInstructions(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  currentDrawCycleId: number;
+  ticketRegistry: Address;
+  randomnessAccount: Address;
+  switchboardRevealInstruction?: IInstruction;
+}): Promise<IInstruction[]> {
+  const instructions: IInstruction[] = [];
+  if (params.switchboardRevealInstruction) {
+    instructions.push(params.switchboardRevealInstruction);
+  }
+  const revealIx = await buildRevealAndPickWinnersInstruction({
+    crank: params.crank,
+    poolId: params.poolId,
+    currentDrawCycleId: params.currentDrawCycleId,
+    ticketRegistry: params.ticketRegistry,
+    randomnessAccount: params.randomnessAccount,
+  });
+  instructions.push(revealIx);
+  return instructions;
 }

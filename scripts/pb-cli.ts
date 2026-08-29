@@ -24,6 +24,7 @@ import {
   safeStringify,
   printErrorDetails,
   extractAllLogs,
+  readEnvFile,
 } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 
@@ -785,7 +786,7 @@ function formatTimestamp(seconds: number | bigint): string {
 function loadAddresses(isDevnet: boolean): Record<string, string> {
   const stateDir = isDevnet ? "devnet-state" : "localnet-state";
   const filePath = path.resolve(__dirname, stateDir, "addresses.json");
-  const env = loadEnvLocal();
+  const env = readEnvFile(path.resolve(process.cwd(), ".env.local"));
   let fileAddresses: Record<string, string> = {};
   if (fs.existsSync(filePath)) {
     try {
@@ -801,22 +802,7 @@ function loadAddresses(isDevnet: boolean): Record<string, string> {
 }
 
 function loadEnvLocal(): Record<string, string> {
-  const envPath = path.resolve(process.cwd(), ".env.local");
-  const env: Record<string, string> = {};
-  if (fs.existsSync(envPath)) {
-    const lines = fs.readFileSync(envPath, "utf-8").split("\n");
-    for (const line of lines) {
-      const match = line.match(/^\s*([^#=\s]+)\s*=\s*(.*)$/);
-      if (match) {
-        let val = match[2].trim();
-        if (val.startsWith('"') && val.endsWith('"')) {
-          val = val.substring(1, val.length - 1);
-        }
-        env[match[1]] = val;
-      }
-    }
-  }
-  return env;
+  return readEnvFile(path.resolve(process.cwd(), ".env.local"));
 }
 
 async function setAccount(

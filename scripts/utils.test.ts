@@ -1,4 +1,10 @@
-import { formatErrorDetails, extractAllLogs, formatStackTrace } from "./utils";
+import {
+  formatErrorDetails,
+  extractAllLogs,
+  formatStackTrace,
+  upsertEnvFile,
+  readEnvFile,
+} from "./utils";
 import { parseLocalnetFlags, getBootstrapGuideText } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
@@ -444,6 +450,20 @@ function runTests() {
     );
 
     console.log("✓ Passed Test 12\n");
+  }
+
+  // Test 13: Environment utilities re-exported from utils.ts
+  {
+    console.log("Test 13: Environment utilities re-export");
+    assert(
+      typeof upsertEnvFile === "function",
+      "upsertEnvFile should be exported from utils"
+    );
+    assert(
+      typeof readEnvFile === "function",
+      "readEnvFile should be exported from utils"
+    );
+    console.log("✓ Passed Test 13\n");
   }
 
   console.log("All unit tests completed successfully!");

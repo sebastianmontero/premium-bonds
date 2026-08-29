@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
-import { Address } from "@solana/kit";
+import { address } from "@solana/kit";
 import {
   fetchProgramEvents,
   ProgramEvent,
@@ -192,14 +192,32 @@ export function useActivityFeed(
     setEntries(newEntries);
   }, []);
 
+  const updateHasMoreState = useCallback((val: boolean) => {
+    hasMoreRef.current = val;
+    setHasMore(val);
+  }, []);
+
+  const resetFeedState = useCallback(() => {
+    entriesRef.current = [];
+    updateEntriesState([]);
+    updateHasMoreState(false);
+    oldestSignatureRef.current = null;
+    indexerCursorRef.current = null;
+    hasLoadedRef.current = false;
+    setIsLoading(false);
+    setIsFetchingMore(false);
+    isFetchingMoreRef.current = false;
+    setScanProgress(null);
+  }, [updateEntriesState, updateHasMoreState]);
+
   // Reset entries state on wallet address change to avoid cross-wallet contamination
   useEffect(() => {
     if (lastUserAddressRef.current !== userAddress) {
       lastUserAddressRef.current = userAddress;
-      hasLoadedRef.current = false;
-      updateEntriesState([]);
+      ++fetchIdRef.current;
+      resetFeedState();
     }
-  }, [userAddress, updateEntriesState]);
+  }, [userAddress, resetFeedState]);
 
   // Cleanup pending background timers on unmount
   useEffect(() => {
@@ -210,12 +228,8 @@ export function useActivityFeed(
 
   const fetchFeed = useCallback(async () => {
     if (!userAddress) {
-      updateEntriesState([]);
-      setHasMore(false);
-      hasMoreRef.current = false;
-      oldestSignatureRef.current = null;
-      indexerCursorRef.current = null;
-      hasLoadedRef.current = false;
+      ++fetchIdRef.current;
+      resetFeedState();
       return;
     }
 
@@ -224,41 +238,50 @@ export function useActivityFeed(
       setIsLoading(true);
     }
 
-    // 1. Primary Path: Try Indexer REST API
     try {
-      const res = await fetch(
-        `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=20`,
-        { cache: "no-store" }
-      );
+      // 1. Primary Path: Try Indexer REST API
+      try {
+        const res = await fetch(
+          `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=20`,
+          { cache: "no-store" }
+        );
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.fallback !== true) {
-          if (fetchId !== fetchIdRef.current) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.fallback !== true) {
+            if (fetchId !== fetchIdRef.current) return;
 
-          modeRef.current = "indexer";
-          indexerCursorRef.current = data.nextCursor || null;
-          const moreAvailable = Boolean(data.nextCursor);
-          hasMoreRef.current = moreAvailable;
-          setHasMore(moreAvailable);
+            modeRef.current = "indexer";
+            indexerCursorRef.current = data.nextCursor || null;
+            const moreAvailable = Boolean(data.nextCursor);
+            updateHasMoreState(moreAvailable);
 
-          const mergedEntries = mergeAndDeduplicate(
-            entriesRef.current,
-            data.entries || []
-          );
-          updateEntriesState(mergedEntries);
-          return;
+            const mergedEntries = mergeAndDeduplicate(
+              entriesRef.current,
+              data.entries || []
+            );
+            updateEntriesState(mergedEntries);
+
+            if (!oldestSignatureRef.current && mergedEntries.length > 0) {
+              const lastWithSig = [...mergedEntries]
+                .reverse()
+                .find((e) => Boolean(e.txSignature));
+              if (lastWithSig?.txSignature) {
+                oldestSignatureRef.current = lastWithSig.txSignature;
+              }
+            }
+
+            return;
+          }
         }
+      } catch {
+        // Non-critical: Fallback cleanly to on-chain RPC scanning
       }
-    } catch {
-      // Non-critical: Fallback cleanly to on-chain RPC scanning
-    }
 
-    // 2. Fallback Path: Client-Side RPC Scanning
-    modeRef.current = "rpc";
-    try {
+      // 2. Fallback Path: Client-Side RPC Scanning
+      modeRef.current = "rpc";
       const rpc = client.runtime.rpc;
-      const walletAddr = userAddress as unknown as Address;
+      const walletAddr = address(userAddress);
 
       const genesisHash = await fetchClusterGenesisHash(rpc);
 
@@ -285,8 +308,7 @@ export function useActivityFeed(
           oldestSignatureRef.current = cached.oldestSignature;
         }
         if (cached.hasMore !== undefined) {
-          hasMoreRef.current = cached.hasMore;
-          setHasMore(cached.hasMore);
+          updateHasMoreState(cached.hasMore);
         }
       }
 
@@ -314,8 +336,7 @@ export function useActivityFeed(
         if (result.oldestRawSignature) {
           oldestSignatureRef.current = result.oldestRawSignature;
         }
-        hasMoreRef.current = result.hasMore;
-        setHasMore(result.hasMore);
+        updateHasMoreState(result.hasMore);
       } else if (!oldestSignatureRef.current && result.oldestRawSignature) {
         oldestSignatureRef.current = result.oldestRawSignature;
       }
@@ -365,7 +386,14 @@ export function useActivityFeed(
         setIsLoading(false);
       }
     }
-  }, [client, userAddress, tokenDecimals, updateEntriesState]);
+  }, [
+    client,
+    userAddress,
+    tokenDecimals,
+    updateEntriesState,
+    updateHasMoreState,
+    resetFeedState,
+  ]);
 
   useEffect(() => {
     fetchFeed();
@@ -390,48 +418,55 @@ export function useActivityFeed(
       isFetchingMoreRef.current = true;
       setIsFetchingMore(true);
 
-      // 1. Indexer Mode Pagination
-      if (modeRef.current === "indexer" && indexerCursorRef.current) {
-        try {
-          const res = await fetch(
-            `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=${batchLimit}&cursor=${encodeURIComponent(indexerCursorRef.current)}`,
-            { cache: "no-store" }
-          );
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.fallback !== true) {
-              if (fetchId !== fetchIdRef.current) return false;
-
-              indexerCursorRef.current = data.nextCursor || null;
-              const moreAvailable = Boolean(data.nextCursor);
-              hasMoreRef.current = moreAvailable;
-              setHasMore(moreAvailable);
-
-              const merged = mergeAndDeduplicate(
-                entriesRef.current,
-                data.entries || []
-              );
-              updateEntriesState(merged);
-              return moreAvailable;
-            }
-          }
-        } catch {
-          // Switch to RPC mode if indexer fails during pagination
-          modeRef.current = "rpc";
-        }
-      }
-
-      // 2. RPC Mode Pagination
-      if (!oldestSignatureRef.current) {
-        isFetchingMoreRef.current = false;
-        setIsFetchingMore(false);
-        return false;
-      }
-
       try {
+        // 1. Indexer Mode Pagination
+        if (modeRef.current === "indexer" && indexerCursorRef.current) {
+          try {
+            const res = await fetch(
+              `/api/indexer/activity?user=${encodeURIComponent(userAddress)}&limit=${batchLimit}&cursor=${encodeURIComponent(indexerCursorRef.current)}`,
+              { cache: "no-store" }
+            );
+
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.fallback !== true) {
+                if (fetchId !== fetchIdRef.current) return false;
+
+                indexerCursorRef.current = data.nextCursor || null;
+                const moreAvailable = Boolean(data.nextCursor);
+                updateHasMoreState(moreAvailable);
+
+                const merged = mergeAndDeduplicate(
+                  entriesRef.current,
+                  data.entries || []
+                );
+                updateEntriesState(merged);
+
+                if (!oldestSignatureRef.current && merged.length > 0) {
+                  const lastWithSig = [...merged]
+                    .reverse()
+                    .find((e) => Boolean(e.txSignature));
+                  if (lastWithSig?.txSignature) {
+                    oldestSignatureRef.current = lastWithSig.txSignature;
+                  }
+                }
+
+                return moreAvailable;
+              }
+            }
+          } catch {
+            // Switch to RPC mode if indexer fails during pagination
+            modeRef.current = "rpc";
+          }
+        }
+
+        // 2. RPC Mode Pagination
+        if (!oldestSignatureRef.current) {
+          return false;
+        }
+
         const rpc = client.runtime.rpc;
-        const walletAddr = userAddress as unknown as Address;
+        const walletAddr = address(userAddress);
 
         const newParsed: ActivityEntry[] = [];
         let canContinue: boolean = hasMoreRef.current;
@@ -455,8 +490,7 @@ export function useActivityFeed(
           if (result.oldestRawSignature) {
             oldestSignatureRef.current = result.oldestRawSignature;
           }
-          hasMoreRef.current = result.hasMore;
-          setHasMore(result.hasMore);
+          updateHasMoreState(result.hasMore);
           canContinue = result.hasMore;
 
           for (const event of result.events) {
@@ -485,7 +519,7 @@ export function useActivityFeed(
         }
       }
     },
-    [client, userAddress, tokenDecimals, updateEntriesState]
+    [client, userAddress, tokenDecimals, updateEntriesState, updateHasMoreState]
   );
 
   /**
@@ -505,21 +539,26 @@ export function useActivityFeed(
       const MAX_BATCHES = 5;
       let batchCount = 0;
 
-      while (
-        currentMatches < targetCount &&
-        hasMoreRef.current &&
-        batchCount < MAX_BATCHES
-      ) {
-        batchCount++;
-        setScanProgress({ currentBatch: batchCount, maxBatches: MAX_BATCHES });
+      try {
+        while (
+          currentMatches < targetCount &&
+          hasMoreRef.current &&
+          batchCount < MAX_BATCHES
+        ) {
+          batchCount++;
+          setScanProgress({
+            currentBatch: batchCount,
+            maxBatches: MAX_BATCHES,
+          });
 
-        const canContinue = await loadMore(15);
-        currentMatches = entriesRef.current.filter(filterFn).length;
+          const canContinue = await loadMore(15);
+          currentMatches = entriesRef.current.filter(filterFn).length;
 
-        if (!canContinue) break;
+          if (!canContinue) break;
+        }
+      } finally {
+        setScanProgress(null);
       }
-
-      setScanProgress(null);
     },
     [userAddress, loadMore]
   );

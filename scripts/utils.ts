@@ -16,6 +16,13 @@ import {
   truncateSignature,
   matchAnchorError,
 } from "../app/lib/errors";
+export {
+  parseEnvLine,
+  readEnvFile,
+  upsertEnvFile,
+  type UpsertEnvOptions,
+  type ParsedEnvLine,
+} from "./env-utils";
 
 /**
  * Checks if the RPC node at the given URL is healthy.

@@ -207,7 +207,52 @@ async function runTests() {
     assert.strictEqual(receivedRequests.length, 1);
     assert.strictEqual(receivedRequests[0].auth, `Bearer ${mockSecret}`);
 
-    console.log("✓ HTTP Mock Webhook endpoint communication verified!");
+    // Test BigInt payload serialization (e.g. fees, balances, custom inner instruction lamports)
+    receivedRequests = [];
+    const payloadWithBigInts = [
+      {
+        signature: "sig_bigint_test_123",
+        slot: 12345678,
+        timestamp: 1700000000,
+        err: null,
+        meta: {
+          err: null,
+          fee: 5000n as any,
+          preBalances: [1000000000n as any, 50000000n as any],
+          postBalances: [999995000n as any, 50000000n as any],
+          logMessages: [
+            "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
+          ],
+          innerInstructions: [],
+        },
+      },
+    ];
+
+    const bigIntRes = await fetch(mockWebhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${mockSecret}`,
+      },
+      body: JSON.stringify(payloadWithBigInts, (_key, value) =>
+        typeof value === "bigint"
+          ? Number.isSafeInteger(Number(value))
+            ? Number(value)
+            : value.toString()
+          : value
+      ),
+    });
+    assert.strictEqual(bigIntRes.ok, true);
+    assert.strictEqual(receivedRequests.length, 1);
+    assert.strictEqual(receivedRequests[0].body[0].meta.fee, 5000);
+    assert.strictEqual(
+      receivedRequests[0].body[0].meta.preBalances[0],
+      1000000000
+    );
+
+    console.log(
+      "✓ HTTP Mock Webhook endpoint and BigInt serialization verified!"
+    );
   } finally {
     server.close();
   }

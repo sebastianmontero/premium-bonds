@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { getPusherClient } from "../lib/realtime/client";
 import {
+  REALTIME_GLOBAL_CHANNEL,
+  REALTIME_PROTOCOL_SYNC_EVENT,
+  getRealtimeUserChannel,
+  isValidPusherChannel,
+} from "../lib/realtime/channels";
+import {
   notifyProtocolUpdate,
   ProtocolSyncDetail,
 } from "../lib/protocol-sync-bus";
@@ -45,32 +51,37 @@ export function useProtocolPushSync(
       });
     };
 
-    const globalChannel = pusher.subscribe("pb:global");
-    globalChannel.bind("protocol-sync", handleGlobalSync);
+    const globalChannel = pusher.subscribe(REALTIME_GLOBAL_CHANNEL);
+    globalChannel.bind(REALTIME_PROTOCOL_SYNC_EVENT, handleGlobalSync);
 
     // 2. Subscribe to User-Specific Channel (if userAddress is provided)
     let userChannel: Channel | null = null;
+    let userChannelName: string | null = null;
     let handleUserSync: ((data: ProtocolSyncDetail) => void) | null = null;
 
     if (userAddress) {
-      handleUserSync = (data: ProtocolSyncDetail) => {
-        notifyProtocolUpdate(data.scope, {
-          poolId: data.poolId,
-          reason: `push:user_${data.reason || "personal"}`,
-        });
-      };
+      const targetUserChannel = getRealtimeUserChannel(userAddress);
+      if (isValidPusherChannel(targetUserChannel)) {
+        userChannelName = targetUserChannel;
+        handleUserSync = (data: ProtocolSyncDetail) => {
+          notifyProtocolUpdate(data.scope, {
+            poolId: data.poolId,
+            reason: `push:user_${data.reason || "personal"}`,
+          });
+        };
 
-      userChannel = pusher.subscribe(`pb:user-${userAddress}`);
-      userChannel.bind("protocol-sync", handleUserSync);
+        userChannel = pusher.subscribe(targetUserChannel);
+        userChannel.bind(REALTIME_PROTOCOL_SYNC_EVENT, handleUserSync);
+      }
     }
 
     return () => {
-      globalChannel.unbind("protocol-sync", handleGlobalSync);
-      pusher.unsubscribe("pb:global");
+      globalChannel.unbind(REALTIME_PROTOCOL_SYNC_EVENT, handleGlobalSync);
+      pusher.unsubscribe(REALTIME_GLOBAL_CHANNEL);
 
-      if (userChannel && userAddress && handleUserSync) {
-        userChannel.unbind("protocol-sync", handleUserSync);
-        pusher.unsubscribe(`pb:user-${userAddress}`);
+      if (userChannel && userChannelName && handleUserSync) {
+        userChannel.unbind(REALTIME_PROTOCOL_SYNC_EVENT, handleUserSync);
+        pusher.unsubscribe(userChannelName);
       }
 
       pusher.connection.unbind("connected", handleConnected);

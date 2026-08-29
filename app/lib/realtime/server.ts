@@ -1,5 +1,11 @@
 import Pusher from "pusher";
 import type { ProtocolSyncScope } from "../protocol-sync-bus";
+import {
+  REALTIME_GLOBAL_CHANNEL,
+  REALTIME_PROTOCOL_SYNC_EVENT,
+  getRealtimeUserChannel,
+  isValidPusherChannel,
+} from "./channels";
 
 let pusherServer: Pusher | null = null;
 
@@ -61,7 +67,7 @@ export async function broadcastAggregatedInvalidations(
         : "all";
 
     broadcastPromises.push(
-      server.trigger("pb:global", "protocol-sync", {
+      server.trigger(REALTIME_GLOBAL_CHANNEL, REALTIME_PROTOCOL_SYNC_EVENT, {
         scope: aggregatedScope,
         poolId: primaryPoolId,
         reason: `webhook:aggregated_${events.length}_events`,
@@ -71,8 +77,11 @@ export async function broadcastAggregatedInvalidations(
 
     // 2. Targeted User Channel Invalidation Broadcasts
     for (const user of userAddresses) {
+      const userChannel = getRealtimeUserChannel(user);
+      if (!isValidPusherChannel(userChannel)) continue;
+
       broadcastPromises.push(
-        server.trigger(`pb:user-${user}`, "protocol-sync", {
+        server.trigger(userChannel, REALTIME_PROTOCOL_SYNC_EVENT, {
           scope: "user",
           poolId: primaryPoolId,
           reason: "webhook:user_activity",

@@ -223,14 +223,21 @@ export async function runWebhookRelayer(
             if (tx && tx.meta) {
               payloads.push({
                 signature: s.signature,
-                slot: Number(tx.slot || s.slot || 0),
-                timestamp: Number(s.blockTime || Math.floor(Date.now() / 1000)),
+                slot: Number(tx.slot ?? s.slot ?? 0),
+                timestamp: Number(s.blockTime ?? Math.floor(Date.now() / 1000)),
                 err: tx.meta.err ?? null,
                 meta: {
                   err: tx.meta.err ?? null,
-                  fee: tx.meta.fee,
-                  preBalances: tx.meta.preBalances,
-                  postBalances: tx.meta.postBalances,
+                  fee:
+                    tx.meta.fee !== undefined && tx.meta.fee !== null
+                      ? Number(tx.meta.fee)
+                      : undefined,
+                  preBalances: Array.isArray(tx.meta.preBalances)
+                    ? tx.meta.preBalances.map((b: any) => Number(b))
+                    : [],
+                  postBalances: Array.isArray(tx.meta.postBalances)
+                    ? tx.meta.postBalances.map((b: any) => Number(b))
+                    : [],
                   logMessages: tx.meta.logMessages || [],
                   innerInstructions: tx.meta.innerInstructions || [],
                 },
@@ -257,7 +264,13 @@ export async function runWebhookRelayer(
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${config.webhookSecret}`,
               },
-              body: JSON.stringify(chunk),
+              body: JSON.stringify(chunk, (_key, value) =>
+                typeof value === "bigint"
+                  ? Number.isSafeInteger(Number(value))
+                    ? Number(value)
+                    : value.toString()
+                  : value
+              ),
             });
 
             if (!res.ok) {
