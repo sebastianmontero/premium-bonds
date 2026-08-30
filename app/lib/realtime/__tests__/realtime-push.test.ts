@@ -63,3 +63,15 @@ test("realtime channel constants adhere strictly to Pusher channel specification
   assert.strictEqual(isValidPusherChannel(undefined), false);
   assert.strictEqual(isValidPusherChannel(12345), false);
 });
+
+test("getPusherClient and disconnectPusherClient execute safely in node/SSR environments", async () => {
+  const { getPusherClient, disconnectPusherClient } = await import("../client");
+
+  // In Node/SSR environment, getPusherClient safely returns null without crashing
+  assert.strictEqual(getPusherClient(), null);
+
+  // disconnectPusherClient can be invoked idempotently without error
+  assert.doesNotThrow(() => {
+    disconnectPusherClient();
+  });
+});

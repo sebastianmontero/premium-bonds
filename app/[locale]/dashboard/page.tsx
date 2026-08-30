@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
 import { useTranslations } from "next-intl";
-import { useBondsContract } from "@/app/hooks/useBondsContract";
+import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
@@ -50,7 +50,7 @@ export default function DashboardPage() {
     isLoading: isBondsLoading,
     refetch,
     actions,
-  } = useBondsContract(1);
+  } = useBondsContext();
 
   // Active pool for deriving parameters — public on-chain state when loaded, or default pool structure
   const activePool = onChainPool ?? DEFAULT_POOL_FALLBACK;

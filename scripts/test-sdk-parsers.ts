@@ -16,17 +16,25 @@ import {
   parseMintSupply,
   calculatePoolYield,
   resolveUserTickets,
+  parseUserEntryFromSlice,
+  parseRegistryHeaderFromSlice,
+  decodeAccountBase64Data,
+  UNASSIGNED_REGISTRY_INDEX,
+  REGISTRY_HEADER_SIZE,
+  USER_ENTRY_SIZE,
   UserEntryInfo,
 } from "../app/lib/bonds-sdk";
 import {
   serializeTicketRegistry,
   parseTicketRegistry,
+  parseRegistryEntry,
   TICKET_REGISTRY_DISCRIMINATOR,
 } from "../app/lib/ticket-registry-helpers";
 import { ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import { ANCHOR_ERROR__POOL_NOT_FROZEN } from "../app/lib/generated/yield-bonds/src/generated";
 
 console.log("Running Codama SDK parser verification tests...");
+
 
 function mockAccount(data: Uint8Array) {
   return {
@@ -669,4 +677,141 @@ function mockAccount(data: Uint8Array) {
   );
 }
 
+// 12. Test parseRegistryHeaderFromSlice, parseUserEntryFromSlice & decodeAccountBase64Data
+{
+  console.log("Testing TicketRegistry slice parsing & boundary conditions...");
+
+  const registryData = serializeTicketRegistry({
+    poolId: 1,
+    userCount: 3,
+    totalActiveTickets: 500,
+    totalPendingTickets: 50,
+    drawCycleId: 4,
+    bump: 254,
+    version: 1,
+    reserved: new Uint8Array(64),
+    entries: [
+      {
+        owner: "11111111111111111111111111111111" as Address,
+        activeTickets: 100,
+        pendingTickets: 10,
+        lastActiveCycle: 4,
+        bump: 255,
+        version: 1,
+        reserved: new Uint8Array(18),
+      },
+      {
+        owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address,
+        activeTickets: 200,
+        pendingTickets: 20,
+        lastActiveCycle: 4,
+        bump: 254,
+        version: 1,
+        reserved: new Uint8Array(18),
+      },
+      {
+        owner: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" as Address,
+        activeTickets: 200,
+        pendingTickets: 20,
+        lastActiveCycle: 3,
+        bump: 253,
+        version: 1,
+        reserved: new Uint8Array(18),
+      },
+    ],
+  });
+
+  // A. Header slicing (104 bytes)
+  const headerSlice = registryData.subarray(0, REGISTRY_HEADER_SIZE);
+  assert.strictEqual(headerSlice.byteLength, REGISTRY_HEADER_SIZE);
+
+  const parsedHeader = parseRegistryHeaderFromSlice(headerSlice);
+  assert.notStrictEqual(parsedHeader, null);
+  assert.strictEqual(parsedHeader?.poolId, 1);
+  assert.strictEqual(parsedHeader?.userCount, 3);
+  assert.strictEqual(parsedHeader?.totalActiveTickets, 500);
+  assert.strictEqual(parsedHeader?.totalPendingTickets, 50);
+  assert.strictEqual(parsedHeader?.drawCycleId, 4);
+
+  // Truncated header -> null
+  assert.strictEqual(
+    parseRegistryHeaderFromSlice(headerSlice.subarray(0, 50)),
+    null
+  );
+
+  // Corrupted discriminator -> null
+  const corruptHeader = new Uint8Array(headerSlice);
+  corruptHeader[0] = 0;
+  assert.strictEqual(parseRegistryHeaderFromSlice(corruptHeader), null);
+
+  // B. User entry slicing (64 bytes)
+  const entry0Offset = REGISTRY_HEADER_SIZE;
+  const entry0Slice = registryData.subarray(
+    entry0Offset,
+    entry0Offset + USER_ENTRY_SIZE
+  );
+  assert.strictEqual(entry0Slice.byteLength, USER_ENTRY_SIZE);
+
+  const parsedEntry0 = parseUserEntryFromSlice(entry0Slice);
+  assert.notStrictEqual(parsedEntry0, null);
+  assert.strictEqual(
+    parsedEntry0?.owner,
+    "11111111111111111111111111111111"
+  );
+  assert.strictEqual(parsedEntry0?.active, 100);
+  assert.strictEqual(parsedEntry0?.pending, 10);
+  assert.strictEqual(parsedEntry0?.mergedThroughCycle, 4);
+
+  const entry1Offset = REGISTRY_HEADER_SIZE + USER_ENTRY_SIZE;
+  const entry1Slice = registryData.subarray(
+    entry1Offset,
+    entry1Offset + USER_ENTRY_SIZE
+  );
+  const parsedEntry1 = parseUserEntryFromSlice(entry1Slice);
+  assert.notStrictEqual(parsedEntry1, null);
+  assert.strictEqual(
+    parsedEntry1?.owner,
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  );
+  assert.strictEqual(parsedEntry1?.active, 200);
+
+  // Truncated entry -> null
+  assert.strictEqual(
+    parseUserEntryFromSlice(entry0Slice.subarray(0, 30)),
+    null
+  );
+
+  // Invalid version (e.g. 99) -> null
+  const invalidVersionEntry = new Uint8Array(entry0Slice);
+  invalidVersionEntry[48] = 99;
+  assert.strictEqual(parseUserEntryFromSlice(invalidVersionEntry), null);
+
+
+  // C. Boundary checking on parseRegistryEntry
+  assert.strictEqual(
+    parseRegistryEntry(registryData, UNASSIGNED_REGISTRY_INDEX),
+    null
+  );
+  assert.strictEqual(parseRegistryEntry(registryData, -1), null);
+  assert.strictEqual(parseRegistryEntry(registryData, 100), null);
+  assert.notStrictEqual(parseRegistryEntry(registryData, 0), null);
+  assert.notStrictEqual(parseRegistryEntry(registryData, 2), null);
+
+  // D. decodeAccountBase64Data safety
+  assert.strictEqual(decodeAccountBase64Data(null), null);
+  assert.strictEqual(
+    decodeAccountBase64Data({ data: ["AQID", "base64"] })?.byteLength,
+    3
+  );
+  assert.strictEqual(
+    decodeAccountBase64Data({ data: ["", "base64"] }),
+    null
+  );
+
+  console.log("✓ parseRegistryHeaderFromSlice & parseUserEntryFromSlice passed");
+}
+
 console.log("All Codama SDK parser & math tests completed successfully!");
+
+
+

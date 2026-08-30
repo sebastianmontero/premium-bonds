@@ -13,8 +13,14 @@ import {
   getBase64Encoder,
   lamports,
   TransactionSigner,
-  IInstruction,
+  Instruction,
+  type Rpc,
+  type SolanaRpcApi,
 } from "@solana/kit";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SolanaRpc = any;
+
 import {
   ANCHOR_PROGRAM_ADDRESS,
   decodeGlobalConfig,
@@ -33,10 +39,35 @@ import type {
   PendingRedemption,
 } from "./generated/yield-bonds/src/generated";
 
+export {
+  decodeGlobalConfig,
+  decodePrizePool,
+  decodeDrawCycle,
+  decodePayoutRegistry,
+  decodeUserWinnings,
+  decodePendingRedemption,
+};
+export type {
+  GlobalConfig,
+  PrizePool,
+  DrawCycle,
+  PayoutRegistry,
+  UserWinnings,
+  PendingRedemption,
+};
+
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
 import { DrawStatus } from "./generated/yield-bonds/src/generated";
 import { DEFAULT_APY, DEFAULT_APY_BPS, bpsToRate } from "./formatters";
+import {
+  UNASSIGNED_REGISTRY_INDEX,
+  REGISTRY_HEADER_SIZE,
+  USER_ENTRY_SIZE,
+} from "./ticket-registry-helpers";
+
+export type { TicketRegistry } from "./ticket-registry-helpers";
+
 
 export {
   RedemptionType,
@@ -61,6 +92,15 @@ export type DrawStatusName =
   | "HaltedYieldSpike";
 
 export {
+  UNASSIGNED_REGISTRY_INDEX,
+  PUBKEY_BYTES,
+  USER_ENTRY_VERSION,
+  USER_ENTRY_SIZE,
+  REGISTRY_HEADER_SIZE,
+  REGISTRY_HEADER_OFFSETS,
+  USER_ENTRY_OFFSETS,
+  parseUserEntryFromSlice,
+  parseRegistryHeaderFromSlice,
   parseTicketRegistry,
   parseRegistryEntry,
   resolveUserTickets,
@@ -86,8 +126,176 @@ export const USDC_MINT = address(
 );
 export const REGISTRY_INITIAL_SIZE = 262_248n;
 
+export const HUMA_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_POOL_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_POOL_STATE = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_STATE || "11111111111111111111111111111111"
+);
+export const HUMA_MODE_CONFIG = address(
+  process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || "11111111111111111111111111111111"
+);
+export const HUMA_LENDER_STATE = address(
+  process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_POOL_UNDERLYING_TOKEN = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_MODE_MINT = address(
+  process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
+);
+export const HUMA_POOL_MODE_TOKEN = address(
+  process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    "11111111111111111111111111111111"
+);
+export const HUMA_REDEMPTION_REQUEST = address(
+  process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+    "11111111111111111111111111111111"
+);
+
 const textEncoder = new TextEncoder();
 const base58Encoder = getBase58Encoder();
+const base64Encoder = getBase64Encoder();
+
+export function decodeAccountBase64Data(
+  account:
+    | { data: [string, string] }
+    | { data?: [string, string] }
+    | null
+    | undefined
+): Uint8Array | null {
+  if (!account?.data?.[0]) return null;
+  return new Uint8Array(base64Encoder.encode(account.data[0]));
+}
+
+
+export interface FetchBatchedBondsParams {
+  rpc: SolanaRpc;
+  poolId: number;
+  userAddress?: Address | string;
+  humaPoolStateAddress?: Address | string;
+  pstMintAddress?: Address | string;
+  humaModeConfigAddress?: Address | string;
+}
+
+export interface BatchedBondsAccounts {
+  poolAccountData: Uint8Array | null;
+  poolPstVaultData: Uint8Array | null;
+  humaPoolStateData: Uint8Array | null;
+  pstMintData: Uint8Array | null;
+  humaModeConfigData: Uint8Array | null;
+  userWinningsData: Uint8Array | null;
+  userAtaData: Uint8Array | null;
+}
+
+export async function fetchBatchedBondsState(
+  params: FetchBatchedBondsParams
+): Promise<BatchedBondsAccounts> {
+  const { rpc, poolId, userAddress } = params;
+  const poolPda = await findPrizePoolPda(poolId);
+  const poolPstVault = await findPoolPstVaultPda(poolId);
+  const humaPoolState = params.humaPoolStateAddress
+    ? address(params.humaPoolStateAddress)
+    : HUMA_POOL_STATE;
+  const pstMint = params.pstMintAddress
+    ? address(params.pstMintAddress)
+    : HUMA_MODE_MINT;
+  const humaModeConfig = params.humaModeConfigAddress
+    ? address(params.humaModeConfigAddress)
+    : HUMA_MODE_CONFIG;
+
+  const accountMap: { key: keyof BatchedBondsAccounts; address: Address }[] = [
+    { key: "poolAccountData", address: poolPda },
+    { key: "poolPstVaultData", address: poolPstVault },
+    { key: "humaPoolStateData", address: humaPoolState },
+    { key: "pstMintData", address: pstMint },
+    { key: "humaModeConfigData", address: humaModeConfig },
+  ];
+
+  if (userAddress) {
+    const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+    const userAta = await findAtaAddress(userAddress.toString(), USDC_MINT);
+    accountMap.push(
+      { key: "userWinningsData", address: userWinningsPda },
+      { key: "userAtaData", address: userAta }
+    );
+  }
+
+  const res = await rpc
+    .getMultipleAccounts(
+      accountMap.map((a) => a.address),
+      { encoding: "base64", commitment: "confirmed" }
+    )
+    .send();
+
+  const result: BatchedBondsAccounts = {
+    poolAccountData: null,
+    poolPstVaultData: null,
+    humaPoolStateData: null,
+    pstMintData: null,
+    humaModeConfigData: null,
+    userWinningsData: null,
+    userAtaData: null,
+  };
+
+  accountMap.forEach((entry, idx) => {
+    result[entry.key] = decodeAccountBase64Data(res.value[idx]);
+  });
+
+  return result;
+}
+
+export async function fetchTicketRegistryHeaderSlice(
+  rpc: SolanaRpc,
+  registryAddress: Address | string
+): Promise<Uint8Array | null> {
+  try {
+    const acc = await rpc
+      .getAccountInfo(address(registryAddress), {
+        dataSlice: { offset: 0, length: REGISTRY_HEADER_SIZE },
+        encoding: "base64",
+        commitment: "confirmed",
+      })
+      .send();
+    return decodeAccountBase64Data(acc?.value);
+  } catch (err) {
+    console.warn("Failed to fetch TicketRegistry header slice:", err);
+    return null;
+  }
+}
+
+export async function fetchUserRegistryEntrySlice(
+  rpc: SolanaRpc,
+  registryAddress: Address | string,
+  registryEntryIndex: number
+): Promise<Uint8Array | null> {
+  if (
+    registryEntryIndex === UNASSIGNED_REGISTRY_INDEX ||
+    registryEntryIndex < 0 ||
+    !Number.isInteger(registryEntryIndex)
+  ) {
+    return null;
+  }
+  try {
+    const offset = REGISTRY_HEADER_SIZE + registryEntryIndex * USER_ENTRY_SIZE;
+    const acc = await rpc
+      .getAccountInfo(address(registryAddress), {
+        dataSlice: { offset, length: USER_ENTRY_SIZE },
+        encoding: "base64",
+        commitment: "confirmed",
+      })
+      .send();
+    return decodeAccountBase64Data(acc?.value);
+  } catch (err) {
+    console.warn("Failed to fetch user entry slice:", err);
+    return null;
+  }
+}
 
 export function encodeU32(val: number): Uint8Array {
   const buf = new Uint8Array(4);
@@ -391,8 +599,6 @@ export function parsePendingRedemption(data: Uint8Array): PendingRedemption {
     decodePendingRedemption(mockAccount(data))
   );
 }
-
-const base64Encoder = getBase64Encoder();
 
 export function parseTokenAccountBalance(data: Uint8Array): bigint {
   if (data.byteLength < 72) return 0n;
@@ -1381,8 +1587,8 @@ export async function buildPackedReinvestWinningsInstructions(params: {
   cycleId: number;
   winners: { winner: Address; winnerIndex: number }[];
   ticketRegistry: Address;
-}): Promise<IInstruction[]> {
-  const instructions: IInstruction[] = [];
+}): Promise<Instruction[]> {
+  const instructions: Instruction[] = [];
   for (const item of params.winners) {
     const ix = await buildReinvestWinningsInstruction({
       crank: params.crank,
@@ -1403,9 +1609,9 @@ export async function buildAtomicRevealAndPickWinnersInstructions(params: {
   currentDrawCycleId: number;
   ticketRegistry: Address;
   randomnessAccount: Address;
-  switchboardRevealInstruction?: IInstruction;
-}): Promise<IInstruction[]> {
-  const instructions: IInstruction[] = [];
+  switchboardRevealInstruction?: Instruction;
+}): Promise<Instruction[]> {
+  const instructions: Instruction[] = [];
   if (params.switchboardRevealInstruction) {
     instructions.push(params.switchboardRevealInstruction);
   }
@@ -1419,3 +1625,4 @@ export async function buildAtomicRevealAndPickWinnersInstructions(params: {
   instructions.push(revealIx);
   return instructions;
 }
+

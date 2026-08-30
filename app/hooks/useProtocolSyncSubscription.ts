@@ -10,7 +10,7 @@ import {
 export interface UseProtocolSyncSubscriptionOptions {
   scopes?: ProtocolSyncScope[];
   debounceMs?: number;
-  listenToWindowFocus?: boolean;
+  listenToWindowFocus?: boolean; // Deprecated: Kept for backwards compatibility
 }
 
 /**
@@ -18,13 +18,13 @@ export interface UseProtocolSyncSubscriptionOptions {
  * Automatically executes the given `onSync` callback when a matching scoped event fires.
  *
  * @param onSync - Callback to execute upon synchronization trigger.
- * @param options - Subscription filtering options (scopes, debounce delay, window focus).
+ * @param options - Subscription filtering options (scopes, debounce delay).
  */
 export function useProtocolSyncSubscription(
   onSync: (detail?: ProtocolSyncDetail) => void | Promise<void>,
   options: UseProtocolSyncSubscriptionOptions = {}
 ): void {
-  const { scopes, debounceMs = 150, listenToWindowFocus = true } = options;
+  const { scopes, debounceMs = 150 } = options;
   const onSyncRef = useRef(onSync);
   const timerRef = useRef<NodeJS.Timeout | number | null>(null);
 
@@ -53,27 +53,12 @@ export function useProtocolSyncSubscription(
       }
     });
 
-    const handleFocus = () => {
-      triggerDebounced({
-        scope: "all",
-        reason: "window_focus",
-        timestamp: Date.now(),
-      });
-    };
-
-    if (listenToWindowFocus && typeof window !== "undefined") {
-      window.addEventListener("focus", handleFocus);
-    }
-
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
       unsubscribe();
-      if (listenToWindowFocus && typeof window !== "undefined") {
-        window.removeEventListener("focus", handleFocus);
-      }
     };
-  }, [scopes, debounceMs, listenToWindowFocus]);
+  }, [scopes, debounceMs]);
 }

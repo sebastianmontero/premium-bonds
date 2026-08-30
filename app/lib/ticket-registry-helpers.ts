@@ -6,6 +6,7 @@ import {
 } from "@solana/kit";
 import {
   decodeTicketRegistry,
+  getTicketRegistryDecoder,
   getTicketRegistryEncoder,
   TICKET_REGISTRY_DISCRIMINATOR,
   TicketRegistry,
@@ -13,9 +14,37 @@ import {
 } from "./generated/yield-bonds/src/generated/accounts";
 
 export { TICKET_REGISTRY_DISCRIMINATOR };
+export type { TicketRegistry, TicketRegistryArgs };
 
 const base58Decoder = getBase58Decoder();
 const base58Encoder = getBase58Encoder();
+
+export const UNASSIGNED_REGISTRY_INDEX = 0xffffffff;
+export const PUBKEY_BYTES = 32;
+export const USER_ENTRY_VERSION = 1;
+export const USER_ENTRY_SIZE = 64;
+export const REGISTRY_HEADER_SIZE = 104;
+
+export const REGISTRY_HEADER_OFFSETS = {
+  DISCRIMINATOR: 0,
+  POOL_ID: 8,
+  CAPACITY: 12,
+  USER_COUNT: 16,
+  TOTAL_ACTIVE_TICKETS: 20,
+  TOTAL_PENDING_TICKETS: 24,
+  DRAW_CYCLE_ID: 28,
+  DRAW_PREPARED_UP_TO: 32,
+  VERSION: 36,
+} as const;
+
+export const USER_ENTRY_OFFSETS = {
+  OWNER: 0,
+  ACTIVE: 32,
+  PENDING: 36,
+  MERGED_THROUGH_CYCLE: 40,
+  CUMULATIVE_ACTIVE: 44,
+  VERSION: 48,
+} as const;
 
 export interface UserEntryInfo {
   owner: Address;
@@ -77,6 +106,71 @@ export interface ExtendedTicketRegistry extends TicketRegistry {
 }
 
 /**
+ * Parses a 64-byte slice directly fetched via Solana RPC dataSlice.
+ */
+export function parseUserEntryFromSlice(
+  sliceBytes: Uint8Array
+): UserEntryInfo | null {
+  if (sliceBytes.byteLength < USER_ENTRY_SIZE) return null;
+  const view = new DataView(
+    sliceBytes.buffer,
+    sliceBytes.byteOffset,
+    USER_ENTRY_SIZE
+  );
+  const ownerBytes = sliceBytes.subarray(
+    USER_ENTRY_OFFSETS.OWNER,
+    USER_ENTRY_OFFSETS.OWNER + PUBKEY_BYTES
+  );
+  const owner = base58Decoder.decode(ownerBytes) as Address;
+  const active = view.getUint32(USER_ENTRY_OFFSETS.ACTIVE, true);
+  const pending = view.getUint32(USER_ENTRY_OFFSETS.PENDING, true);
+  const mergedThroughCycle = view.getUint32(
+    USER_ENTRY_OFFSETS.MERGED_THROUGH_CYCLE,
+    true
+  );
+  const cumulativeActive = view.getUint32(
+    USER_ENTRY_OFFSETS.CUMULATIVE_ACTIVE,
+    true
+  );
+
+  const version = view.getUint8(USER_ENTRY_OFFSETS.VERSION);
+  if (version !== USER_ENTRY_VERSION) {
+    return null;
+  }
+
+  return {
+    owner,
+    active,
+    pending,
+    mergedThroughCycle,
+    cumulativeActive,
+  };
+}
+
+/**
+ * Parses the 104-byte header slice using the generated Codama decoder.
+ */
+export function parseRegistryHeaderFromSlice(
+  headerBytes: Uint8Array
+): TicketRegistry | null {
+  if (headerBytes.byteLength < REGISTRY_HEADER_SIZE) return null;
+  for (let i = 0; i < 8; i++) {
+    if (headerBytes[i] !== TICKET_REGISTRY_DISCRIMINATOR[i]) {
+      return null;
+    }
+  }
+  try {
+    return getTicketRegistryDecoder().decode(
+      headerBytes.subarray(0, REGISTRY_HEADER_SIZE)
+    );
+  } catch (err) {
+    console.warn("Failed to decode TicketRegistry header slice:", err);
+    return null;
+  }
+}
+
+
+/**
  * Parses a single user entry from a TicketRegistry zero-copy byte buffer at the given index.
  *
  * @param data - Raw byte buffer of the TicketRegistry account.
@@ -87,28 +181,24 @@ export function parseRegistryEntry(
   data: Uint8Array,
   index: number
 ): UserEntryInfo | null {
-  if (data.length < 104) return null;
+  if (data.length < REGISTRY_HEADER_SIZE) return null;
+  if (
+    index < 0 ||
+    index === UNASSIGNED_REGISTRY_INDEX ||
+    !Number.isInteger(index)
+  ) {
+    return null;
+  }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const userCount = view.getUint32(16, true);
+  const userCount = view.getUint32(REGISTRY_HEADER_OFFSETS.USER_COUNT, true);
   if (index >= userCount) return null;
 
-  const offset = 104 + index * 64;
-  if (offset + 64 > data.byteLength) return null;
+  const offset = REGISTRY_HEADER_SIZE + index * USER_ENTRY_SIZE;
+  if (offset + USER_ENTRY_SIZE > data.byteLength) return null;
 
-  const ownerBytes = data.slice(offset, offset + 32);
-  const owner = base58Decoder.decode(ownerBytes) as Address;
-  const active = view.getUint32(offset + 32, true);
-  const pending = view.getUint32(offset + 36, true);
-  const mergedThroughCycle = view.getUint32(offset + 40, true);
-  const cumulativeActive = view.getUint32(offset + 44, true);
-
-  return {
-    owner,
-    active,
-    pending,
-    mergedThroughCycle,
-    cumulativeActive,
-  };
+  return parseUserEntryFromSlice(
+    data.subarray(offset, offset + USER_ENTRY_SIZE)
+  );
 }
 
 /**
@@ -133,7 +223,7 @@ export function parseTicketRegistry(data: Uint8Array): ExtendedTicketRegistry {
   const entries: UserEntryInfo[] = [];
   const maxEntries = Math.min(
     header.userCount,
-    Math.floor((data.byteLength - 104) / 64)
+    Math.floor((data.byteLength - REGISTRY_HEADER_SIZE) / USER_ENTRY_SIZE)
   );
 
   for (let i = 0; i < maxEntries; i++) {
@@ -148,23 +238,6 @@ export function parseTicketRegistry(data: Uint8Array): ExtendedTicketRegistry {
     entries,
   };
 }
-
-export interface SerializeTicketRegistryOptions {
-  poolId: number;
-  capacity?: number;
-  userCount?: number;
-  totalActiveTickets?: number;
-  totalPendingTickets?: number;
-  drawCycleId?: number;
-  drawPreparedUpTo?: number;
-  version?: number;
-  totalSizeBytes?: number;
-  entries?: UserEntryInfo[];
-}
-
-export const USER_ENTRY_VERSION = 1;
-export const USER_ENTRY_SIZE = 64;
-export const REGISTRY_HEADER_SIZE = 104;
 
 /**
  * Serializes a single UserEntry struct into a 64-byte binary buffer.
@@ -185,6 +258,36 @@ export function serializeUserEntry(
   // Bytes 49-51 are padding [u8; 3] (0)
   // Bytes 52-63 are reserved [u8; 12] (0)
   return buf;
+}
+
+export interface SerializeTicketRegistryOptions {
+  poolId: number;
+  capacity?: number;
+  userCount?: number;
+  totalActiveTickets?: number;
+  totalPendingTickets?: number;
+  drawCycleId?: number;
+  drawPreparedUpTo?: number;
+  bump?: number;
+  version?: number;
+  totalSizeBytes?: number;
+  reserved?: Uint8Array;
+  entries?: (
+    | UserEntryInfo
+    | {
+        owner: Address;
+        active?: number;
+        pending?: number;
+        mergedThroughCycle?: number;
+        cumulativeActive?: number;
+        activeTickets?: number;
+        pendingTickets?: number;
+        lastActiveCycle?: number;
+        bump?: number;
+        version?: number;
+        reserved?: Uint8Array;
+      }
+  )[];
 }
 
 /**
@@ -210,19 +313,48 @@ export function serializeTicketRegistry(
     drawPreparedUpTo: options.drawPreparedUpTo ?? 0,
     version: options.version ?? USER_ENTRY_VERSION,
     padding: new Uint8Array(3),
-    reserved: new Uint8Array(64),
+    reserved: options.reserved ?? new Uint8Array(64),
   };
 
   const headerBytes = getTicketRegistryEncoder().encode(headerArgs);
   const fullBuffer = new Uint8Array(totalSizeBytes);
   fullBuffer.set(headerBytes, 0);
 
-  entries.forEach((entry, idx) => {
+  entries.forEach((rawEntry, idx) => {
     const entryOffset = REGISTRY_HEADER_SIZE + idx * USER_ENTRY_SIZE;
     if (entryOffset + USER_ENTRY_SIZE <= totalSizeBytes) {
-      fullBuffer.set(serializeUserEntry(entry), entryOffset);
+      const normalizedEntry: UserEntryInfo = {
+        owner: rawEntry.owner,
+        active:
+          "active" in rawEntry && rawEntry.active !== undefined
+            ? rawEntry.active
+            : "activeTickets" in rawEntry && rawEntry.activeTickets !== undefined
+              ? rawEntry.activeTickets
+              : 0,
+        pending:
+          "pending" in rawEntry && rawEntry.pending !== undefined
+            ? rawEntry.pending
+            : "pendingTickets" in rawEntry && rawEntry.pendingTickets !== undefined
+              ? rawEntry.pendingTickets
+              : 0,
+        mergedThroughCycle:
+          "mergedThroughCycle" in rawEntry &&
+          rawEntry.mergedThroughCycle !== undefined
+            ? rawEntry.mergedThroughCycle
+            : "lastActiveCycle" in rawEntry &&
+                rawEntry.lastActiveCycle !== undefined
+              ? rawEntry.lastActiveCycle
+              : 0,
+        cumulativeActive:
+          "cumulativeActive" in rawEntry &&
+          rawEntry.cumulativeActive !== undefined
+            ? rawEntry.cumulativeActive
+            : 0,
+      };
+      fullBuffer.set(serializeUserEntry(normalizedEntry), entryOffset);
     }
   });
 
   return fullBuffer;
 }
+

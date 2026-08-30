@@ -4,176 +4,71 @@ import { useEffect, useRef } from "react";
 import { notifyProtocolUpdate } from "../lib/protocol-sync-bus";
 
 export interface ProtocolSyncOptions {
-  isFrozenForDraw?: boolean;
-  isAwaitingDraw?: boolean;
-  hasSettlingRedemptions?: boolean;
-  hasActiveTx?: boolean;
-  fastIntervalMs?: number;
-  ambientIntervalMs?: number;
+  intervalMs?: number;
 }
 
-interface SyncCoordinatorState {
-  activeSubscribers: number;
-  volatileSubscribers: number;
-  settlingSubscribers: number;
-  intervalTimer: NodeJS.Timeout | null;
-  currentCadence: "fast" | "ambient" | "paused";
-  currentIntervalMs: number;
-}
-
-const coordinatorState: SyncCoordinatorState = {
-  activeSubscribers: 0,
-  volatileSubscribers: 0,
-  settlingSubscribers: 0,
-  intervalTimer: null,
-  currentCadence: "paused",
-  currentIntervalMs: 0,
-};
-
-function evaluateAndScheduleCadence(
-  fastIntervalMs: number = 3500,
-  ambientIntervalMs: number = 18000
-) {
-  if (typeof window === "undefined") return;
-
-  const isVisible =
-    typeof document !== "undefined"
-      ? document.visibilityState === "visible"
-      : true;
-
-  if (!isVisible || coordinatorState.activeSubscribers === 0) {
-    if (coordinatorState.intervalTimer) {
-      clearInterval(coordinatorState.intervalTimer);
-      coordinatorState.intervalTimer = null;
-    }
-    coordinatorState.currentCadence = "paused";
-    coordinatorState.currentIntervalMs = 0;
-    return;
-  }
-
-  const isVolatile = coordinatorState.volatileSubscribers > 0;
-  const targetCadence: "fast" | "ambient" = isVolatile ? "fast" : "ambient";
-  const targetInterval = isVolatile ? fastIntervalMs : ambientIntervalMs;
-
-  if (
-    coordinatorState.currentCadence !== targetCadence ||
-    coordinatorState.currentIntervalMs !== targetInterval ||
-    !coordinatorState.intervalTimer
-  ) {
-    if (coordinatorState.intervalTimer) {
-      clearInterval(coordinatorState.intervalTimer);
-    }
-
-    coordinatorState.currentCadence = targetCadence;
-    coordinatorState.currentIntervalMs = targetInterval;
-    coordinatorState.intervalTimer = setInterval(() => {
-      // In fast-cadence volatile polling, only poll pool & redemptions to prevent RPC rate-limit exhaustion
-      if (coordinatorState.settlingSubscribers > 0) {
-        notifyProtocolUpdate("redemptions", { reason: "settling_poll" });
-      }
-      notifyProtocolUpdate("pool", { reason: `${targetCadence}_cadence_tick` });
-    }, targetInterval);
-  }
-}
+let lastFocusSyncTime = 0;
+const FOCUS_COOLDOWN_MS = 4000;
 
 /**
- * Custom React hook that registers the component with the singleton protocol sync engine.
- * Automatically modulates between Fast (3.5s) and Ambient (18s) cadences.
+ * Custom React hook that drives background ambient or push heartbeat ticks,
+ * network-online recovery, and tab focus synchronization.
  */
 export function useProtocolSync(options: ProtocolSyncOptions = {}): void {
-  const {
-    isFrozenForDraw = false,
-    isAwaitingDraw = false,
-    hasSettlingRedemptions = false,
-    hasActiveTx = false,
-    fastIntervalMs = 3500,
-    ambientIntervalMs = 18000,
-  } = options;
-
-  const isVolatile =
-    isFrozenForDraw || isAwaitingDraw || hasSettlingRedemptions || hasActiveTx;
-
-  const prevVolatileRef = useRef(isVolatile);
-  const prevSettlingRef = useRef(hasSettlingRedemptions);
+  const { intervalMs = 18000 } = options;
+  const intervalRef = useRef(intervalMs);
 
   useEffect(() => {
-    coordinatorState.activeSubscribers += 1;
-    if (isVolatile) coordinatorState.volatileSubscribers += 1;
-    if (hasSettlingRedemptions) coordinatorState.settlingSubscribers += 1;
+    intervalRef.current = intervalMs;
+  }, [intervalMs]);
 
-    evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let timer: NodeJS.Timeout | null = null;
+
+    const scheduleTimer = () => {
+      if (timer) clearInterval(timer);
+      if (document.visibilityState === "visible" && intervalRef.current > 0) {
+        timer = setInterval(() => {
+          notifyProtocolUpdate("pool", { reason: "heartbeat_tick" });
+        }, intervalRef.current);
+      }
+    };
 
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") {
-        notifyProtocolUpdate("all", { reason: "tab_focused" });
-        evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
+        const now = Date.now();
+        if (now - lastFocusSyncTime >= FOCUS_COOLDOWN_MS) {
+          lastFocusSyncTime = now;
+          notifyProtocolUpdate("all", { reason: "tab_focused" });
+        }
+        scheduleTimer();
       } else {
-        evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
       }
     };
 
     const handleOnline = () => {
       notifyProtocolUpdate("all", { reason: "network_online" });
-      evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
+      scheduleTimer();
     };
+
+    scheduleTimer();
 
     window.addEventListener("visibilitychange", handleVisibilityOrFocus);
     window.addEventListener("focus", handleVisibilityOrFocus);
     window.addEventListener("online", handleOnline);
 
     return () => {
-      coordinatorState.activeSubscribers = Math.max(
-        0,
-        coordinatorState.activeSubscribers - 1
-      );
-      if (prevVolatileRef.current) {
-        coordinatorState.volatileSubscribers = Math.max(
-          0,
-          coordinatorState.volatileSubscribers - 1
-        );
-      }
-      if (prevSettlingRef.current) {
-        coordinatorState.settlingSubscribers = Math.max(
-          0,
-          coordinatorState.settlingSubscribers - 1
-        );
-      }
-
+      if (timer) clearInterval(timer);
       window.removeEventListener("visibilitychange", handleVisibilityOrFocus);
       window.removeEventListener("focus", handleVisibilityOrFocus);
       window.removeEventListener("online", handleOnline);
-
-      evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fastIntervalMs, ambientIntervalMs]);
-
-  // Adjust counters when volatile or settling state changes
-  useEffect(() => {
-    if (prevVolatileRef.current !== isVolatile) {
-      if (isVolatile) {
-        coordinatorState.volatileSubscribers += 1;
-      } else {
-        coordinatorState.volatileSubscribers = Math.max(
-          0,
-          coordinatorState.volatileSubscribers - 1
-        );
-      }
-      prevVolatileRef.current = isVolatile;
-    }
-
-    if (prevSettlingRef.current !== hasSettlingRedemptions) {
-      if (hasSettlingRedemptions) {
-        coordinatorState.settlingSubscribers += 1;
-      } else {
-        coordinatorState.settlingSubscribers = Math.max(
-          0,
-          coordinatorState.settlingSubscribers - 1
-        );
-      }
-      prevSettlingRef.current = hasSettlingRedemptions;
-    }
-
-    evaluateAndScheduleCadence(fastIntervalMs, ambientIntervalMs);
-  }, [isVolatile, hasSettlingRedemptions, fastIntervalMs, ambientIntervalMs]);
+  }, [intervalMs]);
 }
+

@@ -1,41 +1,30 @@
 "use client";
 
-import { useWalletConnection } from "@solana/react-hooks";
-import { useBondsContract } from "@/app/hooks/useBondsContract";
-import { useClusterTime } from "@/app/hooks/useOnChainClock";
+import { useEffect, useRef } from "react";
+import { usePushConnectionStatus } from "@/app/hooks/useProtocolPushSync";
 import { useProtocolSync } from "@/app/hooks/useProtocolSync";
-import { useProtocolPushSync } from "@/app/hooks/useProtocolPushSync";
+import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
 
 /**
- * Headless protocol synchronization orchestrator.
+ * Headless protocol synchronization coordinator.
  * Mounted once at the dashboard layout boundary to drive real-time background
  * reactivity across all dashboard tabs without spawning duplicate timers.
  */
 export function ProtocolSyncCoordinator() {
-  const { wallet } = useWalletConnection();
-  const address = wallet?.account.address.toString();
-  const { isConnected: isPushConnected } = useProtocolPushSync(address);
+  const { isConnected: isPushConnected } = usePushConnectionStatus();
+  const prevConnectedRef = useRef(isPushConnected);
 
-  const { pool, pendingRedemptions } = useBondsContract();
-  const { now } = useClusterTime({ tick: true, tickIntervalMs: 2000 });
-
-  const isFrozenForDraw = pool?.isFrozenForDraw ?? false;
-  const isAwaitingDraw =
-    !!pool &&
-    pool.currentCycleEndAt > 0 &&
-    now >= pool.currentCycleEndAt &&
-    pool.status === "Active";
-
-  const hasSettlingRedemptions = pendingRedemptions.some(
-    (r) => r.status === "settling"
-  );
+  useEffect(() => {
+    if (prevConnectedRef.current && !isPushConnected) {
+      notifyProtocolUpdate("pool", { reason: "fallback_activated" });
+    }
+    prevConnectedRef.current = isPushConnected;
+  }, [isPushConnected]);
 
   useProtocolSync({
-    isFrozenForDraw,
-    isAwaitingDraw,
-    hasSettlingRedemptions,
-    ambientIntervalMs: isPushConnected ? 90000 : 18000,
+    intervalMs: isPushConnected ? 90000 : 18000,
   });
 
   return null;
 }
+

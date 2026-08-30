@@ -4,7 +4,7 @@ import React, { useState, Suspense, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter, usePathname } from "@/i18n/routing";
 import { useWalletConnection } from "@solana/react-hooks";
-import { useBondsContract } from "@/app/hooks/useBondsContract";
+import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useDrawExplorer } from "@/app/hooks/useDrawExplorer";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
 import { TransactionProgressModal } from "@/app/components/dashboard/TransactionProgressModal";
@@ -28,7 +28,7 @@ function DrawHistoryContent() {
     isLoading: isPoolLoading,
     refetch: refetchPool,
     actions,
-  } = useBondsContract(1);
+  } = useBondsContext();
 
   const activePool = onChainPool ?? createDefaultPoolFallback(1);
 

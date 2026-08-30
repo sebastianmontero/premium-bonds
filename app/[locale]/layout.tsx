@@ -6,6 +6,7 @@ import {
 import { NextIntlClientProvider } from "next-intl";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
+import { GlobalRealtimePushSync } from "@/app/components/realtime/GlobalRealtimePushSync";
 
 type SupportedLocale = (typeof routing.locales)[number];
 
@@ -62,6 +63,7 @@ export default async function LocaleLayout({
 
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
+      <GlobalRealtimePushSync />
       {children}
     </NextIntlClientProvider>
   );

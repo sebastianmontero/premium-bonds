@@ -10,7 +10,7 @@ interface UseOnChainClockOptions {
 }
 
 const DEFAULT_RESYNC_INTERVAL_MS =
-  Number(process.env.NEXT_PUBLIC_CLOCK_RESYNC_INTERVAL_MS) || 10000;
+  Number(process.env.NEXT_PUBLIC_CLOCK_RESYNC_INTERVAL_MS) || 60000;
 
 const SYSVAR_CLOCK_ADDRESS = address(
   "SysvarC1ock11111111111111111111111111111111"
@@ -24,6 +24,7 @@ interface SharedClockState {
   activeRequests: number;
   listeners: Set<(offset: number, synced: boolean) => void>;
   syncTimer: NodeJS.Timeout | null;
+  activeSyncFn: (() => Promise<void>) | null;
 }
 
 const sharedClockState: SharedClockState = {
@@ -33,12 +34,38 @@ const sharedClockState: SharedClockState = {
   activeRequests: 0,
   listeners: new Set(),
   syncTimer: null,
+  activeSyncFn: null,
 };
 
 function notifyListeners() {
   sharedClockState.listeners.forEach((listener) => {
     listener(sharedClockState.clockOffset, sharedClockState.isSynced);
   });
+}
+
+function ensureSharedSyncTimer(
+  syncFn: () => Promise<void>,
+  resyncIntervalMs: number
+) {
+  sharedClockState.activeSyncFn = syncFn;
+  if (!sharedClockState.syncTimer && sharedClockState.listeners.size > 0) {
+    sharedClockState.syncTimer = setInterval(() => {
+      if (
+        sharedClockState.activeSyncFn &&
+        sharedClockState.listeners.size > 0
+      ) {
+        sharedClockState.activeSyncFn();
+      }
+    }, resyncIntervalMs);
+  }
+}
+
+function stopSharedSyncTimerIfOrphaned() {
+  if (sharedClockState.listeners.size === 0 && sharedClockState.syncTimer) {
+    clearInterval(sharedClockState.syncTimer);
+    sharedClockState.syncTimer = null;
+    sharedClockState.activeSyncFn = null;
+  }
 }
 
 export function useOnChainClock(options: UseOnChainClockOptions = {}) {
@@ -142,6 +169,7 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
     };
 
     sharedClockState.listeners.add(listener);
+    ensureSharedSyncTimer(syncClock, resyncIntervalMs);
 
     // Initial sync if not synced or older than resync interval
     if (
@@ -163,17 +191,12 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
     }
 
     window.addEventListener("visibilitychange", handleVisibilityChange);
-    const intervalId = setInterval(() => {
-      if (active) {
-        syncClock();
-      }
-    }, resyncIntervalMs);
 
     return () => {
       active = false;
       sharedClockState.listeners.delete(listener);
+      stopSharedSyncTimerIfOrphaned();
       window.removeEventListener("visibilitychange", handleVisibilityChange);
-      clearInterval(intervalId);
     };
   }, [syncClock, resyncIntervalMs]);
 

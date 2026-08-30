@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   useWalletConnection,
   useSendTransaction,
@@ -8,7 +8,6 @@ import {
 } from "@solana/react-hooks";
 import {
   address,
-  getBase64Encoder,
   AccountRole,
   Base58EncodedBytes,
   Address,
@@ -29,16 +28,31 @@ import {
   findAtaAddress,
   parsePrizePool,
   parseUserWinnings,
-  parseTicketRegistry,
-  parseRegistryEntry,
+  parseUserEntryFromSlice,
+  parseRegistryHeaderFromSlice,
   resolveUserTickets,
   parsePendingRedemption,
   parseMockHumaPoolState,
   calculatePoolYield,
-  fetchPoolYieldOnChainState,
+  parseTokenAccountBalance,
+  parseMintSupply,
+  parseModeConfig,
+  fetchBatchedBondsState,
+  fetchTicketRegistryHeaderSlice,
+  fetchUserRegistryEntrySlice,
+  decodeAccountBase64Data,
+  UNASSIGNED_REGISTRY_INDEX,
+  HUMA_CONFIG,
+  HUMA_POOL_CONFIG,
+  HUMA_POOL_STATE,
+  HUMA_MODE_CONFIG,
+  HUMA_LENDER_STATE,
+  HUMA_POOL_UNDERLYING_TOKEN,
+  HUMA_MODE_MINT,
+  HUMA_POOL_MODE_TOKEN,
+  HUMA_REDEMPTION_REQUEST,
   buildReinvestWinningsInstruction,
   resolveWinnerAddress,
-  fetchUserAtaBalance,
   RedemptionType,
   UserWinningsInfo,
 } from "../lib/bonds-sdk";
@@ -61,44 +75,6 @@ interface ExtendedPoolInfo extends PoolInfo {
   totalPrizesAllocated?: bigint;
   totalPendingRedemptions?: bigint;
 }
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-// Load configuration with fallbacks for devnet/localnet testing
-export const HUMA_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_CONFIG || "11111111111111111111111111111111"
-);
-export const HUMA_POOL_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || "11111111111111111111111111111111"
-);
-export const HUMA_POOL_STATE = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_STATE || "11111111111111111111111111111111"
-);
-export const HUMA_MODE_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || "11111111111111111111111111111111"
-);
-export const HUMA_LENDER_STATE = address(
-  process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-    "11111111111111111111111111111111"
-);
-export const HUMA_POOL_UNDERLYING_TOKEN = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-    "11111111111111111111111111111111"
-);
-export const HUMA_MODE_MINT = address(
-  process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
-);
-
-export const HUMA_POOL_MODE_TOKEN = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-    "11111111111111111111111111111111"
-);
-export const HUMA_REDEMPTION_REQUEST = address(
-  process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-    "11111111111111111111111111111111"
-);
-
-const base64Encoder = getBase64Encoder();
 
 // ─── Main Hook ───────────────────────────────────────────────────────────────
 
@@ -163,227 +139,148 @@ export function useBondsContract(poolId: number = 1) {
     setError(null);
 
     try {
-      const poolPda = await findPrizePoolPda(poolId);
       const rpc = client.runtime.rpc;
 
-      // 1. Fetch Prize Pool account
+      // 1. Fetch batched protocol & user accounts in a single slot-consistent RPC call
+      const batched = await fetchBatchedBondsState({
+        rpc,
+        poolId,
+        userAddress,
+        humaPoolStateAddress: HUMA_POOL_STATE,
+        pstMintAddress: HUMA_MODE_MINT,
+        humaModeConfigAddress: HUMA_MODE_CONFIG,
+      });
+
       let poolInfo: ExtendedPoolInfo | null = null;
-      let cachedRegistryBytes: Uint8Array | null = null;
-      try {
-        const poolAcc = await rpc
-          .getAccountInfo(poolPda, {
-            encoding: "base64",
-            commitment: "confirmed",
-          })
-          .send();
-        if (poolAcc && poolAcc.value) {
-          const bytes = new Uint8Array(
-            base64Encoder.encode(poolAcc.value.data[0])
-          );
-          const parsed = parsePrizePool(bytes);
-          const currentPool: ExtendedPoolInfo = {
-            ...parsed,
-            tokenSymbol: "USDC",
-            tokenDecimals: 6,
-            estimatedPrizePot: 0,
-            ticketRegistry: parsed.ticketRegistry.toString(),
-            totalUsers: 0,
-          };
+      let registryHeader: ReturnType<typeof parseRegistryHeaderFromSlice> = null;
 
-          // Fetch TicketRegistry account once to read user_count (totalUsers) & cache for user tickets
-          if (currentPool.ticketRegistry) {
-            try {
-              const registryAcc = await rpc
-                .getAccountInfo(address(currentPool.ticketRegistry), {
-                  encoding: "base64",
-                  commitment: "confirmed",
-                })
-                .send();
-              if (registryAcc && registryAcc.value) {
-                cachedRegistryBytes = new Uint8Array(
-                  base64Encoder.encode(registryAcc.value.data[0])
-                );
-                const regView = new DataView(
-                  cachedRegistryBytes.buffer,
-                  cachedRegistryBytes.byteOffset,
-                  cachedRegistryBytes.byteLength
-                );
-                // user_count is located at offset 16 in the TicketRegistry header
-                if (cachedRegistryBytes.byteLength >= 20) {
-                  currentPool.totalUsers = regView.getUint32(16, true);
-                }
-              }
-            } catch (err) {
-              console.warn(
-                "Could not fetch ticket registry for pool totalUsers:",
-                err
-              );
-            }
-          }
+      if (batched.poolAccountData) {
+        const parsed = parsePrizePool(batched.poolAccountData);
+        const currentPool: ExtendedPoolInfo = {
+          ...parsed,
+          tokenSymbol: "USDC",
+          tokenDecimals: 6,
+          estimatedPrizePot: 0,
+          ticketRegistry: parsed.ticketRegistry.toString(),
+          totalUsers: 0,
+        };
 
-          // Fetch estimated prize pot using on-chain PST yield accounting
+        // 2. Fetch 104-byte header slice if registry exists
+        if (currentPool.ticketRegistry) {
           try {
-            const { humaTotalAssets, pstSupply, poolPstBalance, humaModeApy } =
-              await fetchPoolYieldOnChainState(rpc, {
-                poolId,
-                humaPoolStateAddress: HUMA_POOL_STATE,
-                pstMintAddress: HUMA_MODE_MINT,
-                humaModeConfigAddress: HUMA_MODE_CONFIG,
-              });
-
-            const yieldCalc = calculatePoolYield({
-              poolPstBalance,
-              pstSupply,
-              humaTotalAssets,
-              totalDepositedPrincipal: currentPool.totalDepositedPrincipal,
-              totalFeesAccrued: currentPool.totalFeesAccrued,
-              totalFeesWithdrawn: currentPool.totalFeesWithdrawn,
-              totalPrizesAllocated: currentPool.totalPrizesAllocated,
-              feeBasisPoints: currentPool.feeBasisPoints,
-            });
-
-            currentPool.estimatedPrizePot = yieldCalc.estimatedPrizePot;
-            currentPool.grossYield = Number(yieldCalc.grossYield);
-            currentPool.protocolFeeAmount = Number(yieldCalc.protocolFee);
-            currentPool.minYieldThreshold = Number(parsed.minYieldThreshold);
-            currentPool.underlyingApy = humaModeApy ?? 0.085;
-
-            const isDev = process.env.NODE_ENV === "development";
-            const isDebugEnabled =
-              isDev &&
-              (typeof window === "undefined" ||
-                (window as WindowWithDebug).__DEBUG_YIELD__ !== false);
-
-            if (isDebugEnabled) {
-              console.log(
-                `[PrizePool: ${currentPool.tokenSymbol ?? poolId}] On-Chain Base Prize Pot Calculation:`,
-                {
-                  formula:
-                    "currentValue = (poolPstBalance * humaTotalAssets) / pstSupply; grossYield = max(0, currentValue - bookValue); netYield = grossYield - fee",
-                  valuesRaw: {
-                    poolPstBalance: yieldCalc.poolPstBalance.toString(),
-                    pstSupply: yieldCalc.pstSupply.toString(),
-                    humaTotalAssets: yieldCalc.humaTotalAssets.toString(),
-                    currentValue: yieldCalc.currentValue.toString(),
-                    bookValue: yieldCalc.bookValue.toString(),
-                    grossYield: yieldCalc.grossYield.toString(),
-                    protocolFee: yieldCalc.protocolFee.toString(),
-                    netYield: yieldCalc.netYield.toString(),
-                    estimatedPrizePotRaw: currentPool.estimatedPrizePot,
-                  },
-                  valuesFormatted: {
-                    poolPstBalanceUi: `${formatTokenAmount(Number(yieldCalc.poolPstBalance))} PST`,
-                    pstSupplyUi: `${formatTokenAmount(Number(yieldCalc.pstSupply))} PST`,
-                    humaTotalAssetsUi: `${formatTokenAmount(Number(yieldCalc.humaTotalAssets))} USDC`,
-                    currentValueUi: `${formatTokenAmount(Number(yieldCalc.currentValue))} USDC`,
-                    bookValueUi: `${formatTokenAmount(Number(yieldCalc.bookValue))} USDC`,
-                    grossYieldUi: `${formatTokenAmount(Number(yieldCalc.grossYield))} USDC`,
-                    protocolFeeUi: `${formatTokenAmount(Number(yieldCalc.protocolFee))} USDC`,
-                    netYieldUi: `${formatTokenAmount(Number(yieldCalc.netYield))} USDC`,
-                    estimatedPrizePotUi: `${formatTokenAmount(currentPool.estimatedPrizePot)} USDC`,
-                  },
-                  bookValueBreakdown: {
-                    totalPrincipal: `${yieldCalc.totalDepositedPrincipal.toString()} (${formatTokenAmount(Number(yieldCalc.totalDepositedPrincipal))} USDC)`,
-                    feesInVault: `${yieldCalc.feesInVault.toString()} (${formatTokenAmount(Number(yieldCalc.feesInVault))} USDC)`,
-                    totalPrizesAllocated: `${yieldCalc.totalPrizesAllocated.toString()} (${formatTokenAmount(Number(yieldCalc.totalPrizesAllocated))} USDC)`,
-                  },
-                  explanations: {
-                    poolPstBalance: "Pool PST vault token balance",
-                    pstSupply: "Total PST token mint supply across Huma",
-                    humaTotalAssets:
-                      "Total assets held in underlying Huma lending pool state",
-                    currentValue: "Underlying USDC value of pool PST holdings",
-                    bookValue:
-                      "Protocol liabilities to active depositors + fees + prizes",
-                    grossYield:
-                      "Unadjusted surplus yield (currentValue - bookValue)",
-                    protocolFee: "Protocol fee cut from gross yield",
-                    netYield:
-                      "Net prize pot allocated for draws (grossYield - protocolFee)",
-                    estimatedPrizePot: "Live base prize pot in UI",
-                  },
-                }
-              );
+            const headerBytes = await fetchTicketRegistryHeaderSlice(
+              rpc,
+              currentPool.ticketRegistry
+            );
+            if (headerBytes) {
+              registryHeader = parseRegistryHeaderFromSlice(headerBytes);
+              if (registryHeader) {
+                currentPool.totalUsers = registryHeader.userCount;
+              }
             }
           } catch (err) {
-            const isDev = process.env.NODE_ENV === "development";
-            if (
-              isDev &&
-              (typeof window === "undefined" ||
-                (window as WindowWithDebug).__DEBUG_YIELD__ !== false)
-            ) {
-              console.warn(
-                `[PrizePool: ${poolId}] Huma pool state fetch failed or unavailable. Defaulting estimatedPrizePot to 0:`,
-                err
-              );
-            }
-            currentPool.estimatedPrizePot = 0;
-          } finally {
-            currentPool.lastSyncedAt = Date.now() / 1000;
+            console.warn(
+              "Could not fetch ticket registry header slice:",
+              err
+            );
           }
-          poolInfo = currentPool;
         }
-      } catch (err) {
-        console.warn("PrizePool not found on-chain.", err);
+
+        // 3. Compute live prize pot and APY from batched state
+        try {
+          const humaTotalAssets = batched.humaPoolStateData
+            ? parseMockHumaPoolState(batched.humaPoolStateData).totalAssets
+            : 0n;
+          const pstSupply = batched.pstMintData
+            ? parseMintSupply(batched.pstMintData)
+            : 0n;
+          const poolPstBalance = batched.poolPstVaultData
+            ? parseTokenAccountBalance(batched.poolPstVaultData)
+            : 0n;
+          const humaModeApy = batched.humaModeConfigData
+            ? parseModeConfig(batched.humaModeConfigData).apy
+            : undefined;
+
+          const yieldCalc = calculatePoolYield({
+            poolPstBalance,
+            pstSupply,
+            humaTotalAssets,
+            totalDepositedPrincipal: currentPool.totalDepositedPrincipal,
+            totalFeesAccrued: currentPool.totalFeesAccrued,
+            totalFeesWithdrawn: currentPool.totalFeesWithdrawn,
+            totalPrizesAllocated: currentPool.totalPrizesAllocated,
+            feeBasisPoints: currentPool.feeBasisPoints,
+          });
+
+          currentPool.estimatedPrizePot = yieldCalc.estimatedPrizePot;
+          currentPool.grossYield = Number(yieldCalc.grossYield);
+          currentPool.protocolFeeAmount = Number(yieldCalc.protocolFee);
+          currentPool.minYieldThreshold = Number(parsed.minYieldThreshold);
+          currentPool.underlyingApy = humaModeApy ?? 0.085;
+
+          const isDev = process.env.NODE_ENV === "development";
+          const isDebugEnabled =
+            isDev &&
+            (typeof window === "undefined" ||
+              (window as WindowWithDebug).__DEBUG_YIELD__ !== false);
+
+          if (isDebugEnabled) {
+            console.log(
+              `[PrizePool: ${currentPool.tokenSymbol ?? poolId}] On-Chain Base Prize Pot Calculation:`,
+              {
+                formula:
+                  "currentValue = (poolPstBalance * humaTotalAssets) / pstSupply; grossYield = max(0, currentValue - bookValue); netYield = grossYield - fee",
+                valuesRaw: {
+                  poolPstBalance: yieldCalc.poolPstBalance.toString(),
+                  pstSupply: yieldCalc.pstSupply.toString(),
+                  humaTotalAssets: yieldCalc.humaTotalAssets.toString(),
+                  currentValue: yieldCalc.currentValue.toString(),
+                  bookValue: yieldCalc.bookValue.toString(),
+                  grossYield: yieldCalc.grossYield.toString(),
+                  protocolFee: yieldCalc.protocolFee.toString(),
+                  netYield: yieldCalc.netYield.toString(),
+                  estimatedPrizePotRaw: currentPool.estimatedPrizePot,
+                },
+                valuesFormatted: {
+                  poolPstBalanceUi: `${formatTokenAmount(Number(yieldCalc.poolPstBalance))} PST`,
+                  pstSupplyUi: `${formatTokenAmount(Number(yieldCalc.pstSupply))} PST`,
+                  humaTotalAssetsUi: `${formatTokenAmount(Number(yieldCalc.humaTotalAssets))} USDC`,
+                  currentValueUi: `${formatTokenAmount(Number(yieldCalc.currentValue))} USDC`,
+                  bookValueUi: `${formatTokenAmount(Number(yieldCalc.bookValue))} USDC`,
+                  grossYieldUi: `${formatTokenAmount(Number(yieldCalc.grossYield))} USDC`,
+                  protocolFeeUi: `${formatTokenAmount(Number(yieldCalc.protocolFee))} USDC`,
+                  netYieldUi: `${formatTokenAmount(Number(yieldCalc.netYield))} USDC`,
+                  estimatedPrizePotUi: `${formatTokenAmount(currentPool.estimatedPrizePot)} USDC`,
+                },
+              }
+            );
+          }
+        } catch {
+          currentPool.estimatedPrizePot = 0;
+        } finally {
+          currentPool.lastSyncedAt = Date.now() / 1000;
+        }
+        poolInfo = currentPool;
       }
       setPool(poolInfo);
 
-      // 2. Fetch User state if connected
+      // 4. Resolve User State
       if (userAddress) {
-        const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
+        // USDC ATA Balance
+        const balance = batched.userAtaData
+          ? Number(parseTokenAccountBalance(batched.userAtaData))
+          : 0;
+        setWalletBalance(balance);
 
-        // Fetch User's USDC wallet balance using shared helper
-        try {
-          const balance = await fetchUserAtaBalance(
-            rpc,
-            userAddress,
-            USDC_MINT
-          );
-          setWalletBalance(balance);
-        } catch (err) {
-          console.warn(
-            "User USDC ATA not found, defaulting balance to 0.",
-            err
-          );
-          setWalletBalance(0);
-        }
-
-        let registryEntryIndex = 0xffffffff;
-        // Fetch UserWinnings account
-        try {
-          const winningsAcc = await rpc
-            .getAccountInfo(userWinningsPda, {
-              encoding: "base64",
-              commitment: "confirmed",
-            })
-            .send();
-          if (winningsAcc && winningsAcc.value) {
-            const bytes = new Uint8Array(
-              base64Encoder.encode(winningsAcc.value.data[0])
-            );
-            const parsed = parseUserWinnings(bytes);
-            setUserWinnings(parsed);
-            setHasUserWinningsAccount(true);
-            registryEntryIndex = parsed.registryEntryIndex;
-          } else {
-            setHasUserWinningsAccount(false);
-            setUserWinnings({
-              discriminator: new Uint8Array([
-                226, 146, 3, 214, 100, 252, 221, 32,
-              ]),
-              poolId,
-              user: address(userAddress),
-              unclaimedNonReinvestedWinnings: 0n,
-              totalClaimed: 0n,
-              totalReinvested: 0n,
-              bump: 0,
-              registryEntryIndex: 0xffffffff,
-              version: 1,
-              reserved: new Uint8Array(32),
-            });
-          }
-        } catch (err) {
-          console.warn("UserWinnings account not found, defaulting.", err);
+        let registryEntryIndex = UNASSIGNED_REGISTRY_INDEX;
+        // UserWinnings PDA
+        if (batched.userWinningsData) {
+          const parsedWinnings = parseUserWinnings(batched.userWinningsData);
+          setUserWinnings(parsedWinnings);
+          setHasUserWinningsAccount(true);
+          registryEntryIndex = parsedWinnings.registryEntryIndex;
+        } else {
+          setHasUserWinningsAccount(false);
           setUserWinnings({
             discriminator: new Uint8Array([
               226, 146, 3, 214, 100, 252, 221, 32,
@@ -394,47 +291,32 @@ export function useBondsContract(poolId: number = 1) {
             totalClaimed: 0n,
             totalReinvested: 0n,
             bump: 0,
-            registryEntryIndex: 0xffffffff,
+            registryEntryIndex: UNASSIGNED_REGISTRY_INDEX,
             version: 1,
             reserved: new Uint8Array(32),
           });
         }
 
-        // Fetch user tickets from TicketRegistry
-        try {
-          const registryAddrStr = poolInfo?.ticketRegistry;
-          if (registryAddrStr && registryEntryIndex !== 0xffffffff) {
-            let bytes = cachedRegistryBytes;
-            if (!bytes) {
-              const registryPda = address(registryAddrStr);
-              const registryAcc = await rpc
-                .getAccountInfo(registryPda, {
-                  encoding: "base64",
-                  commitment: "confirmed",
-                })
-                .send();
-              if (registryAcc && registryAcc.value) {
-                bytes = new Uint8Array(
-                  base64Encoder.encode(registryAcc.value.data[0])
-                );
-              }
-            }
-
-            if (bytes) {
-              const view = new DataView(
-                bytes.buffer,
-                bytes.byteOffset,
-                bytes.byteLength
-              );
-
-              const currentCycle = view.getUint32(28, true);
-              const userEntry = parseRegistryEntry(bytes, registryEntryIndex);
-              const isFrozen = poolInfo?.isFrozenForDraw ?? false;
-
+        // 5. Fetch User's 64-byte entry slice from TicketRegistry
+        if (
+          poolInfo?.ticketRegistry &&
+          registryEntryIndex !== UNASSIGNED_REGISTRY_INDEX &&
+          registryHeader &&
+          registryEntryIndex < registryHeader.userCount
+        ) {
+          try {
+            const userEntryBytes = await fetchUserRegistryEntrySlice(
+              rpc,
+              poolInfo.ticketRegistry,
+              registryEntryIndex
+            );
+            if (userEntryBytes) {
+              const userEntry = parseUserEntryFromSlice(userEntryBytes);
+              const isFrozen = poolInfo.isFrozenForDraw ?? false;
               const { activeTicketsCount, pendingTicketsCount } =
                 resolveUserTickets(
                   userEntry?.owner === userAddress ? userEntry : null,
-                  currentCycle,
+                  registryHeader.drawCycleId,
                   isFrozen
                 );
 
@@ -450,15 +332,15 @@ export function useBondsContract(poolId: number = 1) {
                 pendingTicketsCount: 0,
               });
             }
-          } else {
+          } catch (err) {
+            console.warn("Failed to fetch user entry slice:", err);
             setUserTickets({
               poolId,
               activeTicketsCount: 0,
               pendingTicketsCount: 0,
             });
           }
-        } catch (err) {
-          console.warn("Failed to parse ticket registry, defaulting.", err);
+        } else {
           setUserTickets({
             poolId,
             activeTicketsCount: 0,
@@ -466,7 +348,7 @@ export function useBondsContract(poolId: number = 1) {
           });
         }
 
-        // Fetch User's Pending Redemptions on-chain
+        // 6. Fetch User's Pending Redemptions on-chain
         try {
           const redemptions = await rpc
             .getProgramAccounts(PROGRAM_ID, {
@@ -485,34 +367,24 @@ export function useBondsContract(poolId: number = 1) {
             })
             .send();
 
-          // Get next request ID from Huma pool state to check claimability status
           let nextHumaRequestId = BigInt(0);
-          try {
-            const humaAcc = await rpc
-              .getAccountInfo(HUMA_POOL_STATE, {
-                encoding: "base64",
-                commitment: "confirmed",
-              })
-              .send();
-            if (humaAcc && humaAcc.value) {
-              const humaBytes = new Uint8Array(
-                base64Encoder.encode(humaAcc.value.data[0])
-              );
-              const humaState = parseMockHumaPoolState(humaBytes);
-              nextHumaRequestId = humaState.nextRequestId;
-            }
-          } catch (err) {
-            console.warn(
-              "Could not fetch Huma next_request_id, redemptions status might default to settling.",
-              err
-            );
+          if (batched.humaPoolStateData) {
+            const humaState = parseMockHumaPoolState(batched.humaPoolStateData);
+            nextHumaRequestId = humaState.nextRequestId;
           }
 
           const parsedRedemptions: PendingRedemption[] = redemptions.map(
             (r) => {
-              const bytes = new Uint8Array(
-                base64Encoder.encode(r.account.data[0])
-              );
+              const bytes = decodeAccountBase64Data(r.account);
+              if (!bytes) {
+                return {
+                  redemptionId: "0",
+                  amount: 0,
+                  status: "settling",
+                  requestedAt: new Date().toISOString(),
+                  type: "bond_sale",
+                };
+              }
               const parsed = parsePendingRedemption(bytes);
               const status: "settling" | "ready" =
                 nextHumaRequestId > parsed.humaRequestId ? "ready" : "settling";
@@ -649,6 +521,7 @@ export function useBondsContract(poolId: number = 1) {
       // Refresh state after transaction
       await refetch();
       notifyBalanceUpdate();
+      notifyProtocolUpdate("pool", { poolId, reason: "buy_settled" });
       return signature;
     },
     [userAddress, pool, poolId, send, refetch]
@@ -677,50 +550,57 @@ export function useBondsContract(poolId: number = 1) {
       if (!registryAddrStr)
         throw new Error("Ticket registry address not loaded");
 
-      // 1. Fetch user winnings PDA to get registry index
       const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
-      let registryEntryIndex = 0xffffffff;
 
-      const winningsAcc = await rpc
-        .getAccountInfo(userWinningsPda, {
-          encoding: "base64",
-          commitment: "confirmed",
-        })
-        .send();
+      // 1 & 2. Fetch UserWinnings PDA and TicketRegistry 104-byte header slice in parallel
+      const [winningsAcc, headerBytes] = await Promise.all([
+        rpc
+          .getAccountInfo(userWinningsPda, {
+            encoding: "base64",
+            commitment: "confirmed",
+          })
+          .send(),
+        fetchTicketRegistryHeaderSlice(rpc, registryAddrStr),
+      ]);
 
+      let registryEntryIndex = UNASSIGNED_REGISTRY_INDEX;
       if (winningsAcc && winningsAcc.value) {
-        const winningsBytes = base64Encoder.encode(winningsAcc.value.data[0]);
-        const winnings = parseUserWinnings(new Uint8Array(winningsBytes));
-        registryEntryIndex = winnings.registryEntryIndex;
+        const winningsBytes = decodeAccountBase64Data(winningsAcc.value);
+        if (winningsBytes) {
+          const winnings = parseUserWinnings(winningsBytes);
+          registryEntryIndex = winnings.registryEntryIndex;
+        }
       }
 
-      // 2. Fetch registry details
-      const registryAcc = await rpc
-        .getAccountInfo(address(registryAddrStr), {
-          encoding: "base64",
-          commitment: "confirmed",
-        })
-        .send();
-      if (!registryAcc || !registryAcc.value)
-        throw new Error("Ticket registry account not found on-chain");
+      if (!headerBytes)
+        throw new Error("Ticket registry header not found on-chain");
+      const registry = parseRegistryHeaderFromSlice(headerBytes);
+      if (!registry)
+        throw new Error("Failed to parse ticket registry header");
 
-      const bytes = base64Encoder.encode(registryAcc.value.data[0]);
-      const registry = parseTicketRegistry(new Uint8Array(bytes));
-
-      const entry =
-        registryEntryIndex !== 0xffffffff &&
+      // 3. Fetch User's 64-byte entry slice
+      let activeOwned = 0;
+      let pendingOwned = 0;
+      if (
+        registryEntryIndex !== UNASSIGNED_REGISTRY_INDEX &&
         registryEntryIndex < registry.userCount
-          ? registry.entries[registryEntryIndex]
-          : null;
-
-      const {
-        activeTicketsCount: activeOwned,
-        pendingTicketsCount: pendingOwned,
-      } = resolveUserTickets(
-        entry && entry.owner === userAddress ? entry : null,
-        registry.drawCycleId,
-        pool.isFrozenForDraw
-      );
+      ) {
+        const userEntryBytes = await fetchUserRegistryEntrySlice(
+          rpc,
+          registryAddrStr,
+          registryEntryIndex
+        );
+        if (userEntryBytes) {
+          const userEntry = parseUserEntryFromSlice(userEntryBytes);
+          const resolved = resolveUserTickets(
+            userEntry && userEntry.owner === userAddress ? userEntry : null,
+            registry.drawCycleId,
+            pool.isFrozenForDraw
+          );
+          activeOwned = resolved.activeTicketsCount;
+          pendingOwned = resolved.pendingTicketsCount;
+        }
+      }
 
       // Number of bonds to sell
       const bondsToSell = Math.floor(amount / pool.bondPrice);
@@ -746,12 +626,19 @@ export function useBondsContract(poolId: number = 1) {
           registryEntryIndex !== lastEntryIdx &&
           lastEntryIdx >= 0
         ) {
-          const lastEntry = registry.entries[lastEntryIdx];
-          if (lastEntry) {
-            swappedUserWinningsPda = await findUserWinningsPda(
-              poolId,
-              lastEntry.owner
-            );
+          const lastEntryBytes = await fetchUserRegistryEntrySlice(
+            rpc,
+            registryAddrStr,
+            lastEntryIdx
+          );
+          if (lastEntryBytes) {
+            const lastEntry = parseUserEntryFromSlice(lastEntryBytes);
+            if (lastEntry) {
+              swappedUserWinningsPda = await findUserWinningsPda(
+                poolId,
+                lastEntry.owner
+              );
+            }
           }
         }
 
@@ -817,6 +704,7 @@ export function useBondsContract(poolId: number = 1) {
         const signature = await executeTx(pendingToSell, activeToSell);
         await refetch();
         notifyBalanceUpdate();
+        notifyProtocolUpdate("pool", { poolId, reason: "sell_settled" });
         return signature;
       } catch (err: unknown) {
         // Concurrency Auto-Recovery: Catch InsufficientPendingTickets
@@ -832,6 +720,7 @@ export function useBondsContract(poolId: number = 1) {
           const retrySignature = await executeTx(0, totalToSell);
           await refetch();
           notifyBalanceUpdate();
+          notifyProtocolUpdate("pool", { poolId, reason: "sell_settled" });
           return retrySignature;
         }
         throw err;
@@ -900,6 +789,7 @@ export function useBondsContract(poolId: number = 1) {
 
       await refetch();
       notifyBalanceUpdate();
+      notifyProtocolUpdate("pool", { poolId, reason: "claim_redemption_settled" });
       return signature;
     },
     [userAddress, pool, poolId, send, refetch]
@@ -1032,32 +922,66 @@ export function useBondsContract(poolId: number = 1) {
     [userAddress, pool, poolId, send, refetch, client]
   );
 
-  return {
-    pool,
-    userTickets,
-    userWinnings: userWinnings
-      ? {
-          unclaimedNonReinvestedWinnings: Number(
-            userWinnings.unclaimedNonReinvestedWinnings
-          ),
-          totalClaimed: Number(userWinnings.totalClaimed),
-          totalReinvested: Number(userWinnings.totalReinvested),
-          registryEntryIndex: userWinnings.registryEntryIndex,
-        }
-      : null,
-    pendingRedemptions,
-    walletBalance,
-    hasUserWinningsAccount,
-    isFirstDeposit: !hasUserWinningsAccount,
-    isLoading,
-    error,
-    refetch,
-    actions: {
+  const actions = useMemo(
+    () => ({
       buyBonds,
       sellBonds,
       claimRedemption,
       claimNonReinvestedWinnings,
       reinvestWinnings,
-    },
-  };
+    }),
+    [
+      buyBonds,
+      sellBonds,
+      claimRedemption,
+      claimNonReinvestedWinnings,
+      reinvestWinnings,
+    ]
+  );
+
+  const formattedUserWinnings = useMemo(
+    () =>
+      userWinnings
+        ? {
+            unclaimedNonReinvestedWinnings: Number(
+              userWinnings.unclaimedNonReinvestedWinnings
+            ),
+            totalClaimed: Number(userWinnings.totalClaimed),
+            totalReinvested: Number(userWinnings.totalReinvested),
+            registryEntryIndex: userWinnings.registryEntryIndex,
+          }
+        : null,
+    [userWinnings]
+  );
+
+  return useMemo(
+    () => ({
+      pool,
+      userTickets,
+      userWinnings: formattedUserWinnings,
+      pendingRedemptions,
+      walletBalance,
+      hasUserWinningsAccount,
+      isFirstDeposit: !hasUserWinningsAccount,
+      isLoading,
+      error,
+      refetch,
+      actions,
+    }),
+    [
+      pool,
+      userTickets,
+      formattedUserWinnings,
+      pendingRedemptions,
+      walletBalance,
+      hasUserWinningsAccount,
+      isLoading,
+      error,
+      refetch,
+      actions,
+    ]
+  );
 }
+
+export type UseBondsContractReturn = ReturnType<typeof useBondsContract>;
+
