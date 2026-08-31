@@ -401,7 +401,7 @@ export function useActivityFeed(
 
   // Subscribe to real-time invalidation push events
   useProtocolSyncSubscription(fetchFeed, {
-    scopes: ["all", "user"],
+    scopes: ["user"],
     debounceMs: 150,
   });
 

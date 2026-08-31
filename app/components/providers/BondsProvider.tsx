@@ -18,9 +18,7 @@ export function BondsProvider({
   const bondsState = useBondsContract(poolId);
 
   return (
-    <BondsContext.Provider value={bondsState}>
-      {children}
-    </BondsContext.Provider>
+    <BondsContext.Provider value={bondsState}>{children}</BondsContext.Provider>
   );
 }
 

@@ -27,7 +27,7 @@ test("sanitizeForJsonb converts BigInts to string recursively", () => {
   assert.strictEqual(output.str, "hello");
 });
 
-test("resolveEventMetadata accurately resolves event scope and user address", () => {
+test("resolveEventMetadata accurately resolves event scopes and user address across all 11 event types", () => {
   const buyEvent: ParsedProgramEvent = {
     type: "BondsPurchased",
     data: {
@@ -37,29 +37,83 @@ test("resolveEventMetadata accurately resolves event scope and user address", ()
       amount: 50000000n,
     },
   };
-
   const buyMeta = resolveEventMetadata(buyEvent);
-  assert.strictEqual(buyMeta.scope, "user");
+  assert.strictEqual(buyMeta.scope, "pool");
+  assert.deepStrictEqual(buyMeta.scopes, ["pool", "user"]);
   assert.strictEqual(buyMeta.poolId, 1);
   assert.strictEqual(
     buyMeta.userAddress,
     "User111111111111111111111111111111111111111"
   );
 
-  const drawEvent: ParsedProgramEvent = {
-    type: "DrawCompleted",
+  const sellEvent: ParsedProgramEvent = {
+    type: "BondsSold",
     data: {
+      user: "User111111111111111111111111111111111111111",
       poolId: 1,
-      cycleId: 4,
-      prizePot: 250000000n,
-      winnersCount: 3,
+      bonds: 5,
+      principal: 25000000n,
+      redemptionId: 100n,
     },
   };
+  const sellMeta = resolveEventMetadata(sellEvent);
+  assert.strictEqual(sellMeta.scope, "pool");
+  assert.deepStrictEqual(sellMeta.scopes, ["pool", "user", "redemptions"]);
+  assert.strictEqual(sellMeta.poolId, 1);
+  assert.strictEqual(
+    sellMeta.userAddress,
+    "User111111111111111111111111111111111111111"
+  );
 
-  const drawMeta = resolveEventMetadata(drawEvent);
-  assert.strictEqual(drawMeta.scope, "draws");
-  assert.strictEqual(drawMeta.poolId, 1);
-  assert.strictEqual(drawMeta.userAddress, undefined);
+  const reinvestEvent: ParsedProgramEvent = {
+    type: "WinningsReinvested",
+    data: {
+      winner: "Winner1111111111111111111111111111111111111",
+      poolId: 1,
+      cycleId: 3,
+      bondsBought: 2,
+      amountReinvested: 10000000n,
+    },
+  };
+  const reinvestMeta = resolveEventMetadata(reinvestEvent);
+  assert.strictEqual(reinvestMeta.scope, "draws");
+  assert.deepStrictEqual(reinvestMeta.scopes, ["draws", "user", "pool"]);
+  assert.strictEqual(reinvestMeta.poolId, 1);
+  assert.strictEqual(
+    reinvestMeta.userAddress,
+    "Winner1111111111111111111111111111111111111"
+  );
+
+  const winClaimEvent: ParsedProgramEvent = {
+    type: "WinningsClaimed",
+    data: {
+      user: "User111111111111111111111111111111111111111",
+      poolId: 1,
+      amount: 15000000n,
+      redemptionId: 101n,
+    },
+  };
+  const winClaimMeta = resolveEventMetadata(winClaimEvent);
+  assert.strictEqual(winClaimMeta.scope, "draws");
+  assert.deepStrictEqual(winClaimMeta.scopes, [
+    "draws",
+    "user",
+    "pool",
+    "redemptions",
+  ]);
+
+  const redClaimEvent: ParsedProgramEvent = {
+    type: "RedemptionClaimed",
+    data: {
+      user: "User111111111111111111111111111111111111111",
+      poolId: 1,
+      amount: 25000000n,
+      redemptionId: 100n,
+    },
+  };
+  const redClaimMeta = resolveEventMetadata(redClaimEvent);
+  assert.strictEqual(redClaimMeta.scope, "pool");
+  assert.deepStrictEqual(redClaimMeta.scopes, ["pool", "user", "redemptions"]);
 
   const harvestEvent: ParsedProgramEvent = {
     type: "YieldHarvested",
@@ -73,10 +127,53 @@ test("resolveEventMetadata accurately resolves event scope and user address", ()
       randomnessAccount: "Rand111111111111111111111111111111111111111",
     },
   };
-
   const harvestMeta = resolveEventMetadata(harvestEvent);
   assert.strictEqual(harvestMeta.scope, "draws");
+  assert.deepStrictEqual(harvestMeta.scopes, ["draws", "pool", "clock"]);
   assert.strictEqual(harvestMeta.poolId, 2);
+
+  const drawEvent: ParsedProgramEvent = {
+    type: "DrawCompleted",
+    data: {
+      poolId: 1,
+      cycleId: 4,
+      prizePot: 250000000n,
+      winnersCount: 3,
+    },
+  };
+  const drawMeta = resolveEventMetadata(drawEvent);
+  assert.strictEqual(drawMeta.scope, "draws");
+  assert.deepStrictEqual(drawMeta.scopes, ["draws", "pool"]);
+  assert.strictEqual(drawMeta.poolId, 1);
+  assert.strictEqual(drawMeta.userAddress, undefined);
+
+  const forceUnlockEvent: ParsedProgramEvent = {
+    type: "DrawForceUnlocked",
+    data: {
+      poolId: 1,
+      cycleId: 4,
+      admin: "Admin11111111111111111111111111111111111111",
+      prizePot: 250000000n,
+      cycleFeeCollected: 5000000n,
+    },
+  };
+  const forceUnlockMeta = resolveEventMetadata(forceUnlockEvent);
+  assert.strictEqual(forceUnlockMeta.scope, "draws");
+  assert.deepStrictEqual(forceUnlockMeta.scopes, ["draws", "pool"]);
+
+  const voidEvent: ParsedProgramEvent = {
+    type: "DrawVoided",
+    data: {
+      poolId: 1,
+      cycleId: 4,
+      admin: "Admin11111111111111111111111111111111111111",
+      prizesReversed: 250000000n,
+      feesReversed: 5000000n,
+    },
+  };
+  const voidMeta = resolveEventMetadata(voidEvent);
+  assert.strictEqual(voidMeta.scope, "draws");
+  assert.deepStrictEqual(voidMeta.scopes, ["draws", "pool"]);
 
   const skipEvent: ParsedProgramEvent = {
     type: "DrawSkipped",
@@ -87,8 +184,23 @@ test("resolveEventMetadata accurately resolves event scope and user address", ()
       threshold: 1000000n,
     },
   };
-
   const skipMeta = resolveEventMetadata(skipEvent);
   assert.strictEqual(skipMeta.scope, "draws");
+  assert.deepStrictEqual(skipMeta.scopes, ["draws", "pool", "clock"]);
   assert.strictEqual(skipMeta.poolId, 1);
+
+  const prepEvent: ParsedProgramEvent = {
+    type: "DrawPreparationProgress",
+    data: {
+      poolId: 1,
+      cycleId: 7,
+      batchStart: 0,
+      batchEnd: 50,
+      userCount: 50,
+      isComplete: false,
+    },
+  };
+  const prepMeta = resolveEventMetadata(prepEvent);
+  assert.strictEqual(prepMeta.scope, "draws");
+  assert.deepStrictEqual(prepMeta.scopes, ["draws"]);
 });

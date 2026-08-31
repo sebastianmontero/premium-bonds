@@ -14,8 +14,6 @@ import {
   lamports,
   TransactionSigner,
   Instruction,
-  type Rpc,
-  type SolanaRpcApi,
 } from "@solana/kit";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,7 +65,6 @@ import {
 } from "./ticket-registry-helpers";
 
 export type { TicketRegistry } from "./ticket-registry-helpers";
-
 
 export {
   RedemptionType,
@@ -172,7 +169,6 @@ export function decodeAccountBase64Data(
   if (!account?.data?.[0]) return null;
   return new Uint8Array(base64Encoder.encode(account.data[0]));
 }
-
 
 export interface FetchBatchedBondsParams {
   rpc: SolanaRpc;
@@ -1625,4 +1621,3 @@ export async function buildAtomicRevealAndPickWinnersInstructions(params: {
   instructions.push(revealIx);
   return instructions;
 }
-

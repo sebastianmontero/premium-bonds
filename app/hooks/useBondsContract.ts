@@ -6,12 +6,7 @@ import {
   useSendTransaction,
   useSolanaClient,
 } from "@solana/react-hooks";
-import {
-  address,
-  AccountRole,
-  Base58EncodedBytes,
-  Address,
-} from "@solana/kit";
+import { address, AccountRole, Base58EncodedBytes, Address } from "@solana/kit";
 import {
   PROGRAM_ID,
   HUMA_PROGRAM_ID,
@@ -152,7 +147,8 @@ export function useBondsContract(poolId: number = 1) {
       });
 
       let poolInfo: ExtendedPoolInfo | null = null;
-      let registryHeader: ReturnType<typeof parseRegistryHeaderFromSlice> = null;
+      let registryHeader: ReturnType<typeof parseRegistryHeaderFromSlice> =
+        null;
 
       if (batched.poolAccountData) {
         const parsed = parsePrizePool(batched.poolAccountData);
@@ -179,10 +175,7 @@ export function useBondsContract(poolId: number = 1) {
               }
             }
           } catch (err) {
-            console.warn(
-              "Could not fetch ticket registry header slice:",
-              err
-            );
+            console.warn("Could not fetch ticket registry header slice:", err);
           }
         }
 
@@ -437,7 +430,8 @@ export function useBondsContract(poolId: number = 1) {
       await refetch();
     },
     {
-      scopes: ["all", "pool", "redemptions", "clock", "user"],
+      scopes: ["pool", "draws", "redemptions", "clock", "user"],
+      poolId,
       debounceMs: 100,
     }
   );
@@ -575,8 +569,7 @@ export function useBondsContract(poolId: number = 1) {
       if (!headerBytes)
         throw new Error("Ticket registry header not found on-chain");
       const registry = parseRegistryHeaderFromSlice(headerBytes);
-      if (!registry)
-        throw new Error("Failed to parse ticket registry header");
+      if (!registry) throw new Error("Failed to parse ticket registry header");
 
       // 3. Fetch User's 64-byte entry slice
       let activeOwned = 0;
@@ -789,7 +782,10 @@ export function useBondsContract(poolId: number = 1) {
 
       await refetch();
       notifyBalanceUpdate();
-      notifyProtocolUpdate("pool", { poolId, reason: "claim_redemption_settled" });
+      notifyProtocolUpdate("pool", {
+        poolId,
+        reason: "claim_redemption_settled",
+      });
       return signature;
     },
     [userAddress, pool, poolId, send, refetch]
@@ -862,7 +858,11 @@ export function useBondsContract(poolId: number = 1) {
     });
 
     await refetch();
-    notifyProtocolUpdate("all", { poolId, reason: "claim_winnings_settled" });
+    notifyProtocolUpdate("redemptions", {
+      scopes: ["redemptions", "user", "pool"],
+      poolId,
+      reason: "claim_winnings_settled",
+    });
     notifyBalanceUpdate();
     return signature;
   }, [userAddress, pool, userWinnings, poolId, send, refetch]);
@@ -915,7 +915,11 @@ export function useBondsContract(poolId: number = 1) {
       });
 
       await refetch();
-      notifyProtocolUpdate("all", { poolId, reason: "reinvest_settled" });
+      notifyProtocolUpdate("draws", {
+        scopes: ["draws", "user", "pool"],
+        poolId,
+        reason: "reinvest_settled",
+      });
       notifyBalanceUpdate();
       return signature;
     },
@@ -984,4 +988,3 @@ export function useBondsContract(poolId: number = 1) {
 }
 
 export type UseBondsContractReturn = ReturnType<typeof useBondsContract>;
-

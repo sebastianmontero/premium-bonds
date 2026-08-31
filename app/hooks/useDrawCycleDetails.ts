@@ -16,7 +16,7 @@ import {
   parseWinnersWithVrf,
   getWinnerKey,
 } from "../lib/draw-helpers";
-import { PB_BALANCE_UPDATE_EVENT } from "./useUserTokenBalance";
+import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import type { DetailedDrawCycle } from "../types";
 
 const base64Encoder = getBase64Encoder();
@@ -57,7 +57,6 @@ export function useDrawCycleDetails(
   const [error, setError] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
   const detailsRef = useRef<DetailedDrawCycle | null>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | number | null>(null);
 
   // Cycle-scoped optimistic winner tracker with 30s TTL
   const optimisticProcessedWinnersRef = useRef<
@@ -260,31 +259,12 @@ export function useDrawCycleDetails(
     fetchDetails();
   }, [fetchDetails]);
 
-  // Listen for custom protocol balance/reinvestment events with 150ms debounce
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleSync = () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        fetchDetails();
-      }, 150);
-    };
-
-    window.addEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-    window.addEventListener("focus", handleSync);
-
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      window.removeEventListener(PB_BALANCE_UPDATE_EVENT, handleSync);
-      window.removeEventListener("focus", handleSync);
-    };
-  }, [fetchDetails]);
+  // Listen for custom protocol draw/settlement events with scoped filtering
+  useProtocolSyncSubscription(fetchDetails, {
+    scopes: ["draws"],
+    poolId,
+    debounceMs: 150,
+  });
 
   return {
     details,

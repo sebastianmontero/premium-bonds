@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
         const meta = resolveEventMetadata(evt);
         broadcastEvents.push({
           scope: meta.scope,
+          scopes: meta.scopes,
           poolId: meta.poolId,
           userAddress: meta.userAddress,
           txSignature: item.context.signature,

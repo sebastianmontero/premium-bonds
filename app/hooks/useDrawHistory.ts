@@ -429,7 +429,8 @@ export function useDrawHistory(
 
   // Listen for custom protocol draw/settlement events with scoped filtering
   useProtocolSyncSubscription(fetchHistory, {
-    scopes: ["all", "draws"],
+    scopes: ["draws"],
+    poolId,
     debounceMs: 150,
   });
 

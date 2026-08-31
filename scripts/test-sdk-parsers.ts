@@ -35,7 +35,6 @@ import { ANCHOR_ERROR__POOL_NOT_FROZEN } from "../app/lib/generated/yield-bonds/
 
 console.log("Running Codama SDK parser verification tests...");
 
-
 function mockAccount(data: Uint8Array) {
   return {
     address: "11111111111111111111111111111111" as Address,
@@ -754,10 +753,7 @@ function mockAccount(data: Uint8Array) {
 
   const parsedEntry0 = parseUserEntryFromSlice(entry0Slice);
   assert.notStrictEqual(parsedEntry0, null);
-  assert.strictEqual(
-    parsedEntry0?.owner,
-    "11111111111111111111111111111111"
-  );
+  assert.strictEqual(parsedEntry0?.owner, "11111111111111111111111111111111");
   assert.strictEqual(parsedEntry0?.active, 100);
   assert.strictEqual(parsedEntry0?.pending, 10);
   assert.strictEqual(parsedEntry0?.mergedThroughCycle, 4);
@@ -786,7 +782,6 @@ function mockAccount(data: Uint8Array) {
   invalidVersionEntry[48] = 99;
   assert.strictEqual(parseUserEntryFromSlice(invalidVersionEntry), null);
 
-
   // C. Boundary checking on parseRegistryEntry
   assert.strictEqual(
     parseRegistryEntry(registryData, UNASSIGNED_REGISTRY_INDEX),
@@ -803,15 +798,11 @@ function mockAccount(data: Uint8Array) {
     decodeAccountBase64Data({ data: ["AQID", "base64"] })?.byteLength,
     3
   );
-  assert.strictEqual(
-    decodeAccountBase64Data({ data: ["", "base64"] }),
-    null
-  );
+  assert.strictEqual(decodeAccountBase64Data({ data: ["", "base64"] }), null);
 
-  console.log("✓ parseRegistryHeaderFromSlice & parseUserEntryFromSlice passed");
+  console.log(
+    "✓ parseRegistryHeaderFromSlice & parseUserEntryFromSlice passed"
+  );
 }
 
 console.log("All Codama SDK parser & math tests completed successfully!");
-
-
-

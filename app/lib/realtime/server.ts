@@ -1,5 +1,8 @@
 import Pusher from "pusher";
-import type { ProtocolSyncScope } from "../protocol-sync-bus";
+import {
+  type ProtocolSyncScope,
+  derivePrimaryScope,
+} from "../protocol-sync-bus";
 import {
   REALTIME_GLOBAL_CHANNEL,
   REALTIME_PROTOCOL_SYNC_EVENT,
@@ -33,7 +36,8 @@ export function getPusherServer(): Pusher | null {
 }
 
 export interface RealtimeBroadcastItem {
-  scope: ProtocolSyncScope;
+  scope?: ProtocolSyncScope;
+  scopes?: readonly ProtocolSyncScope[];
   poolId?: number;
   userAddress?: string;
   txSignature?: string;
@@ -48,42 +52,60 @@ export async function broadcastAggregatedInvalidations(
 
   try {
     const scopes = new Set<ProtocolSyncScope>();
-    const userAddresses = new Set<string>();
-    let primaryPoolId: number | undefined;
+    const userScopes = new Map<string, Set<ProtocolSyncScope>>();
+    const userPoolIds = new Map<string, Set<number>>();
+    const poolIds = new Set<number>();
 
     for (const evt of events) {
-      scopes.add(evt.scope);
-      if (evt.userAddress) userAddresses.add(evt.userAddress);
-      if (evt.poolId !== undefined) primaryPoolId = evt.poolId;
+      const evtScopes = evt.scopes ?? (evt.scope ? [evt.scope] : ["all"]);
+      for (const s of evtScopes) scopes.add(s);
+      if (evt.poolId !== undefined) poolIds.add(evt.poolId);
+
+      if (evt.userAddress) {
+        const existingScopes = userScopes.get(evt.userAddress) ?? new Set();
+        for (const s of evtScopes) existingScopes.add(s);
+        userScopes.set(evt.userAddress, existingScopes);
+
+        if (evt.poolId !== undefined) {
+          const existingPools = userPoolIds.get(evt.userAddress) ?? new Set();
+          existingPools.add(evt.poolId);
+          userPoolIds.set(evt.userAddress, existingPools);
+        }
+      }
     }
 
     const broadcastPromises: Promise<unknown>[] = [];
+    const poolIdsArray = Array.from(poolIds);
+    const primaryPoolId =
+      poolIdsArray.length === 1 ? poolIdsArray[0] : undefined;
+    const scopesArray = Array.from(scopes);
 
     // 1. Single Global / Pool Invalidation Broadcast
-    const aggregatedScope: ProtocolSyncScope = scopes.has("all")
-      ? "all"
-      : scopes.size === 1
-        ? Array.from(scopes)[0]
-        : "all";
-
     broadcastPromises.push(
       server.trigger(REALTIME_GLOBAL_CHANNEL, REALTIME_PROTOCOL_SYNC_EVENT, {
-        scope: aggregatedScope,
+        scope: derivePrimaryScope(scopesArray),
+        scopes: scopesArray,
         poolId: primaryPoolId,
+        poolIds: poolIdsArray.length > 0 ? poolIdsArray : undefined,
         reason: `webhook:aggregated_${events.length}_events`,
         timestamp: Date.now(),
       })
     );
 
     // 2. Targeted User Channel Invalidation Broadcasts
-    for (const user of userAddresses) {
+    for (const [user, uScopes] of userScopes.entries()) {
       const userChannel = getRealtimeUserChannel(user);
       if (!isValidPusherChannel(userChannel)) continue;
 
+      const uScopesArray = Array.from(uScopes);
+      const uPoolsArray = Array.from(userPoolIds.get(user) ?? []);
+
       broadcastPromises.push(
         server.trigger(userChannel, REALTIME_PROTOCOL_SYNC_EVENT, {
-          scope: "user",
-          poolId: primaryPoolId,
+          scope: derivePrimaryScope(uScopesArray),
+          scopes: uScopesArray,
+          poolId: uPoolsArray.length === 1 ? uPoolsArray[0] : undefined,
+          poolIds: uPoolsArray.length > 0 ? uPoolsArray : undefined,
           reason: "webhook:user_activity",
           timestamp: Date.now(),
         })

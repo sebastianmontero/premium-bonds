@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
       { draws: summaries, stats, fallback: false },
       {
         headers: {
-          "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
+          "Cache-Control": "public, s-maxage=5, stale-while-revalidate=10",
         },
       }
     );

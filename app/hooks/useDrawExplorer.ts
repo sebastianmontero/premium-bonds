@@ -282,7 +282,8 @@ export function useDrawExplorer(
 
   // Listen for custom protocol draw events with scoped filtering
   useProtocolSyncSubscription(fetchDraws, {
-    scopes: ["all", "draws"],
+    scopes: ["draws"],
+    poolId,
     debounceMs: 150,
   });
 

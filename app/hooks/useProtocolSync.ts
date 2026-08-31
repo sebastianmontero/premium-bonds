@@ -71,4 +71,3 @@ export function useProtocolSync(options: ProtocolSyncOptions = {}): void {
     };
   }, [intervalMs]);
 }
-

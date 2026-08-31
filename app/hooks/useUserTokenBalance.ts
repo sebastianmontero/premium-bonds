@@ -109,7 +109,7 @@ export function useUserTokenBalance(
       }, 1000);
     },
     {
-      scopes: ["all", "user"],
+      scopes: ["user"],
       debounceMs: 50,
     }
   );

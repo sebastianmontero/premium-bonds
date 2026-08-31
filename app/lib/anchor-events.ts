@@ -8,6 +8,7 @@
  */
 
 import { Address, getBase58Decoder, getBase58Encoder } from "@solana/kit";
+import type { ProtocolSyncScope } from "./protocol-sync-bus";
 
 // ─── Event Type Definitions ──────────────────────────────────────────────────
 
@@ -115,41 +116,70 @@ export type ProgramEvent = ParsedProgramEvent & {
   blockTime: number;
 };
 
+export type NonEmptyScopes = readonly [
+  ProtocolSyncScope,
+  ...ProtocolSyncScope[],
+];
+
 export interface EventMetadata {
   poolId: number;
   userAddress?: string;
-  scope: "pool" | "draws" | "user" | "all";
+  scopes: NonEmptyScopes;
+  /** @deprecated Use `scopes` array instead. Returns primary scope (`scopes[0]`). */
+  readonly scope: ProtocolSyncScope;
+}
+
+function createMetadata(
+  poolId: number,
+  scopes: NonEmptyScopes,
+  userAddress?: string
+): EventMetadata {
+  return {
+    poolId,
+    userAddress,
+    scopes,
+    scope: scopes[0],
+  };
 }
 
 export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
   switch (evt.type) {
     case "BondsPurchased":
+      return createMetadata(evt.data.poolId, ["pool", "user"], evt.data.user);
     case "BondsSold":
-      return {
-        poolId: evt.data.poolId,
-        userAddress: evt.data.user,
-        scope: "user",
-      };
+      return createMetadata(
+        evt.data.poolId,
+        ["pool", "user", "redemptions"],
+        evt.data.user
+      );
     case "WinningsReinvested":
-      return {
-        poolId: evt.data.poolId,
-        userAddress: evt.data.winner,
-        scope: "user",
-      };
+      return createMetadata(
+        evt.data.poolId,
+        ["draws", "user", "pool"],
+        evt.data.winner
+      );
     case "WinningsClaimed":
+      return createMetadata(
+        evt.data.poolId,
+        ["draws", "user", "pool", "redemptions"],
+        evt.data.user
+      );
     case "RedemptionClaimed":
-      return {
-        poolId: evt.data.poolId,
-        userAddress: evt.data.user,
-        scope: "user",
-      };
+      return createMetadata(
+        evt.data.poolId,
+        ["pool", "user", "redemptions"],
+        evt.data.user
+      );
     case "YieldHarvested":
+      return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawCompleted":
     case "DrawForceUnlocked":
     case "DrawVoided":
+      return createMetadata(evt.data.poolId, ["draws", "pool"]);
     case "DrawSkipped":
+      return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawPreparationProgress":
-      return { poolId: evt.data.poolId, scope: "draws" };
+      return createMetadata(evt.data.poolId, ["draws"]);
   }
 }
 

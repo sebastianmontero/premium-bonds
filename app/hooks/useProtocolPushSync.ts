@@ -57,6 +57,22 @@ export function usePushConnectionStatus(): { isConnected: boolean } {
   return { isConnected };
 }
 
+/**
+ * Dispatches incoming push notification sync payloads into the protocol sync bus.
+ * Defensively guards against malformed or partial push payloads over the socket.
+ */
+export function dispatchPushSync(
+  data: Partial<ProtocolSyncDetail> | undefined,
+  channelType: "global" | "user"
+): void {
+  notifyProtocolUpdate(data?.scope ?? "all", {
+    scopes: data?.scopes,
+    poolId: data?.poolId,
+    poolIds: data?.poolIds,
+    reason: `push:${channelType}_${data?.reason || ""}`,
+  });
+}
+
 export function useProtocolPushSync(
   userAddress?: string
 ): ProtocolPushSyncStatus {
@@ -70,7 +86,23 @@ export function useProtocolPushSync(
     const pusher = getPusherClient();
     if (!pusher) return;
 
-    const handleConnected = () => pushConnectionStore.setConnected(true);
+    let wasEverConnected = false;
+    let lastReconnectionTime = 0;
+    const RECONNECT_COOLDOWN_MS = 10_000;
+
+    const handleConnected = () => {
+      pushConnectionStore.setConnected(true);
+      const now = Date.now();
+      if (
+        wasEverConnected &&
+        now - lastReconnectionTime > RECONNECT_COOLDOWN_MS
+      ) {
+        lastReconnectionTime = now;
+        // Reconnection recovery: catch up on missed state changes during sleep/offline
+        notifyProtocolUpdate("all", { reason: "push:reconnected" });
+      }
+      wasEverConnected = true;
+    };
     const handleDisconnected = () => pushConnectionStore.setConnected(false);
     const handleStateChange = (states: {
       previous: string;
@@ -92,10 +124,7 @@ export function useProtocolPushSync(
 
     // Subscribe to Global Protocol Channel
     const handleGlobalSync = (data: ProtocolSyncDetail) => {
-      notifyProtocolUpdate(data.scope, {
-        poolId: data.poolId,
-        reason: `push:${data.reason || "global"}`,
-      });
+      dispatchPushSync(data, "global");
     };
 
     const globalChannel = pusher.subscribe(REALTIME_GLOBAL_CHANNEL);
@@ -122,10 +151,7 @@ export function useProtocolPushSync(
     if (!isValidPusherChannel(targetUserChannel)) return;
 
     const handleUserSync = (data: ProtocolSyncDetail) => {
-      notifyProtocolUpdate(data.scope, {
-        poolId: data.poolId,
-        reason: `push:user_${data.reason || "personal"}`,
-      });
+      dispatchPushSync(data, "user");
     };
 
     const userChannel = pusher.subscribe(targetUserChannel);
@@ -139,4 +165,3 @@ export function useProtocolPushSync(
 
   return { isConnected, isAvailable };
 }
-

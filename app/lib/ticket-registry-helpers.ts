@@ -169,7 +169,6 @@ export function parseRegistryHeaderFromSlice(
   }
 }
 
-
 /**
  * Parses a single user entry from a TicketRegistry zero-copy byte buffer at the given index.
  *
@@ -328,13 +327,15 @@ export function serializeTicketRegistry(
         active:
           "active" in rawEntry && rawEntry.active !== undefined
             ? rawEntry.active
-            : "activeTickets" in rawEntry && rawEntry.activeTickets !== undefined
+            : "activeTickets" in rawEntry &&
+                rawEntry.activeTickets !== undefined
               ? rawEntry.activeTickets
               : 0,
         pending:
           "pending" in rawEntry && rawEntry.pending !== undefined
             ? rawEntry.pending
-            : "pendingTickets" in rawEntry && rawEntry.pendingTickets !== undefined
+            : "pendingTickets" in rawEntry &&
+                rawEntry.pendingTickets !== undefined
               ? rawEntry.pendingTickets
               : 0,
         mergedThroughCycle:
@@ -357,4 +358,3 @@ export function serializeTicketRegistry(
 
   return fullBuffer;
 }
-
