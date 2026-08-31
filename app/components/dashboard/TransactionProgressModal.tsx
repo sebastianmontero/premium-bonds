@@ -19,6 +19,19 @@ export type TransactionStage =
   | "error"
   | null;
 
+export function isInFlightStage(stage: TransactionStage): boolean {
+  return (
+    stage === "preparing" ||
+    stage === "signing" ||
+    stage === "broadcasting" ||
+    stage === "confirming"
+  );
+}
+
+export function isTerminalStage(stage: TransactionStage): boolean {
+  return stage === "success" || stage === "error";
+}
+
 export interface TransactionProgressModalProps {
   isOpen: boolean;
   stage: TransactionStage;
@@ -52,7 +65,7 @@ export function TransactionProgressModal({
   // Keyboard Escape key listener for terminal states
   useEffect(() => {
     if (!isOpen) return;
-    const isTerminal = stage === "success" || stage === "error";
+    const isTerminal = isTerminalStage(stage);
     if (!isTerminal) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -82,7 +95,7 @@ export function TransactionProgressModal({
     }
   };
 
-  const isTerminalState = stage === "success" || stage === "error";
+  const isTerminalState = isTerminalStage(stage);
   const ariaRole =
     stage === "error"
       ? error?.category === "blockhash_expired"

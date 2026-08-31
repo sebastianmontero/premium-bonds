@@ -6,8 +6,12 @@ import { formatTokenAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
-import { TransactionProgressModal } from "./TransactionProgressModal";
+import {
+  TransactionProgressModal,
+  isInFlightStage,
+} from "./TransactionProgressModal";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
+import { useModalDismissal } from "@/app/hooks/useModalDismissal";
 
 interface DepositModalProps {
   pool: PoolInfo;
@@ -31,6 +35,27 @@ export function DepositModal({
   const [activeInput, setActiveInput] = useState<"token" | "ticket">("token");
   const inputRef = useRef<HTMLInputElement>(null);
   const runner = useTransactionRunner();
+
+  const isBusy = isInFlightStage(runner.stage);
+
+  const handleModalClose = useCallback(() => {
+    runner.reset();
+    onClose();
+  }, [runner, onClose]);
+
+  const handleBackToForm = useCallback(() => {
+    runner.reset();
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+  }, [runner]);
+
+  const { handleBackdropClick } = useModalDismissal({
+    isOpen: true,
+    isBusy,
+    onClose: handleModalClose,
+    onBack: runner.stage === "error" ? handleBackToForm : undefined,
+  });
 
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
 
@@ -88,20 +113,11 @@ export function DepositModal({
     totalCostBase,
   ]);
 
-  const handleModalClose = useCallback(() => {
-    runner.reset();
-    onClose();
-  }, [runner, onClose]);
-
-  const handleBackToForm = useCallback(() => {
-    runner.reset();
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
-  }, [runner]);
-
   return (
-    <div className="modal-backdrop animate-fade-in" onClick={handleModalClose}>
+    <div
+      className="modal-backdrop animate-fade-in"
+      onClick={handleBackdropClick}
+    >
       {runner.stage !== null ? (
         <TransactionProgressModal
           isOpen={true}
@@ -150,6 +166,7 @@ export function DepositModal({
             </div>
             <button
               onClick={handleModalClose}
+              aria-label={t("close")}
               className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container-highest transition cursor-pointer"
             >
               <svg
