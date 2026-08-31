@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeForJsonb } from "../ingest";
 import { resolveEventMetadata, ParsedProgramEvent } from "../../anchor-events";
+import { address } from "@solana/kit";
 
 test("sanitizeForJsonb converts BigInts to string recursively", () => {
   const input = {
@@ -28,10 +29,13 @@ test("sanitizeForJsonb converts BigInts to string recursively", () => {
 });
 
 test("resolveEventMetadata accurately resolves event scopes and user address across all 11 event types", () => {
+  const userAddr = address("11111111111111111111111111111111");
+  const randAddr = address("11111111111111111111111111111111");
+
   const buyEvent: ParsedProgramEvent = {
     type: "BondsPurchased",
     data: {
-      user: "User111111111111111111111111111111111111111",
+      user: userAddr,
       poolId: 1,
       bonds: 10,
       amount: 50000000n,
@@ -41,15 +45,12 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
   assert.strictEqual(buyMeta.scope, "pool");
   assert.deepStrictEqual(buyMeta.scopes, ["pool", "user"]);
   assert.strictEqual(buyMeta.poolId, 1);
-  assert.strictEqual(
-    buyMeta.userAddress,
-    "User111111111111111111111111111111111111111"
-  );
+  assert.strictEqual(buyMeta.userAddress, userAddr.toString());
 
   const sellEvent: ParsedProgramEvent = {
     type: "BondsSold",
     data: {
-      user: "User111111111111111111111111111111111111111",
+      user: userAddr,
       poolId: 1,
       bonds: 5,
       principal: 25000000n,
@@ -60,15 +61,12 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
   assert.strictEqual(sellMeta.scope, "pool");
   assert.deepStrictEqual(sellMeta.scopes, ["pool", "user", "redemptions"]);
   assert.strictEqual(sellMeta.poolId, 1);
-  assert.strictEqual(
-    sellMeta.userAddress,
-    "User111111111111111111111111111111111111111"
-  );
+  assert.strictEqual(sellMeta.userAddress, userAddr.toString());
 
   const reinvestEvent: ParsedProgramEvent = {
     type: "WinningsReinvested",
     data: {
-      winner: "Winner1111111111111111111111111111111111111",
+      winner: userAddr,
       poolId: 1,
       cycleId: 3,
       bondsBought: 2,
@@ -79,15 +77,12 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
   assert.strictEqual(reinvestMeta.scope, "draws");
   assert.deepStrictEqual(reinvestMeta.scopes, ["draws", "user", "pool"]);
   assert.strictEqual(reinvestMeta.poolId, 1);
-  assert.strictEqual(
-    reinvestMeta.userAddress,
-    "Winner1111111111111111111111111111111111111"
-  );
+  assert.strictEqual(reinvestMeta.userAddress, userAddr.toString());
 
   const winClaimEvent: ParsedProgramEvent = {
     type: "WinningsClaimed",
     data: {
-      user: "User111111111111111111111111111111111111111",
+      user: userAddr,
       poolId: 1,
       amount: 15000000n,
       redemptionId: 101n,
@@ -105,7 +100,7 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
   const redClaimEvent: ParsedProgramEvent = {
     type: "RedemptionClaimed",
     data: {
-      user: "User111111111111111111111111111111111111111",
+      user: userAddr,
       poolId: 1,
       amount: 25000000n,
       redemptionId: 100n,
@@ -124,7 +119,7 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
       fee: 250000n,
       prizePot: 9750000n,
       lockedTicketCount: 500,
-      randomnessAccount: "Rand111111111111111111111111111111111111111",
+      randomnessAccount: randAddr,
     },
   };
   const harvestMeta = resolveEventMetadata(harvestEvent);
@@ -152,7 +147,7 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
     data: {
       poolId: 1,
       cycleId: 4,
-      admin: "Admin11111111111111111111111111111111111111",
+      admin: userAddr,
       prizePot: 250000000n,
       cycleFeeCollected: 5000000n,
     },
@@ -166,7 +161,7 @@ test("resolveEventMetadata accurately resolves event scopes and user address acr
     data: {
       poolId: 1,
       cycleId: 4,
-      admin: "Admin11111111111111111111111111111111111111",
+      admin: userAddr,
       prizesReversed: 250000000n,
       feesReversed: 5000000n,
     },

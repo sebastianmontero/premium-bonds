@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
         status: r.status as DrawStatusName,
         prizePot: potNum,
         cycleFeeCollected: Number(r.cycleFeeCollected ?? 0n),
-        lockedTicketCount: r.lockedTicketCount ?? 0,
+        lockedTicketCount: Number(r.lockedTicketCount ?? 0n),
         harvestSlot: Number(r.harvestSlot ?? 0),
         randomnessAccount: r.randomnessAccount || "",
         vrfSeedHex: r.vrfSeedHex || "",

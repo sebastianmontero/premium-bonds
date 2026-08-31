@@ -17,7 +17,7 @@ import {
   getWinnerKey,
 } from "../lib/draw-helpers";
 import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
-import type { DetailedDrawCycle } from "../types";
+import type { DetailedDrawCycle, DrawWinnerRecord } from "../types";
 
 const base64Encoder = getBase64Encoder();
 const OPTIMISTIC_TTL_MS = 30_000;
@@ -144,6 +144,111 @@ export function useDrawCycleDetails(
     setError(null);
 
     try {
+      // 1. Primary path: Query Indexer REST API
+      try {
+        const apiRes = await fetch(
+          `/api/indexer/draws/${cycleId}?poolId=${poolId}`
+        );
+        const apiJson = await apiRes.json();
+        if (
+          apiJson.success &&
+          apiJson.fallbackRequired === false &&
+          apiJson.data
+        ) {
+          if (fetchId !== fetchIdRef.current) return;
+          const d = apiJson.data;
+          interface ApiWinnerRecord {
+            winnerIndex: number;
+            winnerAddress: string;
+            amountOwed: number | string;
+            bondsBought?: number | string | null;
+            processed?: boolean | null;
+            tierIndex: number;
+            winningTicketIdx?: number | string | null;
+          }
+          const rawWinners = (d.winners || []) as ApiWinnerRecord[];
+          const reconciledWinners: DrawWinnerRecord[] = rawWinners.map(
+            (w) => {
+              const key = getWinnerKey(cycleId, w.winnerIndex);
+              const opt = optimisticProcessedWinnersRef.current.get(key);
+              let isProcessed = Boolean(w.processed);
+              let effectiveBondsBought = Number(w.bondsBought || 0);
+
+              if (opt) {
+                if (w.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
+                  optimisticProcessedWinnersRef.current.delete(key);
+                } else {
+                  isProcessed = true;
+                  effectiveBondsBought =
+                    effectiveBondsBought > 0
+                      ? effectiveBondsBought
+                      : opt.bondsBought;
+                }
+              }
+
+              return {
+                winnerIndex: w.winnerIndex,
+                slotInTier: w.winnerIndex,
+                winnerAddress: w.winnerAddress,
+                amountOwed: Number(w.amountOwed),
+                bondsBought: effectiveBondsBought,
+                processed: isProcessed,
+                tierIndex: w.tierIndex,
+                winningTicketIndex:
+                  w.winningTicketIdx != null
+                    ? Number(w.winningTicketIdx)
+                    : undefined,
+              };
+            }
+          );
+
+          let isUserWinner = false;
+          let userWinningsTotal = 0;
+          if (userAddress) {
+            const userMatches = reconciledWinners.filter(
+              (w) => w.winnerAddress.toLowerCase() === userAddress.toLowerCase()
+            );
+            if (userMatches.length > 0) {
+              isUserWinner = true;
+              userWinningsTotal = userMatches.reduce(
+                (sum, w) => sum + w.amountOwed,
+                0
+              );
+            }
+          }
+
+          const detailed: DetailedDrawCycle = {
+            poolId: d.poolId,
+            cycleId: d.cycleId,
+            status: d.status as DetailedDrawCycle["status"],
+            prizePot: Number(d.prizePot),
+            cycleFeeCollected: Number(d.cycleFeeCollected),
+            lockedTicketCount: Number(d.lockedTicketCount),
+            harvestSlot: d.harvestSlot,
+            randomnessAccount: d.randomnessAccount,
+            randomnessSeed: new Uint8Array(32),
+            vrfSeedHex: d.vrfSeedHex,
+            revealedAt: d.revealedAt ?? undefined,
+            initiatedAt: d.initiatedAt ?? undefined,
+            completedAt: d.completedAt ?? undefined,
+            winnersCount: d.winnersCount,
+            payoutsCompleted: reconciledWinners.filter((w) => w.processed)
+              .length,
+            hasPayoutRegistry: Boolean(d.winnersSynced || d.winnersCount > 0),
+            payoutRegistryStatus: "Active",
+            winners: reconciledWinners,
+            isUserWinner,
+            userWinningsTotal,
+          };
+
+          setDetails(detailed);
+          return;
+        }
+      } catch {
+        // Fall back to RPC getMultipleAccounts
+      }
+
+      // 2. Secondary fallback path: Direct Solana RPC batch queries
       const rpc = client.runtime.rpc;
       const drawPda = await findDrawCyclePda(poolId, cycleId);
       const payoutPda = await findPayoutRegistryPda(poolId, cycleId);

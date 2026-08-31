@@ -171,6 +171,122 @@ export function useDrawHistory(
     }
 
     try {
+      // 1. Primary path: Query Indexer REST API
+      try {
+        const userQuery = userAddress ? `&user=${userAddress}` : "";
+        const [winnersRes, tickerRes] = await Promise.all([
+          userAddress
+            ? fetch(
+                `/api/indexer/winners?poolId=${poolId}${userQuery}&limit=${maxCyclesToFetch}`
+              )
+            : Promise.resolve(null),
+          fetch(`/api/indexer/winners?poolId=${poolId}&limit=10`),
+        ]);
+
+        const winnersJson = winnersRes ? await winnersRes.json() : null;
+        const tickerJson = tickerRes ? await tickerRes.json() : null;
+
+        if (
+          (!winnersJson || winnersJson.fallbackRequired === false) &&
+          tickerJson &&
+          tickerJson.fallbackRequired === false
+        ) {
+          if (fetchId !== fetchIdRef.current) return;
+
+          const now = Date.now();
+          interface ApiWinnerHistoryRecord {
+            cycleId: number;
+            winnerIndex: number;
+            winnerAddress: string;
+            amountOwed: number | string;
+            bondsBought?: number | string | null;
+            processed?: boolean | null;
+            tierIndex: number;
+            winningTicketIdx?: number | string | null;
+            claimSignature?: string | null;
+            revealedAt: number;
+          }
+
+          const rawPrizes = (winnersJson?.data || []) as ApiWinnerHistoryRecord[];
+          const mappedPrizes: PrizeHistoryEntry[] = rawPrizes.map((w) => {
+            const key = getWinnerKey(w.cycleId, w.winnerIndex);
+            const opt = optimisticProcessedPrizesRef.current.get(key);
+            let isProcessed = Boolean(w.processed);
+            let effectiveBondsBought = Number(w.bondsBought || 0);
+
+            if (opt) {
+              if (w.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
+                optimisticProcessedPrizesRef.current.delete(key);
+              } else {
+                isProcessed = true;
+                effectiveBondsBought =
+                  effectiveBondsBought > 0
+                    ? effectiveBondsBought
+                    : opt.bondsBought;
+              }
+            }
+
+            const status: PrizeStatus = isProcessed
+              ? "reinvested"
+              : "processing";
+            const amountOwed = Number(w.amountOwed);
+            let reinvestedTickets: number | undefined;
+            let usedPriorDust: number | undefined;
+            let dustAccumulated: number | undefined;
+
+            if (isProcessed) {
+              const breakdown = calculateReinvestmentBreakdown(
+                amountOwed,
+                0,
+                bondPrice,
+                effectiveBondsBought
+              );
+              reinvestedTickets = breakdown.bondsBought;
+              effectiveBondsBought = breakdown.bondsBought;
+              usedPriorDust = breakdown.usedPriorDust;
+              dustAccumulated = breakdown.dustAccumulated;
+            }
+
+            return {
+              drawCycleId: w.cycleId,
+              date: new Date(w.revealedAt * 1000).toISOString(),
+              tierIndex: w.tierIndex,
+              amount: amountOwed,
+              winnerIndex: w.winnerIndex,
+              status,
+              bondsBought: effectiveBondsBought,
+              dustAccumulated,
+              usedPriorDust,
+              reinvestedTickets,
+              winningTicket:
+                w.winningTicketIdx != null
+                  ? `#${w.winningTicketIdx}`
+                  : undefined,
+              claimSignature: w.claimSignature || undefined,
+              revealedAt: w.revealedAt,
+            };
+          });
+
+          const rawTicker = (tickerJson.data || []) as ApiWinnerHistoryRecord[];
+          const mappedRecent: RecentWinner[] = rawTicker.map(
+            (w) => ({
+              address: w.winnerAddress,
+              amount: Number(w.amountOwed),
+              tierIndex: w.tierIndex,
+              cycleId: w.cycleId,
+              tokenSymbol,
+            })
+          );
+
+          setPrizeHistory(mappedPrizes);
+          setRecentWinners(mappedRecent);
+          return;
+        }
+      } catch {
+        // Fall back to RPC batch query
+      }
+
+      // 2. Secondary fallback path: Direct Solana RPC batch queries
       const rpc = client.runtime.rpc;
       const userPrizes: PrizeHistoryEntry[] = [];
       const latestWinners: RecentWinner[] = [];

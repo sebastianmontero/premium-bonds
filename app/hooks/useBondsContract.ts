@@ -108,6 +108,9 @@ export function useBondsContract(poolId: number = 1) {
   const fetchIdRef = useRef<number>(0);
   const lastUserAddressRef = useRef<string | undefined>(userAddress);
   const lastPoolIdRef = useRef<number>(poolId);
+  const optimisticClaimedRedemptionsRef = useRef<Map<string, number>>(
+    new Map()
+  );
 
   useEffect(() => {
     if (
@@ -117,6 +120,7 @@ export function useBondsContract(poolId: number = 1) {
       lastUserAddressRef.current = userAddress;
       lastPoolIdRef.current = poolId;
       hasLoadedRef.current = false;
+      optimisticClaimedRedemptionsRef.current.clear();
       setPool(null);
       setUserTickets(null);
       setUserWinnings(null);
@@ -341,66 +345,134 @@ export function useBondsContract(poolId: number = 1) {
           });
         }
 
-        // 6. Fetch User's Pending Redemptions on-chain
+        // 6. Fetch User's Pending Redemptions (API Primary + RPC Fallback)
+        let redemptionsLoaded = false;
         try {
-          const redemptions = await rpc
-            .getProgramAccounts(PROGRAM_ID, {
-              filters: [
-                { dataSize: BigInt(159) },
-                {
-                  memcmp: {
-                    offset: BigInt(56),
-                    bytes: userAddress as unknown as Base58EncodedBytes,
-                    encoding: "base58",
-                  },
-                },
-              ],
-              encoding: "base64",
-              commitment: "confirmed",
-            })
-            .send();
-
-          let nextHumaRequestId = BigInt(0);
-          if (batched.humaPoolStateData) {
-            const humaState = parseMockHumaPoolState(batched.humaPoolStateData);
-            nextHumaRequestId = humaState.nextRequestId;
-          }
-
-          const parsedRedemptions: PendingRedemption[] = redemptions.map(
-            (r) => {
-              const bytes = decodeAccountBase64Data(r.account);
-              if (!bytes) {
-                return {
-                  redemptionId: "0",
-                  amount: 0,
-                  status: "settling",
-                  requestedAt: new Date().toISOString(),
-                  type: "bond_sale",
-                };
-              }
-              const parsed = parsePendingRedemption(bytes);
-              const status: "settling" | "ready" =
-                nextHumaRequestId > parsed.humaRequestId ? "ready" : "settling";
-              const isPrizeClaim =
-                parsed.redemptionType === RedemptionType.PrizeClaim;
-              return {
-                redemptionId: parsed.redemptionId.toString(),
-                amount: Number(parsed.amount),
-                status,
-                requestedAt: new Date(
-                  Number(parsed.requestedAt) * 1000
-                ).toISOString(),
-                type: isPrizeClaim ? "prize_claim" : "bond_sale",
-              };
+          const apiRes = await fetch(
+            `/api/indexer/redemptions?poolId=${poolId}&user=${userAddress}`
+          );
+          const apiJson = await apiRes.json();
+          if (
+            apiJson.success &&
+            apiJson.fallbackRequired === false &&
+            Array.isArray(apiJson.data)
+          ) {
+            interface ApiRedemptionRecord {
+              redemptionId: string;
+              amountUsdc: number | string;
+              status: string;
+              requestedAt: number;
+              redemptionType: string;
             }
-          );
-          setPendingRedemptions(parsedRedemptions);
-        } catch (err) {
-          console.warn(
-            "Failed to fetch pending redemptions, using empty array.",
-            err
-          );
-          setPendingRedemptions([]);
+            const activeRedemptions: PendingRedemption[] = (
+              apiJson.data as ApiRedemptionRecord[]
+            )
+              .filter((r) => {
+                if (r.status === "claimed") return false;
+                const optClaim = optimisticClaimedRedemptionsRef.current.get(
+                  r.redemptionId
+                );
+                if (optClaim) {
+                  if (now - optClaim < 30_000) return false;
+                  optimisticClaimedRedemptionsRef.current.delete(
+                    r.redemptionId
+                  );
+                }
+                return true;
+              })
+              .map((r) => ({
+                redemptionId: r.redemptionId,
+                amount: Number(r.amountUsdc),
+                status: r.status as "settling" | "ready",
+                requestedAt: new Date(r.requestedAt * 1000).toISOString(),
+                type: r.redemptionType as "bond_sale" | "prize_claim",
+              }));
+            setPendingRedemptions(activeRedemptions);
+            redemptionsLoaded = true;
+          }
+        } catch {
+          // Fall back to RPC getProgramAccounts
+        }
+
+        if (!redemptionsLoaded) {
+          try {
+            const redemptions = await rpc
+              .getProgramAccounts(PROGRAM_ID, {
+                filters: [
+                  { dataSize: BigInt(159) },
+                  {
+                    memcmp: {
+                      offset: BigInt(56),
+                      bytes: userAddress as unknown as Base58EncodedBytes,
+                      encoding: "base58",
+                    },
+                  },
+                ],
+                encoding: "base64",
+                commitment: "confirmed",
+              })
+              .send();
+
+            let nextHumaRequestId = BigInt(0);
+            if (batched.humaPoolStateData) {
+              const humaState = parseMockHumaPoolState(
+                batched.humaPoolStateData
+              );
+              nextHumaRequestId = humaState.nextRequestId;
+            }
+
+            const now = Date.now();
+            const parsedRedemptions: PendingRedemption[] = redemptions
+              .map((r) => {
+                const bytes = decodeAccountBase64Data(r.account);
+                if (!bytes) {
+                  return {
+                    redemptionId: "0",
+                    amount: 0,
+                    status: "settling" as const,
+                    requestedAt: new Date().toISOString(),
+                    type: "bond_sale" as const,
+                  };
+                }
+                const parsed = parsePendingRedemption(bytes);
+                const status: "settling" | "ready" =
+                  nextHumaRequestId > parsed.humaRequestId
+                    ? "ready"
+                    : "settling";
+                const isPrizeClaim =
+                  parsed.redemptionType === RedemptionType.PrizeClaim;
+                return {
+                  redemptionId: parsed.redemptionId.toString(),
+                  amount: Number(parsed.amount),
+                  status,
+                  requestedAt: new Date(
+                    Number(parsed.requestedAt) * 1000
+                  ).toISOString(),
+                  type: isPrizeClaim
+                    ? ("prize_claim" as const)
+                    : ("bond_sale" as const),
+                };
+              })
+              .filter((r) => {
+                const optClaim = optimisticClaimedRedemptionsRef.current.get(
+                  r.redemptionId
+                );
+                if (optClaim) {
+                  if (now - optClaim < 30_000) return false;
+                  optimisticClaimedRedemptionsRef.current.delete(
+                    r.redemptionId
+                  );
+                }
+                return true;
+              });
+            setPendingRedemptions(parsedRedemptions);
+          } catch (err) {
+            console.warn(
+              "Failed to fetch pending redemptions, using empty array.",
+              err
+            );
+            setPendingRedemptions([]);
+          }
         }
       } else {
         setUserTickets(null);
@@ -770,23 +842,36 @@ export function useBondsContract(poolId: number = 1) {
         { address: PROGRAM_ID, role: AccountRole.READONLY },
       ];
 
-      const signature = await send({
-        instructions: [
-          {
-            programAddress: PROGRAM_ID,
-            accounts,
-            data: ixData,
-          },
-        ],
-      });
+      // Optimistically remove redemption from state
+      optimisticClaimedRedemptionsRef.current.set(redemptionId, Date.now());
+      setPendingRedemptions((prev) =>
+        prev.filter((r) => r.redemptionId !== redemptionId)
+      );
 
-      await refetch();
-      notifyBalanceUpdate();
-      notifyProtocolUpdate("pool", {
-        poolId,
-        reason: "claim_redemption_settled",
-      });
-      return signature;
+      try {
+        const signature = await send({
+          instructions: [
+            {
+              programAddress: PROGRAM_ID,
+              accounts,
+              data: ixData,
+            },
+          ],
+        });
+
+        await refetch();
+        notifyBalanceUpdate();
+        notifyProtocolUpdate("pool", {
+          poolId,
+          reason: "claim_redemption_settled",
+        });
+        return signature;
+      } catch (err) {
+        // Rollback optimistic removal on transaction rejection / simulation error
+        optimisticClaimedRedemptionsRef.current.delete(redemptionId);
+        await refetch();
+        throw err;
+      }
     },
     [userAddress, pool, poolId, send, refetch]
   );

@@ -6,6 +6,8 @@ import {
   ingestTransactionBatch,
   IngestTransactionItem,
 } from "../app/lib/db/ingest";
+import { PayoutHydratorService } from "../app/lib/indexer/payout-hydrator";
+import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor";
 import { eq } from "drizzle-orm";
 
 const PROGRAM_ID =
@@ -15,14 +17,18 @@ const RPC_URL =
   process.env.NEXT_PUBLIC_RPC_URL || "https://api.devnet.solana.com";
 const NETWORK = process.env.NEXT_PUBLIC_ENVIRONMENT || "devnet";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchTransactionWithRetry(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rpc: any,
   signature: string,
   maxRetries = 3
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const tx = await rpc
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .getTransaction(signature as any, {
           encoding: "json",
           maxSupportedTransactionVersion: 0,
@@ -56,6 +62,9 @@ export async function syncHistoricalTransactions(
   }
 
   const rpc = createSolanaRpc(RPC_URL);
+  const hydrator = new PayoutHydratorService(rpc);
+  const settlementMonitor = new SettlementMonitorService();
+
   console.log(
     `[Indexer Sync] Network: ${NETWORK} | RPC: ${RPC_URL} | Program: ${PROGRAM_ID}`
   );
@@ -87,12 +96,16 @@ export async function syncHistoricalTransactions(
   let reachedTargetWatermark = false;
 
   while (hasMore) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let sigs: any[] = [];
     try {
       sigs = await rpc
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .getSignaturesForAddress(PROGRAM_ID as any, {
           limit: 100,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           before: beforeSig as any,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           until: untilSig as any,
         })
         .send();
@@ -119,17 +132,20 @@ export async function syncHistoricalTransactions(
       );
     }
 
-    // Filter out failed transactions
-    const validSigs = sigs.filter((s: any) => s.err === null);
+    // Filter out failed transactions and reverse window to process in ascending slot order
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const validSigs = sigs.filter((s: any) => s.err === null).reverse();
     const batch: IngestTransactionItem[] = [];
     const BATCH_SIZE = 5;
 
     for (let i = 0; i < validSigs.length; i += BATCH_SIZE) {
       const chunk = validSigs.slice(i, i + BATCH_SIZE);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let txResults: any[] = [];
 
       try {
         txResults = await Promise.all(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           chunk.map(async (s: any) => {
             const tx = await fetchTransactionWithRetry(rpc, s.signature);
             return { s, tx };
@@ -151,6 +167,7 @@ export async function syncHistoricalTransactions(
             ),
             network: NETWORK,
           },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           events: parseEventsFromTxMeta(item.tx.meta as any),
         });
       }
@@ -171,6 +188,7 @@ export async function syncHistoricalTransactions(
       `[Indexer Sync] Processed batch of ${sigs.length} signatures (${count} events).`
     );
 
+    // The oldest signature in original sigs (which was descending) is at index length - 1
     beforeSig = sigs[sigs.length - 1].signature;
     if (
       sigs.length < 100 ||
@@ -215,6 +233,18 @@ export async function syncHistoricalTransactions(
     console.warn(
       "[Indexer Sync] Watermark advancement skipped due to fetch errors in batch."
     );
+  }
+
+  // Run hydrator for any unhydrated completed draws
+  try {
+    const hydratedCount = await hydrator.hydratePendingDraws(50);
+    if (hydratedCount > 0) {
+      console.log(
+        `[Indexer Sync] Hydrated ${hydratedCount} draw payout registries.`
+      );
+    }
+  } catch (err) {
+    console.warn("[Indexer Sync] Hydrator execution notice:", err);
   }
 
   console.log(

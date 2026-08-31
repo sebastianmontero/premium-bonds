@@ -13,7 +13,7 @@
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:push": "drizzle-kit push",
     "indexer:sync": "tsx scripts/indexer-sync.ts",
     "indexer:backfill": "tsx scripts/indexer-sync.ts --backfill",

@@ -10,43 +10,171 @@
 import { Address, getBase58Decoder, getBase58Encoder } from "@solana/kit";
 import type { ProtocolSyncScope } from "./protocol-sync-bus";
 
-// ─── Event Type Definitions ──────────────────────────────────────────────────
+// ─── Borsh Error & Reader ───────────────────────────────────────────────────
+
+export class BorshDecodeError extends Error {
+  constructor(message: string) {
+    super(`[BorshDecodeError] ${message}`);
+    this.name = "BorshDecodeError";
+  }
+}
+
+const base58Decoder = getBase58Decoder();
+const base58Encoder = getBase58Encoder();
+
+export class BorshReader {
+  private view: DataView;
+  private offset = 0;
+
+  constructor(private buffer: Uint8Array) {
+    this.view = new DataView(
+      buffer.buffer,
+      buffer.byteOffset,
+      buffer.byteLength
+    );
+  }
+
+  private ensure(bytes: number) {
+    if (this.offset + bytes > this.buffer.byteLength) {
+      throw new BorshDecodeError(
+        `Out of bounds: requested ${bytes} bytes at offset ${this.offset}, total length ${this.buffer.byteLength}`
+      );
+    }
+  }
+
+  readU8(): number {
+    this.ensure(1);
+    return this.view.getUint8(this.offset++);
+  }
+
+  readU16(): number {
+    this.ensure(2);
+    const v = this.view.getUint16(this.offset, true);
+    this.offset += 2;
+    return v;
+  }
+
+  readU32(): number {
+    this.ensure(4);
+    const v = this.view.getUint32(this.offset, true);
+    this.offset += 4;
+    return v;
+  }
+
+  readU64(): bigint {
+    this.ensure(8);
+    const v = this.view.getBigUint64(this.offset, true);
+    this.offset += 8;
+    return v;
+  }
+
+  readI64(): bigint {
+    this.ensure(8);
+    const v = this.view.getBigInt64(this.offset, true);
+    this.offset += 8;
+    return v;
+  }
+
+  readBool(): boolean {
+    return this.readU8() !== 0;
+  }
+
+  readPubkey(): Address {
+    this.ensure(32);
+    const bytes = this.buffer.subarray(this.offset, this.offset + 32);
+    this.offset += 32;
+    return base58Decoder.decode(bytes) as Address;
+  }
+
+  readOption<T>(itemReader: (reader: BorshReader) => T): T | null {
+    const isSome = this.readU8();
+    if (isSome === 0) return null;
+    if (isSome !== 1) {
+      throw new BorshDecodeError(
+        `Invalid Option discriminant: expected 0 or 1, got ${isSome} at offset ${this.offset - 1}`
+      );
+    }
+    return itemReader(this);
+  }
+
+  readVec<T>(itemReader: (reader: BorshReader) => T, maxCount = 1000): T[] {
+    const len = this.readU32();
+    if (len > maxCount) {
+      throw new BorshDecodeError(
+        `Vector length ${len} exceeds sanity limit of ${maxCount}`
+      );
+    }
+    if (len > this.remaining) {
+      throw new BorshDecodeError(
+        `Vector length ${len} exceeds remaining byte count ${this.remaining}`
+      );
+    }
+    const items: T[] = [];
+    for (let i = 0; i < len; i++) {
+      items.push(itemReader(this));
+    }
+    return items;
+  }
+
+  get remaining(): number {
+    return this.buffer.byteLength - this.offset;
+  }
+}
+
+// ─── Event Type Definitions (All 23 Program Events) ─────────────────────────
+
+export interface PrizeTierData {
+  percentPotBps: number;
+  winners: number;
+}
 
 export interface BondsPurchasedEvent {
-  user: string;
+  user: Address;
   poolId: number;
   bonds: number;
   amount: bigint;
+  newTotalDepositedPrincipal?: bigint;
+  userTotalBonds?: number;
+  timestamp?: bigint;
 }
 
 export interface BondsSoldEvent {
-  user: string;
+  user: Address;
   poolId: number;
   bonds: number;
   principal: bigint;
   redemptionId: bigint;
+  newTotalDepositedPrincipal?: bigint;
+  userRemainingBonds?: number;
+  timestamp?: bigint;
 }
 
 export interface WinningsReinvestedEvent {
-  winner: string;
+  winner: Address;
   poolId: number;
   cycleId: number;
   bondsBought: number;
   amountReinvested: bigint;
+  timestamp?: bigint;
 }
 
 export interface WinningsClaimedEvent {
-  user: string;
+  user: Address;
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
+  timestamp?: bigint;
 }
 
 export interface RedemptionClaimedEvent {
-  user: string;
+  user: Address;
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
+  redemptionType?: number;
+  pstSharesLocked?: bigint;
+  requestedAt?: bigint;
+  timestamp?: bigint;
 }
 
 export interface YieldHarvestedEvent {
@@ -56,7 +184,8 @@ export interface YieldHarvestedEvent {
   fee: bigint;
   prizePot: bigint;
   lockedTicketCount: number;
-  randomnessAccount: string;
+  randomnessAccount: Address;
+  timestamp?: bigint;
 }
 
 export interface DrawSkippedEvent {
@@ -64,6 +193,7 @@ export interface DrawSkippedEvent {
   cycleId: number;
   rawYield: bigint;
   threshold: bigint;
+  timestamp?: bigint;
 }
 
 export interface DrawCompletedEvent {
@@ -71,22 +201,27 @@ export interface DrawCompletedEvent {
   cycleId: number;
   prizePot: bigint;
   winnersCount: number;
+  totalDistributed?: bigint;
+  totalPrizesDistributed?: bigint;
+  timestamp?: bigint;
 }
 
 export interface DrawForceUnlockedEvent {
   poolId: number;
   cycleId: number;
-  admin: string;
+  admin: Address;
   prizePot: bigint;
   cycleFeeCollected: bigint;
+  timestamp?: bigint;
 }
 
 export interface DrawVoidedEvent {
   poolId: number;
   cycleId: number;
-  admin: string;
+  admin: Address;
   prizesReversed: bigint;
   feesReversed: bigint;
+  timestamp?: bigint;
 }
 
 export interface DrawPreparationProgressEvent {
@@ -96,6 +231,130 @@ export interface DrawPreparationProgressEvent {
   batchEnd: number;
   userCount: number;
   isComplete: boolean;
+  timestamp?: bigint;
+}
+
+export interface PoolCreatedEvent {
+  poolId: number;
+  admin: Address;
+  tokenMint: Address;
+  pstMint: Address;
+  feeWallet: Address;
+  ticketRegistry: Address;
+  bondPrice: bigint;
+  stakeCycleDurationHrs: bigint;
+  feeBasisPoints: number;
+  minYieldThreshold: bigint;
+  maxYieldBasisPoints: number;
+  payoutTimelockSeconds: number;
+  tiersCount: number;
+  totalWinners: number;
+  timestamp?: bigint;
+}
+
+export interface HumaLenderInitializedEvent {
+  poolId: number;
+  admin: Address;
+  timestamp?: bigint;
+}
+
+export interface GlobalConfigInitializedEvent {
+  admin: Address;
+  guardian: Address;
+  jobsAccount: Address;
+  timestamp?: bigint;
+}
+
+export interface GlobalConfigUpdatedEvent {
+  authority: Address;
+  oldAdmin: Address;
+  newAdmin: Address;
+  oldGuardian: Address;
+  newGuardian: Address;
+  oldJobsAccount: Address;
+  newJobsAccount: Address;
+  timestamp?: bigint;
+}
+
+export interface PoolConfigUpdatedEvent {
+  poolId: number;
+  admin: Address;
+  oldFeeBasisPoints: number;
+  newFeeBasisPoints: number;
+  oldBondPrice: bigint;
+  newBondPrice: bigint;
+  oldFeeWallet: Address;
+  newFeeWallet: Address;
+  oldMinYieldThreshold: bigint;
+  newMinYieldThreshold: bigint;
+  oldStakeCycleDurationHrs: bigint;
+  newStakeCycleDurationHrs: bigint;
+  oldMaxYieldBasisPoints: number;
+  newMaxYieldBasisPoints: number;
+  oldPayoutTimelockSeconds: number;
+  newPayoutTimelockSeconds: number;
+  timestamp?: bigint;
+}
+
+export interface PoolStatusChangedEvent {
+  poolId: number;
+  previousStatus: number;
+  newStatus: number;
+  authority: Address;
+  timestamp?: bigint;
+}
+
+export interface EmergencyInsolvencyDetectedEvent {
+  poolId: number;
+  currentValue: bigint;
+  bookValue: bigint;
+  deficit: bigint;
+  timestamp?: bigint;
+}
+
+export interface YieldVelocityBreachedEvent {
+  poolId: number;
+  yieldGenerated: bigint;
+  maxAllowedYield: bigint;
+  timestamp?: bigint;
+}
+
+export interface PrizeTiersUpdatedEvent {
+  poolId: number;
+  admin: Address;
+  oldTiersCount: number;
+  oldTotalWinners: number;
+  newTiersCount: number;
+  newTotalWinners: number;
+  tiers: PrizeTierData[];
+  timestamp?: bigint;
+}
+
+export interface RegistryResizedEvent {
+  poolId: number;
+  caller: Address;
+  oldCapacity: number;
+  newCapacity: number;
+  timestamp?: bigint;
+}
+
+export interface RandomnessReboundEvent {
+  poolId: number;
+  cycleId: number;
+  oldRandomnessAccount: Address;
+  newRandomnessAccount: Address;
+  harvestSlot: bigint;
+  timestamp?: bigint;
+}
+
+export interface FeesWithdrawnEvent {
+  poolId: number;
+  admin: Address;
+  feeWallet: Address;
+  amount: bigint;
+  pstShares: bigint;
+  redemptionId: bigint;
+  timestamp?: bigint;
 }
 
 export type ParsedProgramEvent =
@@ -109,7 +368,22 @@ export type ParsedProgramEvent =
   | { type: "DrawForceUnlocked"; data: DrawForceUnlockedEvent }
   | { type: "DrawVoided"; data: DrawVoidedEvent }
   | { type: "DrawSkipped"; data: DrawSkippedEvent }
-  | { type: "DrawPreparationProgress"; data: DrawPreparationProgressEvent };
+  | { type: "DrawPreparationProgress"; data: DrawPreparationProgressEvent }
+  | { type: "PoolCreated"; data: PoolCreatedEvent }
+  | { type: "HumaLenderInitialized"; data: HumaLenderInitializedEvent }
+  | { type: "GlobalConfigInitialized"; data: GlobalConfigInitializedEvent }
+  | { type: "GlobalConfigUpdated"; data: GlobalConfigUpdatedEvent }
+  | { type: "PoolConfigUpdated"; data: PoolConfigUpdatedEvent }
+  | { type: "PoolStatusChanged"; data: PoolStatusChangedEvent }
+  | {
+      type: "EmergencyInsolvencyDetected";
+      data: EmergencyInsolvencyDetectedEvent;
+    }
+  | { type: "YieldVelocityBreached"; data: YieldVelocityBreachedEvent }
+  | { type: "PrizeTiersUpdated"; data: PrizeTiersUpdatedEvent }
+  | { type: "RegistryResized"; data: RegistryResizedEvent }
+  | { type: "RandomnessRebound"; data: RandomnessReboundEvent }
+  | { type: "FeesWithdrawn"; data: FeesWithdrawnEvent };
 
 export type ProgramEvent = ParsedProgramEvent & {
   signature: string;
@@ -180,185 +454,437 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawPreparationProgress":
       return createMetadata(evt.data.poolId, ["draws"]);
+    case "PoolCreated":
+      return createMetadata(evt.data.poolId, ["pool"]);
+    case "HumaLenderInitialized":
+      return createMetadata(evt.data.poolId, ["pool"]);
+    case "GlobalConfigInitialized":
+    case "GlobalConfigUpdated":
+      return createMetadata(0, ["all"]);
+    case "PoolConfigUpdated":
+    case "PoolStatusChanged":
+      return createMetadata(evt.data.poolId, ["pool"]);
+    case "EmergencyInsolvencyDetected":
+    case "YieldVelocityBreached":
+      return createMetadata(evt.data.poolId, ["pool"]);
+    case "PrizeTiersUpdated":
+    case "RegistryResized":
+      return createMetadata(evt.data.poolId, ["pool"]);
+    case "RandomnessRebound":
+      return createMetadata(evt.data.poolId, ["draws", "pool"]);
+    case "FeesWithdrawn":
+      return createMetadata(evt.data.poolId, ["pool", "redemptions"]);
   }
 }
 
 // ─── Discriminator computation ───────────────────────────────────────────────
 // Anchor event discriminators: SHA-256("event:<EventName>")[..8]
-const base58Decoder = getBase58Decoder();
-const base58Encoder = getBase58Encoder();
 
 const ANCHOR_EVENT_IX_TAG_HEX = "e445a52e51cb9a1d";
 
-const DISCRIMINATOR_MAP: Record<string, string> = {
+const DISCRIMINATOR_MAP: Record<string, ParsedProgramEvent["type"]> = {
   "98577bdd8fc92b0f": "BondsPurchased",
   "0aa460b294f9dc2a": "BondsSold",
   aeeb2097b9e63e6e: "WinningsReinvested",
   bbb81dc436754696: "WinningsClaimed",
   "6bfbc7d53bad35bd": "RedemptionClaimed",
-  "31c5e2e89ad3f9de": "YieldHarvested",
   c1882558b47c6014: "DrawCompleted",
-  "1a1dc53ce504de2d": "DrawForceUnlocked",
-  "992d33ee8e91030c": "DrawVoided",
   "270b1dbe81f95cb4": "DrawSkipped",
+  "1a1dc53ce504de2d": "DrawForceUnlocked",
+  ca2c295868dc9d52: "PoolCreated",
+  "42d0fe019915d733": "HumaLenderInitialized",
+  "05ddac9e4d579d71": "GlobalConfigInitialized",
+  e8ee9e7bd2ac9f2e: "GlobalConfigUpdated",
+  ce211d0854548227: "PoolConfigUpdated",
+  "94be513e51ef89bc": "PoolStatusChanged",
+  a8998a09be43e611: "EmergencyInsolvencyDetected",
+  "27085532e5244219": "YieldVelocityBreached",
+  "992d33ee8e91030c": "DrawVoided",
+  "2bbe139499882979": "PrizeTiersUpdated",
+  "041bfd9b7cbe1deb": "RegistryResized",
+  "31c5e2e89ad3f9de": "YieldHarvested",
+  c2b5cada34801342: "RandomnessRebound",
+  ea0f007794f12815: "FeesWithdrawn",
   b0870012acfe8782: "DrawPreparationProgress",
 };
 
 // ─── Borsh Decoders ──────────────────────────────────────────────────────────
 
-function readPubkey(view: DataView, data: Uint8Array, offset: number): string {
-  const bytes = data.slice(offset, offset + 32);
-  return base58Decoder.decode(bytes) as string;
-}
-
-function readBool(view: DataView, offset: number): boolean {
-  return view.getUint8(offset) !== 0;
-}
-
-function readU32(view: DataView, offset: number): number {
-  return view.getUint32(offset, true);
-}
-
-function readU64(view: DataView, offset: number): bigint {
-  return view.getBigUint64(offset, true);
-}
-
 function decodeEventData(
-  eventName: string,
+  eventName: ParsedProgramEvent["type"],
   data: Uint8Array
-): ProgramEvent["data"] | null {
+): ParsedProgramEvent["data"] | null {
   // Skip 8-byte discriminator
-  const payload = data.slice(8);
-  if (payload.length < 4) return null;
+  if (data.length < 8) return null;
+  const payload = data.subarray(8);
+  const reader = new BorshReader(payload);
 
-  const view = new DataView(
-    payload.buffer,
-    payload.byteOffset,
-    payload.byteLength
-  );
-
-  switch (eventName) {
-    case "BondsPurchased": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) = 48
-      if (payload.length < 48) return null;
-      return {
-        user: readPubkey(view, payload, 0),
-        poolId: readU32(view, 32),
-        bonds: readU32(view, 36),
-        amount: readU64(view, 40),
-      } as BondsPurchasedEvent;
+  try {
+    switch (eventName) {
+      case "BondsPurchased": {
+        const user = reader.readPubkey();
+        const poolId = reader.readU32();
+        const bonds = reader.readU32();
+        const amount = reader.readU64();
+        let newTotalDepositedPrincipal: bigint | undefined;
+        let userTotalBonds: number | undefined;
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8)
+          newTotalDepositedPrincipal = reader.readU64();
+        if (reader.remaining >= 4) userTotalBonds = reader.readU32();
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          user,
+          poolId,
+          bonds,
+          amount,
+          newTotalDepositedPrincipal,
+          userTotalBonds,
+          timestamp,
+        } as BondsPurchasedEvent;
+      }
+      case "BondsSold": {
+        const user = reader.readPubkey();
+        const poolId = reader.readU32();
+        const bonds = reader.readU32();
+        const principal = reader.readU64();
+        const redemptionId = reader.readU64();
+        let newTotalDepositedPrincipal: bigint | undefined;
+        let userRemainingBonds: number | undefined;
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8)
+          newTotalDepositedPrincipal = reader.readU64();
+        if (reader.remaining >= 4) userRemainingBonds = reader.readU32();
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          user,
+          poolId,
+          bonds,
+          principal,
+          redemptionId,
+          newTotalDepositedPrincipal,
+          userRemainingBonds,
+          timestamp,
+        } as BondsSoldEvent;
+      }
+      case "WinningsReinvested": {
+        const winner = reader.readPubkey();
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const bondsBought = reader.readU32();
+        const amountReinvested = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          winner,
+          poolId,
+          cycleId,
+          bondsBought,
+          amountReinvested,
+          timestamp,
+        } as WinningsReinvestedEvent;
+      }
+      case "WinningsClaimed": {
+        const user = reader.readPubkey();
+        const poolId = reader.readU32();
+        const amount = reader.readU64();
+        const redemptionId = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          user,
+          poolId,
+          amount,
+          redemptionId,
+          timestamp,
+        } as WinningsClaimedEvent;
+      }
+      case "RedemptionClaimed": {
+        const user = reader.readPubkey();
+        const poolId = reader.readU32();
+        const amount = reader.readU64();
+        const redemptionId = reader.readU64();
+        let redemptionType: number | undefined;
+        let pstSharesLocked: bigint | undefined;
+        let requestedAt: bigint | undefined;
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 1) redemptionType = reader.readU8();
+        if (reader.remaining >= 8) pstSharesLocked = reader.readU64();
+        if (reader.remaining >= 8) requestedAt = reader.readI64();
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          user,
+          poolId,
+          amount,
+          redemptionId,
+          redemptionType,
+          pstSharesLocked,
+          requestedAt,
+          timestamp,
+        } as RedemptionClaimedEvent;
+      }
+      case "YieldHarvested": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const rawYield = reader.readU64();
+        const fee = reader.readU64();
+        const prizePot = reader.readU64();
+        const lockedTicketCount = reader.readU32();
+        const randomnessAccount = reader.readPubkey();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          rawYield,
+          fee,
+          prizePot,
+          lockedTicketCount,
+          randomnessAccount,
+          timestamp,
+        } as YieldHarvestedEvent;
+      }
+      case "DrawSkipped": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const rawYield = reader.readU64();
+        const threshold = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          rawYield,
+          threshold,
+          timestamp,
+        } as DrawSkippedEvent;
+      }
+      case "DrawCompleted": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const prizePot = reader.readU64();
+        const winnersCount = reader.readU32();
+        let totalDistributed: bigint | undefined;
+        let totalPrizesDistributed: bigint | undefined;
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) totalDistributed = reader.readU64();
+        if (reader.remaining >= 8) totalPrizesDistributed = reader.readU64();
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          prizePot,
+          winnersCount,
+          totalDistributed: totalDistributed ?? prizePot,
+          totalPrizesDistributed,
+          timestamp,
+        } as DrawCompletedEvent;
+      }
+      case "DrawForceUnlocked": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const admin = reader.readPubkey();
+        const prizePot = reader.readU64();
+        const cycleFeeCollected = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          admin,
+          prizePot,
+          cycleFeeCollected,
+          timestamp,
+        } as DrawForceUnlockedEvent;
+      }
+      case "DrawVoided": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const admin = reader.readPubkey();
+        const prizesReversed = reader.readU64();
+        const feesReversed = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          admin,
+          prizesReversed,
+          feesReversed,
+          timestamp,
+        } as DrawVoidedEvent;
+      }
+      case "DrawPreparationProgress": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const batchStart = reader.readU32();
+        const batchEnd = reader.readU32();
+        const userCount = reader.readU32();
+        const isComplete = reader.readBool();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          batchStart,
+          batchEnd,
+          userCount,
+          isComplete,
+          timestamp,
+        } as DrawPreparationProgressEvent;
+      }
+      case "PoolCreated": {
+        return {
+          poolId: reader.readU32(),
+          admin: reader.readPubkey(),
+          tokenMint: reader.readPubkey(),
+          pstMint: reader.readPubkey(),
+          feeWallet: reader.readPubkey(),
+          ticketRegistry: reader.readPubkey(),
+          bondPrice: reader.readU64(),
+          stakeCycleDurationHrs: reader.readI64(),
+          feeBasisPoints: reader.readU16(),
+          minYieldThreshold: reader.readU64(),
+          maxYieldBasisPoints: reader.readU16(),
+          payoutTimelockSeconds: reader.readU32(),
+          tiersCount: reader.readU8(),
+          totalWinners: reader.readU32(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as PoolCreatedEvent;
+      }
+      case "HumaLenderInitialized": {
+        return {
+          poolId: reader.readU32(),
+          admin: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as HumaLenderInitializedEvent;
+      }
+      case "GlobalConfigInitialized": {
+        return {
+          admin: reader.readPubkey(),
+          guardian: reader.readPubkey(),
+          jobsAccount: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as GlobalConfigInitializedEvent;
+      }
+      case "GlobalConfigUpdated": {
+        return {
+          authority: reader.readPubkey(),
+          oldAdmin: reader.readPubkey(),
+          newAdmin: reader.readPubkey(),
+          oldGuardian: reader.readPubkey(),
+          newGuardian: reader.readPubkey(),
+          oldJobsAccount: reader.readPubkey(),
+          newJobsAccount: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as GlobalConfigUpdatedEvent;
+      }
+      case "PoolConfigUpdated": {
+        return {
+          poolId: reader.readU32(),
+          admin: reader.readPubkey(),
+          oldFeeBasisPoints: reader.readU16(),
+          newFeeBasisPoints: reader.readU16(),
+          oldBondPrice: reader.readU64(),
+          newBondPrice: reader.readU64(),
+          oldFeeWallet: reader.readPubkey(),
+          newFeeWallet: reader.readPubkey(),
+          oldMinYieldThreshold: reader.readU64(),
+          newMinYieldThreshold: reader.readU64(),
+          oldStakeCycleDurationHrs: reader.readI64(),
+          newStakeCycleDurationHrs: reader.readI64(),
+          oldMaxYieldBasisPoints: reader.readU16(),
+          newMaxYieldBasisPoints: reader.readU16(),
+          oldPayoutTimelockSeconds: reader.readU32(),
+          newPayoutTimelockSeconds: reader.readU32(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as PoolConfigUpdatedEvent;
+      }
+      case "PoolStatusChanged": {
+        return {
+          poolId: reader.readU32(),
+          previousStatus: reader.readU8(),
+          newStatus: reader.readU8(),
+          authority: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as PoolStatusChangedEvent;
+      }
+      case "EmergencyInsolvencyDetected": {
+        return {
+          poolId: reader.readU32(),
+          currentValue: reader.readU64(),
+          bookValue: reader.readU64(),
+          deficit: reader.readU64(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as EmergencyInsolvencyDetectedEvent;
+      }
+      case "YieldVelocityBreached": {
+        return {
+          poolId: reader.readU32(),
+          yieldGenerated: reader.readU64(),
+          maxAllowedYield: reader.readU64(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as YieldVelocityBreachedEvent;
+      }
+      case "PrizeTiersUpdated": {
+        const poolId = reader.readU32();
+        const admin = reader.readPubkey();
+        const oldTiersCount = reader.readU8();
+        const oldTotalWinners = reader.readU32();
+        const newTiersCount = reader.readU8();
+        const newTotalWinners = reader.readU32();
+        const tiers = reader.readVec((r) => ({
+          percentPotBps: r.readU16(),
+          winners: r.readU32(),
+        }));
+        const timestamp = reader.remaining >= 8 ? reader.readI64() : undefined;
+        return {
+          poolId,
+          admin,
+          oldTiersCount,
+          oldTotalWinners,
+          newTiersCount,
+          newTotalWinners,
+          tiers,
+          timestamp,
+        } as PrizeTiersUpdatedEvent;
+      }
+      case "RegistryResized": {
+        return {
+          poolId: reader.readU32(),
+          caller: reader.readPubkey(),
+          oldCapacity: reader.readU32(),
+          newCapacity: reader.readU32(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as RegistryResizedEvent;
+      }
+      case "RandomnessRebound": {
+        return {
+          poolId: reader.readU32(),
+          cycleId: reader.readU32(),
+          oldRandomnessAccount: reader.readPubkey(),
+          newRandomnessAccount: reader.readPubkey(),
+          harvestSlot: reader.readU64(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as RandomnessReboundEvent;
+      }
+      case "FeesWithdrawn": {
+        return {
+          poolId: reader.readU32(),
+          admin: reader.readPubkey(),
+          feeWallet: reader.readPubkey(),
+          amount: reader.readU64(),
+          pstShares: reader.readU64(),
+          redemptionId: reader.readU64(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as FeesWithdrawnEvent;
+      }
+      default:
+        return null;
     }
-    case "BondsSold": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) = 56
-      if (payload.length < 56) return null;
-      return {
-        user: readPubkey(view, payload, 0),
-        poolId: readU32(view, 32),
-        bonds: readU32(view, 36),
-        principal: readU64(view, 40),
-        redemptionId: readU64(view, 48),
-      } as BondsSoldEvent;
-    }
-    case "WinningsReinvested": {
-      // Pubkey(32) + u32(4) + u32(4) + u32(4) + u64(8) = 52
-      if (payload.length < 52) return null;
-      return {
-        winner: readPubkey(view, payload, 0),
-        poolId: readU32(view, 32),
-        cycleId: readU32(view, 36),
-        bondsBought: readU32(view, 40),
-        amountReinvested: readU64(view, 44),
-      } as WinningsReinvestedEvent;
-    }
-    case "WinningsClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52
-      if (payload.length < 52) return null;
-      return {
-        user: readPubkey(view, payload, 0),
-        poolId: readU32(view, 32),
-        amount: readU64(view, 36),
-        redemptionId: readU64(view, 44),
-      } as WinningsClaimedEvent;
-    }
-    case "RedemptionClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52
-      if (payload.length < 52) return null;
-      return {
-        user: readPubkey(view, payload, 0),
-        poolId: readU32(view, 32),
-        amount: readU64(view, 36),
-        redemptionId: readU64(view, 44),
-      } as RedemptionClaimedEvent;
-    }
-    case "YieldHarvested": {
-      // u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) = 68
-      if (payload.length < 68) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        rawYield: readU64(view, 8),
-        fee: readU64(view, 16),
-        prizePot: readU64(view, 24),
-        lockedTicketCount: readU32(view, 32),
-        randomnessAccount: readPubkey(view, payload, 36),
-      } as YieldHarvestedEvent;
-    }
-    case "DrawSkipped": {
-      // u32(4) + u32(4) + u64(8) + u64(8) = 24
-      if (payload.length < 24) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        rawYield: readU64(view, 8),
-        threshold: readU64(view, 16),
-      } as DrawSkippedEvent;
-    }
-    case "DrawCompleted": {
-      // u32(4) + u32(4) + u64(8) + u32(4) = 20
-      if (payload.length < 20) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        prizePot: readU64(view, 8),
-        winnersCount: readU32(view, 16),
-      } as DrawCompletedEvent;
-    }
-    case "DrawForceUnlocked": {
-      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) = 56
-      if (payload.length < 56) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        admin: readPubkey(view, payload, 8),
-        prizePot: readU64(view, 40),
-        cycleFeeCollected: readU64(view, 48),
-      } as DrawForceUnlockedEvent;
-    }
-    case "DrawVoided": {
-      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) = 56
-      if (payload.length < 56) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        admin: readPubkey(view, payload, 8),
-        prizesReversed: readU64(view, 40),
-        feesReversed: readU64(view, 48),
-      } as DrawVoidedEvent;
-    }
-    case "DrawPreparationProgress": {
-      // u32(4) + u32(4) + u32(4) + u32(4) + u32(4) + bool(1) = 21
-      if (payload.length < 21) return null;
-      return {
-        poolId: readU32(view, 0),
-        cycleId: readU32(view, 4),
-        batchStart: readU32(view, 8),
-        batchEnd: readU32(view, 12),
-        userCount: readU32(view, 16),
-        isComplete: readBool(view, 20),
-      } as DrawPreparationProgressEvent;
-    }
-    default:
-      return null;
+  } catch (err) {
+    console.warn(`[BorshReader] Error decoding event ${eventName}:`, err);
+    return null;
   }
 }
 

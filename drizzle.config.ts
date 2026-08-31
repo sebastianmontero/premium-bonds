@@ -5,13 +5,24 @@ import fs from "node:fs";
   return this.toString();
 };
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir =
+  typeof __dirname !== "undefined"
+    ? __dirname
+    : path.dirname(fileURLToPath(import.meta.url));
+
+const envLocalPath = path.resolve(configDir, ".env.local");
+const envPath = path.resolve(configDir, ".env");
+
 // Load .env.local first so local overrides take precedence in process.env
-if (fs.existsSync(".env.local")) {
-  process.loadEnvFile(".env.local");
+if (fs.existsSync(envLocalPath)) {
+  process.loadEnvFile(envLocalPath);
 }
 // Load .env second to populate fallback defaults without overwriting .env.local
-if (fs.existsSync(".env")) {
-  process.loadEnvFile(".env");
+if (fs.existsSync(envPath)) {
+  process.loadEnvFile(envPath);
 }
 
 export default defineConfig({
