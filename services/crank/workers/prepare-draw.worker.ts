@@ -1,4 +1,4 @@
-import { IInstruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import { buildPrepareDrawInstruction } from "../../../app/lib/bonds-sdk";
 import {
   ICrankWorker,
@@ -36,7 +36,7 @@ export class PrepareDrawWorker implements ICrankWorker<
   async buildInstructions(
     snapshot: Extract<PoolStateSnapshot, { state: "PREPARE_BATCHING" }>,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const remaining = snapshot.total - snapshot.cursor;
     const batchSize = Math.min(context.maxPrepareBatchSize, remaining);
 

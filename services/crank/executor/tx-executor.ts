@@ -2,7 +2,7 @@ import {
   Address,
   address,
   createSolanaRpc,
-  IInstruction,
+  Instruction,
   TransactionSigner,
   appendTransactionMessageInstructions,
   createTransactionMessage,
@@ -21,7 +21,7 @@ export const COMPUTE_BUDGET_PROGRAM_ADDRESS = address(
 
 export function createSetComputeUnitLimitInstruction(
   units: number
-): IInstruction {
+): Instruction {
   const data = new Uint8Array(5);
   data[0] = 2; // SetComputeUnitLimit opcode
   new DataView(data.buffer).setUint32(1, units, true);
@@ -34,7 +34,7 @@ export function createSetComputeUnitLimitInstruction(
 
 export function createSetComputeUnitPriceInstruction(
   microLamports: bigint | number
-): IInstruction {
+): Instruction {
   const data = new Uint8Array(9);
   data[0] = 3; // SetComputeUnitPrice opcode
   new DataView(data.buffer).setBigUint64(1, BigInt(microLamports), true);
@@ -89,7 +89,7 @@ export class TransactionExecutor {
 
   async executeInstructions(
     workerName: string,
-    instructions: IInstruction[],
+    instructions: Instruction[],
     signer: TransactionSigner,
     options: {
       computeUnits: number;

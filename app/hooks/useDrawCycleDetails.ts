@@ -167,40 +167,38 @@ export function useDrawCycleDetails(
             winningTicketIdx?: number | string | null;
           }
           const rawWinners = (d.winners || []) as ApiWinnerRecord[];
-          const reconciledWinners: DrawWinnerRecord[] = rawWinners.map(
-            (w) => {
-              const key = getWinnerKey(cycleId, w.winnerIndex);
-              const opt = optimisticProcessedWinnersRef.current.get(key);
-              let isProcessed = Boolean(w.processed);
-              let effectiveBondsBought = Number(w.bondsBought || 0);
+          const reconciledWinners: DrawWinnerRecord[] = rawWinners.map((w) => {
+            const key = getWinnerKey(cycleId, w.winnerIndex);
+            const opt = optimisticProcessedWinnersRef.current.get(key);
+            let isProcessed = Boolean(w.processed);
+            let effectiveBondsBought = Number(w.bondsBought || 0);
 
-              if (opt) {
-                if (w.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
-                  optimisticProcessedWinnersRef.current.delete(key);
-                } else {
-                  isProcessed = true;
-                  effectiveBondsBought =
-                    effectiveBondsBought > 0
-                      ? effectiveBondsBought
-                      : opt.bondsBought;
-                }
+            if (opt) {
+              if (w.processed || now - opt.timestamp > OPTIMISTIC_TTL_MS) {
+                optimisticProcessedWinnersRef.current.delete(key);
+              } else {
+                isProcessed = true;
+                effectiveBondsBought =
+                  effectiveBondsBought > 0
+                    ? effectiveBondsBought
+                    : opt.bondsBought;
               }
-
-              return {
-                winnerIndex: w.winnerIndex,
-                slotInTier: w.winnerIndex,
-                winnerAddress: w.winnerAddress,
-                amountOwed: Number(w.amountOwed),
-                bondsBought: effectiveBondsBought,
-                processed: isProcessed,
-                tierIndex: w.tierIndex,
-                winningTicketIndex:
-                  w.winningTicketIdx != null
-                    ? Number(w.winningTicketIdx)
-                    : undefined,
-              };
             }
-          );
+
+            return {
+              winnerIndex: w.winnerIndex,
+              slotInTier: w.winnerIndex,
+              winnerAddress: w.winnerAddress,
+              amountOwed: Number(w.amountOwed),
+              bondsBought: effectiveBondsBought,
+              processed: isProcessed,
+              tierIndex: w.tierIndex,
+              winningTicketIndex:
+                w.winningTicketIdx != null
+                  ? Number(w.winningTicketIdx)
+                  : undefined,
+            };
+          });
 
           let isUserWinner = false;
           let userWinningsTotal = 0;

@@ -364,6 +364,7 @@ export function useBondsContract(poolId: number = 1) {
               requestedAt: number;
               redemptionType: string;
             }
+            const now = Date.now();
             const activeRedemptions: PendingRedemption[] = (
               apiJson.data as ApiRedemptionRecord[]
             )

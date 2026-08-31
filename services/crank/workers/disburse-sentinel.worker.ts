@@ -1,4 +1,4 @@
-import { Address, address, IInstruction } from "@solana/kit";
+import { Address, address, Instruction } from "@solana/kit";
 import {
   buildClaimRedemptionInstruction,
   SYSTEM_PROGRAM_ID,
@@ -50,7 +50,7 @@ export class DisburseSentinelWorker {
     context: CrankExecutionContext,
     candidate: PendingRedemptionCandidate,
     humaAddresses?: HumaPoolAddresses
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const defaultHumaAddresses: HumaPoolAddresses = humaAddresses || {
       poolState: address(
         process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||

@@ -27,6 +27,26 @@ import {
   readEnvFile,
 } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
+import {
+  AdminExecutionMode,
+  RawMultisigCliFlags,
+  resolveAdminExecutionMode,
+  dispatchAdminInstruction,
+  executeSquadsStatus,
+  executeSquadsProposals,
+  executeSquadsInspectTx,
+  executeSquadsApprove,
+  executeSquadsReject,
+  executeSquadsCancel,
+  executeSquadsClose,
+  executeSquadsExecute,
+} from "./squads-cli-utils";
+import {
+  findMultisigPda,
+  findMultisigVaultPda,
+  createNoopSigner,
+  SQUADS_PROGRAM_ADDRESS,
+} from "../app/lib/squads-sdk";
 
 export class CliArgumentError extends Error {
   constructor(message: string) {
@@ -99,7 +119,7 @@ export interface CommandOption {
 
 export interface CommandMetadata {
   command: string;
-  category: "Crank & Operations" | "Admin" | "Query";
+  category: "Crank & Operations" | "Admin" | "Query" | "Multisig";
   summary: string;
   description: string;
   options?: CommandOption[];
@@ -119,6 +139,34 @@ export const GLOBAL_OPTIONS: CommandOption[] = [
     flag: "--rpc <url>",
     description: "Solana RPC URL",
     default: "http://127.0.0.1:8899",
+  },
+  {
+    flag: "--multisig <pubkey>",
+    description:
+      "Squads V4 Multisig account address (or fallback to SQUADS_MULTISIG_ADDRESS)",
+  },
+  {
+    flag: "--vault-index <num>",
+    description: "Squads V4 vault index acting as authority",
+    default: "0",
+  },
+  {
+    flag: "--propose",
+    description:
+      "Route execution through Squads V4 multisig proposal submission",
+  },
+  {
+    flag: "--export-ix",
+    description:
+      "Export instruction data and Squads UI JSON payload without broadcasting",
+  },
+  {
+    flag: "--dry-run",
+    description: "Simulate transaction on RPC node without broadcasting",
+  },
+  {
+    flag: "--no-auto-approve",
+    description: "Do not automatically approve created proposal",
   },
   { flag: "--help, -h", description: "Show help message" },
 ];
@@ -667,6 +715,197 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       "npm run pb-cli query-mock-huma-pool-state -- --address <PUBKEY>",
     ],
   },
+
+  // Multisig Commands
+  "squads-status": {
+    command: "squads-status",
+    category: "Multisig",
+    summary:
+      "Query and display Squads V4 Multisig account status, members, and thresholds",
+    description:
+      "Query on-chain state for a Squads V4 multisig including threshold, members, timelock, transaction indices, and default vault PDA.",
+    requiresSigner: false,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+    ],
+    examples: [
+      "npm run pb-cli squads-status",
+      "npm run pb-cli squads-status -- --multisig <MULTISIG_PDA>",
+    ],
+  },
+  "squads-proposals": {
+    command: "squads-proposals",
+    category: "Multisig",
+    summary: "List recent proposal history with voting and execution status",
+    description:
+      "Query and list recent proposal accounts for a Squads V4 multisig, displaying status, approval count, timelock, and staleness.",
+    requiresSigner: false,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--limit <num>",
+        description: "Maximum number of recent proposals to display",
+        default: "10",
+      },
+    ],
+    examples: [
+      "npm run pb-cli squads-proposals",
+      "npm run pb-cli squads-proposals -- --limit 20",
+    ],
+  },
+  "squads-inspect-tx": {
+    command: "squads-inspect-tx",
+    category: "Multisig",
+    summary:
+      "Decode and inspect the inner instructions of a Squads vault transaction",
+    description:
+      "Fetch and decode a VaultTransaction account, displaying its accounts, program IDs, and inner instruction payloads.",
+    requiresSigner: false,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to inspect",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli squads-inspect-tx -- --index 1"],
+  },
+  "squads-approve": {
+    command: "squads-approve",
+    category: "Multisig",
+    summary: "Submit a member approval vote for a pending Squads proposal",
+    description:
+      "Sign and submit a proposal_approve instruction to Squads V4 for the specified proposal index.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to approve",
+        required: true,
+      },
+      {
+        flag: "--memo <string>",
+        description: "Optional memo attached to vote",
+      },
+    ],
+    examples: [
+      "npm run pb-cli squads-approve -- --index 1",
+      "npm run pb-cli squads-approve -- --index 1 --memo 'Approved pool config update'",
+    ],
+  },
+  "squads-reject": {
+    command: "squads-reject",
+    category: "Multisig",
+    summary: "Submit a member rejection vote for a pending Squads proposal",
+    description:
+      "Sign and submit a proposal_reject instruction to Squads V4 for the specified proposal index.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to reject",
+        required: true,
+      },
+      {
+        flag: "--memo <string>",
+        description: "Optional memo attached to vote",
+      },
+    ],
+    examples: ["npm run pb-cli squads-reject -- --index 1"],
+  },
+  "squads-cancel": {
+    command: "squads-cancel",
+    category: "Multisig",
+    summary: "Cancel a pending Squads proposal",
+    description:
+      "Sign and submit a proposal_cancel instruction to Squads V4 (allowed by proposal creator or config authority).",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to cancel",
+        required: true,
+      },
+    ],
+    examples: ["npm run pb-cli squads-cancel -- --index 1"],
+  },
+  "squads-close": {
+    command: "squads-close",
+    category: "Multisig",
+    summary:
+      "Reclaim rent from executed or cancelled Squads proposal and transaction accounts",
+    description:
+      "Close executed or cancelled proposal and transaction accounts, refunding rent lamports to rent collector or caller.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to close",
+        required: true,
+      },
+      {
+        flag: "--rent-collector <pubkey>",
+        description:
+          "Rent refund recipient address (defaults to keypair signer)",
+      },
+    ],
+    examples: ["npm run pb-cli squads-close -- --index 1"],
+  },
+  "squads-execute": {
+    command: "squads-execute",
+    category: "Multisig",
+    summary:
+      "Execute an approved Squads proposal on-chain with timelock verification",
+    description:
+      "Execute an approved Squads proposal against the target program CPI with automated remaining accounts resolution and compute budget injection.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--multisig <pubkey>",
+        description: "Squads V4 Multisig account address",
+      },
+      {
+        flag: "--index <num>",
+        description: "Transaction index to execute",
+        required: true,
+      },
+      {
+        flag: "--cu-limit <num>",
+        description: "Compute unit limit for execution transaction",
+        default: "800000",
+      },
+    ],
+    examples: [
+      "npm run pb-cli squads-execute -- --index 1",
+      "npm run pb-cli squads-execute -- --index 1 --cu-limit 1000000",
+    ],
+  },
 };
 
 export function resolveHelpRequest(args: string[]): {
@@ -690,6 +929,7 @@ function showHelp() {
   const categories: Array<CommandMetadata["category"]> = [
     "Crank & Operations",
     "Admin",
+    "Multisig",
     "Query",
   ];
 
@@ -1446,7 +1686,23 @@ export async function executeInitGlobal({
     jobsAccount: jobs,
   });
 
-  await sendTx(rpc, ix, signer);
+  const sig = await sendTx(rpc, ix, signer);
+  console.log(`✓ Global config initialized successfully! Tx: ${sig}`);
+}
+
+export async function getGlobalAdmin(rpc: SolanaRpc): Promise<Address> {
+  const configPda = await findGlobalConfigPda();
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (!acc || !acc.value) {
+    throw new Error(
+      `GlobalConfig account not found at ${configPda}. Run 'init-global' first.`
+    );
+  }
+  const bytes = new Uint8Array(getBase64Encoder().encode(acc.value.data[0]));
+  const state = parseGlobalConfig(bytes);
+  return state.admin;
 }
 
 export interface ExecuteUpdateGlobalConfigParams {
@@ -1456,6 +1712,7 @@ export interface ExecuteUpdateGlobalConfigParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeUpdateGlobalConfig({
@@ -1465,6 +1722,7 @@ export async function executeUpdateGlobalConfig({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteUpdateGlobalConfigParams) {
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
@@ -1482,11 +1740,6 @@ export async function executeUpdateGlobalConfig({
   const state = parseGlobalConfig(
     new Uint8Array(base64Encoder.encode(acc.value.data[0]))
   );
-  if (state.admin !== signer.address) {
-    throw new Error(
-      `Unauthorized: Keypair address (${signer.address}) does not match current admin (${state.admin}).`
-    );
-  }
 
   if (!newAdmin && !guardianAccount && !jobsAccount) {
     throw new Error(
@@ -1508,14 +1761,21 @@ export async function executeUpdateGlobalConfig({
   ${jobsAccount ? `New Jobs Account: ${jobsAccount}` : ""}
 `);
 
-  const ix = await buildUpdateGlobalConfigInstruction({
-    admin: signer.address,
-    newAdmin: newAdmin ? address(newAdmin) : undefined,
-    newGuardian: guardianAccount ? address(guardianAccount) : undefined,
-    newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: state.admin,
+    mode,
+    commandName: "update-global-config",
+    builder: async (auth) => {
+      return await buildUpdateGlobalConfigInstruction({
+        admin: auth,
+        newAdmin: newAdmin ? address(newAdmin) : undefined,
+        newGuardian: guardianAccount ? address(guardianAccount) : undefined,
+        newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
+      });
+    },
   });
-
-  await sendTx(rpc, ix, signer);
 }
 
 /**
@@ -1601,8 +1861,10 @@ export interface ExecuteCreatePoolParams {
   tokenMint?: string;
   pstMint?: string;
   feeWallet?: string;
+  ticketRegistryAccount?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeCreatePool({
@@ -1617,8 +1879,10 @@ export async function executeCreatePool({
   tokenMint,
   pstMint,
   feeWallet,
+  ticketRegistryAccount,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteCreatePoolParams) {
   const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
@@ -1660,11 +1924,54 @@ export async function executeCreatePool({
     throw new Error(`Missing pstMint in state addresses or options.`);
   }
 
-  const ticketRegistrySigner = await generateKeyPairSigner();
+  let registryAddress: Address;
+  let registrySignerToPass: KeyPairSigner | undefined;
+
+  if (ticketRegistryAccount) {
+    registryAddress = address(ticketRegistryAccount);
+  } else {
+    const ticketRegistrySigner = await generateKeyPairSigner();
+    registryAddress = ticketRegistrySigner.address;
+    registrySignerToPass = ticketRegistrySigner;
+
+    const space = REGISTRY_INITIAL_SIZE;
+    const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
+
+    if (mode.kind !== "direct") {
+      console.log(
+        `Pre-allocating Ticket Registry account at ${registryAddress}...`
+      );
+      const createRegistryIx = {
+        programAddress: SYSTEM_PROGRAM_ID,
+        accounts: [
+          {
+            address: signer.address,
+            role: AccountRole.WRITABLE_SIGNER,
+            signer,
+          },
+          {
+            address: ticketRegistrySigner.address,
+            role: AccountRole.WRITABLE_SIGNER,
+            signer: ticketRegistrySigner,
+          },
+        ],
+        data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
+      };
+      await sendTxWithSigners(rpc, [createRegistryIx], signer, [
+        signer,
+        ticketRegistrySigner,
+      ]);
+      console.log(
+        `✓ Ticket registry account allocated and zeroed at ${registryAddress}`
+      );
+    }
+  }
+
+  const globalAdmin = await getGlobalAdmin(rpc);
 
   console.log(`Creating Prize Pool ${poolId}:
   Pool PDA: ${poolPda}
-  Ticket Registry Account: ${ticketRegistrySigner.address}
+  Ticket Registry Account: ${registryAddress}
   Bond Price: ${formatAmount(bondPrice)}
   Stake Cycle Duration (Hrs): ${stakeCycleDurationHrs}
   Fee Basis Points: ${feeBasisPoints} (${feeBasisPoints / 100}%)
@@ -1677,58 +1984,87 @@ export async function executeCreatePool({
   Fee Wallet: ${resolvedFeeWallet}
 `);
 
-  const space = REGISTRY_INITIAL_SIZE;
-  const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
+  if (mode.kind === "direct" && registrySignerToPass) {
+    const space = REGISTRY_INITIAL_SIZE;
+    const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
 
-  const createRegistryIx = {
-    programAddress: SYSTEM_PROGRAM_ID,
-    accounts: [
-      {
-        address: signer.address,
-        role: AccountRole.WRITABLE_SIGNER,
-        signer,
+    const createRegistryIx = {
+      programAddress: SYSTEM_PROGRAM_ID,
+      accounts: [
+        {
+          address: signer.address,
+          role: AccountRole.WRITABLE_SIGNER,
+          signer,
+        },
+        {
+          address: registrySignerToPass.address,
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: registrySignerToPass,
+        },
+      ],
+      data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
+    };
+
+    const createPoolIx = await buildCreatePoolInstruction({
+      admin: signer.address,
+      poolId,
+      bondPrice,
+      stakeCycleDurationHrs,
+      feeBasisPoints,
+      minYieldThreshold: BigInt(minYieldThreshold),
+      maxYieldBasisPoints,
+      payoutTimelockSeconds,
+      prizeTiers,
+      tokenMint: address(resolvedTokenMint),
+      pstMint: address(resolvedPstMint),
+      ticketRegistry: registryAddress,
+      feeWallet: address(resolvedFeeWallet),
+    });
+
+    await sendTxWithSigners(rpc, [createRegistryIx, createPoolIx], signer, [
+      signer,
+      registrySignerToPass,
+    ]);
+  } else {
+    await dispatchAdminInstruction({
+      rpc,
+      signer,
+      expectedAdmin: globalAdmin,
+      mode,
+      commandName: "create-pool",
+      builder: async (auth) => {
+        return await buildCreatePoolInstruction({
+          admin: auth,
+          poolId,
+          bondPrice,
+          stakeCycleDurationHrs,
+          feeBasisPoints,
+          minYieldThreshold: BigInt(minYieldThreshold),
+          maxYieldBasisPoints,
+          payoutTimelockSeconds,
+          prizeTiers,
+          tokenMint: address(resolvedTokenMint),
+          pstMint: address(resolvedPstMint),
+          ticketRegistry: registryAddress,
+          feeWallet: address(resolvedFeeWallet),
+        });
       },
-      {
-        address: ticketRegistrySigner.address,
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: ticketRegistrySigner,
-      },
-    ],
-    data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
-  };
-
-  const createPoolIx = await buildCreatePoolInstruction({
-    admin: signer.address,
-    poolId,
-    bondPrice,
-    stakeCycleDurationHrs,
-    feeBasisPoints,
-    minYieldThreshold: BigInt(minYieldThreshold),
-    maxYieldBasisPoints,
-    payoutTimelockSeconds,
-    prizeTiers,
-    tokenMint: address(resolvedTokenMint),
-    pstMint: address(resolvedPstMint),
-    ticketRegistry: ticketRegistrySigner.address,
-    feeWallet: address(resolvedFeeWallet),
-  });
-
-  await sendTxWithSigners(rpc, [createRegistryIx, createPoolIx], signer, [
-    signer,
-    ticketRegistrySigner,
-  ]);
+    });
+  }
 }
 
 export interface ExecuteInitializeHumaLenderParams {
   poolId?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeInitializeHumaLender({
   poolId = 1,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteInitializeHumaLenderParams) {
   const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
@@ -1742,15 +2078,24 @@ export async function executeInitializeHumaLender({
     throw new Error(`PrizePool account for pool ${poolId} not found.`);
   }
 
+  const globalAdmin = await getGlobalAdmin(rpc);
+
   console.log(`Initializing Huma Lender State for Pool ${poolId}...`);
 
-  const ix = await buildInitializeHumaLenderInstruction({
-    admin: signer.address,
-    poolId,
-    humaStateAddresses: stateAddresses,
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "initialize-huma-lender",
+    builder: async (auth) => {
+      return await buildInitializeHumaLenderInstruction({
+        admin: auth,
+        poolId,
+        humaStateAddresses: stateAddresses,
+      });
+    },
   });
-
-  await sendTx(rpc, ix, signer);
 }
 
 export interface ExecuteResizeRegistryParams {
@@ -1815,6 +2160,7 @@ export interface ExecuteSetPrizeTiersParams {
   tiersString?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeSetPrizeTiers({
@@ -1822,6 +2168,7 @@ export async function executeSetPrizeTiers({
   tiersString,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteSetPrizeTiersParams) {
   if (!tiersString) {
     throw new Error(
@@ -1866,13 +2213,22 @@ export async function executeSetPrizeTiers({
     `  Total Winners: ${totalWinners}, Total Basis Points: ${totalBps}`
   );
 
-  const ix = await buildSetPrizeTiersInstruction({
-    admin: signer.address,
-    poolId,
-    tiers: parsedTiers,
-  });
+  const globalAdmin = await getGlobalAdmin(rpc);
 
-  await sendTx(rpc, ix, signer);
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "set-prize-tiers",
+    builder: async (auth) => {
+      return await buildSetPrizeTiersInstruction({
+        admin: auth,
+        poolId,
+        tiers: parsedTiers,
+      });
+    },
+  });
 }
 
 export interface ExecuteUpdatePoolConfigParams {
@@ -1886,6 +2242,7 @@ export interface ExecuteUpdatePoolConfigParams {
   payoutTimelockSeconds?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeUpdatePoolConfig({
@@ -1899,6 +2256,7 @@ export async function executeUpdatePoolConfig({
   payoutTimelockSeconds,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteUpdatePoolConfigParams) {
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
@@ -1971,19 +2329,28 @@ export async function executeUpdatePoolConfig({
   Current Payout Timelock (Seconds): ${poolState.payoutTimelockSeconds}s ${payoutTimelockSeconds !== undefined ? `-> New: ${payoutTimelockSeconds}s` : ""}
 `);
 
-  const ix = await buildUpdatePoolConfigInstruction({
-    admin: signer.address,
-    poolId,
-    newFeeBasisPoints: feeBasisPoints,
-    newBondPrice: bondPrice,
-    newFeeWallet: feeWallet ? address(feeWallet) : undefined,
-    newMinYieldThreshold: minYieldThreshold,
-    newStakeCycleDurationHrs: stakeDurationHrs,
-    newMaxYieldBasisPoints: maxYieldBasisPoints,
-    newPayoutTimelockSeconds: payoutTimelockSeconds,
-  });
+  const globalAdmin = await getGlobalAdmin(rpc);
 
-  await sendTx(rpc, ix, signer);
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "update-pool-config",
+    builder: async (auth) => {
+      return await buildUpdatePoolConfigInstruction({
+        admin: auth,
+        poolId,
+        newFeeBasisPoints: feeBasisPoints,
+        newBondPrice: bondPrice,
+        newFeeWallet: feeWallet ? address(feeWallet) : undefined,
+        newMinYieldThreshold: minYieldThreshold,
+        newStakeCycleDurationHrs: stakeDurationHrs,
+        newMaxYieldBasisPoints: maxYieldBasisPoints,
+        newPayoutTimelockSeconds: payoutTimelockSeconds,
+      });
+    },
+  });
 }
 
 export interface ExecuteWithdrawFeesParams {
@@ -1992,6 +2359,7 @@ export interface ExecuteWithdrawFeesParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeWithdrawFees({
@@ -2000,6 +2368,7 @@ export async function executeWithdrawFees({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteWithdrawFeesParams) {
   const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
   const rpc = createSolanaRpc(rpcUrl);
@@ -2060,37 +2429,75 @@ export async function executeWithdrawFees({
     `Executing Fee Withdrawal of ${formatAmount(withdrawAmount)} for Pool ${poolId}...`
   );
 
-  const ix = await buildWithdrawFeesInstruction({
-    admin: signer.address,
-    poolId,
-    amount: withdrawAmount,
-    tokenMint: address(poolState.tokenMint),
-    feeWallet: address(poolState.feeWallet),
-    nextRedemptionId: poolState.nextRedemptionId,
-    humaStateAddresses: stateAddresses,
-  });
+  const globalAdmin = await getGlobalAdmin(rpc);
 
-  await sendTx(rpc, ix, signer);
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "withdraw-fees",
+    preflightCheck: async ({ mode: activeMode }) => {
+      if (activeMode.kind === "propose") {
+        console.warn(
+          `[WARNING] Dynamic PDA Drift Risk: It is strongly recommended to pause the pool ('pb-cli pause-pool --propose') prior to or in conjunction with fee withdrawal so user bond sales do not increment next_redemption_id during the voting window.`
+        );
+      }
+    },
+    builder: async (auth) => {
+      return await buildWithdrawFeesInstruction({
+        admin: auth,
+        poolId,
+        amount: withdrawAmount,
+        tokenMint: address(poolState.tokenMint),
+        feeWallet: address(poolState.feeWallet),
+        nextRedemptionId: poolState.nextRedemptionId,
+        humaStateAddresses: stateAddresses,
+      });
+    },
+  });
 }
 
 export interface ExecutePausePoolParams {
   poolId?: number;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executePausePool({
   poolId = 1,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecutePausePoolParams) {
   const rpc = createSolanaRpc(rpcUrl);
   console.log(`Executing emergency pause for Pool ${poolId}...`);
-  const ix = await buildPausePoolInstruction({
+
+  const configPda = await findGlobalConfigPda();
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  let expectedAdmin = signer.address;
+  if (acc && acc.value) {
+    const bytes = new Uint8Array(getBase64Encoder().encode(acc.value.data[0]));
+    const cfg = parseGlobalConfig(bytes);
+    expectedAdmin = cfg.admin;
+  }
+
+  await dispatchAdminInstruction({
+    rpc,
     signer,
-    poolId,
+    expectedAdmin,
+    mode,
+    commandName: "pause-pool",
+    builder: async (auth) => {
+      return await buildPausePoolInstruction({
+        signer: createNoopSigner(auth),
+        poolId,
+      });
+    },
   });
-  await sendTx(rpc, ix, signer);
   console.log(`Pool ${poolId} has been successfully paused.`);
 }
 
@@ -2099,6 +2506,7 @@ export interface ExecuteUnpausePoolParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeUnpausePool({
@@ -2106,6 +2514,7 @@ export async function executeUnpausePool({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteUnpausePoolParams) {
   const rpc = createSolanaRpc(rpcUrl);
   if (!confirm) {
@@ -2114,11 +2523,21 @@ export async function executeUnpausePool({
     );
   }
   console.log(`Executing unpause for Pool ${poolId}...`);
-  const ix = await buildUnpausePoolInstruction({
-    admin: signer,
-    poolId,
+  const globalAdmin = await getGlobalAdmin(rpc);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "unpause-pool",
+    builder: async (auth) => {
+      return await buildUnpausePoolInstruction({
+        admin: createNoopSigner(auth),
+        poolId,
+      });
+    },
   });
-  await sendTx(rpc, ix, signer);
   console.log(`Pool ${poolId} has been successfully unpaused.`);
 }
 
@@ -2127,6 +2546,7 @@ export interface ExecuteClosePoolParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeClosePool({
@@ -2134,6 +2554,7 @@ export async function executeClosePool({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteClosePoolParams) {
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
@@ -2166,11 +2587,21 @@ export async function executeClosePool({
   }
 
   console.log(`Executing permanent close for Pool ${poolId}...`);
-  const ix = await buildClosePoolInstruction({
-    admin: signer,
-    poolId,
+  const globalAdmin = await getGlobalAdmin(rpc);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "close-pool",
+    builder: async (auth) => {
+      return await buildClosePoolInstruction({
+        admin: createNoopSigner(auth),
+        poolId,
+      });
+    },
   });
-  await sendTx(rpc, ix, signer);
   console.log(`Pool ${poolId} has been permanently closed for orderly sunset.`);
 }
 
@@ -2180,6 +2611,7 @@ export interface ExecuteVoidDrawParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeVoidDraw({
@@ -2188,6 +2620,7 @@ export async function executeVoidDraw({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteVoidDrawParams) {
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
@@ -2253,12 +2686,22 @@ export async function executeVoidDraw({
   console.log(
     `Executing void draw for Pool ${poolId}, Cycle ${targetCycleId}...`
   );
-  const ix = await buildAdminVoidPayoutRegistryInstruction({
-    admin: signer,
-    poolId,
-    cycleId: targetCycleId,
+  const globalAdmin = await getGlobalAdmin(rpc);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "void-draw",
+    builder: async (auth) => {
+      return await buildAdminVoidPayoutRegistryInstruction({
+        admin: createNoopSigner(auth),
+        poolId,
+        cycleId: targetCycleId,
+      });
+    },
   });
-  await sendTx(rpc, ix, signer);
   console.log(
     `Draw cycle ${targetCycleId} for Pool ${poolId} has been successfully voided.`
   );
@@ -2270,6 +2713,7 @@ export interface ExecuteForceUnlockDrawParams {
   confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
 }
 
 export async function executeForceUnlockDraw({
@@ -2278,6 +2722,7 @@ export async function executeForceUnlockDraw({
   confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
+  mode = { kind: "direct" },
 }: ExecuteForceUnlockDrawParams) {
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
@@ -2328,14 +2773,22 @@ export async function executeForceUnlockDraw({
   console.log(
     `Executing Emergency Force Unlock for Pool ${poolId}, Cycle ${targetCycleId}...`
   );
+  const globalAdmin = await getGlobalAdmin(rpc);
 
-  const ix = await buildAdminForceUnlockDrawInstruction({
-    admin: signer.address,
-    poolId,
-    cycleId: targetCycleId,
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: globalAdmin,
+    mode,
+    commandName: "force-unlock-draw",
+    builder: async (auth) => {
+      return await buildAdminForceUnlockDrawInstruction({
+        admin: auth,
+        poolId,
+        cycleId: targetCycleId,
+      });
+    },
   });
-
-  await sendTx(rpc, ix, signer);
 }
 
 export interface ExecuteRebindRandomnessParams {
@@ -2626,6 +3079,16 @@ async function main() {
   const keypairPath =
     options["--keypair"] || path.resolve(__dirname, "admin-key.json");
 
+  const rawMultisigFlags: RawMultisigCliFlags = {
+    multisig: options["--multisig"],
+    vaultIndex: options["--vault-index"],
+    propose: options["--propose"] === "true",
+    exportIx: options["--export-ix"] === "true",
+    dryRun: options["--dry-run"] === "true",
+    noAutoApprove: options["--no-auto-approve"] === "true",
+  };
+  const adminMode = resolveAdminExecutionMode(rawMultisigFlags);
+
   const rpc = createSolanaRpc(rpcUrl);
   const base64Encoder = getBase64Encoder();
 
@@ -2673,6 +3136,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2709,8 +3173,10 @@ async function main() {
         tokenMint: options["--token-mint"],
         pstMint: options["--pst-mint"],
         feeWallet: options["--fee-wallet"],
+        ticketRegistryAccount: options["--ticket-registry"],
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2720,6 +3186,7 @@ async function main() {
         poolId,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2745,6 +3212,7 @@ async function main() {
         tiersString,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2780,6 +3248,7 @@ async function main() {
         payoutTimelockSeconds,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2803,6 +3272,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2812,6 +3282,7 @@ async function main() {
         poolId,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2828,6 +3299,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2844,6 +3316,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2868,6 +3341,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -2892,6 +3366,7 @@ async function main() {
         confirm,
         rpcUrl,
         signer: signer!,
+        mode: adminMode,
       });
       break;
     }
@@ -3515,6 +3990,136 @@ Ticket Registry for Pool ${poolId}
       await executeQueryMockHumaPoolState({
         rpcUrl,
         addressStr: addressOption,
+      });
+      break;
+    }
+
+    // ─── Squads Multisig Subcommands ─────────────────────────────────────────
+
+    case "squads-status": {
+      const multisigOption = options["--multisig"] || positionals[0];
+      await executeSquadsStatus({
+        multisigAddressStr: multisigOption,
+        rpcUrl,
+      });
+      break;
+    }
+
+    case "squads-proposals": {
+      const multisigOption = options["--multisig"];
+      const limit = options["--limit"] ? parseInt(options["--limit"], 10) : 10;
+      await executeSquadsProposals({
+        multisigAddressStr: multisigOption,
+        limit,
+        rpcUrl,
+      });
+      break;
+    }
+
+    case "squads-inspect-tx": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      await executeSquadsInspectTx({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        rpcUrl,
+      });
+      break;
+    }
+
+    case "squads-approve": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      await executeSquadsApprove({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        memo: options["--memo"],
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "squads-reject": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      await executeSquadsReject({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        memo: options["--memo"],
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "squads-cancel": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      await executeSquadsCancel({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "squads-close": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      await executeSquadsClose({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        rentCollectorStr: options["--rent-collector"],
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "squads-execute": {
+      const multisigOption = options["--multisig"];
+      const indexStr = options["--index"] || positionals[0];
+      if (!indexStr) {
+        throw new CliArgumentError(
+          "Missing required transaction index. Pass --index <number> (e.g. --index 1)."
+        );
+      }
+      const cuLimit = options["--cu-limit"]
+        ? parseInt(options["--cu-limit"], 10)
+        : undefined;
+      await executeSquadsExecute({
+        multisigAddressStr: multisigOption,
+        transactionIndex: BigInt(indexStr),
+        cuLimit,
+        rpcUrl,
+        signer: signer!,
       });
       break;
     }

@@ -1,4 +1,4 @@
-import { IInstruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import { buildAtomicRevealAndPickWinnersInstructions } from "../../../app/lib/bonds-sdk";
 import {
   ICrankWorker,
@@ -29,7 +29,7 @@ export class AtomicRevealWorker implements ICrankWorker<
   async buildInstructions(
     snapshot: Extract<PoolStateSnapshot, { state: "READY_TO_DRAW" }>,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const revealResult = await this.vrfProvider.prepareReveal(
       snapshot.randomnessAccount,
       0n,

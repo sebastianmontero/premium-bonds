@@ -1,4 +1,4 @@
-import { IInstruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import { buildCrankRebindExpiredRandomnessInstruction } from "../../../app/lib/bonds-sdk";
 import {
   ICrankWorker,
@@ -29,7 +29,7 @@ export class RebindRandomnessWorker implements ICrankWorker<
   async buildInstructions(
     snapshot: Extract<PoolStateSnapshot, { state: "VRF_EXPIRED" }>,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const newRandomnessAccount =
       await this.vrfProvider.provisionRandomnessAccount(
         snapshot.poolId,

@@ -207,7 +207,8 @@ export function useDrawHistory(
             revealedAt: number;
           }
 
-          const rawPrizes = (winnersJson?.data || []) as ApiWinnerHistoryRecord[];
+          const rawPrizes = (winnersJson?.data ||
+            []) as ApiWinnerHistoryRecord[];
           const mappedPrizes: PrizeHistoryEntry[] = rawPrizes.map((w) => {
             const key = getWinnerKey(w.cycleId, w.winnerIndex);
             const opt = optimisticProcessedPrizesRef.current.get(key);
@@ -268,15 +269,13 @@ export function useDrawHistory(
           });
 
           const rawTicker = (tickerJson.data || []) as ApiWinnerHistoryRecord[];
-          const mappedRecent: RecentWinner[] = rawTicker.map(
-            (w) => ({
-              address: w.winnerAddress,
-              amount: Number(w.amountOwed),
-              tierIndex: w.tierIndex,
-              cycleId: w.cycleId,
-              tokenSymbol,
-            })
-          );
+          const mappedRecent: RecentWinner[] = rawTicker.map((w) => ({
+            address: w.winnerAddress,
+            amount: Number(w.amountOwed),
+            tierIndex: w.tierIndex,
+            cycleId: w.cycleId,
+            tokenSymbol,
+          }));
 
           setPrizeHistory(mappedPrizes);
           setRecentWinners(mappedRecent);

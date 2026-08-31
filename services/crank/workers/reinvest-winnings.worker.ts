@@ -1,4 +1,4 @@
-import { IInstruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import { buildPackedReinvestWinningsInstructions } from "../../../app/lib/bonds-sdk";
 import {
   ICrankWorker,
@@ -36,7 +36,7 @@ export class ReinvestWinningsWorker implements ICrankWorker<
   async buildInstructions(
     snapshot: Extract<PoolStateSnapshot, { state: "REINVESTMENT_PENDING" }>,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const winnersToProcess = snapshot.unprocessedWinners.slice(
       0,
       context.maxReinvestBatchSize

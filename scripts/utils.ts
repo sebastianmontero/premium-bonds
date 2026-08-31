@@ -4,10 +4,12 @@ import {
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstruction,
+  appendTransactionMessageInstructions,
   signTransactionMessageWithSigners,
   createKeyPairSignerFromBytes,
   getBase64EncodedWireTransaction,
   KeyPairSigner,
+  Instruction,
 } from "@solana/kit";
 import * as fs from "fs";
 import {
@@ -90,16 +92,17 @@ export async function sendTx(
 ): Promise<string> {
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  const message = setTransactionMessageLifetimeUsingBlockhash(
+  const instructions: Instruction[] = Array.isArray(instruction)
+    ? instruction
+    : [instruction];
+
+  let message = createTransactionMessage({ version: 0 });
+  message = setTransactionMessageFeePayerSigner(payerSigner, message);
+  message = setTransactionMessageLifetimeUsingBlockhash(
     latestBlockhash,
-    setTransactionMessageFeePayerSigner(
-      payerSigner,
-      appendTransactionMessageInstruction(
-        instruction,
-        createTransactionMessage({ version: 0 })
-      )
-    )
+    message
   );
+  message = appendTransactionMessageInstructions(instructions, message);
 
   const signedTx = await signTransactionMessageWithSigners(message);
   const wireTx = getBase64EncodedWireTransaction(signedTx);

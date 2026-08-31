@@ -1,4 +1,4 @@
-import { Address, IInstruction, TransactionSigner } from "@solana/kit";
+import { Address, Instruction, TransactionSigner } from "@solana/kit";
 import type {
   PrizePool,
   TicketRegistry,
@@ -119,6 +119,6 @@ export interface ICrankWorker<
   buildInstructions(
     snapshot: TSnapshot,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]>;
+  ): Promise<Instruction[]>;
   getComputeUnitLimit(snapshot: TSnapshot): number;
 }

@@ -55,6 +55,7 @@ import {
 export type ErrorLayer =
   | "wallet"
   | "anchor"
+  | "squads"
   | "spl"
   | "system"
   | "rpc"
@@ -66,6 +67,7 @@ export type ErrorCategory =
   | "insufficient_tokens"
   | "anchor_custom"
   | "anchor_constraint"
+  | "squads_multisig"
   | "blockhash_expired"
   | "duplicate_transaction"
   | "network_rpc"
@@ -84,6 +86,15 @@ export function getErrorCategoryTheme(
   category: ErrorCategory = "unknown"
 ): ErrorThemeConfig {
   switch (category) {
+    case "squads_multisig":
+      return {
+        icon: "🏛️",
+        borderColor: "border-purple-500/30",
+        bgBadgeColor: "bg-purple-500/10",
+        titleColor: "text-purple-300",
+        accentBorder: "border-l-purple-400",
+        ringBorder: "border-purple-500/30",
+      };
     case "blockhash_expired":
       return {
         icon: "⏱️",
@@ -820,6 +831,137 @@ export function matchAnchorError(input: unknown): {
   return null;
 }
 
+// ─── Squads V4 Multisig Program Errors ───────────────────────────────────────
+
+export const SQUADS_PROGRAM_ADDRESS =
+  "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
+
+export const SQUADS_CUSTOM_ERRORS: Record<
+  number,
+  { name: string; message: string; actionable?: string }
+> = {
+  6000: {
+    name: "Unauthorized",
+    message: "Signer is not an authorized member of this multisig.",
+    actionable:
+      "Ensure your connected keypair matches an active multisig member.",
+  },
+  6001: {
+    name: "InvalidThreshold",
+    message: "Multisig threshold cannot exceed active member count.",
+    actionable: "Verify multisig configuration.",
+  },
+  6002: {
+    name: "NotEnoughSigners",
+    message: "Transaction does not have enough signatures to execute.",
+    actionable: "Collect required member approvals before execution.",
+  },
+  6003: {
+    name: "InvalidTransactionMessage",
+    message: "The compiled vault transaction message failed deserialization.",
+    actionable:
+      "Check the instruction format and account encoding inside the vault transaction.",
+  },
+  6004: {
+    name: "StaleTransactionIndex",
+    message:
+      "Transaction index is stale due to a multisig configuration change.",
+    actionable: "Re-create the proposal with the updated transaction index.",
+  },
+  6005: {
+    name: "InvalidAccount",
+    message: "An invalid account was passed to the Squads instruction.",
+  },
+  6006: {
+    name: "StaleProposal",
+    message: "Proposal has expired or references a stale transaction index.",
+    actionable:
+      "Re-create the proposal with the latest multisig transaction index.",
+  },
+  6007: {
+    name: "ProposalAlreadyExecuted",
+    message: "This proposal has already been executed on-chain.",
+  },
+  6008: {
+    name: "ProposalNotApproved",
+    message: "Proposal has not reached the required approval threshold.",
+    actionable:
+      "Collect required member approvals before attempting execution.",
+  },
+  6009: {
+    name: "TimeLockExceeded",
+    message: "Multisig timelock has not elapsed yet.",
+    actionable: "Wait for the timelock duration to elapse before executing.",
+  },
+  6010: {
+    name: "MissingAccount",
+    message: "A required account is missing from remaining_accounts.",
+    actionable:
+      "Ensure all accounts in the vault transaction message are passed in remaining_accounts.",
+  },
+  6011: {
+    name: "ProtectedAccount",
+    message: "Attempted to modify a protected system or multisig account.",
+  },
+};
+
+/**
+ * Matches Squads V4 Multisig Program errors from error objects or logs.
+ */
+export function matchSquadsError(
+  rawLogs: string[] | string | number | unknown
+): {
+  code: number;
+  info: { name: string; message: string; actionable?: string };
+} | null {
+  if (rawLogs === undefined || rawLogs === null) return null;
+  if (typeof rawLogs === "number") {
+    if (SQUADS_CUSTOM_ERRORS[rawLogs]) {
+      return { code: rawLogs, info: SQUADS_CUSTOM_ERRORS[rawLogs] };
+    }
+    return null;
+  }
+  const text = Array.isArray(rawLogs)
+    ? rawLogs.join("\n")
+    : typeof rawLogs === "string"
+      ? rawLogs
+      : String(rawLogs);
+
+  // 1. Explicit regex match for Squads program frame
+  const squadsFailedMatch = text.match(
+    new RegExp(
+      `Program ${SQUADS_PROGRAM_ADDRESS} failed: custom program error: (0x[0-9a-fA-F]+|\\d+)`
+    )
+  );
+  if (squadsFailedMatch) {
+    const val = squadsFailedMatch[1];
+    const decCode = val.startsWith("0x")
+      ? parseInt(val, 16)
+      : parseInt(val, 10);
+    if (SQUADS_CUSTOM_ERRORS[decCode]) {
+      return { code: decCode, info: SQUADS_CUSTOM_ERRORS[decCode] };
+    }
+  }
+
+  // 2. Scan named errors if Squads is in log frames
+  if (text.includes(SQUADS_PROGRAM_ADDRESS)) {
+    for (const [codeStr, info] of Object.entries(SQUADS_CUSTOM_ERRORS)) {
+      const code = Number(codeStr);
+      const hexCode = `0x${code.toString(16)}`;
+      if (
+        text.includes(info.name) ||
+        text.includes(`custom program error: ${hexCode}`) ||
+        text.includes(`Custom error: ${code}`) ||
+        text.includes(`Custom error: ${hexCode}`)
+      ) {
+        return { code, info };
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Helper to recursively extract underlying error messages from `@solana/kit` transactionPlanResult objects.
  */
@@ -994,20 +1136,24 @@ export class TransactionError extends Error {
   }
 }
 
-export function parseTransactionError(err: unknown): ParsedTransactionError {
-  if (err instanceof TransactionError) {
+export function parseTransactionError(
+  err: unknown,
+  explicitLogs?: string[],
+  fallbackMessage?: string
+): ParsedTransactionError {
+  if (err instanceof TransactionError && !explicitLogs?.length) {
     return err.parsed;
   }
-  if (isParsedTransactionError(err)) {
+  if (isParsedTransactionError(err) && !explicitLogs?.length) {
     return err;
   }
-  if (!err) {
+  if (!err && !explicitLogs?.length) {
     return {
       isCancellation: false,
       layer: "unknown",
       category: "unknown",
       title: "Unexpected Error",
-      message: "An unknown error occurred.",
+      message: fallbackMessage || "An unknown error occurred.",
       rawError: err,
     };
   }
@@ -1025,19 +1171,44 @@ export function parseTransactionError(err: unknown): ParsedTransactionError {
     };
   }
 
-  const logs = extractLogs(err);
+  const logs = [...extractLogs(err), ...(explicitLogs || [])];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const errorObj = err as any;
-  const rawMsg = errorObj.message || errorObj.cause?.message || String(err);
+  const errorObj = (err || {}) as any;
+  const rawMsg =
+    errorObj.message || errorObj.cause?.message || (err ? String(err) : "");
   const innerPlanErr = extractPlanErrorMessage(err);
   const allExtractedText = extractAllErrorText(err);
   const combinedSearchText = [rawMsg, innerPlanErr, allExtractedText, ...logs]
     .filter(Boolean)
     .join(" ");
 
-  // 2. Check for Anchor Custom / Framework Errors in error object, message, inner errors, or logs
+  // 2. Check for Squads V4 and Anchor Custom / Framework Errors
+  const squadsMatch =
+    matchSquadsError(err) || matchSquadsError(combinedSearchText);
   const anchorMatch =
     matchAnchorError(err) || matchAnchorError(combinedSearchText);
+
+  // If Squads error is matched without an inner Anchor failure, prioritize Squads
+  if (squadsMatch) {
+    const isInnerAnchorFailure = anchorMatch !== null;
+
+    if (!isInnerAnchorFailure) {
+      return {
+        isCancellation: false,
+        layer: "squads",
+        category: "squads_multisig",
+        title: `Multisig Error: ${squadsMatch.info.name}`,
+        message: squadsMatch.info.message,
+        code: squadsMatch.code,
+        actionableStep:
+          squadsMatch.info.actionable ||
+          "Verify multisig proposal, approvals, and member status.",
+        logs,
+        rawError: err,
+      };
+    }
+  }
+
   if (anchorMatch) {
     const isFramework = anchorMatch.isFramework;
     return {

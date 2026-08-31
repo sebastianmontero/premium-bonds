@@ -1,4 +1,4 @@
-import { Address, address, IInstruction } from "@solana/kit";
+import { Address, address, Instruction } from "@solana/kit";
 
 export interface IVrfProvider {
   /**
@@ -15,7 +15,7 @@ export interface IVrfProvider {
     harvestSlot: bigint,
     currentSlot: bigint
   ): Promise<{
-    revealInstruction?: IInstruction;
+    revealInstruction?: Instruction;
     ready: boolean;
   }>;
 }
@@ -35,7 +35,7 @@ export class MockVrfProvider implements IVrfProvider {
   }
 
   async prepareReveal(): Promise<{
-    revealInstruction?: IInstruction;
+    revealInstruction?: Instruction;
     ready: boolean;
   }> {
     return {
@@ -64,7 +64,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
   }
 
   async prepareReveal(): Promise<{
-    revealInstruction?: IInstruction;
+    revealInstruction?: Instruction;
     ready: boolean;
   }> {
     return {

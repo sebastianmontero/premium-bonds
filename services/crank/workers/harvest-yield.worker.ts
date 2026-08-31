@@ -1,4 +1,4 @@
-import { address, IInstruction } from "@solana/kit";
+import { address, Instruction } from "@solana/kit";
 import {
   buildHarvestYieldAndCommitInstruction,
   SYSTEM_PROGRAM_ID,
@@ -32,7 +32,7 @@ export class HarvestYieldWorker implements ICrankWorker<
   async buildInstructions(
     snapshot: Extract<PoolStateSnapshot, { state: "YIELD_HARVEST_READY" }>,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const randomnessAccount = await this.vrfProvider.provisionRandomnessAccount(
       snapshot.poolId,
       snapshot.currentCycleId

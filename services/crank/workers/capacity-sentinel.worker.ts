@@ -1,4 +1,4 @@
-import { IInstruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import { buildResizeRegistryInstruction } from "../../../app/lib/bonds-sdk";
 import {
   CrankDecision,
@@ -41,7 +41,7 @@ export class CapacitySentinelWorker {
   async buildInstructions(
     snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
-  ): Promise<IInstruction[]> {
+  ): Promise<Instruction[]> {
     const ix = await buildResizeRegistryInstruction({
       payer: context.signer,
       poolId: snapshot.poolId,
