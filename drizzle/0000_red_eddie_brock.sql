@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS "bonds_activity" (
+CREATE TABLE "bonds_activity" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"signature" varchar(88) NOT NULL,
 	"event_index" integer DEFAULT 0 NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS "bonds_activity" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "draw_history" (
+CREATE TABLE "draw_history" (
 	"pool_id" integer NOT NULL,
 	"cycle_id" integer NOT NULL,
 	"status" varchar(32) NOT NULL,
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS "draw_history" (
 	CONSTRAINT "pk_draw_history" PRIMARY KEY("pool_id","cycle_id")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "draw_winners" (
+CREATE TABLE "draw_winners" (
 	"pool_id" integer NOT NULL,
 	"cycle_id" integer NOT NULL,
 	"winner_index" integer NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS "draw_winners" (
 	CONSTRAINT "pk_draw_winners" PRIMARY KEY("pool_id","cycle_id","winner_index")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "indexer_cursor" (
+CREATE TABLE "indexer_cursor" (
 	"network" varchar(32) PRIMARY KEY NOT NULL,
 	"contiguous_signature" varchar(88),
 	"contiguous_slot" bigint DEFAULT 0,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS "indexer_cursor" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "pending_redemptions" (
+CREATE TABLE "pending_redemptions" (
 	"pool_id" integer NOT NULL,
 	"redemption_id" bigint NOT NULL,
 	"user_address" varchar(44) NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS "pending_redemptions" (
 	CONSTRAINT "pk_pending_redemptions" PRIMARY KEY("pool_id","redemption_id")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "pool_snapshots" (
+CREATE TABLE "pool_snapshots" (
 	"pool_id" integer NOT NULL,
 	"cycle_id" integer NOT NULL,
 	"snapshot_time" bigint NOT NULL,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS "pool_snapshots" (
 	CONSTRAINT "pk_pool_snapshots" PRIMARY KEY("pool_id","cycle_id")
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "protocol_events" (
+CREATE TABLE "protocol_events" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"signature" varchar(88) NOT NULL,
 	"event_index" integer DEFAULT 0 NOT NULL,
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS "protocol_events" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "user_portfolio_stats" (
+CREATE TABLE "user_portfolio_stats" (
 	"pool_id" integer NOT NULL,
 	"user_address" varchar(44) NOT NULL,
 	"active_bonds" bigint DEFAULT 0 NOT NULL,
@@ -127,17 +127,17 @@ CREATE TABLE IF NOT EXISTS "user_portfolio_stats" (
 	CONSTRAINT "pk_user_portfolio_stats" PRIMARY KEY("pool_id","user_address")
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "uq_bonds_activity_sig_idx" ON "bonds_activity" USING btree ("signature","event_index");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_activity_user_block_id" ON "bonds_activity" USING btree ("user_address","block_time","id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_activity_user_pool_block_id" ON "bonds_activity" USING btree ("user_address","pool_id","block_time","id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_draw_history_sync" ON "draw_history" USING btree ("winners_synced","status","pool_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_draw_winners_user_pool_time" ON "draw_winners" USING btree ("winner_address","pool_id","revealed_at");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_draw_winners_cycle_tier" ON "draw_winners" USING btree ("pool_id","cycle_id","tier_index","winner_index");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_pending_redemptions_user_pool" ON "pending_redemptions" USING btree ("user_address","pool_id","status","requested_at");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_pending_redemptions_active" ON "pending_redemptions" USING btree ("pool_id","status","requested_at");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_pool_snapshots_pool_time" ON "pool_snapshots" USING btree ("pool_id","snapshot_time");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "uq_protocol_events_sig_idx" ON "protocol_events" USING btree ("signature","event_index");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_events_pool_block" ON "protocol_events" USING btree ("pool_id","block_time");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_events_user_block" ON "protocol_events" USING btree ("user_address","block_time");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_user_portfolio_won" ON "user_portfolio_stats" USING btree ("pool_id","total_won_usdc");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_user_portfolio_bonds" ON "user_portfolio_stats" USING btree ("pool_id","active_bonds");
+CREATE UNIQUE INDEX "uq_bonds_activity_sig_idx" ON "bonds_activity" USING btree ("signature","event_index");--> statement-breakpoint
+CREATE INDEX "idx_activity_user_block_id" ON "bonds_activity" USING btree ("user_address","block_time","id");--> statement-breakpoint
+CREATE INDEX "idx_activity_user_pool_block_id" ON "bonds_activity" USING btree ("user_address","pool_id","block_time","id");--> statement-breakpoint
+CREATE INDEX "idx_draw_history_sync" ON "draw_history" USING btree ("winners_synced","status","pool_id");--> statement-breakpoint
+CREATE INDEX "idx_draw_winners_user_pool_time" ON "draw_winners" USING btree ("winner_address","pool_id","revealed_at");--> statement-breakpoint
+CREATE INDEX "idx_draw_winners_cycle_tier" ON "draw_winners" USING btree ("pool_id","cycle_id","tier_index","winner_index");--> statement-breakpoint
+CREATE INDEX "idx_pending_redemptions_user_pool" ON "pending_redemptions" USING btree ("user_address","pool_id","status","requested_at");--> statement-breakpoint
+CREATE INDEX "idx_pending_redemptions_active" ON "pending_redemptions" USING btree ("pool_id","status","requested_at");--> statement-breakpoint
+CREATE INDEX "idx_pool_snapshots_pool_time" ON "pool_snapshots" USING btree ("pool_id","snapshot_time");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_protocol_events_sig_idx" ON "protocol_events" USING btree ("signature","event_index");--> statement-breakpoint
+CREATE INDEX "idx_events_pool_block" ON "protocol_events" USING btree ("pool_id","block_time");--> statement-breakpoint
+CREATE INDEX "idx_events_user_block" ON "protocol_events" USING btree ("user_address","block_time");--> statement-breakpoint
+CREATE INDEX "idx_user_portfolio_won" ON "user_portfolio_stats" USING btree ("pool_id","total_won_usdc");--> statement-breakpoint
+CREATE INDEX "idx_user_portfolio_bonds" ON "user_portfolio_stats" USING btree ("pool_id","active_bonds");

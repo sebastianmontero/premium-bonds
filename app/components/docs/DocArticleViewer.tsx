@@ -108,10 +108,13 @@ function renderInline(text: string): React.ReactNode[] {
 }
 
 export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
-  const title = article.title[locale] || article.title["en"];
+  const targetLocale = (locale === "es" ? "es" : "en") as "en" | "es";
+  const title = article.title[targetLocale] || article.title.en;
   const categoryTitle =
-    article.categoryTitle[locale] || article.categoryTitle["en"];
-  const rawContent = article.content[locale] || article.content["en"];
+    article.categoryTitle?.[targetLocale] ||
+    article.categoryTitle?.en ||
+    "Documentation";
+  const rawContent = article.content[targetLocale] || article.content.en;
 
   // Navigation indices
   const currentIndex = DOC_ARTICLES.findIndex(
@@ -439,7 +442,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
               ← {locale === "es" ? "Anterior" : "Previous"}
             </span>
             <span className="text-base font-bold text-on-surface group-hover:text-primary transition mt-1">
-              {prevArticle.title[locale] || prevArticle.title["en"]}
+              {prevArticle.title[targetLocale] || prevArticle.title.en}
             </span>
           </Link>
         ) : (
@@ -455,7 +458,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
               {locale === "es" ? "Siguiente" : "Next"} →
             </span>
             <span className="text-base font-bold text-on-surface group-hover:text-primary transition mt-1">
-              {nextArticle.title[locale] || nextArticle.title["en"]}
+              {nextArticle.title[targetLocale] || nextArticle.title.en}
             </span>
           </Link>
         ) : (

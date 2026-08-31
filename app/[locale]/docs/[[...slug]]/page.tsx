@@ -77,8 +77,12 @@ export default async function DocsPage({ params }: PageProps) {
             {/* 4 Category Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {DOC_CATEGORIES.map((cat) => {
-                const title = cat.title[locale] || cat.title["en"];
-                const desc = cat.description[locale] || cat.description["en"];
+                const targetLocale = (locale === "es" ? "es" : "en") as
+                  | "en"
+                  | "es";
+                const title = cat.title[targetLocale] || cat.title.en;
+                const desc =
+                  cat.description[targetLocale] || cat.description.en;
                 const firstArticle = DOC_ARTICLES.find(
                   (a) => a.categorySlug === cat.slug
                 );

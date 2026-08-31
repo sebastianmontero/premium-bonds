@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
+import { Link } from "@/i18n/routing";
 import {
   ParsedTransactionError,
   getErrorCategoryTheme,
@@ -25,6 +26,7 @@ export function TransactionErrorDetails({
   className = "",
 }: TransactionErrorDetailsProps) {
   const t = useTranslations("Modals");
+  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
 
@@ -70,9 +72,9 @@ export function TransactionErrorDetails({
         </p>
       )}
 
-      {/* Explorer link */}
-      {showExplorerLink && txSignature && (
-        <div className="pt-1">
+      {/* Explorer link & Error Decoder Deep Link */}
+      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+        {showExplorerLink && txSignature && (
           <a
             href={getExplorerUrl(txSignature, "devnet", "solscan")}
             target="_blank"
@@ -83,8 +85,22 @@ export function TransactionErrorDetails({
               signature: truncateSignature(txSignature),
             })}
           </a>
-        </div>
-      )}
+        )}
+
+        {error.code !== undefined && (
+          <Link
+            href={`/docs/4-troubleshooting/common-errors?code=${error.code}`}
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline bg-surface-container-high px-3 py-1.5 rounded-lg border border-outline-variant/30"
+          >
+            <span>🛠️</span>
+            <span>
+              {locale === "es"
+                ? "Diagnosticar en la documentación →"
+                : "Diagnose in Docs →"}
+            </span>
+          </Link>
+        )}
+      </div>
 
       {/* Copy debug and technical logs button */}
       <div className="flex items-center justify-center gap-3 text-[11px] text-on-surface-variant pt-1 max-w-xs mx-auto">

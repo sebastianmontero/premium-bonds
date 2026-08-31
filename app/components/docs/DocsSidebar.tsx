@@ -54,7 +54,8 @@ export function DocsSidebar({
 
         <nav className="space-y-6 overflow-y-auto max-h-[calc(100vh-8rem)] pr-2">
           {DOC_CATEGORIES.map((cat) => {
-            const categoryTitle = cat.title[locale] || cat.title["en"];
+            const targetLocale = (locale === "es" ? "es" : "en") as "en" | "es";
+            const categoryTitle = cat.title[targetLocale] || cat.title.en;
             const articles = DOC_ARTICLES.filter(
               (a) => a.categorySlug === cat.slug
             );
@@ -69,7 +70,7 @@ export function DocsSidebar({
                 <div className="space-y-0.5 pl-3 border-l border-outline-variant/20">
                   {articles.map((article) => {
                     const articleTitle =
-                      article.title[locale] || article.title["en"];
+                      article.title[targetLocale] || article.title.en;
                     const isActive =
                       currentCategorySlug === cat.slug &&
                       currentArticleSlug === article.slug;

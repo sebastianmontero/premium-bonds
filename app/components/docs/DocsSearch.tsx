@@ -1,12 +1,37 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { searchDocArticles } from "@/app/lib/docs/data";
-import { Link } from "@/i18n/routing";
+import {
+  searchDocArticles,
+  searchErrorLookupItems,
+  getDocCategory,
+} from "@/app/lib/docs/data";
+import { Link, useRouter } from "@/i18n/routing";
 
 interface DocsSearchProps {
   locale: string;
 }
+
+type SearchItem =
+  | {
+      type: "article";
+      key: string;
+      categorySlug: string;
+      slug: string;
+      title: string;
+      categoryTitle: string;
+      summary: string;
+      href: string;
+    }
+  | {
+      type: "error";
+      key: string;
+      code: string;
+      name: string;
+      category: string;
+      diagnosis: string;
+      href: string;
+    };
 
 export function DocsSearch({ locale }: DocsSearchProps) {
   const [query, setQuery] = useState("");
@@ -14,11 +39,53 @@ export function DocsSearch({ locale }: DocsSearchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
-  // Derived search results using useMemo (prevents setState in effect warning)
-  const results = useMemo(() => {
+  // Derived search results combining articles and matching errors
+  const results = useMemo<SearchItem[]>(() => {
     if (!query.trim()) return [];
-    return searchDocArticles(query, locale);
+
+    const articleMatches = searchDocArticles(query, locale).map(
+      (article): SearchItem => {
+        const cat = getDocCategory(article.categorySlug);
+        const categoryTitle =
+          article.categoryTitle?.[locale as "en" | "es"] ||
+          cat?.title[locale as "en" | "es"] ||
+          "Documentation";
+        const title = article.title[locale as "en" | "es"] || article.title.en;
+        const summary =
+          article.summary[locale as "en" | "es"] || article.summary.en;
+
+        return {
+          type: "article",
+          key: `article-${article.categorySlug}-${article.slug}`,
+          categorySlug: article.categorySlug,
+          slug: article.slug,
+          title,
+          categoryTitle,
+          summary,
+          href: `/docs/${article.categorySlug}/${article.slug}`,
+        };
+      }
+    );
+
+    const errorMatches = searchErrorLookupItems(query, locale)
+      .slice(0, 5)
+      .map((item): SearchItem => {
+        const diagnosis =
+          item.diagnosis[locale as "en" | "es"] || item.diagnosis.en;
+        return {
+          type: "error",
+          key: `error-${item.code}`,
+          code: item.code,
+          name: item.name,
+          category: item.category,
+          diagnosis,
+          href: `/docs/4-troubleshooting/common-errors?code=${item.code}`,
+        };
+      });
+
+    return [...articleMatches, ...errorMatches];
   }, [query, locale]);
 
   const showDropdown = isOpen && query.trim().length > 0;
@@ -78,7 +145,7 @@ export function DocsSearch({ locale }: DocsSearchProps) {
       if (selected) {
         setIsOpen(false);
         setQuery("");
-        window.location.href = `/${locale}/docs/${selected.categorySlug}/${selected.slug}`;
+        router.push(selected.href);
       }
     } else if (e.key === "Escape") {
       setIsOpen(false);
@@ -87,8 +154,8 @@ export function DocsSearch({ locale }: DocsSearchProps) {
 
   const placeholderText =
     locale === "es"
-      ? "Buscar documentación... (Ctrl + K)"
-      : "Search documentation... (Cmd + K)";
+      ? "Buscar documentación o código de error... (Ctrl + K)"
+      : "Search documentation or error code... (Cmd + K)";
 
   return (
     <div ref={searchRef} className="relative w-full max-w-xl">
@@ -120,22 +187,47 @@ export function DocsSearch({ locale }: DocsSearchProps) {
             <div className="p-4 text-center text-sm text-on-surface-variant">
               {locale === "es"
                 ? "No se encontraron resultados."
-                : "No matching articles found."}
+                : "No matching articles or error codes found."}
             </div>
           ) : (
             <div className="p-2 space-y-1">
-              {results.map((article, idx) => {
-                const title = article.title[locale] || article.title["en"];
-                const summary =
-                  article.summary[locale] || article.summary["en"];
-                const categoryTitle =
-                  article.categoryTitle[locale] || article.categoryTitle["en"];
+              {results.map((item, idx) => {
                 const isSelected = idx === selectedIndex;
+
+                if (item.type === "error") {
+                  return (
+                    <Link
+                      key={item.key}
+                      href={item.href}
+                      onClick={() => {
+                        setIsOpen(false);
+                        setQuery("");
+                      }}
+                      className={`block rounded-xl p-3 transition ${
+                        isSelected
+                          ? "bg-primary/15 border-l-4 border-primary pl-4"
+                          : "hover:bg-surface-container-highest/60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-sm text-primary">
+                          🛠️ Error {item.code}: {item.name}
+                        </span>
+                        <span className="rounded-md bg-surface-container px-2 py-0.5 text-[10px] font-medium text-amber-300 border border-amber-500/20 shrink-0 capitalize">
+                          {item.category}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-on-surface-variant/80 line-clamp-1">
+                        {item.diagnosis}
+                      </p>
+                    </Link>
+                  );
+                }
 
                 return (
                   <Link
-                    key={`${article.categorySlug}-${article.slug}`}
-                    href={`/docs/${article.categorySlug}/${article.slug}`}
+                    key={item.key}
+                    href={item.href}
                     onClick={() => {
                       setIsOpen(false);
                       setQuery("");
@@ -148,14 +240,14 @@ export function DocsSearch({ locale }: DocsSearchProps) {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold text-sm text-on-surface">
-                        {title}
+                        {item.title}
                       </span>
                       <span className="rounded-md bg-surface-container px-2 py-0.5 text-[10px] font-medium text-primary border border-primary/20 shrink-0">
-                        {categoryTitle}
+                        {item.categoryTitle}
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-on-surface-variant/80 line-clamp-1">
-                      {summary}
+                      {item.summary}
                     </p>
                   </Link>
                 );
