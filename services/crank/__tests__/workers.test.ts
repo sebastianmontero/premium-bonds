@@ -54,9 +54,9 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = worker.evaluate(snapshot, ctx);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /ready for yield harvest/);
-    assert.equal(worker.getComputeUnitLimit(), 150_000);
+    assert.strictEqual(worker.getComputeUnitLimit(), 150_000);
   });
 
   it("PrepareDrawWorker should compute exact batch size and trigger execution", async () => {
@@ -79,9 +79,9 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = worker.evaluate(snapshot, ctx);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /200 users/);
-    assert.equal(worker.getComputeUnitLimit(), 150_000);
+    assert.strictEqual(worker.getComputeUnitLimit(), 150_000);
   });
 
   it("RebindRandomnessWorker should trigger rebind on expired VRF", async () => {
@@ -105,9 +105,9 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = worker.evaluate(snapshot, ctx);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /expired after 1100 slots/);
-    assert.equal(worker.getComputeUnitLimit(), 120_000);
+    assert.strictEqual(worker.getComputeUnitLimit(), 120_000);
   });
 
   it("AtomicRevealWorker should evaluate ready draw and report 500k CU", async () => {
@@ -130,9 +130,9 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = worker.evaluate(snapshot, ctx);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /ready for atomic reveal/);
-    assert.equal(worker.getComputeUnitLimit(), 500_000);
+    assert.strictEqual(worker.getComputeUnitLimit(), 500_000);
   });
 
   it("ReinvestWinningsWorker should cap batch size to maxReinvestBatchSize", async () => {
@@ -164,9 +164,9 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = worker.evaluate(snapshot, ctx);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /batch of 5 winners/);
-    assert.equal(worker.getComputeUnitLimit(snapshot), 400_000);
+    assert.strictEqual(worker.getComputeUnitLimit(snapshot), 400_000);
   });
 
   it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", async () => {
@@ -191,7 +191,7 @@ describe("Strategy Workers Unit Tests", () => {
       ticketRegistry: { userCount: 80, capacity: 100 } as TicketRegistry,
     };
     const decision80 = sentinel.evaluate(snapshot80, ctx);
-    assert.equal(decision80.shouldExecute, false);
+    assert.strictEqual(decision80.shouldExecute, false);
 
     // 90% utilization -> should trigger
     const snapshot90 = {
@@ -200,7 +200,7 @@ describe("Strategy Workers Unit Tests", () => {
       ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
     };
     const decision90 = sentinel.evaluate(snapshot90, ctx);
-    assert.equal(decision90.shouldExecute, true);
+    assert.strictEqual(decision90.shouldExecute, true);
     assert.match(decision90.reason, /90.0%/);
 
     // 90% utilization but pool is frozen -> should NOT trigger
@@ -210,7 +210,7 @@ describe("Strategy Workers Unit Tests", () => {
       ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
     };
     const decisionFrozen = sentinel.evaluate(snapshotFrozen, ctx);
-    assert.equal(decisionFrozen.shouldExecute, false);
+    assert.strictEqual(decisionFrozen.shouldExecute, false);
   });
 
   it("DisburseSentinelWorker should evaluate settled redemptions", async () => {
@@ -237,7 +237,7 @@ describe("Strategy Workers Unit Tests", () => {
     };
 
     const decision = sentinel.evaluate(snapshot, ctx, candidate);
-    assert.equal(decision.shouldExecute, true);
+    assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /Claiming settled redemption #1/);
   });
 });

@@ -118,6 +118,15 @@ export class MetricsServer {
     });
   }
 
+  getPort(): number {
+    if (!this.server) return this.port;
+    const addr = this.server.address();
+    if (addr && typeof addr === "object") {
+      return addr.port;
+    }
+    return this.port;
+  }
+
   stop(): Promise<void> {
     return new Promise((resolve) => {
       if (this.server) {

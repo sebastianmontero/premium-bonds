@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { MetricsServer } from "../metrics/metrics-server";
 
 describe("Metrics Server Unit Tests", () => {
-  it("should serve /health and /metrics endpoints correctly", async () => {
-    const testPort = 9876;
-    const server = new MetricsServer(testPort);
+  it("should serve /health and /metrics endpoints correctly on ephemeral port", async () => {
+    const server = new MetricsServer(0);
 
     await server.start();
+    const testPort = server.getPort();
+    assert.ok(testPort > 0, "Server must bind to an ephemeral port > 0");
 
     try {
       server.incrementTx("HarvestYieldWorker", true);
@@ -23,15 +24,15 @@ describe("Metrics Server Unit Tests", () => {
         solBalance: number;
         pools: Array<{ poolId: number; activeCycle: number }>;
       };
-      assert.equal(healthJson.status, "ok");
-      assert.equal(healthJson.solBalance, 2.5);
-      assert.equal(healthJson.pools.length, 1);
-      assert.equal(healthJson.pools[0].poolId, 1);
-      assert.equal(healthJson.pools[0].activeCycle, 2);
+      assert.strictEqual(healthJson.status, "ok");
+      assert.strictEqual(healthJson.solBalance, 2.5);
+      assert.strictEqual(healthJson.pools.length, 1);
+      assert.strictEqual(healthJson.pools[0].poolId, 1);
+      assert.strictEqual(healthJson.pools[0].activeCycle, 2);
 
       // Test /metrics
       const metricsRes = await fetch(`http://127.0.0.1:${testPort}/metrics`);
-      assert.equal(metricsRes.status, 200);
+      assert.strictEqual(metricsRes.status, 200);
       const metricsText = await metricsRes.text();
       assert.match(metricsText, /yieldbonds_crank_sol_balance 2.5/);
       assert.match(

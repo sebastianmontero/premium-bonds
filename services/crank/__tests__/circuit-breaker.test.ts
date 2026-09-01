@@ -8,8 +8,8 @@ describe("Circuit Breaker Unit Tests", () => {
     const config = loadConfig({ dryRun: true });
     const breaker = new CircuitBreaker(config, 3, 100);
 
-    assert.equal(breaker.getState(), "CLOSED");
-    assert.equal(breaker.canExecute(), true);
+    assert.strictEqual(breaker.getState(), "CLOSED");
+    assert.strictEqual(breaker.canExecute(), true);
   });
 
   it("should trip to OPEN after reaching failure threshold", async () => {
@@ -17,16 +17,16 @@ describe("Circuit Breaker Unit Tests", () => {
     const breaker = new CircuitBreaker(config, 3, 100);
 
     await breaker.recordFailure("network error 1");
-    assert.equal(breaker.getState(), "CLOSED");
-    assert.equal(breaker.canExecute(), true);
+    assert.strictEqual(breaker.getState(), "CLOSED");
+    assert.strictEqual(breaker.canExecute(), true);
 
     await breaker.recordFailure("network error 2");
-    assert.equal(breaker.getState(), "CLOSED");
-    assert.equal(breaker.canExecute(), true);
+    assert.strictEqual(breaker.getState(), "CLOSED");
+    assert.strictEqual(breaker.canExecute(), true);
 
     await breaker.recordFailure("network error 3");
-    assert.equal(breaker.getState(), "OPEN");
-    assert.equal(breaker.canExecute(), false);
+    assert.strictEqual(breaker.getState(), "OPEN");
+    assert.strictEqual(breaker.canExecute(), false);
   });
 
   it("should trip to OPEN immediately on fatal errors", async () => {
@@ -34,8 +34,8 @@ describe("Circuit Breaker Unit Tests", () => {
     const breaker = new CircuitBreaker(config, 5, 100);
 
     await breaker.recordFailure("HaltedInsolvent", true);
-    assert.equal(breaker.getState(), "OPEN");
-    assert.equal(breaker.canExecute(), false);
+    assert.strictEqual(breaker.getState(), "OPEN");
+    assert.strictEqual(breaker.canExecute(), false);
   });
 
   it("should transition to HALF_OPEN after cooldown and recover to CLOSED on success", async () => {
@@ -45,17 +45,17 @@ describe("Circuit Breaker Unit Tests", () => {
 
     await breaker.recordFailure("fail 1");
     await breaker.recordFailure("fail 2");
-    assert.equal(breaker.getState(), "OPEN");
-    assert.equal(breaker.canExecute(), false);
+    assert.strictEqual(breaker.getState(), "OPEN");
+    assert.strictEqual(breaker.canExecute(), false);
 
     // Wait for cooldown
     await new Promise((resolve) => setTimeout(resolve, cooldownMs + 10));
 
-    assert.equal(breaker.getState(), "HALF_OPEN");
-    assert.equal(breaker.canExecute(), true);
+    assert.strictEqual(breaker.getState(), "HALF_OPEN");
+    assert.strictEqual(breaker.canExecute(), true);
 
     breaker.recordSuccess();
-    assert.equal(breaker.getState(), "CLOSED");
-    assert.equal(breaker.canExecute(), true);
+    assert.strictEqual(breaker.getState(), "CLOSED");
+    assert.strictEqual(breaker.canExecute(), true);
   });
 });

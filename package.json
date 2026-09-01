@@ -21,14 +21,12 @@
     "localnet:relayer": "tsx scripts/webhook-relayer.ts",
     "webhook:mock": "tsx scripts/mock-webhook.ts",
     "start": "next start",
-    "test": "tsx scripts/env-utils.test.ts && tsx scripts/test-sdk-parsers.ts && tsx scripts/test-anchor-events.ts && tsx scripts/test-error-mapping.ts && tsx scripts/test-squads-sdk.ts && tsx scripts/utils.test.ts && tsx scripts/test-yield-ticker-sync.ts && tsx scripts/test-draw-helpers.ts && tsx scripts/test-tier-payouts.ts && tsx scripts/test-network-utils.ts && tsx scripts/test-balance-sync.ts && tsx scripts/test-crank-sync.ts && tsx scripts/test-indexer-contracts.ts && tsx scripts/test-webhook-ingestion.ts && tsx scripts/test-localnet-relayer.ts && tsx --test app/lib/__tests__/*.test.ts && tsx --test app/lib/db/__tests__/*.test.ts && tsx --test app/lib/realtime/__tests__/*.test.ts",
-    "test:unit": "tsx --test app/lib/__tests__/*.test.ts && tsx --test app/lib/db/__tests__/*.test.ts && tsx --test app/lib/realtime/__tests__/*.test.ts",
-    "test:webhook": "tsx scripts/test-webhook-ingestion.ts && tsx scripts/test-localnet-relayer.ts",
-    "test:errors": "tsx scripts/test-error-mapping.ts",
-    "crank": "tsx services/crank/index.ts",
-    "crank:once": "tsx services/crank/index.ts --once",
-    "crank:dry-run": "tsx services/crank/index.ts --dry-run",
-    "test:crank": "tsx --test services/crank/__tests__/*.test.ts"
+    "test": "tsx --test 'app/**/__tests__/*.test.ts' 'services/**/__tests__/*.test.ts' 'scripts/**/*.test.ts'",
+    "test:unit": "tsx --test 'app/lib/**/__tests__/*.test.ts'",
+    "test:crank": "tsx --test 'services/crank/**/__tests__/*.test.ts'",
+    "test:scripts": "tsx --test 'scripts/**/*.test.ts'",
+    "test:webhook": "tsx --test 'scripts/webhook-ingestion.test.ts' 'scripts/localnet-relayer.test.ts'",
+    "test:errors": "tsx --test 'scripts/error-mapping.test.ts'"
   },
   "description": "Next.js, Tailwind, @solana/react-hooks",
   "keywords": [

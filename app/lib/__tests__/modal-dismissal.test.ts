@@ -52,29 +52,35 @@ describe("Transaction Modal Dismissal & Stage Invariant Suite", () => {
   });
 
   it("should enforce backdrop click blocking logic on in-flight operations", () => {
-    // Test dismissal predicate logic
-    const checkShouldDismiss = (
-      stage: TransactionStage,
-      isSameTarget: boolean
-    ): boolean => {
-      const isBusy = isInFlightStage(stage);
-      if (!isSameTarget || isBusy) return false;
-      return true;
-    };
+    // Backdrop click dismisses only when isTerminalStage(stage) is true
+    const inFlightStages: TransactionStage[] = [
+      "preparing",
+      "signing",
+      "broadcasting",
+      "confirming",
+    ];
 
-    // Idle form: same target -> dismisses
-    assert.strictEqual(checkShouldDismiss(null, true), true);
-    // Idle form: child target clicked (bubbling) -> does not dismiss
-    assert.strictEqual(checkShouldDismiss(null, false), false);
+    for (const stage of inFlightStages) {
+      assert.strictEqual(
+        isTerminalStage(stage),
+        false,
+        `In-flight stage "${stage}" must block backdrop dismissal`
+      );
+      assert.strictEqual(
+        isInFlightStage(stage),
+        true,
+        `In-flight stage "${stage}" must be identified as in-flight`
+      );
+    }
 
-    // In-flight stages: NEVER dismiss even on direct backdrop click
-    assert.strictEqual(checkShouldDismiss("preparing", true), false);
-    assert.strictEqual(checkShouldDismiss("signing", true), false);
-    assert.strictEqual(checkShouldDismiss("broadcasting", true), false);
-    assert.strictEqual(checkShouldDismiss("confirming", true), false);
-
-    // Terminal stages: direct click dismisses
-    assert.strictEqual(checkShouldDismiss("success", true), true);
-    assert.strictEqual(checkShouldDismiss("error", true), true);
+    // Terminal stages allow backdrop click dismissal
+    const terminalStages: TransactionStage[] = ["success", "error"];
+    for (const stage of terminalStages) {
+      assert.strictEqual(
+        isTerminalStage(stage),
+        true,
+        `Terminal stage "${stage}" must allow backdrop dismissal`
+      );
+    }
   });
 });

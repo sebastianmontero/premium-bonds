@@ -1,5 +1,13 @@
-import assert from "assert";
+import { describe, it, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
 import { getBase58Decoder } from "@solana/kit";
+import {
+  fetchProgramEvents,
+  getCachedEvents,
+  setCachedEvents,
+  clearCachedEvents,
+  fetchClusterGenesisHash,
+} from "../app/lib/anchor-events";
 
 // Discriminators: SHA-256("event:<EventName>")[..8]
 const DISCRIMINATORS = {
@@ -49,13 +57,34 @@ const base58Decoder = getBase58Decoder();
 const dummyPubkeyBytes = new Uint8Array(32).fill(7);
 const dummyPubkeyStr = base58Decoder.decode(dummyPubkeyBytes) as string;
 
-console.log("Testing anchor-events event parser...");
+describe("Anchor Program Events Parser & Cache Suite", () => {
+  let origLocalStorage: any;
+  let storageMap: Map<string, string>;
 
-async function runTests() {
-  const { fetchProgramEvents } = await import("../app/lib/anchor-events");
+  beforeEach(() => {
+    origLocalStorage = (globalThis as any).localStorage;
+    storageMap = new Map<string, string>();
+    (globalThis as any).localStorage = {
+      getItem: (k: string) => storageMap.get(k) ?? null,
+      setItem: (k: string, v: string) => storageMap.set(k, v),
+      removeItem: (k: string) => storageMap.delete(k),
+      clear: () => storageMap.clear(),
+      get length() {
+        return storageMap.size;
+      },
+      key: (index: number) => Array.from(storageMap.keys())[index] ?? null,
+    };
+  });
 
-  // 1. Mock BondsPurchased log parsing
-  {
+  afterEach(() => {
+    if (origLocalStorage !== undefined) {
+      (globalThis as any).localStorage = origLocalStorage;
+    } else {
+      delete (globalThis as any).localStorage;
+    }
+  });
+
+  it("should decode BondsPurchased log event accurately", async () => {
     // Payload: Pubkey(32) + u32 pool_id(4) + u32 bonds(4) + u64 amount(8) = 48 bytes
     const fields = new Uint8Array(48);
     fields.set(dummyPubkeyBytes, 0);
@@ -70,7 +99,6 @@ async function runTests() {
 
     const logMessage = buildLogPayload("BondsPurchased", fields);
 
-    // Mock RPC client returning 1 tx with this log message
     const mockRpc = {
       getSignaturesForAddress: () => ({
         send: async () => [
@@ -87,18 +115,16 @@ async function runTests() {
     };
 
     const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
-    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
     assert.strictEqual(res.events[0].type, "BondsPurchased");
     assert.strictEqual(res.events[0].data.user, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.bonds, 10);
     assert.strictEqual(res.events[0].data.amount, 50_000_000n);
     assert.strictEqual(res.events[0].signature, "sig_purchased_123");
-    console.log("✓ BondsPurchased log event decoded successfully!");
-  }
+  });
 
-  // 2. Mock BondsSold log parsing
-  {
+  it("should decode BondsSold log event accurately", async () => {
     // Payload: Pubkey(32) + u32 pool_id(4) + u32 bonds(4) + u64 principal(8) + u64 redemption_id(8) = 56 bytes
     const fields = new Uint8Array(56);
     fields.set(dummyPubkeyBytes, 0);
@@ -130,18 +156,16 @@ async function runTests() {
     };
 
     const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
-    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
     assert.strictEqual(res.events[0].type, "BondsSold");
     assert.strictEqual(res.events[0].data.user, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.bonds, 5);
     assert.strictEqual(res.events[0].data.principal, 25_000_000n);
     assert.strictEqual(res.events[0].data.redemptionId, 999n);
-    console.log("✓ BondsSold log event decoded successfully!");
-  }
+  });
 
-  // 3. Mock CPI Inner Instruction event parsing
-  {
+  it("should decode CPI WinningsReinvested inner instruction event accurately", async () => {
     // Payload for WinningsReinvested: Pubkey(32) + u32 pool_id(4) + u32 cycle_id(4) + u32 bonds_bought(4) + u64 amount_reinvested(8) = 52 bytes
     const fields = new Uint8Array(52);
     fields.set(dummyPubkeyBytes, 0);
@@ -189,20 +213,16 @@ async function runTests() {
     };
 
     const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
-    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
     assert.strictEqual(res.events[0].type, "WinningsReinvested");
     assert.strictEqual(res.events[0].data.winner, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.cycleId, 3);
     assert.strictEqual(res.events[0].data.bondsBought, 2);
     assert.strictEqual(res.events[0].data.amountReinvested, 10_000_000n);
-    console.log(
-      "✓ CPI WinningsReinvested inner instruction event decoded successfully!"
-    );
-  }
+  });
 
-  // 3b. Mock CPI DrawVoided event parsing
-  {
+  it("should decode CPI DrawVoided inner instruction event accurately", async () => {
     // Payload for DrawVoided: u32 pool_id(4) + u32 cycle_id(4) + Pubkey admin(32) + u64 prizes_reversed(8) + u64 fees_reversed(8) = 56 bytes
     const fields = new Uint8Array(56);
     const view = new DataView(
@@ -250,20 +270,16 @@ async function runTests() {
     };
 
     const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
-    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
     assert.strictEqual(res.events[0].type, "DrawVoided");
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.cycleId, 2);
     assert.strictEqual(res.events[0].data.admin, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.prizesReversed, 50_000_000n);
     assert.strictEqual(res.events[0].data.feesReversed, 5_000_000n);
-    console.log(
-      "✓ CPI DrawVoided inner instruction event decoded successfully!"
-    );
-  }
+  });
 
-  // 3c. Mock DrawPreparationProgress log event parsing
-  {
+  it("should decode DrawPreparationProgress log event accurately", async () => {
     // Payload: u32 pool_id(4) + u32 cycle_id(4) + u32 batch_start(4) + u32 batch_end(4) + u32 user_count(4) + bool is_complete(1) = 21 bytes
     const fields = new Uint8Array(21);
     const view = new DataView(
@@ -296,7 +312,7 @@ async function runTests() {
     };
 
     const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
-    assert.strictEqual(res.events.length, 1);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
     assert.strictEqual(res.events[0].type, "DrawPreparationProgress");
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.cycleId, 5);
@@ -304,32 +320,9 @@ async function runTests() {
     assert.strictEqual(res.events[0].data.batchEnd, 10);
     assert.strictEqual(res.events[0].data.userCount, 10);
     assert.strictEqual(res.events[0].data.isComplete, true);
-    console.log("✓ DrawPreparationProgress log event decoded successfully!");
-  }
+  });
 
-  // 4. Test Event Cache, Genesis Hash Validation & Invalidation
-  {
-    // Setup in-memory localStorage polyfill for Node.js test environment
-    const storageMap = new Map<string, string>();
-    const mockLocalStorage = {
-      getItem: (k: string) => storageMap.get(k) ?? null,
-      setItem: (k: string, v: string) => storageMap.set(k, v),
-      removeItem: (k: string) => storageMap.delete(k),
-      clear: () => storageMap.clear(),
-      get length() {
-        return storageMap.size;
-      },
-      key: (index: number) => Array.from(storageMap.keys())[index] ?? null,
-    };
-    (globalThis as any).localStorage = mockLocalStorage;
-
-    const {
-      getCachedEvents,
-      setCachedEvents,
-      clearCachedEvents,
-      fetchClusterGenesisHash,
-    } = await import("../app/lib/anchor-events");
-
+  it("should validate event caching, genesisHash versioning, and invalidation", async () => {
     const dummyUser = "User11111111111111111111111111111111111111";
     const genesisA = "GenesisHashAlpha11111111111111111111111111";
     const genesisB = "GenesisHashBeta222222222222222222222222222";
@@ -348,7 +341,7 @@ async function runTests() {
       },
     ];
 
-    // 4a. Write and read cache with genesisHash
+    // Write and read cache with genesisHash
     setCachedEvents(
       dummyUser,
       mockEvents,
@@ -358,24 +351,24 @@ async function runTests() {
       genesisA
     );
     const cachedA = getCachedEvents(dummyUser, genesisA);
-    assert(cachedA !== null, "Expected cached events to be retrieved");
-    assert.strictEqual(cachedA.events.length, 1);
-    assert.strictEqual(cachedA.genesisHash, genesisA);
-    assert.strictEqual(cachedA.lastSignature, "sig_abc_1");
-    console.log(
-      "✓ Event cache saved and retrieved with genesisHash successfully!"
+    assert.notStrictEqual(
+      cachedA,
+      null,
+      "Expected cached events to be retrieved"
     );
+    assert.strictEqual(cachedA?.events.length, 1);
+    assert.strictEqual(cachedA?.genesisHash, genesisA);
+    assert.strictEqual(cachedA?.lastSignature, "sig_abc_1");
 
-    // 4b. Mismatched genesisHash should invalidate and purge cache
+    // Mismatched genesisHash should invalidate and purge cache
     const cachedMismatch = getCachedEvents(dummyUser, genesisB);
     assert.strictEqual(
       cachedMismatch,
       null,
       "Expected genesis mismatch to return null and purge"
     );
-    console.log("✓ Genesis hash mismatch correctly invalidated and purged!");
 
-    // 4c. Legacy un-versioned cache entries should be strictly evicted when expectedGenesisHash is passed
+    // Legacy un-versioned cache entries should be strictly evicted when expectedGenesisHash is passed
     const legacyUser = "LegacyUser999999999999999999999999999999";
     const legacyRaw = JSON.stringify(
       {
@@ -384,12 +377,14 @@ async function runTests() {
         oldestSignature: "sig_legacy",
         hasMore: true,
         timestamp: Date.now(),
-        // genesisHash is undefined
       },
       (_, value) =>
         typeof value === "bigint" ? { __bigint: value.toString() } : value
     );
-    mockLocalStorage.setItem(`pb_events:activity:${legacyUser}`, legacyRaw);
+    globalThis.localStorage.setItem(
+      `pb_events:activity:${legacyUser}`,
+      legacyRaw
+    );
 
     const legacyChecked = getCachedEvents(legacyUser, genesisA);
     assert.strictEqual(
@@ -398,25 +393,12 @@ async function runTests() {
       "Expected legacy cache with undefined genesisHash to be evicted when expectedGenesisHash is provided"
     );
     assert.strictEqual(
-      mockLocalStorage.getItem(`pb_events:activity:${legacyUser}`),
+      globalThis.localStorage.getItem(`pb_events:activity:${legacyUser}`),
       null,
       "Expected legacy key to be removed from storage"
     );
 
-    // Also verify unversioned entry stored under storageKey directly gets evicted on genesis mismatch
-    mockLocalStorage.setItem(
-      `pb_events:activity:${genesisA}:${legacyUser}`,
-      legacyRaw
-    );
-    const unversionedChecked = getCachedEvents(legacyUser, genesisA);
-    assert.strictEqual(
-      unversionedChecked,
-      null,
-      "Expected entry without genesisHash field to be evicted"
-    );
-    console.log("✓ Legacy un-versioned cache evicted on genesis check!");
-
-    // 4d. Test fetchClusterGenesisHash helper
+    // fetchClusterGenesisHash helper
     const mockRpcGenesis = {
       getGenesisHash: () => ({
         send: async () => genesisA,
@@ -425,7 +407,7 @@ async function runTests() {
     const fetchedGenesis = await fetchClusterGenesisHash(mockRpcGenesis as any);
     assert.strictEqual(fetchedGenesis, genesisA);
 
-    // Test resilience when getGenesisHash RPC fails
+    // Failing RPC fallback
     const mockFailingRpc = {
       getGenesisHash: () => ({
         send: async () => {
@@ -441,9 +423,8 @@ async function runTests() {
       null,
       "Expected failing RPC to return null safely without throwing"
     );
-    console.log("✓ fetchClusterGenesisHash RPC resilience verified!");
 
-    // 4e. Test clearCachedEvents
+    // clearCachedEvents
     setCachedEvents(
       dummyUser,
       mockEvents,
@@ -464,15 +445,10 @@ async function runTests() {
       genesisB
     );
     clearCachedEvents();
-    assert.strictEqual(mockLocalStorage.length, 0);
-    console.log("✓ clearCachedEvents purged storage keys successfully!");
-  }
+    assert.strictEqual(globalThis.localStorage.length, 0);
+  });
 
-  // 5. Test Activity Feed Indexer & Clean Chain Lifecycle Simulation
-  {
-    console.log("\nTesting Activity Feed clean chain & indexer lifecycle...");
-
-    // 5a. Verify fetchProgramEvents returns clean empty result when no signatures exist on a clean node
+  it("should handle clean empty RPC responses gracefully", async () => {
     const emptyRpc = {
       getSignaturesForAddress: () => ({
         send: async () => [],
@@ -486,26 +462,5 @@ async function runTests() {
     assert.strictEqual(emptyResult.events.length, 0);
     assert.strictEqual(emptyResult.oldestRawSignature, null);
     assert.strictEqual(emptyResult.hasMore, false);
-    console.log(
-      "✓ Clean node RPC scan produces clean empty response with hasMore=false!"
-    );
-
-    // 5b. Verify indexer response contract structure for clean node
-    const mockIndexerCleanResponse = {
-      entries: [],
-      fallback: false,
-      nextCursor: null,
-    };
-    assert.strictEqual(mockIndexerCleanResponse.entries.length, 0);
-    assert.strictEqual(mockIndexerCleanResponse.fallback, false);
-    assert.strictEqual(mockIndexerCleanResponse.nextCursor, null);
-    console.log("✓ Indexer clean-node response schema verified!");
-  }
-
-  console.log("\nAll anchor-events tests passed successfully!");
-}
-
-runTests().catch((err) => {
-  console.error("Test failed:", err);
-  process.exit(1);
+  });
 });

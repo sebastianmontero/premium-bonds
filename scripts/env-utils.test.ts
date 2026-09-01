@@ -1,69 +1,93 @@
-import * as fs from "fs";
-import * as path from "path";
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { parseEnvLine, readEnvFile, upsertEnvFile } from "./env-utils";
 
-function assert(condition: boolean, message: string) {
-  if (!condition) {
-    throw new Error(`Assertion failed: ${message}`);
-  }
-}
+describe("Environment File Utilities (env-utils)", () => {
+  let testDir: string;
 
-function runTests() {
-  console.log("Running scripts/env-utils.test.ts unit tests...\n");
+  before(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-env-test-"));
+  });
 
-  const testDir = path.resolve(__dirname, "test-scratch");
-  if (!fs.existsSync(testDir)) {
-    fs.mkdirSync(testDir, { recursive: true });
-  }
+  after(() => {
+    if (testDir && fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 
-  // Test 1: parseEnvLine correctly parses active variables, comments, and export prefix
-  {
-    console.log("Test 1: parseEnvLine parsing rules");
+  it("should parse active variables, comments, whitespace, and export prefixes", () => {
     const active = parseEnvLine("DATABASE_URL=postgres://localhost:5432/db");
-    assert(!active.isCommentOrBlank, "Should not be comment or blank");
-    assert(active.key === "DATABASE_URL", "Key should be DATABASE_URL");
-    assert(
-      active.value === "postgres://localhost:5432/db",
-      "Value should match"
+    assert.strictEqual(
+      active.isCommentOrBlank,
+      false,
+      "Active line should not be comment or blank"
+    );
+    assert.strictEqual(
+      active.key,
+      "DATABASE_URL",
+      "Key should be DATABASE_URL"
+    );
+    assert.strictEqual(
+      active.value,
+      "postgres://localhost:5432/db",
+      "Value should match raw postgres URL"
     );
 
     const withExport = parseEnvLine(
       "export NEXT_PUBLIC_RPC=http://127.0.0.1:8899"
     );
-    assert(!withExport.isCommentOrBlank, "Export should not be comment");
-    assert(
-      withExport.key === "NEXT_PUBLIC_RPC",
-      "Key should be NEXT_PUBLIC_RPC"
+    assert.strictEqual(
+      withExport.isCommentOrBlank,
+      false,
+      "Export prefix line should not be comment"
     );
-    assert(
-      withExport.value === "http://127.0.0.1:8899",
-      "Export value should match"
+    assert.strictEqual(
+      withExport.key,
+      "NEXT_PUBLIC_RPC",
+      "Key should strip export keyword"
+    );
+    assert.strictEqual(
+      withExport.value,
+      "http://127.0.0.1:8899",
+      "Export value should match URL"
     );
 
     const doubleQuoted = parseEnvLine('SECRET_KEY="abc 123 # not comment"');
-    assert(doubleQuoted.key === "SECRET_KEY", "Key match");
-    assert(
-      doubleQuoted.value === "abc 123 # not comment",
-      "Quoted value match"
+    assert.strictEqual(doubleQuoted.key, "SECRET_KEY", "Key match");
+    assert.strictEqual(
+      doubleQuoted.value,
+      "abc 123 # not comment",
+      "Quoted value with hash should be preserved"
     );
 
     const singleQuoted = parseEnvLine("SINGLE_KEY='xyz'");
-    assert(singleQuoted.key === "SINGLE_KEY", "Key match");
-    assert(singleQuoted.value === "xyz", "Single quoted value match");
+    assert.strictEqual(singleQuoted.key, "SINGLE_KEY", "Key match");
+    assert.strictEqual(singleQuoted.value, "xyz", "Single quoted value match");
 
     const commentLine = parseEnvLine("# DATABASE_URL=old_url");
-    assert(commentLine.isCommentOrBlank, "Commented out key should be comment");
-    assert(commentLine.key === undefined, "Comment should have undefined key");
+    assert.strictEqual(
+      commentLine.isCommentOrBlank,
+      true,
+      "Commented out key should be comment"
+    );
+    assert.strictEqual(
+      commentLine.key,
+      undefined,
+      "Comment should have undefined key"
+    );
 
     const emptyLine = parseEnvLine("   ");
-    assert(emptyLine.isCommentOrBlank, "Whitespace should be comment or blank");
+    assert.strictEqual(
+      emptyLine.isCommentOrBlank,
+      true,
+      "Whitespace should be comment or blank"
+    );
+  });
 
-    console.log("✓ Passed Test 1\n");
-  }
-
-  // Test 2: readEnvFile parses dictionary properly
-  {
-    console.log("Test 2: readEnvFile parsing dictionary");
+  it("should read and parse .env dictionary cleanly", () => {
     const samplePath = path.resolve(testDir, "test.env");
     fs.writeFileSync(
       samplePath,
@@ -77,26 +101,29 @@ export PUSHER_KEY="key123"
     );
 
     const parsed = readEnvFile(samplePath);
-    assert(
-      parsed.DATABASE_URL === "postgres://user:pass@host:5432/db",
-      "DATABASE_URL mismatch"
+    assert.strictEqual(
+      parsed.DATABASE_URL,
+      "postgres://user:pass@host:5432/db",
+      "DATABASE_URL should match parsed connection string"
     );
-    assert(
-      parsed.NEXT_PUBLIC_ENVIRONMENT === "localnet",
-      "ENVIRONMENT mismatch"
+    assert.strictEqual(
+      parsed.NEXT_PUBLIC_ENVIRONMENT,
+      "localnet",
+      "NEXT_PUBLIC_ENVIRONMENT should match"
     );
-    assert(parsed.PUSHER_KEY === "key123", "PUSHER_KEY mismatch");
-    assert(
-      parsed.HELIUS_API_KEY === undefined,
+    assert.strictEqual(
+      parsed.PUSHER_KEY,
+      "key123",
+      "PUSHER_KEY should match without quotes"
+    );
+    assert.strictEqual(
+      parsed.HELIUS_API_KEY,
+      undefined,
       "Comment should not be parsed as key"
     );
+  });
 
-    console.log("✓ Passed Test 2\n");
-  }
-
-  // Test 3: upsertEnvFile preserves unmanaged variables, comments, and replaces existing keys in-place
-  {
-    console.log("Test 3: upsertEnvFile preserves unmanaged keys and comments");
+  it("should preserve unmanaged variables, comments, and replace existing keys in-place", () => {
     const testFile = path.resolve(testDir, "local.env");
     fs.writeFileSync(
       testFile,
@@ -124,39 +151,41 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899
     const parsed = readEnvFile(testFile);
 
     // Unmanaged keys preserved
-    assert(
-      parsed.DATABASE_URL === "postgresql://localhost:5432/my_app",
+    assert.strictEqual(
+      parsed.DATABASE_URL,
+      "postgresql://localhost:5432/my_app",
       "DATABASE_URL must be preserved"
     );
-    assert(parsed.MY_SECRET === "supersecret", "MY_SECRET must be preserved");
+    assert.strictEqual(
+      parsed.MY_SECRET,
+      "supersecret",
+      "MY_SECRET must be preserved"
+    );
 
     // Managed keys updated & appended
-    assert(
-      parsed.NEXT_PUBLIC_ENVIRONMENT === "localnet",
+    assert.strictEqual(
+      parsed.NEXT_PUBLIC_ENVIRONMENT,
+      "localnet",
       "NEXT_PUBLIC_ENVIRONMENT must be updated"
     );
-    assert(
-      parsed.NEXT_PUBLIC_ADMIN_ADDRESS ===
-        "AdminPubkey11111111111111111111111111",
+    assert.strictEqual(
+      parsed.NEXT_PUBLIC_ADMIN_ADDRESS,
+      "AdminPubkey11111111111111111111111111",
       "NEXT_PUBLIC_ADMIN_ADDRESS must be appended"
     );
 
     // Comments preserved
-    assert(
+    assert.ok(
       updatedContent.includes("# User custom database config"),
-      "Original comments must be preserved"
+      "Original user comments must be preserved"
     );
-    assert(
+    assert.ok(
       updatedContent.includes("# Solana config"),
-      "Original comments must be preserved"
+      "Original category comments must be preserved"
     );
+  });
 
-    console.log("✓ Passed Test 3\n");
-  }
-
-  // Test 4: upsertEnvFile on missing file creates it cleanly with header
-  {
-    console.log("Test 4: upsertEnvFile on non-existent file");
+  it("should create non-existent file cleanly with header comment on upsert", () => {
     const newFile = path.resolve(testDir, "brand_new.env");
     if (fs.existsSync(newFile)) {
       fs.unlinkSync(newFile);
@@ -171,21 +200,18 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899
       { headerComment: "# Auto-generated config" }
     );
 
-    assert(fs.existsSync(newFile), "File should be created");
+    assert.ok(fs.existsSync(newFile), "Brand new file should be created");
     const content = fs.readFileSync(newFile, "utf-8");
-    assert(
+    assert.ok(
       content.startsWith("# Auto-generated config"),
-      "Header comment should be at top"
+      "Header comment should be positioned at the top"
     );
     const parsed = readEnvFile(newFile);
-    assert(parsed.FOO === "bar" && parsed.BAZ === "qux", "Keys should match");
+    assert.strictEqual(parsed.FOO, "bar");
+    assert.strictEqual(parsed.BAZ, "qux");
+  });
 
-    console.log("✓ Passed Test 4\n");
-  }
-
-  // Test 5: Idempotency & file without trailing newline
-  {
-    console.log("Test 5: Idempotency & missing trailing newline handling");
+  it("should handle missing trailing newlines and guarantee upsert idempotency", () => {
     const noTrailingNewlineFile = path.resolve(testDir, "no_newline.env");
     fs.writeFileSync(
       noTrailingNewlineFile,
@@ -203,9 +229,9 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899
     );
 
     const firstPass = fs.readFileSync(noTrailingNewlineFile, "utf-8");
-    assert(
+    assert.ok(
       !firstPass.includes("DATABASE_URL=postgres://localhost:5432/dbRPC_URL"),
-      "Must not collide lines when missing trailing newline"
+      "Must not collide lines when original file lacks trailing newline"
     );
 
     // Second upsert (idempotency check)
@@ -218,27 +244,23 @@ NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899
     );
 
     const secondPass = fs.readFileSync(noTrailingNewlineFile, "utf-8");
-    // Count occurrences of header comment
     const headerCount = (secondPass.match(/# Header comment/g) || []).length;
-    assert(
-      headerCount === 1,
+    assert.strictEqual(
+      headerCount,
+      1,
       `Header comment should appear exactly once, found ${headerCount}`
     );
 
     const parsed = readEnvFile(noTrailingNewlineFile);
-    assert(
-      parsed.DATABASE_URL === "postgres://localhost:5432/db",
-      "DATABASE_URL preserved"
+    assert.strictEqual(
+      parsed.DATABASE_URL,
+      "postgres://localhost:5432/db",
+      "DATABASE_URL preserved across multiple upserts"
     );
-    assert(parsed.RPC_URL === "http://127.0.0.1:8899", "RPC_URL set");
-
-    console.log("✓ Passed Test 5\n");
-  }
-
-  // Cleanup test scratch
-  fs.rmSync(testDir, { recursive: true, force: true });
-
-  console.log("All env-utils unit tests completed successfully!");
-}
-
-runTests();
+    assert.strictEqual(
+      parsed.RPC_URL,
+      "http://127.0.0.1:8899",
+      "RPC_URL set correctly across multiple upserts"
+    );
+  });
+});
