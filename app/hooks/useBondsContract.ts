@@ -57,6 +57,10 @@ import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import { PoolInfo, UserTicketInfo, PendingRedemption } from "../types";
 import { sanitizeErrorMessage } from "../lib/errors";
 import { formatTokenAmount } from "../lib/formatters";
+import {
+  mapDtoToPendingRedemption,
+  PendingRedemptionDto,
+} from "../lib/indexer-mappers";
 
 type WindowWithDebug = Window & { __DEBUG_YIELD__?: boolean };
 
@@ -357,16 +361,9 @@ export function useBondsContract(poolId: number = 1) {
             apiJson.fallbackRequired === false &&
             Array.isArray(apiJson.data)
           ) {
-            interface ApiRedemptionRecord {
-              redemptionId: string;
-              amountUsdc: number | string;
-              status: string;
-              requestedAt: number;
-              redemptionType: string;
-            }
             const now = Date.now();
             const activeRedemptions: PendingRedemption[] = (
-              apiJson.data as ApiRedemptionRecord[]
+              apiJson.data as PendingRedemptionDto[]
             )
               .filter((r) => {
                 if (r.status === "claimed") return false;
@@ -381,13 +378,7 @@ export function useBondsContract(poolId: number = 1) {
                 }
                 return true;
               })
-              .map((r) => ({
-                redemptionId: r.redemptionId,
-                amount: Number(r.amountUsdc),
-                status: r.status as "settling" | "ready",
-                requestedAt: new Date(r.requestedAt * 1000).toISOString(),
-                type: r.redemptionType as "bond_sale" | "prize_claim",
-              }));
+              .map(mapDtoToPendingRedemption);
             setPendingRedemptions(activeRedemptions);
             redemptionsLoaded = true;
           }
@@ -426,34 +417,37 @@ export function useBondsContract(poolId: number = 1) {
             const parsedRedemptions: PendingRedemption[] = redemptions
               .map((r) => {
                 const bytes = decodeAccountBase64Data(r.account);
-                if (!bytes) {
-                  return {
-                    redemptionId: "0",
-                    amount: 0,
-                    status: "settling" as const,
-                    requestedAt: new Date().toISOString(),
-                    type: "bond_sale" as const,
-                  };
-                }
+                if (!bytes) return null;
                 const parsed = parsePendingRedemption(bytes);
+                if (parsed.poolId !== poolId) return null;
                 const status: "settling" | "ready" =
                   nextHumaRequestId > parsed.humaRequestId
                     ? "ready"
                     : "settling";
                 const isPrizeClaim =
                   parsed.redemptionType === RedemptionType.PrizeClaim;
-                return {
+                const isFeeWithdrawal =
+                  parsed.redemptionType === RedemptionType.FeeWithdrawal;
+                const redemptionType: PendingRedemption["type"] =
+                  isFeeWithdrawal
+                    ? "fee_withdrawal"
+                    : isPrizeClaim
+                      ? "prize_claim"
+                      : "bond_sale";
+                const item: PendingRedemption = {
                   redemptionId: parsed.redemptionId.toString(),
                   amount: Number(parsed.amount),
                   status,
                   requestedAt: new Date(
                     Number(parsed.requestedAt) * 1000
                   ).toISOString(),
-                  type: isPrizeClaim
-                    ? ("prize_claim" as const)
-                    : ("bond_sale" as const),
+                  type: redemptionType,
+                  pstSharesLocked: parsed.pstSharesLocked.toString(),
+                  humaRequestId: parsed.humaRequestId.toString(),
                 };
+                return item;
               })
+              .filter((r): r is PendingRedemption => r !== null)
               .filter((r) => {
                 const optClaim = optimisticClaimedRedemptionsRef.current.get(
                   r.redemptionId
@@ -770,7 +764,11 @@ export function useBondsContract(poolId: number = 1) {
         const signature = await executeTx(pendingToSell, activeToSell);
         await refetch();
         notifyBalanceUpdate();
-        notifyProtocolUpdate("pool", { poolId, reason: "sell_settled" });
+        notifyProtocolUpdate("redemptions", {
+          scopes: ["redemptions", "user", "pool"],
+          poolId,
+          reason: "sell_settled",
+        });
         return signature;
       } catch (err: unknown) {
         // Concurrency Auto-Recovery: Catch InsufficientPendingTickets
@@ -786,7 +784,11 @@ export function useBondsContract(poolId: number = 1) {
           const retrySignature = await executeTx(0, totalToSell);
           await refetch();
           notifyBalanceUpdate();
-          notifyProtocolUpdate("pool", { poolId, reason: "sell_settled" });
+          notifyProtocolUpdate("redemptions", {
+            scopes: ["redemptions", "user", "pool"],
+            poolId,
+            reason: "sell_settled",
+          });
           return retrySignature;
         }
         throw err;

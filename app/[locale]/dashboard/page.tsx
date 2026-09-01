@@ -325,8 +325,12 @@ export default function DashboardPage() {
     setActionModalTitle("Claim Settled Redemption");
     setActionSuccessMsg(
       `Successfully claimed settled ${
-        redemption.type === "bond_sale" ? "bond principal" : "prize winnings"
-      } of $${redemption.amount / 1_000_000} USDC to wallet.`
+        redemption.type === "bond_sale"
+          ? "bond principal"
+          : redemption.type === "fee_withdrawal"
+            ? "fees"
+            : "prize winnings"
+      } of $${formatTokenAmount(redemption.amount, 6)} USDC to wallet.`
     );
 
     try {
@@ -343,8 +347,10 @@ export default function DashboardPage() {
               description: `Claimed settled ${
                 redemption.type === "bond_sale"
                   ? "bond principal"
-                  : "prize winnings"
-              } of $${redemption.amount / 1_000_000} USDC to wallet`,
+                  : redemption.type === "fee_withdrawal"
+                    ? "fees"
+                    : "prize winnings"
+              } of $${formatTokenAmount(redemption.amount, 6)} USDC to wallet`,
               amount: redemption.amount,
               txSignature: capturedSig,
             };

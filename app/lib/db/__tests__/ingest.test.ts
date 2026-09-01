@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeForJsonb } from "../ingest";
+import { sanitizeForJsonb, foldPendingRedemptionRows } from "../ingest";
 import { resolveEventMetadata, ParsedProgramEvent } from "../../anchor-events";
+import { mapDtoToPendingRedemption } from "../../indexer-mappers";
 import { address } from "@solana/kit";
 
 const userAddr = address("11111111111111111111111111111111");
@@ -231,6 +232,68 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(meta.scope, "draws");
       assert.deepStrictEqual(meta.scopes, ["draws"]);
       assert.strictEqual(meta.poolId, 1);
+    });
+  });
+
+  describe("foldPendingRedemptionRows & DTO Mappers", () => {
+    it("should correctly fold rows with pstSharesLocked and humaRequestId including 0n", () => {
+      const rows = [
+        {
+          poolId: 1,
+          redemptionId: 100n,
+          userAddress: "user1",
+          redemptionType: "bond_sale",
+          amountUsdc: 1_000_000n,
+          pstSharesLocked: 0n,
+          humaRequestId: "0",
+          status: "settling",
+          requestSignature: "sig1",
+          requestedAt: 1700000000,
+        },
+        {
+          poolId: 1,
+          redemptionId: 100n,
+          userAddress: "user1",
+          redemptionType: "bond_sale",
+          amountUsdc: 1_000_000n,
+          pstSharesLocked: 500_000n,
+          humaRequestId: "1180591620717411303424",
+          status: "ready",
+          requestSignature: "sig1",
+          requestedAt: 1700000000,
+        },
+      ];
+
+      const folded = foldPendingRedemptionRows(rows);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "ready");
+      assert.strictEqual(folded[0].pstSharesLocked, 500_000n);
+      assert.strictEqual(folded[0].humaRequestId, "1180591620717411303424");
+    });
+
+    it("should map DTO to PendingRedemption correctly", () => {
+      const dto = {
+        poolId: 1,
+        redemptionId: "100",
+        userAddress: "user1",
+        redemptionType: "bond_sale",
+        amountUsdc: "1000000",
+        pstSharesLocked: "500000",
+        humaRequestId: "1180591620717411303424",
+        status: "ready",
+        requestSignature: "sig1",
+        claimSignature: null,
+        requestedAt: 1700000000,
+        claimedAt: null,
+      };
+
+      const model = mapDtoToPendingRedemption(dto);
+      assert.strictEqual(model.redemptionId, "100");
+      assert.strictEqual(model.amount, 1000000);
+      assert.strictEqual(model.status, "ready");
+      assert.strictEqual(model.type, "bond_sale");
+      assert.strictEqual(model.pstSharesLocked, "500000");
+      assert.strictEqual(model.humaRequestId, "1180591620717411303424");
     });
   });
 });

@@ -339,6 +339,8 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.amount, 500_000);
     assert_eq!(event.redemption_id, 0);
+    assert!(event.pst_shares > 0);
+    assert_eq!(event.huma_request_id, 0);
 
     // Assert UserWinnings state updates
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
@@ -491,6 +493,8 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.amount, 500_000);
     assert_eq!(event.redemption_id, 0);
+    assert!(event.pst_shares > 0);
+    assert_eq!(event.huma_request_id, 0);
 
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();

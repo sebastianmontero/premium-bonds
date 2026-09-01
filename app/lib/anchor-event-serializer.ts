@@ -80,6 +80,18 @@ function pubkeyToBytes(pubkey: string): Uint8Array {
   return fallback;
 }
 
+export function writeU128(
+  view: DataView,
+  offset: number,
+  value: bigint | number | string
+): void {
+  const bi = BigInt(value ?? 0);
+  const low = bi & 0xffff_ffff_ffff_ffffn;
+  const high = (bi >> 64n) & 0xffff_ffff_ffff_ffffn;
+  view.setBigUint64(offset, low, true);
+  view.setBigUint64(offset + 8, high, true);
+}
+
 /**
  * Serializes Anchor event fields into a raw `Program data: <base64>` log string.
  */
@@ -110,8 +122,8 @@ export function serializeAnchorEvent(
       break;
     }
     case "BondsSold": {
-      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) = 56 bytes
-      fields = new Uint8Array(56);
+      // Pubkey(32) + u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u128(16) + u64(8) + u32(4) + i64(8) = 100 bytes
+      fields = new Uint8Array(100);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.user || "11111111111111111111111111111111"),
@@ -121,6 +133,11 @@ export function serializeAnchorEvent(
       view.setUint32(36, Number(data.bonds || 0), true);
       view.setBigUint64(40, BigInt(data.principal || 0), true);
       view.setBigUint64(48, BigInt(data.redemptionId || 0), true);
+      view.setBigUint64(56, BigInt(data.pstShares || 0), true);
+      writeU128(view, 64, data.humaRequestId || 0);
+      view.setBigUint64(80, BigInt(data.newTotalDepositedPrincipal || 0), true);
+      view.setUint32(88, Number(data.userRemainingBonds || 0), true);
+      view.setBigInt64(92, BigInt(data.timestamp || 0), true);
       break;
     }
     case "WinningsReinvested": {
@@ -138,8 +155,8 @@ export function serializeAnchorEvent(
       break;
     }
     case "WinningsClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52 bytes
-      fields = new Uint8Array(52);
+      // Pubkey(32) + u32(4) + u64(8) + u64(8) + u64(8) + u128(16) + i64(8) = 84 bytes
+      fields = new Uint8Array(84);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.user || "11111111111111111111111111111111"),
@@ -148,11 +165,34 @@ export function serializeAnchorEvent(
       view.setUint32(32, Number(data.poolId || 1), true);
       view.setBigUint64(36, BigInt(data.amount || 0), true);
       view.setBigUint64(44, BigInt(data.redemptionId || 0), true);
+      view.setBigUint64(52, BigInt(data.pstShares || 0), true);
+      writeU128(view, 60, data.humaRequestId || 0);
+      view.setBigInt64(76, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "FeesWithdrawn": {
+      // u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u128(16) + i64(8) = 116 bytes
+      fields = new Uint8Array(116);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      fields.set(
+        pubkeyToBytes(data.admin || "11111111111111111111111111111111"),
+        4
+      );
+      fields.set(
+        pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"),
+        36
+      );
+      view.setBigUint64(68, BigInt(data.amount || 0), true);
+      view.setBigUint64(76, BigInt(data.pstShares || 0), true);
+      view.setBigUint64(84, BigInt(data.redemptionId || 0), true);
+      writeU128(view, 92, data.humaRequestId || 0);
+      view.setBigInt64(108, BigInt(data.timestamp || 0), true);
       break;
     }
     case "RedemptionClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) = 52 bytes
-      fields = new Uint8Array(52);
+      // Pubkey(32) + u32(4) + u64(8) + u64(8) + u8(1) + u64(8) + u128(16) + i64(8) + i64(8) = 93 bytes
+      fields = new Uint8Array(93);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.user || "11111111111111111111111111111111"),
@@ -161,6 +201,11 @@ export function serializeAnchorEvent(
       view.setUint32(32, Number(data.poolId || 1), true);
       view.setBigUint64(36, BigInt(data.amount || 0), true);
       view.setBigUint64(44, BigInt(data.redemptionId || 0), true);
+      view.setUint8(52, Number(data.redemptionType ?? 0));
+      view.setBigUint64(53, BigInt(data.pstSharesLocked || 0), true);
+      writeU128(view, 61, data.humaRequestId || 0);
+      view.setBigInt64(77, BigInt(data.requestedAt || 0), true);
+      view.setBigInt64(85, BigInt(data.timestamp || 0), true);
       break;
     }
     case "YieldHarvested": {

@@ -415,6 +415,8 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         bonds: bonds_to_sell,
         principal: expected_principal,
         redemption_id: pending.redemption_id,
+        pst_shares,
+        huma_request_id,
         new_total_deposited_principal,
         user_remaining_bonds,
         timestamp: clock.unix_timestamp,

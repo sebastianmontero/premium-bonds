@@ -951,7 +951,9 @@ fn test_withdraw_fees_and_claim_e2e() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
     assert_eq!(event.amount, 2_000_000);
+    assert!(event.pst_shares > 0);
     assert_eq!(event.redemption_id, 0);
+    assert_eq!(event.huma_request_id, 0);
 
     // Verify PendingRedemption was created with admin (fee wallet owner) as the user
     let pending_pda = pending_redemption_pda(1, 0).0;

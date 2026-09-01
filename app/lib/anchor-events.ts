@@ -68,6 +68,14 @@ export class BorshReader {
     return v;
   }
 
+  readU128(): bigint {
+    this.ensure(16);
+    const low = this.view.getBigUint64(this.offset, true);
+    const high = this.view.getBigUint64(this.offset + 8, true);
+    this.offset += 16;
+    return (high << 64n) | low;
+  }
+
   readI64(): bigint {
     this.ensure(8);
     const v = this.view.getBigInt64(this.offset, true);
@@ -144,6 +152,8 @@ export interface BondsSoldEvent {
   bonds: number;
   principal: bigint;
   redemptionId: bigint;
+  pstShares?: bigint;
+  humaRequestId?: bigint;
   newTotalDepositedPrincipal?: bigint;
   userRemainingBonds?: number;
   timestamp?: bigint;
@@ -163,6 +173,8 @@ export interface WinningsClaimedEvent {
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
+  pstShares?: bigint;
+  humaRequestId?: bigint;
   timestamp?: bigint;
 }
 
@@ -173,6 +185,7 @@ export interface RedemptionClaimedEvent {
   redemptionId: bigint;
   redemptionType?: number;
   pstSharesLocked?: bigint;
+  humaRequestId?: bigint;
   requestedAt?: bigint;
   timestamp?: bigint;
 }
@@ -354,6 +367,7 @@ export interface FeesWithdrawnEvent {
   amount: bigint;
   pstShares: bigint;
   redemptionId: bigint;
+  humaRequestId?: bigint;
   timestamp?: bigint;
 }
 
@@ -549,9 +563,13 @@ function decodeEventData(
         const bonds = reader.readU32();
         const principal = reader.readU64();
         const redemptionId = reader.readU64();
+        let pstShares: bigint | undefined;
+        let humaRequestId: bigint | undefined;
         let newTotalDepositedPrincipal: bigint | undefined;
         let userRemainingBonds: number | undefined;
         let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) pstShares = reader.readU64();
+        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8)
           newTotalDepositedPrincipal = reader.readU64();
         if (reader.remaining >= 4) userRemainingBonds = reader.readU32();
@@ -562,6 +580,8 @@ function decodeEventData(
           bonds,
           principal,
           redemptionId,
+          pstShares,
+          humaRequestId,
           newTotalDepositedPrincipal,
           userRemainingBonds,
           timestamp,
@@ -589,13 +609,19 @@ function decodeEventData(
         const poolId = reader.readU32();
         const amount = reader.readU64();
         const redemptionId = reader.readU64();
+        let pstShares: bigint | undefined;
+        let humaRequestId: bigint | undefined;
         let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) pstShares = reader.readU64();
+        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           user,
           poolId,
           amount,
           redemptionId,
+          pstShares,
+          humaRequestId,
           timestamp,
         } as WinningsClaimedEvent;
       }
@@ -606,10 +632,12 @@ function decodeEventData(
         const redemptionId = reader.readU64();
         let redemptionType: number | undefined;
         let pstSharesLocked: bigint | undefined;
+        let humaRequestId: bigint | undefined;
         let requestedAt: bigint | undefined;
         let timestamp: bigint | undefined;
         if (reader.remaining >= 1) redemptionType = reader.readU8();
         if (reader.remaining >= 8) pstSharesLocked = reader.readU64();
+        if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) requestedAt = reader.readI64();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
@@ -619,6 +647,7 @@ function decodeEventData(
           redemptionId,
           redemptionType,
           pstSharesLocked,
+          humaRequestId,
           requestedAt,
           timestamp,
         } as RedemptionClaimedEvent;
@@ -869,14 +898,25 @@ function decodeEventData(
         } as RandomnessReboundEvent;
       }
       case "FeesWithdrawn": {
+        const poolId = reader.readU32();
+        const admin = reader.readPubkey();
+        const feeWallet = reader.readPubkey();
+        const amount = reader.readU64();
+        const pstShares = reader.readU64();
+        const redemptionId = reader.readU64();
+        let humaRequestId: bigint | undefined;
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 16) humaRequestId = reader.readU128();
+        if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
-          poolId: reader.readU32(),
-          admin: reader.readPubkey(),
-          feeWallet: reader.readPubkey(),
-          amount: reader.readU64(),
-          pstShares: reader.readU64(),
-          redemptionId: reader.readU64(),
-          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+          poolId,
+          admin,
+          feeWallet,
+          amount,
+          pstShares,
+          redemptionId,
+          humaRequestId,
+          timestamp,
         } as FeesWithdrawnEvent;
       }
       default:

@@ -1,7 +1,10 @@
 import { db } from "../db";
 import { pendingRedemptions } from "../db/schema";
 import { eq, and, lt, isNotNull } from "drizzle-orm";
-import { broadcastAggregatedInvalidations } from "../realtime/server";
+import {
+  broadcastAggregatedInvalidations,
+  type RealtimeBroadcastItem,
+} from "../realtime/server";
 
 export class SettlementMonitorService {
   async checkHumaSettlements(
@@ -25,15 +28,22 @@ export class SettlementMonitorService {
       const distinctUsers = Array.from(
         new Set(updated.map((u) => u.userAddress))
       );
-      await broadcastAggregatedInvalidations([
-        {
+      const invalidations: RealtimeBroadcastItem[] = distinctUsers.map(
+        (userAddress) => ({
           scopes: ["redemptions", "user"],
           poolId,
-          userAddress:
-            distinctUsers.length === 1 ? distinctUsers[0] : undefined,
+          userAddress,
           reason: "settlement:huma_ready",
-        },
-      ]);
+        })
+      );
+      if (distinctUsers.length > 1) {
+        invalidations.push({
+          scopes: ["redemptions"],
+          poolId,
+          reason: "settlement:huma_ready",
+        });
+      }
+      await broadcastAggregatedInvalidations(invalidations);
     }
     return updated.length;
   }

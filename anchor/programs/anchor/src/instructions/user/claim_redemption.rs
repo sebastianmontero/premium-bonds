@@ -246,6 +246,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         redemption_id,
         redemption_type,
         pst_shares_locked,
+        huma_request_id,
         requested_at,
         timestamp: Clock::get()?.unix_timestamp,
     });

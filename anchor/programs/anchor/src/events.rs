@@ -33,6 +33,10 @@ pub struct BondsSold {
     pub principal: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
+    /// Number of $PST shares locked in the Huma redemption request.
+    pub pst_shares: u64,
+    /// The corresponding Huma request ID in the pool redemption queue.
+    pub huma_request_id: u128,
     /// Pool's total deposited principal after this sale.
     pub new_total_deposited_principal: u64,
     /// User's remaining bonds after this sale (active + pending), or 0 if exited.
@@ -69,6 +73,10 @@ pub struct WinningsClaimed {
     pub amount: u64,
     /// Unique identifier of the pending redemption account created.
     pub redemption_id: u64,
+    /// Number of $PST shares locked in the Huma redemption request.
+    pub pst_shares: u64,
+    /// The corresponding Huma request ID in the pool redemption queue.
+    pub huma_request_id: u128,
     /// Unix timestamp of the claim request.
     pub timestamp: i64,
 }
@@ -88,6 +96,8 @@ pub struct RedemptionClaimed {
     pub redemption_type: u8,
     /// $PST shares that were locked in the original redemption request.
     pub pst_shares_locked: u64,
+    /// The corresponding Huma request ID in the pool redemption queue.
+    pub huma_request_id: u128,
     /// Unix timestamp when the redemption was originally requested.
     pub requested_at: i64,
     /// Unix timestamp when this claim was executed.
@@ -314,6 +324,7 @@ pub struct FeesWithdrawn {
     pub amount: u64,
     pub pst_shares: u64,
     pub redemption_id: u64,
+    pub huma_request_id: u128,
     pub timestamp: i64,
 }
 

@@ -38,8 +38,8 @@ export function PendingRedemptionsList({
     return redemptions.slice(start, start + pageSize);
   }, [redemptions, safePage, pageSize]);
 
-  const getIcon = useCallback((type: "bond_sale" | "prize_claim") => {
-    if (type === "bond_sale") {
+  const getIcon = useCallback((type: PendingRedemption["type"]) => {
+    if (type === "bond_sale" || type === "fee_withdrawal") {
       return (
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-error/15 text-error shrink-0">
           <svg

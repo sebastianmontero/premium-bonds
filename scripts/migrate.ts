@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import { migrate } from "drizzle-orm/neon-http/migrator";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import { migrate } from "drizzle-orm/neon-serverless/migrator";
+import ws from "ws";
+
+if (typeof WebSocket === "undefined") {
+  neonConfig.webSocketConstructor = ws;
+}
 
 // Load environment variables relative to project root
 const rootDir = path.resolve(__dirname, "..");
@@ -29,19 +34,20 @@ async function runMigration() {
   }
 
   console.log(
-    "🚀 Running database migrations against Neon PostgreSQL via HTTP..."
+    "🚀 Running database migrations against Neon PostgreSQL via WebSocket Pool..."
   );
-  const sql = neon(connectionString);
-  const db = drizzle(sql);
+  const pool = new Pool({ connectionString, max: 1 });
+  const db = drizzle(pool);
 
   const migrationsFolder = path.resolve(rootDir, "drizzle");
   try {
     await migrate(db, { migrationsFolder });
     console.log("✅ Database migrations applied successfully!");
-    process.exit(0);
   } catch (error) {
     console.error("❌ [Migration Failed]:", error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
   }
 }
 

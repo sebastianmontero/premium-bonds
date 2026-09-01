@@ -80,6 +80,22 @@ export function toPendingRedemptionDto(
   };
 }
 
+export function mapDtoToPendingRedemption(
+  dto: PendingRedemptionDto
+): import("../types").PendingRedemption {
+  return {
+    redemptionId: dto.redemptionId,
+    amount: Number(dto.amountUsdc),
+    status: dto.status === "ready" ? "ready" : "settling",
+    requestedAt: new Date(dto.requestedAt * 1000).toISOString(),
+    type:
+      (dto.redemptionType as import("../types").PendingRedemption["type"]) ||
+      "bond_sale",
+    pstSharesLocked: dto.pstSharesLocked ?? undefined,
+    humaRequestId: dto.humaRequestId ?? undefined,
+  };
+}
+
 export interface DrawHistoryDto {
   poolId: number;
   cycleId: number;

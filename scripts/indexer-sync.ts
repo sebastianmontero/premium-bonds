@@ -1,5 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createSolanaRpc } from "@solana/kit";
-import { db, isDatabaseConfigured } from "../app/lib/db";
+import { db, isDatabaseConfigured, closeDatabase } from "../app/lib/db";
 import { indexerCursor } from "../app/lib/db/schema";
 import { parseEventsFromTxMeta } from "../app/lib/anchor-events";
 import {
@@ -9,6 +11,18 @@ import {
 import { PayoutHydratorService } from "../app/lib/indexer/payout-hydrator";
 import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor";
 import { eq } from "drizzle-orm";
+
+// Load environment variables relative to project root for standalone CLI execution
+const rootDir = path.resolve(__dirname, "..");
+const envLocalPath = path.resolve(rootDir, ".env.local");
+const envPath = path.resolve(rootDir, ".env");
+
+if (fs.existsSync(envLocalPath)) {
+  process.loadEnvFile(envLocalPath);
+}
+if (fs.existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
 
 const PROGRAM_ID =
   process.env.NEXT_PUBLIC_PROGRAM_ID ||
@@ -255,9 +269,13 @@ export async function syncHistoricalTransactions(
 if (require.main === module) {
   const isBackfill = process.argv.includes("--backfill");
   syncHistoricalTransactions({ backfill: isBackfill })
-    .then(() => process.exit(0))
-    .catch((err) => {
+    .then(async () => {
+      await closeDatabase();
+      process.exit(0);
+    })
+    .catch(async (err) => {
       console.error("[Indexer Sync Fatal]:", err);
+      await closeDatabase().catch(() => {});
       process.exit(1);
     });
 }

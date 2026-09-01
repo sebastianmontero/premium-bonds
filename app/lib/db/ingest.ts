@@ -146,9 +146,10 @@ export function foldPendingRedemptionRows(
       } else if (r.status === "ready" && existing.status !== "claimed") {
         existing.status = "ready";
       }
-      if (r.amountUsdc) existing.amountUsdc = r.amountUsdc;
-      if (r.pstSharesLocked) existing.pstSharesLocked = r.pstSharesLocked;
-      if (r.humaRequestId) existing.humaRequestId = r.humaRequestId;
+      if (r.amountUsdc != null) existing.amountUsdc = r.amountUsdc;
+      if (r.pstSharesLocked != null)
+        existing.pstSharesLocked = r.pstSharesLocked;
+      if (r.humaRequestId != null) existing.humaRequestId = r.humaRequestId;
     }
   }
   return Array.from(map.values());
@@ -413,6 +414,37 @@ export async function ingestTransactionBatch(
           }
           break;
 
+          function buildPendingRedemptionRow(params: {
+            poolId: number;
+            redemptionId: bigint | number;
+            userAddress: string;
+            redemptionType: "bond_sale" | "prize_claim" | "fee_withdrawal";
+            amountUsdc: bigint | number;
+            pstSharesLocked?: bigint | number | null;
+            humaRequestId?: bigint | number | string | null;
+            signature: string;
+            blockTime: number;
+          }): typeof pendingRedemptions.$inferInsert {
+            return {
+              poolId: params.poolId,
+              redemptionId: BigInt(params.redemptionId),
+              userAddress: params.userAddress,
+              redemptionType: params.redemptionType,
+              amountUsdc: BigInt(params.amountUsdc),
+              pstSharesLocked:
+                params.pstSharesLocked != null
+                  ? BigInt(params.pstSharesLocked)
+                  : null,
+              humaRequestId:
+                params.humaRequestId != null
+                  ? params.humaRequestId.toString()
+                  : null,
+              status: "settling",
+              requestSignature: params.signature,
+              requestedAt: params.blockTime,
+            };
+          }
+
         case "BondsSold":
           activityRows.push({
             signature: context.signature,
@@ -428,16 +460,19 @@ export async function ingestTransactionBatch(
                 : null,
             blockTime: context.blockTime,
           });
-          redemptionRows.push({
-            poolId: evt.data.poolId,
-            redemptionId: BigInt(evt.data.redemptionId),
-            userAddress: evt.data.user,
-            redemptionType: "bond_sale",
-            amountUsdc: BigInt(evt.data.principal),
-            status: "settling",
-            requestSignature: context.signature,
-            requestedAt: context.blockTime,
-          });
+          redemptionRows.push(
+            buildPendingRedemptionRow({
+              poolId: evt.data.poolId,
+              redemptionId: evt.data.redemptionId,
+              userAddress: evt.data.user,
+              redemptionType: "bond_sale",
+              amountUsdc: evt.data.principal,
+              pstSharesLocked: evt.data.pstShares,
+              humaRequestId: evt.data.humaRequestId,
+              signature: context.signature,
+              blockTime: context.blockTime,
+            })
+          );
           userStatDeltas.push({
             poolId: evt.data.poolId,
             userAddress: evt.data.user,
@@ -498,16 +533,19 @@ export async function ingestTransactionBatch(
                 : null,
             blockTime: context.blockTime,
           });
-          redemptionRows.push({
-            poolId: evt.data.poolId,
-            redemptionId: BigInt(evt.data.redemptionId),
-            userAddress: evt.data.user,
-            redemptionType: "prize_claim",
-            amountUsdc: BigInt(evt.data.amount),
-            status: "settling",
-            requestSignature: context.signature,
-            requestedAt: context.blockTime,
-          });
+          redemptionRows.push(
+            buildPendingRedemptionRow({
+              poolId: evt.data.poolId,
+              redemptionId: evt.data.redemptionId,
+              userAddress: evt.data.user,
+              redemptionType: "prize_claim",
+              amountUsdc: evt.data.amount,
+              pstSharesLocked: evt.data.pstShares,
+              humaRequestId: evt.data.humaRequestId,
+              signature: context.signature,
+              blockTime: context.blockTime,
+            })
+          );
           userStatDeltas.push({
             poolId: evt.data.poolId,
             userAddress: evt.data.user,
@@ -538,18 +576,36 @@ export async function ingestTransactionBatch(
                 : null,
             blockTime: context.blockTime,
           });
-          redemptionRows.push({
-            poolId: evt.data.poolId,
-            redemptionId: BigInt(evt.data.redemptionId),
-            userAddress: evt.data.user,
-            redemptionType: "bond_sale",
-            amountUsdc: BigInt(evt.data.amount),
-            status: "claimed",
-            requestSignature: context.signature,
-            claimSignature: context.signature,
-            requestedAt: Number(evt.data.requestedAt ?? context.blockTime),
-            claimedAt: context.blockTime,
-          });
+          {
+            const redemptionTypeMap: Record<number, string> = {
+              0: "bond_sale",
+              1: "prize_claim",
+              2: "fee_withdrawal",
+            };
+            redemptionRows.push({
+              poolId: evt.data.poolId,
+              redemptionId: BigInt(evt.data.redemptionId),
+              userAddress: evt.data.user,
+              redemptionType:
+                (evt.data.redemptionType != null &&
+                  redemptionTypeMap[evt.data.redemptionType]) ||
+                "bond_sale",
+              amountUsdc: BigInt(evt.data.amount),
+              pstSharesLocked:
+                evt.data.pstSharesLocked != null
+                  ? BigInt(evt.data.pstSharesLocked)
+                  : null,
+              humaRequestId:
+                evt.data.humaRequestId != null
+                  ? evt.data.humaRequestId.toString()
+                  : null,
+              status: "claimed",
+              requestSignature: context.signature,
+              claimSignature: context.signature,
+              requestedAt: Number(evt.data.requestedAt ?? context.blockTime),
+              claimedAt: context.blockTime,
+            });
+          }
           userStatDeltas.push({
             poolId: evt.data.poolId,
             userAddress: evt.data.user,
@@ -660,17 +716,19 @@ export async function ingestTransactionBatch(
           break;
 
         case "FeesWithdrawn":
-          redemptionRows.push({
-            poolId: evt.data.poolId,
-            redemptionId: BigInt(evt.data.redemptionId),
-            userAddress: evt.data.feeWallet,
-            redemptionType: "fee_withdrawal",
-            amountUsdc: BigInt(evt.data.amount),
-            pstSharesLocked: BigInt(evt.data.pstShares),
-            status: "settling",
-            requestSignature: context.signature,
-            requestedAt: context.blockTime,
-          });
+          redemptionRows.push(
+            buildPendingRedemptionRow({
+              poolId: evt.data.poolId,
+              redemptionId: evt.data.redemptionId,
+              userAddress: evt.data.feeWallet,
+              redemptionType: "fee_withdrawal",
+              amountUsdc: evt.data.amount,
+              pstSharesLocked: evt.data.pstShares,
+              humaRequestId: evt.data.humaRequestId,
+              signature: context.signature,
+              blockTime: context.blockTime,
+            })
+          );
           break;
       }
     });

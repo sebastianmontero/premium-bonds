@@ -501,6 +501,8 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(event_a.bonds, 1);
     assert_eq!(event_a.principal, 1_000_000);
     assert_eq!(event_a.redemption_id, 0);
+    assert!(event_a.pst_shares > 0);
+    assert_eq!(event_a.huma_request_id, 0);
     assert_eq!(event_a.user_remaining_bonds, 2);
     assert!(event_a.timestamp > 0);
 
@@ -1134,6 +1136,47 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
     let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
+}
+
+#[test]
+fn test_sell_bonds_event_u128_boundary() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let user = clone_keypair(&ctx.user);
+    let user_usdc = ctx.user_usdc_account;
+
+    send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 3, Pubkey::default()).unwrap();
+
+    // Set mock Huma queue last_request_id to a 128-bit value exceeding 2^64 - 1
+    let large_request_id: u128 = (1u128 << 70) | 42;
+    {
+        let mut account = ctx.svm.get_account(&ctx.huma_pool_state).unwrap();
+        let data = &mut account.data;
+        data[266..282].copy_from_slice(&large_request_id.to_le_bytes());
+        ctx.svm.set_account(ctx.huma_pool_state, account).unwrap();
+    }
+
+    let meta = send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user,
+        0,
+        1,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let event = assert_cpi_event::<anchor::events::BondsSold>(&meta);
+    assert_eq!(event.huma_request_id, large_request_id);
+    assert!(event.pst_shares > 0);
 }
 
 

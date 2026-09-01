@@ -206,7 +206,9 @@ export interface PendingRedemption {
   amount: number;
   status: "settling" | "ready";
   requestedAt: string; // ISO date string
-  type: "bond_sale" | "prize_claim";
+  type: "bond_sale" | "prize_claim" | "fee_withdrawal";
+  pstSharesLocked?: string;
+  humaRequestId?: string;
 }
 
 // ─── Protocol Draw Explorer Types ───────────────────────────────────────────
