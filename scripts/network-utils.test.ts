@@ -1,8 +1,43 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { resolveNetwork, NETWORK_CONFIGS } from "../app/lib/network";
+import {
+  resolveNetwork,
+  resolveSolanaRpcUrl,
+  resolveClientSolanaRpcUrl,
+  sanitizeEnvValue,
+  getNetworkInfo,
+  NETWORK_CONFIGS,
+  DEFAULT_SOLANA_RPC_URL,
+} from "../app/lib/network";
 
 describe("Solana Network Utils Detection Suite", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.SOLANA_RPC_URL;
+    delete process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+    delete process.env.NEXT_PUBLIC_RPC_URL;
+    delete process.env.NEXT_PUBLIC_ENVIRONMENT;
+    delete process.env.NEXT_PUBLIC_NETWORK;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("should sanitize environment variable strings correctly", () => {
+    assert.strictEqual(sanitizeEnvValue(undefined), undefined);
+    assert.strictEqual(sanitizeEnvValue(null), undefined);
+    assert.strictEqual(sanitizeEnvValue(""), undefined);
+    assert.strictEqual(sanitizeEnvValue("   "), undefined);
+    assert.strictEqual(sanitizeEnvValue("undefined"), undefined);
+    assert.strictEqual(sanitizeEnvValue("null"), undefined);
+    assert.strictEqual(
+      sanitizeEnvValue("  https://api.devnet.solana.com  "),
+      "https://api.devnet.solana.com"
+    );
+  });
+
   it("should prioritize explicit environment overrides", () => {
     const resMainnet = resolveNetwork("mainnet-beta", "http://127.0.0.1:8899");
     assert.strictEqual(
@@ -169,5 +204,74 @@ describe("Solana Network Utils Detection Suite", () => {
         `Invalid pillClassName for ${cluster}`
       );
     }
+  });
+
+  describe("RPC Resolution Hierarchy Suite", () => {
+    it("resolveClientSolanaRpcUrl should resolve in priority order", () => {
+      // 1. Default fallback
+      assert.strictEqual(resolveClientSolanaRpcUrl(), DEFAULT_SOLANA_RPC_URL);
+
+      // 2. NEXT_PUBLIC_SOLANA_RPC_URL override
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL = "https://api.devnet.solana.com";
+      assert.strictEqual(
+        resolveClientSolanaRpcUrl(),
+        "https://api.devnet.solana.com"
+      );
+
+      // 3. Custom argument override
+      assert.strictEqual(
+        resolveClientSolanaRpcUrl("https://custom-rpc.solana.com"),
+        "https://custom-rpc.solana.com"
+      );
+
+      // 4. Ignores private SOLANA_RPC_URL for client safety
+      process.env.SOLANA_RPC_URL = "https://private-backend-rpc.solana.com";
+      assert.strictEqual(
+        resolveClientSolanaRpcUrl(),
+        "https://api.devnet.solana.com"
+      );
+    });
+
+    it("resolveSolanaRpcUrl should resolve in 4-tier hierarchy", () => {
+      // 1. Default fallback
+      assert.strictEqual(resolveSolanaRpcUrl(), DEFAULT_SOLANA_RPC_URL);
+
+      // 2. Public NEXT_PUBLIC_SOLANA_RPC_URL
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL = "https://api.devnet.solana.com";
+      assert.strictEqual(
+        resolveSolanaRpcUrl(),
+        "https://api.devnet.solana.com"
+      );
+
+      // 3. Private server override SOLANA_RPC_URL
+      process.env.SOLANA_RPC_URL = "https://private-backend-rpc.solana.com";
+      assert.strictEqual(
+        resolveSolanaRpcUrl(),
+        "https://private-backend-rpc.solana.com"
+      );
+
+      // 4. Custom parameter override
+      assert.strictEqual(
+        resolveSolanaRpcUrl("https://override-rpc.solana.com"),
+        "https://override-rpc.solana.com"
+      );
+    });
+
+    it("should handle literal undefined and null string values without crashing", () => {
+      process.env.SOLANA_RPC_URL = "undefined";
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL = "null";
+      assert.strictEqual(resolveSolanaRpcUrl(), DEFAULT_SOLANA_RPC_URL);
+      assert.strictEqual(resolveClientSolanaRpcUrl(), DEFAULT_SOLANA_RPC_URL);
+    });
+
+    it("getNetworkInfo should use client-safe variables and guarantee deterministic SSR", () => {
+      process.env.NEXT_PUBLIC_ENVIRONMENT = "localnet";
+      process.env.SOLANA_RPC_URL =
+        "https://mainnet.helius-rpc.com/?api-key=secret";
+      // Even if server has private mainnet RPC, client UI cluster is driven by public variables
+      const info = getNetworkInfo();
+      assert.strictEqual(info.cluster, "localnet");
+      assert.strictEqual(info.displayNameKey, "networkLocalnet");
+    });
   });
 });

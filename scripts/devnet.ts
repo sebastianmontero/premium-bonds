@@ -691,6 +691,7 @@ async function handleInit(args: string[]) {
     NEXT_PUBLIC_TICKET_REGISTRY: ticketRegistryAddress,
     NEXT_PUBLIC_FEE_WALLET: feeWallet,
     NEXT_PUBLIC_RANDOMNESS_ACCOUNT: randomnessAddressStr || "",
+    NEXT_PUBLIC_ENVIRONMENT: "devnet",
     NEXT_PUBLIC_SOLANA_RPC_URL: DEVNET_RPC_URL,
     NEXT_PUBLIC_USDC_MINT: usdcMintStr,
     NEXT_PUBLIC_PST_MINT: pstMintStr,

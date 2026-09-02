@@ -34,12 +34,20 @@ import {
   buildInitializeGlobalInstruction,
   buildCreatePoolInstruction,
   buildSetPrizeTiersInstruction,
+  parseMockHumaPoolState,
 } from "../app/lib/bonds-sdk";
 import {
   TICKET_REGISTRY_DISCRIMINATOR,
   serializeTicketRegistry,
 } from "../app/lib/ticket-registry-helpers";
 import { executeHarvest, executeReveal, executeReinvest } from "./pb-cli";
+import {
+  ensurePostgresRunning,
+  ensureLocalDatabase,
+  dropLocalDatabase,
+  listLocalDatabases,
+} from "./localnet-postgres";
+import { runDbCleanCli } from "./db-clean";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";
@@ -248,10 +256,13 @@ function printUsage() {
     "                        Configures default prize tiers on-chain for the pool"
   );
   console.log(
-    "  db list               Lists all saved SQLite database state files"
+    "  db list               Lists all saved SQLite database state files and PostgreSQL databases"
   );
   console.log(
-    "  db delete <name>      Deletes a saved SQLite database state file with confirmation"
+    "  db delete <name>      Deletes a saved SQLite ledger, address state, cursor, and PostgreSQL database"
+  );
+  console.log(
+    "  db clean-indexer      Truncates all PostgreSQL indexer tables and cleans relayer cursors"
   );
   console.log(
     "  snapshot save [name]  Exports current live RPC state to a snapshot file"
@@ -1521,6 +1532,15 @@ async function handleStart(args: string[] = []) {
     surfpoolArgs.push("--db", dbPath, "--surfnet-id", cleanName);
   }
 
+  // 0. Ensure PostgreSQL service is healthy and provision the local indexer database
+  await ensurePostgresRunning();
+  const dbNameForPg = flags.dbName ? flags.dbName : "default";
+  const pgDatabaseUrl = await ensureLocalDatabase(dbNameForPg);
+  process.env.DATABASE_URL = pgDatabaseUrl;
+  upsertEnvFile(path.resolve(__dirname, "..", ".env.local"), {
+    DATABASE_URL: pgDatabaseUrl,
+  });
+
   // 1. Check RPC health
   console.log("Checking Solana RPC health at", RPC_URL);
   const isRpcsActive = await checkRpcHealth(RPC_URL);
@@ -1636,25 +1656,44 @@ To test pb-cli init-global against a clean ledger, restart Surfpool or specify a
   }
 }
 
-function handleDbList() {
+async function handleDbList() {
   ensureDirsExist();
   const files = fs.readdirSync(DB_DIR).filter((f) => f.endsWith(".sqlite"));
 
+  console.log("Available Localnet SQLite Ledgers:");
+  console.log("------------------------------------------------------------");
   if (files.length === 0) {
     console.log("No saved SQLite databases found in localnet-state/dbs/.");
-    return;
+  } else {
+    for (const file of files) {
+      const filePath = path.resolve(DB_DIR, file);
+      const stats = fs.statSync(filePath);
+      const cleanName = file.replace(/\.sqlite$/, "");
+      const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+      const modified = stats.mtime.toLocaleString();
+      console.log(
+        `• ${cleanName.padEnd(20)} (${sizeMb.padStart(6)} MB) - Last modified: ${modified}`
+      );
+    }
   }
 
-  console.log("Available Localnet SQLite Databases:");
+  console.log("\nAvailable Localnet PostgreSQL Databases:");
   console.log("------------------------------------------------------------");
-  for (const file of files) {
-    const filePath = path.resolve(DB_DIR, file);
-    const stats = fs.statSync(filePath);
-    const cleanName = file.replace(/\.sqlite$/, "");
-    const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
-    const modified = stats.mtime.toLocaleString();
+  try {
+    const pgDbs = await listLocalDatabases();
+    if (pgDbs.length === 0) {
+      console.log(
+        "No local pb_local_* databases found or PostgreSQL is offline."
+      );
+    } else {
+      for (const pgDb of pgDbs) {
+        const sizeMb = (pgDb.sizeBytes / (1024 * 1024)).toFixed(2);
+        console.log(`• ${pgDb.name.padEnd(25)} (${sizeMb.padStart(6)} MB)`);
+      }
+    }
+  } catch (err) {
     console.log(
-      `• ${cleanName.padEnd(20)} (${sizeMb.padStart(6)} MB) - Last modified: ${modified}`
+      `Could not query PostgreSQL databases: ${(err as Error).message}`
     );
   }
 }
@@ -1691,7 +1730,7 @@ async function handleDbDelete(args: string[]) {
 
   const answer = await new Promise<string>((resolve) => {
     rl.question(
-      `Are you sure you want to delete database '${cleanName}'? [y/N]: `,
+      `Are you sure you want to delete database '${cleanName}' (SQLite ledger & PostgreSQL DB)? [y/N]: `,
       resolve
     );
   });
@@ -1720,6 +1759,18 @@ async function handleDbDelete(args: string[]) {
     if (fs.existsSync(cursorPath)) {
       fs.unlinkSync(cursorPath);
     }
+    console.log(`Successfully deleted SQLite files for '${cleanName}'.`);
+
+    // Drop the corresponding PostgreSQL database
+    try {
+      await dropLocalDatabase(cleanName);
+    } catch (pgErr) {
+      console.warn(
+        `[Warning] Could not drop PostgreSQL database 'pb_local_${cleanName}':`,
+        (pgErr as Error).message
+      );
+    }
+
     console.log(`Successfully deleted database '${cleanName}'.`);
     console.log(
       `ℹ️  Note: Restarting the chain will initialize a new ledger with a fresh genesis hash.`
@@ -1949,9 +2000,14 @@ async function main() {
     case "dbs": {
       const sub = args[1];
       if (sub === "list" || !sub) {
-        handleDbList();
+        await handleDbList();
       } else if (sub === "delete") {
         await handleDbDelete(args.slice(2));
+      } else if (sub === "clean-indexer" || sub === "clean") {
+        const exitCode = await runDbCleanCli(args.slice(2));
+        if (exitCode !== 0) {
+          process.exit(exitCode);
+        }
       } else {
         console.error(`Unknown db subcommand: ${sub}`);
         printUsage();
@@ -1960,10 +2016,13 @@ async function main() {
       break;
     }
     case "db-list":
-      handleDbList();
+      await handleDbList();
       break;
     case "db-delete":
       await handleDbDelete(args.slice(1));
+      break;
+    case "db-clean":
+      await runDbCleanCli(args.slice(1));
       break;
     case "snapshot":
     case "snapshots": {
@@ -2351,6 +2410,65 @@ async function handleSettle(args: string[]) {
   );
 
   console.log(`Successfully enabled redemption of pending requests!`);
+
+  // Dispatch simulated webhook with dynamic port resolution & resilient direct DB fallback
+  const port = process.env.PORT || "3000";
+  const webhookUrl =
+    process.env.WEBHOOK_URL || `http://127.0.0.1:${port}/api/webhooks/solana`;
+  const secret =
+    process.env.HELIUS_WEBHOOK_SECRET || "pb_webhook_secret_local_dev_123";
+
+  try {
+    const payload = {
+      signature: `localnet_settle_${Date.now()}`,
+      slot: 0,
+      timestamp: Math.floor(Date.now() / 1000),
+      err: null,
+      meta: {
+        err: null,
+        fee: 5000,
+        preBalances: [],
+        postBalances: [],
+        logMessages: [
+          `Program ${MOCK_HUMA_PROGRAM_ID_STR} invoke [1]`,
+          `Program log: Huma pool settlement next_request_id=${newNext}`,
+          `Program ${MOCK_HUMA_PROGRAM_ID_STR} success`,
+        ],
+        innerInstructions: [],
+        accountKeys: [addresses.humaPoolState, addresses.humaPoolUnderlying],
+      },
+    };
+
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify([payload]),
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `Webhook endpoint responded with status ${res.status} ${res.statusText}`
+      );
+    }
+
+    console.log("Simulated Helius settlement webhook dispatched successfully.");
+  } catch (webhookErr) {
+    console.warn(
+      `Webhook dispatch failed (${webhookErr instanceof Error ? webhookErr.message : webhookErr}), attempting direct DB fallback...`
+    );
+    if (process.env.DATABASE_URL) {
+      const { SettlementMonitorService } =
+        await import("../app/lib/indexer/settlement-monitor");
+      const monitor = new SettlementMonitorService();
+      const updated = await monitor.settleEligibleRedemptions(1, newNext);
+      console.log(
+        `Direct DB fallback: Transitioned ${updated} redemptions to ready.`
+      );
+    }
+  }
 }
 
 async function handleYield(args: string[]) {

@@ -1,3 +1,5 @@
+import { resolveSolanaRpcUrl } from "../../app/lib/network";
+
 export interface CrankConfig {
   rpcUrl: string;
   wsUrl: string;
@@ -21,11 +23,7 @@ export interface CrankConfig {
 }
 
 export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
-  const rpcUrl =
-    overrides?.rpcUrl ||
-    process.env.SOLANA_RPC_URL ||
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    "http://127.0.0.1:8899";
+  const rpcUrl = resolveSolanaRpcUrl(overrides?.rpcUrl);
 
   const wsUrl =
     overrides?.wsUrl ||

@@ -18,6 +18,11 @@ export interface HeliusTransactionMeta {
   postBalances?: number[];
   logMessages?: string[];
   innerInstructions?: HeliusInnerInstructionSet[];
+  accountKeys?: (Address | string)[];
+  loadedAddresses?: {
+    readonly?: (Address | string)[];
+    writable?: (Address | string)[];
+  };
 }
 
 export interface HeliusTransactionPayload {
@@ -31,7 +36,8 @@ export interface HeliusTransactionPayload {
   timestamp: number;
   nativeTransfers?: unknown[];
   tokenTransfers?: unknown[];
-  accountData?: unknown[];
+  accountData?: Array<string | { account?: string; [key: string]: unknown }>;
+  instructions?: unknown[];
   transactionError?: unknown | null;
   err?: unknown | null;
   logs?: string[];

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import {
   parseEventsFromTxMeta,
   resolveEventMetadata,
@@ -12,11 +12,17 @@ import {
   broadcastAggregatedInvalidations,
   RealtimeBroadcastItem,
 } from "@/app/lib/realtime/server";
+import {
+  SettlementMonitorService,
+  isHumaSettlementTx,
+  DEFAULT_POOL_ID,
+} from "@/app/lib/indexer/settlement-monitor";
 import type { HeliusTransactionPayload } from "@/app/lib/types/webhook";
 import {
   isTimingSafeAuthorized,
   isSuccessfulHeliusTransaction,
 } from "@/app/lib/webhook-auth";
+import { resolveSolanaRpcUrl, getNetworkInfo } from "@/app/lib/network";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +55,7 @@ export async function POST(req: NextRequest) {
     const transactions: HeliusTransactionPayload[] = Array.isArray(payload)
       ? payload
       : [payload];
-    const network = process.env.NEXT_PUBLIC_ENVIRONMENT || "mainnet-beta";
+    const network = getNetworkInfo().cluster;
 
     // Strictly filter out null signatures and reverted/failed transactions
     const validTransactions = transactions.filter(
@@ -91,6 +97,39 @@ export async function POST(req: NextRequest) {
 
     if (broadcastEvents.length > 0) {
       await broadcastAggregatedInvalidations(broadcastEvents);
+    }
+
+    // Trigger non-blocking Huma settlement sync via next/server after()
+    const humaPoolStateAddress =
+      process.env.NEXT_PUBLIC_HUMA_POOL_STATE || process.env.HUMA_POOL_STATE;
+
+    if (
+      humaPoolStateAddress &&
+      validTransactions.some((tx) =>
+        isHumaSettlementTx(tx, humaPoolStateAddress)
+      )
+    ) {
+      const rpcUrl = resolveSolanaRpcUrl();
+      const settlementMonitor = new SettlementMonitorService();
+
+      after(async () => {
+        try {
+          const result = await settlementMonitor.syncHumaPoolSettlements(
+            rpcUrl,
+            humaPoolStateAddress,
+            DEFAULT_POOL_ID
+          );
+          if (!result.success) {
+            console.error("[Webhook Settlement Sync Error]:", result.error);
+          } else if (result.updatedCount > 0) {
+            console.log(
+              `[Webhook Settlement] Transitioned ${result.updatedCount} redemptions to ready.`
+            );
+          }
+        } catch (err) {
+          console.error("[Webhook Settlement Notice]:", err);
+        }
+      });
     }
 
     return NextResponse.json({

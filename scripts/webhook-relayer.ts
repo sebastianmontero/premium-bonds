@@ -2,6 +2,7 @@ import { createSolanaRpc } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
 import { checkRpcHealth } from "./utils";
+import { resolveSolanaRpcUrl } from "../app/lib/network";
 import type {
   HeliusTransactionPayload,
   WebhookRelayerConfig,
@@ -221,6 +222,15 @@ export async function runWebhookRelayer(
               .send();
 
             if (tx && tx.meta) {
+              const accountKeys: string[] = [];
+              if (tx.transaction?.message?.accountKeys) {
+                for (const k of tx.transaction.message.accountKeys) {
+                  accountKeys.push(
+                    typeof k === "string" ? k : k.pubkey || String(k)
+                  );
+                }
+              }
+
               payloads.push({
                 signature: s.signature,
                 slot: Number(tx.slot ?? s.slot ?? 0),
@@ -240,6 +250,8 @@ export async function runWebhookRelayer(
                     : [],
                   logMessages: tx.meta.logMessages || [],
                   innerInstructions: tx.meta.innerInstructions || [],
+                  accountKeys: accountKeys.length > 0 ? accountKeys : undefined,
+                  loadedAddresses: tx.meta.loadedAddresses,
                 },
               });
             }
@@ -325,10 +337,7 @@ if (require.main === module) {
   };
 
   const dbName = getArg("--db", "default");
-  const rpcUrl = getArg(
-    "--rpc",
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "http://127.0.0.1:8899"
-  );
+  const rpcUrl = getArg("--rpc", resolveSolanaRpcUrl());
   const webhookUrl = getArg(
     "--webhook-url",
     process.env.WEBHOOK_URL || "http://127.0.0.1:3000/api/webhooks/solana"

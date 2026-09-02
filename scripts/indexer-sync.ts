@@ -1,3 +1,4 @@
+import "./load-env";
 import fs from "node:fs";
 import path from "node:path";
 import { createSolanaRpc } from "@solana/kit";
@@ -11,25 +12,13 @@ import {
 import { PayoutHydratorService } from "../app/lib/indexer/payout-hydrator";
 import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor";
 import { eq } from "drizzle-orm";
-
-// Load environment variables relative to project root for standalone CLI execution
-const rootDir = path.resolve(__dirname, "..");
-const envLocalPath = path.resolve(rootDir, ".env.local");
-const envPath = path.resolve(rootDir, ".env");
-
-if (fs.existsSync(envLocalPath)) {
-  process.loadEnvFile(envLocalPath);
-}
-if (fs.existsSync(envPath)) {
-  process.loadEnvFile(envPath);
-}
+import { resolveSolanaRpcUrl, getNetworkInfo } from "../app/lib/network";
 
 const PROGRAM_ID =
   process.env.NEXT_PUBLIC_PROGRAM_ID ||
   "H5uC6b7DkE6wY2aP9L6vJ6K8z5Y1a2b3c4d5e6f7g8h9";
-const RPC_URL =
-  process.env.NEXT_PUBLIC_RPC_URL || "https://api.devnet.solana.com";
-const NETWORK = process.env.NEXT_PUBLIC_ENVIRONMENT || "devnet";
+const RPC_URL = resolveSolanaRpcUrl();
+const NETWORK = getNetworkInfo().cluster;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchTransactionWithRetry(
@@ -259,6 +248,26 @@ export async function syncHistoricalTransactions(
     }
   } catch (err) {
     console.warn("[Indexer Sync] Hydrator execution notice:", err);
+  }
+
+  // Run settlement monitor for self-healing reconciliation of Huma pool redemptions
+  try {
+    const humaPoolStateAddress =
+      process.env.NEXT_PUBLIC_HUMA_POOL_STATE || process.env.HUMA_POOL_STATE;
+    if (humaPoolStateAddress) {
+      const result = await settlementMonitor.syncHumaPoolSettlements(
+        rpc,
+        humaPoolStateAddress,
+        1
+      );
+      if (result.success && result.updatedCount > 0) {
+        console.log(
+          `[Indexer Sync] Self-healing: Transitioned ${result.updatedCount} ready redemptions from Huma queue state.`
+        );
+      }
+    }
+  } catch (err) {
+    console.warn("[Indexer Sync] Huma settlement reconciliation notice:", err);
   }
 
   console.log(
