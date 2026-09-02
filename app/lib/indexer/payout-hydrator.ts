@@ -225,6 +225,21 @@ export class PayoutHydratorService {
           fallbackLockedTickets: draw.lockedTicketCount,
         });
 
+        const cycleInitiatedAt = Number(cycle.initiatedAt);
+        const cycleCompletedAt = Number(cycle.completedAt);
+        const resolvedInitiatedAt =
+          draw.initiatedAt && draw.initiatedAt > 0
+            ? draw.initiatedAt
+            : cycleInitiatedAt > 0
+              ? cycleInitiatedAt
+              : draw.blockTime;
+        const resolvedCompletedAt =
+          draw.completedAt && draw.completedAt > 0
+            ? draw.completedAt
+            : cycleCompletedAt > 0
+              ? cycleCompletedAt
+              : draw.blockTime;
+
         await db.transaction(async (tx) => {
           if (winnerRows.length > 0) {
             await tx
@@ -250,6 +265,8 @@ export class PayoutHydratorService {
               winnersSynced: true,
               revealedAt: Number(payout.revealedAt),
               vrfSeedHex: formatSeedHex(cycle.randomnessSeed),
+              initiatedAt: resolvedInitiatedAt,
+              completedAt: resolvedCompletedAt,
             })
             .where(
               and(

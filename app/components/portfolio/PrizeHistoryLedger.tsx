@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   formatTokenAmount,
   tierLabel,
@@ -9,6 +10,7 @@ import {
 import {
   getPayoutTimelockState,
   getClaimWinningsCapability,
+  sortPrizeHistoryEntries,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -67,6 +69,11 @@ export function PrizeHistoryLedger({
   });
 
   const effectiveBondPrice = bondPrice ?? ticketPrice;
+
+  const sortedEntries = useMemo(
+    () => sortPrizeHistoryEntries(entries),
+    [entries]
+  );
 
   const formatDateOnly = (isoDate: string): string => {
     return formatLocalDate(
@@ -271,7 +278,7 @@ export function PrizeHistoryLedger({
         <>
           {/* ── Mobile & Tablet Card Layout (< xl) ─────────────────────── */}
           <div className="xl:hidden space-y-3">
-            {entries.slice(0, 5).map((entry, index) => {
+            {sortedEntries.slice(0, 5).map((entry) => {
               const isCranking =
                 !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`];
               const entryTimelock = getPayoutTimelockState(
@@ -284,7 +291,7 @@ export function PrizeHistoryLedger({
 
               return (
                 <div
-                  key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
+                  key={`${entry.drawCycleId}-${entry.winnerIndex}`}
                   onClick={(e) => {
                     if (
                       (e.target as HTMLElement).closest(
@@ -537,7 +544,7 @@ export function PrizeHistoryLedger({
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
-                {entries.slice(0, 5).map((entry, index) => {
+                {sortedEntries.slice(0, 5).map((entry) => {
                   const isCranking =
                     !!crankingCycles[
                       `${entry.drawCycleId}-${entry.winnerIndex}`
@@ -554,7 +561,7 @@ export function PrizeHistoryLedger({
 
                   return (
                     <tr
-                      key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
+                      key={`${entry.drawCycleId}-${entry.winnerIndex}`}
                       onClick={(e) => {
                         if (
                           (e.target as HTMLElement).closest(

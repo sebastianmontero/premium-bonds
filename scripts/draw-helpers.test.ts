@@ -18,6 +18,8 @@ import {
   hasPayoutRegistryPda,
   isHaltedStatus,
   isDrawStatusName,
+  getSkippedDrawReason,
+  getNoRandomnessExplanationKey,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -531,5 +533,74 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.strictEqual(isDrawStatusName(123), false);
     assert.strictEqual(isDrawStatusName(null), false);
     assert.strictEqual(isDrawStatusName(undefined), false);
+  });
+
+  it("should correctly classify skipped draw reasons and explanation keys", () => {
+    // Pure count classification
+    assert.strictEqual(
+      getSkippedDrawReason({ lockedTicketCount: 0 }),
+      "zero-tickets"
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ lockedTicketCount: 0n }),
+      "zero-tickets"
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ lockedTicketCount: undefined }),
+      "zero-tickets"
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ lockedTicketCount: -5 }),
+      "zero-tickets"
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ lockedTicketCount: 50 }),
+      "below-threshold"
+    );
+    assert.strictEqual(getSkippedDrawReason(undefined), "zero-tickets");
+
+    // Status boundary checks
+    assert.strictEqual(
+      getSkippedDrawReason({ status: "Complete", lockedTicketCount: 50 }),
+      undefined
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ status: "Skipped", lockedTicketCount: 0 }),
+      "zero-tickets"
+    );
+    assert.strictEqual(
+      getSkippedDrawReason({ status: "Skipped", lockedTicketCount: 100 }),
+      "below-threshold"
+    );
+
+    // No-randomness translation key resolution
+    assert.strictEqual(
+      getNoRandomnessExplanationKey({
+        status: "Skipped",
+        lockedTicketCount: 0,
+      }),
+      "noRandomnessSkippedNoTicketsSub"
+    );
+    assert.strictEqual(
+      getNoRandomnessExplanationKey({
+        status: "Skipped",
+        lockedTicketCount: 500,
+      }),
+      "noRandomnessSkippedSub"
+    );
+    assert.strictEqual(
+      getNoRandomnessExplanationKey({
+        status: "Complete",
+        lockedTicketCount: 500,
+      }),
+      "noRandomnessGeneralSub"
+    );
+    assert.strictEqual(
+      getNoRandomnessExplanationKey({
+        status: "HaltedInsolvent",
+        lockedTicketCount: 500,
+      }),
+      "noRandomnessGeneralSub"
+    );
   });
 });

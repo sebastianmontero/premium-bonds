@@ -3,7 +3,10 @@
 import React, { useState } from "react";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
-import { hasDrawVrfRandomness } from "@/app/lib/draw-helpers";
+import {
+  hasDrawVrfRandomness,
+  getNoRandomnessExplanationKey,
+} from "@/app/lib/draw-helpers";
 import type { DetailedDrawCycle } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -26,9 +29,7 @@ export function ProvableFairnessVerifier({
           {t("noRandomnessNotice")}
         </p>
         <p className="text-[10px] text-on-surface-variant/60 max-w-sm">
-          {draw.status === "Skipped"
-            ? t("noRandomnessSkippedSub")
-            : t("noRandomnessGeneralSub")}
+          {t(getNoRandomnessExplanationKey(draw))}
         </p>
       </div>
     );

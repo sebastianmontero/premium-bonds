@@ -26,7 +26,7 @@ CREATE TABLE "draw_history" (
 	"winners_count" integer DEFAULT 0 NOT NULL,
 	"total_distributed" bigint DEFAULT 0 NOT NULL,
 	"winners_synced" boolean DEFAULT false NOT NULL,
-	"initiated_at" bigint,
+	"initiated_at" bigint DEFAULT 0 NOT NULL,
 	"revealed_at" bigint,
 	"completed_at" bigint,
 	"signature" varchar(88) NOT NULL,

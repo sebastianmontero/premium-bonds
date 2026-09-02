@@ -3,6 +3,10 @@
 import React from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
+import {
+  getSkippedDrawReason,
+  getNoRandomnessExplanationKey,
+} from "@/app/lib/draw-helpers";
 import type { DetailedDrawCycle, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -26,6 +30,14 @@ export function DrawSkippedAuditView({
       ? `${formatTokenAmount(Number(minYieldThreshold), tokenDecimals)} ${tokenSymbol}`
       : undefined;
 
+  const skippedReason = getSkippedDrawReason(draw);
+  const heroExplanation =
+    skippedReason === "zero-tickets"
+      ? t("skippedExplanationNoTickets")
+      : formattedThreshold
+        ? t("skippedExplanation", { threshold: formattedThreshold })
+        : t("skippedExplanationNoThreshold");
+
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pr-1">
       {/* ── 1. Hero Reassurance & Rollover Banner ──────────────────────── */}
@@ -39,9 +51,7 @@ export function DrawSkippedAuditView({
               {t("skippedTitle")}
             </h4>
             <p className="text-xs sm:text-sm text-on-surface-variant leading-relaxed">
-              {formattedThreshold
-                ? t("skippedExplanation", { threshold: formattedThreshold })
-                : t("skippedExplanationNoThreshold")}
+              {heroExplanation}
             </p>
             <div className="pt-2 flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold">
@@ -83,7 +93,7 @@ export function DrawSkippedAuditView({
             {t("participatingBonds")}
           </p>
           <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {draw.lockedTicketCount.toLocaleString("en-US")}
+            {(draw.lockedTicketCount ?? 0).toLocaleString("en-US")}
           </p>
         </div>
 
@@ -141,7 +151,7 @@ export function DrawSkippedAuditView({
               {t("noRandomnessNotice")}
             </span>
             <p className="text-[11px] text-on-surface-variant/70 leading-relaxed">
-              {t("noRandomnessSkippedSub")}
+              {t(getNoRandomnessExplanationKey(draw))}
             </p>
           </div>
         </div>

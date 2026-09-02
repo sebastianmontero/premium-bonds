@@ -17,6 +17,7 @@ import {
   resolveDrawCycleTimestamp,
   getWinnerKey,
   calculateReinvestmentBreakdown,
+  sortPrizeHistoryEntries,
 } from "../lib/draw-helpers";
 import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
 import type { PrizeHistoryEntry, RecentWinner, PrizeStatus } from "../types";
@@ -277,7 +278,7 @@ export function useDrawHistory(
             tokenSymbol,
           }));
 
-          setPrizeHistory(mappedPrizes);
+          setPrizeHistory(sortPrizeHistoryEntries(mappedPrizes));
           setRecentWinners(mappedRecent);
           return;
         }
@@ -515,7 +516,7 @@ export function useDrawHistory(
 
       if (fetchId !== fetchIdRef.current) return;
 
-      setPrizeHistory(userPrizes);
+      setPrizeHistory(sortPrizeHistoryEntries(userPrizes));
       setRecentWinners(latestWinners);
     } catch (err) {
       console.error("useDrawHistory fetch error:", err);

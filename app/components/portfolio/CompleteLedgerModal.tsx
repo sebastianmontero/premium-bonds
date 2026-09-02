@@ -8,7 +8,10 @@ import {
   tierBadgeClass,
   formatLocalDate,
 } from "@/app/lib/formatters";
-import { getPayoutTimelockState } from "@/app/lib/draw-helpers";
+import {
+  getPayoutTimelockState,
+  sortPrizeHistoryEntries,
+} from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { PaginationControls } from "./PaginationControls";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -108,9 +111,15 @@ export default function CompleteLedgerModal({
     setCurrentPage(1);
   };
 
-  // Filtered dataset computation
+  // Ensure entries are sorted once per prop change
+  const sortedEntries = useMemo(
+    () => sortPrizeHistoryEntries(entries),
+    [entries]
+  );
+
+  // Filtered dataset computation: filter natively preserves sorted order
   const filteredEntries = useMemo(() => {
-    return entries.filter((entry) => {
+    return sortedEntries.filter((entry) => {
       // 1. Search Matching (Draw ID, Tx Signature, Ticket Seed, or Tier Label)
       const matchesSearch =
         searchTerm === "" ||
@@ -134,7 +143,7 @@ export default function CompleteLedgerModal({
 
       return matchesSearch && matchesStatus && matchesTier;
     });
-  }, [entries, searchTerm, statusFilter, tierFilter]);
+  }, [sortedEntries, searchTerm, statusFilter, tierFilter]);
 
   // Aggregate stats across matching records
   const totalCount = filteredEntries.length;
@@ -156,6 +165,8 @@ export default function CompleteLedgerModal({
 
     const headers = [
       "Draw Cycle",
+      "Date",
+      "Winner Index",
       "Tier Index",
       "Tier Name",
       "Amount Won (USDC Base Units)",
@@ -166,6 +177,8 @@ export default function CompleteLedgerModal({
 
     const rows = filteredEntries.map((e) => [
       e.drawCycleId,
+      e.date,
+      e.winnerIndex,
       e.tierIndex,
       tierLabel(e.tierIndex),
       e.amount,
@@ -474,7 +487,7 @@ export default function CompleteLedgerModal({
             <div className="flex-1 min-h-0 flex flex-col">
               {/* ── Mobile & Tablet Card Layout (< lg) ─────────────────── */}
               <div className="lg:hidden flex-1 overflow-y-auto space-y-3 pr-1">
-                {paginatedEntries.map((entry, index) => {
+                {paginatedEntries.map((entry) => {
                   const isCranking =
                     !!crankingCycles[
                       `${entry.drawCycleId}-${entry.winnerIndex}`
@@ -489,7 +502,7 @@ export default function CompleteLedgerModal({
 
                   return (
                     <div
-                      key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
+                      key={`${entry.drawCycleId}-${entry.winnerIndex}`}
                       onClick={(e) => {
                         if (
                           (e.target as HTMLElement).closest(
@@ -753,7 +766,7 @@ export default function CompleteLedgerModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
-                    {paginatedEntries.map((entry, index) => {
+                    {paginatedEntries.map((entry) => {
                       const isCranking =
                         !!crankingCycles[
                           `${entry.drawCycleId}-${entry.winnerIndex}`
@@ -771,7 +784,7 @@ export default function CompleteLedgerModal({
 
                       return (
                         <tr
-                          key={`${entry.drawCycleId}-${entry.tierIndex}-${index}`}
+                          key={`${entry.drawCycleId}-${entry.winnerIndex}`}
                           onClick={(e) => {
                             if (
                               (e.target as HTMLElement).closest(

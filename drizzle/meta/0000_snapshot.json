@@ -262,7 +262,8 @@
           "name": "initiated_at",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": 0
         },
         "revealed_at": {
           "name": "revealed_at",

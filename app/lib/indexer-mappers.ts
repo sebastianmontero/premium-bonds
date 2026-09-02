@@ -109,7 +109,7 @@ export interface DrawHistoryDto {
   winnersCount: number;
   totalDistributed: string;
   winnersSynced: boolean;
-  initiatedAt: number | null;
+  initiatedAt: number;
   revealedAt: number | null;
   completedAt: number | null;
   signature: string;
@@ -132,7 +132,8 @@ export function toDrawHistoryDto(
     winnersCount: row.winnersCount,
     totalDistributed: row.totalDistributed.toString(),
     winnersSynced: row.winnersSynced,
-    initiatedAt: row.initiatedAt,
+    initiatedAt:
+      row.initiatedAt && row.initiatedAt > 0 ? row.initiatedAt : row.blockTime,
     revealedAt: row.revealedAt,
     completedAt: row.completedAt,
     signature: row.signature,

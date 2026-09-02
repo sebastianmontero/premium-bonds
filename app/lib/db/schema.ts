@@ -127,7 +127,9 @@ export const drawHistory = pgTable(
       .notNull()
       .default(0n),
     winnersSynced: boolean("winners_synced").notNull().default(false),
-    initiatedAt: bigint("initiated_at", { mode: "number" }),
+    initiatedAt: bigint("initiated_at", { mode: "number" })
+      .notNull()
+      .default(0),
     revealedAt: bigint("revealed_at", { mode: "number" }),
     completedAt: bigint("completed_at", { mode: "number" }),
     signature: varchar("signature", { length: 88 }).notNull(),

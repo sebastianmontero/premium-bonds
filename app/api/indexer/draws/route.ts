@@ -20,7 +20,7 @@ export interface DrawCycleSummaryDto {
   payoutsCompleted: number;
   hasPayoutRegistry: boolean;
   completedAt?: number;
-  initiatedAt?: number;
+  initiatedAt: number;
   revealedAt?: number;
 }
 
@@ -66,9 +66,16 @@ export async function GET(req: NextRequest) {
         winnersCount: r.winnersCount,
         payoutsCompleted: r.winnersCount,
         hasPayoutRegistry: r.winnersCount > 0,
-        completedAt: r.blockTime,
-        initiatedAt: r.blockTime,
-        revealedAt: r.blockTime,
+        completedAt:
+          r.status === "Complete" ||
+          r.status === "Skipped" ||
+          r.status === "Voided" ||
+          r.status === "ForceUnlocked"
+            ? (r.completedAt ?? r.blockTime)
+            : undefined,
+        initiatedAt:
+          r.initiatedAt && r.initiatedAt > 0 ? r.initiatedAt : r.blockTime,
+        revealedAt: r.revealedAt ?? undefined,
       };
     });
 

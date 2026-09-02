@@ -92,6 +92,25 @@ export const TERMINAL_DRAW_STATUSES = [
 ] as const;
 
 /**
+ * Safely converts an on-chain timestamp to unix seconds, falling back to blockTime if absent or invalid.
+ */
+export function toUnixTimestampSeconds(
+  onChainTimestamp: bigint | number | undefined | null,
+  fallbackBlockTime: number
+): number {
+  if (onChainTimestamp != null) {
+    const sec = Number(onChainTimestamp);
+    if (Number.isFinite(sec) && sec > 0) {
+      return Math.floor(sec);
+    }
+  }
+  if (Number.isFinite(fallbackBlockTime) && fallbackBlockTime > 0) {
+    return Math.floor(fallbackBlockTime);
+  }
+  return 0;
+}
+
+/**
  * Folds multiple draw history rows targeting the same (poolId, cycleId) in memory.
  */
 export function foldDrawHistoryRows(
@@ -135,7 +154,24 @@ export function foldDrawHistoryRows(
           existing.winnersSynced || r.winnersSynced
         );
       }
-      if (r.completedAt) existing.completedAt = r.completedAt;
+
+      // Authoritative initiator (YieldHarvested) sets initiation data.
+      // Fallback completion events only populate initiatedAt if existing is missing/zero.
+      if (r.status === "AwaitingRandomness") {
+        existing.initiatedAt = r.initiatedAt;
+        existing.harvestSlot = r.harvestSlot;
+        existing.randomnessAccount = r.randomnessAccount;
+      } else if (!existing.initiatedAt || existing.initiatedAt === 0) {
+        if (r.initiatedAt && r.initiatedAt > 0) {
+          existing.initiatedAt = r.initiatedAt;
+        }
+      }
+
+      if (r.completedAt && r.completedAt > 0)
+        existing.completedAt = r.completedAt;
+      if (r.revealedAt && r.revealedAt > 0) existing.revealedAt = r.revealedAt;
+      if (r.vrfSeedHex && r.vrfSeedHex.length > 0)
+        existing.vrfSeedHex = r.vrfSeedHex;
       existing.blockTime = Math.max(existing.blockTime, r.blockTime);
     }
   }
@@ -255,7 +291,14 @@ export async function upsertDrawHistoryTx(
             WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'ForceUnlocked') THEN true
             ELSE false
           END`,
+          initiatedAt: sql`CASE
+            WHEN ${drawHistory.initiatedAt} IS NOT NULL AND ${drawHistory.initiatedAt} > 0 THEN ${drawHistory.initiatedAt}
+            WHEN EXCLUDED.initiated_at IS NOT NULL AND EXCLUDED.initiated_at > 0 THEN EXCLUDED.initiated_at
+            ELSE ${drawHistory.initiatedAt}
+          END`,
           completedAt: sql`COALESCE(EXCLUDED.completed_at, ${drawHistory.completedAt})`,
+          revealedAt: sql`COALESCE(NULLIF(EXCLUDED.revealed_at, 0), ${drawHistory.revealedAt})`,
+          vrfSeedHex: sql`COALESCE(NULLIF(EXCLUDED.vrf_seed_hex, ''), ${drawHistory.vrfSeedHex})`,
           signature: sql`EXCLUDED.signature`,
           blockTime: sql`GREATEST(${drawHistory.blockTime}, EXCLUDED.block_time)`,
         },
@@ -641,11 +684,16 @@ export async function ingestTransactionBatch(
           });
           break;
 
-        case "YieldHarvested":
+        case "YieldHarvested": {
+          const harvestTimestamp = toUnixTimestampSeconds(
+            evt.data.timestamp,
+            context.blockTime
+          );
           drawRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
             status: "AwaitingRandomness",
+            initiatedAt: harvestTimestamp,
             prizePot: BigInt(evt.data.prizePot),
             cycleFeeCollected: BigInt(evt.data.fee),
             lockedTicketCount: BigInt(evt.data.lockedTicketCount),
@@ -668,8 +716,13 @@ export async function ingestTransactionBatch(
             lockedTicketCount: BigInt(evt.data.lockedTicketCount),
           });
           break;
+        }
 
-        case "DrawCompleted":
+        case "DrawCompleted": {
+          const completedTimestamp = toUnixTimestampSeconds(
+            evt.data.timestamp,
+            context.blockTime
+          );
           drawRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
@@ -680,7 +733,7 @@ export async function ingestTransactionBatch(
               evt.data.totalDistributed ?? evt.data.prizePot
             ),
             winnersSynced: false,
-            completedAt: context.blockTime,
+            completedAt: completedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
           });
@@ -696,8 +749,13 @@ export async function ingestTransactionBatch(
             ),
           });
           break;
+        }
 
-        case "DrawForceUnlocked":
+        case "DrawForceUnlocked": {
+          const unlockedTimestamp = toUnixTimestampSeconds(
+            evt.data.timestamp,
+            context.blockTime
+          );
           drawRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
@@ -705,34 +763,49 @@ export async function ingestTransactionBatch(
             prizePot: BigInt(evt.data.prizePot),
             cycleFeeCollected: BigInt(evt.data.cycleFeeCollected),
             winnersSynced: true,
+            completedAt: unlockedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
           });
           break;
+        }
 
-        case "DrawVoided":
+        case "DrawVoided": {
+          const voidedTimestamp = toUnixTimestampSeconds(
+            evt.data.timestamp,
+            context.blockTime
+          );
           drawRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
             status: "Voided",
             prizePot: 0n,
             winnersSynced: true,
+            completedAt: voidedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
           });
           break;
+        }
 
-        case "DrawSkipped":
+        case "DrawSkipped": {
+          const skippedTimestamp = toUnixTimestampSeconds(
+            evt.data.timestamp,
+            context.blockTime
+          );
           drawRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
             status: "Skipped",
             prizePot: 0n,
             winnersSynced: true,
+            initiatedAt: skippedTimestamp,
+            completedAt: skippedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
           });
           break;
+        }
 
         case "FeesWithdrawn":
           redemptionRows.push(

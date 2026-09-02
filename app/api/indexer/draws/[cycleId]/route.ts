@@ -23,7 +23,7 @@ export interface DetailedDrawCycleApiResponse {
   winnersCount: number;
   totalDistributed: string;
   winnersSynced: boolean;
-  initiatedAt: number | null;
+  initiatedAt: number;
   revealedAt: number | null;
   completedAt: number | null;
   winners: PrizeHistoryEntryDto[];
@@ -100,7 +100,10 @@ export async function GET(
       winnersCount: draw.winnersCount,
       totalDistributed: draw.totalDistributed.toString(),
       winnersSynced: draw.winnersSynced,
-      initiatedAt: draw.initiatedAt,
+      initiatedAt:
+        draw.initiatedAt && draw.initiatedAt > 0
+          ? draw.initiatedAt
+          : draw.blockTime,
       revealedAt: draw.revealedAt,
       completedAt: draw.completedAt,
       winners: winners.map(toPrizeHistoryEntryDto),

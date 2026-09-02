@@ -6,6 +6,7 @@ import type {
   DrawCycleSummary,
   DrawStatusName,
   DrawStatusArchetype,
+  PrizeHistoryEntry,
 } from "../types";
 
 /**
@@ -80,6 +81,45 @@ export function getDrawStatusTranslationKey(
   status: DrawStatusName | string
 ): string | undefined {
   return DRAW_STATUS_TRANSLATION_KEYS[status as DrawStatusName];
+}
+
+export type SkippedDrawReason = "zero-tickets" | "below-threshold";
+
+/**
+ * Determines whether a draw was skipped due to zero active tickets or insufficient yield.
+ * Returns undefined if the draw status is explicitly provided and is not "Skipped".
+ */
+export function getSkippedDrawReason(draw?: {
+  status?: DrawStatusName | string;
+  lockedTicketCount?: number | bigint;
+}): SkippedDrawReason | undefined {
+  if (draw?.status !== undefined && draw.status !== "Skipped") {
+    return undefined;
+  }
+  const count = Number(draw?.lockedTicketCount);
+  if (!Number.isFinite(count) || count <= 0) {
+    return "zero-tickets";
+  }
+  return "below-threshold";
+}
+
+/**
+ * Resolves the translation key explaining why verifiable randomness was not requested or used.
+ */
+export function getNoRandomnessExplanationKey(draw?: {
+  status?: DrawStatusName | string;
+  lockedTicketCount?: number | bigint;
+}):
+  | "noRandomnessSkippedNoTicketsSub"
+  | "noRandomnessSkippedSub"
+  | "noRandomnessGeneralSub" {
+  if (draw?.status === "Skipped") {
+    const reason = getSkippedDrawReason(draw);
+    return reason === "zero-tickets"
+      ? "noRandomnessSkippedNoTicketsSub"
+      : "noRandomnessSkippedSub";
+  }
+  return "noRandomnessGeneralSub";
 }
 
 /**
@@ -635,4 +675,32 @@ export function getCrankActionCapability(params: {
     canExecute: true,
     buttonLabelKey: "reinvest",
   };
+}
+
+/**
+ * Canonical comparator for PrizeHistoryEntry:
+ * 1. Draw cycle descending (newest draw first)
+ * 2. Tier with biggest prizes first (Tier 0 Grand Prize > Tier 1 Runner-up > Tier 2 Consolation)
+ * 3. Prize amount descending (biggest amount first)
+ * 4. Winner index ascending (deterministic tie-breaker)
+ */
+export function comparePrizeHistoryEntries(
+  a: PrizeHistoryEntry,
+  b: PrizeHistoryEntry
+): number {
+  return (
+    (b.drawCycleId ?? 0) - (a.drawCycleId ?? 0) ||
+    (a.tierIndex ?? 0) - (b.tierIndex ?? 0) ||
+    (b.amount ?? 0) - (a.amount ?? 0) ||
+    (a.winnerIndex ?? 0) - (b.winnerIndex ?? 0)
+  );
+}
+
+/**
+ * Returns a new array of PrizeHistoryEntry sorted by draw and tier (biggest prizes first).
+ */
+export function sortPrizeHistoryEntries(
+  entries: PrizeHistoryEntry[]
+): PrizeHistoryEntry[] {
+  return [...entries].sort(comparePrizeHistoryEntries);
 }

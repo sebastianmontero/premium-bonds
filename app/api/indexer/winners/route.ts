@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/app/lib/db";
 import { drawWinners } from "@/app/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, asc } from "drizzle-orm";
 import {
   ApiResponse,
   PrizeHistoryEntryDto,
@@ -46,7 +46,12 @@ export async function GET(
       .select()
       .from(drawWinners)
       .where(and(...conditions))
-      .orderBy(desc(drawWinners.revealedAt), desc(drawWinners.winnerIndex))
+      .orderBy(
+        desc(drawWinners.cycleId),
+        asc(drawWinners.tierIndex),
+        desc(drawWinners.amountOwed),
+        asc(drawWinners.winnerIndex)
+      )
       .limit(limit);
 
     const data = rows.map(toPrizeHistoryEntryDto);

@@ -4,8 +4,10 @@ import {
   sanitizeForJsonb,
   foldPendingRedemptionRows,
   foldDrawHistoryRows,
+  toUnixTimestampSeconds,
   TERMINAL_DRAW_STATUSES,
 } from "../ingest";
+import { drawHistory } from "../schema";
 import { resolveEventMetadata, ParsedProgramEvent } from "../../anchor-events";
 import { mapDtoToPendingRedemption } from "../../indexer-mappers";
 import { address } from "@solana/kit";
@@ -40,6 +42,35 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
     );
     assert.strictEqual(output.normalNumber, 42, "Regular numbers preserved");
     assert.strictEqual(output.str, "hello", "Strings preserved");
+  });
+
+  describe("toUnixTimestampSeconds", () => {
+    it("should return seconds for valid positive bigint and number", () => {
+      assert.strictEqual(
+        toUnixTimestampSeconds(1700000000n, 1690000000),
+        1700000000
+      );
+      assert.strictEqual(
+        toUnixTimestampSeconds(1700000050, 1690000000),
+        1700000050
+      );
+    });
+
+    it("should fallback to blockTime when timestamp is zero, null, or undefined", () => {
+      assert.strictEqual(toUnixTimestampSeconds(0n, 1690000000), 1690000000);
+      assert.strictEqual(toUnixTimestampSeconds(0, 1690000000), 1690000000);
+      assert.strictEqual(
+        toUnixTimestampSeconds(undefined, 1690000000),
+        1690000000
+      );
+      assert.strictEqual(toUnixTimestampSeconds(null, 1690000000), 1690000000);
+    });
+
+    it("should return 0 when both on-chain timestamp and fallback are invalid", () => {
+      assert.strictEqual(toUnixTimestampSeconds(undefined, 0), 0);
+      assert.strictEqual(toUnixTimestampSeconds(-100n, -50), 0);
+      assert.strictEqual(toUnixTimestampSeconds(NaN, 0), 0);
+    });
   });
 
   describe("Event Metadata Resolution per Event Type", () => {
@@ -543,6 +574,164 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded[0].cycleId, 1);
       assert.strictEqual(folded[1].cycleId, 2);
       assert.strictEqual(folded[2].poolId, 2);
+    });
+
+    it("should retain initiatedAt when folding YieldHarvested + DrawCompleted in order", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "AwaitingRandomness",
+        initiatedAt: 1700000000,
+        prizePot: 500_000_000n,
+        signature: "sig1",
+        blockTime: 1700000000,
+      };
+      const completeRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        winnersCount: 3,
+        completedAt: 1700000100,
+        signature: "sig2",
+        blockTime: 1700000100,
+      };
+
+      const folded = foldDrawHistoryRows([
+        harvestRow as never,
+        completeRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Complete");
+      assert.strictEqual(folded[0].initiatedAt, 1700000000);
+      assert.strictEqual(folded[0].completedAt, 1700000100);
+    });
+
+    it("should preserve YieldHarvested initiatedAt even when DrawCompleted arrives first", () => {
+      const completeRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        winnersCount: 3,
+        completedAt: 1700000100,
+        signature: "sig2",
+        blockTime: 1700000100,
+      };
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 10,
+        status: "AwaitingRandomness",
+        initiatedAt: 1700000000,
+        prizePot: 500_000_000n,
+        signature: "sig1",
+        blockTime: 1700000000,
+      };
+
+      const folded = foldDrawHistoryRows([
+        completeRow as never,
+        harvestRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Complete");
+      assert.strictEqual(folded[0].initiatedAt, 1700000000);
+      assert.strictEqual(folded[0].completedAt, 1700000100);
+    });
+
+    it("should fold DrawSkipped with both initiatedAt and completedAt", () => {
+      const skippedRow = {
+        poolId: 1,
+        cycleId: 11,
+        status: "Skipped",
+        prizePot: 0n,
+        winnersSynced: true,
+        initiatedAt: 1700000000,
+        completedAt: 1700000000,
+        signature: "sigSkip",
+        blockTime: 1700000000,
+      };
+
+      const folded = foldDrawHistoryRows([skippedRow as never]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Skipped");
+      assert.strictEqual(folded[0].initiatedAt, 1700000000);
+      assert.strictEqual(folded[0].completedAt, 1700000000);
+      assert.strictEqual(folded[0].winnersSynced, true);
+    });
+
+    it("should fold DrawForceUnlocked and DrawVoided with completedAt", () => {
+      const unlockRow = {
+        poolId: 1,
+        cycleId: 12,
+        status: "ForceUnlocked",
+        prizePot: 500_000_000n,
+        cycleFeeCollected: 50_000_000n,
+        winnersSynced: true,
+        completedAt: 1700000500,
+        signature: "sigUnlock",
+        blockTime: 1700000500,
+      };
+      const voidRow = {
+        poolId: 1,
+        cycleId: 13,
+        status: "Voided",
+        prizePot: 0n,
+        winnersSynced: true,
+        completedAt: 1700000600,
+        signature: "sigVoid",
+        blockTime: 1700000600,
+      };
+
+      const foldedUnlock = foldDrawHistoryRows([unlockRow as never]);
+      assert.strictEqual(foldedUnlock[0].completedAt, 1700000500);
+
+      const foldedVoid = foldDrawHistoryRows([voidRow as never]);
+      assert.strictEqual(foldedVoid[0].completedAt, 1700000600);
+    });
+
+    it("should preserve revealedAt and vrfSeedHex during folding", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 14,
+        status: "AwaitingRandomness",
+        initiatedAt: 1700000000,
+        prizePot: 500_000_000n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+      const revealRow = {
+        poolId: 1,
+        cycleId: 14,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        revealedAt: 1700000050,
+        vrfSeedHex: "abcd1234abcd1234",
+        completedAt: 1700000100,
+        signature: "sigComplete",
+        blockTime: 1700000100,
+      };
+
+      const folded = foldDrawHistoryRows([
+        harvestRow as never,
+        revealRow as never,
+      ]);
+      assert.strictEqual(folded[0].revealedAt, 1700000050);
+      assert.strictEqual(folded[0].vrfSeedHex, "abcd1234abcd1234");
+      assert.strictEqual(folded[0].initiatedAt, 1700000000);
+      assert.strictEqual(folded[0].completedAt, 1700000100);
+    });
+
+    it("should allow inferInsert omitting initiatedAt due to DEFAULT 0", () => {
+      const insertRow: typeof drawHistory.$inferInsert = {
+        poolId: 1,
+        cycleId: 15,
+        status: "Complete",
+        prizePot: 100n,
+        signature: "sigInsert",
+        blockTime: 1700000000,
+      };
+      assert.strictEqual(insertRow.poolId, 1);
+      assert.strictEqual(insertRow.initiatedAt, undefined);
     });
   });
 });
