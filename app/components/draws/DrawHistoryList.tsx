@@ -6,12 +6,13 @@ import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
   buildDrawStatusOptions,
-  getPayoutTimelockState,
+  isHaltedStatus,
 } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
+import { DrawPayoutProgressBadge } from "@/app/components/draws/DrawPayoutProgressBadge";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import type { DrawCycleSummary } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -75,8 +76,7 @@ export function DrawHistoryList({
       const matchesStatus =
         effectiveStatusFilter === "all" ||
         draw.status === effectiveStatusFilter ||
-        (effectiveStatusFilter === "Halted" &&
-          draw.status.startsWith("Halted"));
+        (effectiveStatusFilter === "Halted" && isHaltedStatus(draw.status));
 
       return matchesSearch && matchesStatus;
     });
@@ -321,39 +321,11 @@ export function DrawHistoryList({
                       {t("colPayouts")}
                     </p>
                     <div className="mt-0.5">
-                      {draw.hasPayoutRegistry ? (
-                        (() => {
-                          const timelock = getPayoutTimelockState(
-                            draw.revealedAt,
-                            payoutTimelockSeconds,
-                            now
-                          );
-                          if (
-                            draw.status === "Complete" &&
-                            timelock.isTimelocked &&
-                            draw.payoutsCompleted === 0
-                          ) {
-                            return (
-                              <span
-                                className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md"
-                                title={`Payout settlement timelocked (${timelock.formattedRemaining} remaining)`}
-                              >
-                                <span>🔒</span> {draw.payoutsCompleted} /{" "}
-                                {draw.winnersCount}
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="font-mono text-xs font-semibold text-tertiary">
-                              {draw.payoutsCompleted} / {draw.winnersCount}
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <span className="text-xs text-on-surface-variant/40">
-                          —
-                        </span>
-                      )}
+                      <DrawPayoutProgressBadge
+                        draw={draw}
+                        payoutTimelockSeconds={payoutTimelockSeconds}
+                        now={now}
+                      />
                     </div>
                   </div>
                 </div>
@@ -379,10 +351,14 @@ export function DrawHistoryList({
                       e.stopPropagation();
                       onSelectDraw(draw.cycleId);
                     }}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
+                    aria-label={t("ariaInspectDraw", {
+                      cycleId: draw.cycleId,
+                      status: draw.status,
+                    })}
+                    className="inline-flex items-center gap-1.5 min-h-[44px] py-2.5 px-3 -my-2 -mr-3 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
                   >
-                    <span>{t("inspectPayouts")}</span>
-                    <span>→</span>
+                    <span>{t("inspectDraw")}</span>
+                    <span aria-hidden="true">→</span>
                   </button>
                 </div>
               </div>
@@ -468,39 +444,11 @@ export function DrawHistoryList({
 
                     {/* Payout Progress */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                      {draw.hasPayoutRegistry ? (
-                        (() => {
-                          const timelock = getPayoutTimelockState(
-                            draw.revealedAt,
-                            payoutTimelockSeconds,
-                            now
-                          );
-                          if (
-                            draw.status === "Complete" &&
-                            timelock.isTimelocked &&
-                            draw.payoutsCompleted === 0
-                          ) {
-                            return (
-                              <span
-                                className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md"
-                                title={`Payout settlement timelocked (${timelock.formattedRemaining} remaining)`}
-                              >
-                                <span>🔒</span> {draw.payoutsCompleted} /{" "}
-                                {draw.winnersCount}
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className="font-mono text-xs font-semibold text-tertiary">
-                              {draw.payoutsCompleted} / {draw.winnersCount}
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <span className="text-xs text-on-surface-variant/40">
-                          —
-                        </span>
-                      )}
+                      <DrawPayoutProgressBadge
+                        draw={draw}
+                        payoutTimelockSeconds={payoutTimelockSeconds}
+                        now={now}
+                      />
                     </td>
 
                     {/* Actions & VRF Randomness Seed */}
@@ -521,10 +469,14 @@ export function DrawHistoryList({
                             e.stopPropagation();
                             onSelectDraw(draw.cycleId);
                           }}
+                          aria-label={t("ariaInspectDraw", {
+                            cycleId: draw.cycleId,
+                            status: draw.status,
+                          })}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
                         >
-                          <span>{t("inspectPayouts")}</span>
-                          <span>→</span>
+                          <span>{t("inspectDraw")}</span>
+                          <span aria-hidden="true">→</span>
                         </button>
                       </div>
                     </td>

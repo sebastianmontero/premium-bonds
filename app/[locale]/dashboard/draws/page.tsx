@@ -73,6 +73,11 @@ function DrawHistoryContent() {
     return !isNaN(parsed) && parsed >= 0 ? parsed : null;
   }, [cycleParam]);
 
+  const selectedDrawSummary = useMemo(() => {
+    if (selectedCycleId === null) return null;
+    return drawSummaries.find((d) => d.cycleId === selectedCycleId) ?? null;
+  }, [drawSummaries, selectedCycleId]);
+
   const handleOpenInspector = useCallback(
     (cycleId: number) => {
       router.replace(`${pathname}?cycle=${cycleId}`, { scroll: false });
@@ -202,6 +207,8 @@ function DrawHistoryContent() {
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         pool={activePool}
+        initialStatus={selectedDrawSummary?.status}
+        minYieldThreshold={activePool.minYieldThreshold}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}
       />

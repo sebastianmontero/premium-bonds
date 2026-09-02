@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useDrawCycleDetails } from "@/app/hooks/useDrawCycleDetails";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
 import { PayoutWinnersTable } from "./PayoutWinnersTable";
 import { ProvableFairnessVerifier } from "./ProvableFairnessVerifier";
 import { DrawExportActions } from "./DrawExportActions";
+import { DrawSkippedAuditView } from "./DrawSkippedAuditView";
+import { DrawStatusAuditView } from "./DrawStatusAuditView";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
+  getDrawArchetype,
   RPC_PROPAGATION_GRACE_PERIOD_MS,
 } from "@/app/lib/draw-helpers";
+import type { DrawStatusName, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
 interface DrawCycleInspectorModalProps {
@@ -19,13 +23,16 @@ interface DrawCycleInspectorModalProps {
   cycleId: number | null;
   isOpen: boolean;
   onClose: () => void;
-  tokenDecimals: number;
-  tokenSymbol: string;
+  config?: DrawDisplayConfig;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
   bondPrice?: number;
   payoutTimelockSeconds?: number;
   userAddress?: string;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
+  initialStatus?: DrawStatusName;
+  minYieldThreshold?: number | bigint;
   onCrankWinner?: (
     cycleId: number,
     winnerIndex: number,
@@ -39,13 +46,16 @@ export function DrawCycleInspectorModal({
   cycleId,
   isOpen,
   onClose,
-  tokenDecimals,
-  tokenSymbol,
+  config,
+  tokenDecimals = 6,
+  tokenSymbol = "USDC",
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   userAddress,
   pool,
   isFrozenForDraw,
+  initialStatus,
+  minYieldThreshold,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
@@ -54,6 +64,19 @@ export function DrawCycleInspectorModal({
   );
   const t = useTranslations("DrawInspector");
   const trailingTimerRef = useRef<NodeJS.Timeout | number | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  const effectiveConfig: DrawDisplayConfig = useMemo(
+    () =>
+      config ?? {
+        tokenDecimals,
+        tokenSymbol,
+        bondPrice,
+        payoutTimelockSeconds,
+      },
+    [config, tokenDecimals, tokenSymbol, bondPrice, payoutTimelockSeconds]
+  );
 
   const {
     details,
@@ -62,7 +85,17 @@ export function DrawCycleInspectorModal({
     error,
     refetch,
     markWinnerOptimisticallyProcessed,
-  } = useDrawCycleDetails(poolId, isOpen ? cycleId : null, userAddress);
+  } = useDrawCycleDetails(
+    poolId,
+    isOpen ? cycleId : null,
+    userAddress,
+    initialStatus
+  );
+
+  const effectiveStatus = details?.status ?? initialStatus;
+  const archetype = effectiveStatus ? getDrawArchetype(effectiveStatus) : null;
+  const isPayoutBearing = archetype === "payout-bearing";
+  const isSkipped = archetype === "skipped";
 
   const hasVrfRandomness = hasDrawVrfRandomness(details ?? undefined);
   const activeTab = hasVrfRandomness ? selectedTab : "winners";
@@ -76,6 +109,46 @@ export function DrawCycleInspectorModal({
       }
     };
   }, [cycleId]);
+
+  // Focus trapping and focus restoration on open/close
+  useEffect(() => {
+    if (!isOpen) return;
+
+    lastActiveElementRef.current = document.activeElement as HTMLElement | null;
+
+    const modalEl = modalRef.current;
+    if (!modalEl) return;
+
+    const focusableElements = modalEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    firstElement?.focus();
+
+    const handleTabTrap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement?.focus();
+        }
+      } else {
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement?.focus();
+        }
+      }
+    };
+
+    modalEl.addEventListener("keydown", handleTabTrap);
+    return () => {
+      modalEl.removeEventListener("keydown", handleTabTrap);
+      lastActiveElementRef.current?.focus();
+    };
+  }, [isOpen]);
 
   // Close on Escape key press
   useEffect(() => {
@@ -98,6 +171,16 @@ export function DrawCycleInspectorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Screen Reader Live Status Announcement */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {details
+          ? t("ariaStatusAnnounce", {
+              cycleId: details.cycleId,
+              status: details.status,
+            })
+          : ""}
+      </div>
+
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity duration-300"
@@ -105,7 +188,14 @@ export function DrawCycleInspectorModal({
       />
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-4xl 2xl:max-w-5xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="draw-inspector-modal-title"
+        aria-describedby="draw-inspector-modal-desc"
+        className="relative w-full max-w-4xl 2xl:max-w-5xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
           <div className="flex items-center gap-3">
@@ -114,12 +204,20 @@ export function DrawCycleInspectorModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold font-display text-on-surface">
+                <h3
+                  id="draw-inspector-modal-title"
+                  className="text-lg font-bold font-display text-on-surface"
+                >
                   {t("modalTitle", { cycleId })}
                 </h3>
-                {details && <StatusBadge status={details.status} size="sm" />}
+                {effectiveStatus && (
+                  <StatusBadge status={effectiveStatus} size="sm" />
+                )}
               </div>
-              <p className="text-xs text-on-surface-variant mt-0.5">
+              <p
+                id="draw-inspector-modal-desc"
+                className="text-xs text-on-surface-variant mt-0.5"
+              >
                 {t("drawConductedOn", { date: formattedDate })}
               </p>
             </div>
@@ -149,7 +247,7 @@ export function DrawCycleInspectorModal({
             </button>
             <button
               onClick={onClose}
-              aria-label="Close modal"
+              aria-label={t("close")}
               className="h-9 w-9 rounded-xl border border-surface-bright/15 bg-surface-container/60 hover:bg-surface-container hover:border-surface-bright/30 text-on-surface-variant hover:text-on-surface flex items-center justify-center transition cursor-pointer shadow-xs"
             >
               <svg
@@ -169,43 +267,58 @@ export function DrawCycleInspectorModal({
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation / Audit Mode Header */}
         <div className="flex items-center justify-between gap-4 py-3 border-b border-surface-bright/5 shrink-0">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSelectedTab("winners")}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                activeTab === "winners"
-                  ? "bg-primary text-surface-container shadow-sm"
-                  : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
-              }`}
-            >
-              {t("tabWinners")} {details ? `(${details.winnersCount})` : ""}
-            </button>
-            {hasVrfRandomness && (
-              <button
-                onClick={() => setSelectedTab("proofs")}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === "proofs"
-                    ? "bg-primary text-surface-container shadow-sm"
-                    : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
-                }`}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+            {isLoading && !initialStatus ? (
+              /* Neutral loading placeholder without tabs (prevents CLS on deep link) */
+              <div className="h-7 w-40 rounded-xl skeleton-box" />
+            ) : isPayoutBearing ? (
+              <>
+                <button
+                  onClick={() => setSelectedTab("winners")}
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                    activeTab === "winners"
+                      ? "bg-primary text-surface-container shadow-sm"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
+                  }`}
                 >
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                {t("tabFairnessProofs")}
-              </button>
+                  {t("tabWinners")} {details ? `(${details.winnersCount})` : ""}
+                </button>
+                {hasVrfRandomness && (
+                  <button
+                    onClick={() => setSelectedTab("proofs")}
+                    className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      activeTab === "proofs"
+                        ? "bg-primary text-surface-container shadow-sm"
+                        : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
+                    }`}
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    {t("tabFairnessProofs")}
+                  </button>
+                )}
+              </>
+            ) : (
+              /* Dedicated Audit Trail Mode Indicator */
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl px-3.5 py-1.5 text-xs font-semibold bg-surface-container/60 border border-surface-bright/15 text-on-surface flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-primary" />
+                  {t("tabAuditTrail")}
+                </span>
+              </div>
             )}
           </div>
 
@@ -213,6 +326,7 @@ export function DrawCycleInspectorModal({
             <DrawExportActions
               draw={details}
               hasVrfRandomness={hasVrfRandomness}
+              mode={isPayoutBearing ? "payout" : "audit"}
             />
           )}
         </div>
@@ -242,81 +356,103 @@ export function DrawCycleInspectorModal({
               <p className="text-sm font-semibold text-red-400">{error}</p>
             </div>
           ) : details ? (
-            <>
-              {/* Telemetry Summary Grid - Fixed */}
-              <div className="shrink-0">
-                <DrawTelemetryGrid
-                  draw={details}
-                  tokenDecimals={tokenDecimals}
-                  tokenSymbol={tokenSymbol}
-                  payoutTimelockSeconds={payoutTimelockSeconds}
-                />
-              </div>
-
-              {/* Active Tab View */}
-              {activeTab === "winners" ? (
-                <div className="flex-1 min-h-0 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between shrink-0">
-                    <h4 className="font-display text-sm font-bold text-on-surface">
-                      {t("payoutRegistryRosterTitle", {
-                        count: details.winners.length,
-                      })}
-                    </h4>
-                    {details.isUserWinner && (
-                      <span className="text-xs font-semibold text-primary">
-                        🎉 {t("youWonInThisDraw")}
-                      </span>
-                    )}
-                  </div>
-
-                  <PayoutWinnersTable
-                    cycleId={details.cycleId}
-                    winners={details.winners}
-                    connectedUserAddress={userAddress}
-                    tokenDecimals={tokenDecimals}
-                    tokenSymbol={tokenSymbol}
-                    bondPrice={bondPrice}
-                    revealedAt={details.revealedAt}
-                    payoutTimelockSeconds={payoutTimelockSeconds}
-                    pool={pool}
-                    isFrozenForDraw={isFrozenForDraw}
-                    onCrankWinner={
-                      onCrankWinner
-                        ? async (wIdx, wAddr) => {
-                            try {
-                              await onCrankWinner(details.cycleId, wIdx, wAddr);
-                              markWinnerOptimisticallyProcessed(
-                                wIdx,
-                                undefined,
-                                bondPrice
-                              );
-                              await refetch();
-                              if (trailingTimerRef.current) {
-                                clearTimeout(trailingTimerRef.current);
-                              }
-                              trailingTimerRef.current = setTimeout(() => {
-                                refetch();
-                              }, RPC_PROPAGATION_GRACE_PERIOD_MS);
-                            } catch {
-                              // Handled by global transaction runner / error alert
-                            }
-                          }
-                        : undefined
+            isSkipped ? (
+              /* Archetype 2: Lossless Yield Rollover View */
+              <DrawSkippedAuditView
+                draw={details}
+                config={effectiveConfig}
+                minYieldThreshold={minYieldThreshold}
+              />
+            ) : isPayoutBearing ? (
+              /* Archetype 1: Payout-Bearing (Complete or Voided) */
+              <>
+                {/* Telemetry Summary Grid */}
+                <div className="shrink-0">
+                  <DrawTelemetryGrid
+                    draw={details}
+                    tokenDecimals={effectiveConfig.tokenDecimals}
+                    tokenSymbol={effectiveConfig.tokenSymbol}
+                    payoutTimelockSeconds={
+                      effectiveConfig.payoutTimelockSeconds
                     }
-                    crankingCycles={crankingCycles}
                   />
                 </div>
-              ) : (
-                <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                  <ProvableFairnessVerifier draw={details} />
-                </div>
-              )}
-            </>
+
+                {/* Active Tab View */}
+                {activeTab === "winners" ? (
+                  <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between shrink-0">
+                      <h4 className="font-display text-sm font-bold text-on-surface">
+                        {t("payoutRegistryRosterTitle", {
+                          count: details.winners.length,
+                        })}
+                      </h4>
+                      {details.isUserWinner && details.status !== "Voided" && (
+                        <span className="text-xs font-semibold text-primary">
+                          🎉 {t("youWonInThisDraw")}
+                        </span>
+                      )}
+                    </div>
+
+                    <PayoutWinnersTable
+                      cycleId={details.cycleId}
+                      winners={details.winners}
+                      connectedUserAddress={userAddress}
+                      tokenDecimals={effectiveConfig.tokenDecimals}
+                      tokenSymbol={effectiveConfig.tokenSymbol}
+                      bondPrice={effectiveConfig.bondPrice}
+                      revealedAt={details.revealedAt}
+                      payoutTimelockSeconds={
+                        effectiveConfig.payoutTimelockSeconds
+                      }
+                      pool={pool}
+                      isFrozenForDraw={isFrozenForDraw}
+                      isVoided={details.status === "Voided"}
+                      onCrankWinner={
+                        details.status === "Voided" || !onCrankWinner
+                          ? undefined
+                          : async (wIdx, wAddr) => {
+                              try {
+                                await onCrankWinner(
+                                  details.cycleId,
+                                  wIdx,
+                                  wAddr
+                                );
+                                markWinnerOptimisticallyProcessed(
+                                  wIdx,
+                                  undefined,
+                                  effectiveConfig.bondPrice
+                                );
+                                await refetch();
+                                if (trailingTimerRef.current) {
+                                  clearTimeout(trailingTimerRef.current);
+                                }
+                                trailingTimerRef.current = setTimeout(() => {
+                                  refetch();
+                                }, RPC_PROPAGATION_GRACE_PERIOD_MS);
+                              } catch {
+                                // Handled by global transaction runner / error alert
+                              }
+                            }
+                      }
+                      crankingCycles={crankingCycles}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                    <ProvableFairnessVerifier draw={details} />
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Archetypes 3 & 4: In-Flight Lifecycle & Interventions */
+              <DrawStatusAuditView draw={details} config={effectiveConfig} />
+            )
           ) : null}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-surface-bright/5 shrink-0 mt-auto">
+        <div className="flex items-center justify-between pt-3 border-b-0 border-t border-surface-bright/5 shrink-0 mt-auto">
           <p className="text-[10px] text-on-surface-variant/40 uppercase tracking-wider font-semibold">
             {t("cryptographicProofFooter")}
           </p>

@@ -26,6 +26,7 @@ interface PayoutWinnersTableProps {
   payoutTimelockSeconds?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
+  isVoided?: boolean;
   onCrankWinner?: (winnerIndex: number, winnerAddress: string) => void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -41,6 +42,7 @@ export function PayoutWinnersTable({
   payoutTimelockSeconds = 300,
   pool,
   isFrozenForDraw,
+  isVoided = false,
   onCrankWinner,
   crankingCycles = {},
 }: PayoutWinnersTableProps) {
@@ -122,6 +124,21 @@ export function PayoutWinnersTable({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-3">
+      {/* Admin Rollback Notice for Voided Draws */}
+      {isVoided && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 shrink-0 flex items-start gap-3">
+          <span className="text-lg">🛑</span>
+          <div>
+            <h5 className="text-xs font-bold text-red-400">
+              {t("voidedBannerTitle")}
+            </h5>
+            <p className="text-[11px] text-on-surface-variant leading-relaxed mt-0.5">
+              {t("voidedBannerDesc")}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Table Filter Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
         {/* Search Input */}
@@ -310,11 +327,13 @@ export function PayoutWinnersTable({
                     <td className="py-3 px-4 border-b border-surface-bright/5 text-right whitespace-nowrap">
                       <p
                         className={`font-mono text-xs font-bold ${
-                          winner.tierIndex === 0
-                            ? "text-amber-400"
-                            : isConnectedWinner
-                              ? "text-primary"
-                              : "text-on-surface"
+                          isVoided
+                            ? "line-through opacity-60 text-on-surface-variant"
+                            : winner.tierIndex === 0
+                              ? "text-amber-400"
+                              : isConnectedWinner
+                                ? "text-primary"
+                                : "text-on-surface"
                         }`}
                       >
                         {formatTokenAmount(winner.amountOwed, tokenDecimals)}{" "}
@@ -322,40 +341,59 @@ export function PayoutWinnersTable({
                           {tokenSymbol}
                         </span>
                       </p>
-                      <BonusBondDustBadge
-                        bondsBought={winner.bondsBought}
-                        amountWon={winner.amountOwed}
-                        bondPrice={bondPrice}
-                        tokenDecimals={tokenDecimals}
-                        tokenSymbol={tokenSymbol}
-                        tooltipAlign="right"
-                        className="mt-0.5"
-                      />
+                      {isVoided ? (
+                        <span className="inline-block mt-0.5 text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">
+                          {t("voidedPrizesNotice")}
+                        </span>
+                      ) : (
+                        <BonusBondDustBadge
+                          bondsBought={winner.bondsBought}
+                          amountWon={winner.amountOwed}
+                          bondPrice={bondPrice}
+                          tokenDecimals={tokenDecimals}
+                          tokenSymbol={tokenSymbol}
+                          tooltipAlign="right"
+                          className="mt-0.5"
+                        />
+                      )}
                     </td>
 
                     {/* Status */}
                     <td className="py-3 px-4 border-b border-surface-bright/5 text-center whitespace-nowrap">
-                      <StatusBadge
-                        status={
-                          winner.processed
-                            ? "reinvested"
-                            : timelockState.isTimelocked
-                              ? "timelocked"
-                              : "processing"
-                        }
-                        isCranking={isCranking}
-                        size="sm"
-                        title={
-                          !winner.processed && timelockState.isTimelocked
-                            ? `${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`
-                            : undefined
-                        }
-                      />
+                      {isVoided ? (
+                        <span className="font-mono text-[10px] font-semibold text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                          {t("voidedPrizesNotice")}
+                        </span>
+                      ) : (
+                        <StatusBadge
+                          status={
+                            winner.processed
+                              ? "reinvested"
+                              : timelockState.isTimelocked
+                                ? "timelocked"
+                                : "processing"
+                          }
+                          isCranking={isCranking}
+                          size="sm"
+                          title={
+                            !winner.processed && timelockState.isTimelocked
+                              ? `${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`
+                              : undefined
+                          }
+                        />
+                      )}
                     </td>
 
                     {/* Actions / Permissionless Crank Trigger */}
                     <td className="py-3 px-4 border-b border-surface-bright/5 text-right whitespace-nowrap">
-                      {winner.processed ? (
+                      {isVoided ? (
+                        <span
+                          className="text-[10px] text-red-400/70 font-mono"
+                          title={t("voidedCrankTooltip")}
+                        >
+                          —
+                        </span>
+                      ) : winner.processed ? (
                         <span className="text-[10px] text-on-surface-variant/40">
                           {tLedger("disbursed")}
                         </span>

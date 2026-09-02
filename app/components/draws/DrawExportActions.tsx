@@ -10,20 +10,24 @@ import { useTranslations } from "next-intl";
 interface DrawExportActionsProps {
   draw: DetailedDrawCycle;
   hasVrfRandomness?: boolean;
+  mode?: "payout" | "audit";
   className?: string;
 }
 
 export function DrawExportActions({
   draw,
   hasVrfRandomness,
+  mode,
   className = "",
 }: DrawExportActionsProps) {
   const t = useTranslations("DrawInspector");
   const isVrf = hasVrfRandomness ?? hasDrawVrfRandomness(draw);
+  const isAuditMode = mode === "audit" || draw.status !== "Complete";
 
   const handleExportCSV = () => {
     const headers = [
       "Draw Cycle ID",
+      "Draw Status",
       "Tier Index",
       "Tier Name",
       "Winner Slot in Tier",
@@ -39,6 +43,7 @@ export function DrawExportActions({
 
     const rows = draw.winners.map((w) => [
       draw.cycleId,
+      draw.status,
       w.tierIndex,
       tierLabel(w.tierIndex),
       w.slotInTier,
@@ -60,7 +65,12 @@ export function DrawExportActions({
   };
 
   const handleExportJSON = () => {
-    exportToJson(`yieldbonds_draw_${draw.cycleId}_payout_registry`, {
+    const filename =
+      draw.status === "Complete"
+        ? `yieldbonds_draw_${draw.cycleId}_payout_registry`
+        : `yieldbonds_draw_${draw.cycleId}_audit`;
+
+    exportToJson(filename, {
       poolId: draw.poolId,
       cycleId: draw.cycleId,
       status: draw.status,
@@ -82,33 +92,34 @@ export function DrawExportActions({
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      {/* CSV Export */}
-      <button
-        onClick={handleExportCSV}
-        disabled={draw.winners.length === 0}
-        aria-label="Export Draw CSV"
-        className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 disabled:opacity-40 disabled:cursor-not-allowed text-on-surface font-semibold text-xs px-3 py-2 transition cursor-pointer"
-      >
-        <svg
-          className="w-3.5 h-3.5 text-primary"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+      {/* CSV Export - Only shown if winners exist */}
+      {draw.winners.length > 0 && (
+        <button
+          onClick={handleExportCSV}
+          aria-label="Export Draw CSV"
+          className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 disabled:opacity-40 disabled:cursor-not-allowed text-on-surface font-semibold text-xs px-3 py-2 transition cursor-pointer"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-          />
-        </svg>
-        <span>{t("exportCSV")}</span>
-      </button>
+          <svg
+            className="w-3.5 h-3.5 text-primary"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
+          </svg>
+          <span>{t("exportCSV")}</span>
+        </button>
+      )}
 
       {/* JSON Export */}
       <button
         onClick={handleExportJSON}
-        aria-label="Export Draw JSON"
+        aria-label={isAuditMode ? t("exportAuditJSON") : t("exportJSON")}
         className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-3 py-2 transition cursor-pointer"
       >
         <svg
@@ -124,7 +135,7 @@ export function DrawExportActions({
             d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
           />
         </svg>
-        <span>{t("exportJSON")}</span>
+        <span>{isAuditMode ? t("exportAuditJSON") : t("exportJSON")}</span>
       </button>
     </div>
   );

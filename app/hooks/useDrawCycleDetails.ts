@@ -17,7 +17,11 @@ import {
   getWinnerKey,
 } from "../lib/draw-helpers";
 import { useProtocolSyncSubscription } from "./useProtocolSyncSubscription";
-import type { DetailedDrawCycle, DrawWinnerRecord } from "../types";
+import type {
+  DetailedDrawCycle,
+  DrawWinnerRecord,
+  DrawStatusName,
+} from "../types";
 
 const base64Encoder = getBase64Encoder();
 const OPTIMISTIC_TTL_MS = 30_000;
@@ -48,8 +52,10 @@ interface DrawCycleDetailsResult {
 export function useDrawCycleDetails(
   poolId: number,
   cycleId: number | null | undefined,
-  userAddress?: string
+  userAddress?: string,
+  _initialStatus?: DrawStatusName
 ): DrawCycleDetailsResult {
+  void _initialStatus;
   const client = useSolanaClient();
   const [details, setDetails] = useState<DetailedDrawCycle | null>(null);
   const [isLoading, setIsLoading] = useState(false);

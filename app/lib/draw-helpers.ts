@@ -5,6 +5,7 @@ import type {
   DrawWinnerRecord,
   DrawCycleSummary,
   DrawStatusName,
+  DrawStatusArchetype,
 } from "../types";
 
 /**
@@ -20,6 +21,43 @@ export const CANONICAL_DRAW_STATUS_ORDER: readonly DrawStatusName[] = [
   "HaltedInsolvent",
   "HaltedYieldSpike",
 ] as const;
+
+/**
+ * Type guard for validating DrawStatusName at runtime.
+ */
+export function isDrawStatusName(val: unknown): val is DrawStatusName {
+  return (
+    typeof val === "string" &&
+    CANONICAL_DRAW_STATUS_ORDER.includes(val as DrawStatusName)
+  );
+}
+
+/**
+ * Categorizes an on-chain DrawStatusName into one of 4 domain archetypes.
+ */
+export function getDrawArchetype(
+  status: DrawStatusName | string
+): DrawStatusArchetype {
+  if (status === "Complete" || status === "Voided") return "payout-bearing";
+  if (status === "Skipped") return "skipped";
+  if (status === "AwaitingYield" || status === "AwaitingRandomness")
+    return "in-flight";
+  return "intervention";
+}
+
+/**
+ * Determines whether a draw status can have an initialized on-chain PayoutRegistry PDA.
+ */
+export function hasPayoutRegistryPda(status: DrawStatusName | string): boolean {
+  return status === "Complete" || status === "Voided";
+}
+
+/**
+ * Checks whether a status represents a circuit breaker halt.
+ */
+export function isHaltedStatus(status: DrawStatusName | string): boolean {
+  return status === "HaltedInsolvent" || status === "HaltedYieldSpike";
+}
 
 /**
  * Maps on-chain DrawStatusName to translation keys in messages/*.json under "DrawHistory".

@@ -14,6 +14,10 @@ import {
   getPayoutTimelockState,
   getClaimWinningsCapability,
   getCrankActionCapability,
+  getDrawArchetype,
+  hasPayoutRegistryPda,
+  isHaltedStatus,
+  isDrawStatusName,
 } from "../app/lib/draw-helpers";
 import {
   chunkArray,
@@ -480,5 +484,52 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     });
     assert.strictEqual(crankTimelocked.canExecute, false);
     assert.strictEqual(crankTimelocked.disabledReason, "timelocked");
+  });
+
+  it("should classify all 8 draw statuses into canonical domain archetypes", () => {
+    // Archetype 1: payout-bearing
+    assert.strictEqual(getDrawArchetype("Complete"), "payout-bearing");
+    assert.strictEqual(getDrawArchetype("Voided"), "payout-bearing");
+
+    // Archetype 2: skipped
+    assert.strictEqual(getDrawArchetype("Skipped"), "skipped");
+
+    // Archetype 3: in-flight
+    assert.strictEqual(getDrawArchetype("AwaitingYield"), "in-flight");
+    assert.strictEqual(getDrawArchetype("AwaitingRandomness"), "in-flight");
+
+    // Archetype 4: intervention
+    assert.strictEqual(getDrawArchetype("ForceUnlocked"), "intervention");
+    assert.strictEqual(getDrawArchetype("HaltedInsolvent"), "intervention");
+    assert.strictEqual(getDrawArchetype("HaltedYieldSpike"), "intervention");
+  });
+
+  it("should determine PayoutRegistry PDA presence accurately", () => {
+    assert.strictEqual(hasPayoutRegistryPda("Complete"), true);
+    assert.strictEqual(hasPayoutRegistryPda("Voided"), true);
+    assert.strictEqual(hasPayoutRegistryPda("Skipped"), false);
+    assert.strictEqual(hasPayoutRegistryPda("AwaitingYield"), false);
+    assert.strictEqual(hasPayoutRegistryPda("AwaitingRandomness"), false);
+    assert.strictEqual(hasPayoutRegistryPda("ForceUnlocked"), false);
+    assert.strictEqual(hasPayoutRegistryPda("HaltedInsolvent"), false);
+    assert.strictEqual(hasPayoutRegistryPda("HaltedYieldSpike"), false);
+  });
+
+  it("should identify circuit breaker halted statuses", () => {
+    assert.strictEqual(isHaltedStatus("HaltedInsolvent"), true);
+    assert.strictEqual(isHaltedStatus("HaltedYieldSpike"), true);
+    assert.strictEqual(isHaltedStatus("Complete"), false);
+    assert.strictEqual(isHaltedStatus("Skipped"), false);
+    assert.strictEqual(isHaltedStatus("ForceUnlocked"), false);
+  });
+
+  it("should validate DrawStatusName at runtime with isDrawStatusName", () => {
+    for (const status of CANONICAL_DRAW_STATUS_ORDER) {
+      assert.strictEqual(isDrawStatusName(status), true);
+    }
+    assert.strictEqual(isDrawStatusName("UnknownStatus"), false);
+    assert.strictEqual(isDrawStatusName(123), false);
+    assert.strictEqual(isDrawStatusName(null), false);
+    assert.strictEqual(isDrawStatusName(undefined), false);
   });
 });
