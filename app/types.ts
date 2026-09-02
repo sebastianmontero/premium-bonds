@@ -223,6 +223,19 @@ export type DrawStatusName =
   | "HaltedInsolvent"
   | "HaltedYieldSpike";
 
+export type DrawStatusArchetype =
+  | "payout-bearing"
+  | "skipped"
+  | "in-flight"
+  | "intervention";
+
+export interface DrawDisplayConfig {
+  tokenDecimals: number;
+  tokenSymbol: string;
+  bondPrice?: number;
+  payoutTimelockSeconds?: number;
+}
+
 export interface DrawWinnerRecord {
   winnerIndex: number;
   slotInTier: number;

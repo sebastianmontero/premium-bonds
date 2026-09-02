@@ -146,9 +146,17 @@ export async function POST(req: NextRequest) {
 
       after(async () => {
         try {
-          const count = await hydrator.hydratePendingDraws();
-          if (count > 0) {
-            console.log(`[Webhook] Hydrated ${count} draw payout registries.`);
+          const result = await hydrator.hydratePendingDraws();
+          if (result.succeeded > 0) {
+            console.log(
+              `[Webhook] Hydrated ${result.succeeded} draw payout registries.`
+            );
+          }
+          if (result.failed > 0) {
+            console.error(
+              "[Webhook Payout Hydration Failures]:",
+              result.errors
+            );
           }
         } catch (err) {
           console.error("[Webhook Payout Hydration Error]:", err);

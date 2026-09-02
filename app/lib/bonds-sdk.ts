@@ -78,15 +78,8 @@ export enum PoolStatus {
 }
 
 export type PoolStatusName = "Active" | "Paused" | "Closed";
-export type DrawStatusName =
-  | "AwaitingYield"
-  | "AwaitingRandomness"
-  | "Complete"
-  | "ForceUnlocked"
-  | "Skipped"
-  | "Voided"
-  | "HaltedInsolvent"
-  | "HaltedYieldSpike";
+import type { DrawStatusName, DrawStatusArchetype } from "../types";
+export type { DrawStatusName, DrawStatusArchetype };
 
 export {
   UNASSIGNED_REGISTRY_INDEX,

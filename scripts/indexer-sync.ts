@@ -240,10 +240,16 @@ export async function syncHistoricalTransactions(
 
   // Run hydrator for any unhydrated completed draws
   try {
-    const hydratedCount = await hydrator.hydratePendingDraws(50);
-    if (hydratedCount > 0) {
+    const hydratorResult = await hydrator.hydratePendingDraws(50);
+    if (hydratorResult.succeeded > 0) {
       console.log(
-        `[Indexer Sync] Hydrated ${hydratedCount} draw payout registries.`
+        `[Indexer Sync] Hydrated ${hydratorResult.succeeded} draw payout registries.`
+      );
+    }
+    if (hydratorResult.failed > 0) {
+      console.warn(
+        `[Indexer Sync] Payout hydration encountered ${hydratorResult.failed} failures:`,
+        hydratorResult.errors
       );
     }
   } catch (err) {
