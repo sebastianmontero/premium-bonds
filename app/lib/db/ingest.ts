@@ -85,6 +85,12 @@ export function aggregateUserStatDeltas(
   return Array.from(aggregated.values());
 }
 
+export const TERMINAL_DRAW_STATUSES = [
+  "ForceUnlocked",
+  "Voided",
+  "Skipped",
+] as const;
+
 /**
  * Folds multiple draw history rows targeting the same (poolId, cycleId) in memory.
  */
@@ -98,14 +104,20 @@ export function foldDrawHistoryRows(
     if (!existing) {
       map.set(key, { ...r });
     } else {
-      // Terminal status protection
+      // Status state machine (mirrors PostgreSQL CASE expression)
       if (
-        !["Complete", "ForceUnlocked", "Voided", "Skipped"].includes(
-          existing.status
-        )
+        r.status === "Voided" &&
+        (existing.status === "Complete" ||
+          existing.status === "AwaitingRandomness")
+      ) {
+        existing.status = "Voided";
+      } else if (
+        !TERMINAL_DRAW_STATUSES.includes(existing.status as never) &&
+        existing.status !== "Complete"
       ) {
         existing.status = r.status;
       }
+
       if (r.prizePot > 0n) existing.prizePot = r.prizePot;
       if (r.cycleFeeCollected && r.cycleFeeCollected > 0n)
         existing.cycleFeeCollected = r.cycleFeeCollected;
@@ -118,7 +130,11 @@ export function foldDrawHistoryRows(
         existing.winnersCount = r.winnersCount;
       if (r.totalDistributed && r.totalDistributed > 0n)
         existing.totalDistributed = r.totalDistributed;
-      if (r.winnersSynced != null) existing.winnersSynced = r.winnersSynced;
+      if (r.winnersSynced !== undefined) {
+        existing.winnersSynced = Boolean(
+          existing.winnersSynced || r.winnersSynced
+        );
+      }
       if (r.completedAt) existing.completedAt = r.completedAt;
       existing.blockTime = Math.max(existing.blockTime, r.blockTime);
     }
@@ -221,9 +237,10 @@ export async function upsertDrawHistoryTx(
         target: [drawHistory.poolId, drawHistory.cycleId],
         set: {
           status: sql`CASE
-            WHEN ${drawHistory.status} IN ('Complete', 'ForceUnlocked', 'Voided', 'Skipped') THEN ${drawHistory.status}
-            WHEN EXCLUDED.harvest_slot >= ${drawHistory.harvestSlot} THEN EXCLUDED.status
-            ELSE ${drawHistory.status}
+            WHEN ${drawHistory.status} IN ('ForceUnlocked', 'Skipped', 'Voided') THEN ${drawHistory.status}
+            WHEN ${drawHistory.status} = 'Complete' AND EXCLUDED.status = 'Voided' THEN 'Voided'
+            WHEN ${drawHistory.status} = 'Complete' THEN 'Complete'
+            ELSE EXCLUDED.status
           END`,
           prizePot: sql`COALESCE(NULLIF(EXCLUDED.prize_pot, 0), ${drawHistory.prizePot})`,
           cycleFeeCollected: sql`COALESCE(NULLIF(EXCLUDED.cycle_fee_collected, 0), ${drawHistory.cycleFeeCollected})`,
@@ -233,12 +250,14 @@ export async function upsertDrawHistoryTx(
           winnersCount: sql`COALESCE(NULLIF(EXCLUDED.winners_count, 0), ${drawHistory.winnersCount})`,
           totalDistributed: sql`COALESCE(NULLIF(EXCLUDED.total_distributed, 0), ${drawHistory.totalDistributed})`,
           winnersSynced: sql`CASE
+            WHEN ${drawHistory.winnersSynced} = true THEN true
+            WHEN EXCLUDED.winners_synced = true THEN true
             WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'ForceUnlocked') THEN true
-            ELSE ${drawHistory.winnersSynced}
+            ELSE false
           END`,
           completedAt: sql`COALESCE(EXCLUDED.completed_at, ${drawHistory.completedAt})`,
           signature: sql`EXCLUDED.signature`,
-          blockTime: sql`EXCLUDED.block_time`,
+          blockTime: sql`GREATEST(${drawHistory.blockTime}, EXCLUDED.block_time)`,
         },
       });
   }

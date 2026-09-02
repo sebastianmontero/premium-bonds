@@ -23,6 +23,8 @@ import {
   isSuccessfulHeliusTransaction,
 } from "@/app/lib/webhook-auth";
 import { resolveSolanaRpcUrl, getNetworkInfo } from "@/app/lib/network";
+import { createSolanaRpc } from "@solana/kit";
+import { PayoutHydratorService } from "@/app/lib/indexer/payout-hydrator";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +130,28 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           console.error("[Webhook Settlement Notice]:", err);
+        }
+      });
+    }
+
+    // Trigger non-blocking Payout Registry hydration for completed draws
+    const hasDrawCompleted = batch.some((item) =>
+      item.events.some((evt) => evt.type === "DrawCompleted")
+    );
+
+    if (hasDrawCompleted) {
+      const rpcUrl = resolveSolanaRpcUrl();
+      const rpc = createSolanaRpc(rpcUrl);
+      const hydrator = new PayoutHydratorService(rpc);
+
+      after(async () => {
+        try {
+          const count = await hydrator.hydratePendingDraws();
+          if (count > 0) {
+            console.log(`[Webhook] Hydrated ${count} draw payout registries.`);
+          }
+        } catch (err) {
+          console.error("[Webhook Payout Hydration Error]:", err);
         }
       });
     }

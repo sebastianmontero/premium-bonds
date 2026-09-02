@@ -8,6 +8,10 @@ import {
   parseDrawCycle,
 } from "../bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "../vrf-utils";
+import {
+  broadcastAggregatedInvalidations,
+  RealtimeBroadcastItem,
+} from "../realtime/server";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SolanaRpc = any;
@@ -29,6 +33,7 @@ export class PayoutHydratorService {
 
     if (unhydrated.length === 0) return 0;
 
+    let hydratedCount = 0;
     for (const draw of unhydrated) {
       try {
         const [payoutPda] = await findPayoutRegistryPda(
@@ -37,10 +42,29 @@ export class PayoutHydratorService {
         );
         const [cyclePda] = await findDrawCyclePda(draw.poolId, draw.cycleId);
 
-        const res = await this.rpc
+        let res = await this.rpc
           .getMultipleAccounts([payoutPda, cyclePda], { encoding: "base64" })
           .send();
-        if (!res.value[0] || !res.value[1]) continue;
+
+        if (!res.value[0] || !res.value[1]) {
+          // Retry up to 3 times with exponential backoff for RPC replication lag
+          for (const delay of [500, 1500, 3000]) {
+            await new Promise((r) => setTimeout(r, delay));
+            res = await this.rpc
+              .getMultipleAccounts([payoutPda, cyclePda], {
+                encoding: "base64",
+              })
+              .send();
+            if (res.value[0] && res.value[1]) break;
+          }
+        }
+
+        if (!res.value[0] || !res.value[1]) {
+          console.warn(
+            `[PayoutHydrator] Accounts not found after retries for draw ${draw.poolId}-${draw.cycleId}`
+          );
+          continue;
+        }
 
         const payoutData = Buffer.from(res.value[0].data[0], "base64");
         const cycleData = Buffer.from(res.value[1].data[0], "base64");
@@ -48,6 +72,9 @@ export class PayoutHydratorService {
         const payout = parsePayoutRegistry(payoutData);
         const cycle = parseDrawCycle(cycleData);
 
+        const lockedTickets = Number(
+          cycle.lockedTicketCount ?? draw.lockedTicketCount
+        );
         const tierWinnerCounts: Record<number, number> = {};
         const validWinners = payout.winners.slice(0, payout.winnersCount);
 
@@ -58,14 +85,14 @@ export class PayoutHydratorService {
 
             let winningTicketIdx: bigint | null = null;
             const allZero = cycle.randomnessSeed.every((b: number) => b === 0);
-            if (!allZero && Number(draw.lockedTicketCount) > 0) {
+            if (!allZero && lockedTickets > 0) {
               try {
                 const ticketNum = await deriveRandomIndex(
                   cycle.randomnessSeed,
                   w.tierIndex,
                   slotInTier,
                   draw.cycleId,
-                  Number(draw.lockedTicketCount)
+                  lockedTickets
                 );
                 winningTicketIdx = BigInt(ticketNum);
               } catch {
@@ -122,6 +149,27 @@ export class PayoutHydratorService {
               )
             );
         });
+
+        // Realtime cache invalidations
+        const distinctWinners = Array.from(
+          new Set(
+            validWinners
+              .map((w) => w.winner?.toString())
+              .filter(Boolean) as string[]
+          )
+        );
+        const broadcasts: RealtimeBroadcastItem[] = [
+          { scope: "draws", poolId: draw.poolId, reason: "payout:hydrated" },
+          ...distinctWinners.map((addr) => ({
+            scope: "user" as const,
+            poolId: draw.poolId,
+            userAddress: addr,
+            reason: "payout:winner_registered",
+          })),
+        ];
+        await broadcastAggregatedInvalidations(broadcasts);
+
+        hydratedCount++;
       } catch (err) {
         console.warn(
           `[PayoutHydrator] Failed to hydrate draw ${draw.poolId}-${draw.cycleId}:`,
@@ -129,6 +177,6 @@ export class PayoutHydratorService {
         );
       }
     }
-    return unhydrated.length;
+    return hydratedCount;
   }
 }
