@@ -163,6 +163,7 @@ export interface WinningsReinvestedEvent {
   winner: Address;
   poolId: number;
   cycleId: number;
+  winnerIndex: number;
   bondsBought: number;
   amountReinvested: bigint;
   timestamp?: bigint;
@@ -591,6 +592,7 @@ function decodeEventData(
         const winner = reader.readPubkey();
         const poolId = reader.readU32();
         const cycleId = reader.readU32();
+        const winnerIndex = reader.readU32();
         const bondsBought = reader.readU32();
         const amountReinvested = reader.readU64();
         let timestamp: bigint | undefined;
@@ -599,6 +601,7 @@ function decodeEventData(
           winner,
           poolId,
           cycleId,
+          winnerIndex,
           bondsBought,
           amountReinvested,
           timestamp,

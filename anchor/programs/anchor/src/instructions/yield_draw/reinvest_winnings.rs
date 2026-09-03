@@ -294,6 +294,7 @@ pub fn handle(
         winner: ctx.accounts.winner.key(),
         pool_id: pool.pool_id,
         cycle_id: _cycle_id,
+        winner_index,
         bonds_bought: bonds_to_buy,
         amount_reinvested: cost,
         timestamp: clock.unix_timestamp,

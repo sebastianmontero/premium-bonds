@@ -1,6 +1,15 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
+import { createPortal } from "react-dom";
+
+const emptySubscribe = () => () => {};
 
 export interface InteractiveTooltipProps {
   content: React.ReactNode;
@@ -18,6 +27,12 @@ export interface InteractiveTooltipProps {
   className?: string;
   panelClassName?: string;
   triggerClassName?: string;
+  /**
+   * Whether to render the tooltip panel into `document.body` via a React Portal.
+   * Prevents clipping by parent overflow containers (tables, modals, cards).
+   * @default true
+   */
+  usePortal?: boolean;
 }
 
 /**
@@ -49,9 +64,17 @@ export function InfoIcon({
   );
 }
 
+interface TooltipPosition {
+  top: number;
+  left: number;
+  actualSide: "top" | "bottom";
+  arrowLeft: number;
+}
+
 /**
  * Accessible touch- & keyboard-friendly tooltip / contextual popover wrapper
- * with outside-click dismissal, Escape key isolation, and directional alignment.
+ * with outside-click dismissal, Escape key isolation, auto-flipping,
+ * boundary clipping prevention via React Portal, and directional alignment.
  */
 export function InteractiveTooltip({
   content,
@@ -63,18 +86,107 @@ export function InteractiveTooltip({
   className = "",
   panelClassName = "",
   triggerClassName = "",
+  usePortal = true,
 }: InteractiveTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const isClient = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+  const [position, setPosition] = useState<TooltipPosition | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+
+    const triggerRect = triggerRef.current.getBoundingClientRect();
+    const panelEl = panelRef.current;
+    const panelRect = panelEl?.getBoundingClientRect();
+
+    const panelWidth = panelRect?.width || 288;
+    const panelHeight = panelRect?.height || 96;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const gap = 8;
+
+    // Determine vertical side with boundary flipping
+    let chosenSide = side;
+    if (side === "top" && triggerRect.top - panelHeight - gap < 10) {
+      chosenSide = "bottom";
+    } else if (
+      side === "bottom" &&
+      triggerRect.bottom + panelHeight + gap > viewportHeight - 10
+    ) {
+      chosenSide = "top";
+    }
+
+    const top =
+      chosenSide === "top"
+        ? triggerRect.top - panelHeight - gap
+        : triggerRect.bottom + gap;
+
+    // Determine horizontal alignment
+    let left: number;
+    if (align === "left") {
+      left = triggerRect.left;
+    } else if (align === "right") {
+      left = triggerRect.right - panelWidth;
+    } else {
+      left = triggerRect.left + triggerRect.width / 2 - panelWidth / 2;
+    }
+
+    // Viewport boundary clamping (keep at least 12px from viewport edges)
+    const clampedLeft = Math.max(
+      12,
+      Math.min(left, viewportWidth - panelWidth - 12)
+    );
+
+    // Arrow position aligned with trigger center
+    const triggerCenter = triggerRect.left + triggerRect.width / 2;
+    const arrowLeft = Math.max(
+      16,
+      Math.min(triggerCenter - clampedLeft, panelWidth - 16)
+    );
+
+    setPosition({
+      top,
+      left: clampedLeft,
+      actualSide: chosenSide,
+      arrowLeft,
+    });
+  }, [align, side]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    updatePosition();
+
+    // Listen for scroll & resize on all potential scrolling ancestor containers
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [isOpen, updatePosition, content]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
       if (
         containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        !containerRef.current.contains(target) &&
+        panelRef.current &&
+        !panelRef.current.contains(target)
       ) {
         setIsOpen(false);
       }
@@ -99,42 +211,67 @@ export function InteractiveTooltip({
     };
   }, [isOpen]);
 
-  const getPositionClasses = () => {
-    const horizontal =
-      align === "left"
-        ? "left-0 translate-x-0"
-        : align === "right"
-          ? "right-0 left-auto translate-x-0"
-          : "left-1/2 -translate-x-1/2";
-
-    const vertical =
-      side === "bottom" ? "top-full mt-2.5" : "bottom-full mb-2.5";
-
-    return `${horizontal} ${vertical}`;
+  const handleMouseEnter = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setIsOpen(true);
   };
 
-  const getArrowClasses = () => {
-    const horizontal =
-      align === "left"
-        ? "left-4 translate-x-0"
-        : align === "right"
-          ? "right-4 left-auto translate-x-0"
-          : "left-1/2 -translate-x-1/2";
-
-    const vertical =
-      side === "bottom"
-        ? "bottom-full -mb-px border-b-4 border-b-[#101726] border-t-0"
-        : "top-full -mt-px border-t-4 border-t-[#101726] border-b-0";
-
-    return `${horizontal} ${vertical}`;
+  const handleMouseLeave = () => {
+    closeTimerRef.current = setTimeout(() => {
+      setIsOpen(false);
+    }, 150);
   };
+
+  const panelElement = (
+    <div
+      ref={panelRef}
+      role={role}
+      aria-label={role === "dialog" ? ariaLabel : undefined}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      className={`z-[99999] w-72 sm:w-80 max-w-[calc(100vw-2rem)] rounded-xl shadow-2xl p-3 text-xs text-on-surface leading-relaxed border border-outline-variant/40 animate-fadeIn whitespace-normal break-words text-left ${
+        usePortal ? "fixed" : "absolute"
+      } ${panelClassName}`}
+      style={{
+        backgroundColor: "rgba(16, 23, 38, 0.98)",
+        ...(usePortal
+          ? {
+              top: position ? `${position.top}px` : "-9999px",
+              left: position ? `${position.left}px` : "-9999px",
+              visibility: position ? "visible" : "hidden",
+            }
+          : {}),
+      }}
+    >
+      <div className="relative z-10 font-normal text-on-surface whitespace-normal break-words text-left">
+        {content}
+      </div>
+      {/* Opaque Arrow */}
+      {position && (
+        <div
+          className={`absolute w-0 h-0 border-x-4 border-x-transparent pointer-events-none ${
+            position.actualSide === "bottom"
+              ? "bottom-full -mb-px border-b-4 border-b-[#101726] border-t-0"
+              : "top-full -mt-px border-t-4 border-t-[#101726] border-b-0"
+          }`}
+          style={{
+            left: `${position.arrowLeft}px`,
+            transform: "translateX(-50%)",
+          }}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div
       ref={containerRef}
       className={`relative inline-flex items-center ${className}`}
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       data-prevent-row-click="true"
       onClick={(e) => e.stopPropagation()}
     >
@@ -148,10 +285,15 @@ export function InteractiveTooltip({
           e.stopPropagation();
           setIsOpen((prev) => !prev);
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => {
+          handleMouseEnter();
+        }}
         onBlur={(e) => {
-          // Keep open if focus moved inside container
-          if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+          // Keep open if focus moved inside container or panel
+          if (
+            !containerRef.current?.contains(e.relatedTarget as Node) &&
+            !panelRef.current?.contains(e.relatedTarget as Node)
+          ) {
             setIsOpen(false);
           }
         }}
@@ -160,22 +302,10 @@ export function InteractiveTooltip({
         {children ?? <InfoIcon />}
       </button>
 
-      {isOpen && (
-        <div
-          role={role}
-          aria-label={role === "dialog" ? ariaLabel : undefined}
-          className={`absolute z-50 w-56 sm:w-72 max-w-[calc(100vw-2.5rem)] rounded-xl shadow-2xl p-3 text-xs text-on-surface leading-relaxed border border-outline-variant/40 animate-fadeIn ${getPositionClasses()} ${panelClassName}`}
-          style={{ backgroundColor: "rgba(16, 23, 38, 0.98)" }}
-        >
-          <div className="relative z-10 font-normal text-on-surface">
-            {content}
-          </div>
-          {/* Opaque Arrow */}
-          <div
-            className={`absolute w-0 h-0 border-x-4 border-x-transparent ${getArrowClasses()}`}
-          />
-        </div>
-      )}
+      {isOpen &&
+        (usePortal && isClient && typeof document !== "undefined"
+          ? createPortal(panelElement, document.body)
+          : panelElement)}
     </div>
   );
 }

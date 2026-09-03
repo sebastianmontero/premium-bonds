@@ -4,6 +4,9 @@ import {
   sanitizeForJsonb,
   foldPendingRedemptionRows,
   foldDrawHistoryRows,
+  foldWinnerUpdateRows,
+  updateDrawWinnersTx,
+  WinnerUpdateRow,
   toUnixTimestampSeconds,
   TERMINAL_DRAW_STATUSES,
 } from "../ingest";
@@ -116,6 +119,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           winner: userAddr,
           poolId: 1,
           cycleId: 3,
+          winnerIndex: 0,
           bondsBought: 2,
           amountReinvested: 10000000n,
         },
@@ -732,6 +736,126 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       assert.strictEqual(insertRow.poolId, 1);
       assert.strictEqual(insertRow.initiatedAt, undefined);
+    });
+  });
+
+  describe("foldWinnerUpdateRows & updateDrawWinnersTx", () => {
+    it("should fold winner update rows targeting the same winner into one record with max bonds", () => {
+      const rows: WinnerUpdateRow[] = [
+        {
+          poolId: 1,
+          cycleId: 3,
+          winnerIndex: 0,
+          winnerAddress: userAddr,
+          bondsBought: 0n,
+          claimSignature: "sig_first",
+        },
+        {
+          poolId: 1,
+          cycleId: 3,
+          winnerIndex: 0,
+          winnerAddress: userAddr,
+          bondsBought: 4n,
+          claimSignature: "sig_second",
+        },
+        {
+          poolId: 1,
+          cycleId: 3,
+          winnerIndex: 1,
+          winnerAddress: randAddr,
+          bondsBought: 2n,
+          claimSignature: "sig_winner1",
+        },
+      ];
+
+      const folded = foldWinnerUpdateRows(rows);
+      assert.strictEqual(
+        folded.length,
+        2,
+        "Expected 2 distinct folded winners"
+      );
+
+      const winner0 = folded.find((w) => w.winnerIndex === 0);
+      assert.ok(winner0);
+      assert.strictEqual(
+        winner0.bondsBought,
+        4n,
+        "Should pick greatest bondsBought"
+      );
+      assert.strictEqual(
+        winner0.claimSignature,
+        "sig_first",
+        "Should preserve first non-empty claimSignature"
+      );
+
+      const winner1 = folded.find((w) => w.winnerIndex === 1);
+      assert.ok(winner1);
+      assert.strictEqual(winner1.bondsBought, 2n);
+      assert.strictEqual(winner1.claimSignature, "sig_winner1");
+    });
+
+    it("should return empty unhydratedDraws when updates array is empty", async () => {
+      const mockTx = {};
+      const result = await updateDrawWinnersTx(mockTx as any, []);
+      assert.deepStrictEqual(result, { unhydratedDraws: [] });
+    });
+
+    it("should detect and report unhydrated draws when updating missing rows", async () => {
+      const updates: WinnerUpdateRow[] = [
+        {
+          poolId: 1,
+          cycleId: 99,
+          winnerIndex: 0,
+          winnerAddress: userAddr,
+          bondsBought: 5n,
+          claimSignature: "sig_unhydrated",
+        },
+      ];
+
+      // Mock tx where .returning() returns empty array (row did not exist)
+      const mockTx = {
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [],
+            }),
+          }),
+        }),
+      };
+
+      const result = await updateDrawWinnersTx(mockTx as any, updates);
+      assert.strictEqual(result.unhydratedDraws.length, 1);
+      assert.deepStrictEqual(result.unhydratedDraws[0], {
+        poolId: 1,
+        cycleId: 99,
+      });
+    });
+
+    it("should succeed with empty unhydratedDraws when rows are found and updated", async () => {
+      const updates: WinnerUpdateRow[] = [
+        {
+          poolId: 1,
+          cycleId: 5,
+          winnerIndex: 0,
+          winnerAddress: userAddr,
+          bondsBought: 3n,
+          claimSignature: "sig_found",
+        },
+      ];
+
+      // Mock tx where .returning() returns updated row
+      const mockTx = {
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: async () => [{ winnerIndex: 0 }],
+            }),
+          }),
+        }),
+      };
+
+      const result = await updateDrawWinnersTx(mockTx as any, updates);
+      assert.deepStrictEqual(result, { unhydratedDraws: [] });
     });
   });
 });

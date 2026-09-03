@@ -352,6 +352,7 @@
     "processing": "Procesando",
     "timelocked": "Bloqueado",
     "timelockTooltip": "Bloqueo temporal de liquidación activo ({remaining} restantes)",
+    "timelockUnlocksAt": "Se desbloquea a las {time}",
     "reinvesting": "Reinvirtiendo",
     "reinvested": "Reinvertido",
     "disbursed": "Desembolsado",

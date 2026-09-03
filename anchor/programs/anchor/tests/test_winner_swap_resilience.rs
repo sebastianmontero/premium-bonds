@@ -252,6 +252,7 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner, user_b);
+    assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 5);
 
     let pr = read_payout(&svm, 1, 0);

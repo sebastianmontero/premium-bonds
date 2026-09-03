@@ -3,6 +3,11 @@
 import React from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
+import {
+  InteractiveTooltip,
+  InfoIcon,
+} from "@/app/components/common/InteractiveTooltip";
+import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DetailedDrawCycle } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -83,16 +88,34 @@ export function DrawTelemetryGrid({
             ? "bg-amber-500/10 border-amber-500/30"
             : "bg-surface-container/20 border-surface-bright/5"
         }`}
-        title={
-          timelockState.isTimelocked
-            ? `${t("settlementTimelock")}: ${t("timelockActive", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`
-            : undefined
-        }
       >
         <div className="flex items-center justify-between">
-          <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-            {t("settlementTimelock")}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+              {t("settlementTimelock")}
+            </p>
+            {timelockState.isTimelocked && (
+              <InteractiveTooltip
+                ariaLabel={t("settlementTimelock")}
+                align="center"
+                side="top"
+                panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                content={
+                  <TimelockTooltipContent
+                    timelock={timelockState}
+                    titleOverride={`${t("settlementTimelock")}: ${t(
+                      "timelockActive",
+                      {
+                        remaining: timelockState.formattedRemaining,
+                      }
+                    )}`}
+                  />
+                }
+              >
+                <InfoIcon className="w-3 h-3 text-amber-400/80 hover:text-amber-300" />
+              </InteractiveTooltip>
+            )}
+          </div>
           {timelockState.isTimelocked && (
             <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
           )}

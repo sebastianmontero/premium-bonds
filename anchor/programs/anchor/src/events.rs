@@ -54,6 +54,8 @@ pub struct WinningsReinvested {
     pub pool_id: u32,
     /// Cycle ID when the drawing occurred.
     pub cycle_id: u32,
+    /// Index of the winner entry within the PayoutRegistry.
+    pub winner_index: u32,
     /// Number of new bonds purchased via reinvestment.
     pub bonds_bought: u32,
     /// Amount of USDC reinvested (in base units).

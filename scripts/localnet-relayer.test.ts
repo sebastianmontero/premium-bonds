@@ -98,14 +98,17 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
         winner: TEST_USER,
         poolId: 1,
         cycleId: 3,
+        winnerIndex: 4,
         bondsBought: 2,
         amountReinvested: 10000000n,
+        timestamp: 1700000000n,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
       assert.strictEqual(parsed[0].type, "WinningsReinvested");
       assert.strictEqual(parsed[0].data.winner, TEST_USER);
       assert.strictEqual(parsed[0].data.cycleId, 3);
+      assert.strictEqual(parsed[0].data.winnerIndex, 4);
       assert.strictEqual(parsed[0].data.bondsBought, 2);
       assert.strictEqual(parsed[0].data.amountReinvested, 10000000n);
     }

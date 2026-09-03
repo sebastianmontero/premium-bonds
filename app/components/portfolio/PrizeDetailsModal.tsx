@@ -11,6 +11,7 @@ import {
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { getExplorerUrl } from "@/app/lib/errors";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
+import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeDetailsModalProps {
@@ -263,13 +264,21 @@ export default function PrizeDetailsModal({
                     {tLedger("reinvested")}
                   </span>
                 ) : timelockState.isTimelocked ? (
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300"
-                    title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
+                  <InteractiveTooltip
+                    ariaLabel={tLedger("timelocked")}
+                    align="center"
+                    side="top"
+                    triggerClassName="inline-flex p-0"
+                    panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                    content={
+                      <TimelockTooltipContent timelock={timelockState} />
+                    }
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                    🔒 {tLedger("timelocked")}
-                  </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 cursor-help">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                      🔒 {tLedger("timelocked")}
+                    </span>
+                  </InteractiveTooltip>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -644,16 +653,22 @@ export default function PrizeDetailsModal({
 
             {entry.status === "processing" &&
               (timelockState.isTimelocked ? (
-                <button
-                  disabled={true}
-                  aria-disabled="true"
-                  aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${timelockState.formattedRemaining}`}
-                  title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
-                  className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
+                <InteractiveTooltip
+                  ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
+                  align="right"
+                  side="top"
+                  triggerClassName="inline-flex p-0"
+                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                  content={<TimelockTooltipContent timelock={timelockState} />}
                 >
-                  <span>🔒</span> {tLedger("timelocked")} (
-                  {timelockState.formattedRemaining})
-                </button>
+                  <span
+                    aria-disabled="true"
+                    className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
+                  >
+                    <span>🔒</span> {tLedger("timelocked")} (
+                    {timelockState.formattedRemaining})
+                  </span>
+                </InteractiveTooltip>
               ) : effectivePool?.isFrozenForDraw ? (
                 <InteractiveTooltip
                   ariaLabel={tLedger("frozenCrankTooltip")}

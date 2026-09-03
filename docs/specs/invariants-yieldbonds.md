@@ -658,7 +658,7 @@ stateDiagram-v2
     - `registry.total_active_tickets += BondsBought`.
     - If new entry: allocated in slot `user_count`, `registry.user_count += 1`.
     - If existing entry: lazy merged, `entry.active += BondsBought`.
-  - Emits CPI event `WinningsReinvested`.
+  - Emits CPI event `WinningsReinvested { winner, pool_id, cycle_id, winner_index, bonds_bought, amount_reinvested, timestamp }`.
 - **Expected Errors:**
   - If draw voided: `ErrorCode::DrawVoided` (6042)
   - If timelock active: `ErrorCode::PayoutTimelockActive` (6045)

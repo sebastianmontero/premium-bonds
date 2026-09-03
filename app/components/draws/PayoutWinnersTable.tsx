@@ -11,6 +11,7 @@ import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
+import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -364,22 +365,31 @@ export function PayoutWinnersTable({
                         <span className="font-mono text-[10px] font-semibold text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
                           {t("voidedPrizesNotice")}
                         </span>
+                      ) : !winner.processed && timelockState.isTimelocked ? (
+                        <InteractiveTooltip
+                          ariaLabel={tLedger("timelocked")}
+                          align="center"
+                          side="top"
+                          triggerClassName="inline-flex p-0"
+                          panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                          content={
+                            <TimelockTooltipContent timelock={timelockState} />
+                          }
+                        >
+                          <StatusBadge
+                            status="timelocked"
+                            isCranking={isCranking}
+                            size="sm"
+                            className="cursor-help"
+                          />
+                        </InteractiveTooltip>
                       ) : (
                         <StatusBadge
                           status={
-                            winner.processed
-                              ? "reinvested"
-                              : timelockState.isTimelocked
-                                ? "timelocked"
-                                : "processing"
+                            winner.processed ? "reinvested" : "processing"
                           }
                           isCranking={isCranking}
                           size="sm"
-                          title={
-                            !winner.processed && timelockState.isTimelocked
-                              ? `${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`
-                              : undefined
-                          }
                         />
                       )}
                     </td>
@@ -398,15 +408,23 @@ export function PayoutWinnersTable({
                           {tLedger("disbursed")}
                         </span>
                       ) : timelockState.isTimelocked ? (
-                        <button
-                          disabled={true}
-                          aria-disabled="true"
-                          aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${timelockState.formattedRemaining}`}
-                          title={`${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })} (Unlocks at ${timelockState.formattedUnlockTime})`}
-                          className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1"
+                        <InteractiveTooltip
+                          ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
+                          align="right"
+                          side="bottom"
+                          triggerClassName="inline-flex p-0"
+                          panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                          content={
+                            <TimelockTooltipContent timelock={timelockState} />
+                          }
                         >
-                          <span>🔒</span> {timelockState.formattedRemaining}
-                        </button>
+                          <span
+                            aria-disabled="true"
+                            className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                          >
+                            <span>🔒</span> {timelockState.formattedRemaining}
+                          </span>
+                        </InteractiveTooltip>
                       ) : effectivePool?.isFrozenForDraw ? (
                         <InteractiveTooltip
                           ariaLabel={tLedger("frozenCrankTooltip")}

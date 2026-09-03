@@ -77,9 +77,10 @@ export async function POST(req: NextRequest) {
       }),
     }));
 
-    const eventCount = await ingestTransactionBatch(batch, {
+    const ingestResult = await ingestTransactionBatch(batch, {
       updateLatestCursor: true,
     });
+    const eventCount = ingestResult.insertedCount;
 
     // Collect invalidation events and perform single aggregated broadcast
     const broadcastEvents: RealtimeBroadcastItem[] = [];
@@ -134,29 +135,37 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Trigger non-blocking Payout Registry hydration for completed draws
+    // Trigger non-blocking Payout Registry hydration for completed draws or unhydrated gaps
     const hasDrawCompleted = batch.some((item) =>
       item.events.some((evt) => evt.type === "DrawCompleted")
     );
+    const hasUnhydratedGaps = ingestResult.unhydratedDraws.length > 0;
 
-    if (hasDrawCompleted) {
+    if (hasDrawCompleted || hasUnhydratedGaps) {
       const rpcUrl = resolveSolanaRpcUrl();
       const rpc = createSolanaRpc(rpcUrl);
       const hydrator = new PayoutHydratorService(rpc);
 
       after(async () => {
         try {
-          const result = await hydrator.hydratePendingDraws();
-          if (result.succeeded > 0) {
-            console.log(
-              `[Webhook] Hydrated ${result.succeeded} draw payout registries.`
-            );
+          if (hasUnhydratedGaps) {
+            for (const target of ingestResult.unhydratedDraws) {
+              await hydrator.hydrateDraw(target.poolId, target.cycleId);
+            }
           }
-          if (result.failed > 0) {
-            console.error(
-              "[Webhook Payout Hydration Failures]:",
-              result.errors
-            );
+          if (hasDrawCompleted) {
+            const result = await hydrator.hydratePendingDraws();
+            if (result.succeeded > 0) {
+              console.log(
+                `[Webhook] Hydrated ${result.succeeded} draw payout registries.`
+              );
+            }
+            if (result.failed > 0) {
+              console.error(
+                "[Webhook Payout Hydration Failures]:",
+                result.errors
+              );
+            }
           }
         } catch (err) {
           console.error("[Webhook Payout Hydration Error]:", err);

@@ -183,13 +183,23 @@ export async function syncHistoricalTransactions(
       break;
     }
 
-    const count = await ingestTransactionBatch(batch, {
+    const ingestResult = await ingestTransactionBatch(batch, {
       updateLatestCursor: false,
     });
+    const count = ingestResult.insertedCount;
     totalIngested += count;
     console.log(
       `[Indexer Sync] Processed batch of ${sigs.length} signatures (${count} events).`
     );
+
+    // Immediately hydrate pending draws if batch contained DrawCompleted, ensuring chronological
+    // consistency before downstream reinvestments are processed.
+    const batchHasDrawCompleted = batch.some((item) =>
+      item.events.some((evt) => evt.type === "DrawCompleted")
+    );
+    if (batchHasDrawCompleted) {
+      await hydrator.hydratePendingDraws();
+    }
 
     // The oldest signature in original sigs (which was descending) is at index length - 1
     beforeSig = sigs[sigs.length - 1].signature;

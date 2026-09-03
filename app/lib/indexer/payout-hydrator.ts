@@ -170,6 +170,129 @@ export class PayoutHydratorService {
     return null;
   }
 
+  /**
+   * Hydrates a single draw cycle's winners and metadata from on-chain accounts.
+   */
+  async hydrateDraw(
+    poolId: number,
+    cycleId: number,
+    options?: {
+      fallbackLockedTickets?: bigint | number | null;
+      drawInitiatedAt?: number | null;
+      drawCompletedAt?: number | null;
+      drawBlockTime?: number | null;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const accounts = await this.fetchDrawAccounts(poolId, cycleId);
+      if (!accounts) {
+        return {
+          success: false,
+          error: `Accounts not found after retries for draw ${poolId}-${cycleId}`,
+        };
+      }
+
+      const payout = parsePayoutRegistry(accounts.payoutData);
+      const cycle = parseDrawCycle(accounts.cycleData);
+
+      const winnerRows = await deriveDrawWinnerRows({
+        poolId,
+        cycleId,
+        payout,
+        cycle,
+        fallbackLockedTickets: options?.fallbackLockedTickets,
+      });
+
+      const cycleInitiatedAt = Number(cycle.initiatedAt);
+      const cycleCompletedAt = Number(cycle.completedAt);
+      const resolvedInitiatedAt =
+        options?.drawInitiatedAt && options.drawInitiatedAt > 0
+          ? options.drawInitiatedAt
+          : cycleInitiatedAt > 0
+            ? cycleInitiatedAt
+            : (options?.drawBlockTime ?? 0);
+      const resolvedCompletedAt =
+        options?.drawCompletedAt && options.drawCompletedAt > 0
+          ? options.drawCompletedAt
+          : cycleCompletedAt > 0
+            ? cycleCompletedAt
+            : (options?.drawBlockTime ?? 0);
+
+      await db.transaction(async (tx) => {
+        if (winnerRows.length > 0) {
+          await tx
+            .insert(drawWinners)
+            .values(winnerRows)
+            .onConflictDoUpdate({
+              target: [
+                drawWinners.poolId,
+                drawWinners.cycleId,
+                drawWinners.winnerIndex,
+              ],
+              set: {
+                processed: sql`${drawWinners.processed} OR EXCLUDED.processed`,
+                winningTicketIdx: sql`COALESCE(EXCLUDED.winning_ticket_idx, ${drawWinners.winningTicketIdx})`,
+                bondsBought: sql`GREATEST(${drawWinners.bondsBought}, EXCLUDED.bonds_bought)`,
+                claimSignature: sql`COALESCE(${drawWinners.claimSignature}, EXCLUDED.claim_signature)`,
+              },
+            });
+        }
+        await tx
+          .update(drawHistory)
+          .set({
+            winnersSynced: true,
+            revealedAt: Number(payout.revealedAt),
+            vrfSeedHex: formatSeedHex(cycle.randomnessSeed),
+            initiatedAt: resolvedInitiatedAt,
+            completedAt: resolvedCompletedAt,
+          })
+          .where(
+            and(
+              eq(drawHistory.poolId, poolId),
+              eq(drawHistory.cycleId, cycleId)
+            )
+          );
+      });
+
+      // Realtime cache invalidations (isolated side-effect)
+      try {
+        const validWinners = payout.winners.slice(0, payout.winnersCount);
+        const distinctWinners = Array.from(
+          new Set(
+            validWinners
+              .map((w) => w.winner?.toString())
+              .filter(Boolean) as string[]
+          )
+        );
+        const broadcasts: RealtimeBroadcastItem[] = [
+          { scope: "draws", poolId, reason: "payout:hydrated" },
+          ...distinctWinners.map((addr) => ({
+            scope: "user" as const,
+            poolId,
+            userAddress: addr,
+            reason: "payout:winner_registered",
+          })),
+        ];
+        await broadcastAggregatedInvalidations(broadcasts);
+      } catch (broadcastErr) {
+        console.warn(
+          `[PayoutHydrator] Realtime broadcast warning for draw ${poolId}-${cycleId}:`,
+          broadcastErr
+        );
+      }
+
+      return { success: true };
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : "Unknown hydration error";
+      console.warn(
+        `[PayoutHydrator] Failed to hydrate draw ${poolId}-${cycleId}:`,
+        err
+      );
+      return { success: false, error: errorMsg };
+    }
+  }
+
   async hydratePendingDraws(batchSize = 20): Promise<HydrationResult> {
     const result: HydrationResult = {
       processed: 0,
@@ -196,127 +319,21 @@ export class PayoutHydratorService {
     result.processed = unhydrated.length;
 
     for (const draw of unhydrated) {
-      try {
-        const accounts = await this.fetchDrawAccounts(
-          draw.poolId,
-          draw.cycleId
-        );
+      const res = await this.hydrateDraw(draw.poolId, draw.cycleId, {
+        fallbackLockedTickets: draw.lockedTicketCount,
+        drawInitiatedAt: draw.initiatedAt,
+        drawCompletedAt: draw.completedAt,
+        drawBlockTime: draw.blockTime,
+      });
 
-        if (!accounts) {
-          const errorMsg = `Accounts not found after retries for draw ${draw.poolId}-${draw.cycleId}`;
-          console.warn(`[PayoutHydrator] ${errorMsg}`);
-          result.failed++;
-          result.errors.push({
-            poolId: draw.poolId,
-            cycleId: draw.cycleId,
-            error: errorMsg,
-          });
-          continue;
-        }
-
-        const payout = parsePayoutRegistry(accounts.payoutData);
-        const cycle = parseDrawCycle(accounts.cycleData);
-
-        const winnerRows = await deriveDrawWinnerRows({
-          poolId: draw.poolId,
-          cycleId: draw.cycleId,
-          payout,
-          cycle,
-          fallbackLockedTickets: draw.lockedTicketCount,
-        });
-
-        const cycleInitiatedAt = Number(cycle.initiatedAt);
-        const cycleCompletedAt = Number(cycle.completedAt);
-        const resolvedInitiatedAt =
-          draw.initiatedAt && draw.initiatedAt > 0
-            ? draw.initiatedAt
-            : cycleInitiatedAt > 0
-              ? cycleInitiatedAt
-              : draw.blockTime;
-        const resolvedCompletedAt =
-          draw.completedAt && draw.completedAt > 0
-            ? draw.completedAt
-            : cycleCompletedAt > 0
-              ? cycleCompletedAt
-              : draw.blockTime;
-
-        await db.transaction(async (tx) => {
-          if (winnerRows.length > 0) {
-            await tx
-              .insert(drawWinners)
-              .values(winnerRows)
-              .onConflictDoUpdate({
-                target: [
-                  drawWinners.poolId,
-                  drawWinners.cycleId,
-                  drawWinners.winnerIndex,
-                ],
-                set: {
-                  processed: sql`${drawWinners.processed} OR EXCLUDED.processed`,
-                  winningTicketIdx: sql`COALESCE(EXCLUDED.winning_ticket_idx, ${drawWinners.winningTicketIdx})`,
-                  bondsBought: sql`GREATEST(${drawWinners.bondsBought}, EXCLUDED.bonds_bought)`,
-                  claimSignature: sql`COALESCE(EXCLUDED.claim_signature, ${drawWinners.claimSignature})`,
-                },
-              });
-          }
-          await tx
-            .update(drawHistory)
-            .set({
-              winnersSynced: true,
-              revealedAt: Number(payout.revealedAt),
-              vrfSeedHex: formatSeedHex(cycle.randomnessSeed),
-              initiatedAt: resolvedInitiatedAt,
-              completedAt: resolvedCompletedAt,
-            })
-            .where(
-              and(
-                eq(drawHistory.poolId, draw.poolId),
-                eq(drawHistory.cycleId, draw.cycleId)
-              )
-            );
-        });
-
-        // Realtime cache invalidations (isolated side-effect)
-        try {
-          const validWinners = payout.winners.slice(0, payout.winnersCount);
-          const distinctWinners = Array.from(
-            new Set(
-              validWinners
-                .map((w) => w.winner?.toString())
-                .filter(Boolean) as string[]
-            )
-          );
-          const broadcasts: RealtimeBroadcastItem[] = [
-            { scope: "draws", poolId: draw.poolId, reason: "payout:hydrated" },
-            ...distinctWinners.map((addr) => ({
-              scope: "user" as const,
-              poolId: draw.poolId,
-              userAddress: addr,
-              reason: "payout:winner_registered",
-            })),
-          ];
-          await broadcastAggregatedInvalidations(broadcasts);
-        } catch (broadcastErr) {
-          console.warn(
-            `[PayoutHydrator] Realtime broadcast warning for draw ${draw.poolId}-${draw.cycleId}:`,
-            broadcastErr
-          );
-        }
-
+      if (res.success) {
         result.succeeded++;
-      } catch (err) {
-        const errorMsg =
-          err instanceof Error ? err.message : "Unknown hydration error";
-        console.warn(
-          `[PayoutHydrator] Failed to hydrate draw ${draw.poolId}-${draw.cycleId}:`,
-          err
-        );
+      } else {
         result.failed++;
         result.errors.push({
           poolId: draw.poolId,
           cycleId: draw.cycleId,
-          error: errorMsg,
-          details: err,
+          error: res.error || "Unknown hydration error",
         });
       }
     }

@@ -18,6 +18,7 @@ import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
+import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import type { PrizeHistoryEntry } from "@/app/types";
 import { useTranslations, useFormatter } from "next-intl";
 
@@ -373,18 +374,33 @@ export function PrizeHistoryLedger({
                         {t("status")}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                        <StatusBadge
-                          status={
-                            isEntryTimelocked ? "timelocked" : entry.status
-                          }
-                          isCranking={isCranking}
-                          size="sm"
-                          title={
-                            isEntryTimelocked
-                              ? `${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })} (Unlocks at ${entryTimelock.formattedUnlockTime})`
-                              : undefined
-                          }
-                        />
+                        {isEntryTimelocked ? (
+                          <InteractiveTooltip
+                            ariaLabel={t("timelocked")}
+                            align="center"
+                            side="top"
+                            triggerClassName="inline-flex p-0"
+                            panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                            content={
+                              <TimelockTooltipContent
+                                timelock={entryTimelock}
+                              />
+                            }
+                          >
+                            <StatusBadge
+                              status="timelocked"
+                              isCranking={isCranking}
+                              size="sm"
+                              className="cursor-help"
+                            />
+                          </InteractiveTooltip>
+                        ) : (
+                          <StatusBadge
+                            status={entry.status}
+                            isCranking={isCranking}
+                            size="sm"
+                          />
+                        )}
                         {entry.reinvestedTickets !== undefined &&
                           entry.reinvestedTickets > 0 && (
                             <BonusBondDustBadge
@@ -425,16 +441,23 @@ export function PrizeHistoryLedger({
 
                     <div className="flex items-center gap-2">
                       {isEntryTimelocked ? (
-                        <button
-                          disabled={true}
-                          aria-disabled="true"
-                          aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${entryTimelock.formattedRemaining}`}
-                          title={`${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })} (Unlocks at ${entryTimelock.formattedUnlockTime})`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                        <InteractiveTooltip
+                          ariaLabel={`Crank locked: ${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })}`}
+                          align="right"
+                          side="bottom"
+                          triggerClassName="inline-flex p-0"
+                          panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                          content={
+                            <TimelockTooltipContent timelock={entryTimelock} />
+                          }
                         >
-                          <span>🔒</span> {entryTimelock.formattedRemaining}
-                        </button>
+                          <span
+                            aria-disabled="true"
+                            className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                          >
+                            <span>🔒</span> {entryTimelock.formattedRemaining}
+                          </span>
+                        </InteractiveTooltip>
                       ) : effectivePool?.isFrozenForDraw ? (
                         <InteractiveTooltip
                           ariaLabel={t("frozenCrankTooltip")}
@@ -640,18 +663,33 @@ export function PrizeHistoryLedger({
                       {/* Status + Badges */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <div className="flex flex-wrap items-center gap-1.5 max-w-[220px]">
-                          <StatusBadge
-                            status={
-                              isEntryTimelocked ? "timelocked" : entry.status
-                            }
-                            isCranking={isCranking}
-                            size="sm"
-                            title={
-                              isEntryTimelocked
-                                ? `${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })} (Unlocks at ${entryTimelock.formattedUnlockTime})`
-                                : undefined
-                            }
-                          />
+                          {isEntryTimelocked ? (
+                            <InteractiveTooltip
+                              ariaLabel={t("timelocked")}
+                              align="center"
+                              side="top"
+                              triggerClassName="inline-flex p-0"
+                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                              content={
+                                <TimelockTooltipContent
+                                  timelock={entryTimelock}
+                                />
+                              }
+                            >
+                              <StatusBadge
+                                status="timelocked"
+                                isCranking={isCranking}
+                                size="sm"
+                                className="cursor-help"
+                              />
+                            </InteractiveTooltip>
+                          ) : (
+                            <StatusBadge
+                              status={entry.status}
+                              isCranking={isCranking}
+                              size="sm"
+                            />
+                          )}
                           {entry.reinvestedTickets !== undefined &&
                             entry.reinvestedTickets > 0 && (
                               <BonusBondDustBadge
@@ -681,16 +719,26 @@ export function PrizeHistoryLedger({
                       <td className="py-3 px-3.5 whitespace-nowrap text-right">
                         <div className="inline-flex items-center justify-end gap-2 font-sans">
                           {isEntryTimelocked ? (
-                            <button
-                              disabled={true}
-                              aria-disabled="true"
-                              aria-label={`Crank locked: Payout settlement timelock active. Unlocks in ${entryTimelock.formattedRemaining}`}
-                              title={`${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })} (Unlocks at ${entryTimelock.formattedUnlockTime})`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                            <InteractiveTooltip
+                              ariaLabel={`Crank locked: ${t("timelockTooltip", { remaining: entryTimelock.formattedRemaining })}`}
+                              align="right"
+                              side="bottom"
+                              triggerClassName="inline-flex p-0"
+                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                              content={
+                                <TimelockTooltipContent
+                                  timelock={entryTimelock}
+                                />
+                              }
                             >
-                              <span>🔒</span> {entryTimelock.formattedRemaining}
-                            </button>
+                              <span
+                                aria-disabled="true"
+                                className="rounded-lg px-2.5 py-1.5 text-xs font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                              >
+                                <span>🔒</span>{" "}
+                                {entryTimelock.formattedRemaining}
+                              </span>
+                            </InteractiveTooltip>
                           ) : effectivePool?.isFrozenForDraw ? (
                             <InteractiveTooltip
                               ariaLabel={t("frozenCrankTooltip")}

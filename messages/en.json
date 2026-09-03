@@ -352,6 +352,7 @@
     "processing": "Processing",
     "timelocked": "Timelocked",
     "timelockTooltip": "Payout settlement timelock active ({remaining} remaining)",
+    "timelockUnlocksAt": "Unlocks at {time}",
     "reinvesting": "Reinvesting",
     "reinvested": "Reinvested",
     "disbursed": "Disbursed",

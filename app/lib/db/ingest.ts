@@ -3,13 +3,28 @@ import {
   protocolEvents,
   bondsActivity,
   drawHistory,
+  drawWinners,
   pendingRedemptions,
   poolSnapshots,
   userPortfolioStats,
   indexerCursor,
 } from "./schema";
 import { ParsedProgramEvent, resolveEventMetadata } from "../anchor-events";
-import { sql, Table } from "drizzle-orm";
+import { sql, Table, eq, and } from "drizzle-orm";
+
+export interface WinnerUpdateRow {
+  poolId: number;
+  cycleId: number;
+  winnerIndex: number;
+  winnerAddress: string;
+  bondsBought: bigint;
+  claimSignature: string;
+}
+
+export interface IngestBatchResult {
+  insertedCount: number;
+  unhydratedDraws: { poolId: number; cycleId: number }[];
+}
 
 export interface TransactionIngestContext {
   signature: string;
@@ -241,6 +256,68 @@ export function foldPoolSnapshotRows(
 }
 
 /**
+ * Folds winner update rows targeting the same (poolId, cycleId, winnerIndex) in memory.
+ */
+export function foldWinnerUpdateRows(
+  rows: WinnerUpdateRow[]
+): WinnerUpdateRow[] {
+  const map = new Map<string, WinnerUpdateRow>();
+  for (const r of rows) {
+    const key = `${r.poolId}:${r.cycleId}:${r.winnerIndex}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...r });
+    } else {
+      existing.bondsBought =
+        r.bondsBought > existing.bondsBought
+          ? r.bondsBought
+          : existing.bondsBought;
+      existing.claimSignature = existing.claimSignature || r.claimSignature;
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Updates drawWinners rows for reinvested prizes and detects unhydrated cycles.
+ */
+export async function updateDrawWinnersTx(
+  tx: PgTx,
+  updates: WinnerUpdateRow[]
+): Promise<{ unhydratedDraws: { poolId: number; cycleId: number }[] }> {
+  if (updates.length === 0) return { unhydratedDraws: [] };
+  const missingDraws = new Map<string, { poolId: number; cycleId: number }>();
+
+  for (const up of updates) {
+    const updated = await tx
+      .update(drawWinners)
+      .set({
+        processed: true,
+        bondsBought: sql`GREATEST(${drawWinners.bondsBought}, ${up.bondsBought})`,
+        claimSignature: sql`COALESCE(${drawWinners.claimSignature}, ${up.claimSignature})`,
+      })
+      .where(
+        and(
+          eq(drawWinners.poolId, up.poolId),
+          eq(drawWinners.cycleId, up.cycleId),
+          eq(drawWinners.winnerIndex, up.winnerIndex),
+          eq(drawWinners.winnerAddress, up.winnerAddress)
+        )
+      )
+      .returning({ winnerIndex: drawWinners.winnerIndex });
+
+    if (!updated || updated.length === 0) {
+      missingDraws.set(`${up.poolId}:${up.cycleId}`, {
+        poolId: up.poolId,
+        cycleId: up.cycleId,
+      });
+    }
+  }
+
+  return { unhydratedDraws: Array.from(missingDraws.values()) };
+}
+
+/**
  * Inserts rows in safe chunks (max 100 rows) within a transaction client.
  */
 export async function chunkedInsertTx<T extends Table>(
@@ -412,11 +489,13 @@ export async function applyUserPortfolioStatsTx(
 export async function ingestTransactionBatch(
   batch: IngestTransactionItem[],
   options: { updateLatestCursor?: boolean } = { updateLatestCursor: true }
-): Promise<number> {
-  if (!isDatabaseConfigured || batch.length === 0) return 0;
+): Promise<IngestBatchResult> {
+  if (!isDatabaseConfigured || batch.length === 0)
+    return { insertedCount: 0, unhydratedDraws: [] };
 
   const rawEventRows: (typeof protocolEvents.$inferInsert)[] = [];
   const activityRows: (typeof bondsActivity.$inferInsert)[] = [];
+  const winnerUpdateRows: WinnerUpdateRow[] = [];
   const drawRows: (typeof drawHistory.$inferInsert)[] = [];
   const redemptionRows: (typeof pendingRedemptions.$inferInsert)[] = [];
   const snapshotRows: (typeof poolSnapshots.$inferInsert)[] = [];
@@ -552,6 +631,15 @@ export async function ingestTransactionBatch(
           break;
 
         case "WinningsReinvested":
+          winnerUpdateRows.push({
+            poolId: evt.data.poolId,
+            cycleId: evt.data.cycleId,
+            winnerIndex: evt.data.winnerIndex,
+            winnerAddress: evt.data.winner,
+            bondsBought: BigInt(evt.data.bondsBought),
+            claimSignature: context.signature,
+          });
+
           if (evt.data.bondsBought > 0) {
             activityRows.push({
               signature: context.signature,
@@ -827,7 +915,7 @@ export async function ingestTransactionBatch(
   }
 
   // Atomically execute all reducers within a single SQL transaction
-  const insertedCount = await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // 1. Insert raw events and get set of newly inserted events for idempotent delta accumulation
     if (rawEventRows.length > 0) {
       await tx
@@ -839,6 +927,16 @@ export async function ingestTransactionBatch(
     // 2. Insert bonds activity log
     if (activityRows.length > 0) {
       await chunkedInsertTx(tx, bondsActivity, activityRows);
+    }
+
+    // 2b. Update Draw Winners on Reinvest
+    let unhydratedDraws: { poolId: number; cycleId: number }[] = [];
+    if (winnerUpdateRows.length > 0) {
+      const updateRes = await updateDrawWinnersTx(
+        tx,
+        foldWinnerUpdateRows(winnerUpdateRows)
+      );
+      unhydratedDraws = updateRes.unhydratedDraws;
     }
 
     // 3. Upsert Draw History
@@ -891,8 +989,11 @@ export async function ingestTransactionBatch(
       }
     }
 
-    return rawEventRows.length;
+    return {
+      insertedCount: rawEventRows.length,
+      unhydratedDraws,
+    };
   });
 
-  return insertedCount;
+  return result;
 }
