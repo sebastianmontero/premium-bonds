@@ -12,7 +12,10 @@ import {
 } from "../ingest";
 import { drawHistory } from "../schema";
 import { resolveEventMetadata, ParsedProgramEvent } from "../../anchor-events";
-import { mapDtoToPendingRedemption } from "../../indexer-mappers";
+import {
+  mapDtoToPendingRedemption,
+  isPendingRedemptionStatus,
+} from "../../indexer-mappers";
 import { address } from "@solana/kit";
 
 const userAddr = address("11111111111111111111111111111111");
@@ -327,8 +330,15 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded[0].humaRequestId, "1180591620717411303424");
     });
 
-    it("should map DTO to PendingRedemption correctly", () => {
-      const dto = {
+    it("should validate isPendingRedemptionStatus type guard correctly", () => {
+      assert.strictEqual(isPendingRedemptionStatus("ready"), true);
+      assert.strictEqual(isPendingRedemptionStatus("settling"), true);
+      assert.strictEqual(isPendingRedemptionStatus("claimed"), false);
+      assert.strictEqual(isPendingRedemptionStatus("unknown"), false);
+    });
+
+    it("should map DTO to PendingRedemption correctly for ready and settling", () => {
+      const readyDto = {
         poolId: 1,
         redemptionId: "100",
         userAddress: "user1",
@@ -343,13 +353,51 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         claimedAt: null,
       };
 
-      const model = mapDtoToPendingRedemption(dto);
-      assert.strictEqual(model.redemptionId, "100");
-      assert.strictEqual(model.amount, 1000000);
-      assert.strictEqual(model.status, "ready");
-      assert.strictEqual(model.type, "bond_sale");
-      assert.strictEqual(model.pstSharesLocked, "500000");
-      assert.strictEqual(model.humaRequestId, "1180591620717411303424");
+      const readyModel = mapDtoToPendingRedemption(readyDto);
+      assert.notStrictEqual(readyModel, null);
+      assert.strictEqual(readyModel?.redemptionId, "100");
+      assert.strictEqual(readyModel?.amount, 1000000);
+      assert.strictEqual(readyModel?.status, "ready");
+      assert.strictEqual(readyModel?.type, "bond_sale");
+      assert.strictEqual(readyModel?.pstSharesLocked, "500000");
+      assert.strictEqual(readyModel?.humaRequestId, "1180591620717411303424");
+
+      const settlingDto = {
+        ...readyDto,
+        redemptionId: "101",
+        status: "settling",
+      };
+      const settlingModel = mapDtoToPendingRedemption(settlingDto);
+      assert.notStrictEqual(settlingModel, null);
+      assert.strictEqual(settlingModel?.redemptionId, "101");
+      assert.strictEqual(settlingModel?.status, "settling");
+    });
+
+    it("should return null when mapping non-pending DTO (claimed or invalid)", () => {
+      const claimedDto = {
+        poolId: 1,
+        redemptionId: "102",
+        userAddress: "user1",
+        redemptionType: "bond_sale",
+        amountUsdc: "1000000",
+        pstSharesLocked: "500000",
+        humaRequestId: "1180591620717411303424",
+        status: "claimed",
+        requestSignature: "sig1",
+        claimSignature: "sig2",
+        requestedAt: 1700000000,
+        claimedAt: 1700001000,
+      };
+
+      const claimedModel = mapDtoToPendingRedemption(claimedDto);
+      assert.strictEqual(claimedModel, null);
+
+      const invalidDto = {
+        ...claimedDto,
+        status: "random_status",
+      };
+      const invalidModel = mapDtoToPendingRedemption(invalidDto);
+      assert.strictEqual(invalidModel, null);
     });
   });
 

@@ -11,6 +11,8 @@ import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { buildClaimRedemptionInstruction } from "@/app/lib/bonds-instruction-factory";
 import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
 
+import type { PendingRedemption } from "@/app/types";
+
 export interface ClaimRedemptionParams {
   redemptionId: number | bigint;
   userTokenAccount: Address;
@@ -44,11 +46,25 @@ export function useClaimRedemption(poolId: PoolId = 1) {
       });
       return signature.toString();
     },
+    onMutate: async ({ redemptionId }: ClaimRedemptionParams) => {
+      if (!userAddress) return;
+      const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
+      const idStr = String(redemptionId);
+      await queryClient.cancelQueries({ queryKey });
+      const previousRedemptions =
+        queryClient.getQueryData<PendingRedemption[]>(queryKey);
+      queryClient.setQueryData<PendingRedemption[]>(queryKey, (old) =>
+        (old || []).filter((r) => r.redemptionId !== idStr)
+      );
+      return { previousRedemptions, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousRedemptions && context?.queryKey) {
+        queryClient.setQueryData(context.queryKey, context.previousRedemptions);
+      }
+    },
     onSuccess: () => {
       if (userAddress) {
-        queryClient.invalidateQueries({
-          queryKey: bondsKeys.userRedemptions(poolId, userAddress),
-        });
         queryClient.invalidateQueries({
           queryKey: bondsKeys.userTokenBalance(userAddress),
         });

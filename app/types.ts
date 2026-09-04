@@ -205,10 +205,13 @@ export interface ActivityEntry {
   txSignature?: string; // Solana transaction signature (base58)
 }
 
+export type RedemptionStatus = "settling" | "ready" | "claimed";
+export type PendingRedemptionStatus = "settling" | "ready";
+
 export interface PendingRedemption {
   redemptionId: string;
   amount: number;
-  status: "settling" | "ready";
+  status: PendingRedemptionStatus;
   requestedAt: string; // ISO date string
   type: "bond_sale" | "prize_claim" | "fee_withdrawal";
   pstSharesLocked?: string;

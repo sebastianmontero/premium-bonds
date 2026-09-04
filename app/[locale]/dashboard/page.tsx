@@ -58,6 +58,7 @@ export default function DashboardPage() {
     isPoolError,
     poolError,
     refetch,
+    refetchOnChain,
     actions,
   } = useBondsContext();
 
@@ -395,7 +396,7 @@ export default function DashboardPage() {
         await runActionTx(
           () => actions.claimRedemption(Number(id)),
           (capturedSig) => {
-            refetch();
+            refetchOnChain();
             if (capturedSig) {
               prependLocal(
                 createOptimisticActivity({
@@ -408,6 +409,14 @@ export default function DashboardPage() {
                 initiatingAddress
               );
             }
+            setTimeout(() => {
+              queryClient.invalidateQueries({
+                queryKey: bondsKeys.userRedemptions(
+                  poolId,
+                  initiatingAddress ?? "anonymous"
+                ),
+              });
+            }, 3500);
           }
         );
       }

@@ -134,13 +134,22 @@ export function toPendingRedemptionDto(
   };
 }
 
+export function isPendingRedemptionStatus(
+  status: string
+): status is import("../types").PendingRedemptionStatus {
+  return status === "ready" || status === "settling";
+}
+
 export function mapDtoToPendingRedemption(
   dto: PendingRedemptionDto
-): import("../types").PendingRedemption {
+): import("../types").PendingRedemption | null {
+  if (!isPendingRedemptionStatus(dto.status)) {
+    return null;
+  }
   return {
     redemptionId: dto.redemptionId,
     amount: Number(dto.amountUsdc),
-    status: dto.status === "ready" ? "ready" : "settling",
+    status: dto.status,
     requestedAt: new Date(dto.requestedAt * 1000).toISOString(),
     type:
       (dto.redemptionType as import("../types").PendingRedemption["type"]) ||

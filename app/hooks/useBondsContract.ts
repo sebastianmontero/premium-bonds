@@ -6,7 +6,7 @@ import { address } from "@solana/kit";
 import { usePrizePool } from "./queries/usePrizePool";
 import { useUserBondPosition } from "./queries/useUserBondPosition";
 import { useUserTokenBalance } from "./useUserTokenBalance";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bondsKeys } from "../lib/query-keys";
 import {
   buildBuyBondsInstruction,
@@ -24,6 +24,7 @@ import {
 import { UNASSIGNED_REGISTRY_INDEX } from "../lib/ticket-registry-helpers";
 
 export function useBondsContract(poolId: number = 1) {
+  const queryClient = useQueryClient();
   const client = useSolanaClient();
   const rpc = client.runtime.rpc;
   const { wallet, status } = useWalletConnection();
@@ -43,13 +44,15 @@ export function useBondsContract(poolId: number = 1) {
     queryFn: async (): Promise<PendingRedemption[]> => {
       if (!userAddress) return [];
       const res = await fetch(
-        `/api/indexer/redemptions?user=${encodeURIComponent(userAddress)}&poolId=${poolId}`
+        `/api/indexer/redemptions?user=${encodeURIComponent(userAddress)}&poolId=${poolId}&status=pending`
       );
       if (!res.ok) return [];
       const json = await res.json();
-      return (json.data || []).map((dto: PendingRedemptionDto) =>
-        mapDtoToPendingRedemption(dto)
-      );
+      return (json.data || [])
+        .map((dto: PendingRedemptionDto) => mapDtoToPendingRedemption(dto))
+        .filter(
+          (r: PendingRedemption | null): r is PendingRedemption => r !== null
+        );
     },
     staleTime: 15_000,
   });
@@ -91,6 +94,14 @@ export function useBondsContract(poolId: number = 1) {
       redemptionsQuery.refetch(),
     ]);
   }, [poolQuery, positionQuery, tokenBalanceQuery, redemptionsQuery]);
+
+  const refetchOnChain = useCallback(async () => {
+    await Promise.all([
+      poolQuery.refetch(),
+      positionQuery.refetch(),
+      tokenBalanceQuery.refetch(),
+    ]);
+  }, [poolQuery, positionQuery, tokenBalanceQuery]);
 
   // Mutations
   const buyBonds = useCallback(
@@ -166,6 +177,9 @@ export function useBondsContract(poolId: number = 1) {
     async (redemptionId: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
 
+      const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
+      const idStr = String(redemptionId);
+
       const userAta = await import("../lib/bonds-sdk").then((m) =>
         m.findAtaAddress(userAddress, m.USDC_MINT)
       );
@@ -177,12 +191,27 @@ export function useBondsContract(poolId: number = 1) {
         userTokenAccount: userAta,
       });
 
-      const sig = await send({ instructions: [ix] });
-      await redemptionsQuery.refetch();
-      await tokenBalanceQuery.refetch();
-      return sig.toString();
+      // 1. Cancel in-flight queries & snapshot prior state for rollback
+      await queryClient.cancelQueries({ queryKey });
+      const previousRedemptions =
+        queryClient.getQueryData<PendingRedemption[]>(queryKey);
+
+      // 2. Optimistically remove from cache
+      queryClient.setQueryData<PendingRedemption[]>(queryKey, (old) =>
+        (old || []).filter((r) => r.redemptionId !== idStr)
+      );
+
+      try {
+        const sig = await send({ instructions: [ix] });
+        await tokenBalanceQuery.refetch();
+        return sig.toString();
+      } catch (err) {
+        // 3. Rollback cache on failure / rejection
+        queryClient.setQueryData(queryKey, previousRedemptions);
+        throw err;
+      }
     },
-    [userAddress, poolId, send, redemptionsQuery, tokenBalanceQuery]
+    [userAddress, poolId, send, queryClient, tokenBalanceQuery]
   );
 
   const claimNonReinvestedWinnings = useCallback(
@@ -270,6 +299,7 @@ export function useBondsContract(poolId: number = 1) {
         : null,
       isPoolFetching: poolQuery.isFetching,
       refetch,
+      refetchOnChain,
       actions,
     }),
     [
@@ -284,6 +314,7 @@ export function useBondsContract(poolId: number = 1) {
       poolQuery.error,
       poolQuery.isFetching,
       refetch,
+      refetchOnChain,
       actions,
     ]
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/app/lib/db";
 import { pendingRedemptions } from "@/app/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import {
   ApiResponse,
   PendingRedemptionDto,
@@ -9,6 +9,14 @@ import {
 } from "@/app/lib/indexer-mappers";
 
 export const dynamic = "force-dynamic";
+
+const VALID_STATUSES = new Set([
+  "pending",
+  "settling",
+  "ready",
+  "claimed",
+  "all",
+]);
 
 export async function GET(
   req: NextRequest
@@ -27,7 +35,8 @@ export async function GET(
   const { searchParams } = req.nextUrl;
   const user = searchParams.get("user");
   const poolId = Number(searchParams.get("poolId") || 1);
-  const statusParam = searchParams.get("status") || "all";
+  const rawStatus = searchParams.get("status") || "pending";
+  const statusParam = VALID_STATUSES.has(rawStatus) ? rawStatus : "pending";
   const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
 
   if (!user) {
@@ -47,7 +56,11 @@ export async function GET(
       eq(pendingRedemptions.userAddress, user),
     ];
 
-    if (statusParam && statusParam !== "all") {
+    if (statusParam === "pending") {
+      conditions.push(
+        inArray(pendingRedemptions.status, ["settling", "ready"])
+      );
+    } else if (statusParam !== "all") {
       conditions.push(eq(pendingRedemptions.status, statusParam));
     }
 
