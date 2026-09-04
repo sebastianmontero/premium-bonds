@@ -329,7 +329,7 @@ export function PayoutWinnersTable({
                       <p
                         className={`font-mono text-xs font-bold ${
                           isVoided
-                            ? "line-through opacity-60 text-on-surface-variant"
+                            ? "opacity-60 text-on-surface-variant"
                             : winner.tierIndex === 0
                               ? "text-amber-400"
                               : isConnectedWinner
@@ -337,16 +337,14 @@ export function PayoutWinnersTable({
                                 : "text-on-surface"
                         }`}
                       >
-                        {formatTokenAmount(winner.amountOwed, tokenDecimals)}{" "}
+                        <span className={isVoided ? "line-through" : ""}>
+                          {formatTokenAmount(winner.amountOwed, tokenDecimals)}
+                        </span>{" "}
                         <span className="text-[10px] text-on-surface-variant/60 font-normal">
                           {tokenSymbol}
                         </span>
                       </p>
-                      {isVoided ? (
-                        <span className="inline-block mt-0.5 text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">
-                          {t("voidedPrizesNotice")}
-                        </span>
-                      ) : (
+                      {!isVoided && (
                         <BonusBondDustBadge
                           bondsBought={winner.bondsBought}
                           amountWon={winner.amountOwed}
