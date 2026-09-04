@@ -18,6 +18,7 @@ export interface WinnerUpdateRow {
   winnerIndex: number;
   winnerAddress: string;
   bondsBought: bigint;
+  amountReinvested?: bigint;
   claimSignature: string;
 }
 
@@ -272,6 +273,14 @@ export function foldWinnerUpdateRows(
         r.bondsBought > existing.bondsBought
           ? r.bondsBought
           : existing.bondsBought;
+      if (r.amountReinvested !== undefined) {
+        existing.amountReinvested =
+          existing.amountReinvested !== undefined
+            ? r.amountReinvested > existing.amountReinvested
+              ? r.amountReinvested
+              : existing.amountReinvested
+            : r.amountReinvested;
+      }
       existing.claimSignature = existing.claimSignature || r.claimSignature;
     }
   }
@@ -289,11 +298,17 @@ export async function updateDrawWinnersTx(
   const missingDraws = new Map<string, { poolId: number; cycleId: number }>();
 
   for (const up of updates) {
+    const hasReinvestedAmount = up.amountReinvested !== undefined;
+    const amountReinvested = up.amountReinvested ?? 0n;
+
     const updated = await tx
       .update(drawWinners)
       .set({
         processed: true,
         bondsBought: sql`GREATEST(${drawWinners.bondsBought}, ${up.bondsBought})`,
+        dustAccumulated: hasReinvestedAmount
+          ? sql`CASE WHEN ${drawWinners.amountOwed} > ${amountReinvested} THEN ${drawWinners.amountOwed} - ${amountReinvested} ELSE ${drawWinners.dustAccumulated} END`
+          : sql`${drawWinners.dustAccumulated}`,
         claimSignature: sql`COALESCE(${drawWinners.claimSignature}, ${up.claimSignature})`,
       })
       .where(
@@ -637,6 +652,7 @@ export async function ingestTransactionBatch(
             winnerIndex: evt.data.winnerIndex,
             winnerAddress: evt.data.winner,
             bondsBought: BigInt(evt.data.bondsBought),
+            amountReinvested: BigInt(evt.data.amountReinvested),
             claimSignature: context.signature,
           });
 

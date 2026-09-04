@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/app/lib/db";
-import { drawWinners } from "@/app/lib/db/schema";
+import { drawWinners, drawHistory } from "@/app/lib/db/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import {
   ApiResponse,
@@ -43,8 +43,18 @@ export async function GET(
     }
 
     const rows = await db
-      .select()
+      .select({
+        winner: drawWinners,
+        vrfSeedHex: drawHistory.vrfSeedHex,
+      })
       .from(drawWinners)
+      .leftJoin(
+        drawHistory,
+        and(
+          eq(drawWinners.poolId, drawHistory.poolId),
+          eq(drawWinners.cycleId, drawHistory.cycleId)
+        )
+      )
       .where(and(...conditions))
       .orderBy(
         desc(drawWinners.cycleId),
@@ -54,7 +64,9 @@ export async function GET(
       )
       .limit(limit);
 
-    const data = rows.map(toPrizeHistoryEntryDto);
+    const data = rows.map((r) =>
+      toPrizeHistoryEntryDto(r.winner, r.vrfSeedHex)
+    );
 
     return NextResponse.json(
       { success: true, data, fallbackRequired: false },

@@ -1,19 +1,23 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useSolanaClient } from "@solana/react-hooks";
+import { signature as toSignature } from "@solana/kit";
 import {
   parseTransactionError,
   ParsedTransactionError,
   TransactionError,
 } from "@/app/lib/errors";
-import { notifyBalanceUpdate } from "@/app/hooks/useUserTokenBalance";
-import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
+import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
 import type { TransactionStage } from "@/app/components/dashboard/TransactionProgressModal";
 
 export function useTransactionRunner() {
+  const client = useSolanaClient();
+  const rpc = client.runtime.rpc;
   const [stage, setStage] = useState<TransactionStage>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [error, setError] = useState<ParsedTransactionError | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const lastExecutionRef = useRef<{
     txFn: () => Promise<string | undefined>;
     onSuccess?: (sig?: string) => void;
@@ -25,49 +29,51 @@ export function useTransactionRunner() {
       onSuccess?: (sig?: string) => void
     ) => {
       lastExecutionRef.current = { txFn, onSuccess };
+      abortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       setStage("signing");
       setError(null);
       setTxSignature(null);
-      let capturedSig: string | undefined;
 
       try {
-        capturedSig = await txFn();
-        if (capturedSig) {
-          setTxSignature(capturedSig);
+        const capturedSig = await txFn();
+        if (!capturedSig) {
+          throw new DOMException(
+            "Transaction signature not returned",
+            "AbortError"
+          );
         }
-        setStage("broadcasting");
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        setStage("confirming");
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        setStage("success");
-        notifyBalanceUpdate();
 
-        if (onSuccess) {
-          onSuccess(capturedSig);
-        }
+        setTxSignature(capturedSig);
+        setStage("broadcasting");
+        setStage("confirming");
+
+        await pollSignatureConfirmation(rpc, toSignature(capturedSig), {
+          timeoutMs: 60_000,
+          abortSignal: abortController.signal,
+        });
+
+        setStage("success");
+        if (onSuccess) onSuccess(capturedSig);
         return capturedSig;
-      } catch (err) {
+      } catch (err: unknown) {
+        const errorRecord = err as Record<string, unknown> | null;
+        if (
+          abortController.signal.aborted ||
+          errorRecord?.name === "AbortError"
+        ) {
+          setStage(null);
+          throw err;
+        }
         const parsed = parseTransactionError(err);
         setError(parsed);
-
-        // Auto-sync if error is caused by draw freeze constraint (code 6007 / AwaitingRandomnessFreeze)
-        if (
-          parsed.code === 6007 ||
-          parsed.message?.includes("AwaitingRandomnessFreeze") ||
-          parsed.message?.includes("0x1777")
-        ) {
-          notifyProtocolUpdate("pool", { reason: "freeze_error_recovery" });
-        }
-
-        if (parsed.isCancellation) {
-          setStage(null);
-        } else {
-          setStage("error");
-        }
+        setStage(parsed.isCancellation ? null : "error");
         throw new TransactionError(parsed, err);
       }
     },
-    []
+    [rpc]
   );
 
   const retry = useCallback(async () => {
@@ -77,6 +83,7 @@ export function useTransactionRunner() {
   }, [runTransaction]);
 
   const reset = useCallback(() => {
+    abortControllerRef.current?.abort();
     setStage(null);
     setTxSignature(null);
     setError(null);
@@ -90,7 +97,7 @@ export function useTransactionRunner() {
     runTransaction,
     retry,
     reset,
-    setError,
     setStage,
+    setError,
   };
 }

@@ -534,8 +534,16 @@ export function parsePrizePool(data: Uint8Array) {
       numWinners: tier.numWinners,
     }));
 
+  // Explicitly omit internal Anchor SVM bytes (discriminator, padding, reserved)
   return {
-    ...decoded,
+    poolId: decoded.poolId,
+    tokenMint: decoded.tokenMint,
+    ticketRegistry: decoded.ticketRegistry,
+    feeWallet: decoded.feeWallet,
+    currentDrawCycleId: decoded.currentDrawCycleId,
+    maxYieldBasisPoints: decoded.maxYieldBasisPoints,
+    vaultAuthorityBump: decoded.vaultAuthorityBump,
+    version: decoded.version,
     status: statusName,
     bondPrice: Number(decoded.bondPrice),
     stakeCycleDurationHrs: Number(decoded.stakeCycleDurationHrs),
@@ -543,10 +551,13 @@ export function parsePrizePool(data: Uint8Array) {
     currentCycleEndAt: Number(decoded.currentCycleEndAt),
     nextRedemptionId: Number(decoded.nextRedemptionId),
     isFrozenForDraw: Boolean(decoded.isFrozenForDraw),
-    ticketRegistry: decoded.ticketRegistry,
     feeBasisPoints: Number(decoded.feeBasisPoints),
     minYieldThreshold: Number(decoded.minYieldThreshold),
     totalPrizesDistributed: Number(decoded.totalPrizesDistributed),
+    totalFeesAccrued: Number(decoded.totalFeesAccrued),
+    totalFeesWithdrawn: Number(decoded.totalFeesWithdrawn),
+    totalPrizesAllocated: Number(decoded.totalPrizesAllocated),
+    totalPendingRedemptions: Number(decoded.totalPendingRedemptions),
     payoutTimelockSeconds: Number(decoded.payoutTimelockSeconds),
     prizeTiersCount,
     prizeTiers,
@@ -689,30 +700,69 @@ export interface PoolYieldCalculation {
   totalPrizesAllocated: bigint;
 }
 
-export function calculatePoolYield(params: {
-  poolPstBalance: bigint;
-  pstSupply: bigint;
-  humaTotalAssets: bigint;
-  totalDepositedPrincipal: bigint | number;
+export interface ProtocolFeeParams {
   totalFeesAccrued?: bigint | number;
   totalFeesWithdrawn?: bigint | number;
+}
+
+/**
+ * Computes undistributed protocol fees currently remaining in the pool.
+ * Guarantees non-negative saturating subtraction (accrued - withdrawn).
+ */
+export function calculateAvailableFees(params: ProtocolFeeParams): bigint {
+  const accrued = BigInt(params.totalFeesAccrued ?? 0n);
+  const withdrawn = BigInt(params.totalFeesWithdrawn ?? 0n);
+  return accrued > withdrawn ? accrued - withdrawn : 0n;
+}
+
+export interface BookValueParams extends ProtocolFeeParams {
+  totalDepositedPrincipal: bigint | number;
   feesInVault?: bigint | number;
   totalPrizesAllocated?: bigint | number;
-  feeBasisPoints?: number;
-}): PoolYieldCalculation {
+}
+
+/**
+ * Calculates the pool's book value (liabilities before new yield distribution).
+ * On-chain invariant: book_value = total_deposited_principal + fees_in_vault + total_prizes_allocated
+ */
+export function calculateBookValue(params: BookValueParams): bigint {
   const principal = BigInt(params.totalDepositedPrincipal);
-  const feesAccrued = BigInt(params.totalFeesAccrued ?? 0n);
-  const feesWithdrawn = BigInt(params.totalFeesWithdrawn ?? 0n);
   const feesInVault =
     params.feesInVault !== undefined
       ? BigInt(params.feesInVault)
-      : feesAccrued > feesWithdrawn
-        ? feesAccrued - feesWithdrawn
-        : 0n;
+      : calculateAvailableFees(params);
+  const totalPrizesAllocated = BigInt(params.totalPrizesAllocated ?? 0n);
+
+  const safePrincipal = principal > 0n ? principal : 0n;
+  const safeFees = feesInVault > 0n ? feesInVault : 0n;
+  const safePrizes = totalPrizesAllocated > 0n ? totalPrizesAllocated : 0n;
+
+  return safePrincipal + safeFees + safePrizes;
+}
+
+export interface CalculatePoolYieldParams extends BookValueParams {
+  poolPstBalance: bigint;
+  pstSupply: bigint;
+  humaTotalAssets: bigint;
+  feeBasisPoints?: number;
+}
+
+export function calculatePoolYield(
+  params: CalculatePoolYieldParams
+): PoolYieldCalculation {
+  const principal = BigInt(params.totalDepositedPrincipal);
+  const feesInVault =
+    params.feesInVault !== undefined
+      ? BigInt(params.feesInVault)
+      : calculateAvailableFees(params);
   const totalPrizesAllocated = BigInt(params.totalPrizesAllocated ?? 0n);
   const feeBasisPoints = params.feeBasisPoints ?? 0;
 
-  const bookValue = principal + feesInVault + totalPrizesAllocated;
+  const bookValue = calculateBookValue({
+    totalDepositedPrincipal: principal,
+    feesInVault,
+    totalPrizesAllocated,
+  });
 
   let currentValue = 0n;
   if (params.pstSupply > 0n && params.poolPstBalance > 0n) {

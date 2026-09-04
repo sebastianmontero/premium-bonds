@@ -12,6 +12,7 @@ import {
   getLocalizedTierLabel,
   formatApy,
   DEFAULT_APY,
+  formatCycleFrequency,
 } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -66,9 +67,10 @@ export function PoolCard({
           </div>
           <div>
             <h3 className="font-display text-lg font-bold text-on-surface">
-              {pool.tokenSymbol === "USDC"
-                ? t("weeklyUSDC")
-                : `${pool.tokenSymbol} Pool`}
+              {t("poolTitle", {
+                frequency: formatCycleFrequency(pool.stakeCycleDurationHrs, t),
+                symbol: pool.tokenSymbol,
+              })}
             </h3>
             <div className="flex flex-wrap items-center gap-2 mt-0.5">
               <Link
@@ -76,7 +78,13 @@ export function PoolCard({
                 className="text-xs text-on-surface-variant hover:text-primary transition inline-flex items-center gap-1 group/drawLink"
               >
                 <span>
-                  {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
+                  {t("drawCycleBadge", {
+                    cycleId: pool.currentDrawCycleId,
+                    frequency: formatCycleFrequency(
+                      pool.stakeCycleDurationHrs,
+                      t
+                    ),
+                  })}
                 </span>
                 <span className="opacity-0 group-hover/drawLink:opacity-100 transition-opacity text-[10px]">
                   ↗

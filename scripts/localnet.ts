@@ -31,6 +31,7 @@ import {
   fetchPoolYieldOnChainState,
   findGlobalConfigPda,
   findPrizePoolPda,
+  calculateBookValue,
   buildInitializeGlobalInstruction,
   buildCreatePoolInstruction,
   buildSetPrizeTiersInstruction,
@@ -2565,14 +2566,7 @@ async function handleYield(args: string[]) {
     Buffer.from(poolInfo.value.data[0], "base64")
   );
   const parsedPool = parsePrizePool(poolBuffer);
-  const totalDepositedPrincipal = BigInt(parsedPool.totalDepositedPrincipal);
-  const totalFeesAccrued = parsedPool.totalFeesAccrued;
-  const totalFeesWithdrawn = parsedPool.totalFeesWithdrawn;
-  const totalPrizesAllocated = parsedPool.totalPrizesAllocated;
-
-  const feesInVault = totalFeesAccrued - totalFeesWithdrawn;
-  const bookValue =
-    totalDepositedPrincipal + feesInVault + totalPrizesAllocated;
+  const bookValue = calculateBookValue(parsedPool);
 
   console.log("Fetching on-chain yield parameters...");
   const {
@@ -2624,13 +2618,13 @@ async function handleYield(args: string[]) {
   console.log("\nYield Simulation Calculation Details:");
   console.log(`- Pool ID: ${poolId}`);
   console.log(
-    `- Total Deposited Principal: ${Number(totalDepositedPrincipal) / 1_000_000} USDC`
+    `- Total Deposited Principal: ${parsedPool.totalDepositedPrincipal / 1_000_000} USDC`
   );
   console.log(
-    `- Total Fees Accrued: ${Number(totalFeesAccrued) / 1_000_000} USDC`
+    `- Total Fees Accrued: ${parsedPool.totalFeesAccrued / 1_000_000} USDC`
   );
   console.log(
-    `- Total Fees Withdrawn: ${Number(totalFeesWithdrawn) / 1_000_000} USDC`
+    `- Total Fees Withdrawn: ${parsedPool.totalFeesWithdrawn / 1_000_000} USDC`
   );
   console.log(`- Pool Book Value: ${Number(bookValue) / 1_000_000} USDC`);
   console.log(`- Target Yield to Simulate: ${yieldAmountFloat} USDC`);

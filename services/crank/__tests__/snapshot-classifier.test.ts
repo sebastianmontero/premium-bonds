@@ -32,6 +32,7 @@ function assertSnapshotState<TState extends PoolStateSnapshot["state"]>(
 
 function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
   return {
+    discriminator: new Uint8Array(8),
     bondPrice: 1_000_000n,
     stakeCycleDurationHrs: 24n,
     minYieldThreshold: 5_000_000n,
@@ -54,9 +55,8 @@ function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
     version: 1,
     prizeTiersCount: 1,
     padding: new Uint8Array(6),
-    admin: mockPoolAddress,
+    feeWallet: mockPoolAddress,
     tokenMint: mockPoolAddress,
-    pstMint: mockPoolAddress,
     ticketRegistry: mockRegistryAddress,
     prizeTiers: [],
     reserved: new Uint8Array(64),
@@ -68,8 +68,9 @@ function createMockRegistry(
   overrides: Partial<TicketRegistry> = {}
 ): TicketRegistry {
   return {
+    discriminator: new Uint8Array(8),
     poolId: 1,
-    bump: 255,
+    drawCycleId: 1,
     version: 1,
     userCount: 10,
     capacity: 100,
@@ -156,7 +157,7 @@ describe("Snapshot Classifier", () => {
       userCount: 50,
       drawPreparedUpTo: 50,
     });
-    const drawCycle: DrawCycle = {
+    const drawCycle = {
       poolId: 1,
       drawCycleId: 1,
       bump: 255,
@@ -171,7 +172,7 @@ describe("Snapshot Classifier", () => {
       randomnessAccount: mockPoolAddress,
       randomnessSeed: new Uint8Array(32),
       reserved: new Uint8Array(64),
-    };
+    } as unknown as DrawCycle;
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -204,7 +205,7 @@ describe("Snapshot Classifier", () => {
       userCount: 50,
       drawPreparedUpTo: 50,
     });
-    const drawCycle: DrawCycle = {
+    const drawCycle = {
       poolId: 1,
       drawCycleId: 1,
       bump: 255,
@@ -219,7 +220,7 @@ describe("Snapshot Classifier", () => {
       randomnessAccount: mockPoolAddress,
       randomnessSeed: new Uint8Array(32),
       reserved: new Uint8Array(64),
-    };
+    } as unknown as DrawCycle;
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -251,7 +252,7 @@ describe("Snapshot Classifier", () => {
       payoutTimelockSeconds: 300,
     });
     const registry = createMockRegistry();
-    const payoutRegistry: PayoutRegistry = {
+    const payoutRegistry = {
       poolId: 1,
       drawCycleId: 1,
       bump: 255,
@@ -273,7 +274,7 @@ describe("Snapshot Classifier", () => {
         },
       ],
       reserved: new Uint8Array(64),
-    };
+    } as unknown as PayoutRegistry;
 
     // Before timelock elapsed (1000 + 300 = 1300)
     const snapshotWaiting = classifyPoolState({
@@ -320,7 +321,7 @@ describe("Snapshot Classifier", () => {
   it("should classify as CIRCUIT_BREAKER_HALTED on solvency halt", () => {
     const pool = createMockPool();
     const registry = createMockRegistry();
-    const drawCycle: DrawCycle = {
+    const drawCycle = {
       poolId: 1,
       drawCycleId: 1,
       bump: 255,
@@ -335,7 +336,7 @@ describe("Snapshot Classifier", () => {
       randomnessAccount: mockPoolAddress,
       randomnessSeed: new Uint8Array(32),
       reserved: new Uint8Array(64),
-    };
+    } as unknown as DrawCycle;
 
     const snapshot = classifyPoolState({
       poolId: 1,

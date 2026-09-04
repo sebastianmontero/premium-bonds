@@ -12,6 +12,7 @@ import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { getExplorerUrl } from "@/app/lib/errors";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
+import { getEffectivePrizeBreakdown } from "@/app/lib/draw-helpers";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeDetailsModalProps {
@@ -328,43 +329,46 @@ export default function PrizeDetailsModal({
                 </svg>
                 {t("autoReinvestmentBreakdown")}
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                  <p className="text-on-surface-variant font-medium">
-                    {t("reinvestedTickets")}
-                  </p>
-                  <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    +{entry.reinvestedTickets || 0} Bonds
-                  </p>
-                </div>
-                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                  <p className="text-on-surface-variant font-medium">
-                    {t("purchaseCost")}
-                  </p>
-                  <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                    {tokenSymbol} / bond
-                  </p>
-                </div>
-                <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                  <p className="text-on-surface-variant font-medium">
-                    {t("targetPool")}
-                  </p>
-                  <p className="font-mono text-base font-bold text-on-surface mt-1">
-                    {t("solanaYieldPool")}
-                  </p>
-                </div>
-              </div>
               {(() => {
-                const priorDustApplied =
-                  entry.usedPriorDust ??
-                  Math.max(
-                    0,
-                    (entry.reinvestedTickets || 0) * ticketPrice - entry.amount
-                  );
+                const breakdown = entry
+                  ? getEffectivePrizeBreakdown(entry, ticketPrice)
+                  : {
+                      bondsBought: 0,
+                      usedPriorDust: 0,
+                      dustAccumulated: 0,
+                      totalAvailable: 0,
+                    };
 
                 return (
                   <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          {t("reinvestedTickets")}
+                        </p>
+                        <p className="font-mono text-base font-bold text-on-surface mt-1">
+                          +{breakdown.bondsBought} Bonds
+                        </p>
+                      </div>
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          {t("purchaseCost")}
+                        </p>
+                        <p className="font-mono text-base font-bold text-on-surface mt-1">
+                          {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
+                          {tokenSymbol} / bond
+                        </p>
+                      </div>
+                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
+                        <p className="text-on-surface-variant font-medium">
+                          {t("targetPool")}
+                        </p>
+                        <p className="font-mono text-base font-bold text-on-surface mt-1">
+                          {t("solanaYieldPool")}
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mt-2">
                       <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
                         <p className="text-on-surface-variant font-medium">
@@ -380,7 +384,7 @@ export default function PrizeDetailsModal({
                           {t("priorDustApplied")}
                         </p>
                         <p className="font-mono text-sm font-bold text-tertiary mt-1">
-                          +{formatTokenAmount(priorDustApplied, tokenDecimals)}{" "}
+                          +{formatTokenAmount(breakdown.usedPriorDust, tokenDecimals)}{" "}
                           {tokenSymbol}
                         </p>
                       </div>
@@ -390,7 +394,7 @@ export default function PrizeDetailsModal({
                         </p>
                         <p className="font-mono text-sm font-bold text-primary mt-1">
                           {formatTokenAmount(
-                            (entry.reinvestedTickets || 0) * ticketPrice,
+                            breakdown.bondsBought * ticketPrice,
                             tokenDecimals
                           )}{" "}
                           {tokenSymbol}
@@ -402,7 +406,7 @@ export default function PrizeDetailsModal({
                         </p>
                         <p className="font-mono text-sm font-bold text-on-surface mt-1">
                           {formatTokenAmount(
-                            entry.dustAccumulated || 0,
+                            breakdown.dustAccumulated,
                             tokenDecimals
                           )}{" "}
                           {tokenSymbol}
@@ -410,7 +414,7 @@ export default function PrizeDetailsModal({
                       </div>
                     </div>
 
-                    {priorDustApplied > 0 && (
+                    {breakdown.usedPriorDust > 0 && (
                       <div
                         className="flex items-start gap-2.5 p-3 rounded-xl border border-tertiary/20 bg-tertiary/5 text-xs text-on-surface mt-3"
                         aria-label="Bonus bond unlocked notification"
@@ -423,7 +427,7 @@ export default function PrizeDetailsModal({
                           <p className="text-on-surface-variant text-[11px] leading-relaxed">
                             {t("bonusTicketDesc", {
                               priorDust: formatTokenAmount(
-                                priorDustApplied,
+                                breakdown.usedPriorDust,
                                 tokenDecimals
                               ),
                               winnings: formatTokenAmount(

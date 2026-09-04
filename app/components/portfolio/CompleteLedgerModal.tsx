@@ -11,6 +11,7 @@ import {
 import {
   getPayoutTimelockState,
   sortPrizeHistoryEntries,
+  getEffectivePrizeDust,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { PaginationControls } from "./PaginationControls";
@@ -120,16 +121,16 @@ export default function CompleteLedgerModal({
 
   // Filtered dataset computation: filter natively preserves sorted order
   const filteredEntries = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
     return sortedEntries.filter((entry) => {
       // 1. Search Matching (Draw ID, Tx Signature, Ticket Seed, or Tier Label)
       const matchesSearch =
-        searchTerm === "" ||
-        entry.drawCycleId.toString().includes(searchTerm) ||
-        entry.txSignature?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        entry.winningTicket?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tierLabel(entry.tierIndex)
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase());
+        query === "" ||
+        (entry.drawCycleId ?? "").toString().includes(query) ||
+        entry.txSignature?.toLowerCase().includes(query) ||
+        entry.winningTicket?.toLowerCase().includes(query) ||
+        tierLabel(entry.tierIndex).toLowerCase().includes(query);
 
       // 2. Status Matching
       const matchesStatus =
@@ -149,7 +150,7 @@ export default function CompleteLedgerModal({
   // Aggregate stats across matching records
   const totalCount = filteredEntries.length;
   const totalValue = useMemo(() => {
-    return filteredEntries.reduce((sum, entry) => sum + entry.amount, 0);
+    return filteredEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
   }, [filteredEntries]);
 
   // Safe page clamping
@@ -624,16 +625,22 @@ export default function CompleteLedgerModal({
                                   tooltipAlign="center"
                                 />
                               )}
-                            {entry.dustAccumulated !== undefined &&
-                              entry.dustAccumulated > 0 && (
+                            {(() => {
+                              const effectiveDust = getEffectivePrizeDust(
+                                entry,
+                                effectiveBondPrice
+                              );
+                              return effectiveDust !== undefined &&
+                                effectiveDust > 0 ? (
                                 <RemainingWinningsBadge
-                                  amount={entry.dustAccumulated}
+                                  amount={effectiveDust}
                                   tokenDecimals={tokenDecimals}
                                   tokenSymbol={tokenSymbol}
                                   bondPrice={effectiveBondPrice}
                                   tooltipAlign="center"
                                 />
-                              )}
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -928,16 +935,22 @@ export default function CompleteLedgerModal({
                                     tooltipAlign="center"
                                   />
                                 )}
-                              {entry.dustAccumulated !== undefined &&
-                                entry.dustAccumulated > 0 && (
+                              {(() => {
+                                const effectiveDust = getEffectivePrizeDust(
+                                  entry,
+                                  effectiveBondPrice
+                                );
+                                return effectiveDust !== undefined &&
+                                  effectiveDust > 0 ? (
                                   <RemainingWinningsBadge
-                                    amount={entry.dustAccumulated}
+                                    amount={effectiveDust}
                                     tokenDecimals={tokenDecimals}
                                     tokenSymbol={tokenSymbol}
                                     bondPrice={effectiveBondPrice}
                                     tooltipAlign="center"
                                   />
-                                )}
+                                ) : null;
+                              })()}
                             </div>
                           </td>
 

@@ -53,7 +53,7 @@ describe("Strategy Workers Unit Tests", () => {
       currentCycleId: toDrawCycleId(1),
     };
 
-    const decision = worker.evaluate(snapshot, ctx);
+    const decision = worker.evaluate(snapshot);
     assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /ready for yield harvest/);
     assert.strictEqual(worker.getComputeUnitLimit(), 150_000);
@@ -104,7 +104,7 @@ describe("Strategy Workers Unit Tests", () => {
       elapsedSlots: 1100n,
     };
 
-    const decision = worker.evaluate(snapshot, ctx);
+    const decision = worker.evaluate(snapshot);
     assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /expired after 1100 slots/);
     assert.strictEqual(worker.getComputeUnitLimit(), 120_000);
@@ -129,7 +129,7 @@ describe("Strategy Workers Unit Tests", () => {
       randomnessAccount: mockAddress,
     };
 
-    const decision = worker.evaluate(snapshot, ctx);
+    const decision = worker.evaluate(snapshot);
     assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /ready for atomic reveal/);
     assert.strictEqual(worker.getComputeUnitLimit(), 500_000);
@@ -190,7 +190,7 @@ describe("Strategy Workers Unit Tests", () => {
       pool: { isFrozenForDraw: 0 } as PrizePool,
       ticketRegistry: { userCount: 80, capacity: 100 } as TicketRegistry,
     };
-    const decision80 = sentinel.evaluate(snapshot80, ctx);
+    const decision80 = sentinel.evaluate(snapshot80);
     assert.strictEqual(decision80.shouldExecute, false);
 
     // 90% utilization -> should trigger
@@ -199,7 +199,7 @@ describe("Strategy Workers Unit Tests", () => {
       pool: { isFrozenForDraw: 0 } as PrizePool,
       ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
     };
-    const decision90 = sentinel.evaluate(snapshot90, ctx);
+    const decision90 = sentinel.evaluate(snapshot90);
     assert.strictEqual(decision90.shouldExecute, true);
     assert.match(decision90.reason, /90.0%/);
 
@@ -209,7 +209,7 @@ describe("Strategy Workers Unit Tests", () => {
       pool: { isFrozenForDraw: 1 } as PrizePool,
       ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
     };
-    const decisionFrozen = sentinel.evaluate(snapshotFrozen, ctx);
+    const decisionFrozen = sentinel.evaluate(snapshotFrozen);
     assert.strictEqual(decisionFrozen.shouldExecute, false);
   });
 

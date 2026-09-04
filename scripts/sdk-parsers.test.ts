@@ -16,6 +16,8 @@ import {
   parseTokenAccountBalance,
   parseMintSupply,
   calculatePoolYield,
+  calculateAvailableFees,
+  calculateBookValue,
   resolveUserTickets,
   parseUserEntryFromSlice,
   parseRegistryHeaderFromSlice,
@@ -228,6 +230,16 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.strictEqual(parsed.totalDepositedPrincipal, 50_000_000);
     assert.strictEqual(parsed.prizeTiers.length, 1);
     assert.strictEqual(parsed.prizeTiers[0].basisPoints, 10000);
+
+    // Verify JSON serialization safeguard: parsePrizePool output must be strictly JSON-serializable
+    assert.doesNotThrow(
+      () => JSON.stringify(parsed),
+      "parsePrizePool output must be strictly JSON serializable"
+    );
+    assert.strictEqual(typeof parsed.totalFeesAccrued, "number");
+    assert.strictEqual(typeof parsed.totalFeesWithdrawn, "number");
+    assert.strictEqual(typeof parsed.totalPrizesAllocated, "number");
+    assert.strictEqual(typeof parsed.totalPendingRedemptions, "number");
   });
 
   it("should synchronize ANCHOR_CUSTOM_ERRORS Codama constants", () => {
@@ -293,6 +305,85 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
 
     assert.strictEqual(parseMintSupply(buffer), 1_000_000_000n);
     assert.strictEqual(parseMintSupply(new Uint8Array(20)), 0n);
+  });
+
+  it("should calculate available fees with saturating non-negative subtraction", () => {
+    // Normal case: accrued > withdrawn (bigint inputs)
+    assert.strictEqual(
+      calculateAvailableFees({
+        totalFeesAccrued: 50_000_000n,
+        totalFeesWithdrawn: 20_000_000n,
+      }),
+      30_000_000n
+    );
+
+    // Number inputs (as returned by parsePrizePool)
+    assert.strictEqual(
+      calculateAvailableFees({
+        totalFeesAccrued: 50_000_000,
+        totalFeesWithdrawn: 20_000_000,
+      }),
+      30_000_000n
+    );
+
+    // Saturating guard: withdrawn >= accrued clamps cleanly to 0n without negative values
+    assert.strictEqual(
+      calculateAvailableFees({
+        totalFeesAccrued: 10_000_000n,
+        totalFeesWithdrawn: 20_000_000n,
+      }),
+      0n
+    );
+    assert.strictEqual(
+      calculateAvailableFees({
+        totalFeesAccrued: 10_000_000,
+        totalFeesWithdrawn: 10_000_000,
+      }),
+      0n
+    );
+
+    // Undefined / empty fields default to 0n
+    assert.strictEqual(calculateAvailableFees({}), 0n);
+  });
+
+  it("should calculate pool book value across mixed bigint, number, and PrizePoolInfo objects", () => {
+    // 1. Mixed bigint and number inputs
+    const bvMixed = calculateBookValue({
+      totalDepositedPrincipal: 100_000_000, // number
+      totalFeesAccrued: 15_000_000n, // bigint
+      totalFeesWithdrawn: 5_000_000, // number
+      totalPrizesAllocated: 2_000_000n, // bigint
+    });
+    // principal (100M) + fees_in_vault (15M - 5M = 10M) + prizes (2M) = 112M
+    assert.strictEqual(bvMixed, 112_000_000n);
+
+    // 2. Structural compatibility with PrizePoolInfo (all numbers from parsePrizePool)
+    const mockParsedPool = {
+      poolId: 1,
+      totalDepositedPrincipal: 50_000_000,
+      totalFeesAccrued: 4_000_000,
+      totalFeesWithdrawn: 1_000_000,
+      totalPrizesAllocated: 500_000,
+    };
+    const bvFromParsed = calculateBookValue(mockParsedPool);
+    // 50M + (4M - 1M) + 0.5M = 53.5M = 53_500_000n
+    assert.strictEqual(bvFromParsed, 53_500_000n);
+
+    // 3. Explicit feesInVault override
+    const bvOverride = calculateBookValue({
+      totalDepositedPrincipal: 10_000_000n,
+      feesInVault: 3_000_000n,
+      totalPrizesAllocated: 0n,
+    });
+    assert.strictEqual(bvOverride, 13_000_000n);
+
+    // 4. Zero liabilities edge case
+    assert.strictEqual(
+      calculateBookValue({
+        totalDepositedPrincipal: 0n,
+      }),
+      0n
+    );
   });
 
   it("should calculate pool yield baseline and fee deduction", () => {

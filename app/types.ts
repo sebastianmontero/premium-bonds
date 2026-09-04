@@ -44,6 +44,10 @@ export interface PoolInfo {
   totalPrizesDistributed?: number;
   /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s) */
   payoutTimelockSeconds?: number;
+  /** Public key address of the TicketRegistry PDA (base58) */
+  ticketRegistry?: string;
+  /** Next sequential redemption request ID on-chain */
+  nextRedemptionId?: number;
 }
 
 export interface YieldBreakdown {

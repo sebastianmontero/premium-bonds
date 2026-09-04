@@ -1,32 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/app/lib/db";
-import { drawHistory } from "@/app/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
-import type { DrawHistoryStats, DrawStatusName } from "@/app/types";
+import { drawHistory, drawWinners } from "@/app/lib/db/schema";
+import { eq, desc, getTableColumns, sql } from "drizzle-orm";
+import {
+  mapDrawHistoryRowsToSummaries,
+  calculateDrawHistoryStats,
+  type DrawCycleSummaryDto,
+} from "@/app/lib/indexer-mappers";
+import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+
+export type { DrawCycleSummaryDto };
 
 export const dynamic = "force-dynamic";
 
-export interface DrawCycleSummaryDto {
-  poolId: number;
-  cycleId: number;
-  status: DrawStatusName;
-  prizePot: number;
-  cycleFeeCollected: number;
-  lockedTicketCount: number;
-  harvestSlot: number;
-  randomnessAccount: string;
-  vrfSeedHex: string;
-  winnersCount: number;
-  payoutsCompleted: number;
-  hasPayoutRegistry: boolean;
-  completedAt?: number;
-  initiatedAt: number;
-  revealedAt?: number;
-}
-
 export async function GET(req: NextRequest) {
   if (!isDatabaseConfigured) {
-    return NextResponse.json({ draws: [], stats: null, fallback: true });
+    return NextResponse.json(
+      { draws: [], stats: null, fallback: true },
+      { headers: NO_CACHE_HEADERS }
+    );
   }
 
   const { searchParams } = req.nextUrl;
@@ -35,67 +27,34 @@ export async function GET(req: NextRequest) {
 
   try {
     const rows = await db
-      .select()
+      .select({
+        ...getTableColumns(drawHistory),
+        payoutsCompleted: sql<number>`COALESCE((
+          SELECT count(*)::int
+          FROM ${drawWinners}
+          WHERE ${drawWinners.poolId} = ${drawHistory.poolId}
+            AND ${drawWinners.cycleId} = ${drawHistory.cycleId}
+            AND ${drawWinners.processed} = true
+        ), 0)`,
+      })
       .from(drawHistory)
       .where(eq(drawHistory.poolId, poolId))
       .orderBy(desc(drawHistory.cycleId))
       .limit(limit);
 
-    let totalYield = 0;
-    let completedDraws = 0;
-    let totalWinningBonds = 0;
-
-    const summaries: DrawCycleSummaryDto[] = rows.map((r) => {
-      const potNum = Number(r.prizePot);
-      if (r.status === "Complete") {
-        completedDraws++;
-        totalYield += potNum;
-        totalWinningBonds += r.winnersCount;
-      }
-
-      return {
-        poolId: r.poolId,
-        cycleId: r.cycleId,
-        status: r.status as DrawStatusName,
-        prizePot: potNum,
-        cycleFeeCollected: Number(r.cycleFeeCollected ?? 0n),
-        lockedTicketCount: Number(r.lockedTicketCount ?? 0n),
-        harvestSlot: Number(r.harvestSlot ?? 0),
-        randomnessAccount: r.randomnessAccount || "",
-        vrfSeedHex: r.vrfSeedHex || "",
-        winnersCount: r.winnersCount,
-        payoutsCompleted: r.winnersCount,
-        hasPayoutRegistry: r.winnersCount > 0,
-        completedAt:
-          r.status === "Complete" ||
-          r.status === "Skipped" ||
-          r.status === "Voided" ||
-          r.status === "ForceUnlocked"
-            ? (r.completedAt ?? r.blockTime)
-            : undefined,
-        initiatedAt:
-          r.initiatedAt && r.initiatedAt > 0 ? r.initiatedAt : r.blockTime,
-        revealedAt: r.revealedAt ?? undefined,
-      };
-    });
-
-    const stats: DrawHistoryStats = {
-      totalYieldDistributed: totalYield,
-      totalDrawsCompleted: completedDraws,
-      totalWinningBonds,
-      averagePrizePot: completedDraws > 0 ? totalYield / completedDraws : 0,
-    };
+    const summaries = mapDrawHistoryRowsToSummaries(rows);
+    const stats = calculateDrawHistoryStats(summaries);
 
     return NextResponse.json(
       { draws: summaries, stats, fallback: false },
-      {
-        headers: {
-          "Cache-Control": "public, s-maxage=5, stale-while-revalidate=10",
-        },
-      }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch (err) {
     console.warn("[Indexer Draws API Error - Falling Back to RPC]:", err);
-    return NextResponse.json({ draws: [], stats: null, fallback: true });
+    return NextResponse.json(
+      { draws: [], stats: null, fallback: true },
+      { headers: NO_CACHE_HEADERS }
+    );
   }
 }
+

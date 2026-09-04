@@ -142,10 +142,15 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     const unprocessedWinners: { winner: Address; winnerIndex: number }[] = [];
     if (Array.isArray(payoutRegistry.winners)) {
       payoutRegistry.winners.forEach((w, index) => {
-        // Winner is unprocessed if neither reinvested nor claimed
-        const isReinvested = Boolean(w.isReinvested);
-        const isClaimed = Boolean(w.isClaimed);
-        if (!isReinvested && !isClaimed) {
+        // Winner is unprocessed if processed is 0 (or neither reinvested nor claimed in mocks)
+        const isProcessed =
+          typeof w.processed === "number"
+            ? w.processed !== 0
+            : Boolean(
+                (w as { isReinvested?: unknown }).isReinvested ||
+                (w as { isClaimed?: unknown }).isClaimed
+              );
+        if (!isProcessed) {
           unprocessedWinners.push({
             winner: w.winner as Address,
             winnerIndex: index,

@@ -4,8 +4,10 @@ import { eq, and, sql, type InferInsertModel } from "drizzle-orm";
 import {
   findPayoutRegistryPda,
   findDrawCyclePda,
+  findPrizePoolPda,
   parsePayoutRegistry,
   parseDrawCycle,
+  parsePrizePool,
   type PayoutRegistryInfo,
   type DrawCycleInfo,
 } from "../bonds-sdk";
@@ -40,6 +42,7 @@ export interface DeriveDrawWinnerRowsParams {
   payout: PayoutRegistryInfo;
   cycle: Pick<DrawCycleInfo, "randomnessSeed" | "lockedTicketCount">;
   fallbackLockedTickets?: bigint | number | null;
+  bondPrice?: bigint | number;
 }
 
 /**
@@ -49,7 +52,9 @@ export interface DeriveDrawWinnerRowsParams {
 export async function deriveDrawWinnerRows(
   params: DeriveDrawWinnerRowsParams
 ): Promise<DrawWinnerRow[]> {
-  const { poolId, cycleId, payout, cycle, fallbackLockedTickets } = params;
+  const { poolId, cycleId, payout, cycle, fallbackLockedTickets, bondPrice } =
+    params;
+  const effectiveBondPrice = BigInt(bondPrice ?? 5_000_000);
   const lockedTickets = Number(
     cycle.lockedTicketCount ?? fallbackLockedTickets ?? 0
   );
@@ -82,16 +87,24 @@ export async function deriveDrawWinnerRows(
         }
       }
 
+      const amountOwed = BigInt(w.amountOwed);
+      const bondsBought = BigInt(w.bondsBought ?? 0);
+      const cost = bondsBought * effectiveBondPrice;
+      const isProcessed = Boolean(w.processed);
+      const dustAccumulated =
+        isProcessed && amountOwed > cost ? amountOwed - cost : 0n;
+
       return {
         poolId,
         cycleId,
         winnerIndex: idx,
         winnerAddress: w.winner ? w.winner.toString() : "Unknown",
         tierIndex: w.tierIndex,
-        amountOwed: BigInt(w.amountOwed),
+        amountOwed,
         winningTicketIdx,
-        processed: Boolean(w.processed),
-        bondsBought: BigInt(w.bondsBought ?? 0),
+        processed: isProcessed,
+        bondsBought,
+        dustAccumulated,
         revealedAt: Number(payout.revealedAt),
       };
     })
@@ -118,17 +131,22 @@ export class PayoutHydratorService {
   async fetchDrawAccounts(
     poolId: number,
     cycleId: number
-  ): Promise<{ payoutData: Buffer; cycleData: Buffer } | null> {
+  ): Promise<{
+    payoutData: Buffer;
+    cycleData: Buffer;
+    poolData?: Buffer;
+  } | null> {
     const payoutPda = await findPayoutRegistryPda(poolId, cycleId);
     const cyclePda = await findDrawCyclePda(poolId, cycleId);
+    const poolPda = await findPrizePoolPda(poolId);
 
-    if (!isAddress(payoutPda) || !isAddress(cyclePda)) {
+    if (!isAddress(payoutPda) || !isAddress(cyclePda) || !isAddress(poolPda)) {
       throw new Error(
-        `Invalid PDA derived for draw ${poolId}-${cycleId}: payoutPda='${payoutPda}', cyclePda='${cyclePda}'`
+        `Invalid PDA derived for draw ${poolId}-${cycleId}: payoutPda='${payoutPda}', cyclePda='${cyclePda}', poolPda='${poolPda}'`
       );
     }
 
-    const addresses = [address(payoutPda), address(cyclePda)];
+    const addresses = [address(payoutPda), address(cyclePda), address(poolPda)];
     const delays = [0, ...this.retryDelays];
     let lastError: unknown = null;
 
@@ -144,6 +162,7 @@ export class PayoutHydratorService {
 
         const acc0 = res?.value?.[0];
         const acc1 = res?.value?.[1];
+        const acc2 = res?.value?.[2];
 
         if (
           acc0 &&
@@ -156,6 +175,10 @@ export class PayoutHydratorService {
           return {
             payoutData: Buffer.from(acc0.data[0], "base64"),
             cycleData: Buffer.from(acc1.data[0], "base64"),
+            poolData:
+              acc2 && "data" in acc2 && acc2.data
+                ? Buffer.from(acc2.data[0], "base64")
+                : undefined,
           };
         }
       } catch (err) {
@@ -194,6 +217,15 @@ export class PayoutHydratorService {
 
       const payout = parsePayoutRegistry(accounts.payoutData);
       const cycle = parseDrawCycle(accounts.cycleData);
+      let bondPrice: bigint | undefined;
+      if (accounts.poolData) {
+        try {
+          const poolInfo = parsePrizePool(accounts.poolData);
+          bondPrice = BigInt(poolInfo.bondPrice);
+        } catch {
+          bondPrice = undefined;
+        }
+      }
 
       const winnerRows = await deriveDrawWinnerRows({
         poolId,
@@ -201,6 +233,7 @@ export class PayoutHydratorService {
         payout,
         cycle,
         fallbackLockedTickets: options?.fallbackLockedTickets,
+        bondPrice,
       });
 
       const cycleInitiatedAt = Number(cycle.initiatedAt);
@@ -233,6 +266,7 @@ export class PayoutHydratorService {
                 processed: sql`${drawWinners.processed} OR EXCLUDED.processed`,
                 winningTicketIdx: sql`COALESCE(EXCLUDED.winning_ticket_idx, ${drawWinners.winningTicketIdx})`,
                 bondsBought: sql`GREATEST(${drawWinners.bondsBought}, EXCLUDED.bonds_bought)`,
+                dustAccumulated: sql`GREATEST(${drawWinners.dustAccumulated}, EXCLUDED.dust_accumulated)`,
                 claimSignature: sql`COALESCE(${drawWinners.claimSignature}, EXCLUDED.claim_signature)`,
               },
             });

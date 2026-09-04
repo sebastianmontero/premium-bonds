@@ -5,6 +5,8 @@ import {
   poolSnapshots,
   userPortfolioStats,
 } from "./db/schema";
+import type { DrawHistoryStats, DrawStatusName } from "../types";
+
 
 export type ApiResponse<T> =
   | { success: true; data: T; fallbackRequired: false }
@@ -23,10 +25,12 @@ export interface PrizeHistoryEntryDto {
   dustAccumulated: string;
   claimSignature: string | null;
   revealedAt: number;
+  vrfSeedHex?: string | null;
 }
 
 export function toPrizeHistoryEntryDto(
-  row: typeof drawWinners.$inferSelect
+  row: typeof drawWinners.$inferSelect,
+  vrfSeedHex?: string | null
 ): PrizeHistoryEntryDto {
   return {
     poolId: row.poolId,
@@ -42,6 +46,57 @@ export function toPrizeHistoryEntryDto(
     dustAccumulated: row.dustAccumulated.toString(),
     claimSignature: row.claimSignature,
     revealedAt: row.revealedAt,
+    vrfSeedHex: vrfSeedHex ?? null,
+  };
+}
+
+/** Helper to safely parse string or numeric base units/counts to finite numbers */
+export function parseNumericBaseUnits(
+  val: string | number | null | undefined
+): number {
+  if (val === null || val === undefined || val === "") return 0;
+  const num = typeof val === "number" ? val : Number(val);
+  return Number.isFinite(num) && num >= 0 ? num : 0;
+}
+
+export function mapDtoToPrizeHistoryEntry(
+  dto: PrizeHistoryEntryDto
+): import("../types").PrizeHistoryEntry {
+  const bondsBoughtNum = parseNumericBaseUnits(dto.bondsBought);
+  const dustAccumulatedNum = parseNumericBaseUnits(dto.dustAccumulated);
+  const amountNum = parseNumericBaseUnits(dto.amountOwed);
+  const hasRevealedAt =
+    typeof dto.revealedAt === "number" && dto.revealedAt > 0;
+
+  return {
+    drawCycleId: dto.cycleId,
+    winnerIndex: dto.winnerIndex,
+    date: hasRevealedAt
+      ? new Date(dto.revealedAt * 1000).toISOString()
+      : new Date(0).toISOString(),
+    tierIndex: dto.tierIndex,
+    amount: amountNum,
+    status: dto.processed ? "reinvested" : "processing",
+    bondsBought: bondsBoughtNum > 0 ? bondsBoughtNum : undefined,
+    reinvestedTickets: bondsBoughtNum > 0 ? bondsBoughtNum : undefined,
+    dustAccumulated: dustAccumulatedNum > 0 ? dustAccumulatedNum : undefined,
+    winningTicket: dto.winningTicketIdx ?? undefined,
+    txSignature: dto.claimSignature ?? undefined,
+    vrfSeed: dto.vrfSeedHex ?? undefined,
+    revealedAt: hasRevealedAt ? dto.revealedAt : undefined,
+  };
+}
+
+export function mapDtoToRecentWinner(
+  dto: PrizeHistoryEntryDto,
+  tokenSymbol: string = "USDC"
+): import("../types").RecentWinner {
+  return {
+    address: dto.winnerAddress,
+    amount: parseNumericBaseUnits(dto.amountOwed),
+    cycleId: dto.cycleId,
+    tierIndex: dto.tierIndex,
+    tokenSymbol,
   };
 }
 
@@ -210,3 +265,84 @@ export function toUserPortfolioStatsDto(
     lastActivityAt: row.lastActivityAt,
   };
 }
+
+export interface DrawCycleSummaryDto {
+  poolId: number;
+  cycleId: number;
+  status: DrawStatusName;
+  prizePot: number;
+  cycleFeeCollected: number;
+  lockedTicketCount: number;
+  harvestSlot: number;
+  randomnessAccount: string;
+  vrfSeedHex: string;
+  winnersCount: number;
+  payoutsCompleted: number;
+  hasPayoutRegistry: boolean;
+  completedAt?: number;
+  initiatedAt: number;
+  revealedAt?: number;
+}
+
+export function isTerminalDrawStatus(status: string): boolean {
+  return (
+    status === "Complete" ||
+    status === "Skipped" ||
+    status === "Voided" ||
+    status === "ForceUnlocked"
+  );
+}
+
+export function mapDrawHistoryRowsToSummaries(
+  rows: (typeof drawHistory.$inferSelect & { payoutsCompleted?: number | null })[]
+): DrawCycleSummaryDto[] {
+  return rows.map((r) => {
+    const rawPayouts = Number(r.payoutsCompleted ?? 0);
+    const payoutsCompleted = Math.min(Math.max(0, rawPayouts), r.winnersCount);
+
+    return {
+      poolId: r.poolId,
+      cycleId: r.cycleId,
+      status: r.status as DrawStatusName,
+      prizePot: Number(r.prizePot),
+      cycleFeeCollected: Number(r.cycleFeeCollected ?? 0n),
+      lockedTicketCount: Number(r.lockedTicketCount ?? 0n),
+      harvestSlot: Number(r.harvestSlot ?? 0),
+      randomnessAccount: r.randomnessAccount || "",
+      vrfSeedHex: r.vrfSeedHex || "",
+      winnersCount: r.winnersCount,
+      payoutsCompleted,
+      hasPayoutRegistry: r.winnersCount > 0,
+      completedAt: isTerminalDrawStatus(r.status)
+        ? (r.completedAt ?? r.blockTime)
+        : undefined,
+      initiatedAt:
+        r.initiatedAt && r.initiatedAt > 0 ? r.initiatedAt : r.blockTime,
+      revealedAt: r.revealedAt ?? undefined,
+    };
+  });
+}
+
+export function calculateDrawHistoryStats(
+  summaries: DrawCycleSummaryDto[]
+): DrawHistoryStats {
+  let totalYield = 0;
+  let completedDraws = 0;
+  let totalWinningBonds = 0;
+
+  for (const s of summaries) {
+    if (s.status === "Complete") {
+      completedDraws++;
+      totalYield += s.prizePot;
+      totalWinningBonds += s.winnersCount;
+    }
+  }
+
+  return {
+    totalYieldDistributed: totalYield,
+    totalDrawsCompleted: completedDraws,
+    totalWinningBonds,
+    averagePrizePot: completedDraws > 0 ? totalYield / completedDraws : 0,
+  };
+}
+

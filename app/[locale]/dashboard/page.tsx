@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
+import { bondsKeys } from "@/app/lib/query-keys";
+import {
+  calculateReinvestmentBreakdown,
+  invalidateDrawQueries,
+} from "@/app/lib/draw-helpers";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
 import { PoolCard } from "@/app/components/dashboard/PoolCard";
@@ -21,17 +27,16 @@ import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
 import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
 import CompleteActivityModal from "@/app/components/portfolio/CompleteActivityModal";
 import { formatTokenAmount } from "@/app/lib/formatters";
-import { createDefaultPoolFallback } from "@/app/types";
+import { PoolStateErrorCard } from "@/app/components/dashboard/PoolStateErrorCard";
+import { PoolStateUninitializedCard } from "@/app/components/dashboard/PoolStateUninitializedCard";
+import { DashboardLoadingSkeleton } from "@/app/components/dashboard/DashboardLoadingSkeleton";
 import type {
   ActivityEntry,
   PendingRedemption,
   PrizeHistoryEntry,
-  PoolInfo,
   UserTicketInfo,
   RecentWinner,
 } from "@/app/types";
-
-const DEFAULT_POOL_FALLBACK: PoolInfo = createDefaultPoolFallback(1);
 
 export default function DashboardPage() {
   const tPools = useTranslations("Pools");
@@ -48,12 +53,19 @@ export default function DashboardPage() {
     walletBalance,
     isFirstDeposit,
     isLoading: isBondsLoading,
+    isPoolLoading,
+    isPoolError,
+    poolError,
     refetch,
     actions,
   } = useBondsContext();
 
-  // Active pool for deriving parameters — public on-chain state when loaded, or default pool structure
-  const activePool = onChainPool ?? DEFAULT_POOL_FALLBACK;
+  const poolTokenSymbol = onChainPool?.tokenSymbol ?? "USDC";
+  const poolTokenDecimals = onChainPool?.tokenDecimals ?? 6;
+  const poolBondPrice = onChainPool?.bondPrice ?? 5_000_000;
+  const poolId = onChainPool?.poolId ?? 1;
+
+  const queryClient = useQueryClient();
 
   // ── On-chain Draw History & Activity Feed hooks ──
   const {
@@ -62,18 +74,13 @@ export default function DashboardPage() {
     isLoading: isDrawHistoryLoading,
     refetch: refetchDrawHistory,
     markPrizeOptimisticallyProcessed,
-  } = useDrawHistory(
-    1,
-    onChainPool ? onChainPool.currentDrawCycleId : undefined,
-    isConnected ? userAddress : undefined,
-    activePool.tokenSymbol,
-    activePool.bondPrice,
-    50,
-    activePool.currentCycleEndAt,
-    activePool.stakeCycleDurationHrs
-      ? activePool.stakeCycleDurationHrs * 3600
-      : 604800
-  );
+    rollbackOptimisticPrize,
+  } = useDrawHistory({
+    poolId: 1,
+    userAddress: isConnected ? userAddress : undefined,
+    tokenSymbol: poolTokenSymbol,
+    maxCyclesToFetch: 50,
+  });
 
   const {
     entries: onChainActivityFeed,
@@ -87,15 +94,11 @@ export default function DashboardPage() {
     prependLocal,
   } = useActivityFeed(
     isConnected ? userAddress : undefined,
-    activePool.tokenDecimals
+    poolTokenDecimals
   );
 
-  // Initial page load simulation (1000ms) for smooth skeleton feedback and account hydration
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  useEffect(() => {
-    const timer = setTimeout(() => setIsInitialLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
+  // Display skeleton loaders during connecting status to eliminate FOEC
+  const isInitialLoading = status === "connecting";
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
@@ -181,9 +184,10 @@ export default function DashboardPage() {
     (sum, r) => sum + r.amount,
     0
   );
-  const investedAmount =
-    (activeTickets.activeTicketsCount + activeTickets.pendingTicketsCount) *
-    activePool.bondPrice;
+  const investedAmount = onChainPool
+    ? (activeTickets.activeTicketsCount + activeTickets.pendingTicketsCount) *
+      onChainPool.bondPrice
+    : 0;
   const redeemingAmount = pendingRedemptionsTotal;
   const netWorth = investedAmount + redeemingAmount + activeUnclaimedWinnings;
 
@@ -230,52 +234,84 @@ export default function DashboardPage() {
   };
 
   // Handlers for Prize Crank Reinvestment & Dust Claiming
-  const handleSimulateCrank = async (
-    drawCycleId: number,
-    winnerIndex: number
-  ) => {
-    const entry = activePrizeHistory.find(
-      (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
-    );
-    if (!entry) return;
-    if (entry.status === "reinvested") return;
-    const key = crankKey(drawCycleId, winnerIndex);
-    if (crankingCycles[key]) return;
+  const handleSimulateCrank = useCallback(
+    async (drawCycleId: number, winnerIndex: number) => {
+      const entry = activePrizeHistory.find(
+        (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+      );
+      if (!entry) return;
+      if (entry.status === "reinvested") return;
+      const key = crankKey(drawCycleId, winnerIndex);
+      if (crankingCycles[key]) return;
 
-    setCrankingCycles((prev) => ({ ...prev, [key]: true }));
-    setActionModalTitle("Run Reinvestment Crank");
-    setActionSuccessMsg("Prize draw winnings successfully reinvested!");
+      setCrankingCycles((prev) => ({ ...prev, [key]: true }));
+      setActionModalTitle("Run Reinvestment Crank");
+      setActionSuccessMsg("Prize draw winnings successfully reinvested!");
 
-    try {
-      if (isConnected) {
-        await runActionTx(
-          async () => {
-            const sig = await actions.reinvestWinnings(
-              drawCycleId,
-              entry.winnerIndex,
-              userAddress
-            );
-            markPrizeOptimisticallyProcessed({
-              drawCycleId,
-              winnerIndex: entry.winnerIndex,
-              bondPrice: activePool.bondPrice,
-              unclaimedDust: activeUnclaimedWinnings,
-            });
-            return sig;
-          },
-          () => {
-            refetch();
-            refetchDrawHistory();
-            refetchActivity();
-          }
-        );
+      const breakdown = calculateReinvestmentBreakdown(
+        entry.amount,
+        activeUnclaimedWinnings,
+        poolBondPrice
+      );
+
+      try {
+        if (isConnected) {
+          await runActionTx(
+            async () => {
+              const sig = await actions.reinvestWinnings(
+                drawCycleId,
+                entry.winnerIndex,
+                userAddress
+              );
+              markPrizeOptimisticallyProcessed({
+                drawCycleId,
+                winnerIndex: entry.winnerIndex,
+                breakdown,
+                txSignature: sig,
+              });
+              return sig;
+            },
+            () => {
+              refetch();
+              refetchActivity();
+              invalidateDrawQueries(queryClient, poolId);
+              setTimeout(() => {
+                queryClient.invalidateQueries({
+                  queryKey: bondsKeys.userPrizeHistory(
+                    poolId,
+                    userAddress ?? "anonymous"
+                  ),
+                });
+              }, 4000);
+            }
+          );
+        }
+      } catch (err) {
+        console.error("Reinvest crank failed:", err);
+        rollbackOptimisticPrize(drawCycleId, entry.winnerIndex);
+      } finally {
+        setCrankingCycles((prev) => ({ ...prev, [key]: false }));
       }
-    } catch (err) {
-      console.error("Reinvest crank failed:", err);
-    } finally {
-      setCrankingCycles((prev) => ({ ...prev, [key]: false }));
-    }
-  };
+    },
+    [
+      activePrizeHistory,
+      crankingCycles,
+      activeUnclaimedWinnings,
+      poolBondPrice,
+      poolId,
+      isConnected,
+      runActionTx,
+      actions,
+      userAddress,
+      markPrizeOptimisticallyProcessed,
+      refetch,
+      refetchActivity,
+      queryClient,
+      rollbackOptimisticPrize,
+      setActionModalTitle,
+      setActionSuccessMsg,
+    ]
+  );
 
   const handleClaimNonReinvestedWinnings = async () => {
     if (activeUnclaimedWinnings === 0) return;
@@ -289,7 +325,7 @@ export default function DashboardPage() {
     try {
       if (isConnected) {
         await runActionTx(
-          () => actions.claimNonReinvestedWinnings(),
+          () => actions.claimNonReinvestedWinnings(claimAmount),
           (capturedSig) => {
             refetch();
             refetchDrawHistory();
@@ -336,7 +372,7 @@ export default function DashboardPage() {
     try {
       if (isConnected) {
         await runActionTx(
-          () => actions.claimRedemption(id),
+          () => actions.claimRedemption(Number(id)),
           (capturedSig) => {
             refetch();
             refetchActivity();
@@ -362,6 +398,26 @@ export default function DashboardPage() {
       console.error("Claim redemption failed:", err);
     }
   };
+
+  if (!onChainPool) {
+    if (isPoolError) {
+      return (
+        <div className="space-y-6">
+          <PoolStateErrorCard error={poolError} onRetry={refetch} />
+        </div>
+      );
+    }
+    if (!isPoolLoading && !isPoolError) {
+      return (
+        <div className="space-y-6">
+          <PoolStateUninitializedCard poolId={1} onRetry={refetch} />
+        </div>
+      );
+    }
+    return <DashboardLoadingSkeleton />;
+  }
+
+  const activePool = onChainPool;
 
   return (
     <div className="space-y-6">

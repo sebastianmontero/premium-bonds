@@ -1,7 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { DashboardSidebar } from "@/app/components/dashboard/DashboardSidebar";
 import { DashboardHeader } from "@/app/components/dashboard/DashboardHeader";
-import { ProtocolSyncCoordinator } from "@/app/components/dashboard/ProtocolSyncCoordinator";
 import { BondsProvider } from "@/app/components/providers/BondsProvider";
 
 export default async function DashboardLayout({
@@ -17,9 +16,6 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-surface text-on-surface relative overflow-hidden bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(135,173,255,0.12),rgba(255,255,255,0))]">
       <BondsProvider poolId={1}>
-        {/* Headless protocol synchronization coordinator */}
-        <ProtocolSyncCoordinator />
-
         {/* Zero-cost hardware-accelerated ambient glows */}
         <div
           aria-hidden="true"

@@ -224,10 +224,7 @@ export class AdaptiveCrankScheduler {
     }
 
     // 3. Run Housekeeping Sentinels (Capacity & Disburse)
-    const capacityDecision = this.capacitySentinel.evaluate(
-      snapshot,
-      this.context
-    );
+    const capacityDecision = this.capacitySentinel.evaluate(snapshot);
     if (capacityDecision.shouldExecute) {
       console.log(
         `[AdaptiveCrankScheduler] [Pool #${poolId}] Sentinel [${this.capacitySentinel.name}]: ${capacityDecision.reason}`

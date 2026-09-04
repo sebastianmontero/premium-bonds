@@ -1,13 +1,11 @@
 import Pusher from "pusher";
 import {
-  type ProtocolSyncScope,
-  derivePrimaryScope,
-} from "../protocol-sync-bus";
-import {
   REALTIME_GLOBAL_CHANNEL,
   REALTIME_PROTOCOL_SYNC_EVENT,
   getRealtimeUserChannel,
   isValidPusherChannel,
+  type ProtocolSyncScope,
+  derivePrimaryScope,
 } from "./channels";
 
 let pusherServer: Pusher | null = null;

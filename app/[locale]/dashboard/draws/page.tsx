@@ -4,6 +4,7 @@ import React, { useState, Suspense, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRouter, usePathname } from "@/i18n/routing";
 import { useWalletConnection } from "@solana/react-hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useDrawExplorer } from "@/app/hooks/useDrawExplorer";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
@@ -11,10 +12,13 @@ import { TransactionProgressModal } from "@/app/components/dashboard/Transaction
 import { DrawStatsSummary } from "@/app/components/draws/DrawStatsSummary";
 import { DrawHistoryList } from "@/app/components/draws/DrawHistoryList";
 import { DrawCycleInspectorModal } from "@/app/components/draws/DrawCycleInspectorModal";
-import { createDefaultPoolFallback } from "@/app/types";
+import { PoolStateErrorCard } from "@/app/components/dashboard/PoolStateErrorCard";
+import { PoolStateUninitializedCard } from "@/app/components/dashboard/PoolStateUninitializedCard";
+import { invalidateDrawQueries } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
 function DrawHistoryContent() {
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -25,12 +29,12 @@ function DrawHistoryContent() {
 
   const {
     pool: onChainPool,
-    isLoading: isPoolLoading,
+    isPoolLoading,
+    isPoolError,
+    poolError,
     refetch: refetchPool,
     actions,
   } = useBondsContext();
-
-  const activePool = onChainPool ?? createDefaultPoolFallback(1);
 
   const {
     drawSummaries,
@@ -40,9 +44,8 @@ function DrawHistoryContent() {
     refetch: refetchDraws,
   } = useDrawExplorer(
     1,
-    onChainPool?.currentDrawCycleId,
     100,
-    activePool.totalPrizesDistributed
+    onChainPool?.totalPrizesDistributed ?? 0
   );
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -51,6 +54,7 @@ function DrawHistoryContent() {
     if (isRefreshing || isDrawsLoading || isDrawsRefetching) return;
     setIsRefreshing(true);
     try {
+      invalidateDrawQueries(queryClient, 1);
       await Promise.all([refetchPool(), refetchDraws()]);
     } catch (err) {
       console.error("Failed to refresh draw history:", err);
@@ -63,7 +67,9 @@ function DrawHistoryContent() {
     isDrawsRefetching,
     refetchPool,
     refetchDraws,
+    queryClient,
   ]);
+
 
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
@@ -120,7 +126,7 @@ function DrawHistoryContent() {
             actions.reinvestWinnings(drawCycleId, winnerIndex, winnerAddress),
           () => {
             refetchPool();
-            refetchDraws();
+            invalidateDrawQueries(queryClient, 1);
           }
         );
       }
@@ -133,6 +139,32 @@ function DrawHistoryContent() {
   };
 
   const isBusyRefreshing = isRefreshing || isDrawsRefetching || isDrawsLoading;
+
+  if (!onChainPool) {
+    if (isPoolError) {
+      return (
+        <div className="space-y-6">
+          <PoolStateErrorCard error={poolError} onRetry={refetchPool} />
+        </div>
+      );
+    }
+    if (!isPoolLoading && !isPoolError) {
+      return (
+        <div className="space-y-6">
+          <PoolStateUninitializedCard poolId={1} onRetry={refetchPool} />
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6 animate-pulse" aria-busy="true">
+        <div className="h-10 w-48 bg-surface-container-high/60 rounded-xl" />
+        <div className="card p-6 rounded-2xl bg-surface-container/40 border border-outline-variant/10 min-h-[160px]" />
+        <div className="card p-6 rounded-2xl bg-surface-container/40 border border-outline-variant/10 min-h-[400px]" />
+      </div>
+    );
+  }
+
+  const activePool = onChainPool;
 
   return (
     <div className="space-y-6">

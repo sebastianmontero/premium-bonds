@@ -100,6 +100,7 @@ import {
   findHumaPoolAuthorityPda,
   PrizeTierInput,
   DEFAULT_PRIZE_TIERS,
+  calculateAvailableFees,
 } from "../app/lib/bonds-sdk";
 
 // Switchboard On-Demand binary account layout constants
@@ -2392,8 +2393,7 @@ export async function executeWithdrawFees({
     );
   }
 
-  const availableFees =
-    poolState.totalFeesAccrued - poolState.totalFeesWithdrawn;
+  const availableFees = calculateAvailableFees(poolState);
   if (availableFees <= 0n) {
     throw new Error(
       `No accrued protocol fees available for withdrawal. Total Accrued: ${formatAmount(
@@ -2402,7 +2402,7 @@ export async function executeWithdrawFees({
     );
   }
 
-  let withdrawAmount = availableFees;
+  let withdrawAmount: bigint = availableFees;
   if (amountOption && amountOption !== "all") {
     const val = BigInt(amountOption);
     if (val <= 0n || val > availableFees) {

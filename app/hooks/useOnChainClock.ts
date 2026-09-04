@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
 import { address, getBase64Encoder } from "@solana/kit";
-import { notifyProtocolUpdate } from "../lib/protocol-sync-bus";
 
 interface UseOnChainClockOptions {
   resyncIntervalMs?: number;
+  enabled?: boolean;
 }
 
 const DEFAULT_RESYNC_INTERVAL_MS =
@@ -69,7 +69,8 @@ function stopSharedSyncTimerIfOrphaned() {
 }
 
 export function useOnChainClock(options: UseOnChainClockOptions = {}) {
-  const { resyncIntervalMs = DEFAULT_RESYNC_INTERVAL_MS } = options;
+  const { resyncIntervalMs = DEFAULT_RESYNC_INTERVAL_MS, enabled = true } =
+    options;
   const client = useSolanaClient();
   const [clockOffset, setClockOffset] = useState<number>(
     sharedClockState.clockOffset
@@ -105,9 +106,6 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
           if (currentReqId === reqIdRef.current) {
             const newOffset = onChainTime - startSystemNow;
-            const hasJump =
-              !sharedClockState.isSynced ||
-              Math.abs(newOffset - sharedClockState.clockOffset) >= 3;
 
             sharedClockState.clockOffset = newOffset;
             sharedClockState.isSynced = true;
@@ -115,10 +113,6 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
             setClockOffset(newOffset);
             setIsSynced(true);
             notifyListeners();
-
-            if (hasJump) {
-              notifyProtocolUpdate("clock", { reason: "clock_offset_jump" });
-            }
           }
           return;
         }
@@ -138,9 +132,6 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
 
       if (blockTime !== null && currentReqId === reqIdRef.current) {
         const newOffset = Number(blockTime) - startSystemNow;
-        const hasJump =
-          !sharedClockState.isSynced ||
-          Math.abs(newOffset - sharedClockState.clockOffset) >= 3;
 
         sharedClockState.clockOffset = newOffset;
         sharedClockState.isSynced = true;
@@ -148,10 +139,6 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
         setClockOffset(newOffset);
         setIsSynced(true);
         notifyListeners();
-
-        if (hasJump) {
-          notifyProtocolUpdate("clock", { reason: "clock_offset_jump" });
-        }
       }
     } catch {
       // Retain existing clockOffset on failure
@@ -159,6 +146,7 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
   }, [client]);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
 
     const listener = (offset: number, synced: boolean) => {
@@ -198,7 +186,7 @@ export function useOnChainClock(options: UseOnChainClockOptions = {}) {
       stopSharedSyncTimerIfOrphaned();
       window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [syncClock, resyncIntervalMs]);
+  }, [syncClock, resyncIntervalMs, enabled]);
 
   return { clockOffset, isSynced, resync: syncClock };
 }
@@ -207,6 +195,7 @@ export interface UseClusterTimeOptions {
   tick?: boolean;
   tickIntervalMs?: number;
   resyncIntervalMs?: number;
+  enabled?: boolean;
 }
 
 export interface ClusterTimeState {
@@ -225,9 +214,15 @@ export interface ClusterTimeState {
 export function useClusterTime(
   options: UseClusterTimeOptions = {}
 ): ClusterTimeState {
-  const { tick = true, tickIntervalMs = 1000, resyncIntervalMs } = options;
+  const {
+    tick = true,
+    tickIntervalMs = 1000,
+    resyncIntervalMs,
+    enabled = true,
+  } = options;
   const { clockOffset, isSynced, resync } = useOnChainClock({
     resyncIntervalMs,
+    enabled,
   });
 
   const getNow = useCallback(

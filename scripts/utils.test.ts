@@ -14,6 +14,8 @@ import {
   formatTokenAmount,
   formatCurrencyAmount,
   calculateAnnualDrawEntries,
+  getCycleFrequency,
+  formatCycleFrequency,
 } from "../app/lib/formatters";
 import { COMMAND_REGISTRY } from "./pb-cli";
 
@@ -244,6 +246,28 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       const undefDurRes = calculateAnnualDrawEntries(5);
       assert.strictEqual(undefDurRes.drawsPerYear, 52);
       assert.strictEqual(undefDurRes.annualEntries, 260);
+    });
+
+    it("should categorize and format cycle frequencies dynamically", () => {
+      assert.strictEqual(getCycleFrequency(24), "daily");
+      assert.strictEqual(getCycleFrequency(12), "daily");
+      assert.strictEqual(getCycleFrequency(168), "weekly");
+      assert.strictEqual(getCycleFrequency(720), "monthly");
+      assert.strictEqual(getCycleFrequency(48), "custom");
+
+      // Mock translation function
+      const mockT = (key: string, values?: Record<string, any>) => {
+        if (key === "freqDaily") return "Daily";
+        if (key === "freqWeekly") return "Weekly";
+        if (key === "freqMonthly") return "Monthly";
+        if (key === "freqHours") return `${values?.hours}h`;
+        return key;
+      };
+
+      assert.strictEqual(formatCycleFrequency(24, mockT), "Daily");
+      assert.strictEqual(formatCycleFrequency(168, mockT), "Weekly");
+      assert.strictEqual(formatCycleFrequency(720, mockT), "Monthly");
+      assert.strictEqual(formatCycleFrequency(48, mockT), "48h");
     });
   });
 

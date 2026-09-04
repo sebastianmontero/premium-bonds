@@ -2,17 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
+import { useQueryClient } from "@tanstack/react-query";
 import { useOnChainClock } from "@/app/hooks/useOnChainClock";
 import { formatLocalDate } from "@/app/lib/formatters";
-import { notifyProtocolUpdate } from "@/app/lib/protocol-sync-bus";
+import { bondsKeys } from "@/app/lib/query-keys";
 
 interface CountdownTimerProps {
   targetTimestamp: number; // unix seconds
   resyncIntervalMs?: number;
+  disableRpcSync?: boolean;
   showExactDate?: boolean;
   exactDateClassName?: string;
   variant?: "inline" | "card-footer" | "compact";
   className?: string;
+  poolId?: number;
+  onExpire?: () => void;
 }
 
 interface TimeLeft {
@@ -38,15 +42,22 @@ function calcTimeLeft(target: number, offset: number): TimeLeft {
 export function CountdownTimer({
   targetTimestamp,
   resyncIntervalMs,
+  disableRpcSync = false,
   showExactDate = false,
   exactDateClassName,
   variant = "card-footer",
   className = "",
+  poolId = 1,
+  onExpire,
 }: CountdownTimerProps) {
   const t = useTranslations("Countdown");
   const format = useFormatter();
+  const queryClient = useQueryClient();
   const [isMounted, setIsMounted] = useState(false);
-  const { clockOffset } = useOnChainClock({ resyncIntervalMs });
+  const { clockOffset } = useOnChainClock({
+    resyncIntervalMs,
+    enabled: !disableRpcSync,
+  });
   const prevTotalRef = useRef<number>(999999);
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
@@ -70,7 +81,16 @@ export function CountdownTimer({
     const updateTime = () => {
       const calculated = calcTimeLeft(targetTimestamp, clockOffset);
       if (prevTotalRef.current > 0 && calculated.total <= 0) {
-        notifyProtocolUpdate("clock", { reason: "countdown_reached_zero" });
+        if (onExpire) {
+          onExpire();
+        } else {
+          queryClient.invalidateQueries({
+            queryKey: bondsKeys.poolState(poolId),
+          });
+          queryClient.invalidateQueries({
+            queryKey: bondsKeys.draws(poolId),
+          });
+        }
       }
       prevTotalRef.current = calculated.total;
       setTimeLeft(calculated);
@@ -94,7 +114,7 @@ export function CountdownTimer({
       cancelAnimationFrame(frame);
       clearInterval(id);
     };
-  }, [targetTimestamp, clockOffset]);
+  }, [targetTimestamp, clockOffset, onExpire, poolId, queryClient]);
 
   const renderDisplay = () => {
     if (!isMounted) {

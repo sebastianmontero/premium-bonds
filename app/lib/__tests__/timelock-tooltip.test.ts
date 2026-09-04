@@ -54,10 +54,16 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
     assert.ok(esMessages.Ledger.timelockUnlocksAt.includes("{time}"));
   });
 
+  const Provider = NextIntlClientProvider as unknown as React.ComponentType<{
+    locale: string;
+    messages: unknown;
+    children?: React.ReactNode;
+  }>;
+
   it("should ensure StatusBadge timelocked state does not render native title attribute", () => {
     const html = renderToStaticMarkup(
       React.createElement(
-        NextIntlClientProvider as any,
+        Provider,
         { locale: "en", messages: enMessages },
         React.createElement(StatusBadge, {
           status: "timelocked",
@@ -79,11 +85,12 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
       progressPercent: 60,
       formattedRemaining: "2m 00s",
       formattedUnlockTime: "12:00:00 PM",
+      timelockExpiresAt: 1772500000,
     };
 
     const htmlEn = renderToStaticMarkup(
       React.createElement(
-        NextIntlClientProvider as any,
+        Provider,
         { locale: "en", messages: enMessages },
         React.createElement(TimelockTooltipContent, { timelock: mockTimelock })
       )
@@ -93,7 +100,7 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
 
     const htmlEs = renderToStaticMarkup(
       React.createElement(
-        NextIntlClientProvider as any,
+        Provider,
         { locale: "es", messages: esMessages },
         React.createElement(TimelockTooltipContent, { timelock: mockTimelock })
       )

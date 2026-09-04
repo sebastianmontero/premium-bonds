@@ -8,11 +8,13 @@ import {
   findPrizePoolPda,
   findDrawCyclePda,
   findPayoutRegistryPda,
-  decodePrizePool,
-  decodeDrawCycle,
-  decodePayoutRegistry,
   parseTicketRegistry,
 } from "../../../app/lib/bonds-sdk";
+import {
+  getPrizePoolDecoder,
+  getDrawCycleDecoder,
+  getPayoutRegistryDecoder,
+} from "../../../app/lib/generated/yield-bonds/src/generated";
 import { PoolStateSnapshot } from "../types";
 import { classifyPoolState } from "./snapshot-classifier";
 
@@ -39,7 +41,7 @@ export async function fetchPoolStateSnapshot(
   const poolBytes = new Uint8Array(
     base64Encoder.encode(poolAccountRes.value.data[0])
   );
-  const pool = decodePrizePool({ address: poolPda, data: poolBytes }).data;
+  const pool = getPrizePoolDecoder().decode(poolBytes);
   const ticketRegistryAddress = address(pool.ticketRegistry);
 
   const currentCycleId = pool.currentDrawCycleId;
@@ -87,10 +89,7 @@ export async function fetchPoolStateSnapshot(
   if (drawAcc?.data?.[0]) {
     try {
       const drawBytes = new Uint8Array(base64Encoder.encode(drawAcc.data[0]));
-      drawCycle = decodeDrawCycle({
-        address: currentDrawCyclePda,
-        data: drawBytes,
-      }).data;
+      drawCycle = getDrawCycleDecoder().decode(drawBytes);
     } catch {}
   }
 
@@ -104,10 +103,7 @@ export async function fetchPoolStateSnapshot(
       const payoutBytes = new Uint8Array(
         base64Encoder.encode(currentPayoutAcc.data[0])
       );
-      payoutRegistry = decodePayoutRegistry({
-        address: currentPayoutPda,
-        data: payoutBytes,
-      }).data;
+      payoutRegistry = getPayoutRegistryDecoder().decode(payoutBytes);
       payoutRegistryAddress = currentPayoutPda;
     } catch {}
   }
@@ -119,10 +115,7 @@ export async function fetchPoolStateSnapshot(
         const payoutBytes = new Uint8Array(
           base64Encoder.encode(prevPayoutAcc.data[0])
         );
-        payoutRegistry = decodePayoutRegistry({
-          address: prevPayoutPda,
-          data: payoutBytes,
-        }).data;
+        payoutRegistry = getPayoutRegistryDecoder().decode(payoutBytes);
         payoutRegistryAddress = prevPayoutPda;
       } catch {}
     }

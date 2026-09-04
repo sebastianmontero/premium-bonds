@@ -1,6 +1,8 @@
 import type { SelectOption } from "../components/common/CustomSelect";
 import { DrawCycleInfo, PayoutRegistryInfo } from "./bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "./vrf-utils";
+import type { QueryClient } from "@tanstack/react-query";
+import { bondsKeys, type PoolId } from "./query-keys";
 import type {
   DrawWinnerRecord,
   DrawCycleSummary,
@@ -8,6 +10,7 @@ import type {
   DrawStatusArchetype,
   PrizeHistoryEntry,
 } from "../types";
+
 
 /**
  * Single source of truth for canonical draw lifecycle priority order.
@@ -516,6 +519,27 @@ export function getPayoutTimelockState(
 export const RPC_PROPAGATION_GRACE_PERIOD_MS = 1200;
 
 /**
+ * Centrally invalidates draw queries across summaries and modal details.
+ * Triggers an immediate prefix invalidation followed by a trailing timer to absorb
+ * indexer database confirmation latency.
+ */
+export function invalidateDrawQueries(
+  queryClient: QueryClient,
+  poolId: PoolId = 1,
+  options?: { trailingGracePeriodMs?: number }
+): void {
+  // 1. Immediate prefix invalidation (invalidates both table summaries and cycle details)
+  queryClient.invalidateQueries({ queryKey: bondsKeys.draws(poolId) });
+
+  // 2. Trailing invalidation to catch asynchronous PostgreSQL indexer write
+  const gracePeriod =
+    options?.trailingGracePeriodMs ?? RPC_PROPAGATION_GRACE_PERIOD_MS;
+  setTimeout(() => {
+    queryClient.invalidateQueries({ queryKey: bondsKeys.draws(poolId) });
+  }, gracePeriod);
+}
+
+/**
  * Single source of truth for composite winner key formatting.
  */
 export function getWinnerKey(drawCycleId: number, winnerIndex: number): string {
@@ -541,20 +565,27 @@ export interface ReinvestmentBreakdown {
  * @param explicitBondsBought - Explicit count of bonds bought if known from on-chain event/data.
  */
 export function calculateReinvestmentBreakdown(
-  amountWon: number,
-  unclaimedDust: number = 0,
-  bondPrice: number = 5_000_000,
+  amountWon: number | bigint,
+  unclaimedDust: number | bigint = 0,
+  bondPrice: number | bigint = 5_000_000,
   explicitBondsBought?: number
 ): ReinvestmentBreakdown {
-  const price = bondPrice > 0 ? bondPrice : 5_000_000;
-  const totalAvailable = amountWon + (unclaimedDust > 0 ? unclaimedDust : 0);
+  const numAmountWon =
+    typeof amountWon === "bigint" ? Number(amountWon) : amountWon;
+  const numDust =
+    typeof unclaimedDust === "bigint" ? Number(unclaimedDust) : unclaimedDust;
+  const numPrice =
+    typeof bondPrice === "bigint" ? Number(bondPrice) : bondPrice;
+  const price = numPrice > 0 ? numPrice : 5_000_000;
+  const totalAvailable = numAmountWon + (numDust > 0 ? numDust : 0);
   const bondsBought =
     explicitBondsBought !== undefined
       ? explicitBondsBought
       : Math.floor(totalAvailable / price);
   const totalCost = bondsBought * price;
-  const usedPriorDust = totalCost > amountWon ? totalCost - amountWon : 0;
-  const dustAccumulated = totalCost < amountWon ? amountWon - totalCost : 0;
+  const usedPriorDust = totalCost > numAmountWon ? totalCost - numAmountWon : 0;
+  const dustAccumulated =
+    totalCost < numAmountWon ? numAmountWon - totalCost : 0;
 
   return {
     bondsBought,
@@ -562,6 +593,71 @@ export function calculateReinvestmentBreakdown(
     dustAccumulated,
     totalAvailable,
   };
+}
+
+/**
+ * Resolves the canonical reinvestment breakdown for a prize history entry.
+ * Prioritizes finalized on-chain/indexer values, falling back to smart-contract parity math.
+ */
+export function getEffectivePrizeBreakdown(
+  entry: Pick<
+    PrizeHistoryEntry,
+    | "amount"
+    | "status"
+    | "bondsBought"
+    | "reinvestedTickets"
+    | "dustAccumulated"
+    | "usedPriorDust"
+  >,
+  bondPrice: number | bigint = 5_000_000
+): ReinvestmentBreakdown {
+  const tickets = entry.bondsBought ?? entry.reinvestedTickets ?? 0;
+  if (entry.status !== "reinvested") {
+    return {
+      bondsBought: 0,
+      usedPriorDust: 0,
+      dustAccumulated: entry.dustAccumulated ?? 0,
+      totalAvailable: entry.amount,
+    };
+  }
+
+  const numPrice =
+    typeof bondPrice === "bigint" ? Number(bondPrice) : bondPrice;
+  const price = numPrice > 0 ? numPrice : 5_000_000;
+  const calculated = calculateReinvestmentBreakdown(
+    entry.amount,
+    entry.usedPriorDust ?? 0,
+    price,
+    tickets
+  );
+
+  return {
+    bondsBought: tickets,
+    usedPriorDust: entry.usedPriorDust ?? calculated.usedPriorDust,
+    dustAccumulated: entry.dustAccumulated ?? calculated.dustAccumulated,
+    totalAvailable: calculated.totalAvailable,
+  };
+}
+
+/**
+ * Resolves the effective dust remainder for a prize entry.
+ * Delegates to getEffectivePrizeBreakdown.
+ */
+export function getEffectivePrizeDust(
+  entry: Pick<
+    PrizeHistoryEntry,
+    | "amount"
+    | "status"
+    | "bondsBought"
+    | "reinvestedTickets"
+    | "dustAccumulated"
+    | "usedPriorDust"
+  >,
+  bondPrice: number | bigint = 5_000_000
+): number | undefined {
+  if (entry.dustAccumulated !== undefined) return entry.dustAccumulated;
+  if (entry.status !== "reinvested") return undefined;
+  return getEffectivePrizeBreakdown(entry, bondPrice).dustAccumulated;
 }
 
 /**

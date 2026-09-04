@@ -796,7 +796,10 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
 
     it("should return empty unhydratedDraws when updates array is empty", async () => {
       const mockTx = {};
-      const result = await updateDrawWinnersTx(mockTx as any, []);
+      const result = await updateDrawWinnersTx(
+        mockTx as unknown as Parameters<typeof updateDrawWinnersTx>[0],
+        []
+      );
       assert.deepStrictEqual(result, { unhydratedDraws: [] });
     });
 
@@ -823,7 +826,10 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         }),
       };
 
-      const result = await updateDrawWinnersTx(mockTx as any, updates);
+      const result = await updateDrawWinnersTx(
+        mockTx as unknown as Parameters<typeof updateDrawWinnersTx>[0],
+        updates
+      );
       assert.strictEqual(result.unhydratedDraws.length, 1);
       assert.deepStrictEqual(result.unhydratedDraws[0], {
         poolId: 1,
@@ -854,7 +860,10 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         }),
       };
 
-      const result = await updateDrawWinnersTx(mockTx as any, updates);
+      const result = await updateDrawWinnersTx(
+        mockTx as unknown as Parameters<typeof updateDrawWinnersTx>[0],
+        updates
+      );
       assert.deepStrictEqual(result, { unhydratedDraws: [] });
     });
   });

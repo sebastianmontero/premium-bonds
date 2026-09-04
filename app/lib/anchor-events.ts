@@ -8,7 +8,7 @@
  */
 
 import { Address, getBase58Decoder, getBase58Encoder } from "@solana/kit";
-import type { ProtocolSyncScope } from "./protocol-sync-bus";
+import type { ProtocolSyncScope } from "./realtime/channels";
 
 // ─── Borsh Error & Reader ───────────────────────────────────────────────────
 

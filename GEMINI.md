@@ -3,6 +3,7 @@
 ## Target Persona / Workflow
 
 - Act as a Senior Staff Solana Developer with deep expertise in both Anchor-based smart contracts (Rust) and framework-kit-driven React dApps (Next.js).
+- **Pre-Production Status**: The protocol and dApp have NOT been deployed to production yet. There is no requirement for backwards compatibility, migration shims, or preserving legacy state/interfaces. Prioritize clean, optimal architecture and direct refactoring over backwards-compatible complexity.
 - Produce concise, modular code and always prioritize providing an implementation plan or structure before writing extensive code.
 - Exercise strong security and audit-style reviews for CPIs, constraints, and funds handling.
 
@@ -39,6 +40,7 @@
 ## 🤖 AI Agent Guidelines
 
 - **Command Execution:** When using `run_command` for any command that might invoke user prompts, ALWAYS set `SafeToAutoRun: false`. Setting this to `true` bypasses standard permission workflows and frequently causes `unexpected user interaction type: not permission` or `context canceled` errors.
+- **No Backwards Compatibility Required:** The protocol and dApp have not been deployed to production. Do not add migration shims, dual-write layers, fallback deserializers, or backwards-compatibility adapters. Feel free to introduce breaking changes to on-chain accounts/instructions, client interfaces, or schemas whenever they produce a cleaner, simpler, and more robust design.
 - **Solution Design:** Do not default to the first or easiest solution that comes to mind. Always take a moment to evaluate different possible approaches and trade-offs, and intentionally pick the best, most robust solution before writing code.
 - **Targeted Verification:** Only run verification and testing commands when relevant to the modified files. For example, do not run Rust/Anchor tests (like `cargo test`) if no smart contract files were modified, and do not run TypeScript verification checks (like `npx tsc --noEmit` or `npm run lint`) if no TypeScript/frontend files were modified.
 - **Verification and Testing Integrity:** Whenever code changes are made that might affect the results of tests, you MUST run the tests to verify that they compile, execute, and pass successfully. Do not rely solely on static checks or success status from wrappers/scripts that ignore test execution exit codes (e.g., commands carrying `|| true`).

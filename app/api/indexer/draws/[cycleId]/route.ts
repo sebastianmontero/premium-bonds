@@ -7,6 +7,7 @@ import {
   toPrizeHistoryEntryDto,
   PrizeHistoryEntryDto,
 } from "@/app/lib/indexer-mappers";
+import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export async function GET(
         fallbackRequired: true,
         error: "Database not configured",
       },
-      { status: 200 }
+      { status: 200, headers: NO_CACHE_HEADERS }
     );
   }
 
@@ -56,7 +57,7 @@ export async function GET(
           fallbackRequired: true,
           error: "Invalid cycleId or poolId",
         },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -75,7 +76,7 @@ export async function GET(
           fallbackRequired: true,
           error: "Draw cycle not found",
         },
-        { status: 404 }
+        { status: 404, headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -106,19 +107,12 @@ export async function GET(
           : draw.blockTime,
       revealedAt: draw.revealedAt,
       completedAt: draw.completedAt,
-      winners: winners.map(toPrizeHistoryEntryDto),
+      winners: winners.map((w) => toPrizeHistoryEntryDto(w, draw.vrfSeedHex)),
     };
 
     return NextResponse.json(
       { success: true, data, fallbackRequired: false },
-      {
-        headers: {
-          "Cache-Control":
-            draw.status === "Complete"
-              ? "public, s-maxage=86400, stale-while-revalidate=604800"
-              : "no-store",
-        },
-      }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch (err: unknown) {
     console.error("[API Draw Details Error]:", err);
@@ -128,7 +122,8 @@ export async function GET(
         fallbackRequired: true,
         error: err instanceof Error ? err.message : String(err),
       },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }
+

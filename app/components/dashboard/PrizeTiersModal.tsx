@@ -8,6 +8,7 @@ import {
   formatTierPayoutAmount,
   DEFAULT_LIVE_YIELD_PRECISION,
   getLiveYieldFormatter,
+  formatCycleFrequency,
 } from "@/app/lib/formatters";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import { LiveYieldTicker } from "./LiveYieldTicker";
@@ -213,7 +214,13 @@ export function PrizeTiersModal({
                 {t("allPrizeTiersTitle", { count: activeTiers.length })}
               </h2>
               <p className="text-[11px] text-on-surface-variant">
-                {t("weeklyDraw", { cycleId: pool.currentDrawCycleId })}
+                {t("drawCycleBadge", {
+                  cycleId: pool.currentDrawCycleId,
+                  frequency: formatCycleFrequency(
+                    pool.stakeCycleDurationHrs,
+                    t
+                  ),
+                })}
               </p>
             </div>
           </div>

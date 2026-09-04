@@ -62,7 +62,7 @@ export class TransactionExecutor {
             typeof this.rpc.getRecentPrioritizationFees
           >[0]
         )
-        .send()) as Array<{ prioritizationFee?: bigint | number }>;
+        .send()) as unknown as Array<{ prioritizationFee?: bigint | number }>;
       if (!Array.isArray(feesRes) || feesRes.length === 0) {
         return tier === "urgent" ? 50_000n : 10_000n;
       }
@@ -129,10 +129,16 @@ export class TransactionExecutor {
         .getLatestBlockhash({ commitment: "confirmed" })
         .send();
 
-      let msg = createTransactionMessage({ version: 0 });
-      msg = setTransactionMessageFeePayerSigner(signer, msg);
-      msg = setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg);
-      msg = appendTransactionMessageInstructions(fullInstructions, msg);
+      const msg = appendTransactionMessageInstructions(
+        fullInstructions,
+        setTransactionMessageLifetimeUsingBlockhash(
+          latestBlockhash,
+          setTransactionMessageFeePayerSigner(
+            signer,
+            createTransactionMessage({ version: 0 })
+          )
+        )
+      );
 
       const signedTx = await signTransactionMessageWithSigners(msg);
       const wireTx = getBase64EncodedWireTransaction(signedTx);

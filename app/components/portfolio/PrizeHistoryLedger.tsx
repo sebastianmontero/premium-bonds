@@ -11,6 +11,7 @@ import {
   getPayoutTimelockState,
   getClaimWinningsCapability,
   sortPrizeHistoryEntries,
+  getEffectivePrizeDust,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -413,16 +414,22 @@ export function PrizeHistoryLedger({
                               tooltipAlign="center"
                             />
                           )}
-                        {entry.dustAccumulated !== undefined &&
-                          entry.dustAccumulated > 0 && (
+                        {(() => {
+                          const effectiveDust = getEffectivePrizeDust(
+                            entry,
+                            effectiveBondPrice
+                          );
+                          return effectiveDust !== undefined &&
+                            effectiveDust > 0 ? (
                             <RemainingWinningsBadge
-                              amount={entry.dustAccumulated}
+                              amount={effectiveDust}
                               tokenDecimals={tokenDecimals}
                               tokenSymbol={tokenSymbol}
                               bondPrice={effectiveBondPrice}
                               tooltipAlign="center"
                             />
-                          )}
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -702,16 +709,22 @@ export function PrizeHistoryLedger({
                                 tooltipAlign="center"
                               />
                             )}
-                          {entry.dustAccumulated !== undefined &&
-                            entry.dustAccumulated > 0 && (
+                          {(() => {
+                            const effectiveDust = getEffectivePrizeDust(
+                              entry,
+                              effectiveBondPrice
+                            );
+                            return effectiveDust !== undefined &&
+                              effectiveDust > 0 ? (
                               <RemainingWinningsBadge
-                                amount={entry.dustAccumulated}
+                                amount={effectiveDust}
                                 tokenDecimals={tokenDecimals}
                                 tokenSymbol={tokenSymbol}
                                 bondPrice={effectiveBondPrice}
                                 tooltipAlign="center"
                               />
-                            )}
+                            ) : null;
+                          })()}
                         </div>
                       </td>
 

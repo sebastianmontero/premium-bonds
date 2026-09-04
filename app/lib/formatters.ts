@@ -399,13 +399,23 @@ export function formatTokenAmount(
   minFractionDigits: number = 2,
   maxFractionDigits?: number
 ): string {
+  const numAmount = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(numAmount)) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        `[formatTokenAmount] Invalid non-finite amount received: ${amount}. Defaulting to 0.`
+      );
+    }
+  }
+  const safeAmount = Number.isFinite(numAmount) ? numAmount : 0;
+
   const finalMax =
     maxFractionDigits ??
     (minFractionDigits < 2
       ? minFractionDigits
       : Math.max(minFractionDigits, 6));
 
-  return (amount / 10 ** decimals).toLocaleString("en-US", {
+  return (safeAmount / 10 ** decimals).toLocaleString("en-US", {
     minimumFractionDigits: minFractionDigits,
     maximumFractionDigits: finalMax,
   });
@@ -589,3 +599,37 @@ export function calculateAnnualDrawEntries(
 
   return { drawsPerYear, annualEntries };
 }
+
+export type CycleFrequency = "daily" | "weekly" | "monthly" | "custom";
+
+/**
+ * Returns the coarse frequency category for a given cycle duration in hours.
+ */
+export function getCycleFrequency(durationHrs: number): CycleFrequency {
+  if (durationHrs <= 24) return "daily";
+  if (durationHrs === 168) return "weekly";
+  if (durationHrs >= 672 && durationHrs <= 744) return "monthly";
+  return "custom";
+}
+
+/**
+ * Formats cycle frequency into a localized label using translation keys.
+ */
+export function formatCycleFrequency(
+  durationHrs: number,
+  t: (key: string, values?: Record<string, string | number>) => string
+): string {
+  const freq = getCycleFrequency(durationHrs);
+  switch (freq) {
+    case "daily":
+      return t("freqDaily");
+    case "weekly":
+      return t("freqWeekly");
+    case "monthly":
+      return t("freqMonthly");
+    case "custom":
+    default:
+      return t("freqHours", { hours: durationHrs });
+  }
+}
+

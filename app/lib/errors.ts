@@ -1080,6 +1080,11 @@ function extractAllErrorText(err: unknown): string {
 
   visit(err);
   try {
+    parts.push(JSON.stringify(err));
+  } catch {
+    // Ignored
+  }
+  try {
     parts.push(String(err));
   } catch {
     // Ignored

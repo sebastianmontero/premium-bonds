@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDrawCycleDetails } from "@/app/hooks/useDrawCycleDetails";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
@@ -13,10 +14,11 @@ import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
   getDrawArchetype,
-  RPC_PROPAGATION_GRACE_PERIOD_MS,
+  invalidateDrawQueries,
 } from "@/app/lib/draw-helpers";
 import type { DrawStatusName, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
+
 
 interface DrawCycleInspectorModalProps {
   poolId: number;
@@ -59,11 +61,11 @@ export function DrawCycleInspectorModal({
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
+  const queryClient = useQueryClient();
   const [selectedTab, setSelectedTab] = useState<"winners" | "proofs">(
     "winners"
   );
   const t = useTranslations("DrawInspector");
-  const trailingTimerRef = useRef<NodeJS.Timeout | number | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
@@ -88,8 +90,7 @@ export function DrawCycleInspectorModal({
   } = useDrawCycleDetails(
     poolId,
     isOpen ? cycleId : null,
-    userAddress,
-    initialStatus
+    userAddress
   );
 
   const effectiveStatus = details?.status ?? initialStatus;
@@ -99,16 +100,6 @@ export function DrawCycleInspectorModal({
 
   const hasVrfRandomness = hasDrawVrfRandomness(details ?? undefined);
   const activeTab = hasVrfRandomness ? selectedTab : "winners";
-
-  // Cleanup trailing timers on unmount or cycle change
-  useEffect(() => {
-    return () => {
-      if (trailingTimerRef.current) {
-        clearTimeout(trailingTimerRef.current as number);
-        trailingTimerRef.current = null;
-      }
-    };
-  }, [cycleId]);
 
   // Focus trapping and focus restoration on open/close
   useEffect(() => {
@@ -225,7 +216,10 @@ export function DrawCycleInspectorModal({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => refetch()}
+              onClick={() => {
+                invalidateDrawQueries(queryClient, poolId);
+                refetch();
+              }}
               disabled={isLoading || isRefetching}
               title={t("refreshDetails")}
               aria-label={t("refreshDetails")}
@@ -423,13 +417,6 @@ export function DrawCycleInspectorModal({
                                   undefined,
                                   effectiveConfig.bondPrice
                                 );
-                                await refetch();
-                                if (trailingTimerRef.current) {
-                                  clearTimeout(trailingTimerRef.current);
-                                }
-                                trailingTimerRef.current = setTimeout(() => {
-                                  refetch();
-                                }, RPC_PROPAGATION_GRACE_PERIOD_MS);
                               } catch {
                                 // Handled by global transaction runner / error alert
                               }

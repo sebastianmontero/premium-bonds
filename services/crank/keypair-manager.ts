@@ -5,7 +5,7 @@ import {
   createKeyPairSignerFromBytes,
   generateKeyPairSigner,
   KeyPairSigner,
-  getBase58Decoder,
+  getBase58Encoder,
 } from "@solana/kit";
 import { CrankConfig } from "./config";
 
@@ -21,9 +21,9 @@ export async function loadSignerKeypair(
     }
     // Base58 encoded secret key
     try {
-      const base58Decoder = getBase58Decoder();
-      const bytes = base58Decoder.decode(raw);
-      return await createKeyPairSignerFromBytes(new Uint8Array(bytes));
+      const base58Encoder = getBase58Encoder();
+      const bytes = base58Encoder.encode(raw);
+      return await createKeyPairSignerFromBytes(bytes);
     } catch {
       // Fall through
     }

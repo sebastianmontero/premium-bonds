@@ -141,6 +141,18 @@
   },
   "Pools": {
     "activePool": "Active Pool",
+    "poolTitle": "{frequency} {symbol} Pool",
+    "drawCycleBadge": "Draw #{cycleId} · {frequency}",
+    "freqDaily": "Daily",
+    "freqWeekly": "Weekly",
+    "freqMonthly": "Monthly",
+    "freqHours": "{hours}h",
+    "poolLoadErrorTitle": "Unable to Load Pool State",
+    "poolLoadErrorDesc": "Failed to connect to the Solana network or decode pool parameters. Please check your RPC connection and try again.",
+    "poolUninitializedTitle": "Prize Pool #{poolId} Not Initialized",
+    "poolUninitializedDesc": "This pool account has not been deployed on the current Solana cluster. Switch networks or run the localnet bootstrap script.",
+    "retry": "Retry Connection",
+    "checkAgain": "Check Again",
     "weeklyUSDC": "Weekly USDC Pool",
     "monthlyUSDC": "Monthly Mega Pool",
     "weeklyDraw": "Draw #{cycleId} · Weekly",
@@ -290,7 +302,7 @@
     "reinvestedWinningsTooltip": "Prize winnings automatically converted into new bonds to compound future draw chances.",
     "nonReinvestedWinningsTooltip": "Winnings under $5.00 held as remaining balance, eligible for manual claim or future bond pooling.",
     "annualDrawEntriesTooltip": "Total number of draw chances your bonds will participate in over a 12-month period.",
-    "bondsTimesDrawsTooltip": "Calculated from your {tickets} bonds entering {draws} weekly draws per year.",
+    "bondsTimesDrawsTooltip": "Calculated from your {tickets} bonds entering {draws} draws per year.",
     "neverExpireTooltip": "Unlike traditional lotteries, your bonds remain active and eligible for every draw indefinitely."
   },
   "Activity": {

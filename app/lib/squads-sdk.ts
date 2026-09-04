@@ -21,6 +21,8 @@ import {
   appendTransactionMessageInstructions,
   compileTransaction,
   getBase64EncodedWireTransaction,
+  type ReadonlyUint8Array,
+  type Blockhash,
 } from "@solana/kit";
 import { createNoopSigner } from "@solana/signers";
 import * as crypto from "crypto";
@@ -762,7 +764,7 @@ export function serializeVaultTransactionMessage(
   msg: VaultTransactionMessageData
 ): Uint8Array {
   const encoder = getBase58Encoder();
-  const buffers: Uint8Array[] = [];
+  const buffers: (Uint8Array | ReadonlyUint8Array)[] = [];
 
   // Header (3 bytes)
   buffers.push(
@@ -1219,7 +1221,6 @@ export async function buildVaultTransactionExecuteInstruction(
       {
         address: member,
         role: AccountRole.READONLY_SIGNER,
-        signer: createNoopSigner(member),
       },
       ...remainingAccounts,
     ],
@@ -1268,13 +1269,19 @@ export async function estimateTransactionWireLength(
 ): Promise<number> {
   const payer = feePayer || (await generateKeyPairSigner());
   const dummyLifetime = {
-    blockhash,
+    blockhash: blockhash as Blockhash,
     lastValidBlockHeight: 0n,
   };
-  let msg = createTransactionMessage({ version: 0 });
-  msg = setTransactionMessageFeePayerSigner(payer, msg);
-  msg = setTransactionMessageLifetimeUsingBlockhash(dummyLifetime, msg);
-  msg = appendTransactionMessageInstructions(instructions, msg);
+  const msg = appendTransactionMessageInstructions(
+    instructions,
+    setTransactionMessageLifetimeUsingBlockhash(
+      dummyLifetime,
+      setTransactionMessageFeePayerSigner(
+        payer,
+        createTransactionMessage({ version: 0 })
+      )
+    )
+  );
 
   const compiled = compileTransaction(msg);
   const base64Wire = getBase64EncodedWireTransaction(compiled);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useBondsContract } from "@/app/hooks/useBondsContract";
+import { usePrizePool } from "@/app/hooks/queries/usePrizePool";
 import { LiveYieldTicker } from "./dashboard/LiveYieldTicker";
 import { CountdownTimer } from "./dashboard/CountdownTimer";
 import { formatCurrencyAmount, formatLocalDate } from "@/app/lib/formatters";
@@ -14,7 +14,7 @@ interface StatsSectionProps {
 
 export function StatsSection({ pool: initialPool }: StatsSectionProps) {
   const t = useTranslations("Stats");
-  const { pool: fetchedPool, isLoading } = useBondsContract(1);
+  const { data: fetchedPool, isLoading } = usePrizePool(1);
 
   const activePool = initialPool ?? fetchedPool;
 
@@ -124,6 +124,7 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
                   <div className="space-y-1">
                     <CountdownTimer
                       targetTimestamp={activePool.currentCycleEndAt}
+                      disableRpcSync
                       variant="inline"
                       className="font-mono text-lg font-bold text-on-surface"
                     />
