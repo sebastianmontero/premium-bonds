@@ -44,7 +44,6 @@ import {
 import {
   findMultisigPda,
   findMultisigVaultPda,
-  createNoopSigner,
   SQUADS_PROGRAM_ADDRESS,
 } from "../app/lib/squads-sdk";
 
@@ -1958,10 +1957,7 @@ export async function executeCreatePool({
         ],
         data: buildSystemCreateAccountData(BigInt(lamports), space, PROGRAM_ID),
       };
-      await sendTxWithSigners(rpc, [createRegistryIx], signer, [
-        signer,
-        ticketRegistrySigner,
-      ]);
+      await sendTx(rpc, [createRegistryIx], signer);
       console.log(
         `✓ Ticket registry account allocated and zeroed at ${registryAddress}`
       );
@@ -2007,7 +2003,7 @@ export async function executeCreatePool({
     };
 
     const createPoolIx = await buildCreatePoolInstruction({
-      admin: signer.address,
+      admin: signer,
       poolId,
       bondPrice,
       stakeCycleDurationHrs,
@@ -2022,10 +2018,7 @@ export async function executeCreatePool({
       feeWallet: address(resolvedFeeWallet),
     });
 
-    await sendTxWithSigners(rpc, [createRegistryIx, createPoolIx], signer, [
-      signer,
-      registrySignerToPass,
-    ]);
+    await sendTx(rpc, [createRegistryIx, createPoolIx], signer);
   } else {
     await dispatchAdminInstruction({
       rpc,
@@ -2493,7 +2486,7 @@ export async function executePausePool({
     commandName: "pause-pool",
     builder: async (auth) => {
       return await buildPausePoolInstruction({
-        signer: createNoopSigner(auth),
+        signer: auth,
         poolId,
       });
     },
@@ -2533,7 +2526,7 @@ export async function executeUnpausePool({
     commandName: "unpause-pool",
     builder: async (auth) => {
       return await buildUnpausePoolInstruction({
-        admin: createNoopSigner(auth),
+        admin: auth,
         poolId,
       });
     },
@@ -2597,7 +2590,7 @@ export async function executeClosePool({
     commandName: "close-pool",
     builder: async (auth) => {
       return await buildClosePoolInstruction({
-        admin: createNoopSigner(auth),
+        admin: auth,
         poolId,
       });
     },
@@ -2696,7 +2689,7 @@ export async function executeVoidDraw({
     commandName: "void-draw",
     builder: async (auth) => {
       return await buildAdminVoidPayoutRegistryInstruction({
-        admin: createNoopSigner(auth),
+        admin: auth,
         poolId,
         cycleId: targetCycleId,
       });
@@ -2857,63 +2850,6 @@ function buildSystemCreateAccountData(
   view.setBigUint64(12, space, true);
   data.set(getBase58Encoder().encode(address(ownerProgramId)), 20);
   return data;
-}
-
-export async function sendTxWithSigners(
-  rpc: ReturnType<typeof createSolanaRpc>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  instructions: any[],
-  feePayer: KeyPairSigner,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _signers: KeyPairSigner[]
-): Promise<string> {
-  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let baseMsg: any = createTransactionMessage({ version: 0 });
-  for (const ix of instructions) {
-    baseMsg = appendTransactionMessageInstruction(ix, baseMsg);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const feePayerMsg: any = (setTransactionMessageFeePayerSigner as any)(
-    feePayer,
-    baseMsg
-  );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message: any = (setTransactionMessageLifetimeUsingBlockhash as any)(
-    latestBlockhash,
-    feePayerMsg
-  );
-
-  const signedTx = await signTransactionMessageWithSigners(message);
-  const wireTx = getBase64EncodedWireTransaction(signedTx);
-  const signature = await rpc
-    .sendTransaction(wireTx, { encoding: "base64" })
-    .send();
-
-  console.log(`Transaction sent: ${signature}. Waiting for confirmation...`);
-
-  for (let i = 0; i < 15; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    try {
-      const status = await rpc.getSignatureStatuses([signature]).send();
-      if (status && status.value && status.value[0]) {
-        const err = status.value[0].err;
-        if (err) {
-          throw new Error(`Transaction failed: ${safeStringify(err)}`);
-        }
-        console.log("Transaction confirmed successfully!");
-        return signature;
-      }
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      console.warn("Failed checking signature status:", errMsg);
-    }
-  }
-
-  console.warn("Transaction signature status check timed out.");
-  return signature;
 }
 
 export interface ExecuteQueryMockHumaPoolStateParams {

@@ -144,4 +144,3 @@ export function useDrawCycleDetails(
     markWinnerOptimisticallyProcessed,
   };
 }
-

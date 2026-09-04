@@ -10,6 +10,7 @@ import {
   getBase64EncodedWireTransaction,
   KeyPairSigner,
   Instruction,
+  AccountRole,
 } from "@solana/kit";
 import * as fs from "fs";
 import {
@@ -40,13 +41,104 @@ export async function checkRpcHealth(url: string): Promise<boolean> {
       signal: controller.signal,
     });
     clearTimeout(id);
-    if (!res.ok) return false;
-    const json = (await res.json()) as { result?: string };
-    return json.result === "ok";
+    return res.ok;
   } catch {
-    clearTimeout(id);
     return false;
   }
+}
+
+/**
+ * Helper to calculate minimum rent exempt balance for a given byte size.
+ */
+export async function getRentExemption(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  space: number | bigint
+): Promise<bigint> {
+  return await rpc.getMinimumBalanceForRentExemption(BigInt(space)).send();
+}
+
+/**
+ * Validates whether an account is rent-exempt for its size.
+ */
+export async function assertRentExempt(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountBalance: bigint,
+  space: number | bigint
+): Promise<boolean> {
+  const minBalance = await getRentExemption(rpc, space);
+  if (accountBalance < minBalance) {
+    throw new Error(
+      `Account balance (${accountBalance}) is below the required rent exemption threshold (${minBalance}) for size ${space} bytes.`
+    );
+  }
+  return true;
+}
+
+/**
+ * Calculates lamport shortfall to reach rent-exemption.
+ */
+export async function getRentShortfall(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountBalance: bigint,
+  space: number | bigint
+): Promise<bigint> {
+  const minBalance = await getRentExemption(rpc, space);
+  if (accountBalance >= minBalance) {
+    return 0n;
+  }
+  return minBalance - accountBalance;
+}
+
+/**
+ * Returns formatted diagnostic message for rent status.
+ */
+export async function getRentStatusSummary(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountBalance: bigint,
+  space: number | bigint
+): Promise<string> {
+  const minBalance = await getRentExemption(rpc, space);
+  const isExempt = accountBalance >= minBalance;
+  return (
+    `Rent-Exempt: ${isExempt ? "YES" : "NO"} ` +
+    `(Current: ${accountBalance} lamports, Required: ${minBalance} lamports for ${space} bytes)`
+  );
+}
+
+/**
+ * Checks if rent check should be skipped based on environment settings.
+ */
+export function shouldSkipRentCheck(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return (
+    env.SKIP_RENT_CHECK === "true" ||
+    env.SKIP_RENT_CHECK === "1" ||
+    env.NODE_ENV === "test"
+  );
+}
+
+/**
+ * High-level wrapper that logs rent-exemption diagnostics and enforces minimum balance unless explicitly skipped.
+ */
+export async function verifyAndEnforceRentExemption(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountAddress: string,
+  accountBalance: bigint,
+  space: number | bigint,
+  accountLabel = "Account"
+): Promise<void> {
+  const summary = await getRentStatusSummary(rpc, accountBalance, space);
+  console.log(`[Rent Check] ${accountLabel} (${accountAddress}): ${summary}`);
+
+  if (shouldSkipRentCheck()) {
+    console.log(
+      `[Rent Check] Skipping strict enforcement for ${accountLabel} due to SKIP_RENT_CHECK setting.`
+    );
+    return;
+  }
+
+  await assertRentExempt(rpc, accountBalance, space);
 }
 
 /**
@@ -71,14 +163,32 @@ export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {
 }
 
 /**
- * Safely stringifies objects containing BigInt values without throwing a TypeError.
+ * Defensively normalizes instruction accounts matching the fee payer's address
+ * to use the canonical KeyPairSigner instance, avoiding reference-mismatch errors.
  */
-export function safeStringify(obj: unknown, space?: string | number): string {
-  return JSON.stringify(
-    obj,
-    (_, value) => (typeof value === "bigint" ? value.toString() : value),
-    space
-  );
+export function normalizeInstructionSigners(
+  instructions: Instruction[],
+  payerSigner: KeyPairSigner
+): Instruction[] {
+  return instructions.map((ix) => {
+    if (!ix.accounts) return ix;
+    const sanitizedAccounts = ix.accounts.map((acc) => {
+      const isSignerAccount =
+        acc.role === AccountRole.READONLY_SIGNER ||
+        acc.role === AccountRole.WRITABLE_SIGNER ||
+        ("signer" in acc && Boolean(acc.signer));
+
+      if (
+        acc.address === payerSigner.address &&
+        isSignerAccount &&
+        ("signer" in acc ? acc.signer !== payerSigner : true)
+      ) {
+        return { ...acc, signer: payerSigner };
+      }
+      return acc;
+    });
+    return { ...ix, accounts: sanitizedAccounts };
+  });
 }
 
 /**
@@ -92,9 +202,13 @@ export async function sendTx(
 ): Promise<string> {
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  const instructions: Instruction[] = Array.isArray(instruction)
-    ? instruction
+  const rawInstructions: Instruction[] = Array.isArray(instruction)
+    ? [...instruction]
     : [instruction];
+  const instructions = normalizeInstructionSigners(
+    rawInstructions,
+    payerSigner
+  );
 
   let message = createTransactionMessage({ version: 0 });
   message = setTransactionMessageFeePayerSigner(payerSigner, message);

@@ -17,7 +17,11 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
     it("should compute standard reinvestment with fractional dust remainder (e.g. 247.50 USDC prize)", () => {
       // 247.50 USDC prize = 247,500,000 base units, 5 USDC bond price = 5,000,000 base units
       // 49 bonds = 245,000,000 cost, leaving 2,500,000 (0.50 USDC) dust remainder
-      const breakdown = calculateReinvestmentBreakdown(247_500_000, 0, 5_000_000);
+      const breakdown = calculateReinvestmentBreakdown(
+        247_500_000,
+        0,
+        5_000_000
+      );
 
       assert.strictEqual(breakdown.bondsBought, 49);
       assert.strictEqual(breakdown.dustAccumulated, 2_500_000);
@@ -27,7 +31,11 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
 
     it("should handle exact multiple prizes with zero dust remainder", () => {
       // 250.00 USDC prize = exactly 50 bonds at 5 USDC each
-      const breakdown = calculateReinvestmentBreakdown(250_000_000, 0, 5_000_000);
+      const breakdown = calculateReinvestmentBreakdown(
+        250_000_000,
+        0,
+        5_000_000
+      );
 
       assert.strictEqual(breakdown.bondsBought, 50);
       assert.strictEqual(breakdown.dustAccumulated, 0);

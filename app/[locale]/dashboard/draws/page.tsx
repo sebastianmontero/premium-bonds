@@ -42,11 +42,7 @@ function DrawHistoryContent() {
     isLoading: isDrawsLoading,
     isRefetching: isDrawsRefetching,
     refetch: refetchDraws,
-  } = useDrawExplorer(
-    1,
-    100,
-    onChainPool?.totalPrizesDistributed ?? 0
-  );
+  } = useDrawExplorer(1, 100, onChainPool?.totalPrizesDistributed ?? 0);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -69,7 +65,6 @@ function DrawHistoryContent() {
     refetchDraws,
     queryClient,
   ]);
-
 
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");

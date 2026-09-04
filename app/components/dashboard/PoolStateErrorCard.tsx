@@ -8,7 +8,10 @@ interface PoolStateErrorCardProps {
   onRetry?: () => void;
 }
 
-export function PoolStateErrorCard({ error, onRetry }: PoolStateErrorCardProps) {
+export function PoolStateErrorCard({
+  error,
+  onRetry,
+}: PoolStateErrorCardProps) {
   const t = useTranslations("Pools");
   const [isRetrying, setIsRetrying] = useState(false);
 

@@ -11,7 +11,6 @@ import type {
   PrizeHistoryEntry,
 } from "../types";
 
-
 /**
  * Single source of truth for canonical draw lifecycle priority order.
  */

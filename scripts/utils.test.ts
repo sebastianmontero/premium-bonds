@@ -413,4 +413,91 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       );
     });
   });
+
+  describe("Signer Normalization & Transaction Deduplication", () => {
+    it("should normalize distinct NoopSigner instances matching payerSigner.address to canonical KeyPairSigner", async () => {
+      const {
+        generateKeyPairSigner,
+        createNoopSigner,
+        AccountRole,
+        createTransactionMessage,
+        setTransactionMessageFeePayerSigner,
+        appendTransactionMessageInstructions,
+        signTransactionMessageWithSigners,
+      } = await import("@solana/kit");
+      const { normalizeInstructionSigners } = await import("./utils");
+
+      const payer = await generateKeyPairSigner();
+      const otherKey = (await generateKeyPairSigner()).address;
+
+      // Instruction where payer has role WRITABLE_SIGNER with a distinct NoopSigner
+      const dummyIx = {
+        programAddress: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as any,
+        accounts: [
+          {
+            address: payer.address,
+            role: AccountRole.WRITABLE_SIGNER,
+            signer: createNoopSigner(payer.address),
+          },
+          {
+            address: otherKey,
+            role: AccountRole.READONLY,
+          },
+        ],
+        data: new Uint8Array([1, 2, 3]),
+      };
+
+      const normalized = normalizeInstructionSigners([dummyIx], payer);
+
+      assert.strictEqual(
+        normalized[0].accounts?.[0].signer,
+        payer,
+        "Account signer must be normalized to canonical payer KeyPairSigner"
+      );
+      assert.strictEqual(
+        normalized[0].accounts?.[1].address,
+        otherKey,
+        "Other accounts must remain unchanged"
+      );
+
+      // Verify that signTransactionMessageWithSigners succeeds without throwing duplicate signer error
+      let msg = createTransactionMessage({ version: 0 });
+      msg = setTransactionMessageFeePayerSigner(payer, msg);
+      msg = appendTransactionMessageInstructions(normalized, msg);
+
+      const signed = await signTransactionMessageWithSigners(msg);
+      assert.ok(
+        signed.signatures[payer.address],
+        "Transaction must be signed by payer"
+      );
+    });
+
+    it("should leave non-matching signer accounts intact", async () => {
+      const { generateKeyPairSigner, createNoopSigner, AccountRole } =
+        await import("@solana/kit");
+      const { normalizeInstructionSigners } = await import("./utils");
+
+      const payer = await generateKeyPairSigner();
+      const secondarySigner = await generateKeyPairSigner();
+
+      const dummyIx = {
+        programAddress: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as any,
+        accounts: [
+          {
+            address: secondarySigner.address,
+            role: AccountRole.READONLY_SIGNER,
+            signer: secondarySigner,
+          },
+        ],
+        data: new Uint8Array([0]),
+      };
+
+      const normalized = normalizeInstructionSigners([dummyIx], payer);
+      assert.strictEqual(
+        normalized[0].accounts?.[0].signer,
+        secondarySigner,
+        "Secondary signer should not be replaced"
+      );
+    });
+  });
 });

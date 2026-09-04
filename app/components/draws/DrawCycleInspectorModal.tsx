@@ -19,7 +19,6 @@ import {
 import type { DrawStatusName, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
-
 interface DrawCycleInspectorModalProps {
   poolId: number;
   cycleId: number | null;
@@ -87,11 +86,7 @@ export function DrawCycleInspectorModal({
     error,
     refetch,
     markWinnerOptimisticallyProcessed,
-  } = useDrawCycleDetails(
-    poolId,
-    isOpen ? cycleId : null,
-    userAddress
-  );
+  } = useDrawCycleDetails(poolId, isOpen ? cycleId : null, userAddress);
 
   const effectiveStatus = details?.status ?? initialStatus;
   const archetype = effectiveStatus ? getDrawArchetype(effectiveStatus) : null;

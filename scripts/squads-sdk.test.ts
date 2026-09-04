@@ -440,4 +440,67 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       `Parsed error accurately reports inner cause: "${parsedError.title}: ${parsedError.message}"`
     );
   });
+
+  it("Vector 8: Codama Admin Instruction Signer Propagation into Vault Message", async () => {
+    const {
+      buildAdminVoidPayoutRegistryInstruction,
+      buildUpdateGlobalConfigInstruction,
+    } = await import("../app/lib/bonds-sdk");
+
+    const vaultPda = address("11111111111111111111111111111111");
+
+    // 1. buildAdminVoidPayoutRegistryInstruction with NoopSigner
+    const voidIx = await buildAdminVoidPayoutRegistryInstruction({
+      admin: createNoopSigner(vaultPda),
+      poolId: 1,
+      cycleId: 4,
+    });
+
+    const voidAdminAccount = voidIx.accounts?.find(
+      (a) => a.address === vaultPda
+    );
+    assert.strictEqual(
+      voidAdminAccount?.role,
+      AccountRole.READONLY_SIGNER,
+      "Admin account must have READONLY_SIGNER role when built with createNoopSigner"
+    );
+
+    const compiledVoidMsg = compileVaultTransactionMessage([voidIx]);
+    assert.strictEqual(
+      compiledVoidMsg.numSigners,
+      1,
+      "Compiled vault message for void-draw must have exactly 1 signer"
+    );
+    assert.strictEqual(
+      compiledVoidMsg.accountKeys[0],
+      vaultPda,
+      "Vault PDA must be account key 0 (signer)"
+    );
+
+    // 2. buildUpdateGlobalConfigInstruction with NoopSigner
+    const updateConfigIx = await buildUpdateGlobalConfigInstruction({
+      admin: createNoopSigner(vaultPda),
+    });
+
+    const configAdminAccount = updateConfigIx.accounts?.find(
+      (a) => a.address === vaultPda
+    );
+    assert.strictEqual(
+      configAdminAccount?.role,
+      AccountRole.READONLY_SIGNER,
+      "Admin account in update-global-config must have READONLY_SIGNER role"
+    );
+
+    const compiledConfigMsg = compileVaultTransactionMessage([updateConfigIx]);
+    assert.strictEqual(
+      compiledConfigMsg.numSigners,
+      1,
+      "Compiled vault message for update-global-config must have exactly 1 signer"
+    );
+    assert.strictEqual(
+      compiledConfigMsg.accountKeys[0],
+      vaultPda,
+      "Vault PDA must be account key 0 (signer)"
+    );
+  });
 });

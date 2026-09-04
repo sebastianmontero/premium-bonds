@@ -7,10 +7,13 @@ import {
   type DrawCycleSummaryDto,
 } from "../indexer-mappers";
 import type { drawHistory } from "../db/schema";
+import { buildDrawCyclesWithPayoutsQuery } from "../../../app/api/indexer/draws/queries";
 
 describe("Draw Payout Progress & Stats Suite", () => {
   it("should accurately map draw rows with 0 payouts completed", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & { payoutsCompleted: number })[] = [
+    const mockRows: (typeof drawHistory.$inferSelect & {
+      payoutsCompleted: number;
+    })[] = [
       {
         poolId: 1,
         cycleId: 1,
@@ -44,7 +47,9 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should accurately map partial and fully processed payouts", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & { payoutsCompleted: number })[] = [
+    const mockRows: (typeof drawHistory.$inferSelect & {
+      payoutsCompleted: number;
+    })[] = [
       {
         poolId: 1,
         cycleId: 2,
@@ -95,7 +100,9 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should defensively clamp payoutsCompleted to [0, winnersCount]", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & { payoutsCompleted: number })[] = [
+    const mockRows: (typeof drawHistory.$inferSelect & {
+      payoutsCompleted: number;
+    })[] = [
       {
         poolId: 1,
         cycleId: 4,
@@ -146,7 +153,9 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should handle Skipped, Voided, and ForceUnlocked terminal timestamps", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & { payoutsCompleted: number })[] = [
+    const mockRows: (typeof drawHistory.$inferSelect & {
+      payoutsCompleted: number;
+    })[] = [
       {
         poolId: 1,
         cycleId: 6,
@@ -275,5 +284,51 @@ describe("Draw Payout Progress & Stats Suite", () => {
     assert.strictEqual(isTerminalDrawStatus("HaltedInsolvent"), false);
     assert.strictEqual(isTerminalDrawStatus("HaltedYieldSpike"), false);
     assert.strictEqual(isTerminalDrawStatus("Unknown"), false);
+  });
+
+  it("should compile production draw query with correlated subquery and table-qualified columns", () => {
+    const query = buildDrawCyclesWithPayoutsQuery(1, 10);
+    const { sql: sqlString, params } = query.toSQL();
+
+    // 1. Positive Assertions: Explicit table-qualified column correlation
+    assert.match(
+      sqlString,
+      /"draw_winners"\."pool_id"\s*=\s*"draw_history"\."pool_id"/,
+      "Must qualify pool_id across draw_winners and draw_history"
+    );
+    assert.match(
+      sqlString,
+      /"draw_winners"\."cycle_id"\s*=\s*"draw_history"\."cycle_id"/,
+      "Must qualify cycle_id across draw_winners and draw_history"
+    );
+    assert.match(
+      sqlString,
+      /"draw_winners"\."processed"\s*=\s*true/,
+      "Must filter by processed = true"
+    );
+    assert.match(
+      sqlString,
+      /coalesce\s*\(\s*\(\s*select count\(\*\)::int/i,
+      "Must wrap subquery in COALESCE with integer count"
+    );
+
+    // 2. Negative Assertions: Guarantee elimination of subquery tautologies
+    assert.doesNotMatch(
+      sqlString,
+      /WHERE\s+"pool_id"\s*=\s*"pool_id"/i,
+      "Must not contain unqualified pool_id self-tautology"
+    );
+    assert.doesNotMatch(
+      sqlString,
+      /AND\s+"cycle_id"\s*=\s*"cycle_id"/i,
+      "Must not contain unqualified cycle_id self-tautology"
+    );
+
+    // 3. Parameter Safety Assertions
+    assert.deepStrictEqual(
+      params,
+      [1, 10],
+      "Must parameterize poolId and limit"
+    );
   });
 });

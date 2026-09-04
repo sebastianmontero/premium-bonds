@@ -165,7 +165,7 @@ export function resolveAdminExecutionMode(
 // ─── Pipeline Middleware ──────────────────────────────────────────────────────
 
 export type AdminInstructionBuilder = (
-  authority: Address
+  authority: TransactionSigner
 ) => Promise<Instruction | Instruction[]>;
 
 export interface AdminDispatchParams {
@@ -233,8 +233,11 @@ export async function dispatchAdminInstruction(
   } = params;
 
   let effectiveAuthority: Address;
+  let authoritySigner: TransactionSigner;
+
   if (mode.kind === "direct") {
     effectiveAuthority = signer.address;
+    authoritySigner = signer;
     if (effectiveAuthority !== expectedAdmin) {
       throw new Error(
         `Direct signer ${effectiveAuthority} does not match expected on-chain authority ${expectedAdmin}.`
@@ -245,6 +248,7 @@ export async function dispatchAdminInstruction(
       mode.multisig,
       mode.vaultIndex
     );
+    authoritySigner = createNoopSigner(effectiveAuthority);
     if (effectiveAuthority !== expectedAdmin) {
       throw new Error(
         `Squads Vault PDA ${effectiveAuthority} (index ${mode.vaultIndex}) does not match expected on-chain authority ${expectedAdmin}.`
@@ -255,6 +259,9 @@ export async function dispatchAdminInstruction(
     effectiveAuthority = mode.multisig
       ? await findMultisigVaultPda(mode.multisig, mode.vaultIndex)
       : signer.address;
+    authoritySigner = mode.multisig
+      ? createNoopSigner(effectiveAuthority)
+      : signer;
   }
 
   // Preflight validation hook
@@ -262,14 +269,16 @@ export async function dispatchAdminInstruction(
     await preflightCheck({ rpc, effectiveAuthority, mode });
   }
 
+  // Hoisted builder execution & normalization
+  const rawIxs = await builder(authoritySigner);
+  const innerInstructions = Array.isArray(rawIxs) ? rawIxs : [rawIxs];
+
   switch (mode.kind) {
     case "direct": {
       console.log(
         `[Direct Mode] Executing '${commandName}' signed by hot authority ${signer.address}...`
       );
-      const ixs = await builder(effectiveAuthority);
-      const instructionList = Array.isArray(ixs) ? ixs : [ixs];
-      const sig = await sendTx(rpc, instructionList, signer);
+      const sig = await sendTx(rpc, innerInstructions, signer);
       console.log(
         `✓ '${commandName}' executed successfully in Direct Mode! Tx: ${sig}`
       );
@@ -312,11 +321,7 @@ export async function dispatchAdminInstruction(
         `Creating Vault Transaction #${nextTxIndex} for Vault Index ${mode.vaultIndex} (${effectiveAuthority})...`
       );
 
-      // 2. Build inner instructions using the Vault PDA as authority
-      const innerIxs = await builder(effectiveAuthority);
-      const innerInstructions = Array.isArray(innerIxs) ? innerIxs : [innerIxs];
-
-      // 3. Compile atomic proposal with wire size calculation
+      // 2. Compile atomic proposal with wire size calculation
       const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
       const proposeResult = await buildAtomicProposeInstructions({
         multisig: mode.multisig,
@@ -368,9 +373,9 @@ export async function dispatchAdminInstruction(
       console.log(`Multisig:          ${mode.multisig}`);
       console.log(`Transaction Index: #${nextTxIndex}`);
       console.log(`Proposal PDA:      ${proposeResult.proposalPda}`);
-      console.log(`Transaction PDA:   ${proposeResult.transactionPda}`);
+      console.log(`Vault Tx PDA:      ${proposeResult.transactionPda}`);
       console.log(
-        `Squads UI URL:     https://app.squads.so/multisig/${mode.multisig}/proposals/${nextTxIndex}`
+        `Auto-Approved:     ${mode.autoApprove ? "Yes (by creator)" : "No"}`
       );
       console.log("=======================================================\n");
       break;
@@ -380,8 +385,6 @@ export async function dispatchAdminInstruction(
       console.log(
         `[Export Mode] Generating Squads UI JSON payload for '${commandName}'...`
       );
-      const ixs = await builder(effectiveAuthority);
-      const innerInstructions = Array.isArray(ixs) ? ixs : [ixs];
       const payload = exportSquadsTransactionJson(
         innerInstructions,
         mode.multisig,
@@ -400,8 +403,6 @@ export async function dispatchAdminInstruction(
       console.log(
         `[Dry-Run Mode] Simulating transaction for '${commandName}'...`
       );
-      const ixs = await builder(effectiveAuthority);
-      const innerInstructions = Array.isArray(ixs) ? ixs : [ixs];
 
       const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
       let msg = createTransactionMessage({ version: 0 });

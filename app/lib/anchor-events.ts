@@ -434,29 +434,33 @@ function createMetadata(
 export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
   switch (evt.type) {
     case "BondsPurchased":
-      return createMetadata(evt.data.poolId, ["pool", "user"], evt.data.user);
+      return createMetadata(
+        evt.data.poolId,
+        ["pool", "user", "activity"],
+        evt.data.user
+      );
     case "BondsSold":
       return createMetadata(
         evt.data.poolId,
-        ["pool", "user", "redemptions"],
+        ["pool", "user", "redemptions", "activity"],
         evt.data.user
       );
     case "WinningsReinvested":
       return createMetadata(
         evt.data.poolId,
-        ["draws", "user", "pool"],
+        ["draws", "user", "pool", "activity"],
         evt.data.winner
       );
     case "WinningsClaimed":
       return createMetadata(
         evt.data.poolId,
-        ["draws", "user", "pool", "redemptions"],
+        ["draws", "user", "pool", "redemptions", "activity"],
         evt.data.user
       );
     case "RedemptionClaimed":
       return createMetadata(
         evt.data.poolId,
-        ["pool", "user", "redemptions"],
+        ["pool", "user", "redemptions", "activity"],
         evt.data.user
       );
     case "YieldHarvested":

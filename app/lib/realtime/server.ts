@@ -78,17 +78,29 @@ export async function broadcastAggregatedInvalidations(
       poolIdsArray.length === 1 ? poolIdsArray[0] : undefined;
     const scopesArray = Array.from(scopes);
 
-    // 1. Single Global / Pool Invalidation Broadcast
-    broadcastPromises.push(
-      server.trigger(REALTIME_GLOBAL_CHANNEL, REALTIME_PROTOCOL_SYNC_EVENT, {
-        scope: derivePrimaryScope(scopesArray),
-        scopes: scopesArray,
-        poolId: primaryPoolId,
-        poolIds: poolIdsArray.length > 0 ? poolIdsArray : undefined,
-        reason: `webhook:aggregated_${events.length}_events`,
-        timestamp: Date.now(),
-      })
+    const USER_SPECIFIC_SCOPES: ReadonlySet<ProtocolSyncScope> = new Set([
+      "user",
+      "tickets",
+      "redemptions",
+      "activity",
+    ]);
+
+    // 1. Single Global / Pool Invalidation Broadcast (protocol/pool scopes only)
+    const globalScopes = scopesArray.filter(
+      (s) => !USER_SPECIFIC_SCOPES.has(s)
     );
+    if (globalScopes.length > 0) {
+      broadcastPromises.push(
+        server.trigger(REALTIME_GLOBAL_CHANNEL, REALTIME_PROTOCOL_SYNC_EVENT, {
+          scope: derivePrimaryScope(globalScopes),
+          scopes: globalScopes,
+          poolId: primaryPoolId,
+          poolIds: poolIdsArray.length > 0 ? poolIdsArray : undefined,
+          reason: `webhook:aggregated_${events.length}_events`,
+          timestamp: Date.now(),
+        })
+      );
+    }
 
     // 2. Targeted User Channel Invalidation Broadcasts
     for (const [user, uScopes] of userScopes.entries()) {

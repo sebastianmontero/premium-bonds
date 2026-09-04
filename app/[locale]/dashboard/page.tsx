@@ -12,6 +12,7 @@ import {
   calculateReinvestmentBreakdown,
   invalidateDrawQueries,
 } from "@/app/lib/draw-helpers";
+import { createOptimisticActivity } from "@/app/lib/activity-helpers";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
 import { PoolCard } from "@/app/components/dashboard/PoolCard";
@@ -83,19 +84,15 @@ export default function DashboardPage() {
   });
 
   const {
-    entries: onChainActivityFeed,
+    entries: activityEntries,
     isLoading: isActivityLoading,
     isFetchingMore: isFetchingActivityMore,
     hasMore: hasMoreActivity,
     scanProgress: activityScanProgress,
     loadMore: loadMoreActivity,
     fetchUntilMatches: fetchUntilMatchesActivity,
-    refetch: refetchActivity,
     prependLocal,
-  } = useActivityFeed(
-    isConnected ? userAddress : undefined,
-    poolTokenDecimals
-  );
+  } = useActivityFeed(isConnected ? userAddress : undefined, poolId);
 
   // Display skeleton loaders during connecting status to eliminate FOEC
   const isInitialLoading = status === "connecting";
@@ -163,7 +160,7 @@ export default function DashboardPage() {
     [isConnected, onChainPrizeHistory]
   );
   const activeActivityFeed: ActivityEntry[] = isConnected
-    ? onChainActivityFeed
+    ? activityEntries
     : [];
   const activeRecentWinners: RecentWinner[] = onChainRecentWinners;
 
@@ -197,19 +194,21 @@ export default function DashboardPage() {
     value: number,
     signature?: string
   ) => {
-    const newActivity: ActivityEntry = {
-      id: `act-dep-${Date.now()}`,
-      date: new Date().toISOString(),
-      type: "deposit",
-      description: `Deposited ${value / 1_000_000} USDC → +${tickets} bonds`,
-      amount: value,
-      txSignature: signature,
-    };
-
-    if (isConnected) {
+    if (isConnected && userAddress) {
       refetch();
       refetchDrawHistory();
-      prependLocal(newActivity);
+      if (signature) {
+        prependLocal(
+          createOptimisticActivity({
+            activityType: "deposit",
+            bonds: tickets,
+            amountUsdc: value,
+            decimals: poolTokenDecimals,
+            txSignature: signature,
+          }),
+          userAddress
+        );
+      }
     }
   };
 
@@ -218,18 +217,20 @@ export default function DashboardPage() {
     value: number,
     signature?: string
   ) => {
-    const newActivity: ActivityEntry = {
-      id: `act-w-${Date.now()}`,
-      date: new Date().toISOString(),
-      type: "withdraw",
-      description: `Requested withdrawal of ${tickets} bonds (${value / 1_000_000} USDC) · Pending settle`,
-      amount: value,
-      txSignature: signature,
-    };
-
-    if (isConnected) {
+    if (isConnected && userAddress) {
       refetch();
-      prependLocal(newActivity);
+      if (signature) {
+        prependLocal(
+          createOptimisticActivity({
+            activityType: "withdraw",
+            bonds: tickets,
+            amountUsdc: value,
+            decimals: poolTokenDecimals,
+            txSignature: signature,
+          }),
+          userAddress
+        );
+      }
     }
   };
 
@@ -255,13 +256,14 @@ export default function DashboardPage() {
       );
 
       try {
-        if (isConnected) {
+        if (isConnected && userAddress) {
+          const initiatingAddress = userAddress;
           await runActionTx(
             async () => {
               const sig = await actions.reinvestWinnings(
                 drawCycleId,
                 entry.winnerIndex,
-                userAddress
+                initiatingAddress
               );
               markPrizeOptimisticallyProcessed({
                 drawCycleId,
@@ -271,16 +273,31 @@ export default function DashboardPage() {
               });
               return sig;
             },
-            () => {
+            (capturedSig) => {
               refetch();
-              refetchActivity();
               invalidateDrawQueries(queryClient, poolId);
+              if (breakdown.bondsBought > 0 && capturedSig) {
+                prependLocal(
+                  createOptimisticActivity({
+                    activityType: "auto-reinvest",
+                    bonds: breakdown.bondsBought,
+                    amountUsdc: breakdown.bondsBought * poolBondPrice,
+                    cycleId: drawCycleId,
+                    decimals: poolTokenDecimals,
+                    txSignature: capturedSig,
+                  }),
+                  initiatingAddress
+                );
+              }
               setTimeout(() => {
                 queryClient.invalidateQueries({
                   queryKey: bondsKeys.userPrizeHistory(
                     poolId,
-                    userAddress ?? "anonymous"
+                    initiatingAddress ?? "anonymous"
                   ),
+                });
+                queryClient.invalidateQueries({
+                  queryKey: bondsKeys.activityFeed(poolId, initiatingAddress),
                 });
               }, 4000);
             }
@@ -305,7 +322,8 @@ export default function DashboardPage() {
       userAddress,
       markPrizeOptimisticallyProcessed,
       refetch,
-      refetchActivity,
+      prependLocal,
+      poolTokenDecimals,
       queryClient,
       rollbackOptimisticPrize,
       setActionModalTitle,
@@ -323,22 +341,24 @@ export default function DashboardPage() {
     );
 
     try {
-      if (isConnected) {
+      if (isConnected && userAddress) {
+        const initiatingAddress = userAddress;
         await runActionTx(
           () => actions.claimNonReinvestedWinnings(claimAmount),
           (capturedSig) => {
             refetch();
             refetchDrawHistory();
-            refetchActivity();
-            const newActivity: ActivityEntry = {
-              id: `act-claim-dust-${Date.now()}`,
-              date: new Date().toISOString(),
-              type: "win",
-              description: `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC · Pending Huma settle`,
-              amount: claimAmount,
-              txSignature: capturedSig,
-            };
-            prependLocal(newActivity);
+            if (capturedSig) {
+              prependLocal(
+                createOptimisticActivity({
+                  activityType: "win",
+                  amountUsdc: claimAmount,
+                  decimals: activePool.tokenDecimals,
+                  txSignature: capturedSig,
+                }),
+                initiatingAddress
+              );
+            }
           }
         );
       }
@@ -370,27 +390,24 @@ export default function DashboardPage() {
     );
 
     try {
-      if (isConnected) {
+      if (isConnected && userAddress) {
+        const initiatingAddress = userAddress;
         await runActionTx(
           () => actions.claimRedemption(Number(id)),
           (capturedSig) => {
             refetch();
-            refetchActivity();
-            const newActivity: ActivityEntry = {
-              id: `act-claim-red-${id}-${Date.now()}`,
-              date: new Date().toISOString(),
-              type: "claim-redemption",
-              description: `Claimed settled ${
-                redemption.type === "bond_sale"
-                  ? "bond principal"
-                  : redemption.type === "fee_withdrawal"
-                    ? "fees"
-                    : "prize winnings"
-              } of $${formatTokenAmount(redemption.amount, 6)} USDC to wallet`,
-              amount: redemption.amount,
-              txSignature: capturedSig,
-            };
-            prependLocal(newActivity);
+            if (capturedSig) {
+              prependLocal(
+                createOptimisticActivity({
+                  activityType: "claim-redemption",
+                  amountUsdc: redemption.amount,
+                  redemptionType: redemption.type,
+                  decimals: 6,
+                  txSignature: capturedSig,
+                }),
+                initiatingAddress
+              );
+            }
           }
         );
       }
@@ -627,6 +644,7 @@ export default function DashboardPage() {
       />
 
       <CompleteActivityModal
+        key={userAddress ?? "unconnected"}
         entries={activeActivityFeed}
         isOpen={showCompleteActivity}
         onClose={() => setShowCompleteActivity(false)}

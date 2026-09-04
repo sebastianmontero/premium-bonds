@@ -127,7 +127,10 @@ describe("Prize History Mapper & Formatter Suite", () => {
 
     const recent = mapDtoToRecentWinner(dto, "USDC");
 
-    assert.strictEqual(recent.address, "RecentWinner11111111111111111111111111111");
+    assert.strictEqual(
+      recent.address,
+      "RecentWinner11111111111111111111111111111"
+    );
     assert.strictEqual(recent.amount, 250_000_000);
     assert.strictEqual(recent.cycleId, 15);
     assert.strictEqual(recent.tierIndex, 0);
@@ -169,9 +172,15 @@ describe("Prize History Mapper & Formatter Suite", () => {
     assert.strictEqual(formatTokenAmount(5000000, 6), "5.00");
 
     // Defensive handling of non-finite inputs
-    assert.strictEqual(formatTokenAmount(undefined as unknown as number, 6), "0.00");
+    assert.strictEqual(
+      formatTokenAmount(undefined as unknown as number, 6),
+      "0.00"
+    );
     assert.strictEqual(formatTokenAmount(null as unknown as number, 6), "0.00");
     assert.strictEqual(formatTokenAmount(NaN, 6), "0.00");
-    assert.strictEqual(formatTokenAmount("50000000" as unknown as number, 6), "50.00");
+    assert.strictEqual(
+      formatTokenAmount("50000000" as unknown as number, 6),
+      "50.00"
+    );
   });
 });

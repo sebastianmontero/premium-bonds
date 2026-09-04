@@ -24,7 +24,9 @@ const rpc = createSolanaRpc(
     "http://127.0.0.1:8899"
 );
 
-export async function getCachedPoolInfo(poolId: number = 1): Promise<PoolInfo | null> {
+export async function getCachedPoolInfo(
+  poolId: number = 1
+): Promise<PoolInfo | null> {
   const now = Date.now();
   const hit = cache.get(poolId);
   if (hit && hit.expiresAt > now) {

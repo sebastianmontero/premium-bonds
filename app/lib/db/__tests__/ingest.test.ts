@@ -89,7 +89,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(buyEvent);
       assert.strictEqual(meta.scope, "pool");
-      assert.deepStrictEqual(meta.scopes, ["pool", "user"]);
+      assert.deepStrictEqual(meta.scopes, ["pool", "user", "activity"]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, userAddr.toString());
     });
@@ -107,7 +107,12 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(sellEvent);
       assert.strictEqual(meta.scope, "pool");
-      assert.deepStrictEqual(meta.scopes, ["pool", "user", "redemptions"]);
+      assert.deepStrictEqual(meta.scopes, [
+        "pool",
+        "user",
+        "redemptions",
+        "activity",
+      ]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, userAddr.toString());
     });
@@ -126,7 +131,12 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(reinvestEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "user", "pool"]);
+      assert.deepStrictEqual(meta.scopes, [
+        "draws",
+        "user",
+        "pool",
+        "activity",
+      ]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, userAddr.toString());
     });
@@ -148,6 +158,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         "user",
         "pool",
         "redemptions",
+        "activity",
       ]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, userAddr.toString());
@@ -165,7 +176,12 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(redClaimEvent);
       assert.strictEqual(meta.scope, "pool");
-      assert.deepStrictEqual(meta.scopes, ["pool", "user", "redemptions"]);
+      assert.deepStrictEqual(meta.scopes, [
+        "pool",
+        "user",
+        "redemptions",
+        "activity",
+      ]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, userAddr.toString());
     });

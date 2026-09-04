@@ -384,7 +384,11 @@ export default function PrizeDetailsModal({
                           {t("priorDustApplied")}
                         </p>
                         <p className="font-mono text-sm font-bold text-tertiary mt-1">
-                          +{formatTokenAmount(breakdown.usedPriorDust, tokenDecimals)}{" "}
+                          +
+                          {formatTokenAmount(
+                            breakdown.usedPriorDust,
+                            tokenDecimals
+                          )}{" "}
                           {tokenSymbol}
                         </p>
                       </div>

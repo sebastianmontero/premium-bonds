@@ -3,7 +3,13 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "../lib/query-keys";
 import type { ActivityEntry } from "../types";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  addOptimisticActivity,
+  reconcileOptimisticActivities,
+  useLocalActivity,
+} from "../lib/optimistic-activity-store";
+import { mergeActivityEntries } from "../lib/activity-helpers";
 
 export interface ScanProgress {
   currentBatch: number;
@@ -23,7 +29,7 @@ export interface ActivityFeedResult {
     filterFn: (entry: ActivityEntry) => boolean,
     targetCount: number
   ) => Promise<void>;
-  prependLocal: (entry: ActivityEntry) => void;
+  prependLocal: (entry: ActivityEntry, targetAddress?: string) => void;
 }
 
 interface ActivityApiResponse {
@@ -34,11 +40,9 @@ interface ActivityApiResponse {
 
 export function useActivityFeed(
   userAddress: string | undefined,
-  _tokenDecimals: number = 6,
   poolId: PoolId = 1
 ): ActivityFeedResult {
-  void _tokenDecimals;
-  const [localEntries, setLocalEntries] = useState<ActivityEntry[]>([]);
+  const localEntries = useLocalActivity(userAddress);
 
   const query = useInfiniteQuery<ActivityApiResponse>({
     queryKey: bondsKeys.activityFeed(poolId, userAddress),
@@ -61,27 +65,27 @@ export function useActivityFeed(
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: !!userAddress,
-    staleTime: 30_000,
+    staleTime: 10_000,
   });
 
   const apiEntries = useMemo(() => {
     return query.data?.pages.flatMap((page) => page.entries) ?? [];
   }, [query.data]);
 
-  const entries = useMemo(() => {
-    const seen = new Set<string>();
-    const combined: ActivityEntry[] = [];
-
-    for (const item of [...localEntries, ...apiEntries]) {
-      const key = item.id || item.txSignature;
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        combined.push(item);
-      } else if (!key) {
-        combined.push(item);
-      }
+  useEffect(() => {
+    if (!userAddress || localEntries.length === 0 || apiEntries.length === 0) {
+      return;
     }
-    return combined;
+    const onChainSignatures = new Set(
+      apiEntries
+        .map((e) => e.txSignature)
+        .filter((s): s is string => Boolean(s))
+    );
+    reconcileOptimisticActivities(userAddress, onChainSignatures);
+  }, [localEntries, apiEntries, userAddress]);
+
+  const entries = useMemo(() => {
+    return mergeActivityEntries(localEntries, apiEntries);
   }, [localEntries, apiEntries]);
 
   const loadMore = useCallback(
@@ -120,12 +124,16 @@ export function useActivityFeed(
     [entries, query]
   );
 
-  const prependLocal = useCallback((entry: ActivityEntry) => {
-    setLocalEntries((prev) => [entry, ...prev]);
-  }, []);
+  const prependLocal = useCallback(
+    (entry: ActivityEntry, targetAddress?: string) => {
+      const addressKey = targetAddress || userAddress;
+      if (!addressKey) return;
+      addOptimisticActivity(addressKey, entry);
+    },
+    [userAddress]
+  );
 
   const refetch = useCallback(() => {
-    setLocalEntries([]);
     query.refetch();
   }, [query]);
 

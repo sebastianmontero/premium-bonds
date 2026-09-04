@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, isDatabaseConfigured } from "@/app/lib/db";
-import { drawHistory, drawWinners } from "@/app/lib/db/schema";
-import { eq, desc, getTableColumns, sql } from "drizzle-orm";
+import { isDatabaseConfigured } from "@/app/lib/db";
 import {
   mapDrawHistoryRowsToSummaries,
   calculateDrawHistoryStats,
   type DrawCycleSummaryDto,
 } from "@/app/lib/indexer-mappers";
 import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+import { buildDrawCyclesWithPayoutsQuery } from "./queries";
 
 export type { DrawCycleSummaryDto };
 
@@ -26,21 +25,8 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
 
   try {
-    const rows = await db
-      .select({
-        ...getTableColumns(drawHistory),
-        payoutsCompleted: sql<number>`COALESCE((
-          SELECT count(*)::int
-          FROM ${drawWinners}
-          WHERE ${drawWinners.poolId} = ${drawHistory.poolId}
-            AND ${drawWinners.cycleId} = ${drawHistory.cycleId}
-            AND ${drawWinners.processed} = true
-        ), 0)`,
-      })
-      .from(drawHistory)
-      .where(eq(drawHistory.poolId, poolId))
-      .orderBy(desc(drawHistory.cycleId))
-      .limit(limit);
+    const query = buildDrawCyclesWithPayoutsQuery(poolId, limit);
+    const rows = await query;
 
     const summaries = mapDrawHistoryRowsToSummaries(rows);
     const stats = calculateDrawHistoryStats(summaries);
@@ -57,4 +43,3 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-

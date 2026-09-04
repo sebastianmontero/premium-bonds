@@ -4,7 +4,11 @@ import React from "react";
 
 export function DashboardLoadingSkeleton() {
   return (
-    <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Loading pool state">
+    <div
+      className="space-y-6 animate-pulse"
+      aria-busy="true"
+      aria-label="Loading pool state"
+    >
       {/* ── 1. Hero Row Skeleton (4 metric cards) ────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (

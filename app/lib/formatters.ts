@@ -632,4 +632,3 @@ export function formatCycleFrequency(
       return t("freqHours", { hours: durationHrs });
   }
 }
-

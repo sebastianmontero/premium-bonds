@@ -7,7 +7,6 @@ import {
 } from "./db/schema";
 import type { DrawHistoryStats, DrawStatusName } from "../types";
 
-
 export type ApiResponse<T> =
   | { success: true; data: T; fallbackRequired: false }
   | { success: false; data?: never; fallbackRequired: true; error: string };
@@ -294,7 +293,9 @@ export function isTerminalDrawStatus(status: string): boolean {
 }
 
 export function mapDrawHistoryRowsToSummaries(
-  rows: (typeof drawHistory.$inferSelect & { payoutsCompleted?: number | null })[]
+  rows: (typeof drawHistory.$inferSelect & {
+    payoutsCompleted?: number | null;
+  })[]
 ): DrawCycleSummaryDto[] {
   return rows.map((r) => {
     const rawPayouts = Number(r.payoutsCompleted ?? 0);
@@ -345,4 +346,3 @@ export function calculateDrawHistoryStats(
     averagePrizePot: completedDraws > 0 ? totalYield / completedDraws : 0,
   };
 }
-
