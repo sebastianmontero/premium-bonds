@@ -163,6 +163,33 @@ export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {
 }
 
 /**
+ * Safely stringifies objects containing BigInt values or circular references without throwing a TypeError.
+ */
+export function safeStringify(obj: unknown, space?: string | number): string {
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(
+      obj,
+      (_key, value) => {
+        if (typeof value === "bigint") {
+          return value.toString();
+        }
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) {
+            return "[Circular]";
+          }
+          seen.add(value);
+        }
+        return value;
+      },
+      space
+    );
+  } catch {
+    return String(obj);
+  }
+}
+
+/**
  * Defensively normalizes instruction accounts matching the fee payer's address
  * to use the canonical KeyPairSigner instance, avoiding reference-mismatch errors.
  */

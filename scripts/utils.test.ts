@@ -6,6 +6,7 @@ import {
   formatStackTrace,
   upsertEnvFile,
   readEnvFile,
+  safeStringify,
 } from "./utils";
 import { parseLocalnetFlags, getBootstrapGuideText } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
@@ -498,6 +499,61 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
         secondarySigner,
         "Secondary signer should not be replaced"
       );
+    });
+  });
+
+  describe("safeStringify BigInt & Circular Serialization", () => {
+    it("should stringify primitives and standard objects", () => {
+      assert.strictEqual(safeStringify(null), "null");
+      assert.strictEqual(safeStringify("hello"), '"hello"');
+      assert.strictEqual(safeStringify(123), "123");
+      assert.strictEqual(safeStringify(true), "true");
+      assert.strictEqual(safeStringify({ a: 1, b: "test" }), '{"a":1,"b":"test"}');
+    });
+
+    it("should serialize top-level and nested BigInt values without throwing TypeError", () => {
+      const singleBigInt = 1000000000000000000n;
+      assert.strictEqual(safeStringify(singleBigInt), '"1000000000000000000"');
+
+      const complexObj = {
+        id: 1,
+        poolYield: 999999999999999999999999n,
+        nested: {
+          balances: [10n, 20n, 30n],
+          label: "yield",
+        },
+      };
+      const result = safeStringify(complexObj);
+      assert.strictEqual(
+        result,
+        '{"id":1,"poolYield":"999999999999999999999999","nested":{"balances":["10","20","30"],"label":"yield"}}'
+      );
+    });
+
+    it("should handle circular references gracefully without throw", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const circularObj: any = { name: "root" };
+      circularObj.self = circularObj;
+
+      const result = safeStringify(circularObj);
+      assert.strictEqual(result, '{"name":"root","self":"[Circular]"}');
+    });
+
+    it("should format output with custom indentation when space is provided", () => {
+      const obj = { key: 42n };
+      const formatted = safeStringify(obj, 2);
+      assert.strictEqual(formatted, '{\n  "key": "42"\n}');
+    });
+
+    it("should safely stringify Error objects and RPC error payloads", () => {
+      const rpcErr = {
+        code: -32603,
+        message: "Internal error",
+        data: { logs: ["Program log: Instruction failed"] },
+      };
+      const stringified = safeStringify(rpcErr);
+      assert.ok(stringified.includes("-32603"));
+      assert.ok(stringified.includes("Internal error"));
     });
   });
 });
