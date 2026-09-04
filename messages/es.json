@@ -446,6 +446,7 @@
     "ready": "Listo",
     "simulateSettled": "Simular Liquidado",
     "claimUSDC": "Reclamar USDC",
+    "claiming": "Reclamando...",
     "requested": "Solicitado"
   },
   "Pagination": {

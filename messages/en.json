@@ -446,6 +446,7 @@
     "ready": "Ready",
     "simulateSettled": "Simulate Settled",
     "claimUSDC": "Claim USDC",
+    "claiming": "Claiming...",
     "requested": "Requested"
   },
   "Pagination": {

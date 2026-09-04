@@ -14,6 +14,7 @@ interface PendingRedemptionsListProps {
   tokenDecimals: number;
   showSimulation?: boolean;
   isLoading?: boolean;
+  claimingRedemptionId?: string | null;
 }
 
 export function PendingRedemptionsList({
@@ -24,6 +25,7 @@ export function PendingRedemptionsList({
   tokenDecimals,
   showSimulation = true,
   isLoading = false,
+  claimingRedemptionId = null,
 }: PendingRedemptionsListProps) {
   const t = useTranslations("Redemptions");
   const format = useFormatter();
@@ -220,9 +222,18 @@ export function PendingRedemptionsList({
                       ) : (
                         <button
                           onClick={() => onClaimRedemption(item.redemptionId)}
-                          className="rounded-lg bg-emerald-500 hover:bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition cursor-pointer shadow-sm shadow-emerald-500/20"
+                          disabled={Boolean(claimingRedemptionId)}
+                          aria-busy={claimingRedemptionId === item.redemptionId}
+                          className="rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed px-3.5 py-1.5 text-xs font-semibold text-white transition cursor-pointer shadow-sm shadow-emerald-500/20 flex items-center gap-1.5"
                         >
-                          {t("claimUSDC")}
+                          {claimingRedemptionId === item.redemptionId ? (
+                            <>
+                              <span className="h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                              {t("claiming")}
+                            </>
+                          ) : (
+                            t("claimUSDC")
+                          )}
                         </button>
                       )}
                     </div>

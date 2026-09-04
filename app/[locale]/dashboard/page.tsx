@@ -119,6 +119,9 @@ export default function DashboardPage() {
   } = useTransactionRunner();
   const [actionModalTitle, setActionModalTitle] = useState<string>("");
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string>("");
+  const [claimingRedemptionId, setClaimingRedemptionId] = useState<
+    string | null
+  >(null);
 
   /** Composite key for crankingCycles to disambiguate entries in the same draw cycle */
   const crankKey = (drawCycleId: number, winnerIndex: number) =>
@@ -378,6 +381,7 @@ export default function DashboardPage() {
       (r) => r.redemptionId === id
     );
     if (!redemption) return;
+    setClaimingRedemptionId(id);
 
     setActionModalTitle("Claim Settled Redemption");
     setActionSuccessMsg(
@@ -396,6 +400,11 @@ export default function DashboardPage() {
         await runActionTx(
           () => actions.claimRedemption(Number(id)),
           (capturedSig) => {
+            // Optimistically remove from cache once confirmed on-chain
+            queryClient.setQueryData<PendingRedemption[]>(
+              bondsKeys.userRedemptions(poolId, initiatingAddress),
+              (old) => (old || []).filter((r) => r.redemptionId !== id)
+            );
             refetchOnChain();
             if (capturedSig) {
               prependLocal(
@@ -422,6 +431,16 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Claim redemption failed:", err);
+      if (userAddress) {
+        void queryClient.invalidateQueries({
+          queryKey: bondsKeys.userRedemptions(
+            poolId,
+            userAddress ?? "anonymous"
+          ),
+        });
+      }
+    } finally {
+      setClaimingRedemptionId(null);
     }
   };
 
@@ -549,6 +568,7 @@ export default function DashboardPage() {
           tokenDecimals={activePool.tokenDecimals}
           showSimulation={false}
           isLoading={isInitialLoading || (isConnected && isBondsLoading)}
+          claimingRedemptionId={claimingRedemptionId}
         />
       </div>
 

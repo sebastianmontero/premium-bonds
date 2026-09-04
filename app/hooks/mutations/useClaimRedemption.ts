@@ -46,25 +46,13 @@ export function useClaimRedemption(poolId: PoolId = 1) {
       });
       return signature.toString();
     },
-    onMutate: async ({ redemptionId }: ClaimRedemptionParams) => {
-      if (!userAddress) return;
-      const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
-      const idStr = String(redemptionId);
-      await queryClient.cancelQueries({ queryKey });
-      const previousRedemptions =
-        queryClient.getQueryData<PendingRedemption[]>(queryKey);
-      queryClient.setQueryData<PendingRedemption[]>(queryKey, (old) =>
-        (old || []).filter((r) => r.redemptionId !== idStr)
-      );
-      return { previousRedemptions, queryKey };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previousRedemptions && context?.queryKey) {
-        queryClient.setQueryData(context.queryKey, context.previousRedemptions);
-      }
-    },
-    onSuccess: () => {
+    onSuccess: (_data, { redemptionId }) => {
       if (userAddress) {
+        const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
+        const idStr = String(redemptionId);
+        queryClient.setQueryData<PendingRedemption[]>(queryKey, (old) =>
+          (old || []).filter((r) => r.redemptionId !== idStr)
+        );
         queryClient.invalidateQueries({
           queryKey: bondsKeys.userTokenBalance(userAddress),
         });

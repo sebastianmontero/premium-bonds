@@ -6,7 +6,7 @@ import { address } from "@solana/kit";
 import { usePrizePool } from "./queries/usePrizePool";
 import { useUserBondPosition } from "./queries/useUserBondPosition";
 import { useUserTokenBalance } from "./useUserTokenBalance";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { bondsKeys } from "../lib/query-keys";
 import {
   buildBuyBondsInstruction,
@@ -24,7 +24,6 @@ import {
 import { UNASSIGNED_REGISTRY_INDEX } from "../lib/ticket-registry-helpers";
 
 export function useBondsContract(poolId: number = 1) {
-  const queryClient = useQueryClient();
   const client = useSolanaClient();
   const rpc = client.runtime.rpc;
   const { wallet, status } = useWalletConnection();
@@ -177,9 +176,6 @@ export function useBondsContract(poolId: number = 1) {
     async (redemptionId: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
 
-      const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
-      const idStr = String(redemptionId);
-
       const userAta = await import("../lib/bonds-sdk").then((m) =>
         m.findAtaAddress(userAddress, m.USDC_MINT)
       );
@@ -191,27 +187,10 @@ export function useBondsContract(poolId: number = 1) {
         userTokenAccount: userAta,
       });
 
-      // 1. Cancel in-flight queries & snapshot prior state for rollback
-      await queryClient.cancelQueries({ queryKey });
-      const previousRedemptions =
-        queryClient.getQueryData<PendingRedemption[]>(queryKey);
-
-      // 2. Optimistically remove from cache
-      queryClient.setQueryData<PendingRedemption[]>(queryKey, (old) =>
-        (old || []).filter((r) => r.redemptionId !== idStr)
-      );
-
-      try {
-        const sig = await send({ instructions: [ix] });
-        await tokenBalanceQuery.refetch();
-        return sig.toString();
-      } catch (err) {
-        // 3. Rollback cache on failure / rejection
-        queryClient.setQueryData(queryKey, previousRedemptions);
-        throw err;
-      }
+      const sig = await send({ instructions: [ix] });
+      return sig.toString();
     },
-    [userAddress, poolId, send, queryClient, tokenBalanceQuery]
+    [userAddress, poolId, send]
   );
 
   const claimNonReinvestedWinnings = useCallback(
