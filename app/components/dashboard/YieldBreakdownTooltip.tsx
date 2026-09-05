@@ -8,6 +8,7 @@ import {
   formatLiveYieldMetric,
   DEFAULT_LIVE_YIELD_PRECISION,
 } from "@/app/lib/formatters";
+import { safeSetElementText } from "@/app/lib/dom-utils";
 import type { PoolInfo } from "@/app/types";
 
 interface YieldBreakdownTooltipProps {
@@ -43,30 +44,35 @@ export function YieldBreakdownTooltip({
         pool.tokenDecimals
       );
 
-      if (grossSpanRef.current) {
-        grossSpanRef.current.textContent = formatLiveYieldMetric(
+      safeSetElementText(
+        grossSpanRef.current,
+        formatLiveYieldMetric(
           live.grossYieldUi,
           tokenSymbol,
           "+",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
-      if (feeSpanRef.current) {
-        feeSpanRef.current.textContent = formatLiveYieldMetric(
+        )
+      );
+
+      safeSetElementText(
+        feeSpanRef.current,
+        formatLiveYieldMetric(
           live.protocolFeeUi,
           tokenSymbol,
           "-",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
-      if (netSpanRef.current) {
-        netSpanRef.current.textContent = formatLiveYieldMetric(
+        )
+      );
+
+      safeSetElementText(
+        netSpanRef.current,
+        formatLiveYieldMetric(
           live.netYieldUi,
           tokenSymbol,
           "",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
+        )
+      );
 
       animFrameId = requestAnimationFrame(tick);
     };

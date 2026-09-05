@@ -8,6 +8,7 @@ import {
   formatLiveYieldMetric,
   DEFAULT_LIVE_YIELD_PRECISION,
 } from "@/app/lib/formatters";
+import { safeSetElementText } from "@/app/lib/dom-utils";
 import { DrawTargetTooltip } from "./DrawTargetTooltip";
 import type { PoolInfo } from "@/app/types";
 
@@ -64,18 +65,20 @@ export function MinimumYieldStatus({
           ? Math.min(100, Math.max(0, (currentNetUi / targetNetUi) * 100))
           : 100;
 
-      if (currentNetSpanRef.current) {
-        currentNetSpanRef.current.textContent = formatLiveYieldMetric(
+      safeSetElementText(
+        currentNetSpanRef.current,
+        formatLiveYieldMetric(
           currentNetUi,
           tokenSymbol,
           "",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
+        )
+      );
 
-      if (percentSpanRef.current) {
-        percentSpanRef.current.textContent = `${progressPct.toFixed(1)}%`;
-      }
+      safeSetElementText(
+        percentSpanRef.current,
+        `${progressPct.toFixed(1)}%`
+      );
 
       if (progressBarRef.current) {
         progressBarRef.current.style.width = `${progressPct}%`;
@@ -87,9 +90,7 @@ export function MinimumYieldStatus({
 
       if (progressPct >= 100 && !isLiveMetRef.current) {
         isLiveMetRef.current = true;
-        if (statusTextRef.current) {
-          statusTextRef.current.textContent = t("prizePotTargetMet");
-        }
+        safeSetElementText(statusTextRef.current, t("prizePotTargetMet"));
       }
 
       animFrameId = requestAnimationFrame(tick);

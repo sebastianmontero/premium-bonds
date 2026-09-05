@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import { safeSetElementText } from "@/app/lib/dom-utils";
 
 const emptySubscribe = () => () => {};
 
@@ -11,7 +12,7 @@ export interface UseLiveTickerTextOptions {
   formatValue?: (value: number) => string;
   /** Pure formatter splitting numeric value into [major, micro] strings */
   formatParts?: (value: number) => [string, string];
-  /** Ref to the HTMLSpanElement directly updated via textContent */
+  /** Ref to the HTMLSpanElement directly updated via safeSetElementText */
   spanRef: RefObject<HTMLSpanElement | null>;
   /** Optional Ref to the HTMLSpanElement for the micro decimal fraction */
   microSpanRef?: RefObject<HTMLSpanElement | null>;
@@ -59,12 +60,10 @@ export function useLiveTickerText({
 
       if (microSpanRef?.current && formatPartsRef.current) {
         const [major, micro] = formatPartsRef.current(currentVal);
-        if (spanRef.current) {
-          spanRef.current.textContent = major;
-        }
-        microSpanRef.current.textContent = micro;
+        safeSetElementText(spanRef.current, major);
+        safeSetElementText(microSpanRef.current, micro);
       } else if (spanRef.current && formatRef.current) {
-        spanRef.current.textContent = formatRef.current(currentVal);
+        safeSetElementText(spanRef.current, formatRef.current(currentVal));
       }
 
       animFrameId = requestAnimationFrame(tick);

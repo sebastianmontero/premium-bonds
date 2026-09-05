@@ -10,6 +10,7 @@ import {
   getLiveYieldFormatter,
   formatCycleFrequency,
 } from "@/app/lib/formatters";
+import { safeSetElementText } from "@/app/lib/dom-utils";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { useTranslations } from "next-intl";
@@ -123,25 +124,21 @@ export function PrizeTiersModal({
         const totalFormatted = formatCurrency(currentPotUi * totalRatio);
 
         const dWinnerEl = desktopWinnerSpanRefs.current[i];
-        if (dWinnerEl) dWinnerEl.textContent = winnerFormatted;
+        safeSetElementText(dWinnerEl, winnerFormatted);
 
         const dTotalEl = desktopTotalSpanRefs.current[i];
-        if (dTotalEl) dTotalEl.textContent = totalFormatted;
+        safeSetElementText(dTotalEl, totalFormatted);
 
         const mWinnerEl = mobileWinnerSpanRefs.current[i];
-        if (mWinnerEl) mWinnerEl.textContent = winnerFormatted;
+        safeSetElementText(mWinnerEl, winnerFormatted);
 
         const mTotalEl = mobileTotalSpanRefs.current[i];
-        if (mTotalEl) mTotalEl.textContent = totalFormatted;
+        safeSetElementText(mTotalEl, totalFormatted);
       }
 
       const formattedTotalPot = formatCurrency(currentPotUi);
-      if (footerTotalSpanRef.current) {
-        footerTotalSpanRef.current.textContent = formattedTotalPot;
-      }
-      if (mobileFooterTotalSpanRef.current) {
-        mobileFooterTotalSpanRef.current.textContent = formattedTotalPot;
-      }
+      safeSetElementText(footerTotalSpanRef.current, formattedTotalPot);
+      safeSetElementText(mobileFooterTotalSpanRef.current, formattedTotalPot);
 
       animFrameId = requestAnimationFrame(tick);
     };
@@ -485,8 +482,12 @@ export function PrizeTiersModal({
                           ref={(el) => {
                             mobileWinnerSpanRefs.current[i] = el;
                           }}
+                          aria-hidden="true"
                         >
                           {initialWinnerFormatted}
+                        </span>
+                        <span className="sr-only">
+                          {t("estPerWinnerColumn")}: {initialWinnerFormatted}
                         </span>
                       </p>
                     </div>
@@ -502,13 +503,18 @@ export function PrizeTiersModal({
 
                   <div className="border-t border-surface-container-high/30 pt-2 flex items-center justify-between text-[11px] text-on-surface-variant">
                     <span>{t("totalTierShareColumn")}</span>
-                    <span
-                      ref={(el) => {
-                        mobileTotalSpanRefs.current[i] = el;
-                      }}
-                      className="font-mono font-medium text-on-surface"
-                    >
-                      {initialTotalFormatted}
+                    <span className="font-mono font-medium text-on-surface">
+                      <span
+                        ref={(el) => {
+                          mobileTotalSpanRefs.current[i] = el;
+                        }}
+                        aria-hidden="true"
+                      >
+                        {initialTotalFormatted}
+                      </span>
+                      <span className="sr-only">
+                        {t("totalTierShareColumn")}: {initialTotalFormatted}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -526,15 +532,22 @@ export function PrizeTiersModal({
                   {totalSharePctFormatted}%
                 </p>
               </div>
-              <span
-                ref={mobileFooterTotalSpanRef}
-                className="font-mono text-sm font-bold text-gradient"
-              >
-                {formatTierPayoutAmount(
-                  baseUi,
-                  tokenSymbol,
-                  DEFAULT_LIVE_YIELD_PRECISION
-                )}
+              <span className="font-mono text-sm font-bold text-gradient">
+                <span ref={mobileFooterTotalSpanRef} aria-hidden="true">
+                  {formatTierPayoutAmount(
+                    baseUi,
+                    tokenSymbol,
+                    DEFAULT_LIVE_YIELD_PRECISION
+                  )}
+                </span>
+                <span className="sr-only">
+                  {t("totalSummaryLabel")}:{" "}
+                  {formatTierPayoutAmount(
+                    baseUi,
+                    tokenSymbol,
+                    DEFAULT_LIVE_YIELD_PRECISION
+                  )}
+                </span>
               </span>
             </div>
           </div>

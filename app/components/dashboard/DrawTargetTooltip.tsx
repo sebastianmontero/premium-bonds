@@ -8,6 +8,7 @@ import {
   formatLiveYieldMetric,
   DEFAULT_LIVE_YIELD_PRECISION,
 } from "@/app/lib/formatters";
+import { safeSetElementText } from "@/app/lib/dom-utils";
 import type { PoolInfo } from "@/app/types";
 
 export interface DrawTargetTooltipProps {
@@ -43,22 +44,25 @@ export function DrawTargetTooltip({
         pool.tokenDecimals
       );
 
-      if (liveNetSpanRef.current) {
-        liveNetSpanRef.current.textContent = formatLiveYieldMetric(
+      safeSetElementText(
+        liveNetSpanRef.current,
+        formatLiveYieldMetric(
           live.netYieldUi,
           tokenSymbol,
           "",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
-      if (liveGrossSpanRef.current) {
-        liveGrossSpanRef.current.textContent = formatLiveYieldMetric(
+        )
+      );
+
+      safeSetElementText(
+        liveGrossSpanRef.current,
+        formatLiveYieldMetric(
           live.grossYieldUi,
           tokenSymbol,
           "",
           DEFAULT_LIVE_YIELD_PRECISION
-        );
-      }
+        )
+      );
 
       animFrameId = requestAnimationFrame(tick);
     };
