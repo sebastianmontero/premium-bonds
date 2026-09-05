@@ -18,6 +18,9 @@ import {
   calculatePoolYield,
   calculateAvailableFees,
   calculateBookValue,
+  calculateDeficitTotalAssets,
+  SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+  DEFAULT_DEFICIT_USDC,
   resolveUserTickets,
   parseUserEntryFromSlice,
   parseRegistryHeaderFromSlice,
@@ -809,5 +812,101 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       3
     );
     assert.strictEqual(decodeAccountBase64Data({ data: ["", "base64"] }), null);
+  });
+
+  describe("calculateDeficitTotalAssets & Solvency Breaker Math", () => {
+    it("should export correct domain constants", () => {
+      assert.strictEqual(SOLVENCY_DUST_TOLERANCE_BASE_UNITS, 1_000n);
+      assert.strictEqual(DEFAULT_DEFICIT_USDC, 1.0);
+      assert.ok(
+        BigInt(DEFAULT_DEFICIT_USDC * 1_000_000) >
+          SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+        "Default deficit must exceed SOLVENCY_DUST_TOLERANCE"
+      );
+    });
+
+    it("should calculate correct total assets for 1:1 PST ratio", () => {
+      // bookValue = 10 USDC (10_000_000 micro-USDC), deficit = 1 USDC (1_000_000 micro-USDC)
+      // targetCurrentValue = 9 USDC (9_000_000 micro-USDC)
+      // supply = balance = 10_000_000 PST
+      const res = calculateDeficitTotalAssets({
+        bookValue: 10_000_000n,
+        deficitMicroUsdc: 1_000_000n,
+        pstSupply: 10_000_000n,
+        poolPstBalance: 10_000_000n,
+      });
+      assert.strictEqual(res, 9_000_000n);
+    });
+
+    it("should calculate correct total assets with non-trivial PST supply ratios", () => {
+      // bookValue = 1,000 USDC, deficit = 50 USDC (target = 950 USDC)
+      // pstSupply = 2,000,000, poolPstBalance = 1,000,000 (ratio = 2.0)
+      const res = calculateDeficitTotalAssets({
+        bookValue: 1_000_000_000n,
+        deficitMicroUsdc: 50_000_000n,
+        pstSupply: 2_000_000_000n,
+        poolPstBalance: 1_000_000_000n,
+      });
+      assert.strictEqual(res, 1_900_000_000n);
+    });
+
+    it("should calculate correct total assets when deficit equals book value (complete wipeout)", () => {
+      const res = calculateDeficitTotalAssets({
+        bookValue: 5_000_000n,
+        deficitMicroUsdc: 5_000_000n,
+        pstSupply: 5_000_000n,
+        poolPstBalance: 5_000_000n,
+      });
+      assert.strictEqual(res, 0n);
+    });
+
+    it("should handle zero pstSupply gracefully", () => {
+      const res = calculateDeficitTotalAssets({
+        bookValue: 5_000_000n,
+        deficitMicroUsdc: 1_000_000n,
+        pstSupply: 0n,
+        poolPstBalance: 5_000_000n,
+      });
+      assert.strictEqual(res, 0n);
+    });
+
+    it("should throw RangeError when deficit is negative", () => {
+      assert.throws(
+        () =>
+          calculateDeficitTotalAssets({
+            bookValue: 10_000_000n,
+            deficitMicroUsdc: -1n,
+            pstSupply: 10_000_000n,
+            poolPstBalance: 10_000_000n,
+          }),
+        /cannot be negative/
+      );
+    });
+
+    it("should throw RangeError when deficit exceeds book value", () => {
+      assert.throws(
+        () =>
+          calculateDeficitTotalAssets({
+            bookValue: 100_000_000n,
+            deficitMicroUsdc: 100_000_001n,
+            pstSupply: 100_000_000n,
+            poolPstBalance: 100_000_000n,
+          }),
+        /exceeds pool book value/
+      );
+    });
+
+    it("should throw RangeError when poolPstBalance is zero", () => {
+      assert.throws(
+        () =>
+          calculateDeficitTotalAssets({
+            bookValue: 100_000_000n,
+            deficitMicroUsdc: 1_000_000n,
+            pstSupply: 100_000_000n,
+            poolPstBalance: 0n,
+          }),
+        /Pool PST balance must be greater than zero/
+      );
+    });
   });
 });

@@ -792,6 +792,61 @@ export function calculatePoolYield(
   };
 }
 
+/** Maximum allowable deficit tolerated as rounding dust during on-chain solvency checks (0.001 USDC = 1,000 micro-USDC). */
+export const SOLVENCY_DUST_TOLERANCE_BASE_UNITS = 1_000n;
+
+/** Default simulated deficit amount in USDC when none is specified (1.0 USDC = 1,000,000 micro-USDC). */
+export const DEFAULT_DEFICIT_USDC = 1.0;
+
+export interface DeficitValuationParams {
+  bookValue: bigint;
+  deficitMicroUsdc: bigint;
+  pstSupply: bigint;
+  poolPstBalance: bigint;
+}
+
+/**
+ * Calculates the required Huma Total Assets to simulate a deficit (insolvency) for a prize pool.
+ *
+ * Invariant:
+ *   targetCurrentValue = bookValue - deficitMicroUsdc (saturating at 0n)
+ *   requiredTotalAssets = (targetCurrentValue * pstSupply) / poolPstBalance
+ */
+export function calculateDeficitTotalAssets(
+  params: DeficitValuationParams
+): bigint {
+  const { bookValue, deficitMicroUsdc, pstSupply, poolPstBalance } = params;
+
+  if (deficitMicroUsdc < 0n) {
+    throw new RangeError(
+      `Deficit amount cannot be negative: ${deficitMicroUsdc}`
+    );
+  }
+  if (deficitMicroUsdc > bookValue) {
+    throw new RangeError(
+      `Deficit amount (${deficitMicroUsdc}) exceeds pool book value (${bookValue})`
+    );
+  }
+  if (poolPstBalance === 0n) {
+    throw new RangeError(
+      "Pool PST balance must be greater than zero to calculate deficit total assets"
+    );
+  }
+  if (pstSupply === 0n) {
+    return 0n;
+  }
+
+  const targetCurrentValue = bookValue - deficitMicroUsdc;
+  const requiredTotalAssets =
+    (targetCurrentValue * pstSupply) / poolPstBalance;
+
+  if (requiredTotalAssets > 0xffffffffffffffffffffffffffffffffn) {
+    throw new RangeError("Calculated deficit total assets exceeds u128 limit");
+  }
+
+  return requiredTotalAssets;
+}
+
 export const HUMA_MODE_CONFIG_NAME_OFFSET = 42; // 8 (disc) + 1 (bump) + 1 (mint_bump) + 32 (id)
 export const BORSH_STRING_LENGTH_PREFIX_SIZE = 4;
 export const HUMA_MODE_CONFIG_MIN_BYTE_LENGTH = 48;
