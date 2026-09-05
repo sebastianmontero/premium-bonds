@@ -8,13 +8,14 @@ import {
   PrizeHistoryEntryDto,
 } from "@/app/lib/indexer-mappers";
 import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+import type { DrawStatusName } from "@/app/types";
 
 export const dynamic = "force-dynamic";
 
 export interface DetailedDrawCycleApiResponse {
   poolId: number;
   cycleId: number;
-  status: string;
+  status: DrawStatusName;
   prizePot: string;
   cycleFeeCollected: string;
   lockedTicketCount: string;

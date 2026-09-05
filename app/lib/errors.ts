@@ -50,6 +50,7 @@ import {
   ANCHOR_ERROR__UNAUTHORIZED,
   ANCHOR_ERROR__WINNER_MISMATCH,
   ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION,
+  ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -431,6 +432,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Account schema version is invalid or unsupported.",
     actionable:
       "Please refresh your client or upgrade your dApp interface to match the current smart contract schema.",
+  },
+  [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: {
+    name: "SameRandomnessAccount",
+    message: "Cannot rebind to the same randomness account.",
+    actionable:
+      "Provide a different Switchboard randomness account that was freshly initialized.",
   },
 };
 

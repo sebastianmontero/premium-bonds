@@ -252,6 +252,30 @@ export class PayoutHydratorService {
             : (options?.drawBlockTime ?? 0);
 
       await db.transaction(async (tx) => {
+        const existingRow = await tx
+          .select({ status: drawHistory.status })
+          .from(drawHistory)
+          .where(
+            and(
+              eq(drawHistory.poolId, poolId),
+              eq(drawHistory.cycleId, cycleId)
+            )
+          )
+          .limit(1);
+
+        if (existingRow.length > 0 && existingRow[0].status === "Voided") {
+          await tx
+            .update(drawHistory)
+            .set({ winnersSynced: true })
+            .where(
+              and(
+                eq(drawHistory.poolId, poolId),
+                eq(drawHistory.cycleId, cycleId)
+              )
+            );
+          return;
+        }
+
         if (winnerRows.length > 0) {
           await tx
             .insert(drawWinners)

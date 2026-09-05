@@ -116,6 +116,8 @@ export const ANCHOR_ERROR__UNAUTHORIZED = 0x17a0; // 6048
 export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a1; // 6049
 /** UnsupportedAccountVersion: Account schema version is invalid or unsupported. */
 export const ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION = 0x17a2; // 6050
+/** SameRandomnessAccount: Cannot rebind to the same randomness account. */
+export const ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT = 0x17a3; // 6051
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -161,6 +163,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
   | typeof ANCHOR_ERROR__REGISTRY_FULL
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
+  | typeof ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST
   | typeof ANCHOR_ERROR__UNAUTHORIZED
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
@@ -216,6 +219,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,
+    [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: `Cannot rebind to the same randomness account.`,
     [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: `The randomness request is stale or was committed before the harvest freeze.`,
     [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,

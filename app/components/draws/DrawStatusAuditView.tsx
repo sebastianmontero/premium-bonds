@@ -31,7 +31,10 @@ export function DrawStatusAuditView({
       {isForceUnlocked && (
         <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-surface-container/60 to-surface-container/30 p-5 sm:p-6 shadow-sm">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xl shadow-inner">
+            <div
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xl shadow-inner"
+              aria-hidden="true"
+            >
               ⚠️
             </div>
             <div className="space-y-2">
@@ -49,7 +52,10 @@ export function DrawStatusAuditView({
       {(isHaltedInsolvent || isHaltedYieldSpike) && (
         <div className="rounded-2xl border border-red-500/30 bg-gradient-to-br from-red-500/10 via-surface-container/60 to-surface-container/30 p-5 sm:p-6 shadow-sm">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30 text-xl shadow-inner">
+            <div
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30 text-xl shadow-inner"
+              aria-hidden="true"
+            >
               🛑
             </div>
             <div className="space-y-2">
@@ -71,7 +77,10 @@ export function DrawStatusAuditView({
       {(isAwaitingYield || isAwaitingRandomness) && (
         <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-surface-container/60 to-surface-container/30 p-5 sm:p-6 shadow-sm">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-primary border border-primary/30 text-xl shadow-inner">
+            <div
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-primary border border-primary/30 text-xl shadow-inner"
+              aria-hidden="true"
+            >
               <span className="animate-spin text-lg">⏳</span>
             </div>
             <div className="space-y-2">

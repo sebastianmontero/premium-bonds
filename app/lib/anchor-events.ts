@@ -207,6 +207,7 @@ export interface DrawSkippedEvent {
   cycleId: number;
   rawYield: bigint;
   threshold: bigint;
+  lockedTicketCount: number;
   timestamp?: bigint;
 }
 
@@ -320,16 +321,20 @@ export interface PoolStatusChangedEvent {
 
 export interface EmergencyInsolvencyDetectedEvent {
   poolId: number;
+  cycleId: number;
   currentValue: bigint;
   bookValue: bigint;
   deficit: bigint;
+  lockedTicketCount: number;
   timestamp?: bigint;
 }
 
 export interface YieldVelocityBreachedEvent {
   poolId: number;
+  cycleId: number;
   yieldGenerated: bigint;
   maxAllowedYield: bigint;
+  lockedTicketCount: number;
   timestamp?: bigint;
 }
 
@@ -467,8 +472,9 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawCompleted":
     case "DrawForceUnlocked":
-    case "DrawVoided":
       return createMetadata(evt.data.poolId, ["draws", "pool"]);
+    case "DrawVoided":
+      return createMetadata(evt.data.poolId, ["draws", "pool", "user"]);
     case "DrawSkipped":
       return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawPreparationProgress":
@@ -485,7 +491,7 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["pool"]);
     case "EmergencyInsolvencyDetected":
     case "YieldVelocityBreached":
-      return createMetadata(evt.data.poolId, ["pool"]);
+      return createMetadata(evt.data.poolId, ["pool", "draws"]);
     case "PrizeTiersUpdated":
     case "RegistryResized":
       return createMetadata(evt.data.poolId, ["pool"]);
@@ -685,6 +691,7 @@ function decodeEventData(
         const cycleId = reader.readU32();
         const rawYield = reader.readU64();
         const threshold = reader.readU64();
+        const lockedTicketCount = reader.readU32();
         let timestamp: bigint | undefined;
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
@@ -692,6 +699,7 @@ function decodeEventData(
           cycleId,
           rawYield,
           threshold,
+          lockedTicketCount,
           timestamp,
         } as DrawSkippedEvent;
       }
@@ -848,17 +856,21 @@ function decodeEventData(
       case "EmergencyInsolvencyDetected": {
         return {
           poolId: reader.readU32(),
+          cycleId: reader.readU32(),
           currentValue: reader.readU64(),
           bookValue: reader.readU64(),
           deficit: reader.readU64(),
+          lockedTicketCount: reader.readU32(),
           timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
         } as EmergencyInsolvencyDetectedEvent;
       }
       case "YieldVelocityBreached": {
         return {
           poolId: reader.readU32(),
+          cycleId: reader.readU32(),
           yieldGenerated: reader.readU64(),
           maxAllowedYield: reader.readU64(),
+          lockedTicketCount: reader.readU32(),
           timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
         } as YieldVelocityBreachedEvent;
       }

@@ -56,7 +56,8 @@ pub struct CrankRebindExpiredRandomness<'info> {
 
     /// CHECK: This is the raw new randomness account to be bound to the draw cycle. It is unchecked because it is a Switchboard On-Demand account. We enforce safety by validating that its owner matches the Switchboard On-Demand program ID.
     #[account(
-        constraint = new_randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
+        constraint = new_randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount,
+        constraint = new_randomness_account.key() != current_draw_cycle.randomness_account @ PremiumBondsError::SameRandomnessAccount
     )]
     pub new_randomness_account: UncheckedAccount<'info>,
 
@@ -77,10 +78,6 @@ pub struct CrankRebindExpiredRandomness<'info> {
 pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.ensure_current_version()?;
-    require!(
-        draw_cycle.status == DrawStatus::AwaitingRandomness,
-        PremiumBondsError::InvalidDrawStatus
-    );
 
     let clock = Clock::get()?;
     // Require that at least 1000 slots (~6.6 mins) have passed since harvest
@@ -93,8 +90,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     // Rebind our contract state to the new randomness account and reset harvest slot.
     // The crank bot must have already created this new randomness account on Switchboard and committed it.
-    draw_cycle.randomness_account = ctx.accounts.new_randomness_account.key();
-    draw_cycle.harvest_slot = clock.slot;
+    draw_cycle.rebind_randomness(ctx.accounts.new_randomness_account.key(), clock.slot)?;
 
     let pool_id = ctx.accounts.pool.load()?.pool_id;
 

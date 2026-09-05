@@ -212,23 +212,15 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     if current_value < book_value {
         let deficit = book_value.saturating_sub(current_value);
         if deficit > crate::constants::SOLVENCY_DUST_TOLERANCE {
-            pool.status = PoolStatus::Paused as u8;
-            pool.is_frozen_for_draw = 0;
-            draw_cycle.status = DrawStatus::HaltedInsolvent;
-            draw_cycle.completed_at = current_time;
-            draw_cycle.locked_ticket_count = eligible_locked_count;
-            draw_cycle.prize_pot = 0;
-            draw_cycle.cycle_fee_collected = 0;
-            pool.current_draw_cycle_id = pool
-                .current_draw_cycle_id
-                .checked_add(1)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-            pool.advance_cycle_end_at(current_time)?;
+            draw_cycle.halt(DrawStatus::HaltedInsolvent, eligible_locked_count, current_time)?;
+            pool.pause_and_advance_cycle(current_time)?;
             emit_cpi!(crate::events::EmergencyInsolvencyDetected {
                 pool_id: pool.pool_id,
+                cycle_id: draw_cycle.cycle_id,
                 current_value,
                 book_value,
                 deficit,
+                locked_ticket_count: eligible_locked_count,
                 timestamp: current_time,
             });
             return Ok(());
@@ -250,22 +242,14 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             .checked_div(10_000)
             .ok_or(PremiumBondsError::MathOverflow)?;
         if (yield_generated as u128) > max_allowed_yield {
-            pool.status = PoolStatus::Paused as u8;
-            pool.is_frozen_for_draw = 0;
-            draw_cycle.status = DrawStatus::HaltedYieldSpike;
-            draw_cycle.completed_at = current_time;
-            draw_cycle.locked_ticket_count = eligible_locked_count;
-            draw_cycle.prize_pot = 0;
-            draw_cycle.cycle_fee_collected = 0;
-            pool.current_draw_cycle_id = pool
-                .current_draw_cycle_id
-                .checked_add(1)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-            pool.advance_cycle_end_at(current_time)?;
+            draw_cycle.halt(DrawStatus::HaltedYieldSpike, eligible_locked_count, current_time)?;
+            pool.pause_and_advance_cycle(current_time)?;
             emit_cpi!(crate::events::YieldVelocityBreached {
                 pool_id: pool.pool_id,
+                cycle_id: draw_cycle.cycle_id,
                 yield_generated,
                 max_allowed_yield: max_allowed_yield as u64,
+                locked_ticket_count: eligible_locked_count,
                 timestamp: current_time,
             });
             return Ok(());
@@ -282,8 +266,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             pool.prize_tiers_count > 0,
             PremiumBondsError::PrizeTiersNotConfigured
         );
-        draw_cycle.status = DrawStatus::AwaitingRandomness;
-        draw_cycle.completed_at = 0;
+        draw_cycle.commit_harvest(eligible_locked_count, net_yield, fee);
         pool.is_frozen_for_draw = 1;
 
         // Accrue fee (accounting only — no token transfer)
@@ -301,7 +284,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
 
         emit_cpi!(crate::events::YieldHarvested {
             pool_id: pool.pool_id,
-            cycle_id: pool.current_draw_cycle_id,
+            cycle_id: draw_cycle.cycle_id,
             raw_yield: yield_generated,
             fee,
             prize_pot: net_yield,
@@ -310,20 +293,16 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             timestamp: current_time,
         });
     } else {
-        draw_cycle.status = DrawStatus::Skipped;
-        draw_cycle.completed_at = current_time;
+        draw_cycle.skip(eligible_locked_count, current_time);
         emit_cpi!(crate::events::DrawSkipped {
             pool_id: pool.pool_id,
-            cycle_id: pool.current_draw_cycle_id,
+            cycle_id: draw_cycle.cycle_id,
             raw_yield: yield_generated,
             threshold: pool.min_yield_threshold,
+            locked_ticket_count: eligible_locked_count,
             timestamp: current_time,
         });
     }
-
-    draw_cycle.locked_ticket_count = eligible_locked_count;
-    draw_cycle.prize_pot = net_yield;
-    draw_cycle.cycle_fee_collected = fee;
 
     pool.current_draw_cycle_id = pool
         .current_draw_cycle_id

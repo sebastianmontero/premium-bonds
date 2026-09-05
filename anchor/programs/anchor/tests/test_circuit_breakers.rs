@@ -32,6 +32,16 @@ struct CircuitBreakerCtx {
     randomness_account: Pubkey,
 }
 
+pub struct CircuitBreakerTestParams {
+    pub max_yield_basis_points: u16,
+    pub deposited_principal: u64,
+    pub pst_shares_amount: u64,
+    pub pst_supply: u64,
+    pub total_assets: u128,
+    pub active_tickets: u32,
+    pub pending_tickets: u32,
+}
+
 fn setup_circuit_breaker_ctx(
     max_yield_basis_points: u16,
     deposited_principal: u64,
@@ -39,26 +49,18 @@ fn setup_circuit_breaker_ctx(
     pst_supply: u64,
     total_assets: u128,
 ) -> CircuitBreakerCtx {
-    setup_circuit_breaker_ctx_with_tickets(
+    setup_circuit_breaker_ctx_with_params(CircuitBreakerTestParams {
         max_yield_basis_points,
         deposited_principal,
         pst_shares_amount,
         pst_supply,
         total_assets,
-        10,
-        0,
-    )
+        active_tickets: 10,
+        pending_tickets: 0,
+    })
 }
 
-fn setup_circuit_breaker_ctx_with_tickets(
-    max_yield_basis_points: u16,
-    deposited_principal: u64,
-    pst_shares_amount: u64,
-    pst_supply: u64,
-    total_assets: u128,
-    active_tickets: u32,
-    pending_tickets: u32,
-) -> CircuitBreakerCtx {
+fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> CircuitBreakerCtx {
     let admin = Keypair::new();
     let crank = Keypair::new();
     let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
@@ -71,14 +73,14 @@ fn setup_circuit_breaker_ctx_with_tickets(
     let pst_mint = Keypair::new().pubkey();
 
     inject_mint_with_supply(&mut svm, token_mint, 6, 1_000_000_000_000);
-    inject_mint_with_supply(&mut svm, pst_mint, 6, pst_supply);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda, pst_shares_amount);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, params.pst_supply);
+    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda, params.pst_shares_amount);
 
     let ticket_registry = Keypair::new().pubkey();
-    inject_registry(&mut svm, ticket_registry, pool_id, 100, active_tickets, pending_tickets);
+    inject_registry(&mut svm, ticket_registry, pool_id, 100, params.active_tickets, params.pending_tickets);
 
     let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, total_assets);
+    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, params.total_assets);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
@@ -94,10 +96,10 @@ fn setup_circuit_breaker_ctx_with_tickets(
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
         fee_basis_points: 100,
-        max_yield_basis_points,
+        max_yield_basis_points: params.max_yield_basis_points,
         payout_timelock_seconds: 300,
         status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: deposited_principal,
+        total_deposited_principal: params.deposited_principal,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
         total_prizes_allocated: 0,
@@ -201,21 +203,27 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
     // Verify EmergencyInsolvencyDetected event was emitted
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
     assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
     assert_eq!(event.current_value, 8_000_000);
     assert_eq!(event.book_value, 10_000_000);
     assert_eq!(event.deficit, 2_000_000);
+    assert_eq!(event.locked_ticket_count, 10);
 
-    // Verify Pool is now Paused
+    // Verify Pool is now Paused and cycle advanced
     let pool_after_acc = ctx.svm.get_account(&ctx.pool_pda).unwrap();
     let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(&pool_after_acc.data[8..]);
     assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8);
     assert_eq!(pool_after.is_frozen_for_draw, 0);
+    assert_eq!(pool_after.current_draw_cycle_id, 1);
 
     // Verify DrawCycle is HaltedInsolvent
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent);
+    assert_eq!(dc.locked_ticket_count, 10);
+    assert_eq!(dc.prize_pot, 0);
+    assert_eq!(dc.cycle_fee_collected, 0);
     assert!(dc.initiated_at > 0);
     assert_eq!(dc.completed_at, dc.initiated_at);
 }
@@ -242,20 +250,26 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
     // Verify YieldVelocityBreached event was emitted
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta);
     assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
     assert_eq!(event.yield_generated, 2_000_000);
     assert_eq!(event.max_allowed_yield, 500_000); // 5% of 10M
+    assert_eq!(event.locked_ticket_count, 10);
 
-    // Verify Pool is now Paused
+    // Verify Pool is now Paused and cycle advanced
     let pool_after_acc = ctx.svm.get_account(&ctx.pool_pda).unwrap();
     let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(&pool_after_acc.data[8..]);
     assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8);
     assert_eq!(pool_after.is_frozen_for_draw, 0);
+    assert_eq!(pool_after.current_draw_cycle_id, 1);
 
     // Verify DrawCycle is HaltedYieldSpike
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedYieldSpike);
+    assert_eq!(dc.locked_ticket_count, 10);
+    assert_eq!(dc.prize_pot, 0);
+    assert_eq!(dc.cycle_fee_collected, 0);
     assert!(dc.initiated_at > 0);
     assert_eq!(dc.completed_at, dc.initiated_at);
 }
@@ -268,29 +282,32 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
     // Venue deficit with 0 active tickets (10 pending tickets)
     let total_assets = 7_000_000u128; // 3 USDC deficit
 
-    let mut ctx = setup_circuit_breaker_ctx_with_tickets(
-        0, // uncapped velocity
+    let mut ctx = setup_circuit_breaker_ctx_with_params(CircuitBreakerTestParams {
+        max_yield_basis_points: 0, // uncapped velocity
         deposited_principal,
         pst_shares_amount,
         pst_supply,
         total_assets,
-        0,  // 0 active tickets!
-        10, // 10 pending tickets
-    );
+        active_tickets: 0,  // 0 active tickets!
+        pending_tickets: 10, // 10 pending tickets
+    });
 
     let meta = send_harvest(&mut ctx, 1, 0)
         .expect("Harvest should halt and pause pool even with 0 active tickets");
 
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
     assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
     assert_eq!(event.current_value, 7_000_000);
     assert_eq!(event.book_value, 10_000_000);
     assert_eq!(event.deficit, 3_000_000);
+    assert_eq!(event.locked_ticket_count, 0);
 
-    // Verify Pool is Paused
+    // Verify Pool is Paused and cycle advanced
     let pool_after_acc = ctx.svm.get_account(&ctx.pool_pda).unwrap();
     let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(&pool_after_acc.data[8..]);
     assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8);
+    assert_eq!(pool_after.current_draw_cycle_id, 1);
 
     // Verify DrawCycle is HaltedInsolvent and base metadata is present
     let (dc_pda, _) = draw_cycle_pda(1, 0);
@@ -303,6 +320,8 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
     assert_eq!(dc.pool_id, 1);
     assert_eq!(dc.cycle_id, 0);
     assert_eq!(dc.locked_ticket_count, 0);
+    assert_eq!(dc.prize_pot, 0);
+    assert_eq!(dc.cycle_fee_collected, 0);
 }
 
 #[test]
@@ -336,6 +355,8 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
     let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
     assert_eq!(event.deficit, 1001);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.locked_ticket_count, 10);
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);
     assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
 }
@@ -374,6 +395,8 @@ fn test_yield_velocity_spike_guard_exact_boundary() {
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta_halt);
     assert_eq!(event.yield_generated, 500_001);
     assert_eq!(event.max_allowed_yield, 500_000);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.locked_ticket_count, 10);
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);
     assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
 }

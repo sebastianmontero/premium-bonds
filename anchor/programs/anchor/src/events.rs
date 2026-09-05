@@ -136,6 +136,8 @@ pub struct DrawSkipped {
     pub raw_yield: u64,
     /// Pool's minimum yield threshold.
     pub threshold: u64,
+    /// Number of locked tickets at the time of skip.
+    pub locked_ticket_count: u32,
     /// Unix timestamp when the draw was skipped.
     pub timestamp: i64,
 }
@@ -244,9 +246,11 @@ pub struct PoolStatusChanged {
 #[event]
 pub struct EmergencyInsolvencyDetected {
     pub pool_id: u32,
+    pub cycle_id: u32,
     pub current_value: u64,
     pub book_value: u64,
     pub deficit: u64,
+    pub locked_ticket_count: u32,
     pub timestamp: i64,
 }
 
@@ -254,8 +258,10 @@ pub struct EmergencyInsolvencyDetected {
 #[event]
 pub struct YieldVelocityBreached {
     pub pool_id: u32,
+    pub cycle_id: u32,
     pub yield_generated: u64,
     pub max_allowed_yield: u64,
+    pub locked_ticket_count: u32,
     pub timestamp: i64,
 }
 

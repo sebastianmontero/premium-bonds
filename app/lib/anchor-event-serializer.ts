@@ -229,13 +229,15 @@ export function serializeAnchorEvent(
       break;
     }
     case "DrawSkipped": {
-      // u32(4) + u32(4) + u64(8) + u64(8) = 24 bytes
-      fields = new Uint8Array(24);
+      // u32(4) + u32(4) + u64(8) + u64(8) + u32(4) + i64(8) = 36 bytes
+      fields = new Uint8Array(36);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
       view.setBigUint64(8, BigInt(data.rawYield || 0), true);
       view.setBigUint64(16, BigInt(data.threshold || 0), true);
+      view.setUint32(24, Number(data.lockedTicketCount || 0), true);
+      view.setBigInt64(28, BigInt(data.timestamp || 0), true);
       break;
     }
     case "DrawCompleted": {
@@ -286,6 +288,53 @@ export function serializeAnchorEvent(
       view.setUint32(12, Number(data.batchEnd || 0), true);
       view.setUint32(16, Number(data.userCount || 0), true);
       view.setUint8(20, data.isComplete ? 1 : 0);
+      break;
+    }
+    case "RandomnessRebound": {
+      // u32(4) + u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + i64(8) = 88 bytes
+      fields = new Uint8Array(88);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint32(4, Number(data.cycleId || 1), true);
+      fields.set(
+        pubkeyToBytes(
+          data.oldRandomnessAccount || "11111111111111111111111111111111"
+        ),
+        8
+      );
+      fields.set(
+        pubkeyToBytes(
+          data.newRandomnessAccount || "11111111111111111111111111111111"
+        ),
+        40
+      );
+      view.setBigUint64(72, BigInt(data.harvestSlot || 0), true);
+      view.setBigInt64(80, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "EmergencyInsolvencyDetected": {
+      // u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + i64(8) = 44 bytes
+      fields = new Uint8Array(44);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint32(4, Number(data.cycleId || 1), true);
+      view.setBigUint64(8, BigInt(data.currentValue || 0), true);
+      view.setBigUint64(16, BigInt(data.bookValue || 0), true);
+      view.setBigUint64(24, BigInt(data.deficit || 0), true);
+      view.setUint32(32, Number(data.lockedTicketCount || 0), true);
+      view.setBigInt64(36, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "YieldVelocityBreached": {
+      // u32(4) + u32(4) + u64(8) + u64(8) + u32(4) + i64(8) = 36 bytes
+      fields = new Uint8Array(36);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint32(4, Number(data.cycleId || 1), true);
+      view.setBigUint64(8, BigInt(data.yieldGenerated || 0), true);
+      view.setBigUint64(16, BigInt(data.maxAllowedYield || 0), true);
+      view.setUint32(24, Number(data.lockedTicketCount || 0), true);
+      view.setBigInt64(28, BigInt(data.timestamp || 0), true);
       break;
     }
     default:

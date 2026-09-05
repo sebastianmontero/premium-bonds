@@ -69,6 +69,12 @@ export function useDrawCycleDetails(
         winnersCount: d.winnersCount,
         payoutsCompleted: winners.filter((w) => w.processed).length,
         hasPayoutRegistry: winners.length > 0,
+        payoutRegistryStatus:
+          d.status === "Voided"
+            ? "Voided"
+            : winners.length > 0
+            ? "Active"
+            : undefined,
         winners,
         initiatedAt: d.initiatedAt,
         revealedAt: d.revealedAt ?? undefined,
@@ -118,7 +124,7 @@ export function useDrawCycleDetails(
 
     let isUserWinner = false;
     let userWinningsTotal = 0;
-    if (userAddress) {
+    if (userAddress && data.status !== "Voided") {
       const lower = userAddress.toLowerCase();
       for (const w of data.winners) {
         if (w.winnerAddress.toLowerCase() === lower) {
@@ -130,6 +136,12 @@ export function useDrawCycleDetails(
 
     return {
       ...data,
+      payoutRegistryStatus:
+        data.status === "Voided"
+          ? "Voided"
+          : data.winners.length > 0
+          ? "Active"
+          : undefined,
       isUserWinner,
       userWinningsTotal,
     };

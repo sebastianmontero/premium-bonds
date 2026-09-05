@@ -401,6 +401,7 @@ fn test_harvest_happy_path_zero_yield() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.raw_yield, 0);
+    assert_eq!(event.locked_ticket_count, 0);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -435,7 +436,12 @@ fn test_harvest_happy_path_yield_no_eligible() {
         1_500_000,
         1_000_000,
     );
-    send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
+    let meta = send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
+    let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.raw_yield, 0);
+    assert_eq!(event.locked_ticket_count, 0);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -665,10 +671,19 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
 
     // Execute harvest
-    send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
+    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
+    let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.raw_yield, 500_000);
+    assert_eq!(event.threshold, 1_000_000);
+    assert_eq!(event.locked_ticket_count, 5);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+    assert_eq!(dc.locked_ticket_count, 5);
+    assert_eq!(dc.prize_pot, 0);
+    assert_eq!(dc.cycle_fee_collected, 0);
 
     let pool_state = read_pool(&ctx.svm, 1);
     assert_eq!(pool_state.is_frozen_for_draw, 0);

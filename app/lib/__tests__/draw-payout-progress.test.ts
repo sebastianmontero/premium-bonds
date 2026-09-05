@@ -278,11 +278,11 @@ describe("Draw Payout Progress & Stats Suite", () => {
     assert.strictEqual(isTerminalDrawStatus("Skipped"), true);
     assert.strictEqual(isTerminalDrawStatus("Voided"), true);
     assert.strictEqual(isTerminalDrawStatus("ForceUnlocked"), true);
+    assert.strictEqual(isTerminalDrawStatus("HaltedInsolvent"), true);
+    assert.strictEqual(isTerminalDrawStatus("HaltedYieldSpike"), true);
 
     assert.strictEqual(isTerminalDrawStatus("AwaitingRandomness"), false);
     assert.strictEqual(isTerminalDrawStatus("AwaitingYield"), false);
-    assert.strictEqual(isTerminalDrawStatus("HaltedInsolvent"), false);
-    assert.strictEqual(isTerminalDrawStatus("HaltedYieldSpike"), false);
     assert.strictEqual(isTerminalDrawStatus("Unknown"), false);
   });
 

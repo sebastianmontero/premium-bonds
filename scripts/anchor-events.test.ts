@@ -7,7 +7,10 @@ import {
   setCachedEvents,
   clearCachedEvents,
   fetchClusterGenesisHash,
+  resolveEventMetadata,
+  parseEventsFromTxMeta,
 } from "../app/lib/anchor-events";
+import { serializeAnchorEvent } from "../app/lib/anchor-event-serializer";
 
 // Discriminators: SHA-256("event:<EventName>")[..8]
 const DISCRIMINATORS = {
@@ -467,4 +470,132 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(emptyResult.oldestRawSignature, null);
     assert.strictEqual(emptyResult.hasMore, false);
   });
+
+  it("should roundtrip 36-byte DrawSkipped event serialization and deserialization", () => {
+    const log = serializeAnchorEvent("DrawSkipped", {
+      poolId: 1,
+      cycleId: 4,
+      rawYield: 250_000n,
+      threshold: 1_000_000n,
+      lockedTicketCount: 42,
+      timestamp: 1700000000n,
+    });
+    const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+    assert.strictEqual(parsed.length, 1);
+    assert.strictEqual(parsed[0].type, "DrawSkipped");
+    if (parsed[0].type === "DrawSkipped") {
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 4);
+      assert.strictEqual(parsed[0].data.rawYield, 250_000n);
+      assert.strictEqual(parsed[0].data.threshold, 1_000_000n);
+      assert.strictEqual(parsed[0].data.lockedTicketCount, 42);
+      assert.strictEqual(parsed[0].data.timestamp, 1700000000n);
+    }
+  });
+
+  it("should roundtrip 88-byte RandomnessRebound event serialization and deserialization", () => {
+    const log = serializeAnchorEvent("RandomnessRebound", {
+      poolId: 1,
+      cycleId: 7,
+      oldRandomnessAccount: dummyPubkeyStr,
+      newRandomnessAccount: "22222222222222222222222222222222222222222222",
+      harvestSlot: 5555n,
+      timestamp: 1700000000n,
+    });
+    const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+    assert.strictEqual(parsed.length, 1);
+    assert.strictEqual(parsed[0].type, "RandomnessRebound");
+    if (parsed[0].type === "RandomnessRebound") {
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 7);
+      assert.strictEqual(parsed[0].data.oldRandomnessAccount, dummyPubkeyStr);
+      assert.strictEqual(
+        parsed[0].data.newRandomnessAccount,
+        "22222222222222222222222222222222222222222222"
+      );
+      assert.strictEqual(parsed[0].data.harvestSlot, 5555n);
+    }
+  });
+
+  it("should roundtrip EmergencyInsolvencyDetected and YieldVelocityBreached events", () => {
+    const insolvLog = serializeAnchorEvent("EmergencyInsolvencyDetected", {
+      poolId: 1,
+      cycleId: 2,
+      currentValue: 8_000_000n,
+      bookValue: 10_000_000n,
+      deficit: 2_000_000n,
+      lockedTicketCount: 15,
+      timestamp: 1700000000n,
+    });
+    const parsedInsolv = parseEventsFromTxMeta({ logMessages: [insolvLog] });
+    assert.strictEqual(parsedInsolv.length, 1);
+    assert.strictEqual(parsedInsolv[0].type, "EmergencyInsolvencyDetected");
+    if (parsedInsolv[0].type === "EmergencyInsolvencyDetected") {
+      assert.strictEqual(parsedInsolv[0].data.poolId, 1);
+      assert.strictEqual(parsedInsolv[0].data.cycleId, 2);
+      assert.strictEqual(parsedInsolv[0].data.currentValue, 8_000_000n);
+      assert.strictEqual(parsedInsolv[0].data.bookValue, 10_000_000n);
+      assert.strictEqual(parsedInsolv[0].data.deficit, 2_000_000n);
+      assert.strictEqual(parsedInsolv[0].data.lockedTicketCount, 15);
+    }
+
+    const spikeLog = serializeAnchorEvent("YieldVelocityBreached", {
+      poolId: 1,
+      cycleId: 3,
+      yieldGenerated: 5_000_000n,
+      maxAllowedYield: 500_000n,
+      lockedTicketCount: 20,
+      timestamp: 1700000000n,
+    });
+    const parsedSpike = parseEventsFromTxMeta({ logMessages: [spikeLog] });
+    assert.strictEqual(parsedSpike.length, 1);
+    assert.strictEqual(parsedSpike[0].type, "YieldVelocityBreached");
+    if (parsedSpike[0].type === "YieldVelocityBreached") {
+      assert.strictEqual(parsedSpike[0].data.poolId, 1);
+      assert.strictEqual(parsedSpike[0].data.cycleId, 3);
+      assert.strictEqual(parsedSpike[0].data.yieldGenerated, 5_000_000n);
+      assert.strictEqual(parsedSpike[0].data.maxAllowedYield, 500_000n);
+      assert.strictEqual(parsedSpike[0].data.lockedTicketCount, 20);
+    }
+  });
+
+  it("should resolve proper metadata scopes for DrawVoided, EmergencyInsolvencyDetected, and YieldVelocityBreached", () => {
+    const metaVoided = resolveEventMetadata({
+      type: "DrawVoided",
+      data: {
+        poolId: 1,
+        cycleId: 2,
+        admin: dummyPubkeyStr as any,
+        prizesReversed: 1000n,
+        feesReversed: 100n,
+      },
+    });
+    assert.deepStrictEqual(metaVoided.scopes, ["draws", "pool", "user"]);
+
+    const metaInsolv = resolveEventMetadata({
+      type: "EmergencyInsolvencyDetected",
+      data: {
+        poolId: 1,
+        cycleId: 2,
+        currentValue: 8000n,
+        bookValue: 10000n,
+        deficit: 2000n,
+        lockedTicketCount: 10,
+      },
+    });
+    assert.deepStrictEqual(metaInsolv.scopes, ["pool", "draws"]);
+
+    const metaSpike = resolveEventMetadata({
+      type: "YieldVelocityBreached",
+      data: {
+        poolId: 1,
+        cycleId: 2,
+        yieldGenerated: 5000n,
+        maxAllowedYield: 500n,
+        lockedTicketCount: 10,
+      },
+    });
+    assert.deepStrictEqual(metaSpike.scopes, ["pool", "draws"]);
+  });
 });
+

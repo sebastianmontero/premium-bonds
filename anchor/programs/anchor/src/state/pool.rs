@@ -187,6 +187,18 @@ impl PrizePool {
         Ok(())
     }
 
+    /// Pauses the pool and advances the draw cycle in circuit breaker scenarios.
+    pub fn pause_and_advance_cycle(&mut self, current_time: i64) -> Result<()> {
+        self.status = PoolStatus::Paused as u8;
+        self.is_frozen_for_draw = 0;
+        self.current_draw_cycle_id = self
+            .current_draw_cycle_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.advance_cycle_end_at(current_time)?;
+        Ok(())
+    }
+
     /// Records prizes awarded to winners upon reveal, adjusting active liabilities and updating lifetime metrics.
     pub fn record_prize_distribution(&mut self, total_distributed: u64, dust: u64) -> Result<()> {
         if dust > 0 {
@@ -1184,5 +1196,30 @@ mod tests {
             PoolStatus::try_from(255),
             Err(PremiumBondsError::InvalidPoolStatus)
         ));
+    }
+
+    #[test]
+    fn test_pause_and_advance_cycle_success() {
+        let mut pool = default_pool(250, 24);
+        pool.status = PoolStatus::Active as u8;
+        pool.is_frozen_for_draw = 1;
+        pool.current_draw_cycle_id = 0;
+
+        let now = 1_700_000_000i64;
+        pool.pause_and_advance_cycle(now).unwrap();
+
+        assert_eq!(pool.status, PoolStatus::Paused as u8);
+        assert_eq!(pool.is_frozen_for_draw, 0);
+        assert_eq!(pool.current_draw_cycle_id, 1);
+        assert_eq!(pool.current_cycle_end_at, now + 24 * 3600);
+    }
+
+    #[test]
+    fn test_pause_and_advance_cycle_overflow() {
+        let mut pool = default_pool(250, 24);
+        pool.current_draw_cycle_id = u32::MAX;
+
+        let err = pool.pause_and_advance_cycle(1_000_000).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
     }
 }

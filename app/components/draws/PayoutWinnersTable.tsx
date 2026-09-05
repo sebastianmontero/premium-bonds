@@ -110,25 +110,18 @@ export function PayoutWinnersTable({
     });
   }, [winners, searchTerm, tierFilter, connectedUserAddress]);
 
-  if (winners.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-bright/10 rounded-xl bg-[#08090E]/40">
-        <p className="text-xs font-semibold text-on-surface-variant">
-          {t("noWinnersRegistered")}
-        </p>
-        <p className="text-[10px] text-on-surface-variant/60 max-w-xs mt-1">
-          {t("noWinnersSub")}
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-3">
       {/* Admin Rollback Notice for Voided Draws */}
       {isVoided && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 shrink-0 flex items-start gap-3">
-          <span className="text-lg">🛑</span>
+        <div
+          role="alert"
+          aria-live="polite"
+          className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 shrink-0 flex items-start gap-3"
+        >
+          <span className="text-lg" aria-hidden="true">
+            🛑
+          </span>
           <div>
             <h5 className="text-xs font-bold text-red-400">
               {t("voidedBannerTitle")}
@@ -140,7 +133,18 @@ export function PayoutWinnersTable({
         </div>
       )}
 
-      {/* Table Filter Toolbar */}
+      {winners.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-bright/10 rounded-xl bg-[#08090E]/40">
+          <p className="text-xs font-semibold text-on-surface-variant">
+            {t("noWinnersRegistered")}
+          </p>
+          <p className="text-[10px] text-on-surface-variant/60 max-w-xs mt-1">
+            {t("noWinnersSub")}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Table Filter Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
         {/* Search Input */}
         <div className="relative w-full sm:w-64">
@@ -300,7 +304,7 @@ export function PayoutWinnersTable({
                         />
                         {isConnectedWinner && (
                           <span className="inline-flex items-center gap-1 rounded-md bg-primary/15 border border-primary/30 px-1.5 py-0.5 text-[9px] font-bold text-primary">
-                            🎉 {t("youWonBadge")}
+                            <span aria-hidden="true">🎉</span> {t("youWonBadge")}
                           </span>
                         )}
                       </div>
@@ -316,7 +320,7 @@ export function PayoutWinnersTable({
                               : "bg-surface-container/80 border border-surface-bright/10 text-tertiary"
                           }`}
                         >
-                          🎫 #
+                          <span aria-hidden="true">🎫</span> #
                           {winner.winningTicketIndex.toLocaleString("en-US")}
                         </span>
                       ) : (
@@ -420,7 +424,7 @@ export function PayoutWinnersTable({
                             aria-disabled="true"
                             className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
                           >
-                            <span>🔒</span> {timelockState.formattedRemaining}
+                            <span aria-hidden="true">🔒</span> {timelockState.formattedRemaining}
                           </span>
                         </InteractiveTooltip>
                       ) : effectivePool?.isFrozenForDraw ? (
@@ -440,7 +444,7 @@ export function PayoutWinnersTable({
                             aria-disabled="true"
                             className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1"
                           >
-                            <span>❄️</span> {tLedger("claimingPaused")}
+                            <span aria-hidden="true">❄️</span> {tLedger("claimingPaused")}
                           </span>
                         </InteractiveTooltip>
                       ) : onCrankWinner ? (
@@ -470,6 +474,8 @@ export function PayoutWinnersTable({
             </tbody>
           </table>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -11,6 +11,13 @@ import {
 } from "./schema";
 import { ParsedProgramEvent, resolveEventMetadata } from "../anchor-events";
 import { sql, Table, eq, and } from "drizzle-orm";
+import {
+  ZERO_PRIZE_DRAW_STATUSES,
+  TERMINAL_DRAW_STATUSES,
+  isUnoverridableDrawStatus,
+} from "../draw-helpers";
+
+export { TERMINAL_DRAW_STATUSES };
 
 export interface WinnerUpdateRow {
   poolId: number;
@@ -101,12 +108,6 @@ export function aggregateUserStatDeltas(
   return Array.from(aggregated.values());
 }
 
-export const TERMINAL_DRAW_STATUSES = [
-  "ForceUnlocked",
-  "Voided",
-  "Skipped",
-] as const;
-
 /**
  * Safely converts an on-chain timestamp to unix seconds, falling back to blockTime if absent or invalid.
  */
@@ -124,6 +125,69 @@ export function toUnixTimestampSeconds(
     return Math.floor(fallbackBlockTime);
   }
   return 0;
+}
+
+export interface BuildHaltedDrawRowParams {
+  poolId: number;
+  cycleId: number;
+  status: "HaltedInsolvent" | "HaltedYieldSpike";
+  lockedTicketCount: bigint | number;
+  timestamp?: bigint | number | null;
+  signature: string;
+  blockTime: number;
+}
+
+export function buildHaltedDrawRow(
+  params: BuildHaltedDrawRowParams
+): typeof drawHistory.$inferInsert {
+  const completedTimestamp = toUnixTimestampSeconds(
+    params.timestamp,
+    params.blockTime
+  );
+  return {
+    poolId: params.poolId,
+    cycleId: params.cycleId,
+    status: params.status,
+    prizePot: 0n,
+    cycleFeeCollected: 0n,
+    lockedTicketCount: BigInt(params.lockedTicketCount),
+    winnersSynced: true,
+    initiatedAt: completedTimestamp,
+    completedAt: completedTimestamp,
+    signature: params.signature,
+    blockTime: params.blockTime,
+  };
+}
+
+export function buildPendingRedemptionRow(params: {
+  poolId: number;
+  redemptionId: bigint | number;
+  userAddress: string;
+  redemptionType: "bond_sale" | "prize_claim" | "fee_withdrawal";
+  amountUsdc: bigint | number;
+  pstSharesLocked?: bigint | number | null;
+  humaRequestId?: bigint | number | string | null;
+  signature: string;
+  blockTime: number;
+}): typeof pendingRedemptions.$inferInsert {
+  return {
+    poolId: params.poolId,
+    redemptionId: BigInt(params.redemptionId),
+    userAddress: params.userAddress,
+    redemptionType: params.redemptionType,
+    amountUsdc: BigInt(params.amountUsdc),
+    pstSharesLocked:
+      params.pstSharesLocked != null
+        ? BigInt(params.pstSharesLocked)
+        : null,
+    humaRequestId:
+      params.humaRequestId != null
+        ? params.humaRequestId.toString()
+        : null,
+    status: "settling",
+    requestSignature: params.signature,
+    requestedAt: params.blockTime,
+  };
 }
 
 /**
@@ -147,20 +211,33 @@ export function foldDrawHistoryRows(
       ) {
         existing.status = "Voided";
       } else if (
-        !TERMINAL_DRAW_STATUSES.includes(existing.status as never) &&
+        !isUnoverridableDrawStatus(existing.status) &&
         existing.status !== "Complete"
       ) {
         existing.status = r.status;
       }
 
-      if (r.prizePot > 0n) existing.prizePot = r.prizePot;
-      if (r.cycleFeeCollected && r.cycleFeeCollected > 0n)
-        existing.cycleFeeCollected = r.cycleFeeCollected;
-      if (r.lockedTicketCount && r.lockedTicketCount > 0n)
+      if (ZERO_PRIZE_DRAW_STATUSES.includes(existing.status as never)) {
+        existing.prizePot = 0n;
+        existing.cycleFeeCollected = 0n;
+      } else {
+        if (r.prizePot > 0n) existing.prizePot = r.prizePot;
+        if (r.cycleFeeCollected && r.cycleFeeCollected > 0n)
+          existing.cycleFeeCollected = r.cycleFeeCollected;
+      }
+
+      if (r.lockedTicketCount !== undefined && r.lockedTicketCount !== null) {
         existing.lockedTicketCount = r.lockedTicketCount;
-      if (r.harvestSlot && r.harvestSlot > 0)
-        existing.harvestSlot = r.harvestSlot;
-      if (r.randomnessAccount) existing.randomnessAccount = r.randomnessAccount;
+      }
+      if (r.harvestSlot && r.harvestSlot > 0) {
+        if (r.harvestSlot >= (existing.harvestSlot || 0)) {
+          existing.harvestSlot = r.harvestSlot;
+          if (r.randomnessAccount)
+            existing.randomnessAccount = r.randomnessAccount;
+        }
+      } else if (r.randomnessAccount && !existing.randomnessAccount) {
+        existing.randomnessAccount = r.randomnessAccount;
+      }
       if (r.winnersCount && r.winnersCount > 0)
         existing.winnersCount = r.winnersCount;
       if (r.totalDistributed && r.totalDistributed > 0n)
@@ -175,8 +252,10 @@ export function foldDrawHistoryRows(
       // Fallback completion events only populate initiatedAt if existing is missing/zero.
       if (r.status === "AwaitingRandomness") {
         existing.initiatedAt = r.initiatedAt;
-        existing.harvestSlot = r.harvestSlot;
-        existing.randomnessAccount = r.randomnessAccount;
+        if (r.harvestSlot && r.harvestSlot >= (existing.harvestSlot || 0)) {
+          existing.harvestSlot = r.harvestSlot;
+          existing.randomnessAccount = r.randomnessAccount;
+        }
       } else if (!existing.initiatedAt || existing.initiatedAt === 0) {
         if (r.initiatedAt && r.initiatedAt > 0) {
           existing.initiatedAt = r.initiatedAt;
@@ -365,22 +444,33 @@ export async function upsertDrawHistoryTx(
         target: [drawHistory.poolId, drawHistory.cycleId],
         set: {
           status: sql`CASE
-            WHEN ${drawHistory.status} IN ('ForceUnlocked', 'Skipped', 'Voided') THEN ${drawHistory.status}
+            WHEN ${drawHistory.status} IN ('ForceUnlocked', 'Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN ${drawHistory.status}
             WHEN ${drawHistory.status} = 'Complete' AND EXCLUDED.status = 'Voided' THEN 'Voided'
             WHEN ${drawHistory.status} = 'Complete' THEN 'Complete'
             ELSE EXCLUDED.status
           END`,
-          prizePot: sql`COALESCE(NULLIF(EXCLUDED.prize_pot, 0), ${drawHistory.prizePot})`,
-          cycleFeeCollected: sql`COALESCE(NULLIF(EXCLUDED.cycle_fee_collected, 0), ${drawHistory.cycleFeeCollected})`,
-          lockedTicketCount: sql`COALESCE(NULLIF(EXCLUDED.locked_ticket_count, 0), ${drawHistory.lockedTicketCount})`,
-          harvestSlot: sql`COALESCE(NULLIF(EXCLUDED.harvest_slot, 0), ${drawHistory.harvestSlot})`,
-          randomnessAccount: sql`COALESCE(NULLIF(EXCLUDED.randomness_account, ''), ${drawHistory.randomnessAccount})`,
+          prizePot: sql`CASE
+            WHEN ${drawHistory.status} IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            ELSE COALESCE(NULLIF(EXCLUDED.prize_pot, 0), ${drawHistory.prizePot})
+          END`,
+          cycleFeeCollected: sql`CASE
+            WHEN ${drawHistory.status} IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
+            ELSE COALESCE(NULLIF(EXCLUDED.cycle_fee_collected, 0), ${drawHistory.cycleFeeCollected})
+          END`,
+          lockedTicketCount: sql`COALESCE(EXCLUDED.locked_ticket_count, ${drawHistory.lockedTicketCount})`,
+          harvestSlot: sql`GREATEST(COALESCE(${drawHistory.harvestSlot}, 0), COALESCE(EXCLUDED.harvest_slot, 0))`,
+          randomnessAccount: sql`CASE
+            WHEN NULLIF(EXCLUDED.randomness_account, '') IS NOT NULL AND COALESCE(EXCLUDED.harvest_slot, 0) >= COALESCE(${drawHistory.harvestSlot}, 0) THEN EXCLUDED.randomness_account
+            ELSE ${drawHistory.randomnessAccount}
+          END`,
           winnersCount: sql`COALESCE(NULLIF(EXCLUDED.winners_count, 0), ${drawHistory.winnersCount})`,
           totalDistributed: sql`COALESCE(NULLIF(EXCLUDED.total_distributed, 0), ${drawHistory.totalDistributed})`,
           winnersSynced: sql`CASE
             WHEN ${drawHistory.winnersSynced} = true THEN true
             WHEN EXCLUDED.winners_synced = true THEN true
-            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'ForceUnlocked') THEN true
+            WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'ForceUnlocked', 'HaltedInsolvent', 'HaltedYieldSpike') THEN true
             ELSE false
           END`,
           initiatedAt: sql`CASE
@@ -569,37 +659,6 @@ export async function ingestTransactionBatch(
             });
           }
           break;
-
-          function buildPendingRedemptionRow(params: {
-            poolId: number;
-            redemptionId: bigint | number;
-            userAddress: string;
-            redemptionType: "bond_sale" | "prize_claim" | "fee_withdrawal";
-            amountUsdc: bigint | number;
-            pstSharesLocked?: bigint | number | null;
-            humaRequestId?: bigint | number | string | null;
-            signature: string;
-            blockTime: number;
-          }): typeof pendingRedemptions.$inferInsert {
-            return {
-              poolId: params.poolId,
-              redemptionId: BigInt(params.redemptionId),
-              userAddress: params.userAddress,
-              redemptionType: params.redemptionType,
-              amountUsdc: BigInt(params.amountUsdc),
-              pstSharesLocked:
-                params.pstSharesLocked != null
-                  ? BigInt(params.pstSharesLocked)
-                  : null,
-              humaRequestId:
-                params.humaRequestId != null
-                  ? params.humaRequestId.toString()
-                  : null,
-              status: "settling",
-              requestSignature: params.signature,
-              requestedAt: params.blockTime,
-            };
-          }
 
         case "BondsSold":
           activityRows.push({
@@ -884,6 +943,7 @@ export async function ingestTransactionBatch(
             cycleId: evt.data.cycleId,
             status: "Voided",
             prizePot: 0n,
+            cycleFeeCollected: 0n,
             winnersSynced: true,
             completedAt: voidedTimestamp,
             signature: context.signature,
@@ -902,9 +962,68 @@ export async function ingestTransactionBatch(
             cycleId: evt.data.cycleId,
             status: "Skipped",
             prizePot: 0n,
+            cycleFeeCollected: 0n,
+            lockedTicketCount: BigInt(evt.data.lockedTicketCount),
             winnersSynced: true,
             initiatedAt: skippedTimestamp,
             completedAt: skippedTimestamp,
+            signature: context.signature,
+            blockTime: context.blockTime,
+          });
+          snapshotRows.push({
+            poolId: evt.data.poolId,
+            cycleId: evt.data.cycleId,
+            snapshotTime: context.blockTime,
+            totalDepositedPrincipal: 0n,
+            totalFeesAccrued: 0n,
+            totalFeesWithdrawn: 0n,
+            totalPrizesDistributed: 0n,
+            rawYield: BigInt(evt.data.rawYield),
+            prizePot: 0n,
+            feeCollected: 0n,
+            lockedTicketCount: BigInt(evt.data.lockedTicketCount),
+          });
+          break;
+        }
+
+        case "YieldVelocityBreached": {
+          drawRows.push(
+            buildHaltedDrawRow({
+              poolId: evt.data.poolId,
+              cycleId: evt.data.cycleId,
+              status: "HaltedYieldSpike",
+              lockedTicketCount: evt.data.lockedTicketCount,
+              timestamp: evt.data.timestamp,
+              signature: context.signature,
+              blockTime: context.blockTime,
+            })
+          );
+          break;
+        }
+
+        case "EmergencyInsolvencyDetected": {
+          drawRows.push(
+            buildHaltedDrawRow({
+              poolId: evt.data.poolId,
+              cycleId: evt.data.cycleId,
+              status: "HaltedInsolvent",
+              lockedTicketCount: evt.data.lockedTicketCount,
+              timestamp: evt.data.timestamp,
+              signature: context.signature,
+              blockTime: context.blockTime,
+            })
+          );
+          break;
+        }
+
+        case "RandomnessRebound": {
+          drawRows.push({
+            poolId: evt.data.poolId,
+            cycleId: evt.data.cycleId,
+            status: "AwaitingRandomness",
+            prizePot: 0n,
+            harvestSlot: Number(evt.data.harvestSlot),
+            randomnessAccount: evt.data.newRandomnessAccount,
             signature: context.signature,
             blockTime: context.blockTime,
           });

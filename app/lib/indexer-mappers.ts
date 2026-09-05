@@ -6,6 +6,9 @@ import {
   userPortfolioStats,
 } from "./db/schema";
 import type { DrawHistoryStats, DrawStatusName } from "../types";
+import { isTerminalDrawStatus } from "./draw-helpers";
+
+export { isTerminalDrawStatus };
 
 export type ApiResponse<T> =
   | { success: true; data: T; fallbackRequired: false }
@@ -162,7 +165,7 @@ export function mapDtoToPendingRedemption(
 export interface DrawHistoryDto {
   poolId: number;
   cycleId: number;
-  status: string;
+  status: DrawStatusName;
   prizePot: string;
   cycleFeeCollected: string;
   lockedTicketCount: string;
@@ -290,15 +293,6 @@ export interface DrawCycleSummaryDto {
   completedAt?: number;
   initiatedAt: number;
   revealedAt?: number;
-}
-
-export function isTerminalDrawStatus(status: string): boolean {
-  return (
-    status === "Complete" ||
-    status === "Skipped" ||
-    status === "Voided" ||
-    status === "ForceUnlocked"
-  );
 }
 
 export function mapDrawHistoryRowsToSummaries(

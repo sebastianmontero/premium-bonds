@@ -25,6 +25,50 @@ export const CANONICAL_DRAW_STATUS_ORDER: readonly DrawStatusName[] = [
   "HaltedYieldSpike",
 ] as const;
 
+export const UNOVERRIDABLE_DRAW_STATUSES = [
+  "ForceUnlocked",
+  "Skipped",
+  "Voided",
+  "HaltedInsolvent",
+  "HaltedYieldSpike",
+] as const satisfies readonly DrawStatusName[];
+
+export type UnoverridableDrawStatus =
+  (typeof UNOVERRIDABLE_DRAW_STATUSES)[number];
+
+export const TERMINAL_DRAW_STATUSES = [
+  "Complete",
+  ...UNOVERRIDABLE_DRAW_STATUSES,
+] as const;
+
+export type TerminalDrawStatus = (typeof TERMINAL_DRAW_STATUSES)[number];
+
+export const ZERO_PRIZE_DRAW_STATUSES = [
+  "Skipped",
+  "Voided",
+  "HaltedInsolvent",
+  "HaltedYieldSpike",
+] as const satisfies readonly DrawStatusName[];
+
+export type ZeroPrizeDrawStatus = (typeof ZERO_PRIZE_DRAW_STATUSES)[number];
+
+const TERMINAL_SET: ReadonlySet<string> = new Set(TERMINAL_DRAW_STATUSES);
+const UNOVERRIDABLE_SET: ReadonlySet<string> = new Set(
+  UNOVERRIDABLE_DRAW_STATUSES
+);
+
+export function isTerminalDrawStatus(
+  status: unknown
+): status is TerminalDrawStatus {
+  return typeof status === "string" && TERMINAL_SET.has(status);
+}
+
+export function isUnoverridableDrawStatus(
+  status: unknown
+): status is UnoverridableDrawStatus {
+  return typeof status === "string" && UNOVERRIDABLE_SET.has(status);
+}
+
 /**
  * Type guard for validating DrawStatusName at runtime.
  */

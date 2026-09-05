@@ -178,6 +178,9 @@ fn test_rebind_fails_unauthorized_crank() {
 #[test]
 fn test_rebind_fails_invalid_draw_status() {
     let mut ctx = setup(anchor::DrawStatus::Complete, 0);
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1001;
+    ctx.svm.set_sysvar(&clock);
 
     let crank = clone_keypair(&ctx.crank);
     let err = send_rebind(&mut ctx, &crank).unwrap_err();
@@ -251,4 +254,57 @@ fn test_crank_rebind_exact_slot_boundary() {
     assert_eq!(event.new_randomness_account, ctx.new_randomness_account);
     assert_eq!(event.harvest_slot, 1101);
 }
+
+#[test]
+fn test_rebind_fails_same_randomness_account() {
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
+
+    // Set existing draw cycle randomness account to match ctx.new_randomness_account
+    let mut acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
+    let mut dc = anchor::DrawCycle::try_deserialize(&mut acct.data.as_slice()).unwrap();
+    dc.randomness_account = ctx.new_randomness_account;
+    let mut new_data = vec![];
+    use anchor_lang::Discriminator;
+    new_data.extend_from_slice(&anchor::DrawCycle::DISCRIMINATOR);
+    use anchor_lang::AnchorSerialize;
+    dc.serialize(&mut new_data).unwrap();
+    new_data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
+    acct.data = new_data;
+    ctx.svm.set_account(ctx.current_draw_cycle, acct).unwrap();
+
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1001;
+    ctx.svm.set_sysvar(&clock);
+
+    let crank = clone_keypair(&ctx.crank);
+    let err = send_rebind(&mut ctx, &crank).unwrap_err();
+    assert!(
+        err.contains("SameRandomnessAccount") || err.contains("6051") || err.contains("0x17a3"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn test_rebind_fails_unoverridable_statuses() {
+    for status in [
+        anchor::DrawStatus::HaltedInsolvent,
+        anchor::DrawStatus::HaltedYieldSpike,
+        anchor::DrawStatus::Skipped,
+        anchor::DrawStatus::ForceUnlocked,
+        anchor::DrawStatus::Voided,
+    ] {
+        let mut ctx = setup(status, 0);
+        let mut clock = solana_sdk::clock::Clock::default();
+        clock.slot = 1001;
+        ctx.svm.set_sysvar(&clock);
+
+        let crank = clone_keypair(&ctx.crank);
+        let err = send_rebind(&mut ctx, &crank).unwrap_err();
+        assert!(
+            err.contains("InvalidDrawStatus") || err.contains("6011"),
+            "status {status:?} expected InvalidDrawStatus, got: {err}"
+        );
+    }
+}
+
 

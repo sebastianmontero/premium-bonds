@@ -157,4 +157,7 @@ pub enum PremiumBondsError {
     /// Account schema version is invalid or unsupported.
     #[msg("Account schema version is invalid or unsupported.")]
     UnsupportedAccountVersion,
+    /// Cannot rebind to the same randomness account.
+    #[msg("Cannot rebind to the same randomness account.")]
+    SameRandomnessAccount,
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, isDatabaseConfigured } from "@/app/lib/db";
 import { drawWinners, drawHistory } from "@/app/lib/db/schema";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, notInArray } from "drizzle-orm";
 import {
   ApiResponse,
   PrizeHistoryEntryDto,
@@ -31,7 +31,10 @@ export async function GET(
   const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
 
   try {
-    const conditions = [eq(drawWinners.poolId, poolId)];
+    const conditions = [
+      eq(drawWinners.poolId, poolId),
+      notInArray(drawHistory.status, ["Voided", "ForceUnlocked"]),
+    ];
     if (user) {
       conditions.push(eq(drawWinners.winnerAddress, user));
     }
@@ -48,7 +51,7 @@ export async function GET(
         vrfSeedHex: drawHistory.vrfSeedHex,
       })
       .from(drawWinners)
-      .leftJoin(
+      .innerJoin(
         drawHistory,
         and(
           eq(drawWinners.poolId, drawHistory.poolId),

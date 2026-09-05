@@ -81,6 +81,49 @@ impl DrawCycle {
         }
         Ok(())
     }
+
+    pub fn halt(&mut self, status: DrawStatus, locked_ticket_count: u32, current_time: i64) -> Result<()> {
+        require!(
+            matches!(status, DrawStatus::HaltedInsolvent | DrawStatus::HaltedYieldSpike),
+            PremiumBondsError::InvalidDrawStatus
+        );
+        self.status = status;
+        self.completed_at = current_time;
+        self.locked_ticket_count = locked_ticket_count;
+        self.prize_pot = 0;
+        self.cycle_fee_collected = 0;
+        Ok(())
+    }
+
+    pub fn skip(&mut self, locked_ticket_count: u32, current_time: i64) {
+        self.status = DrawStatus::Skipped;
+        self.completed_at = current_time;
+        self.locked_ticket_count = locked_ticket_count;
+        self.prize_pot = 0;
+        self.cycle_fee_collected = 0;
+    }
+
+    pub fn commit_harvest(&mut self, locked_ticket_count: u32, prize_pot: u64, fee: u64) {
+        self.status = DrawStatus::AwaitingRandomness;
+        self.completed_at = 0;
+        self.locked_ticket_count = locked_ticket_count;
+        self.prize_pot = prize_pot;
+        self.cycle_fee_collected = fee;
+    }
+
+    pub fn rebind_randomness(&mut self, new_randomness_account: Pubkey, current_slot: u64) -> Result<()> {
+        require!(
+            self.status == DrawStatus::AwaitingRandomness,
+            PremiumBondsError::InvalidDrawStatus
+        );
+        require!(
+            new_randomness_account != self.randomness_account,
+            PremiumBondsError::SameRandomnessAccount
+        );
+        self.randomness_account = new_randomness_account;
+        self.harvest_slot = current_slot;
+        Ok(())
+    }
 }
 
 /// Registry of winners and payouts computed for a completed draw cycle.

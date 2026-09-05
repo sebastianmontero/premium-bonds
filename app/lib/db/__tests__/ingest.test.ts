@@ -8,6 +8,7 @@ import {
   updateDrawWinnersTx,
   WinnerUpdateRow,
   toUnixTimestampSeconds,
+  buildHaltedDrawRow,
   TERMINAL_DRAW_STATUSES,
 } from "../ingest";
 import { drawHistory } from "../schema";
@@ -255,7 +256,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(voidEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "pool"]);
+      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "user"]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -267,11 +268,47 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           cycleId: 6,
           rawYield: 100n,
           threshold: 1000000n,
+          lockedTicketCount: 50,
         },
       };
       const meta = resolveEventMetadata(skipEvent);
       assert.strictEqual(meta.scope, "draws");
       assert.deepStrictEqual(meta.scopes, ["draws", "pool", "clock"]);
+      assert.strictEqual(meta.poolId, 1);
+    });
+
+    it("should resolve metadata for YieldVelocityBreached", () => {
+      const event: ParsedProgramEvent = {
+        type: "YieldVelocityBreached",
+        data: {
+          poolId: 1,
+          cycleId: 7,
+          yieldGenerated: 500000000n,
+          maxAllowedYield: 100000000n,
+          lockedTicketCount: 1000,
+        },
+      };
+      const meta = resolveEventMetadata(event);
+      assert.strictEqual(meta.scope, "pool");
+      assert.deepStrictEqual(meta.scopes, ["pool", "draws"]);
+      assert.strictEqual(meta.poolId, 1);
+    });
+
+    it("should resolve metadata for EmergencyInsolvencyDetected", () => {
+      const event: ParsedProgramEvent = {
+        type: "EmergencyInsolvencyDetected",
+        data: {
+          poolId: 1,
+          cycleId: 8,
+          currentValue: 500000000n,
+          bookValue: 600000000n,
+          deficit: 100000000n,
+          lockedTicketCount: 1000,
+        },
+      };
+      const meta = resolveEventMetadata(event);
+      assert.strictEqual(meta.scope, "pool");
+      assert.deepStrictEqual(meta.scopes, ["pool", "draws"]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -712,6 +749,8 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         cycleId: 11,
         status: "Skipped",
         prizePot: 0n,
+        cycleFeeCollected: 0n,
+        lockedTicketCount: 250n,
         winnersSynced: true,
         initiatedAt: 1700000000,
         completedAt: 1700000000,
@@ -722,9 +761,100 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       const folded = foldDrawHistoryRows([skippedRow as never]);
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(folded[0].status, "Skipped");
+      assert.strictEqual(folded[0].lockedTicketCount, 250n);
+      assert.strictEqual(folded[0].prizePot, 0n);
+      assert.strictEqual(folded[0].cycleFeeCollected, 0n);
       assert.strictEqual(folded[0].initiatedAt, 1700000000);
       assert.strictEqual(folded[0].completedAt, 1700000000);
       assert.strictEqual(folded[0].winnersSynced, true);
+    });
+
+    it("should fold buildHaltedDrawRow for HaltedInsolvent and HaltedYieldSpike", () => {
+      const haltedInsolvent = buildHaltedDrawRow({
+        poolId: 1,
+        cycleId: 20,
+        status: "HaltedInsolvent",
+        lockedTicketCount: 500,
+        timestamp: 1700000800,
+        signature: "sigHaltInsolvent",
+        blockTime: 1700000800,
+      });
+      const haltedYieldSpike = buildHaltedDrawRow({
+        poolId: 1,
+        cycleId: 21,
+        status: "HaltedYieldSpike",
+        lockedTicketCount: 750,
+        timestamp: 1700000900,
+        signature: "sigHaltYieldSpike",
+        blockTime: 1700000900,
+      });
+
+      const folded = foldDrawHistoryRows([haltedInsolvent, haltedYieldSpike]);
+      assert.strictEqual(folded.length, 2);
+      assert.strictEqual(folded[0].status, "HaltedInsolvent");
+      assert.strictEqual(folded[0].prizePot, 0n);
+      assert.strictEqual(folded[0].cycleFeeCollected, 0n);
+      assert.strictEqual(folded[0].lockedTicketCount, 500n);
+      assert.strictEqual(folded[0].completedAt, 1700000800);
+
+      assert.strictEqual(folded[1].status, "HaltedYieldSpike");
+      assert.strictEqual(folded[1].prizePot, 0n);
+      assert.strictEqual(folded[1].cycleFeeCollected, 0n);
+      assert.strictEqual(folded[1].lockedTicketCount, 750n);
+      assert.strictEqual(folded[1].completedAt, 1700000900);
+    });
+
+    it("should enforce slot monotonicity for harvestSlot and randomnessAccount", () => {
+      const initialHarvest = {
+        poolId: 1,
+        cycleId: 22,
+        status: "AwaitingRandomness",
+        prizePot: 100_000_000n,
+        harvestSlot: 1000,
+        randomnessAccount: "InitialRandomness1111111111111111111111111",
+        signature: "sig1",
+        blockTime: 1700000000,
+      };
+
+      const reboundEvent = {
+        poolId: 1,
+        cycleId: 22,
+        status: "AwaitingRandomness",
+        prizePot: 0n,
+        harvestSlot: 1050,
+        randomnessAccount: "ReboundRandomness2222222222222222222222222",
+        signature: "sig2",
+        blockTime: 1700000050,
+      };
+
+      const outOfOrderEarlierSlot = {
+        poolId: 1,
+        cycleId: 22,
+        status: "AwaitingRandomness",
+        prizePot: 100_000_000n,
+        harvestSlot: 990,
+        randomnessAccount: "OldRandomness00000000000000000000000000000",
+        signature: "sig3",
+        blockTime: 1700000010,
+      };
+
+      const folded = foldDrawHistoryRows([
+        initialHarvest as never,
+        reboundEvent as never,
+        outOfOrderEarlierSlot as never,
+      ]);
+
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(
+        folded[0].harvestSlot,
+        1050,
+        "Should pick the highest harvestSlot"
+      );
+      assert.strictEqual(
+        folded[0].randomnessAccount,
+        "ReboundRandomness2222222222222222222222222",
+        "Should retain the latest rebound randomness account"
+      );
     });
 
     it("should fold DrawForceUnlocked and DrawVoided with completedAt", () => {

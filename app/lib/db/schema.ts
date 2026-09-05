@@ -12,6 +12,7 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import type { DrawStatusName } from "@/app/types";
 
 /**
  * 1. Indexer Cursor (Decoupled contiguous sync watermark vs latest webhook slot)
@@ -107,7 +108,7 @@ export const drawHistory = pgTable(
   {
     poolId: integer("pool_id").notNull(),
     cycleId: integer("cycle_id").notNull(),
-    status: varchar("status", { length: 32 }).notNull(), // 'Complete' | 'ForceUnlocked' | 'Voided' | 'Skipped' | 'AwaitingRandomness'
+    status: varchar("status", { length: 32 }).$type<DrawStatusName>().notNull(),
     prizePot: bigint("prize_pot", { mode: "bigint" }).notNull(),
     cycleFeeCollected: bigint("cycle_fee_collected", { mode: "bigint" })
       .notNull()

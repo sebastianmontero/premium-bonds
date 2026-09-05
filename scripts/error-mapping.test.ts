@@ -8,9 +8,9 @@ import {
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 51 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 51 errors defined from 6000 to 6050 inclusive
-    for (let code = 6000; code <= 6050; code++) {
+  it("should have complete 52 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 52 errors defined from 6000 to 6051 inclusive
+    for (let code = 6000; code <= 6051; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
