@@ -41,6 +41,7 @@ export function DrawHistoryList({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const t = useTranslations("DrawHistory");
+  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
   const { now } = useClusterTime({ tick: true });
 
   const statusOptions = useMemo(() => {
@@ -300,7 +301,13 @@ export function DrawHistoryList({
                       {t("colPrizePot")}
                     </p>
                     <p className="font-mono text-sm font-bold text-on-surface mt-0.5">
-                      ${formatTokenAmount(draw.prizePot, tokenDecimals)}{" "}
+                      {isUsd && "$"}
+                      {formatTokenAmount(
+                        draw.prizePot,
+                        tokenDecimals,
+                        2,
+                        2
+                      )}{" "}
                       <span className="text-[10px] text-on-surface-variant/60 font-normal">
                         {tokenSymbol}
                       </span>
@@ -431,7 +438,13 @@ export function DrawHistoryList({
 
                     {/* Prize Pot */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold text-on-surface">
-                      ${formatTokenAmount(draw.prizePot, tokenDecimals)}{" "}
+                      {isUsd && "$"}
+                      {formatTokenAmount(
+                        draw.prizePot,
+                        tokenDecimals,
+                        2,
+                        2
+                      )}{" "}
                       <span className="text-[10px] text-on-surface-variant/60 font-normal">
                         {tokenSymbol}
                       </span>

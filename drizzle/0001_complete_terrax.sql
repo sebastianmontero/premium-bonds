@@ -1,0 +1,2 @@
+CREATE INDEX "idx_draw_history_pool_status_dist" ON "draw_history" USING btree ("pool_id","status","total_distributed");--> statement-breakpoint
+ALTER TABLE "pool_snapshots" DROP COLUMN "total_prizes_distributed";

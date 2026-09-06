@@ -259,9 +259,7 @@ function printUsage() {
   console.log(
     "                        Simulates a yield venue deficit/loss in Mock Huma state (defaults to 1.0 USDC)"
   );
-  console.log(
-    "                        Aliases: induce-deficit, insolvency"
-  );
+  console.log("                        Aliases: induce-deficit, insolvency");
   console.log("  set-prize-tiers [--pool-id <id> | -i <id>]");
   console.log(
     "                        Configures default prize tiers on-chain for the pool"
@@ -2492,9 +2490,7 @@ async function updateMockHumaTotalAssets(
   humaPoolStateAddress: string,
   newTotalAssets: bigint
 ): Promise<void> {
-  console.log(
-    `Fetching Huma Pool State account: ${humaPoolStateAddress}...`
-  );
+  console.log(`Fetching Huma Pool State account: ${humaPoolStateAddress}...`);
   const poolStateInfo = await rpc
     .getAccountInfo(address(humaPoolStateAddress))
     .send();

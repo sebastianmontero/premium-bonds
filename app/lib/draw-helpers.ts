@@ -562,7 +562,7 @@ export function getPayoutTimelockState(
 export const RPC_PROPAGATION_GRACE_PERIOD_MS = 1200;
 
 /**
- * Centrally invalidates draw queries across summaries and modal details.
+ * Centrally invalidates draw queries across summaries, modal details, and pool state.
  * Triggers an immediate prefix invalidation followed by a trailing timer to absorb
  * indexer database confirmation latency.
  */
@@ -571,14 +571,16 @@ export function invalidateDrawQueries(
   poolId: PoolId = 1,
   options?: { trailingGracePeriodMs?: number }
 ): void {
-  // 1. Immediate prefix invalidation (invalidates both table summaries and cycle details)
+  // 1. Immediate prefix invalidation (invalidates draw queries and pool state)
   queryClient.invalidateQueries({ queryKey: bondsKeys.draws(poolId) });
+  queryClient.invalidateQueries({ queryKey: bondsKeys.poolState(poolId) });
 
   // 2. Trailing invalidation to catch asynchronous PostgreSQL indexer write
   const gracePeriod =
     options?.trailingGracePeriodMs ?? RPC_PROPAGATION_GRACE_PERIOD_MS;
   setTimeout(() => {
     queryClient.invalidateQueries({ queryKey: bondsKeys.draws(poolId) });
+    queryClient.invalidateQueries({ queryKey: bondsKeys.poolState(poolId) });
   }, gracePeriod);
 }
 

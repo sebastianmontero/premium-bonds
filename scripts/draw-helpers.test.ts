@@ -20,7 +20,10 @@ import {
   isDrawStatusName,
   getSkippedDrawReason,
   getNoRandomnessExplanationKey,
+  invalidateDrawQueries,
 } from "../app/lib/draw-helpers";
+import { bondsKeys } from "../app/lib/query-keys";
+import type { QueryClient } from "@tanstack/react-query";
 import {
   chunkArray,
   DrawCycleInfo,
@@ -603,4 +606,28 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       "noRandomnessGeneralSub"
     );
   });
+
+  it("should invalidate both draws and poolState queries immediately and after trailing debounce", async () => {
+    const invalidatedKeys: unknown[] = [];
+    const mockQueryClient = {
+      invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
+        invalidatedKeys.push(options.queryKey);
+      },
+    } as unknown as QueryClient;
+
+    invalidateDrawQueries(mockQueryClient, 1, { trailingGracePeriodMs: 25 });
+
+    // Immediate check
+    assert.strictEqual(invalidatedKeys.length, 2);
+    assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.draws(1));
+    assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.poolState(1));
+
+    // Wait for trailing debounce timer
+    await new Promise((r) => setTimeout(r, 40));
+
+    assert.strictEqual(invalidatedKeys.length, 4);
+    assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.draws(1));
+    assert.deepStrictEqual(invalidatedKeys[3], bondsKeys.poolState(1));
+  });
 });
+

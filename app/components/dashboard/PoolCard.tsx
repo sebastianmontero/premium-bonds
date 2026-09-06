@@ -161,12 +161,17 @@ export function PoolCard({
         />
         <StatCell
           label={t("totalPrizesDistributed")}
-          value={formatCurrencyAmount(
-            pool.totalPrizesDistributed ?? 0,
-            pool.tokenSymbol,
-            pool.tokenDecimals,
-            0
-          )}
+          value={
+            pool.totalPrizesDistributed !== undefined
+              ? formatCurrencyAmount(
+                  pool.totalPrizesDistributed,
+                  pool.tokenSymbol,
+                  pool.tokenDecimals,
+                  2,
+                  2
+                )
+              : "--"
+          }
           accent="text-on-surface"
         />
       </div>

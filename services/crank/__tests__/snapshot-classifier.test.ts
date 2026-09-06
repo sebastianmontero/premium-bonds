@@ -43,7 +43,6 @@ function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
     totalFeesWithdrawn: 0n,
     totalPrizesAllocated: 0n,
     totalPendingRedemptions: 0n,
-    totalPrizesDistributed: 0n,
     poolId: 1,
     currentDrawCycleId: 1,
     feeBasisPoints: 250,
@@ -259,7 +258,6 @@ describe("Snapshot Classifier", () => {
       version: 1,
       status: 0,
       revealedAt: 1000n,
-      totalPrizesDistributed: 10_000_000n,
       winnersCount: 1,
       padding: new Uint8Array(4),
       winners: [

@@ -105,7 +105,6 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
-        total_prizes_distributed: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,

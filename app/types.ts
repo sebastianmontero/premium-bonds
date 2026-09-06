@@ -40,7 +40,7 @@ export interface PoolInfo {
   lastSyncedAt?: number;
   /** Total unique depositors/participants registered on-chain in TicketRegistry */
   totalUsers?: number;
-  /** Total amount of prizes distributed over the lifetime of the pool (base units) */
+  /** Total amount of prizes distributed over the lifetime of the pool (base units, populated off-chain from PostgreSQL via getEnrichedPoolInfo/BFF) */
   totalPrizesDistributed?: number;
   /** Timelock buffer in seconds before winner payouts can be cranked (default: 300s) */
   payoutTimelockSeconds?: number;
@@ -130,7 +130,7 @@ export function createDefaultPoolFallback(poolId: number = 1): PoolInfo {
     underlyingApy: 0.085,
     lastSyncedAt: Math.floor(Date.now() / 1000),
     totalUsers: 0,
-    totalPrizesDistributed: 0,
+    totalPrizesDistributed: undefined,
     payoutTimelockSeconds: 300,
   };
 }

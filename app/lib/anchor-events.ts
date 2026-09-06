@@ -217,7 +217,6 @@ export interface DrawCompletedEvent {
   prizePot: bigint;
   winnersCount: number;
   totalDistributed?: bigint;
-  totalPrizesDistributed?: bigint;
   timestamp?: bigint;
 }
 
@@ -709,10 +708,8 @@ function decodeEventData(
         const prizePot = reader.readU64();
         const winnersCount = reader.readU32();
         let totalDistributed: bigint | undefined;
-        let totalPrizesDistributed: bigint | undefined;
         let timestamp: bigint | undefined;
         if (reader.remaining >= 8) totalDistributed = reader.readU64();
-        if (reader.remaining >= 8) totalPrizesDistributed = reader.readU64();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           poolId,
@@ -720,7 +717,6 @@ function decodeEventData(
           prizePot,
           winnersCount,
           totalDistributed: totalDistributed ?? prizePot,
-          totalPrizesDistributed,
           timestamp,
         } as DrawCompletedEvent;
       }

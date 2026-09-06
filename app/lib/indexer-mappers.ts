@@ -214,7 +214,6 @@ export interface PoolSnapshotDto {
   totalDepositedPrincipal: string;
   totalFeesAccrued: string;
   totalFeesWithdrawn: string;
-  totalPrizesDistributed: string;
   rawYield: string;
   prizePot: string;
   feeCollected: string;
@@ -232,7 +231,6 @@ export function toPoolSnapshotDto(
     totalDepositedPrincipal: row.totalDepositedPrincipal.toString(),
     totalFeesAccrued: row.totalFeesAccrued.toString(),
     totalFeesWithdrawn: row.totalFeesWithdrawn.toString(),
-    totalPrizesDistributed: row.totalPrizesDistributed.toString(),
     rawYield: row.rawYield.toString(),
     prizePot: row.prizePot.toString(),
     feeCollected: row.feeCollected.toString(),

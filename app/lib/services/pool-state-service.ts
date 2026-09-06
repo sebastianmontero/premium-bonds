@@ -9,6 +9,7 @@ import {
   parseModeConfig,
 } from "@/app/lib/bonds-sdk";
 import type { PoolInfo } from "@/app/types";
+import type { PoolFetchOptions } from "@/app/lib/services/pool-stats-aggregator";
 
 interface CacheEntry {
   data: PoolInfo | null;
@@ -24,18 +25,23 @@ const rpc = createSolanaRpc(
     "http://127.0.0.1:8899"
 );
 
-export async function getCachedPoolInfo(
-  poolId: number = 1
+export async function getPoolInfo(
+  poolId: number = 1,
+  options?: PoolFetchOptions
 ): Promise<PoolInfo | null> {
   const now = Date.now();
-  const hit = cache.get(poolId);
-  if (hit && hit.expiresAt > now) {
-    return hit.data;
-  }
+  const bypassCache = options?.bypassCache ?? false;
 
-  const existingPromise = inflight.get(poolId);
-  if (existingPromise) {
-    return existingPromise;
+  if (!bypassCache) {
+    const hit = cache.get(poolId);
+    if (hit && hit.expiresAt > now) {
+      return hit.data;
+    }
+
+    const existingPromise = inflight.get(poolId);
+    if (existingPromise) {
+      return existingPromise;
+    }
   }
 
   const fetchPromise = (async () => {
@@ -93,7 +99,7 @@ export async function getCachedPoolInfo(
         minYieldThreshold: parsedPool.minYieldThreshold,
         underlyingApy: humaModeApy ?? 0.085,
         lastSyncedAt: Math.floor(now / 1000),
-        totalPrizesDistributed: parsedPool.totalPrizesDistributed,
+        totalPrizesDistributed: undefined,
         payoutTimelockSeconds: parsedPool.payoutTimelockSeconds,
         ticketRegistry: parsedPool.ticketRegistry,
         nextRedemptionId: parsedPool.nextRedemptionId,
@@ -106,6 +112,19 @@ export async function getCachedPoolInfo(
     }
   })();
 
-  inflight.set(poolId, fetchPromise);
+  if (!bypassCache) {
+    inflight.set(poolId, fetchPromise);
+  }
   return fetchPromise;
 }
+
+export function invalidatePoolInfoCache(poolId?: number): void {
+  if (poolId !== undefined) {
+    cache.delete(poolId);
+    inflight.delete(poolId);
+  } else {
+    cache.clear();
+    inflight.clear();
+  }
+}
+

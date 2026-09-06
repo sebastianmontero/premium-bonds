@@ -4,7 +4,7 @@ import { StatsSection } from "../components/StatsSection";
 import { HowItWorksSection } from "../components/HowItWorksSection";
 import { FeaturesSection } from "../components/FeaturesSection";
 import { Footer } from "../components/Footer";
-import { getCachedPoolInfo } from "@/app/lib/services/pool-state-service";
+import { getEnrichedPoolInfo } from "@/app/lib/services/pool-stats-aggregator";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { getQueryClient } from "@/app/lib/get-query-client";
 import { bondsKeys } from "@/app/lib/query-keys";
@@ -13,7 +13,7 @@ export default async function Home() {
   const queryClient = getQueryClient();
 
   try {
-    const poolInfo = await getCachedPoolInfo(1);
+    const poolInfo = await getEnrichedPoolInfo(1);
     if (poolInfo) {
       queryClient.setQueryData(bondsKeys.poolState(1), poolInfo);
     }

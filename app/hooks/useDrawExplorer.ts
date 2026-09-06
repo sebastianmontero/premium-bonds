@@ -14,8 +14,7 @@ interface DrawExplorerResult {
 
 export function useDrawExplorer(
   poolId: PoolId = 1,
-  maxCyclesToFetch: number = 100,
-  poolTotalPrizesDistributed?: number
+  maxCyclesToFetch: number = 100
 ): DrawExplorerResult {
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: bondsKeys.draws(poolId),
@@ -29,7 +28,7 @@ export function useDrawExplorer(
       return {
         drawSummaries: (json.draws || []) as DrawCycleSummary[],
         stats: (json.stats || {
-          totalYieldDistributed: poolTotalPrizesDistributed ?? 0,
+          totalYieldDistributed: 0,
           totalDrawsCompleted: 0,
           totalWinningBonds: 0,
           averagePrizePot: 0,
@@ -43,7 +42,7 @@ export function useDrawExplorer(
   return {
     drawSummaries: data?.drawSummaries || [],
     stats: data?.stats || {
-      totalYieldDistributed: poolTotalPrizesDistributed ?? 0,
+      totalYieldDistributed: 0,
       totalDrawsCompleted: 0,
       totalWinningBonds: 0,
       averagePrizePot: 0,

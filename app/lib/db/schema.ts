@@ -146,6 +146,11 @@ export const drawHistory = pgTable(
       t.status,
       t.poolId
     ),
+    idxPoolStatusDistributed: index("idx_draw_history_pool_status_dist").on(
+      t.poolId,
+      t.status,
+      t.totalDistributed
+    ),
   })
 );
 
@@ -251,9 +256,6 @@ export const poolSnapshots = pgTable(
       mode: "bigint",
     }).notNull(),
     totalFeesWithdrawn: bigint("total_fees_withdrawn", {
-      mode: "bigint",
-    }).notNull(),
-    totalPrizesDistributed: bigint("total_prizes_distributed", {
       mode: "bigint",
     }).notNull(),
     rawYield: bigint("raw_yield", { mode: "bigint" }).notNull().default(0n),

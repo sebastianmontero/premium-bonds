@@ -47,7 +47,6 @@ fn inject_pool_custom(
         total_prizes_allocated: 10_000_000_000,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
-        total_prizes_distributed: 0,
         current_cycle_end_at: 0,
         is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: cycle_id,
@@ -595,10 +594,9 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
 
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
-    // After: unfrozen and prizes accumulated
+    // After: unfrozen
     let pool_after = read_pool(&ctx.svm, 1);
     assert_eq!(pool_after.is_frozen_for_draw, 0);
-    assert_eq!(pool_after.total_prizes_distributed, 100_000);
 
     // DrawCycle: Complete + seed stored
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
@@ -834,13 +832,11 @@ fn test_reveal_multi_winner_dust_accounting_and_event() {
     assert_eq!(event.prize_pot, 100_000);
     assert_eq!(event.winners_count, 3);
     assert_eq!(event.total_distributed, 99_990);
-    assert_eq!(event.total_prizes_distributed, 99_990);
 
     // Verify pool on-chain state:
     // Initial total_prizes_allocated was 10_000_000_000; dust of 10 is deducted
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_prizes_allocated, 10_000_000_000 - 10);
-    assert_eq!(pool.total_prizes_distributed, 99_990);
 }
 
 #[test]
@@ -992,7 +988,6 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
     assert_eq!(event.prize_pot, 5_000);
     assert_eq!(event.winners_count, 1);
     assert_eq!(event.total_distributed, 0);
-    assert_eq!(event.total_prizes_distributed, 0);
 
     // Verify PayoutRegistry state: winner recorded with amount_owed = 0, processed = 0
     let pr = read_payout_registry(&ctx.svm, 1, 0);
@@ -1005,7 +1000,6 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
     // Verify pool on-chain state: full pot (5_000) deducted as dust from allocated liabilities
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 5_000);
-    assert_eq!(pool.total_prizes_distributed, 0);
 }
 
 #[test]
@@ -1043,7 +1037,6 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
 
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 1);
-    assert_eq!(pool.total_prizes_distributed, 4_999);
 }
 
 #[test]

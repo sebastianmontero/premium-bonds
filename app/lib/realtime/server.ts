@@ -87,7 +87,8 @@ export async function broadcastAggregatedInvalidations(
 
     // 1. Single Global / Pool Invalidation Broadcast (protocol/pool scopes, plus protocol-wide user invalidation if no targeted users)
     const globalScopes = scopesArray.filter(
-      (s) => !USER_SPECIFIC_SCOPES.has(s) || (s === "user" && userScopes.size === 0)
+      (s) =>
+        !USER_SPECIFIC_SCOPES.has(s) || (s === "user" && userScopes.size === 0)
     );
     if (globalScopes.length > 0) {
       broadcastPromises.push(

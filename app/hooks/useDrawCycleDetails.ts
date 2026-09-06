@@ -73,8 +73,8 @@ export function useDrawCycleDetails(
           d.status === "Voided"
             ? "Voided"
             : winners.length > 0
-            ? "Active"
-            : undefined,
+              ? "Active"
+              : undefined,
         winners,
         initiatedAt: d.initiatedAt,
         revealedAt: d.revealedAt ?? undefined,
@@ -140,8 +140,8 @@ export function useDrawCycleDetails(
         data.status === "Voided"
           ? "Voided"
           : data.winners.length > 0
-          ? "Active"
-          : undefined,
+            ? "Active"
+            : undefined,
       isUserWinner,
       userWinningsTotal,
     };

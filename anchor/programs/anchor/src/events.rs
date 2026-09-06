@@ -119,8 +119,6 @@ pub struct DrawCompleted {
     pub winners_count: u32,
     /// Actual total amount distributed to winners in this draw (excluding dust).
     pub total_distributed: u64,
-    /// Pool's lifetime cumulative prizes distributed across all completed draws.
-    pub total_prizes_distributed: u64,
     /// Unix timestamp when the draw was completed.
     pub timestamp: i64,
 }

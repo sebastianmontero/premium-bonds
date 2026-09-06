@@ -30,7 +30,9 @@ class MockElement {
   }
 
   get textContent(): string {
-    return this.childNodes.map((c) => ("nodeValue" in c ? c.nodeValue : c.textContent)).join("");
+    return this.childNodes
+      .map((c) => ("nodeValue" in c ? c.nodeValue : c.textContent))
+      .join("");
   }
 
   set textContent(text: string) {

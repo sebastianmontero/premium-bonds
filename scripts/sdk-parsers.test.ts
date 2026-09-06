@@ -193,7 +193,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should parse PrizePool account correctly", () => {
-    const buffer = new Uint8Array(8 + 416);
+    const buffer = new Uint8Array(8 + 408);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 1_000_000n, true); // bondPrice (0)
@@ -206,29 +206,27 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     view.setBigUint64(64, 0n, true); // totalFeesWithdrawn (56)
     view.setBigUint64(72, 500_000n, true); // totalPrizesAllocated (64)
     view.setBigUint64(80, 0n, true); // totalPendingRedemptions (72)
-    view.setBigUint64(88, 1_250_000n, true); // totalPrizesDistributed (80)
 
-    view.setUint32(96, 1, true); // poolId (88)
-    view.setUint32(100, 3, true); // currentDrawCycleId (92)
-    view.setUint16(104, 250, true); // feeBasisPoints (96)
-    view.setUint16(106, 500, true); // maxYieldBasisPoints (98)
-    view.setUint32(108, 300, true); // payoutTimelockSeconds (100)
+    view.setUint32(88, 1, true); // poolId (80)
+    view.setUint32(92, 3, true); // currentDrawCycleId (84)
+    view.setUint16(96, 250, true); // feeBasisPoints (88)
+    view.setUint16(98, 500, true); // maxYieldBasisPoints (90)
+    view.setUint32(100, 300, true); // payoutTimelockSeconds (92)
 
-    buffer[8 + 104] = 254; // vaultAuthorityBump (104)
-    buffer[8 + 105] = 0; // status (0 = Active)
-    buffer[8 + 106] = 0; // isFrozenForDraw (106)
-    buffer[8 + 107] = 1; // version (107)
-    buffer[8 + 108] = 1; // prizeTiersCount (108)
+    buffer[8 + 96] = 254; // vaultAuthorityBump (96)
+    buffer[8 + 97] = 0; // status (0 = Active) (97)
+    buffer[8 + 98] = 0; // isFrozenForDraw (98)
+    buffer[8 + 99] = 1; // version (99)
+    buffer[8 + 100] = 1; // prizeTiersCount (100)
 
-    // prizeTier 0 at offset 8 + 208
-    const tierOffset = 8 + 208;
+    // prizeTier 0 at offset 8 + 200
+    const tierOffset = 8 + 200;
     view.setUint32(tierOffset, 1, true); // numWinners
     view.setUint16(tierOffset + 4, 10000, true); // basisPoints
 
     const parsed = parsePrizePool(buffer);
     assert.strictEqual(parsed.poolId, 1);
     assert.strictEqual(parsed.status, "Active");
-    assert.strictEqual(parsed.totalPrizesDistributed, 1_250_000);
     assert.strictEqual(parsed.bondPrice, 1_000_000);
     assert.strictEqual(parsed.totalDepositedPrincipal, 50_000_000);
     assert.strictEqual(parsed.prizeTiers.length, 1);

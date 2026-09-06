@@ -25,6 +25,8 @@ import {
 import { resolveSolanaRpcUrl, getNetworkInfo } from "@/app/lib/network";
 import { createSolanaRpc } from "@solana/kit";
 import { PayoutHydratorService } from "@/app/lib/indexer/payout-hydrator";
+import { invalidatePoolStats } from "@/app/lib/services/pool-stats-aggregator";
+import { invalidatePoolInfoCache } from "@/app/lib/services/pool-state-service";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +83,24 @@ export async function POST(req: NextRequest) {
       updateLatestCursor: true,
     });
     const eventCount = ingestResult.insertedCount;
+
+    // Invalidate server-side caches on terminal draw events before waking up clients
+    const terminalDrawTypes = new Set([
+      "DrawCompleted",
+      "DrawVoided",
+      "DrawForceUnlocked",
+      "DrawSkipped",
+    ]);
+
+    for (const item of batch) {
+      for (const evt of item.events) {
+        if (terminalDrawTypes.has(evt.type)) {
+          const meta = resolveEventMetadata(evt);
+          invalidatePoolStats(meta.poolId);
+          invalidatePoolInfoCache(meta.poolId);
+        }
+      }
+    }
 
     // Collect invalidation events and perform single aggregated broadcast
     const broadcastEvents: RealtimeBroadcastItem[] = [];

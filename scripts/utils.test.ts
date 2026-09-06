@@ -508,7 +508,10 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       assert.strictEqual(safeStringify("hello"), '"hello"');
       assert.strictEqual(safeStringify(123), "123");
       assert.strictEqual(safeStringify(true), "true");
-      assert.strictEqual(safeStringify({ a: 1, b: "test" }), '{"a":1,"b":"test"}');
+      assert.strictEqual(
+        safeStringify({ a: 1, b: "test" }),
+        '{"a":1,"b":"test"}'
+      );
     });
 
     it("should serialize top-level and nested BigInt values without throwing TypeError", () => {

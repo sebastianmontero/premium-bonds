@@ -27,14 +27,16 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
       )
     : "$0";
 
-  const formattedDistributed = activePool
-    ? formatCurrencyAmount(
-        activePool.totalPrizesDistributed ?? 0,
-        activePool.tokenSymbol,
-        activePool.tokenDecimals,
-        0
-      )
-    : "$0";
+  const formattedDistributed =
+    activePool && activePool.totalPrizesDistributed !== undefined
+      ? formatCurrencyAmount(
+          activePool.totalPrizesDistributed,
+          activePool.tokenSymbol,
+          activePool.tokenDecimals,
+          2,
+          2
+        )
+      : "--";
 
   const formattedTargetDate =
     activePool && activePool.currentCycleEndAt > 0

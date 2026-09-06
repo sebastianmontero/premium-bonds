@@ -8,12 +8,15 @@ export function usePrizePool(poolId: PoolId = 1) {
   return useQuery({
     queryKey: bondsKeys.poolState(poolId),
     queryFn: async (): Promise<PoolInfo | null> => {
-      const res = await fetch(`/api/indexer/pool?poolId=${poolId}`);
+      const res = await fetch(`/api/indexer/pool?poolId=${poolId}`, {
+        cache: "no-store",
+      });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch pool state");
       return res.json();
     },
-    staleTime: 10_000,
+    staleTime: 5_000,
+    refetchOnMount: "always",
     retry: 3,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });

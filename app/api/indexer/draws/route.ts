@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/app/lib/db";
 import {
   mapDrawHistoryRowsToSummaries,
-  calculateDrawHistoryStats,
   type DrawCycleSummaryDto,
 } from "@/app/lib/indexer-mappers";
+import { defaultPoolStatsAggregator } from "@/app/lib/services/pool-stats-aggregator";
 import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
 import { buildDrawCyclesWithPayoutsQuery } from "./queries";
 
@@ -25,11 +25,20 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
 
   try {
-    const query = buildDrawCyclesWithPayoutsQuery(poolId, limit);
-    const rows = await query;
+    const [rows, poolStats] = await Promise.all([
+      buildDrawCyclesWithPayoutsQuery(poolId, limit),
+      defaultPoolStatsAggregator.getPoolDrawStats(poolId, {
+        bypassCache: true,
+      }),
+    ]);
 
     const summaries = mapDrawHistoryRowsToSummaries(rows);
-    const stats = calculateDrawHistoryStats(summaries);
+    const stats = poolStats ?? {
+      totalYieldDistributed: 0,
+      totalDrawsCompleted: 0,
+      totalWinningBonds: 0,
+      averagePrizePot: 0,
+    };
 
     return NextResponse.json(
       { draws: summaries, stats, fallback: false },

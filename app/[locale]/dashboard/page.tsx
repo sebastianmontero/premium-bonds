@@ -5,6 +5,7 @@ import { useWalletConnection } from "@solana/react-hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useBondsContext } from "@/app/components/providers/BondsProvider";
+import { usePrizePool } from "@/app/hooks/queries/usePrizePool";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { bondsKeys } from "@/app/lib/query-keys";
@@ -62,10 +63,14 @@ export default function DashboardPage() {
     actions,
   } = useBondsContext();
 
-  const poolTokenSymbol = onChainPool?.tokenSymbol ?? "USDC";
-  const poolTokenDecimals = onChainPool?.tokenDecimals ?? 6;
-  const poolBondPrice = onChainPool?.bondPrice ?? 5_000_000;
-  const poolId = onChainPool?.poolId ?? 1;
+  // Register active query observer on Dashboard page to enable native refetchOnMount
+  const { data: poolData } = usePrizePool(1);
+  const activePool = poolData ?? onChainPool;
+
+  const poolTokenSymbol = activePool?.tokenSymbol ?? "USDC";
+  const poolTokenDecimals = activePool?.tokenDecimals ?? 6;
+  const poolBondPrice = activePool?.bondPrice ?? 5_000_000;
+  const poolId = activePool?.poolId ?? 1;
 
   const queryClient = useQueryClient();
 
@@ -185,9 +190,9 @@ export default function DashboardPage() {
     (sum, r) => sum + r.amount,
     0
   );
-  const investedAmount = onChainPool
+  const investedAmount = activePool
     ? (activeTickets.activeTicketsCount + activeTickets.pendingTicketsCount) *
-      onChainPool.bondPrice
+      activePool.bondPrice
     : 0;
   const redeemingAmount = pendingRedemptionsTotal;
   const netWorth = investedAmount + redeemingAmount + activeUnclaimedWinnings;
@@ -341,7 +346,7 @@ export default function DashboardPage() {
     const claimAmount = activeUnclaimedWinnings;
     setActionModalTitle("Claim Remaining Winnings");
     setActionSuccessMsg(
-      `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, activePool.tokenDecimals)} USDC.`
+      `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, poolTokenDecimals)} USDC.`
     );
 
     try {
@@ -357,7 +362,7 @@ export default function DashboardPage() {
                 createOptimisticActivity({
                   activityType: "win",
                   amountUsdc: claimAmount,
-                  decimals: activePool.tokenDecimals,
+                  decimals: poolTokenDecimals,
                   txSignature: capturedSig,
                 }),
                 initiatingAddress
@@ -444,7 +449,7 @@ export default function DashboardPage() {
     }
   };
 
-  if (!onChainPool) {
+  if (!activePool) {
     if (isPoolError) {
       return (
         <div className="space-y-6">
@@ -461,8 +466,6 @@ export default function DashboardPage() {
     }
     return <DashboardLoadingSkeleton />;
   }
-
-  const activePool = onChainPool;
 
   return (
     <div className="space-y-6">

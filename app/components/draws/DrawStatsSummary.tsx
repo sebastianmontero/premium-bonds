@@ -10,7 +10,7 @@ interface DrawStatsSummaryProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   isLoading?: boolean;
-  isLifetimeYieldLoading?: boolean;
+  isTotalPrizesDistributedLoading?: boolean;
 }
 
 export function DrawStatsSummary({
@@ -18,15 +18,16 @@ export function DrawStatsSummary({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   isLoading = false,
-  isLifetimeYieldLoading,
+  isTotalPrizesDistributedLoading,
 }: DrawStatsSummaryProps) {
   const t = useTranslations("DrawHistory");
+  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
 
-  const lifetimeLoading = isLifetimeYieldLoading ?? isLoading;
+  const totalPrizesLoading = isTotalPrizesDistributedLoading ?? isLoading;
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {/* ── 1. Lifetime Prize Yield Distributed ─────────────────────────── */}
+      {/* ── 1. Total Prizes Distributed ─────────────────────────────────── */}
       <div className="glass-strong rounded-2xl p-6 shadow-ambient relative overflow-hidden border-t-primary/50 flex flex-col justify-between gap-3">
         <div
           aria-hidden="true"
@@ -50,14 +51,20 @@ export function DrawStatsSummary({
               <polyline points="17 6 23 6 23 12" />
             </svg>
             <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-              {t("lifetimeYield")}
+              {t("totalPrizesDistributed")}
             </p>
           </div>
-          {lifetimeLoading ? (
+          {totalPrizesLoading ? (
             <div className="h-9 w-36 rounded-lg skeleton-box mt-1" />
           ) : (
             <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-              ${formatTokenAmount(stats.totalYieldDistributed, tokenDecimals)}
+              {isUsd && "$"}
+              {formatTokenAmount(
+                stats.totalYieldDistributed,
+                tokenDecimals,
+                2,
+                2
+              )}
               <span className="ms-1.5 text-base font-medium text-on-surface-variant">
                 {tokenSymbol}
               </span>
@@ -66,7 +73,7 @@ export function DrawStatsSummary({
         </div>
 
         <p className="text-xs text-on-surface-variant/70">
-          {t("lifetimeYieldSub")}
+          {t("totalPrizesDistributedSub")}
         </p>
       </div>
 
@@ -171,7 +178,8 @@ export function DrawStatsSummary({
             <div className="h-9 w-32 rounded-lg skeleton-box mt-1" />
           ) : (
             <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-              ${formatTokenAmount(stats.averagePrizePot, tokenDecimals)}
+              {isUsd && "$"}
+              {formatTokenAmount(stats.averagePrizePot, tokenDecimals, 2, 2)}
               <span className="ms-1.5 text-base font-medium text-on-surface-variant">
                 {tokenSymbol}
               </span>

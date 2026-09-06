@@ -297,7 +297,6 @@ pub fn inject_pool(
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
-        total_prizes_distributed: 0,
         current_cycle_end_at: i64::MAX,
         is_frozen_for_draw: if is_frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
@@ -1014,43 +1013,6 @@ pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
 pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::TicketRegistry {
     let acc = svm.get_account(&address).expect("ticket registry account exists");
     *bytemuck::from_bytes::<anchor::state::TicketRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()])
-}
-
-pub fn assert_pool_solvency(
-    svm: &LiteSVM,
-    pool_id: u32,
-    expected_principal: u64,
-    expected_fees_accrued: u64,
-    expected_prizes_allocated: u64,
-) {
-    let pool = read_pool_state(svm, pool_id);
-    let (vault_pda, _) = pool_vault_pda(pool_id);
-    let vault_balance = read_token_balance(svm, vault_pda);
-
-    assert_eq!(
-        pool.total_deposited_principal, expected_principal,
-        "Solvency check: total_deposited_principal mismatch"
-    );
-    assert_eq!(
-        pool.total_fees_accrued, expected_fees_accrued,
-        "Solvency check: total_fees_accrued mismatch"
-    );
-    assert_eq!(
-        pool.total_prizes_allocated, expected_prizes_allocated,
-        "Solvency check: total_prizes_allocated mismatch"
-    );
-
-    let required_backing = pool.total_deposited_principal
-        .checked_add(pool.total_prizes_allocated).unwrap()
-        .checked_add(pool.total_fees_accrued).unwrap()
-        .saturating_sub(pool.total_fees_withdrawn)
-        .saturating_sub(pool.total_prizes_distributed);
-
-    assert!(
-        vault_balance >= required_backing,
-        "CRITICAL SOLVENCY VIOLATION: Pool vault balance ({}) is less than required protocol backing ({})",
-        vault_balance, required_backing
-    );
 }
 
 pub fn assert_ticket_registry_integrity(

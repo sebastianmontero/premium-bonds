@@ -553,7 +553,6 @@ export function parsePrizePool(data: Uint8Array) {
     isFrozenForDraw: Boolean(decoded.isFrozenForDraw),
     feeBasisPoints: Number(decoded.feeBasisPoints),
     minYieldThreshold: Number(decoded.minYieldThreshold),
-    totalPrizesDistributed: Number(decoded.totalPrizesDistributed),
     totalFeesAccrued: Number(decoded.totalFeesAccrued),
     totalFeesWithdrawn: Number(decoded.totalFeesWithdrawn),
     totalPrizesAllocated: Number(decoded.totalPrizesAllocated),
@@ -837,8 +836,7 @@ export function calculateDeficitTotalAssets(
   }
 
   const targetCurrentValue = bookValue - deficitMicroUsdc;
-  const requiredTotalAssets =
-    (targetCurrentValue * pstSupply) / poolPstBalance;
+  const requiredTotalAssets = (targetCurrentValue * pstSupply) / poolPstBalance;
 
   if (requiredTotalAssets > 0xffffffffffffffffffffffffffffffffn) {
     throw new RangeError("Calculated deficit total assets exceeds u128 limit");

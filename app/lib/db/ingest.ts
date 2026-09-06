@@ -177,13 +177,9 @@ export function buildPendingRedemptionRow(params: {
     redemptionType: params.redemptionType,
     amountUsdc: BigInt(params.amountUsdc),
     pstSharesLocked:
-      params.pstSharesLocked != null
-        ? BigInt(params.pstSharesLocked)
-        : null,
+      params.pstSharesLocked != null ? BigInt(params.pstSharesLocked) : null,
     humaRequestId:
-      params.humaRequestId != null
-        ? params.humaRequestId.toString()
-        : null,
+      params.humaRequestId != null ? params.humaRequestId.toString() : null,
     status: "settling",
     requestSignature: params.signature,
     requestedAt: params.blockTime,
@@ -320,8 +316,6 @@ export function foldPoolSnapshotRows(
       if (r.totalFeesAccrued) existing.totalFeesAccrued = r.totalFeesAccrued;
       if (r.totalFeesWithdrawn)
         existing.totalFeesWithdrawn = r.totalFeesWithdrawn;
-      if (r.totalPrizesDistributed)
-        existing.totalPrizesDistributed = r.totalPrizesDistributed;
       if (r.rawYield) existing.rawYield = r.rawYield;
       if (r.prizePot) existing.prizePot = r.prizePot;
       if (r.feeCollected) existing.feeCollected = r.feeCollected;
@@ -535,7 +529,6 @@ export async function upsertPoolSnapshotsTx(
           totalDepositedPrincipal: sql`COALESCE(NULLIF(EXCLUDED.total_deposited_principal, 0), ${poolSnapshots.totalDepositedPrincipal})`,
           totalFeesAccrued: sql`COALESCE(NULLIF(EXCLUDED.total_fees_accrued, 0), ${poolSnapshots.totalFeesAccrued})`,
           totalFeesWithdrawn: sql`COALESCE(NULLIF(EXCLUDED.total_fees_withdrawn, 0), ${poolSnapshots.totalFeesWithdrawn})`,
-          totalPrizesDistributed: sql`COALESCE(NULLIF(EXCLUDED.total_prizes_distributed, 0), ${poolSnapshots.totalPrizesDistributed})`,
           rawYield: sql`COALESCE(NULLIF(EXCLUDED.raw_yield, 0), ${poolSnapshots.rawYield})`,
           prizePot: sql`COALESCE(NULLIF(EXCLUDED.prize_pot, 0), ${poolSnapshots.prizePot})`,
           feeCollected: sql`COALESCE(NULLIF(EXCLUDED.fee_collected, 0), ${poolSnapshots.feeCollected})`,
@@ -655,7 +648,6 @@ export async function ingestTransactionBatch(
               totalDepositedPrincipal: evt.data.newTotalDepositedPrincipal,
               totalFeesAccrued: 0n,
               totalFeesWithdrawn: 0n,
-              totalPrizesDistributed: 0n,
             });
           }
           break;
@@ -872,7 +864,6 @@ export async function ingestTransactionBatch(
             totalDepositedPrincipal: 0n,
             totalFeesAccrued: BigInt(evt.data.fee),
             totalFeesWithdrawn: 0n,
-            totalPrizesDistributed: 0n,
             rawYield: BigInt(evt.data.rawYield),
             prizePot: BigInt(evt.data.prizePot),
             feeCollected: BigInt(evt.data.fee),
@@ -899,17 +890,6 @@ export async function ingestTransactionBatch(
             completedAt: completedTimestamp,
             signature: context.signature,
             blockTime: context.blockTime,
-          });
-          snapshotRows.push({
-            poolId: evt.data.poolId,
-            cycleId: evt.data.cycleId,
-            snapshotTime: context.blockTime,
-            totalDepositedPrincipal: 0n,
-            totalFeesAccrued: 0n,
-            totalFeesWithdrawn: 0n,
-            totalPrizesDistributed: BigInt(
-              evt.data.totalPrizesDistributed ?? evt.data.prizePot
-            ),
           });
           break;
         }
@@ -977,7 +957,6 @@ export async function ingestTransactionBatch(
             totalDepositedPrincipal: 0n,
             totalFeesAccrued: 0n,
             totalFeesWithdrawn: 0n,
-            totalPrizesDistributed: 0n,
             rawYield: BigInt(evt.data.rawYield),
             prizePot: 0n,
             feeCollected: 0n,

@@ -286,6 +286,49 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(res.events[0].data.feesReversed, 5_000_000n);
   });
 
+  it("should decode DrawCompleted log event accurately without totalPrizesDistributed", async () => {
+    // Payload for DrawCompleted: u32 pool_id(4) + u32 cycle_id(4) + u64 prize_pot(8) + u32 winners_count(4) + u64 total_distributed(8) + i64 timestamp(8) = 36 bytes
+    const fields = new Uint8Array(36);
+    const view = new DataView(
+      fields.buffer,
+      fields.byteOffset,
+      fields.byteLength
+    );
+    view.setUint32(0, 1, true); // pool_id
+    view.setUint32(4, 3, true); // cycle_id
+    view.setBigUint64(8, 20_000_000n, true); // prize_pot
+    view.setUint32(16, 5, true); // winners_count
+    view.setBigUint64(20, 15_000_000n, true); // total_distributed
+    view.setBigInt64(28, 1700000500n, true); // timestamp
+
+    const logMessage = buildLogPayload("DrawCompleted", fields);
+
+    const mockRpc = {
+      getSignaturesForAddress: () => ({
+        send: async () => [
+          { signature: "sig_draw_completed", blockTime: 1700000500, err: null },
+        ],
+      }),
+      getTransaction: () => ({
+        send: async () => ({
+          meta: {
+            logMessages: [logMessage],
+          },
+        }),
+      }),
+    };
+
+    const res = await fetchProgramEvents(mockRpc as any, "DummyAddress" as any);
+    assert.strictEqual(res.events.length, 1, "Expected 1 parsed event");
+    assert.strictEqual(res.events[0].type, "DrawCompleted");
+    assert.strictEqual(res.events[0].data.poolId, 1);
+    assert.strictEqual(res.events[0].data.cycleId, 3);
+    assert.strictEqual(res.events[0].data.prizePot, 20_000_000n);
+    assert.strictEqual(res.events[0].data.winnersCount, 5);
+    assert.strictEqual(res.events[0].data.totalDistributed, 15_000_000n);
+    assert.strictEqual(res.events[0].data.timestamp, 1700000500n);
+  });
+
   it("should decode DrawPreparationProgress log event accurately", async () => {
     // Payload: u32 pool_id(4) + u32 cycle_id(4) + u32 batch_start(4) + u32 batch_end(4) + u32 user_count(4) + bool is_complete(1) = 21 bytes
     const fields = new Uint8Array(21);
@@ -598,4 +641,3 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.deepStrictEqual(metaSpike.scopes, ["pool", "draws"]);
   });
 });
-

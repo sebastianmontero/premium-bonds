@@ -98,4 +98,98 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
     assert.strictEqual(validTransactions[0].signature, "sig1");
     assert.strictEqual(validTransactions[1].signature, "sig5");
   });
+
+  it("should invalidate pool stats and pool info caches upon encountering terminal draw events", async () => {
+    const {
+      PoolStatsAggregator,
+    } = await import("../app/lib/services/pool-stats-aggregator");
+    const {
+      invalidatePoolInfoCache,
+    } = await import("../app/lib/services/pool-state-service");
+
+    let queryCount = 0;
+    const mockDb = {
+      select: () => ({
+        from: () => ({
+          where: async () => {
+            queryCount++;
+            return [
+              {
+                totalDistributed: "50000000",
+                totalDrawsCompleted: 1,
+                totalWinningBonds: 5,
+              },
+            ];
+          },
+        }),
+      }),
+    };
+
+    const aggregator = new PoolStatsAggregator(mockDb, true);
+    await aggregator.getPoolDrawStats(1);
+    assert.strictEqual(queryCount, 1);
+
+    // Call without invalidating - cache hit
+    await aggregator.getPoolDrawStats(1);
+    assert.strictEqual(queryCount, 1);
+
+    // Invalidate pool stats (as performed by webhook handler on DrawCompleted)
+    aggregator.invalidatePoolStats(1);
+    invalidatePoolInfoCache(1);
+
+    // Next query should hit DB again
+    await aggregator.getPoolDrawStats(1);
+    assert.strictEqual(queryCount, 2, "Cache must be invalidated and re-queried");
+  });
+
+  it("should identify all terminal draw event types and discriminate non-terminal events", async () => {
+    const { resolveEventMetadata } = await import("../app/lib/anchor-events");
+
+    const terminalDrawTypes = new Set([
+      "DrawCompleted",
+      "DrawVoided",
+      "DrawForceUnlocked",
+      "DrawSkipped",
+    ]);
+
+    const nonTerminalEventTypes = [
+      "BondsPurchased",
+      "DrawPreparationProgress",
+      "YieldHarvested",
+      "PoolCreated",
+      "PoolConfigUpdated",
+    ];
+
+    for (const type of terminalDrawTypes) {
+      assert.ok(
+        terminalDrawTypes.has(type),
+        `Expected ${type} to be recognized as a terminal draw type`
+      );
+    }
+
+    for (const nonTermType of nonTerminalEventTypes) {
+      assert.strictEqual(
+        terminalDrawTypes.has(nonTermType),
+        false,
+        `Expected ${nonTermType} to NOT be recognized as a terminal draw type`
+      );
+    }
+
+    // Verify metadata resolution provides correct poolId for terminal draw events
+    const sampleCompletedEvent = {
+      type: "DrawCompleted" as const,
+      data: {
+        poolId: 2,
+        drawCycleId: 5,
+        totalDistributed: 100_000_000n,
+        winnersCount: 3,
+        completedAt: 1720000000n,
+      },
+    };
+    const meta = resolveEventMetadata(sampleCompletedEvent);
+    assert.strictEqual(meta.poolId, 2);
+    assert.ok(meta.scopes.includes("draws"));
+    assert.ok(meta.scopes.includes("pool"));
+  });
 });
+

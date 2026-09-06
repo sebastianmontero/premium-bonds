@@ -75,10 +75,7 @@ export function MinimumYieldStatus({
         )
       );
 
-      safeSetElementText(
-        percentSpanRef.current,
-        `${progressPct.toFixed(1)}%`
-      );
+      safeSetElementText(percentSpanRef.current, `${progressPct.toFixed(1)}%`);
 
       if (progressBarRef.current) {
         progressBarRef.current.style.width = `${progressPct}%`;

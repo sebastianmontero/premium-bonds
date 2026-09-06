@@ -157,7 +157,6 @@ pub fn handle(
     pool.total_fees_withdrawn = 0;
     pool.total_prizes_allocated = 0;
     pool.total_pending_redemptions = 0;
-    pool.total_prizes_distributed = 0;
     pool.version = PrizePool::CURRENT_VERSION;
     pool._reserved = [0; 128];
 

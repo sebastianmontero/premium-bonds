@@ -56,6 +56,8 @@ export function getPoolConfig(connStr: string): PoolConfig {
     connectionString: connStr,
     max: 5,
     idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 500,
+    statement_timeout: 1000,
     ssl: isRemote ? { rejectUnauthorized: false } : undefined,
   };
 }
