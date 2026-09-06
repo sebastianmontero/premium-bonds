@@ -114,7 +114,11 @@ describe("PoolStatsAggregator Unit Tests", () => {
     // Cumulative prizes projection should return totalYieldDistributed
     const cumulative = await aggregator.getCumulativePrizes(1);
     assert.strictEqual(cumulative, 15_500_000);
-    assert.strictEqual(queryCount, 1, "Cumulative helper should also use cache");
+    assert.strictEqual(
+      queryCount,
+      1,
+      "Cumulative helper should also use cache"
+    );
   });
 
   it("should bypass cache and re-query database when bypassCache: true is passed", async () => {
@@ -442,4 +446,3 @@ describe("PoolStatsAggregator Unit Tests", () => {
     assert.strictEqual(dbQueryCount, 1);
   });
 });
-

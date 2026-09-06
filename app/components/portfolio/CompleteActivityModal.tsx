@@ -1,25 +1,24 @@
 "use client";
 
-import React, {
-  useState,
-  useMemo,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import type { ActivityEntry, ActivityType } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
-import type { ScanProgress } from "@/app/hooks/useActivityFeed";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
 import { useTranslations, useLocale, useFormatter } from "next-intl";
 import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { formatLocalDate } from "@/app/lib/formatters";
+import {
+  useActivityFeed,
+  type ScanProgress,
+} from "@/app/hooks/useActivityFeed";
 
 interface CompleteActivityModalProps {
-  entries: ActivityEntry[];
+  userAddress?: string;
+  poolId?: number;
   isOpen: boolean;
   onClose: () => void;
+  entries?: ActivityEntry[];
   hasMore?: boolean;
   isFetchingMore?: boolean;
   isLoading?: boolean;
@@ -134,19 +133,18 @@ function typeIcon(type: ActivityType) {
 }
 
 export default function CompleteActivityModal({
-  entries,
+  userAddress,
+  poolId = 1,
   isOpen,
   onClose,
-  hasMore = false,
-  isFetchingMore = false,
-  isLoading = false,
-  scanProgress = null,
-  onLoadMore,
-  onFetchUntilMatches,
+  entries: fallbackEntries,
+  isLoading: initialLoading = false,
 }: CompleteActivityModalProps) {
   const t = useTranslations("Activity");
   const locale = useLocale();
   const format = useFormatter();
+  const modalRef = useRef<HTMLDivElement>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
   const formatFeedDate = (isoDate: string): string => {
     return formatLocalDate(
@@ -162,13 +160,93 @@ export default function CompleteActivityModal({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Debounce search term (300ms) to prevent RPC flooding
+  // Debounce search term (300ms) to prevent query storms
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
+      setDebouncedSearchTerm(searchTerm.trim());
     }, 300);
     return () => clearTimeout(handler);
   }, [searchTerm]);
+
+  const {
+    entries: feedEntries,
+    isLoading: isFeedLoading,
+    isFetchingMore,
+    hasMore,
+    loadMore,
+  } = useActivityFeed(userAddress, poolId, {
+    type: typeFilter,
+    search: debouncedSearchTerm,
+    enabled: isOpen && Boolean(userAddress),
+  });
+
+  const effectiveEntries = useMemo(
+    () => (userAddress ? feedEntries : (fallbackEntries ?? [])),
+    [userAddress, feedEntries, fallbackEntries]
+  );
+  const isLoading = initialLoading || (Boolean(userAddress) && isFeedLoading);
+
+  // Safe page clamping
+  const totalPages = Math.max(1, Math.ceil(effectiveEntries.length / pageSize));
+  const safePage = Math.max(1, Math.min(currentPage, totalPages));
+
+  // Auto-fetch next server batch if user navigates near end of loaded records
+  useEffect(() => {
+    if (!isOpen || !hasMore || isFetchingMore || !userAddress) return;
+    const needed = safePage * pageSize;
+    if (effectiveEntries.length < needed) {
+      void loadMore();
+    }
+  }, [
+    isOpen,
+    safePage,
+    pageSize,
+    effectiveEntries.length,
+    hasMore,
+    isFetchingMore,
+    userAddress,
+    loadMore,
+  ]);
+
+  // Focus trapping and focus restoration on open/close
+  useEffect(() => {
+    if (!isOpen) return;
+
+    lastActiveElementRef.current = document.activeElement as HTMLElement | null;
+
+    const modalEl = modalRef.current;
+    if (!modalEl) return;
+
+    const focusableElements = modalEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    firstElement?.focus();
+
+    const handleTabTrap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement?.focus();
+        }
+      } else {
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement?.focus();
+        }
+      }
+    };
+
+    modalEl.addEventListener("keydown", handleTabTrap);
+    return () => {
+      modalEl.removeEventListener("keydown", handleTabTrap);
+      lastActiveElementRef.current?.focus();
+    };
+  }, [isOpen]);
 
   // Close on Escape key press
   useEffect(() => {
@@ -188,86 +266,28 @@ export default function CompleteActivityModal({
     setCurrentPage(1);
   };
 
-  const isMatch = useCallback(
-    (entry: ActivityEntry, term: string, type: string): boolean => {
-      const cleanTerm = term.trim().toLowerCase();
-      if (!cleanTerm && type === "all") return true;
-
-      const matchesSearch =
-        cleanTerm === "" ||
-        entry.description.toLowerCase().includes(cleanTerm) ||
-        entry.id.toLowerCase().includes(cleanTerm) ||
-        Boolean(entry.txSignature?.toLowerCase().includes(cleanTerm));
-
-      const matchesType = type === "all" || entry.type === type;
-      return Boolean(matchesSearch && matchesType);
-    },
-    []
-  );
-
-  const filteredEntries = useMemo(() => {
-    return entries.filter((entry) =>
-      isMatch(entry, debouncedSearchTerm, typeFilter)
-    );
-  }, [entries, debouncedSearchTerm, typeFilter, isMatch]);
-
-  // Safe page clamping
-  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
-  const safePage = Math.max(1, Math.min(currentPage, totalPages));
-
-  // Track attempted queries to prevent infinite background scanning loops
-  const attemptedQueriesRef = useRef<Set<string>>(new Set());
-  const queryKey = `${debouncedSearchTerm}:${typeFilter}:${safePage}`;
-
-  useEffect(() => {
-    attemptedQueriesRef.current.clear();
-  }, [debouncedSearchTerm, typeFilter]);
-
-  // Auto-trigger background batch scanning if filtered items are fewer than needed for current page
-  useEffect(() => {
-    if (
-      !isOpen ||
-      !onFetchUntilMatches ||
-      !hasMore ||
-      isFetchingMore ||
-      scanProgress !== null ||
-      attemptedQueriesRef.current.has(queryKey)
-    ) {
-      return;
-    }
-
-    const needed = safePage * pageSize;
-    if (filteredEntries.length < needed) {
-      attemptedQueriesRef.current.add(queryKey);
-      onFetchUntilMatches(
-        (entry) => isMatch(entry, debouncedSearchTerm, typeFilter),
-        needed
-      );
-    }
-  }, [
-    isOpen,
-    filteredEntries.length,
-    safePage,
-    pageSize,
-    hasMore,
-    isFetchingMore,
-    scanProgress,
-    debouncedSearchTerm,
-    typeFilter,
-    queryKey,
-    isMatch,
-    onFetchUntilMatches,
-  ]);
-
   const paginatedEntries = useMemo(() => {
     const start = (safePage - 1) * pageSize;
-    return filteredEntries.slice(start, start + pageSize);
-  }, [filteredEntries, safePage, pageSize]);
+    return effectiveEntries.slice(start, start + pageSize);
+  }, [effectiveEntries, safePage, pageSize]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Accessible off-screen live status announcer */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {!isLoading &&
+          (effectiveEntries.length === 0
+            ? t("noRecordsFound")
+            : `${effectiveEntries.length} activities loaded`)}
+      </div>
+
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity duration-300"
@@ -275,7 +295,13 @@ export default function CompleteActivityModal({
       />
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-4xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("modalTitle")}
+        className="relative w-full max-w-4xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-hidden flex flex-col h-[85vh] glass-strong"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-surface-bright/5 shrink-0">
           <div>
@@ -369,44 +395,10 @@ export default function CompleteActivityModal({
           </div>
         </div>
 
-        {/* Scan Progress Banner */}
-        {scanProgress && (
-          <div className="flex items-center gap-2.5 py-2.5 px-4 bg-primary/10 border border-primary/20 rounded-xl text-xs text-primary animate-pulse my-2 shrink-0">
-            <svg
-              className="w-4 h-4 animate-spin text-primary shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-            <span className="font-medium">
-              {t("scanningHistorical", {
-                currentBatch: scanProgress.currentBatch,
-                maxBatches: scanProgress.maxBatches,
-              })}
-            </span>
-          </div>
-        )}
-
         {/* Scrollable Feed List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
           {isLoading ? (
-            <div
-              className="space-y-3 p-1 pointer-events-none select-none"
-              aria-hidden="true"
-            >
+            <div className="space-y-3 p-1 select-none" aria-hidden="true">
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <div
                   key={i}
@@ -423,7 +415,7 @@ export default function CompleteActivityModal({
                 </div>
               ))}
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : effectiveEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40 mt-4">
               <svg
                 className="w-10 h-10 text-on-surface-variant/20 mb-3"
@@ -453,40 +445,6 @@ export default function CompleteActivityModal({
                 >
                   {t("resetFilters")}
                 </button>
-                {hasMore && onLoadMore && (
-                  <button
-                    onClick={() => onLoadMore()}
-                    disabled={isFetchingMore}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isFetchingMore ? (
-                      <>
-                        <svg
-                          className="w-3.5 h-3.5 animate-spin"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                          />
-                        </svg>
-                        <span>{t("scanningOlder")}</span>
-                      </>
-                    ) : (
-                      <span>{t("scanDeeper")}</span>
-                    )}
-                  </button>
-                )}
               </div>
             </div>
           ) : (
@@ -537,11 +495,11 @@ export default function CompleteActivityModal({
                 </div>
               ))}
 
-              {/* Load More Button */}
-              {hasMore && onLoadMore && (
+              {/* Load More Button if next cursor exists */}
+              {hasMore && (
                 <div className="text-center pt-3 pb-1">
                   <button
-                    onClick={() => onLoadMore()}
+                    onClick={() => void loadMore()}
                     disabled={isFetchingMore}
                     className="inline-flex items-center gap-2 rounded-xl border border-primary/30 hover:border-primary/60 bg-primary/10 hover:bg-primary/20 text-primary font-semibold text-xs px-4 py-2 transition cursor-pointer disabled:opacity-50"
                   >
@@ -583,7 +541,7 @@ export default function CompleteActivityModal({
           <PaginationControls
             currentPage={safePage}
             totalPages={totalPages}
-            totalItems={filteredEntries.length}
+            totalItems={effectiveEntries.length}
             pageSize={pageSize}
             onPageChange={(page) => setCurrentPage(page)}
             onPageSizeChange={(newSize) => {

@@ -7,7 +7,6 @@ import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { DrawTelemetryGrid } from "./DrawTelemetryGrid";
 import { PayoutWinnersTable } from "./PayoutWinnersTable";
 import { ProvableFairnessVerifier } from "./ProvableFairnessVerifier";
-import { DrawExportActions } from "./DrawExportActions";
 import { DrawSkippedAuditView } from "./DrawSkippedAuditView";
 import { DrawStatusAuditView } from "./DrawStatusAuditView";
 import {
@@ -310,14 +309,6 @@ export function DrawCycleInspectorModal({
               </div>
             )}
           </div>
-
-          {details && (
-            <DrawExportActions
-              draw={details}
-              hasVrfRandomness={hasVrfRandomness}
-              mode={isPayoutBearing ? "payout" : "audit"}
-            />
-          )}
         </div>
 
         {/* Content Area */}

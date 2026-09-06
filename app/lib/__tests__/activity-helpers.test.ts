@@ -4,6 +4,8 @@ import {
   formatActivityDescription,
   createOptimisticActivity,
   mergeActivityEntries,
+  filterActivityEntries,
+  matchesActivityFilter,
   type StoredOptimisticEntry,
 } from "../activity-helpers";
 import type { ActivityEntry } from "../../types";
@@ -257,6 +259,94 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       const merged = mergeActivityEntries(local, api, baseNow);
       assert.strictEqual(merged.length, 1);
       assert.strictEqual(merged[0].id, "evt-deposit-1");
+    });
+  });
+
+  describe("matchesActivityFilter and filterActivityEntries", () => {
+    const sampleEntries: ActivityEntry[] = [
+      {
+        id: "evt-win-1",
+        date: "2026-09-01T00:00:00.000Z",
+        type: "win",
+        description: "Draw #42 winnings of 50.00 USDC",
+        amount: 50_000_000,
+        txSignature: "5xYz1234abcd5678",
+      },
+      {
+        id: "evt-deposit-2",
+        date: "2026-09-02T00:00:00.000Z",
+        type: "deposit",
+        description: "Deposited 100.00 USDC → +10 tickets",
+        amount: 100_000_000,
+        txSignature: "3aBc9876efgh4321",
+      },
+      {
+        id: "evt-reinvest-3",
+        date: "2026-09-03T00:00:00.000Z",
+        type: "auto-reinvest",
+        description: "Draw #42 reinvested: +5 tickets from 25.00 USDC",
+        amount: 25_000_000,
+        txSignature: "7qWe1122iikl3344",
+      },
+    ];
+
+    it("should match all entries when criteria is empty or type is 'all'", () => {
+      assert.strictEqual(
+        matchesActivityFilter(sampleEntries[0], { type: "all" }),
+        true
+      );
+      assert.strictEqual(
+        matchesActivityFilter(sampleEntries[0], { type: "win" }),
+        true
+      );
+      assert.strictEqual(
+        matchesActivityFilter(sampleEntries[0], { type: "deposit" }),
+        false
+      );
+      const filtered = filterActivityEntries(sampleEntries, {
+        type: "all",
+        search: "",
+      });
+      assert.strictEqual(filtered.length, 3);
+    });
+
+    it("should filter by activity type", () => {
+      const winOnly = filterActivityEntries(sampleEntries, { type: "win" });
+      assert.strictEqual(winOnly.length, 1);
+      assert.strictEqual(winOnly[0].type, "win");
+
+      const depositOnly = filterActivityEntries(sampleEntries, {
+        type: "deposit",
+      });
+      assert.strictEqual(depositOnly.length, 1);
+      assert.strictEqual(depositOnly[0].type, "deposit");
+    });
+
+    it("should filter by search keyword matching description", () => {
+      const filtered = filterActivityEntries(sampleEntries, {
+        search: "tickets",
+      });
+      assert.strictEqual(filtered.length, 2);
+    });
+
+    it("should filter by numeric cycle search with # prefix", () => {
+      const filtered = filterActivityEntries(sampleEntries, { search: "#42" });
+      assert.strictEqual(filtered.length, 2);
+    });
+
+    it("should filter by transaction signature prefix", () => {
+      const filtered = filterActivityEntries(sampleEntries, {
+        search: "5xyz",
+      });
+      assert.strictEqual(filtered.length, 1);
+      assert.strictEqual(filtered[0].id, "evt-win-1");
+    });
+
+    it("should return empty array when no entries match criteria", () => {
+      const filtered = filterActivityEntries(sampleEntries, {
+        type: "withdraw",
+      });
+      assert.strictEqual(filtered.length, 0);
     });
   });
 });

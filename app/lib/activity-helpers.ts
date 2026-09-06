@@ -140,3 +140,50 @@ export function mergeActivityEntries(
 
   return [...activeLocal, ...dedupedApiEntries];
 }
+
+export interface ActivityFilterCriteria {
+  type?: string;
+  search?: string;
+}
+
+export function matchesActivityFilter(
+  entry: ActivityEntry,
+  criteria: ActivityFilterCriteria
+): boolean {
+  if (
+    criteria.type &&
+    criteria.type !== "all" &&
+    entry.type !== criteria.type
+  ) {
+    return false;
+  }
+
+  if (criteria.search) {
+    const term = criteria.search.trim().toLowerCase();
+    if (term) {
+      const cleanNumeric = term.replace(/^#/, "").trim();
+      const matchesDescription = entry.description.toLowerCase().includes(term);
+      const matchesId = entry.id.toLowerCase().includes(term);
+      const matchesSig = Boolean(
+        entry.txSignature?.toLowerCase().includes(term)
+      );
+      const matchesNum =
+        cleanNumeric !== "" &&
+        !isNaN(Number(cleanNumeric)) &&
+        entry.description.includes(cleanNumeric);
+
+      if (!matchesDescription && !matchesId && !matchesSig && !matchesNum) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+export function filterActivityEntries<T extends ActivityEntry>(
+  entries: readonly T[],
+  criteria: ActivityFilterCriteria
+): T[] {
+  return entries.filter((entry) => matchesActivityFilter(entry, criteria));
+}

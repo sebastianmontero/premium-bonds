@@ -92,11 +92,6 @@ export default function DashboardPage() {
   const {
     entries: activityEntries,
     isLoading: isActivityLoading,
-    isFetchingMore: isFetchingActivityMore,
-    hasMore: hasMoreActivity,
-    scanProgress: activityScanProgress,
-    loadMore: loadMoreActivity,
-    fetchUntilMatches: fetchUntilMatchesActivity,
     prependLocal,
   } = useActivityFeed(isConnected ? userAddress : undefined, poolId);
 
@@ -105,10 +100,8 @@ export default function DashboardPage() {
 
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [selectedPrizeKey, setSelectedPrizeKey] = useState<{
-    drawCycleId: number;
-    winnerIndex: number;
-  } | null>(null);
+  const [selectedPrizeEntry, setSelectedPrizeEntry] =
+    useState<PrizeHistoryEntry | null>(null);
   const [showCompleteLedger, setShowCompleteLedger] = useState(false);
   const [showCompleteActivity, setShowCompleteActivity] = useState(false);
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
@@ -131,6 +124,51 @@ export default function DashboardPage() {
   /** Composite key for crankingCycles to disambiguate entries in the same draw cycle */
   const crankKey = (drawCycleId: number, winnerIndex: number) =>
     `${drawCycleId}-${winnerIndex}`;
+
+  // Prefetch first page of prize ledger on hover/trigger
+  const prefetchPrizeLedger = useCallback(() => {
+    if (!isConnected || !userAddress) return;
+    void queryClient.prefetchQuery({
+      queryKey: bondsKeys.userPrizeLedger(poolId, userAddress, {
+        page: 1,
+        pageSize: 10,
+        status: "all",
+        tier: "all",
+        search: "",
+      }),
+      queryFn: async () => {
+        const url = new URL("/api/indexer/winners", window.location.origin);
+        url.searchParams.set("user", userAddress);
+        url.searchParams.set("poolId", String(poolId));
+        url.searchParams.set("page", "1");
+        url.searchParams.set("pageSize", "10");
+        const res = await fetch(url.toString());
+        return res.json();
+      },
+      staleTime: 10_000,
+    });
+  }, [isConnected, userAddress, poolId, queryClient]);
+
+  // Prefetch initial activity stream on hover/trigger
+  const prefetchActivityFeed = useCallback(() => {
+    if (!isConnected || !userAddress) return;
+    void queryClient.prefetchInfiniteQuery({
+      queryKey: bondsKeys.activityFeed(poolId, userAddress, {
+        type: "all",
+        search: "",
+      }),
+      queryFn: async () => {
+        const url = new URL("/api/indexer/activity", window.location.origin);
+        url.searchParams.set("user", userAddress);
+        url.searchParams.set("poolId", String(poolId));
+        url.searchParams.set("limit", "20");
+        const res = await fetch(url.toString());
+        return res.json();
+      },
+      initialPageParam: undefined,
+      staleTime: 10_000,
+    });
+  }, [isConnected, userAddress, poolId, queryClient]);
 
   // Active state selections — strictly real on-chain data when connected, zero/empty when disconnected
   const activeTickets: UserTicketInfo =
@@ -172,18 +210,6 @@ export default function DashboardPage() {
     ? activityEntries
     : [];
   const activeRecentWinners: RecentWinner[] = onChainRecentWinners;
-
-  // Derive selectedPrizeDetails dynamically from activePrizeHistory via ID selector
-  const selectedPrizeDetails = useMemo(() => {
-    if (!selectedPrizeKey) return null;
-    return (
-      activePrizeHistory.find(
-        (p) =>
-          p.drawCycleId === selectedPrizeKey.drawCycleId &&
-          p.winnerIndex === selectedPrizeKey.winnerIndex
-      ) ?? null
-    );
-  }, [selectedPrizeKey, activePrizeHistory]);
 
   // Net Worth includes active ticket value plus all pending redemptions (Huma async claims)
   const pendingRedemptionsTotal = activePendingRedemptions.reduce(
@@ -554,7 +580,10 @@ export default function DashboardPage() {
           <div className="flex-1 min-h-0 flex flex-col">
             <ActivityFeed
               entries={activeActivityFeed}
-              onViewCompleteFeed={() => setShowCompleteActivity(true)}
+              onViewCompleteFeed={() => {
+                prefetchActivityFeed();
+                setShowCompleteActivity(true);
+              }}
               isLoading={isInitialLoading || (isConnected && isActivityLoading)}
             />
           </div>
@@ -586,13 +615,11 @@ export default function DashboardPage() {
         pool={activePool}
         onClaim={handleClaimNonReinvestedWinnings}
         onSimulateCrank={handleSimulateCrank}
-        onViewDetails={(entry) =>
-          setSelectedPrizeKey({
-            drawCycleId: entry.drawCycleId,
-            winnerIndex: entry.winnerIndex,
-          })
-        }
-        onViewCompleteLedger={() => setShowCompleteLedger(true)}
+        onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
+        onViewCompleteLedger={() => {
+          prefetchPrizeLedger();
+          setShowCompleteLedger(true);
+        }}
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
       />
@@ -639,13 +666,13 @@ export default function DashboardPage() {
 
       <PrizeDetailsModal
         key={
-          selectedPrizeKey
-            ? `prize-details-${selectedPrizeKey.drawCycleId}-${selectedPrizeKey.winnerIndex}`
+          selectedPrizeEntry
+            ? `prize-details-${selectedPrizeEntry.drawCycleId}-${selectedPrizeEntry.winnerIndex}`
             : "prize-details-none"
         }
-        entry={selectedPrizeDetails}
-        isOpen={selectedPrizeDetails !== null}
-        onClose={() => setSelectedPrizeKey(null)}
+        entry={selectedPrizeEntry}
+        isOpen={selectedPrizeEntry !== null}
+        onClose={() => setSelectedPrizeEntry(null)}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         ticketPrice={activePool.bondPrice}
@@ -656,6 +683,9 @@ export default function DashboardPage() {
       />
 
       <CompleteLedgerModal
+        userAddress={isConnected ? userAddress : undefined}
+        poolId={poolId}
+        config={activePool}
         entries={activePrizeHistory}
         isOpen={showCompleteLedger}
         onClose={() => setShowCompleteLedger(false)}
@@ -665,27 +695,18 @@ export default function DashboardPage() {
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         pool={activePool}
         onSimulateCrank={handleSimulateCrank}
-        onViewDetails={(entry) =>
-          setSelectedPrizeKey({
-            drawCycleId: entry.drawCycleId,
-            winnerIndex: entry.winnerIndex,
-          })
-        }
+        onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}
       />
 
       <CompleteActivityModal
         key={userAddress ?? "unconnected"}
+        userAddress={isConnected ? userAddress : undefined}
+        poolId={poolId}
         entries={activeActivityFeed}
         isOpen={showCompleteActivity}
         onClose={() => setShowCompleteActivity(false)}
-        hasMore={hasMoreActivity}
-        isFetchingMore={isFetchingActivityMore}
-        isLoading={isInitialLoading || (isConnected && isActivityLoading)}
-        scanProgress={activityScanProgress}
-        onLoadMore={loadMoreActivity}
-        onFetchUntilMatches={fetchUntilMatchesActivity}
       />
     </div>
   );

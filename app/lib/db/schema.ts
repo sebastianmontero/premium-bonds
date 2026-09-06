@@ -97,6 +97,13 @@ export const bondsActivity = pgTable(
       t.blockTime,
       t.id
     ),
+    idxUserTypeBlockId: index("idx_activity_user_type_block_id").on(
+      t.userAddress,
+      t.poolId,
+      t.activityType,
+      t.blockTime,
+      t.id
+    ),
   })
 );
 
@@ -195,6 +202,18 @@ export const drawWinners = pgTable(
       t.cycleId,
       t.tierIndex,
       t.winnerIndex
+    ),
+    idxWinnersUserFilterSort: index("idx_draw_winners_user_filter_sort").on(
+      t.winnerAddress,
+      t.poolId,
+      t.processed,
+      t.tierIndex,
+      t.cycleId
+    ),
+    idxWinnersCycleProcessed: index("idx_draw_winners_pool_cycle_processed").on(
+      t.poolId,
+      t.cycleId,
+      t.processed
     ),
   })
 );

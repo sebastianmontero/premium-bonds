@@ -10,7 +10,9 @@ describe("GET /api/indexer/pool Route Handler", () => {
   });
 
   it("should return NO_CACHE_HEADERS on response", async () => {
-    const req = new NextRequest("http://localhost:3000/api/indexer/pool?poolId=1");
+    const req = new NextRequest(
+      "http://localhost:3000/api/indexer/pool?poolId=1"
+    );
     const res = await GET(req);
     assert.strictEqual(
       res.headers.get("Cache-Control"),

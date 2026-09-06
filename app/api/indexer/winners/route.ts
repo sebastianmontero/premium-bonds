@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, isDatabaseConfigured } from "@/app/lib/db";
-import { drawWinners, drawHistory } from "@/app/lib/db/schema";
-import { eq, and, desc, asc, notInArray } from "drizzle-orm";
+import { isDatabaseConfigured } from "@/app/lib/db";
 import {
-  ApiResponse,
-  PrizeHistoryEntryDto,
-  toPrizeHistoryEntryDto,
-} from "@/app/lib/indexer-mappers";
+  PrizeLedgerFilterSchema,
+  type PaginatedWinnersResponse,
+} from "@/app/types/indexer-contracts";
+import { fetchPaginatedWinners } from "./queries";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest
-): Promise<NextResponse<ApiResponse<PrizeHistoryEntryDto[]>>> {
+): Promise<NextResponse<PaginatedWinnersResponse>> {
   if (!isDatabaseConfigured) {
     return NextResponse.json(
       {
@@ -25,57 +23,43 @@ export async function GET(
   }
 
   const { searchParams } = req.nextUrl;
-  const user = searchParams.get("user");
-  const poolId = Number(searchParams.get("poolId") || 1);
-  const cycleIdParam = searchParams.get("cycleId");
-  const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
+  const rawParams = {
+    user: searchParams.get("user") || undefined,
+    poolId: searchParams.get("poolId") || 1,
+    cycleId: searchParams.get("cycleId") || undefined,
+    page: searchParams.get("page") || 1,
+    pageSize: searchParams.get("pageSize") || searchParams.get("limit") || 10,
+    status: searchParams.get("status") || "all",
+    tier: searchParams.get("tier") || "all",
+    search: searchParams.get("search") || undefined,
+  };
+
+  const parsed = PrizeLedgerFilterSchema.safeParse(rawParams);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        fallbackRequired: true,
+        error: parsed.error.issues.map((i) => i.message).join(", "),
+      },
+      { status: 400 }
+    );
+  }
 
   try {
-    const conditions = [
-      eq(drawWinners.poolId, poolId),
-      notInArray(drawHistory.status, ["Voided", "ForceUnlocked"]),
-    ];
-    if (user) {
-      conditions.push(eq(drawWinners.winnerAddress, user));
-    }
-    if (cycleIdParam) {
-      const cycleId = Number(cycleIdParam);
-      if (!isNaN(cycleId)) {
-        conditions.push(eq(drawWinners.cycleId, cycleId));
-      }
-    }
-
-    const rows = await db
-      .select({
-        winner: drawWinners,
-        vrfSeedHex: drawHistory.vrfSeedHex,
-      })
-      .from(drawWinners)
-      .innerJoin(
-        drawHistory,
-        and(
-          eq(drawWinners.poolId, drawHistory.poolId),
-          eq(drawWinners.cycleId, drawHistory.cycleId)
-        )
-      )
-      .where(and(...conditions))
-      .orderBy(
-        desc(drawWinners.cycleId),
-        asc(drawWinners.tierIndex),
-        desc(drawWinners.amountOwed),
-        asc(drawWinners.winnerIndex)
-      )
-      .limit(limit);
-
-    const data = rows.map((r) =>
-      toPrizeHistoryEntryDto(r.winner, r.vrfSeedHex)
-    );
+    const result = await fetchPaginatedWinners(parsed.data);
 
     return NextResponse.json(
-      { success: true, data, fallbackRequired: false },
+      {
+        success: true,
+        data: result.data,
+        meta: result.meta,
+        aggregates: result.aggregates,
+        fallbackRequired: false,
+      },
       {
         headers: {
-          "Cache-Control": user
+          "Cache-Control": parsed.data.user
             ? "private, no-cache, no-store, must-revalidate"
             : "public, s-maxage=10, stale-while-revalidate=30",
         },

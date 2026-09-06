@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
-import type { PrizeHistoryEntry } from "@/app/types";
+import React, { useState, useEffect, useRef } from "react";
+import type { PrizeHistoryEntry, DrawDisplayConfig } from "@/app/types";
 import {
   formatTokenAmount,
   tierLabel,
@@ -10,45 +10,51 @@ import {
 } from "@/app/lib/formatters";
 import {
   getPayoutTimelockState,
-  sortPrizeHistoryEntries,
   getEffectivePrizeDust,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import { PaginationControls } from "./PaginationControls";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
-import { exportToCsv } from "@/app/lib/export-utils";
 import { useTranslations, useFormatter } from "next-intl";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
+import { useUserPrizeLedger } from "@/app/hooks/useUserPrizeLedger";
+import { useCrankPrize } from "@/app/hooks/mutations/useCrankPrize";
 
 interface CompleteLedgerModalProps {
-  entries: PrizeHistoryEntry[];
+  userAddress?: string;
+  poolId?: number;
   isOpen: boolean;
   onClose: () => void;
-  tokenDecimals: number;
-  tokenSymbol: string;
+  config?: DrawDisplayConfig;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
   bondPrice?: number;
   /** @deprecated Use `bondPrice` */
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
-  onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
+  onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
   crankingCycles?: Record<string, boolean>;
   isLoading?: boolean;
+  /** @deprecated Fallback entries if unconnected */
+  entries?: PrizeHistoryEntry[];
 }
 
 export default function CompleteLedgerModal({
-  entries,
+  userAddress,
+  poolId = 1,
   isOpen,
   onClose,
-  tokenDecimals,
-  tokenSymbol,
+  config,
+  tokenDecimals = 6,
+  tokenSymbol = "USDC",
   bondPrice,
   ticketPrice = 5_000_000,
   payoutTimelockSeconds = 300,
@@ -57,22 +63,71 @@ export default function CompleteLedgerModal({
   onSimulateCrank,
   onViewDetails,
   crankingCycles = {},
-  isLoading = false,
+  isLoading: initialLoading = false,
+  entries: fallbackEntries = [],
 }: CompleteLedgerModalProps) {
   const t = useTranslations("Ledger");
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
+  const modalRef = useRef<HTMLDivElement>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  const effectiveDecimals = config?.tokenDecimals ?? tokenDecimals;
+  const effectiveSymbol = config?.tokenSymbol ?? tokenSymbol;
+  const effectiveBondPrice = config?.bondPrice ?? bondPrice ?? ticketPrice;
+  const effectiveTimelockSeconds =
+    config?.payoutTimelockSeconds ?? payoutTimelockSeconds;
 
   const effectivePool =
     pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
-  const effectiveBondPrice = bondPrice ?? ticketPrice;
   // Stateful Filtering
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tierFilter, setTierFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  // Debounce search term by 300ms to prevent query storms
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  // Query server-side paginated winners
+  const {
+    entries: serverEntries,
+    pagination,
+    aggregates,
+    isLoading: isQueryLoading,
+    isFetching,
+    isPlaceholderData,
+  } = useUserPrizeLedger({
+    userAddress,
+    poolId,
+    page: currentPage,
+    pageSize,
+    status: statusFilter,
+    tier: tierFilter,
+    search: debouncedSearchTerm,
+    enabled: isOpen && Boolean(userAddress),
+  });
+
+  const crankPrizeMutation = useCrankPrize(poolId);
+
+  // Effective entries: server entries when userAddress is present, else client-side filtered fallback entries
+  const displayEntries = userAddress ? serverEntries : fallbackEntries;
+  const totalCount = userAddress
+    ? pagination.totalCount
+    : fallbackEntries.length;
+  const totalPages = userAddress ? pagination.totalPages : 1;
+  const totalValue = userAddress
+    ? Number(aggregates.totalFilteredValue)
+    : displayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const isLoading = initialLoading || (Boolean(userAddress) && isQueryLoading);
 
   const formatDateOnly = (isoDate: string): string => {
     return formatLocalDate(
@@ -95,6 +150,46 @@ export default function CompleteLedgerModal({
     );
   };
 
+  // Focus trap & restoration on mount/unmount
+  useEffect(() => {
+    if (!isOpen) return;
+
+    lastActiveElementRef.current = document.activeElement as HTMLElement | null;
+
+    const modalEl = modalRef.current;
+    if (!modalEl) return;
+
+    const focusableElements = modalEl.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    firstElement?.focus();
+
+    const handleTabTrap = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement?.focus();
+        }
+      } else {
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement?.focus();
+        }
+      }
+    };
+
+    modalEl.addEventListener("keydown", handleTabTrap);
+    return () => {
+      modalEl.removeEventListener("keydown", handleTabTrap);
+      lastActiveElementRef.current?.focus();
+    };
+  }, [isOpen]);
+
   // Close on Escape key press
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -108,94 +203,44 @@ export default function CompleteLedgerModal({
 
   const resetFilters = () => {
     setSearchTerm("");
+    setDebouncedSearchTerm("");
     setStatusFilter("all");
     setTierFilter("all");
     setCurrentPage(1);
   };
 
-  // Ensure entries are sorted once per prop change
-  const sortedEntries = useMemo(
-    () => sortPrizeHistoryEntries(entries),
-    [entries]
-  );
-
-  // Filtered dataset computation: filter natively preserves sorted order
-  const filteredEntries = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-
-    return sortedEntries.filter((entry) => {
-      // 1. Search Matching (Draw ID, Tx Signature, Ticket Seed, or Tier Label)
-      const matchesSearch =
-        query === "" ||
-        (entry.drawCycleId ?? "").toString().includes(query) ||
-        entry.txSignature?.toLowerCase().includes(query) ||
-        entry.winningTicket?.toLowerCase().includes(query) ||
-        tierLabel(entry.tierIndex).toLowerCase().includes(query);
-
-      // 2. Status Matching
-      const matchesStatus =
-        statusFilter === "all" || entry.status === statusFilter;
-
-      // 3. Tier Matching
-      const matchesTier =
-        tierFilter === "all" ||
-        (tierFilter === "grand" && entry.tierIndex === 0) ||
-        (tierFilter === "runnerup" && entry.tierIndex === 1) ||
-        (tierFilter === "consolation" && entry.tierIndex >= 2);
-
-      return matchesSearch && matchesStatus && matchesTier;
-    });
-  }, [sortedEntries, searchTerm, statusFilter, tierFilter]);
-
-  // Aggregate stats across matching records
-  const totalCount = filteredEntries.length;
-  const totalValue = useMemo(() => {
-    return filteredEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
-  }, [filteredEntries]);
-
-  // Safe page clamping
-  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
-  const safePage = Math.max(1, Math.min(currentPage, totalPages));
-
-  const paginatedEntries = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filteredEntries.slice(start, start + pageSize);
-  }, [filteredEntries, safePage, pageSize]);
-
-  const handleExportCSV = () => {
-    if (filteredEntries.length === 0) return;
-
-    const headers = [
-      "Draw Cycle",
-      "Date",
-      "Winner Index",
-      "Tier Index",
-      "Tier Name",
-      "Amount Won (USDC Base Units)",
-      "Status",
-      "Winning Bond Seed",
-      "Tx Signature",
-    ];
-
-    const rows = filteredEntries.map((e) => [
-      e.drawCycleId,
-      e.date,
-      e.winnerIndex,
-      e.tierIndex,
-      tierLabel(e.tierIndex),
-      e.amount,
-      e.status,
-      e.winningTicket || "",
-      e.txSignature || "",
-    ]);
-
-    exportToCsv(`premium_bonds_prizes_export_${Date.now()}`, headers, rows);
+  const handleCrank = async (entry: PrizeHistoryEntry) => {
+    if (onSimulateCrank) {
+      onSimulateCrank(entry.drawCycleId, entry.winnerIndex);
+      return;
+    }
+    try {
+      await crankPrizeMutation.mutateAsync({
+        entry,
+        bondPrice: effectiveBondPrice,
+      });
+    } catch {
+      // Error handled by mutation runner
+    }
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Off-screen live status announcement for screen readers */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {!isFetching &&
+          (totalCount === 0
+            ? t("noDrawsFound")
+            : `${totalCount} entries loaded, page ${currentPage} of ${totalPages}`)}
+      </div>
+
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/75 backdrop-blur-md transition-opacity duration-300"
@@ -204,6 +249,7 @@ export default function CompleteLedgerModal({
 
       {/* Modal Container */}
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("modalTitle")}
@@ -240,9 +286,9 @@ export default function CompleteLedgerModal({
           </button>
         </div>
 
-        {/* Filter bar: 2-column on mobile/tablet, 4-column on desktop */}
+        {/* Filter bar */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 py-3 border-b border-surface-bright/5 shrink-0">
-          {/* Search: Full width on mobile/tablet */}
+          {/* Search */}
           <div className="relative col-span-2 lg:col-span-1">
             <input
               type="text"
@@ -320,26 +366,6 @@ export default function CompleteLedgerModal({
                 {t("clear")}
               </button>
             )}
-            <button
-              onClick={handleExportCSV}
-              disabled={isLoading || filteredEntries.length === 0}
-              className="flex items-center gap-1.5 rounded-xl border border-surface-bright/15 hover:bg-surface-bright/5 disabled:opacity-40 disabled:cursor-not-allowed text-on-surface font-semibold text-xs px-3.5 py-2 transition cursor-pointer"
-            >
-              <svg
-                className="w-4 h-4 text-primary"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              {t("exportCSV")}
-            </button>
           </div>
         </div>
 
@@ -362,7 +388,8 @@ export default function CompleteLedgerModal({
                 <span className="inline-block h-3.5 w-20 rounded bg-surface-bright/10 animate-pulse align-middle" />
               ) : (
                 <span className="font-mono text-primary font-bold">
-                  {formatTokenAmount(totalValue, tokenDecimals)} {tokenSymbol}
+                  {formatTokenAmount(totalValue, effectiveDecimals)}{" "}
+                  {effectiveSymbol}
                 </span>
               )}
             </div>
@@ -376,7 +403,7 @@ export default function CompleteLedgerModal({
         <div className="flex-1 min-h-0 flex flex-col p-2">
           {isLoading ? (
             <div
-              className="flex-1 min-h-0 flex flex-col space-y-3 pointer-events-none select-none"
+              className="flex-1 min-h-0 flex flex-col space-y-3 select-none"
               aria-hidden="true"
             >
               {/* Mobile/Tablet Skeleton Cards (< lg) */}
@@ -457,7 +484,7 @@ export default function CompleteLedgerModal({
                 </table>
               </div>
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : displayEntries.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-[#08090E]/40">
               <svg
                 className="w-10 h-10 text-on-surface-variant/20 mb-3"
@@ -486,17 +513,27 @@ export default function CompleteLedgerModal({
               </button>
             </div>
           ) : (
-            <div className="flex-1 min-h-0 flex flex-col">
+            <div
+              className={`flex-1 min-h-0 flex flex-col ${
+                isPlaceholderData ? "opacity-60 transition-opacity" : ""
+              }`}
+            >
               {/* ── Mobile & Tablet Card Layout (< lg) ─────────────────── */}
               <div className="lg:hidden flex-1 overflow-y-auto space-y-3 pr-1">
-                {paginatedEntries.map((entry) => {
+                {displayEntries.map((entry) => {
                   const isCranking =
                     !!crankingCycles[
                       `${entry.drawCycleId}-${entry.winnerIndex}`
-                    ];
+                    ] ||
+                    (crankPrizeMutation.isPending &&
+                      crankPrizeMutation.variables?.entry.drawCycleId ===
+                        entry.drawCycleId &&
+                      crankPrizeMutation.variables?.entry.winnerIndex ===
+                        entry.winnerIndex);
+
                   const entryTimelock = getPayoutTimelockState(
                     entry.revealedAt,
-                    payoutTimelockSeconds,
+                    effectiveTimelockSeconds,
                     now
                   );
                   const isEntryTimelocked =
@@ -505,35 +542,7 @@ export default function CompleteLedgerModal({
                   return (
                     <div
                       key={`${entry.drawCycleId}-${entry.winnerIndex}`}
-                      onClick={(e) => {
-                        if (
-                          (e.target as HTMLElement).closest(
-                            "button, a, [data-prevent-row-click]"
-                          )
-                        ) {
-                          return;
-                        }
-                        onViewDetails(entry);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          if (
-                            (e.target as HTMLElement).closest(
-                              "button, a, [data-prevent-row-click]"
-                            )
-                          ) {
-                            return;
-                          }
-                          e.preventDefault();
-                          onViewDetails(entry);
-                        }
-                      }}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={t("viewPrizeDetailsAria", {
-                        drawCycleId: entry.drawCycleId,
-                      })}
-                      className="p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 cursor-pointer space-y-3 group focus-visible:ring-1 focus-visible:ring-primary outline-none"
+                      className="p-4 rounded-xl bg-surface-container/30 border border-surface-bright/5 hover:border-primary/20 hover:bg-surface-container/50 hover:shadow-ambient hover:-translate-y-0.5 transition-all duration-300 space-y-3 group"
                     >
                       {/* Tier 1: Draw #, Date & Tier Badge */}
                       <div className="flex items-center justify-between gap-2">
@@ -574,9 +583,9 @@ export default function CompleteLedgerModal({
                                 : "text-on-surface"
                             }`}
                           >
-                            {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
+                            {formatTokenAmount(entry.amount, effectiveDecimals)}{" "}
                             <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                              {tokenSymbol}
+                              {effectiveSymbol}
                             </span>
                           </p>
                         </div>
@@ -620,8 +629,8 @@ export default function CompleteLedgerModal({
                                   amountWon={entry.amount}
                                   bondPrice={effectiveBondPrice}
                                   usedPriorDust={entry.usedPriorDust}
-                                  tokenDecimals={tokenDecimals}
-                                  tokenSymbol={tokenSymbol}
+                                  tokenDecimals={effectiveDecimals}
+                                  tokenSymbol={effectiveSymbol}
                                   tooltipAlign="center"
                                 />
                               )}
@@ -634,8 +643,8 @@ export default function CompleteLedgerModal({
                                 effectiveDust > 0 ? (
                                 <RemainingWinningsBadge
                                   amount={effectiveDust}
-                                  tokenDecimals={tokenDecimals}
-                                  tokenSymbol={tokenSymbol}
+                                  tokenDecimals={effectiveDecimals}
+                                  tokenSymbol={effectiveSymbol}
                                   bondPrice={effectiveBondPrice}
                                   tooltipAlign="center"
                                 />
@@ -703,13 +712,7 @@ export default function CompleteLedgerModal({
                             entry.status === "processing" && (
                               <button
                                 disabled={isCranking}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onSimulateCrank(
-                                    entry.drawCycleId,
-                                    entry.winnerIndex
-                                  );
-                                }}
+                                onClick={() => handleCrank(entry)}
                                 className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                                   isCranking
                                     ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
@@ -739,10 +742,7 @@ export default function CompleteLedgerModal({
                           )}
 
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onViewDetails(entry);
-                            }}
+                            onClick={() => onViewDetails(entry)}
                             className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer group-hover:translate-x-0.5 transition-transform shrink-0"
                           >
                             <span>{t("details")}</span>
@@ -799,14 +799,20 @@ export default function CompleteLedgerModal({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
-                    {paginatedEntries.map((entry) => {
+                    {displayEntries.map((entry) => {
                       const isCranking =
                         !!crankingCycles[
                           `${entry.drawCycleId}-${entry.winnerIndex}`
-                        ];
+                        ] ||
+                        (crankPrizeMutation.isPending &&
+                          crankPrizeMutation.variables?.entry.drawCycleId ===
+                            entry.drawCycleId &&
+                          crankPrizeMutation.variables?.entry.winnerIndex ===
+                            entry.winnerIndex);
+
                       const entryTimelock = getPayoutTimelockState(
                         entry.revealedAt,
-                        payoutTimelockSeconds,
+                        effectiveTimelockSeconds,
                         now
                       );
                       const isEntryTimelocked =
@@ -818,35 +824,7 @@ export default function CompleteLedgerModal({
                       return (
                         <tr
                           key={`${entry.drawCycleId}-${entry.winnerIndex}`}
-                          onClick={(e) => {
-                            if (
-                              (e.target as HTMLElement).closest(
-                                "button, a, [data-prevent-row-click]"
-                              )
-                            ) {
-                              return;
-                            }
-                            onViewDetails(entry);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              if (
-                                (e.target as HTMLElement).closest(
-                                  "button, a, [data-prevent-row-click]"
-                                )
-                              ) {
-                                return;
-                              }
-                              e.preventDefault();
-                              onViewDetails(entry);
-                            }
-                          }}
-                          tabIndex={0}
-                          role="button"
-                          aria-label={t("viewPrizeDetailsAria", {
-                            drawCycleId: entry.drawCycleId,
-                          })}
-                          className="hover:bg-surface-container/40 transition-colors cursor-pointer group focus-visible:bg-surface-container/40 outline-none"
+                          className="hover:bg-surface-container/40 transition-colors group focus-within:bg-surface-container/40"
                         >
                           {/* Draw ID */}
                           <td className="py-3 px-3 whitespace-nowrap">
@@ -886,9 +864,12 @@ export default function CompleteLedgerModal({
                                   : "text-on-surface"
                               }
                             >
-                              {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
+                              {formatTokenAmount(
+                                entry.amount,
+                                effectiveDecimals
+                              )}{" "}
                               <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
-                                {tokenSymbol}
+                                {effectiveSymbol}
                               </span>
                             </span>
                           </td>
@@ -930,8 +911,8 @@ export default function CompleteLedgerModal({
                                     amountWon={entry.amount}
                                     bondPrice={effectiveBondPrice}
                                     usedPriorDust={entry.usedPriorDust}
-                                    tokenDecimals={tokenDecimals}
-                                    tokenSymbol={tokenSymbol}
+                                    tokenDecimals={effectiveDecimals}
+                                    tokenSymbol={effectiveSymbol}
                                     tooltipAlign="center"
                                   />
                                 )}
@@ -944,8 +925,8 @@ export default function CompleteLedgerModal({
                                   effectiveDust > 0 ? (
                                   <RemainingWinningsBadge
                                     amount={effectiveDust}
-                                    tokenDecimals={tokenDecimals}
-                                    tokenSymbol={tokenSymbol}
+                                    tokenDecimals={effectiveDecimals}
+                                    tokenSymbol={effectiveSymbol}
                                     bondPrice={effectiveBondPrice}
                                     tooltipAlign="center"
                                   />
@@ -1002,13 +983,7 @@ export default function CompleteLedgerModal({
                                 hasCrankAction && (
                                   <button
                                     disabled={isCranking}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onSimulateCrank(
-                                        entry.drawCycleId,
-                                        entry.winnerIndex
-                                      );
-                                    }}
+                                    onClick={() => handleCrank(entry)}
                                     className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                                       isCranking
                                         ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
@@ -1046,7 +1021,13 @@ export default function CompleteLedgerModal({
                                 />
                               )}
 
-                              <div className="text-on-surface-variant/40 group-hover:text-primary transition-all duration-300 transform group-hover:translate-x-0.5 p-1 text-sm shrink-0">
+                              <button
+                                onClick={() => onViewDetails(entry)}
+                                aria-label={t("viewPrizeDetailsAria", {
+                                  drawCycleId: entry.drawCycleId,
+                                })}
+                                className="text-on-surface-variant/60 hover:text-primary transition-all duration-300 transform hover:translate-x-0.5 p-1 text-sm shrink-0 cursor-pointer"
+                              >
                                 <svg
                                   width="16"
                                   height="16"
@@ -1059,7 +1040,7 @@ export default function CompleteLedgerModal({
                                 >
                                   <path d="M5 12h14M12 5l7 7-7 7" />
                                 </svg>
-                              </div>
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1075,9 +1056,9 @@ export default function CompleteLedgerModal({
         {/* Pagination Controls */}
         <div className="border-t border-surface-bright/5 pt-3 shrink-0">
           <PaginationControls
-            currentPage={safePage}
+            currentPage={currentPage}
             totalPages={totalPages}
-            totalItems={filteredEntries.length}
+            totalItems={totalCount}
             pageSize={pageSize}
             onPageChange={(page) => setCurrentPage(page)}
             onPageSizeChange={(newSize) => {

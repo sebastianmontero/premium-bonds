@@ -1,12 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useTransition } from "react";
 import { formatTokenAmount } from "@/app/lib/formatters";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
-  buildDrawStatusOptions,
-  isHaltedStatus,
 } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
@@ -15,6 +13,7 @@ import { PaginationControls } from "@/app/components/common/PaginationControls";
 import { DrawPayoutProgressBadge } from "@/app/components/draws/DrawPayoutProgressBadge";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
 import type { DrawCycleSummary } from "@/app/types";
+import type { PaginationMeta } from "@/app/types/indexer-contracts";
 import { useTranslations } from "next-intl";
 
 interface DrawHistoryListProps {
@@ -25,6 +24,16 @@ interface DrawHistoryListProps {
   payoutTimelockSeconds?: number;
   isLoading?: boolean;
   isSyncing?: boolean;
+  isPlaceholderData?: boolean;
+  pagination?: PaginationMeta;
+  currentPage?: number;
+  pageSize?: number;
+  statusFilter?: string;
+  searchTerm?: string;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
+  onStatusChange?: (status: string) => void;
+  onSearchChange?: (search: string) => void;
 }
 
 export function DrawHistoryList({
@@ -35,61 +44,130 @@ export function DrawHistoryList({
   payoutTimelockSeconds = 300,
   isLoading = false,
   isSyncing = false,
+  isPlaceholderData = false,
+  pagination,
+  currentPage: controlledPage,
+  pageSize: controlledPageSize,
+  statusFilter: controlledStatus,
+  searchTerm: controlledSearch,
+  onPageChange,
+  onPageSizeChange,
+  onStatusChange,
+  onSearchChange,
 }: DrawHistoryListProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [, startTransition] = useTransition();
+  const [localSearchTerm, setLocalSearchTerm] = useState("");
+  const [localStatusFilter, setLocalStatusFilter] = useState("all");
+  const [localCurrentPage, setLocalCurrentPage] = useState(1);
+  const [localPageSize, setLocalPageSize] = useState(10);
+
   const t = useTranslations("DrawHistory");
   const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
   const { now } = useClusterTime({ tick: true });
 
-  const statusOptions = useMemo(() => {
-    return buildDrawStatusOptions(draws, t);
-  }, [draws, t]);
+  const isControlled = controlledPage !== undefined;
+  const currentPage = isControlled ? controlledPage : localCurrentPage;
+  const pageSize = isControlled ? (controlledPageSize ?? 10) : localPageSize;
+  const statusFilter = isControlled
+    ? (controlledStatus ?? "all")
+    : localStatusFilter;
+  const searchTerm = isControlled ? (controlledSearch ?? "") : localSearchTerm;
 
-  // Derive the effective status filter during render without triggering cascading re-renders
-  const effectiveStatusFilter = useMemo(() => {
-    if (statusFilter === "all") return "all";
-    const exists = statusOptions.some((opt) => opt.value === statusFilter);
-    return exists ? statusFilter : "all";
-  }, [statusOptions, statusFilter]);
+  // Immediate input state for fluid controlled typing with render-time prop synchronization
+  const [prevControlledSearch, setPrevControlledSearch] =
+    useState(controlledSearch);
+  const [searchInput, setSearchInput] = useState(controlledSearch ?? "");
 
-  const resetFilters = () => {
-    setSearchTerm("");
-    setStatusFilter("all");
-    setCurrentPage(1);
+  if (controlledSearch !== prevControlledSearch) {
+    setPrevControlledSearch(controlledSearch);
+    setSearchInput(controlledSearch ?? "");
+  }
+
+  useEffect(() => {
+    if (!onSearchChange) return;
+    const timer = setTimeout(() => {
+      if (searchInput !== (controlledSearch ?? "")) {
+        startTransition(() => {
+          onSearchChange(searchInput);
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, controlledSearch, onSearchChange]);
+
+  const statusOptions = useMemo(
+    () => [
+      { value: "all", label: t("allStatuses") },
+      { value: "Complete", label: t("statusComplete") },
+      { value: "AwaitingRandomness", label: t("statusAwaitingVRF") },
+      { value: "AwaitingYield", label: t("statusAwaitingYield") },
+      { value: "Skipped", label: t("statusSkipped") },
+      { value: "ForceUnlocked", label: t("statusForceUnlocked") },
+      { value: "Voided", label: t("statusVoided") },
+      { value: "Halted", label: t("statusHaltedAll") },
+    ],
+    [t]
+  );
+
+  const handleSearchChange = (val: string) => {
+    if (onSearchChange) {
+      setSearchInput(val);
+    } else {
+      setLocalSearchTerm(val);
+      setLocalCurrentPage(1);
+    }
   };
 
-  const filteredDraws = useMemo(() => {
-    return draws.filter((draw) => {
-      // 1. Search matching (strictly by cycle #, sanitizing prefixes like # or draw #)
-      const cleaned = searchTerm
-        .trim()
-        .toLowerCase()
-        .replace(/^draw\s*#?/i, "")
-        .replace(/^#/, "")
-        .trim();
-      const matchesSearch =
-        cleaned === "" || draw.cycleId.toString().includes(cleaned);
+  const handleStatusChange = (val: string) => {
+    if (onStatusChange) {
+      startTransition(() => {
+        onStatusChange(val);
+      });
+    } else {
+      setLocalStatusFilter(val);
+      setLocalCurrentPage(1);
+    }
+  };
 
-      // 2. Status matching (matches exact status or top-level 'Halted' matching any circuit breaker)
-      const matchesStatus =
-        effectiveStatusFilter === "all" ||
-        draw.status === effectiveStatusFilter ||
-        (effectiveStatusFilter === "Halted" && isHaltedStatus(draw.status));
+  const handlePageChange = (page: number) => {
+    if (onPageChange) {
+      onPageChange(page);
+    } else {
+      setLocalCurrentPage(page);
+    }
+  };
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [draws, searchTerm, effectiveStatusFilter]);
+  const handlePageSizeChange = (newSize: number) => {
+    if (onPageSizeChange) {
+      onPageSizeChange(newSize);
+    } else {
+      setLocalPageSize(newSize);
+      setLocalCurrentPage(1);
+    }
+  };
 
-  const totalPages = Math.max(1, Math.ceil(filteredDraws.length / pageSize));
+  const resetFilters = () => {
+    setSearchInput("");
+    if (onSearchChange) {
+      onSearchChange("");
+    } else {
+      setLocalSearchTerm("");
+    }
+    handleStatusChange("all");
+    handlePageChange(1);
+  };
+
+  // Safe pagination math
+  const totalCount = pagination ? pagination.totalCount : draws.length;
+  const totalPages = pagination
+    ? pagination.totalPages
+    : Math.max(1, Math.ceil(draws.length / pageSize));
   const safePage = Math.max(1, Math.min(currentPage, totalPages));
 
-  const paginatedDraws = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filteredDraws.slice(start, start + pageSize);
-  }, [filteredDraws, safePage, pageSize]);
+  // If not using server pagination (no pagination object passed), slice locally
+  const displayDraws = pagination
+    ? draws
+    : draws.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const formatDate = (draw: DrawCycleSummary): string => {
     return formatDrawDisplayDate(draw, undefined, {
@@ -125,12 +203,9 @@ export function DrawHistoryList({
             <input
               type="text"
               placeholder={t("searchPlaceholder")}
-              value={searchTerm}
+              value={isControlled ? searchInput : localSearchTerm}
               disabled={isLoading}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-8 pr-3 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
             />
             <svg
@@ -151,19 +226,16 @@ export function DrawHistoryList({
           {/* Status Filter */}
           <div className="w-full sm:w-52 md:w-60">
             <CustomSelect
-              value={effectiveStatusFilter}
+              value={statusFilter}
               disabled={isLoading}
-              onChange={(val) => {
-                setStatusFilter(val);
-                setCurrentPage(1);
-              }}
+              onChange={(val) => handleStatusChange(val)}
               options={statusOptions}
               align="right"
               ariaLabel="Filter draws by status"
             />
           </div>
 
-          {(searchTerm || effectiveStatusFilter !== "all") && (
+          {(searchTerm || statusFilter !== "all") && (
             <button
               onClick={resetFilters}
               className="text-xs text-on-surface-variant hover:text-primary transition font-semibold px-2 py-1 cursor-pointer self-end sm:self-center"
@@ -176,7 +248,7 @@ export function DrawHistoryList({
 
       {/* ── Content ─────────────────────────────────────────────────── */}
       {isLoading ? (
-        <div className="space-y-3 pointer-events-none select-none">
+        <div className="space-y-3 select-none" aria-hidden="true">
           {/* Mobile Skeleton Cards */}
           <div className="lg:hidden space-y-3">
             {[1, 2, 3].map((i) => (
@@ -245,7 +317,7 @@ export function DrawHistoryList({
             </table>
           </div>
         </div>
-      ) : filteredDraws.length === 0 ? (
+      ) : displayDraws.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-surface-bright/10 rounded-2xl bg-surface-container/20">
           <svg
             className="w-10 h-10 text-on-surface-variant/20 mb-2"
@@ -264,10 +336,16 @@ export function DrawHistoryList({
           </p>
         </div>
       ) : (
-        <>
+        <div
+          className={
+            isPlaceholderData
+              ? "opacity-60 transition-opacity space-y-5"
+              : "space-y-5"
+          }
+        >
           {/* ── Mobile & Tablet Card Layout (< lg) ────────────────────── */}
           <div className="lg:hidden space-y-3">
-            {paginatedDraws.map((draw) => (
+            {displayDraws.map((draw) => (
               <div
                 key={draw.cycleId}
                 onClick={(e) => {
@@ -413,7 +491,7 @@ export function DrawHistoryList({
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-bright/5 font-medium text-on-surface">
-                {paginatedDraws.map((draw) => (
+                {displayDraws.map((draw) => (
                   <tr
                     key={draw.cycleId}
                     onClick={() => onSelectDraw(draw.cycleId)}
@@ -504,17 +582,14 @@ export function DrawHistoryList({
             <PaginationControls
               currentPage={safePage}
               totalPages={totalPages}
-              totalItems={filteredDraws.length}
+              totalItems={totalCount}
               pageSize={pageSize}
-              onPageChange={(page) => setCurrentPage(page)}
-              onPageSizeChange={(newSize) => {
-                setPageSize(newSize);
-                setCurrentPage(1);
-              }}
+              onPageChange={handlePageChange}
+              onPageSizeChange={handlePageSizeChange}
               variant="full"
             />
           </div>
-        </>
+        </div>
       )}
     </div>
   );

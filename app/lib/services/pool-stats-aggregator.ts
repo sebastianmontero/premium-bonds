@@ -109,12 +109,12 @@ export class PoolStatsAggregator {
               eq(drawHistory.status, "Complete")
             )
           ) as unknown as Promise<
-            Array<{
-              totalDistributed: string | number | null;
-              totalDrawsCompleted: number | string | null;
-              totalWinningBonds: number | string | null;
-            }>
-          >;
+          Array<{
+            totalDistributed: string | number | null;
+            totalDrawsCompleted: number | string | null;
+            totalWinningBonds: number | string | null;
+          }>
+        >;
 
         const result = await withTimeout<
           Array<{
@@ -122,11 +122,7 @@ export class PoolStatsAggregator {
             totalDrawsCompleted: number | string | null;
             totalWinningBonds: number | string | null;
           }>
-        >(
-          queryPromise,
-          this.queryTimeoutMs,
-          "Database aggregation timeout"
-        );
+        >(queryPromise, this.queryTimeoutMs, "Database aggregation timeout");
 
         const row = result[0];
         const rawSumText = row?.totalDistributed;
@@ -145,9 +141,7 @@ export class PoolStatsAggregator {
           Number.isFinite(parsedBonds) && parsedBonds >= 0 ? parsedBonds : 0;
 
         const averagePrizePot =
-          totalDrawsCompleted > 0
-            ? totalDistributed / totalDrawsCompleted
-            : 0;
+          totalDrawsCompleted > 0 ? totalDistributed / totalDrawsCompleted : 0;
 
         const stats: DrawHistoryStats = {
           totalYieldDistributed: totalDistributed,
@@ -218,10 +212,8 @@ export class PoolStatsAggregator {
 }
 
 export const defaultPoolStatsAggregator = new PoolStatsAggregator();
-export const getPoolDrawStats = (
-  poolId?: number,
-  options?: PoolFetchOptions
-) => defaultPoolStatsAggregator.getPoolDrawStats(poolId, options);
+export const getPoolDrawStats = (poolId?: number, options?: PoolFetchOptions) =>
+  defaultPoolStatsAggregator.getPoolDrawStats(poolId, options);
 export const getCumulativePrizes = (
   poolId?: number,
   options?: PoolFetchOptions

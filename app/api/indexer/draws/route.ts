@@ -1,38 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/app/lib/db";
-import {
-  mapDrawHistoryRowsToSummaries,
-  type DrawCycleSummaryDto,
-} from "@/app/lib/indexer-mappers";
+import type { DrawCycleSummaryDto } from "@/app/lib/indexer-mappers";
 import { defaultPoolStatsAggregator } from "@/app/lib/services/pool-stats-aggregator";
 import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
-import { buildDrawCyclesWithPayoutsQuery } from "./queries";
+import {
+  DrawExplorerFilterSchema,
+  type PaginatedDrawsResponse,
+} from "@/app/types/indexer-contracts";
+import { fetchPaginatedDraws } from "./queries";
 
 export type { DrawCycleSummaryDto };
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest
+): Promise<
+  NextResponse<
+    PaginatedDrawsResponse & {
+      draws?: unknown;
+      stats?: unknown;
+      fallback?: boolean;
+    }
+  >
+> {
   if (!isDatabaseConfigured) {
     return NextResponse.json(
-      { draws: [], stats: null, fallback: true },
-      { headers: NO_CACHE_HEADERS }
+      {
+        success: false,
+        fallbackRequired: true,
+        fallback: true,
+        error: "Database not configured",
+      },
+      { headers: NO_CACHE_HEADERS, status: 200 }
     );
   }
 
   const { searchParams } = req.nextUrl;
-  const poolId = Number(searchParams.get("poolId") || 1);
-  const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
+  const rawParams = {
+    poolId: searchParams.get("poolId") || 1,
+    page: searchParams.get("page") || 1,
+    pageSize: searchParams.get("pageSize") || searchParams.get("limit") || 10,
+    limit: searchParams.get("limit") || undefined,
+    status: searchParams.get("status") || "all",
+    search: searchParams.get("search") || undefined,
+  };
+
+  const parsed = DrawExplorerFilterSchema.safeParse(rawParams);
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        success: false,
+        fallbackRequired: true,
+        fallback: true,
+        error: parsed.error.issues.map((i) => i.message).join(", "),
+      },
+      { headers: NO_CACHE_HEADERS, status: 400 }
+    );
+  }
 
   try {
-    const [rows, poolStats] = await Promise.all([
-      buildDrawCyclesWithPayoutsQuery(poolId, limit),
-      defaultPoolStatsAggregator.getPoolDrawStats(poolId, {
+    const [result, poolStats] = await Promise.all([
+      fetchPaginatedDraws(parsed.data),
+      defaultPoolStatsAggregator.getPoolDrawStats(parsed.data.poolId, {
         bypassCache: true,
       }),
     ]);
 
-    const summaries = mapDrawHistoryRowsToSummaries(rows);
     const stats = poolStats ?? {
       totalYieldDistributed: 0,
       totalDrawsCompleted: 0,
@@ -40,15 +74,33 @@ export async function GET(req: NextRequest) {
       averagePrizePot: 0,
     };
 
+    const headers = result.allFinalized
+      ? { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" }
+      : NO_CACHE_HEADERS;
+
     return NextResponse.json(
-      { draws: summaries, stats, fallback: false },
-      { headers: NO_CACHE_HEADERS }
+      {
+        success: true,
+        data: result.data,
+        meta: result.meta,
+        aggregates: stats,
+        draws: result.data,
+        stats,
+        fallbackRequired: false,
+        fallback: false,
+      },
+      { headers }
     );
-  } catch (err) {
+  } catch (err: unknown) {
     console.warn("[Indexer Draws API Error - Falling Back to RPC]:", err);
     return NextResponse.json(
-      { draws: [], stats: null, fallback: true },
-      { headers: NO_CACHE_HEADERS }
+      {
+        success: false,
+        fallbackRequired: true,
+        fallback: true,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      { headers: NO_CACHE_HEADERS, status: 200 }
     );
   }
 }

@@ -36,13 +36,35 @@ function DrawHistoryContent() {
     actions,
   } = useBondsContext();
 
+  // Hoist URL search params for single-source-of-truth routing
+  const urlPage = useMemo(() => {
+    const p = parseInt(searchParams.get("page") || "1", 10);
+    return !isNaN(p) && p > 0 ? p : 1;
+  }, [searchParams]);
+
+  const urlPageSize = useMemo(() => {
+    const ps = parseInt(searchParams.get("pageSize") || "10", 10);
+    return !isNaN(ps) && ps > 0 ? ps : 10;
+  }, [searchParams]);
+
+  const urlStatus = searchParams.get("status") || "all";
+  const urlSearch = searchParams.get("search") || "";
+
   const {
     drawSummaries,
     stats,
+    pagination,
     isLoading: isDrawsLoading,
     isRefetching: isDrawsRefetching,
+    isPlaceholderData,
     refetch: refetchDraws,
-  } = useDrawExplorer(1, 100);
+  } = useDrawExplorer({
+    poolId: 1,
+    page: urlPage,
+    pageSize: urlPageSize,
+    status: urlStatus,
+    search: urlSearch,
+  });
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -66,6 +88,58 @@ function DrawHistoryContent() {
     queryClient,
   ]);
 
+  const updateUrlParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (
+          value === null ||
+          value === "" ||
+          (key === "page" && value === "1") ||
+          (key === "pageSize" && value === "10") ||
+          (key === "status" && value === "all")
+        ) {
+          params.delete(key);
+        } else {
+          params.set(key, value);
+        }
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [searchParams, router, pathname]
+  );
+
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      updateUrlParams({ page: String(newPage) });
+    },
+    [updateUrlParams]
+  );
+
+  const handlePageSizeChange = useCallback(
+    (newPageSize: number) => {
+      updateUrlParams({ pageSize: String(newPageSize), page: "1" });
+    },
+    [updateUrlParams]
+  );
+
+  const handleStatusChange = useCallback(
+    (newStatus: string) => {
+      updateUrlParams({ status: newStatus, page: "1" });
+    },
+    [updateUrlParams]
+  );
+
+  const handleSearchChange = useCallback(
+    (newSearch: string) => {
+      updateUrlParams({ search: newSearch.trim(), page: "1" });
+    },
+    [updateUrlParams]
+  );
+
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
   const selectedCycleId = useMemo(() => {
@@ -81,14 +155,21 @@ function DrawHistoryContent() {
 
   const handleOpenInspector = useCallback(
     (cycleId: number) => {
-      router.replace(`${pathname}?cycle=${cycleId}`, { scroll: false });
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("cycle", String(cycleId));
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
-    [router, pathname]
+    [router, pathname, searchParams]
   );
 
   const handleCloseInspector = useCallback(() => {
-    router.replace(pathname, { scroll: false });
-  }, [router, pathname]);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("cycle");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  }, [router, pathname, searchParams]);
 
   // Transaction Runner State for Winner Crank Reinvestment
   const [crankingCycles, setCrankingCycles] = useState<Record<string, boolean>>(
@@ -220,6 +301,16 @@ function DrawHistoryContent() {
         tokenSymbol={activePool.tokenSymbol}
         isLoading={isDrawsLoading}
         isSyncing={isDrawsRefetching || isRefreshing}
+        isPlaceholderData={isPlaceholderData}
+        pagination={pagination}
+        currentPage={urlPage}
+        pageSize={urlPageSize}
+        statusFilter={urlStatus}
+        searchTerm={urlSearch}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
+        onStatusChange={handleStatusChange}
+        onSearchChange={handleSearchChange}
       />
 
       {/* ── Detail Inspector Modal ─────────────────────────────────── */}

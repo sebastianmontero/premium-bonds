@@ -303,7 +303,7 @@ export function TransactionProgressModal({
 
   return (
     <div
-      className="modal-backdrop animate-fade-in z-50"
+      className="modal-backdrop animate-fade-in z-[70]"
       onClick={() => isTerminalState && onClose()}
     >
       {modalContent}

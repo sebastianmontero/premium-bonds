@@ -100,12 +100,10 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
   });
 
   it("should invalidate pool stats and pool info caches upon encountering terminal draw events", async () => {
-    const {
-      PoolStatsAggregator,
-    } = await import("../app/lib/services/pool-stats-aggregator");
-    const {
-      invalidatePoolInfoCache,
-    } = await import("../app/lib/services/pool-state-service");
+    const { PoolStatsAggregator } =
+      await import("../app/lib/services/pool-stats-aggregator");
+    const { invalidatePoolInfoCache } =
+      await import("../app/lib/services/pool-state-service");
 
     let queryCount = 0;
     const mockDb = {
@@ -139,7 +137,11 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
 
     // Next query should hit DB again
     await aggregator.getPoolDrawStats(1);
-    assert.strictEqual(queryCount, 2, "Cache must be invalidated and re-queried");
+    assert.strictEqual(
+      queryCount,
+      2,
+      "Cache must be invalidated and re-queried"
+    );
   });
 
   it("should identify all terminal draw event types and discriminate non-terminal events", async () => {
@@ -192,4 +194,3 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
     assert.ok(meta.scopes.includes("pool"));
   });
 });
-

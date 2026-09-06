@@ -9,6 +9,12 @@ test("query-keys: verifies hierarchical structure and leaf isolation", () => {
   const draws = bondsKeys.draws(poolId);
   const activity = bondsKeys.activityFeed(poolId, "test-user");
   const userPos = bondsKeys.userPosition(poolId, "test-user");
+  const prizeRoot = bondsKeys.userPrizeLedgerRoot(poolId, "test-user");
+  const prizeLedger = bondsKeys.userPrizeLedger(poolId, "test-user", {
+    page: 1,
+    pageSize: 10,
+    status: "all",
+  });
 
   assert.deepEqual(poolRoot, ["yield-bonds", "pools", 1]);
   assert.deepEqual(poolState, ["yield-bonds", "pools", 1, "state"]);
@@ -18,7 +24,7 @@ test("query-keys: verifies hierarchical structure and leaf isolation", () => {
     "pools",
     1,
     "activity",
-    { address: "test-user" },
+    { address: "test-user", type: "all", search: "" },
   ]);
   assert.deepEqual(userPos, [
     "yield-bonds",
@@ -27,6 +33,25 @@ test("query-keys: verifies hierarchical structure and leaf isolation", () => {
     "users",
     "test-user",
     "position",
+  ]);
+  assert.deepEqual(prizeRoot, [
+    "yield-bonds",
+    "pools",
+    1,
+    "users",
+    "test-user",
+    "prizes",
+    "ledger",
+  ]);
+  assert.deepEqual(prizeLedger, [
+    "yield-bonds",
+    "pools",
+    1,
+    "users",
+    "test-user",
+    "prizes",
+    "ledger",
+    { page: 1, pageSize: 10, status: "all" },
   ]);
 
   // Leaf isolation check: poolState starts with poolRoot, but has distinct leaf element

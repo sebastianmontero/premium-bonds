@@ -9,11 +9,21 @@ import {
   reconcileOptimisticActivities,
   useLocalActivity,
 } from "../lib/optimistic-activity-store";
-import { mergeActivityEntries } from "../lib/activity-helpers";
+import {
+  filterActivityEntries,
+  mergeActivityEntries,
+} from "../lib/activity-helpers";
+import type { KeysetActivityResponse } from "../types/indexer-contracts";
 
 export interface ScanProgress {
   currentBatch: number;
   maxBatches: number;
+}
+
+export interface UseActivityFeedOptions {
+  type?: string;
+  search?: string;
+  enabled?: boolean;
 }
 
 export interface ActivityFeedResult {
@@ -25,35 +35,46 @@ export interface ActivityFeedResult {
   totalLoaded: number;
   refetch: () => void;
   loadMore: (limit?: number) => Promise<boolean>;
-  fetchUntilMatches: (
+  fetchUntilMatches?: (
     filterFn: (entry: ActivityEntry) => boolean,
     targetCount: number
   ) => Promise<void>;
   prependLocal: (entry: ActivityEntry, targetAddress?: string) => void;
 }
 
-interface ActivityApiResponse {
-  entries: ActivityEntry[];
-  fallback: boolean;
-  nextCursor: string | null;
-}
-
 export function useActivityFeed(
   userAddress: string | undefined,
-  poolId: PoolId = 1
+  poolId: PoolId = 1,
+  options?: UseActivityFeedOptions
 ): ActivityFeedResult {
   const localEntries = useLocalActivity(userAddress);
+  const filterType = options?.type ?? "all";
+  const search = options?.search?.trim() ?? "";
+  const isEnabled = options?.enabled !== false && Boolean(userAddress);
 
-  const query = useInfiniteQuery<ActivityApiResponse>({
-    queryKey: bondsKeys.activityFeed(poolId, userAddress),
+  const query = useInfiniteQuery<KeysetActivityResponse>({
+    queryKey: bondsKeys.activityFeed(poolId, userAddress, {
+      type: filterType,
+      search,
+    }),
     queryFn: async ({ pageParam }) => {
       if (!userAddress) {
-        return { entries: [], fallback: false, nextCursor: null };
+        return {
+          success: false,
+          fallbackRequired: true,
+          error: "Wallet not connected",
+        };
       }
       const url = new URL("/api/indexer/activity", window.location.origin);
       url.searchParams.set("user", userAddress);
       url.searchParams.set("poolId", String(poolId));
       url.searchParams.set("limit", "20");
+      if (filterType && filterType !== "all") {
+        url.searchParams.set("type", filterType);
+      }
+      if (search) {
+        url.searchParams.set("search", search);
+      }
       if (pageParam) {
         url.searchParams.set("cursor", String(pageParam));
       }
@@ -63,13 +84,20 @@ export function useActivityFeed(
       return res.json();
     },
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: !!userAddress,
+    getNextPageParam: (lastPage) =>
+      lastPage.success && lastPage.meta?.nextCursor
+        ? lastPage.meta.nextCursor
+        : undefined,
+    enabled: isEnabled,
     staleTime: 10_000,
   });
 
   const apiEntries = useMemo(() => {
-    return query.data?.pages.flatMap((page) => page.entries) ?? [];
+    return (
+      query.data?.pages.flatMap((page) =>
+        page.success && page.data ? page.data : []
+      ) ?? []
+    );
   }, [query.data]);
 
   useEffect(() => {
@@ -84,44 +112,41 @@ export function useActivityFeed(
     reconcileOptimisticActivities(userAddress, onChainSignatures);
   }, [localEntries, apiEntries, userAddress]);
 
+  const filteredLocalEntries = useMemo(() => {
+    return filterActivityEntries(localEntries, {
+      type: filterType,
+      search,
+    });
+  }, [localEntries, filterType, search]);
+
   const entries = useMemo(() => {
-    return mergeActivityEntries(localEntries, apiEntries);
-  }, [localEntries, apiEntries]);
+    return mergeActivityEntries(filteredLocalEntries, apiEntries);
+  }, [filteredLocalEntries, apiEntries]);
 
   const loadMore = useCallback(
     async (_limit?: number): Promise<boolean> => {
       void _limit;
       if (!query.hasNextPage || query.isFetchingNextPage) return false;
       const res = await query.fetchNextPage();
-      return Boolean(res.data?.pages[res.data.pages.length - 1]?.nextCursor);
+      const lastPage = res.data?.pages[res.data.pages.length - 1];
+      return Boolean(lastPage?.success && lastPage.meta?.nextCursor);
     },
     [query]
   );
 
   const fetchUntilMatches = useCallback(
     async (
-      filterFn: (entry: ActivityEntry) => boolean,
-      targetCount: number
+      _filterFn?: (entry: ActivityEntry) => boolean,
+      _targetCount?: number
     ): Promise<void> => {
-      let currentMatches = entries.filter(filterFn).length;
-      let hasNext = query.hasNextPage;
-
-      while (
-        currentMatches < targetCount &&
-        hasNext &&
-        !query.isFetchingNextPage
-      ) {
-        const res = await query.fetchNextPage();
-        const latestPage = res.data?.pages[res.data.pages.length - 1];
-        if (!latestPage || !latestPage.nextCursor) {
-          break;
-        }
-        hasNext = Boolean(latestPage.nextCursor);
-        const allItems = res.data?.pages.flatMap((p) => p.entries) ?? [];
-        currentMatches = allItems.filter(filterFn).length;
+      void _filterFn;
+      void _targetCount;
+      // Server-side filtered query handles matching directly
+      if (query.hasNextPage && !query.isFetchingNextPage) {
+        await query.fetchNextPage();
       }
     },
-    [entries, query]
+    [query]
   );
 
   const prependLocal = useCallback(

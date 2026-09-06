@@ -1065,7 +1065,7 @@ YieldBonds provides contextual guidance and visual indicators throughout the dAp
 - **Draw Cycle Inspector (\`DrawCycleInspectorModal\`)**: Full-screen modal detailing harvest slot, Switchboard randomness account, locked ticket count, prize pot, and payout timelocks.
 - **Provable Fairness Verifier (\`ProvableFairnessVerifier\`)**: In-app mathematical verifier to independently recompute winning ticket numbers from VRF seeds.
 - **Activity Feed & Filter System (\`ActivityFeed\`)**: Live search and event filters across your deposits, claims, and automated reinvestments.
-- **Prize History Ledger (\`DrawTelemetryGrid\`)**: Complete historical ledger of past prize draws with CSV/JSON export actions.
+- **Prize History Ledger (\`DrawTelemetryGrid\`)**: Complete historical ledger of past prize draws with cryptographic audit verification.
       `,
       es: `
 # Tooltips y Referencia de la Interfaz
@@ -1084,7 +1084,7 @@ YieldBonds ofrece orientación contextual e indicadores visuales en toda la apli
 - **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de cosecha, cuenta de aleatoriedad Switchboard, boletos bloqueados, bote y timelocks.
 - **Verificador de Equidad Demostrable (\`ProvableFairnessVerifier\`)**: Herramienta matemática para recalcular deterministamente los boletos ganadores a partir de semillas VRF.
 - **Registro de Actividad y Filtros (\`ActivityFeed\`)**: Búsqueda en vivo y filtros para depósitos, reclamos y reinversiones automáticas.
-- **Historial de Sorteos (\`DrawTelemetryGrid\`)**: Registro histórico completo de sorteos anteriores con exportación en formato CSV y JSON.
+- **Historial de Sorteos (\`DrawTelemetryGrid\`)**: Registro histórico completo de sorteos anteriores con verificación criptográfica de auditoría.
       `,
     },
   },
