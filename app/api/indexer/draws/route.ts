@@ -13,9 +13,7 @@ export type { DrawCycleSummaryDto };
 
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  req: NextRequest
-): Promise<
+export async function GET(req: NextRequest): Promise<
   NextResponse<
     PaginatedDrawsResponse & {
       draws?: unknown;
