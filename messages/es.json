@@ -350,6 +350,8 @@
     "noPrizes": "Aún no hay premios",
     "noPrizesSub": "Cuando se complete un ciclo de sorteo y se seleccionen tus bonos, tu historial aparecerá aquí con detalles completos de equidad demostrable.",
     "draw": "Sorteo",
+    "bond": "Bono",
+    "winningBond": "Bono Ganador",
     "date": "Fecha",
     "tier": "Nivel",
     "amountWon": "Monto Ganado",
@@ -369,7 +371,7 @@
     "reinvested": "Reinvertido",
     "disbursed": "Desembolsado",
     "pending": "Pendiente",
-    "viewComplete": "Ver Historial Completo ({count} Sorteos) →",
+    "viewComplete": "Ver Historial Completo ({count, plural, =1 {1 Premio} other {# Premios}}) →",
     "details": "Detalles",
     "runCrank": "Ejecutar Crank",
     "batch": "(Lote)",
@@ -400,7 +402,8 @@
     "close": "Cerrar"
   },
   "PrizeDetails": {
-    "title": "Verificación del Ciclo de Sorteo #{drawCycleId}",
+    "title": "Detalles del Premio — Sorteo #{drawCycleId} — Bono {ticket}",
+    "titleNoTicket": "Detalles del Premio — Sorteo #{drawCycleId}",
     "conductedOn": "Sorteo realizado el {date}",
     "tierWon": "Nivel Ganado",
     "amountWon": "Monto Ganado",

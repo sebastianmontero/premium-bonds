@@ -7,6 +7,8 @@ import {
   getLiveYieldFormatter,
   DEFAULT_LIVE_YIELD_PRECISION,
   USDC_DECIMALS,
+  formatTicketNumber,
+  sanitizeTicketNumber,
 } from "../formatters";
 
 describe("Currency & Token Formatters Unit Tests", () => {
@@ -112,6 +114,27 @@ describe("Currency & Token Formatters Unit Tests", () => {
       const formatter = getLiveYieldFormatter(6);
       assert.strictEqual(formatter.format(49.5), "49.500000");
       assert.strictEqual(formatter.format(0.000001), "0.000001");
+    });
+  });
+
+  describe("Winning Bond & Ticket Number Formatters", () => {
+    it("should sanitize ticket strings by stripping non-numeric characters", () => {
+      assert.strictEqual(sanitizeTicketNumber("12345"), "12345");
+      assert.strictEqual(sanitizeTicketNumber("#12345"), "12345");
+      assert.strictEqual(sanitizeTicketNumber("Bond #987,654"), "987654");
+      assert.strictEqual(sanitizeTicketNumber(42), "42");
+      assert.strictEqual(sanitizeTicketNumber(undefined), "");
+      assert.strictEqual(sanitizeTicketNumber(null as unknown as undefined), "");
+    });
+
+    it("should format ticket numbers with canonical '#' prefix and en-US thousands separators", () => {
+      assert.strictEqual(formatTicketNumber("987654"), "#987,654");
+      assert.strictEqual(formatTicketNumber(12345), "#12,345");
+      assert.strictEqual(formatTicketNumber(0), "#0");
+      assert.strictEqual(formatTicketNumber("0"), "#0");
+      assert.strictEqual(formatTicketNumber(""), "N/A");
+      assert.strictEqual(formatTicketNumber(undefined), "N/A");
+      assert.strictEqual(formatTicketNumber(null as unknown as undefined), "N/A");
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   tierLabel,
   tierBadgeClass,
   formatLocalDate,
+  formatTicketNumber,
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { getExplorerUrl } from "@/app/lib/errors";
@@ -27,18 +28,6 @@ interface PrizeDetailsModalProps {
   isFrozenForDraw?: boolean;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   crankingCycles?: Record<string, boolean>;
-}
-
-/** Sanitizes raw ticket input by stripping non-numeric characters */
-function sanitizeTicketNumber(ticket?: string): string {
-  if (!ticket) return "";
-  return ticket.replace(/[^0-9]/g, "");
-}
-
-/** Formats a ticket string with canonical '#' prefix */
-function formatTicketNumber(ticket?: string): string {
-  const clean = sanitizeTicketNumber(ticket);
-  return clean ? `#${clean}` : "N/A";
 }
 
 export default function PrizeDetailsModal({
@@ -106,6 +95,14 @@ export default function PrizeDetailsModal({
     format.dateTime
   );
 
+  const formattedTicket = formatTicketNumber(entry.winningTicket);
+  const modalTitle = entry.winningTicket
+    ? t("title", {
+        drawCycleId: entry.drawCycleId,
+        ticket: formattedTicket,
+      })
+    : t("titleNoTicket", { drawCycleId: entry.drawCycleId });
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       {/* Backdrop */}
@@ -118,7 +115,7 @@ export default function PrizeDetailsModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={t("title", { drawCycleId: entry.drawCycleId })}
+        aria-label={modalTitle}
         className="relative w-full max-w-2xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-y-auto max-h-[90vh] glass-strong"
       >
         {/* Header */}
@@ -138,7 +135,7 @@ export default function PrizeDetailsModal({
                   d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                 />
               </svg>
-              {t("title", { drawCycleId: entry.drawCycleId })}
+              {modalTitle}
             </h3>
             <p className="text-xs text-on-surface-variant mt-0.5">
               {t("conductedOn", { date: formattedDate })}

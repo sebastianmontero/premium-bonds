@@ -632,3 +632,20 @@ export function formatCycleFrequency(
       return t("freqHours", { hours: durationHrs });
   }
 }
+
+/** Sanitizes raw ticket/bond input by stripping non-numeric characters */
+export function sanitizeTicketNumber(ticket?: string | number): string {
+  if (ticket === undefined || ticket === null) return "";
+  return String(ticket).replace(/[^0-9]/g, "");
+}
+
+/** Formats a ticket/bond string or number with canonical '#' prefix and en-US thousands separators */
+export function formatTicketNumber(ticket?: string | number): string {
+  const clean = sanitizeTicketNumber(ticket);
+  if (!clean) return "N/A";
+  const num = Number(clean);
+  if (Number.isFinite(num)) {
+    return `#${num.toLocaleString("en-US")}`;
+  }
+  return `#${clean}`;
+}

@@ -5,6 +5,7 @@ import {
   formatTokenAmount,
   tierLabel,
   tierBadgeClass,
+  formatTicketNumber,
 } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -321,10 +322,10 @@ export function PayoutWinnersTable({
                                   : "bg-surface-container/80 border border-surface-bright/10 text-tertiary"
                               }`}
                             >
-                              <span aria-hidden="true">🎫</span> #
-                              {winner.winningTicketIndex.toLocaleString(
-                                "en-US"
-                              )}
+                              <span aria-hidden="true">🎫</span>
+                              <span>
+                                {formatTicketNumber(winner.winningTicketIndex)}
+                              </span>
                             </span>
                           ) : (
                             <span className="text-on-surface-variant/40">

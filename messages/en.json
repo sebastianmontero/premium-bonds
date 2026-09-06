@@ -350,6 +350,8 @@
     "noPrizes": "No prizes yet",
     "noPrizesSub": "When a draw cycle completes and your bonds are selected, your prize history will appear here with full provable fairness details.",
     "draw": "Draw",
+    "bond": "Bond",
+    "winningBond": "Winning Bond",
     "date": "Date",
     "tier": "Tier",
     "amountWon": "Amount Won",
@@ -369,7 +371,7 @@
     "reinvested": "Reinvested",
     "disbursed": "Disbursed",
     "pending": "Pending",
-    "viewComplete": "View Complete Ledger ({count} Draws) →",
+    "viewComplete": "View Complete Ledger ({count, plural, =1 {1 Prize} other {# Prizes}}) →",
     "details": "Details",
     "runCrank": "Run Crank",
     "batch": "(Batch)",
@@ -400,7 +402,8 @@
     "close": "Close"
   },
   "PrizeDetails": {
-    "title": "Draw Cycle #{drawCycleId} Verification",
+    "title": "Draw #{drawCycleId} Prize Details — Bond {ticket}",
+    "titleNoTicket": "Draw #{drawCycleId} Prize Details",
     "conductedOn": "Draw conducted on {date}",
     "tierWon": "Tier Won",
     "amountWon": "Amount Won",

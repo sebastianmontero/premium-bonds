@@ -7,6 +7,7 @@ import {
   tierLabel,
   tierBadgeClass,
   formatLocalDate,
+  formatTicketNumber,
 } from "@/app/lib/formatters";
 import {
   getPayoutTimelockState,
@@ -440,6 +441,9 @@ export default function CompleteLedgerModal({
                       <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 w-16">
                         {t("draw")}
                       </th>
+                      <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 text-center whitespace-nowrap">
+                        {t("winningBond")}
+                      </th>
                       <th className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3">
                         {t("date")}
                       </th>
@@ -462,6 +466,9 @@ export default function CompleteLedgerModal({
                       <tr key={i} className="p-4">
                         <td className="py-3 px-3">
                           <div className="h-8 w-11 rounded-lg skeleton-box" />
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <div className="h-5 w-16 rounded-md skeleton-box mx-auto" />
                         </td>
                         <td className="py-3 px-3">
                           <div className="h-4 w-24 rounded skeleton-box" />
@@ -560,8 +567,21 @@ export default function CompleteLedgerModal({
                                 {formatTimeOnly(entry.date)}
                               </span>
                             </p>
-                            <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider font-semibold">
-                              {t("date")}
+                            <p className="text-[10px] text-on-surface-variant/60 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                              <span>{t("date")}</span>
+                              {entry.winningTicket && (
+                                <>
+                                  <span className="text-on-surface-variant/30">
+                                    •
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 font-mono text-primary font-bold normal-case">
+                                    <span aria-hidden="true">🎫</span>
+                                    <span>
+                                      {formatTicketNumber(entry.winningTicket)}
+                                    </span>
+                                  </span>
+                                </>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -768,6 +788,12 @@ export default function CompleteLedgerModal({
                       </th>
                       <th
                         scope="col"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 text-center whitespace-nowrap"
+                      >
+                        {t("winningBond")}
+                      </th>
+                      <th
+                        scope="col"
                         className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 whitespace-nowrap"
                       >
                         {t("date")}
@@ -831,6 +857,22 @@ export default function CompleteLedgerModal({
                             <div className="flex h-8 w-11 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary font-mono text-xs font-bold">
                               #{entry.drawCycleId}
                             </div>
+                          </td>
+
+                          {/* Winning Bond */}
+                          <td className="py-3 px-3 whitespace-nowrap text-center">
+                            {entry.winningTicket ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-primary/15 border border-primary/40 text-primary shadow-xs">
+                                <span aria-hidden="true">🎫</span>
+                                <span>
+                                  {formatTicketNumber(entry.winningTicket)}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-on-surface-variant/40">
+                                —
+                              </span>
+                            )}
                           </td>
 
                           {/* Date */}
