@@ -7,6 +7,7 @@ import {
   parseMintSupply,
   parseTokenAccountBalance,
   parseModeConfig,
+  fetchTicketRegistryHeader,
 } from "@/app/lib/bonds-sdk";
 import type { PoolInfo } from "@/app/types";
 import type { PoolFetchOptions } from "@/app/lib/services/pool-stats-aggregator";
@@ -54,6 +55,10 @@ export async function getPoolInfo(
 
       const parsedPool = parsePrizePool(batched.poolAccountData);
 
+      const registryPromise = parsedPool.ticketRegistry
+        ? fetchTicketRegistryHeader(rpc, parsedPool.ticketRegistry)
+        : Promise.resolve(null);
+
       const humaTotalAssets = batched.humaPoolStateData
         ? parseMockHumaPoolState(batched.humaPoolStateData).totalAssets
         : 0n;
@@ -78,6 +83,9 @@ export async function getPoolInfo(
         feeBasisPoints: parsedPool.feeBasisPoints,
       });
 
+      const registryHeader = await registryPromise;
+      const totalUsers = registryHeader?.userCount ?? 0;
+
       // Assemble PoolInfo DTO explicitly without leaky object spreads
       const poolInfo: PoolInfo = {
         poolId: parsedPool.poolId,
@@ -99,6 +107,7 @@ export async function getPoolInfo(
         minYieldThreshold: parsedPool.minYieldThreshold,
         underlyingApy: humaModeApy ?? 0.085,
         lastSyncedAt: Math.floor(now / 1000),
+        totalUsers,
         totalPrizesDistributed: undefined,
         payoutTimelockSeconds: parsedPool.payoutTimelockSeconds,
         ticketRegistry: parsedPool.ticketRegistry,

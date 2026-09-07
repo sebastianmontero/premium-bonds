@@ -13,6 +13,7 @@ import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
+import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -31,6 +32,7 @@ interface PayoutWinnersTableProps {
   isVoided?: boolean;
   onCrankWinner?: (winnerIndex: number, winnerAddress: string) => void;
   crankingCycles?: Record<string, boolean>;
+  onSelectWinnerIndex?: (winnerIndex: number) => void;
 }
 
 export function PayoutWinnersTable({
@@ -47,6 +49,7 @@ export function PayoutWinnersTable({
   isVoided = false,
   onCrankWinner,
   crankingCycles = {},
+  onSelectWinnerIndex,
 }: PayoutWinnersTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [tierFilter, setTierFilter] = useState("all");
@@ -408,81 +411,53 @@ export function PayoutWinnersTable({
                           )}
                         </td>
 
-                        {/* Actions / Permissionless Crank Trigger */}
+                        {/* Actions / Crank Trigger & View Details Button */}
                         <td className="py-3 px-4 border-b border-surface-bright/5 text-right whitespace-nowrap">
-                          {isVoided ? (
-                            <span
-                              className="text-[10px] text-red-400/70 font-mono"
-                              title={t("voidedCrankTooltip")}
-                            >
-                              —
-                            </span>
-                          ) : winner.processed ? (
-                            <span className="text-[10px] text-on-surface-variant/40">
-                              {tLedger("disbursed")}
-                            </span>
-                          ) : timelockState.isTimelocked ? (
-                            <InteractiveTooltip
-                              ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
-                              align="right"
-                              side="bottom"
-                              triggerClassName="inline-flex p-0"
-                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                              content={
-                                <TimelockTooltipContent
-                                  timelock={timelockState}
-                                />
-                              }
-                            >
-                              <span
-                                aria-disabled="true"
-                                className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1 shrink-0"
+                          <div className="inline-flex items-center justify-end gap-2">
+                            <WinnerCrankActionButton
+                              winnerIndex={winner.winnerIndex}
+                              winnerAddress={winner.winnerAddress}
+                              isProcessed={winner.processed}
+                              timelockState={timelockState}
+                              isClaimingPaused={effectivePool?.isFrozenForDraw}
+                              isVoided={isVoided}
+                              isCranking={isCranking}
+                              onCrank={onCrankWinner}
+                              size="sm"
+                            />
+
+                            {onSelectWinnerIndex && (
+                              <button
+                                id={`trigger-winner-${winner.winnerIndex}`}
+                                type="button"
+                                onClick={() =>
+                                  onSelectWinnerIndex(winner.winnerIndex)
+                                }
+                                aria-label={t("viewWinnerDetailsAria", {
+                                  ticket: formatTicketNumber(
+                                    winner.winningTicketIndex
+                                  ),
+                                })}
+                                title={t("viewDetails")}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover px-2 py-1 rounded-lg hover:bg-primary/10 transition cursor-pointer"
                               >
-                                <span aria-hidden="true">🔒</span>{" "}
-                                {timelockState.formattedRemaining}
-                              </span>
-                            </InteractiveTooltip>
-                          ) : effectivePool?.isFrozenForDraw ? (
-                            <InteractiveTooltip
-                              ariaLabel={tLedger("frozenCrankTooltip")}
-                              align="right"
-                              side="top"
-                              triggerClassName="inline-flex"
-                              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                              content={
-                                <p className="text-xs leading-relaxed text-amber-200">
-                                  {tLedger("frozenCrankTooltip")}
-                                </p>
-                              }
-                            >
-                              <span
-                                aria-disabled="true"
-                                className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs inline-flex items-center gap-1"
-                              >
-                                <span aria-hidden="true">❄️</span>{" "}
-                                {tLedger("claimingPaused")}
-                              </span>
-                            </InteractiveTooltip>
-                          ) : onCrankWinner ? (
-                            <button
-                              onClick={() =>
-                                onCrankWinner(
-                                  winner.winnerIndex,
-                                  winner.winnerAddress
-                                )
-                              }
-                              disabled={isCranking}
-                              className="rounded-lg px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-black cursor-pointer shadow-sm transition disabled:opacity-50"
-                            >
-                              {isCranking
-                                ? tLedger("cranking")
-                                : tLedger("runCrank")}
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-on-surface-variant/40">
-                              {tLedger("pending")}
-                            </span>
-                          )}
+                                <span>{t("viewDetails")}</span>
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M9 5l7 7-7 7"
+                                  />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

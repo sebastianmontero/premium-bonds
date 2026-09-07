@@ -222,7 +222,24 @@ export function foldDrawHistoryRows(
           existing.cycleFeeCollected = r.cycleFeeCollected;
       }
 
-      if (r.lockedTicketCount !== undefined && r.lockedTicketCount !== null) {
+      if (
+        r.status === "Skipped" ||
+        r.status === "HaltedInsolvent" ||
+        r.status === "HaltedYieldSpike"
+      ) {
+        if (r.lockedTicketCount !== undefined && r.lockedTicketCount !== null) {
+          existing.lockedTicketCount = r.lockedTicketCount;
+        }
+      } else if (
+        r.lockedTicketCount !== undefined &&
+        r.lockedTicketCount !== null &&
+        r.lockedTicketCount > 0n
+      ) {
+        existing.lockedTicketCount = r.lockedTicketCount;
+      } else if (
+        existing.lockedTicketCount === undefined &&
+        r.lockedTicketCount !== undefined
+      ) {
         existing.lockedTicketCount = r.lockedTicketCount;
       }
       if (r.harvestSlot && r.harvestSlot > 0) {
@@ -453,7 +470,11 @@ export async function upsertDrawHistoryTx(
             WHEN EXCLUDED.status IN ('Skipped', 'Voided', 'HaltedInsolvent', 'HaltedYieldSpike') THEN 0
             ELSE COALESCE(NULLIF(EXCLUDED.cycle_fee_collected, 0), ${drawHistory.cycleFeeCollected})
           END`,
-          lockedTicketCount: sql`COALESCE(EXCLUDED.locked_ticket_count, ${drawHistory.lockedTicketCount})`,
+          lockedTicketCount: sql`CASE
+            WHEN EXCLUDED.status IN ('Skipped', 'HaltedInsolvent', 'HaltedYieldSpike') THEN EXCLUDED.locked_ticket_count
+            WHEN EXCLUDED.locked_ticket_count IS NOT NULL AND EXCLUDED.locked_ticket_count > 0 THEN EXCLUDED.locked_ticket_count
+            ELSE ${drawHistory.lockedTicketCount}
+          END`,
           harvestSlot: sql`GREATEST(COALESCE(${drawHistory.harvestSlot}, 0), COALESCE(EXCLUDED.harvest_slot, 0))`,
           randomnessAccount: sql`CASE
             WHEN NULLIF(EXCLUDED.randomness_account, '') IS NOT NULL AND COALESCE(EXCLUDED.harvest_slot, 0) >= COALESCE(${drawHistory.harvestSlot}, 0) THEN EXCLUDED.randomness_account

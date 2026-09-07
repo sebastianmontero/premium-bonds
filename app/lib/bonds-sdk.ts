@@ -62,9 +62,11 @@ import {
   UNASSIGNED_REGISTRY_INDEX,
   REGISTRY_HEADER_SIZE,
   USER_ENTRY_SIZE,
+  parseRegistryHeaderFromSlice,
 } from "./ticket-registry-helpers";
+import type { TicketRegistry } from "./ticket-registry-helpers";
 
-export type { TicketRegistry } from "./ticket-registry-helpers";
+export type { TicketRegistry };
 
 export {
   RedemptionType,
@@ -94,6 +96,8 @@ export {
   parseTicketRegistry,
   parseRegistryEntry,
   resolveUserTickets,
+  serializeUserEntry,
+  serializeTicketRegistry,
 } from "./ticket-registry-helpers";
 export type {
   UserEntryInfo,
@@ -256,6 +260,24 @@ export async function fetchTicketRegistryHeaderSlice(
     console.warn("Failed to fetch TicketRegistry header slice:", err);
     return null;
   }
+}
+
+export async function fetchTicketRegistryHeader(
+  rpc: SolanaRpc,
+  registryAddress: Address | string
+): Promise<TicketRegistry | null> {
+  if (
+    !registryAddress ||
+    registryAddress === "11111111111111111111111111111111"
+  ) {
+    return null;
+  }
+  const headerBytes = await fetchTicketRegistryHeaderSlice(
+    rpc,
+    registryAddress
+  );
+  if (!headerBytes) return null;
+  return parseRegistryHeaderFromSlice(headerBytes);
 }
 
 export async function fetchUserRegistryEntrySlice(

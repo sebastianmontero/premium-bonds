@@ -21,6 +21,8 @@ import {
   getSkippedDrawReason,
   getNoRandomnessExplanationKey,
   invalidateDrawQueries,
+  buildDrawWinnerPermalink,
+  formatWinnerShareMessage,
 } from "../app/lib/draw-helpers";
 import { bondsKeys } from "../app/lib/query-keys";
 import type { QueryClient } from "@tanstack/react-query";
@@ -628,5 +630,31 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.strictEqual(invalidatedKeys.length, 4);
     assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.draws(1));
     assert.deepStrictEqual(invalidatedKeys[3], bondsKeys.poolState(1));
+  });
+
+  it("should build draw winner permalink with fallback or origin", () => {
+    const link = buildDrawWinnerPermalink(14, 2);
+    assert.ok(link.includes("/dashboard/draws?cycle=14&winner=2"));
+  });
+
+  it("should format winner share message with ticket number and amount", () => {
+    const msg = formatWinnerShareMessage(
+      14,
+      {
+        winnerIndex: 0,
+        tierIndex: 0,
+        amountOwed: 25_000_000,
+        bondsBought: 5,
+        winnerAddress: "11111111111111111111111111111111",
+        processed: true,
+        winningTicketIndex: 42,
+      },
+      6,
+      "USDC"
+    );
+    assert.ok(msg.includes("Draw #14"));
+    assert.ok(msg.includes("bond #42"));
+    assert.ok(msg.includes("won 25.00 USDC"));
+    assert.ok(msg.includes("/dashboard/draws?cycle=14&winner=0"));
   });
 });

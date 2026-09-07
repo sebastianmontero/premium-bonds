@@ -245,13 +245,17 @@ export interface DrawDisplayConfig {
 
 export interface DrawWinnerRecord {
   winnerIndex: number;
-  slotInTier: number;
+  slotInTier?: number;
   winnerAddress: string;
   amountOwed: number; // base units
   bondsBought: number;
   processed: boolean;
   tierIndex: number;
   winningTicketIndex?: number;
+  claimSignature?: string | null;
+  dustAccumulated?: number;
+  revealedAt?: number;
+  vrfSeedHex?: string | null;
 }
 
 export interface DrawCycleSummary {

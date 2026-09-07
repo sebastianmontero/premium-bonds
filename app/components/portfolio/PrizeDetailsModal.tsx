@@ -10,10 +10,11 @@ import {
   formatTicketNumber,
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
-import { getExplorerUrl } from "@/app/lib/errors";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { getEffectivePrizeBreakdown } from "@/app/lib/draw-helpers";
+import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
+import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
 import { useTranslations, useFormatter } from "next-intl";
 
 interface PrizeDetailsModalProps {
@@ -309,290 +310,24 @@ export default function PrizeDetailsModal({
 
           {/* Auto-Reinvestment Detail Section */}
           {entry.status === "reinvested" && (
-            <div className="p-5 rounded-xl border border-emerald-500/10 bg-emerald-500/[0.02] space-y-3">
-              <h4 className="text-sm font-semibold text-emerald-300 flex items-center gap-1.5">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"
-                  />
-                </svg>
-                {t("autoReinvestmentBreakdown")}
-              </h4>
-              {(() => {
-                const breakdown = entry
-                  ? getEffectivePrizeBreakdown(entry, ticketPrice)
-                  : {
-                      bondsBought: 0,
-                      usedPriorDust: 0,
-                      dustAccumulated: 0,
-                      totalAvailable: 0,
-                    };
-
-                return (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("reinvestedTickets")}
-                        </p>
-                        <p className="font-mono text-base font-bold text-on-surface mt-1">
-                          +{breakdown.bondsBought} Bonds
-                        </p>
-                      </div>
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("purchaseCost")}
-                        </p>
-                        <p className="font-mono text-base font-bold text-on-surface mt-1">
-                          {formatTokenAmount(ticketPrice, tokenDecimals)}{" "}
-                          {tokenSymbol} / bond
-                        </p>
-                      </div>
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("targetPool")}
-                        </p>
-                        <p className="font-mono text-base font-bold text-on-surface mt-1">
-                          {t("solanaYieldPool")}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mt-2">
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("drawWinnings")}
-                        </p>
-                        <p className="font-mono text-sm font-bold text-on-surface mt-1">
-                          {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
-                          {tokenSymbol}
-                        </p>
-                      </div>
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-tertiary/20 bg-tertiary/5">
-                        <p className="text-tertiary font-medium">
-                          {t("priorDustApplied")}
-                        </p>
-                        <p className="font-mono text-sm font-bold text-tertiary mt-1">
-                          +
-                          {formatTokenAmount(
-                            breakdown.usedPriorDust,
-                            tokenDecimals
-                          )}{" "}
-                          {tokenSymbol}
-                        </p>
-                      </div>
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("totalReinvested")}
-                        </p>
-                        <p className="font-mono text-sm font-bold text-primary mt-1">
-                          {formatTokenAmount(
-                            breakdown.bondsBought * ticketPrice,
-                            tokenDecimals
-                          )}{" "}
-                          {tokenSymbol}
-                        </p>
-                      </div>
-                      <div className="bg-surface-container/10 p-3 rounded-lg border border-surface-bright/5">
-                        <p className="text-on-surface-variant font-medium">
-                          {t("dustRemainder")}
-                        </p>
-                        <p className="font-mono text-sm font-bold text-on-surface mt-1">
-                          {formatTokenAmount(
-                            breakdown.dustAccumulated,
-                            tokenDecimals
-                          )}{" "}
-                          {tokenSymbol}
-                        </p>
-                      </div>
-                    </div>
-
-                    {breakdown.usedPriorDust > 0 && (
-                      <div
-                        className="flex items-start gap-2.5 p-3 rounded-xl border border-tertiary/20 bg-tertiary/5 text-xs text-on-surface mt-3"
-                        aria-label="Bonus bond unlocked notification"
-                      >
-                        <span className="text-base leading-none">✨</span>
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-tertiary">
-                            {t("bonusTicketTitle")}
-                          </p>
-                          <p className="text-on-surface-variant text-[11px] leading-relaxed">
-                            {t("bonusTicketDesc", {
-                              priorDust: formatTokenAmount(
-                                breakdown.usedPriorDust,
-                                tokenDecimals
-                              ),
-                              winnings: formatTokenAmount(
-                                entry.amount,
-                                tokenDecimals
-                              ),
-                              symbol: tokenSymbol,
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-              <p className="text-xs text-on-surface-variant leading-relaxed mt-3">
-                {t("reinvestedNote")}
-              </p>
-            </div>
+            <PrizeReinvestmentBreakdown
+              amountWon={entry.amount}
+              breakdown={getEffectivePrizeBreakdown(entry, ticketPrice)}
+              config={{
+                tokenDecimals,
+                tokenSymbol,
+                bondPrice: ticketPrice,
+              }}
+              isOwnPrize={true}
+              isProcessed={true}
+            />
           )}
 
           {/* Verification Code Fields */}
-          <div className="space-y-4">
-            <h4 className="text-sm font-semibold text-on-surface">
-              {t("onChainProofs")}
-            </h4>
-
-            {/* VRF Seed */}
-            {entry.vrfSeed && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">
-                  <span>{t("vrfSeedLabel")}</span>
-                  <button
-                    onClick={() => handleCopy(entry.vrfSeed!, "vrf")}
-                    className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
-                  >
-                    {copiedField === "vrf" ? (
-                      <>
-                        <svg
-                          className="w-3.5 h-3.5 text-emerald-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                        <span className="text-emerald-400">{t("copied")}</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                          />
-                        </svg>
-                        <span>{t("copy")}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <div className="rounded-xl border border-surface-bright/5 bg-[#08090E] p-3">
-                  <code className="text-xs font-mono text-on-surface break-all select-all block">
-                    {entry.vrfSeed}
-                  </code>
-                </div>
-              </div>
-            )}
-
-            {/* Transaction Signature */}
-            {entry.txSignature && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">
-                  <span>{t("txSignatureLabel")}</span>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => handleCopy(entry.txSignature!, "tx")}
-                      className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
-                    >
-                      {copiedField === "tx" ? (
-                        <>
-                          <svg
-                            className="w-3.5 h-3.5 text-emerald-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
-                          <span className="text-emerald-400">
-                            {t("copied")}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                            />
-                          </svg>
-                          <span>{t("copy")}</span>
-                        </>
-                      )}
-                    </button>
-                    <a
-                      href={getExplorerUrl(
-                        entry.txSignature,
-                        "devnet",
-                        "solscan"
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
-                    >
-                      <svg
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                        />
-                      </svg>
-                      <span>Solscan</span>
-                    </a>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-surface-bright/5 bg-[#08090E] p-3">
-                  <code className="text-xs font-mono text-on-surface break-all select-all block">
-                    {entry.txSignature}
-                  </code>
-                </div>
-              </div>
-            )}
-          </div>
+          <PrizeVerificationProofs
+            vrfSeed={entry.vrfSeed}
+            txSignature={entry.txSignature}
+          />
 
           {/* Social Share Card */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-4 rounded-xl border border-primary/10 bg-primary/[0.02] gap-4">

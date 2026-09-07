@@ -75,8 +75,8 @@ function typeIcon(type: ActivityType) {
           strokeLinejoin="round"
           className="text-tertiary"
         >
-          <polyline points="23 4 23 10 17 10" />
-          <path d="M20.49 15A9 9 0 115.64 5.64L1 10" />
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+          <polyline points="21 3 21 8 16 8" />
         </svg>
       );
     case "withdraw":

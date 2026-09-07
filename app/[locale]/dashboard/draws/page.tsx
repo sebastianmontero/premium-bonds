@@ -142,11 +142,18 @@ function DrawHistoryContent() {
 
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
+  const winnerParam = searchParams.get("winner");
   const selectedCycleId = useMemo(() => {
     if (!cycleParam) return null;
     const parsed = parseInt(cycleParam, 10);
     return !isNaN(parsed) && parsed >= 0 ? parsed : null;
   }, [cycleParam]);
+
+  const initialWinnerIndex = useMemo(() => {
+    if (!winnerParam) return null;
+    const parsed = parseInt(winnerParam, 10);
+    return !isNaN(parsed) && parsed >= 0 ? parsed : null;
+  }, [winnerParam]);
 
   const selectedDrawSummary = useMemo(() => {
     if (selectedCycleId === null) return null;
@@ -165,6 +172,7 @@ function DrawHistoryContent() {
   const handleCloseInspector = useCallback(() => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("cycle");
+    params.delete("winner");
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, {
       scroll: false,
@@ -326,6 +334,7 @@ function DrawHistoryContent() {
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         pool={activePool}
         initialStatus={selectedDrawSummary?.status}
+        initialWinnerIndex={initialWinnerIndex}
         minYieldThreshold={activePool.minYieldThreshold}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}

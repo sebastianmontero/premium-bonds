@@ -919,6 +919,140 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded[0].completedAt, 1700000100);
     });
 
+    it("should preserve lockedTicketCount when folding YieldHarvested + DrawCompleted in sequential order", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 100,
+        status: "AwaitingRandomness",
+        prizePot: 500_000_000n,
+        lockedTicketCount: 500n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+      const completeRow = {
+        poolId: 1,
+        cycleId: 100,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        lockedTicketCount: undefined,
+        winnersCount: 3,
+        completedAt: 1700000100,
+        signature: "sigComplete",
+        blockTime: 1700000100,
+      };
+
+      const folded = foldDrawHistoryRows([
+        harvestRow as never,
+        completeRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Complete");
+      assert.strictEqual(
+        folded[0].lockedTicketCount,
+        500n,
+        "Preserves lockedTicketCount from YieldHarvested"
+      );
+    });
+
+    it("should update lockedTicketCount when YieldHarvested arrives out-of-order after DrawCompleted", () => {
+      const completeRow = {
+        poolId: 1,
+        cycleId: 101,
+        status: "Complete",
+        prizePot: 500_000_000n,
+        lockedTicketCount: undefined,
+        winnersCount: 2,
+        completedAt: 1700000100,
+        signature: "sigComplete",
+        blockTime: 1700000100,
+      };
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 101,
+        status: "AwaitingRandomness",
+        prizePot: 500_000_000n,
+        lockedTicketCount: 500n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+
+      const folded = foldDrawHistoryRows([
+        completeRow as never,
+        harvestRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Complete");
+      assert.strictEqual(
+        folded[0].lockedTicketCount,
+        500n,
+        "Updates lockedTicketCount from late YieldHarvested"
+      );
+    });
+
+    it("should preserve lockedTicketCount when DrawVoided is folded with YieldHarvested", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 102,
+        status: "AwaitingRandomness",
+        prizePot: 500_000_000n,
+        cycleFeeCollected: 50_000_000n,
+        lockedTicketCount: 500n,
+        signature: "sigHarvest",
+        blockTime: 1700000000,
+      };
+      const voidRow = {
+        poolId: 1,
+        cycleId: 102,
+        status: "Voided",
+        prizePot: 0n,
+        cycleFeeCollected: 0n,
+        lockedTicketCount: undefined,
+        signature: "sigVoid",
+        blockTime: 1700000200,
+      };
+
+      const folded = foldDrawHistoryRows([
+        harvestRow as never,
+        voidRow as never,
+      ]);
+      assert.strictEqual(folded.length, 1);
+      assert.strictEqual(folded[0].status, "Voided");
+      assert.strictEqual(folded[0].prizePot, 0n);
+      assert.strictEqual(folded[0].cycleFeeCollected, 0n);
+      assert.strictEqual(
+        folded[0].lockedTicketCount,
+        500n,
+        "Retains lockedTicketCount upon DrawVoided"
+      );
+    });
+
+    it("should record accurate lockedTicketCount for DrawSkipped with 0n and positive count", () => {
+      const skippedZero = {
+        poolId: 1,
+        cycleId: 103,
+        status: "Skipped",
+        prizePot: 0n,
+        lockedTicketCount: 0n,
+        signature: "sigSkipZero",
+        blockTime: 1700000000,
+      };
+      const skippedPositive = {
+        poolId: 1,
+        cycleId: 104,
+        status: "Skipped",
+        prizePot: 0n,
+        lockedTicketCount: 250n,
+        signature: "sigSkipPos",
+        blockTime: 1700000000,
+      };
+
+      const foldedZero = foldDrawHistoryRows([skippedZero as never]);
+      assert.strictEqual(foldedZero[0].lockedTicketCount, 0n);
+
+      const foldedPositive = foldDrawHistoryRows([skippedPositive as never]);
+      assert.strictEqual(foldedPositive[0].lockedTicketCount, 250n);
+    });
+
     it("should allow inferInsert omitting initiatedAt due to DEFAULT 0", () => {
       const insertRow: typeof drawHistory.$inferInsert = {
         poolId: 1,

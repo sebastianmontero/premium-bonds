@@ -10,6 +10,7 @@ import type {
   DrawStatusArchetype,
   PrizeHistoryEntry,
 } from "../types";
+import { formatTokenAmount, formatTicketNumber } from "./formatters";
 
 /**
  * Single source of truth for canonical draw lifecycle priority order.
@@ -844,4 +845,33 @@ export function sortPrizeHistoryEntries(
   entries: PrizeHistoryEntry[]
 ): PrizeHistoryEntry[] {
   return [...entries].sort(comparePrizeHistoryEntries);
+}
+
+/**
+ * Builds an on-chain permalink to a specific draw winner record.
+ */
+export function buildDrawWinnerPermalink(
+  cycleId: number,
+  winnerIndex: number
+): string {
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || "https://premiumbonds.sol";
+  return `${origin}/dashboard/draws?cycle=${cycleId}&winner=${winnerIndex}`;
+}
+
+/**
+ * Formats a user-friendly social share message for winning a draw cycle.
+ */
+export function formatWinnerShareMessage(
+  cycleId: number,
+  winner: DrawWinnerRecord,
+  tokenDecimals = 6,
+  tokenSymbol = "USDC"
+): string {
+  const permalink = buildDrawWinnerPermalink(cycleId, winner.winnerIndex);
+  const ticket = formatTicketNumber(winner.winningTicketIndex);
+  const amount = formatTokenAmount(winner.amountOwed, tokenDecimals);
+  return `Checked YieldBonds Draw #${cycleId} - bond ${ticket} won ${amount} ${tokenSymbol}! 🚀 Verified on-chain at ${permalink}`;
 }

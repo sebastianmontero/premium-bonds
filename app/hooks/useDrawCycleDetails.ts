@@ -14,7 +14,8 @@ interface DrawCycleDetailsResult {
   markWinnerOptimisticallyProcessed: (
     winnerIndex: number,
     bondsBought?: number,
-    bondPrice?: number
+    bondPrice?: number,
+    txSignature?: string
   ) => void;
 }
 
@@ -44,7 +45,6 @@ export function useDrawCycleDetails(
       const winners: DrawWinnerRecord[] = (d.winners || []).map(
         (w: Record<string, unknown>) => ({
           winnerIndex: Number(w.winnerIndex),
-          slotInTier: Number(w.winnerIndex),
           winnerAddress: String(w.winnerAddress || ""),
           amountOwed: Number(w.amountOwed),
           bondsBought: Number(w.bondsBought || 0),
@@ -52,6 +52,20 @@ export function useDrawCycleDetails(
           tierIndex: Number(w.tierIndex ?? 0),
           winningTicketIndex:
             w.winningTicketIdx != null ? Number(w.winningTicketIdx) : undefined,
+          claimSignature: w.claimSignature
+            ? String(w.claimSignature)
+            : undefined,
+          dustAccumulated:
+            typeof w.dustAccumulated === "number"
+              ? w.dustAccumulated
+              : w.dustAccumulated
+                ? Number(w.dustAccumulated)
+                : 0,
+          revealedAt:
+            typeof w.revealedAt === "number"
+              ? w.revealedAt
+              : (d.revealedAt ?? undefined),
+          vrfSeedHex: w.vrfSeedHex ? String(w.vrfSeedHex) : d.vrfSeedHex,
         })
       );
 
@@ -88,7 +102,8 @@ export function useDrawCycleDetails(
     (
       winnerIndex: number,
       bondsBought?: number,
-      bondPrice: number = 5_000_000
+      bondPrice: number = 5_000_000,
+      txSignature?: string
     ) => {
       if (cycleId === null || cycleId === undefined) return;
       queryClient.setQueryData<DetailedDrawCycle | null>(
@@ -106,6 +121,7 @@ export function useDrawCycleDetails(
               ...w,
               processed: true,
               bondsBought: estimatedBonds,
+              claimSignature: txSignature ?? w.claimSignature,
             };
           });
           return {

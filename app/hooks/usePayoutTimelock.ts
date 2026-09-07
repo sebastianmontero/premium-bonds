@@ -4,8 +4,10 @@ import { useMemo } from "react";
 import { useClusterTime } from "./useOnChainClock";
 import {
   getPayoutTimelockState,
-  PayoutTimelockState,
+  type PayoutTimelockState,
 } from "../lib/draw-helpers";
+
+export type { PayoutTimelockState };
 
 interface UsePayoutTimelockOptions {
   resyncIntervalMs?: number;

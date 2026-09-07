@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDrawCycleDetails } from "@/app/hooks/useDrawCycleDetails";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -9,6 +15,7 @@ import { PayoutWinnersTable } from "./PayoutWinnersTable";
 import { ProvableFairnessVerifier } from "./ProvableFairnessVerifier";
 import { DrawSkippedAuditView } from "./DrawSkippedAuditView";
 import { DrawStatusAuditView } from "./DrawStatusAuditView";
+import { DrawWinnerDetailView } from "./DrawWinnerDetailView";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
@@ -32,6 +39,7 @@ interface DrawCycleInspectorModalProps {
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
   initialStatus?: DrawStatusName;
+  initialWinnerIndex?: number | null;
   minYieldThreshold?: number | bigint;
   onCrankWinner?: (
     cycleId: number,
@@ -55,6 +63,7 @@ export function DrawCycleInspectorModal({
   pool,
   isFrozenForDraw,
   initialStatus,
+  initialWinnerIndex,
   minYieldThreshold,
   onCrankWinner,
   crankingCycles = {},
@@ -63,6 +72,23 @@ export function DrawCycleInspectorModal({
   const [selectedTab, setSelectedTab] = useState<"winners" | "proofs">(
     "winners"
   );
+  const [selectedWinnerOverride, setSelectedWinnerOverride] = useState<{
+    cycleId: number | null;
+    index: number | null;
+  } | null>(null);
+
+  const selectedWinnerIndex =
+    selectedWinnerOverride?.cycleId === cycleId
+      ? selectedWinnerOverride.index
+      : (initialWinnerIndex ?? null);
+
+  const handleSelectWinner = useCallback(
+    (idx: number | null) => {
+      setSelectedWinnerOverride({ cycleId, index: idx });
+    },
+    [cycleId]
+  );
+
   const t = useTranslations("DrawInspector");
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
@@ -135,16 +161,24 @@ export function DrawCycleInspectorModal({
     };
   }, [isOpen]);
 
-  // Close on Escape key press
+  // Coordinated Escape key handling (detail view -> table view -> close modal)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
-        onClose();
+        if (selectedWinnerIndex !== null) {
+          const returnIdx = selectedWinnerIndex;
+          handleSelectWinner(null);
+          setTimeout(() => {
+            document.getElementById(`trigger-winner-${returnIdx}`)?.focus();
+          }, 0);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, selectedWinnerIndex, handleSelectWinner]);
 
   if (!isOpen || cycleId === null) return null;
 
@@ -153,6 +187,10 @@ export function DrawCycleInspectorModal({
         estimatedPrefix: "Est.",
       })
     : "—";
+
+  const activeWinner = details?.winners.find(
+    (w) => w.winnerIndex === selectedWinnerIndex
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -255,61 +293,71 @@ export function DrawCycleInspectorModal({
           </div>
         </div>
 
-        {/* Tab Navigation / Audit Mode Header */}
-        <div className="flex items-center justify-between gap-4 py-3 border-b border-surface-bright/5 shrink-0">
-          <div className="flex items-center gap-2">
-            {isLoading && !initialStatus ? (
-              /* Neutral loading placeholder without tabs (prevents CLS on deep link) */
-              <div className="h-7 w-40 rounded-xl skeleton-box" />
-            ) : isPayoutBearing ? (
-              <>
-                <button
-                  onClick={() => setSelectedTab("winners")}
-                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                    activeTab === "winners"
-                      ? "bg-primary text-surface-container shadow-sm"
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
-                  }`}
-                >
-                  {t("tabWinners")} {details ? `(${details.winnersCount})` : ""}
-                </button>
-                {hasVrfRandomness && (
+        {/* Tab Navigation (only when not inspecting a winner detail) */}
+        {selectedWinnerIndex === null && (
+          <div className="flex items-center justify-between gap-4 py-3 border-b border-surface-bright/5 shrink-0">
+            <div className="flex items-center gap-2">
+              {isLoading && !initialStatus ? (
+                /* Neutral loading placeholder without tabs (prevents CLS on deep link) */
+                <div className="h-7 w-40 rounded-xl skeleton-box" />
+              ) : isPayoutBearing ? (
+                <>
                   <button
-                    onClick={() => setSelectedTab("proofs")}
-                    className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-                      activeTab === "proofs"
+                    onClick={() => setSelectedTab("winners")}
+                    className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                      activeTab === "winners"
                         ? "bg-primary text-surface-container shadow-sm"
                         : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
                     }`}
                   >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    {t("tabFairnessProofs")}
+                    {t("tabWinners")}{" "}
+                    {details ? `(${details.winnersCount})` : ""}
                   </button>
-                )}
-              </>
-            ) : (
-              /* Dedicated Audit Trail Mode Indicator */
-              <div className="flex items-center gap-2">
-                <span className="rounded-xl px-3.5 py-1.5 text-xs font-semibold bg-surface-container/60 border border-surface-bright/15 text-on-surface flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-primary" />
-                  {t("tabAuditTrail")}
-                </span>
-              </div>
-            )}
+                  {hasVrfRandomness && (
+                    <button
+                      onClick={() => setSelectedTab("proofs")}
+                      className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                        activeTab === "proofs"
+                          ? "bg-primary text-surface-container shadow-sm"
+                          : "text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5"
+                      }`}
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect
+                          x="3"
+                          y="11"
+                          width="18"
+                          height="11"
+                          rx="2"
+                          ry="2"
+                        />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      {t("tabFairnessProofs")}
+                    </button>
+                  )}
+                </>
+              ) : (
+                /* Dedicated Audit Trail Mode Indicator */
+                <div className="flex items-center gap-2">
+                  <span className="rounded-xl px-3.5 py-1.5 text-xs font-semibold bg-surface-container/60 border border-surface-bright/15 text-on-surface flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-primary" />
+                    {t("tabAuditTrail")}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Content Area */}
         <div className="flex-1 min-h-0 flex flex-col py-3 gap-3">
@@ -345,78 +393,130 @@ export function DrawCycleInspectorModal({
               />
             ) : isPayoutBearing ? (
               /* Archetype 1: Payout-Bearing (Complete or Voided) */
-              <>
-                {/* Telemetry Summary Grid */}
-                <div className="shrink-0">
-                  <DrawTelemetryGrid
-                    draw={details}
-                    tokenDecimals={effectiveConfig.tokenDecimals}
-                    tokenSymbol={effectiveConfig.tokenSymbol}
-                    payoutTimelockSeconds={
-                      effectiveConfig.payoutTimelockSeconds
-                    }
-                  />
-                </div>
-
-                {/* Active Tab View */}
-                {activeTab === "winners" ? (
-                  <div className="flex-1 min-h-0 flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between shrink-0">
-                      <h4 className="font-display text-sm font-bold text-on-surface">
-                        {t("payoutRegistryRosterTitle", {
-                          count: details.winners.length,
-                        })}
-                      </h4>
-                      {details.isUserWinner && details.status !== "Voided" && (
-                        <span className="text-xs font-semibold text-primary">
-                          🎉 {t("youWonInThisDraw")}
-                        </span>
-                      )}
-                    </div>
-
-                    <PayoutWinnersTable
-                      cycleId={details.cycleId}
-                      winners={details.winners}
-                      connectedUserAddress={userAddress}
+              selectedWinnerIndex !== null && activeWinner ? (
+                /* Full Viewport Master-Detail Drilldown */
+                <DrawWinnerDetailView
+                  winner={activeWinner}
+                  cycleId={details.cycleId}
+                  revealedAt={details.revealedAt}
+                  config={effectiveConfig}
+                  connectedUserAddress={userAddress}
+                  isClaimingPaused={pool?.isFrozenForDraw ?? isFrozenForDraw}
+                  isVoided={details.status === "Voided"}
+                  onBack={() => {
+                    const returnIdx = selectedWinnerIndex;
+                    handleSelectWinner(null);
+                    setTimeout(() => {
+                      document
+                        .getElementById(`trigger-winner-${returnIdx}`)
+                        ?.focus();
+                    }, 0);
+                  }}
+                  onCrank={
+                    details.status === "Voided" || !onCrankWinner
+                      ? undefined
+                      : async (wIdx, wAddr) => {
+                          try {
+                            const sig = await onCrankWinner(
+                              details.cycleId,
+                              wIdx,
+                              wAddr
+                            );
+                            markWinnerOptimisticallyProcessed(
+                              wIdx,
+                              undefined,
+                              effectiveConfig.bondPrice,
+                              typeof sig === "string" ? sig : undefined
+                            );
+                          } catch {
+                            // Handled by global transaction runner / error alert
+                          }
+                        }
+                  }
+                  isCranking={
+                    !!crankingCycles[
+                      `${details.cycleId}-${activeWinner.winnerIndex}`
+                    ]
+                  }
+                />
+              ) : (
+                /* Master List View */
+                <>
+                  {/* Telemetry Summary Grid */}
+                  <div className="shrink-0">
+                    <DrawTelemetryGrid
+                      draw={details}
                       tokenDecimals={effectiveConfig.tokenDecimals}
                       tokenSymbol={effectiveConfig.tokenSymbol}
-                      bondPrice={effectiveConfig.bondPrice}
-                      revealedAt={details.revealedAt}
                       payoutTimelockSeconds={
                         effectiveConfig.payoutTimelockSeconds
                       }
-                      pool={pool}
-                      isFrozenForDraw={isFrozenForDraw}
-                      isVoided={details.status === "Voided"}
-                      onCrankWinner={
-                        details.status === "Voided" || !onCrankWinner
-                          ? undefined
-                          : async (wIdx, wAddr) => {
-                              try {
-                                await onCrankWinner(
-                                  details.cycleId,
-                                  wIdx,
-                                  wAddr
-                                );
-                                markWinnerOptimisticallyProcessed(
-                                  wIdx,
-                                  undefined,
-                                  effectiveConfig.bondPrice
-                                );
-                              } catch {
-                                // Handled by global transaction runner / error alert
-                              }
-                            }
-                      }
-                      crankingCycles={crankingCycles}
                     />
                   </div>
-                ) : (
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-                    <ProvableFairnessVerifier draw={details} />
-                  </div>
-                )}
-              </>
+
+                  {/* Active Tab View */}
+                  {activeTab === "winners" ? (
+                    <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between shrink-0">
+                        <h4 className="font-display text-sm font-bold text-on-surface">
+                          {t("payoutRegistryRosterTitle", {
+                            count: details.winners.length,
+                          })}
+                        </h4>
+                        {details.isUserWinner &&
+                          details.status !== "Voided" && (
+                            <span className="text-xs font-semibold text-primary">
+                              🎉 {t("youWonInThisDraw")}
+                            </span>
+                          )}
+                      </div>
+
+                      <PayoutWinnersTable
+                        cycleId={details.cycleId}
+                        winners={details.winners}
+                        connectedUserAddress={userAddress}
+                        tokenDecimals={effectiveConfig.tokenDecimals}
+                        tokenSymbol={effectiveConfig.tokenSymbol}
+                        bondPrice={effectiveConfig.bondPrice}
+                        revealedAt={details.revealedAt}
+                        payoutTimelockSeconds={
+                          effectiveConfig.payoutTimelockSeconds
+                        }
+                        pool={pool}
+                        isFrozenForDraw={isFrozenForDraw}
+                        isVoided={details.status === "Voided"}
+                        onCrankWinner={
+                          details.status === "Voided" || !onCrankWinner
+                            ? undefined
+                            : async (wIdx, wAddr) => {
+                                try {
+                                  const sig = await onCrankWinner(
+                                    details.cycleId,
+                                    wIdx,
+                                    wAddr
+                                  );
+                                  markWinnerOptimisticallyProcessed(
+                                    wIdx,
+                                    undefined,
+                                    effectiveConfig.bondPrice,
+                                    typeof sig === "string" ? sig : undefined
+                                  );
+                                } catch {
+                                  // Handled by global transaction runner / error alert
+                                }
+                              }
+                        }
+                        crankingCycles={crankingCycles}
+                        onSelectWinnerIndex={(idx) => handleSelectWinner(idx)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                      <ProvableFairnessVerifier draw={details} />
+                    </div>
+                  )}
+                </>
+              )
             ) : (
               /* Archetypes 3 & 4: In-Flight Lifecycle & Interventions */
               <DrawStatusAuditView draw={details} config={effectiveConfig} />

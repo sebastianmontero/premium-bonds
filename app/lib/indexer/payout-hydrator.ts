@@ -303,6 +303,11 @@ export class PayoutHydratorService {
             vrfSeedHex: formatSeedHex(cycle.randomnessSeed),
             initiatedAt: resolvedInitiatedAt,
             completedAt: resolvedCompletedAt,
+            lockedTicketCount: BigInt(
+              cycle.lockedTicketCount > 0
+                ? cycle.lockedTicketCount
+                : (options?.fallbackLockedTickets ?? 0)
+            ),
           })
           .where(
             and(
