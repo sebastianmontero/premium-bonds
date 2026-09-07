@@ -14,7 +14,10 @@ import { DrawHistoryList } from "@/app/components/draws/DrawHistoryList";
 import { DrawCycleInspectorModal } from "@/app/components/draws/DrawCycleInspectorModal";
 import { PoolStateErrorCard } from "@/app/components/dashboard/PoolStateErrorCard";
 import { PoolStateUninitializedCard } from "@/app/components/dashboard/PoolStateUninitializedCard";
-import { invalidateDrawQueries } from "@/app/lib/draw-helpers";
+import {
+  invalidateDrawQueries,
+  sanitizeDrawStatusFilter,
+} from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
 function DrawHistoryContent() {
@@ -47,7 +50,7 @@ function DrawHistoryContent() {
     return !isNaN(ps) && ps > 0 ? ps : 10;
   }, [searchParams]);
 
-  const urlStatus = searchParams.get("status") || "all";
+  const urlStatus = sanitizeDrawStatusFilter(searchParams.get("status"));
   const urlSearch = searchParams.get("search") || "";
 
   const {
@@ -139,6 +142,10 @@ function DrawHistoryContent() {
     },
     [updateUrlParams]
   );
+
+  const handleResetFilters = useCallback(() => {
+    updateUrlParams({ search: "", status: "all", page: "1" });
+  }, [updateUrlParams]);
 
   // Single source of truth for deep-linked cycle inspection
   const cycleParam = searchParams.get("cycle");
@@ -307,6 +314,7 @@ function DrawHistoryContent() {
         onSelectDraw={handleOpenInspector}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
+        statusCounts={stats.statusCounts}
         isLoading={isDrawsLoading}
         isSyncing={isDrawsRefetching || isRefreshing}
         isPlaceholderData={isPlaceholderData}
@@ -319,6 +327,7 @@ function DrawHistoryContent() {
         onPageSizeChange={handlePageSizeChange}
         onStatusChange={handleStatusChange}
         onSearchChange={handleSearchChange}
+        onResetFilters={handleResetFilters}
       />
 
       {/* ── Detail Inspector Modal ─────────────────────────────────── */}

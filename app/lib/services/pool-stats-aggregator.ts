@@ -1,11 +1,15 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   db as defaultDb,
   isDatabaseConfigured as defaultIsConfigured,
 } from "@/app/lib/db";
 import { drawHistory } from "@/app/lib/db/schema";
 import { getPoolInfo as defaultGetPoolInfo } from "@/app/lib/services/pool-state-service";
-import type { PoolInfo, DrawHistoryStats } from "@/app/types";
+import type {
+  PoolInfo,
+  DrawHistoryStats,
+  DrawStatusCountMap,
+} from "@/app/types";
 
 interface CacheEntry {
   stats: DrawHistoryStats;
@@ -39,13 +43,16 @@ function withTimeout<T>(
 export interface DbAggregationClient {
   select: (fields: Record<string, unknown>) => {
     from: (table: unknown) => {
-      where: (condition: unknown) => Promise<
-        Array<{
-          totalDistributed: string | number | null;
-          totalDrawsCompleted: number | string | null;
-          totalWinningBonds: number | string | null;
-        }>
-      >;
+      where: (condition: unknown) => {
+        groupBy: (field: unknown) => Promise<
+          Array<{
+            status: string;
+            count: number | string;
+            totalDistributed: string | number | null;
+            totalWinningBonds: number | string | null;
+          }>
+        >;
+      };
     };
   };
 }
@@ -96,49 +103,45 @@ export class PoolStatsAggregator {
       }
 
       try {
-        const queryPromise = this.db
+        const queryPromise = (this.db as DbAggregationClient)
           .select({
+            status: drawHistory.status,
+            count: sql<number>`COUNT(*)::int`,
             totalDistributed: sql<string>`COALESCE(SUM(${drawHistory.totalDistributed}), 0)::text`,
-            totalDrawsCompleted: sql<number>`COUNT(*)::int`,
             totalWinningBonds: sql<number>`COALESCE(SUM(${drawHistory.winnersCount}), 0)::int`,
           })
           .from(drawHistory)
-          .where(
-            and(
-              eq(drawHistory.poolId, poolId),
-              eq(drawHistory.status, "Complete")
-            )
-          ) as unknown as Promise<
-          Array<{
-            totalDistributed: string | number | null;
-            totalDrawsCompleted: number | string | null;
-            totalWinningBonds: number | string | null;
-          }>
-        >;
+          .where(eq(drawHistory.poolId, poolId))
+          .groupBy(drawHistory.status);
 
-        const result = await withTimeout<
+        const rows = await withTimeout<
           Array<{
+            status: string;
+            count: number | string;
             totalDistributed: string | number | null;
-            totalDrawsCompleted: number | string | null;
             totalWinningBonds: number | string | null;
           }>
         >(queryPromise, this.queryTimeoutMs, "Database aggregation timeout");
 
-        const row = result[0];
-        const rawSumText = row?.totalDistributed;
-        const parsedTotal = rawSumText != null ? Number(rawSumText) : 0;
-        const totalDistributed =
-          Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : 0;
+        const statusCounts: DrawStatusCountMap = {};
+        let totalDistributed = 0;
+        let totalDrawsCompleted = 0;
+        let totalWinningBonds = 0;
 
-        const rawDraws = row?.totalDrawsCompleted;
-        const parsedDraws = rawDraws != null ? Number(rawDraws) : 0;
-        const totalDrawsCompleted =
-          Number.isFinite(parsedDraws) && parsedDraws >= 0 ? parsedDraws : 0;
+        for (const row of rows ?? []) {
+          const count = Number(row.count ?? 0);
+          statusCounts[row.status as string] = count;
 
-        const rawBonds = row?.totalWinningBonds;
-        const parsedBonds = rawBonds != null ? Number(rawBonds) : 0;
-        const totalWinningBonds =
-          Number.isFinite(parsedBonds) && parsedBonds >= 0 ? parsedBonds : 0;
+          if (row.status === "Complete") {
+            totalDrawsCompleted = count;
+            const rawSum = Number(row.totalDistributed ?? 0);
+            totalDistributed =
+              Number.isFinite(rawSum) && rawSum >= 0 ? rawSum : 0;
+            const rawBonds = Number(row.totalWinningBonds ?? 0);
+            totalWinningBonds =
+              Number.isFinite(rawBonds) && rawBonds >= 0 ? rawBonds : 0;
+          }
+        }
 
         const averagePrizePot =
           totalDrawsCompleted > 0 ? totalDistributed / totalDrawsCompleted : 0;
@@ -148,6 +151,7 @@ export class PoolStatsAggregator {
           totalDrawsCompleted,
           totalWinningBonds,
           averagePrizePot,
+          statusCounts,
         };
 
         this.cache.set(poolId, {

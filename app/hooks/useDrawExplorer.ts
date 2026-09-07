@@ -41,6 +41,7 @@ const DEFAULT_STATS: DrawHistoryStats = {
   totalDrawsCompleted: 0,
   totalWinningBonds: 0,
   averagePrizePot: 0,
+  statusCounts: {},
 };
 
 export function useDrawExplorer(
@@ -118,17 +119,7 @@ export function useDrawExplorer(
       };
     },
     enabled,
-    placeholderData: (previousData, previousQuery) => {
-      if (!previousData || !previousQuery) return undefined;
-      const prevKey = previousQuery.queryKey;
-      const prevFilters = prevKey?.[prevKey.length - 1] as
-        | Record<string, unknown>
-        | undefined;
-      const filtersUnchanged =
-        prevFilters?.status === status && prevFilters?.search === search;
-
-      return filtersUnchanged ? previousData : undefined;
-    },
+    placeholderData: (previousData) => previousData,
     staleTime: 5_000,
     refetchOnMount: true,
   });

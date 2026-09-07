@@ -284,9 +284,13 @@ export interface DetailedDrawCycle extends DrawCycleSummary {
   userWinningsTotal?: number;
 }
 
+export type DrawStatusCountMap = Partial<Record<DrawStatusName, number>> &
+  Record<string, number>;
+
 export interface DrawHistoryStats {
   totalYieldDistributed: number; // base units
   totalDrawsCompleted: number;
   totalWinningBonds: number;
   averagePrizePot: number; // base units
+  statusCounts?: DrawStatusCountMap;
 }

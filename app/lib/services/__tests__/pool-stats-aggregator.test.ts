@@ -39,7 +39,9 @@ describe("PoolStatsAggregator Unit Tests", () => {
         dbCalls++;
         return {
           from: () => ({
-            where: () => Promise.resolve([]),
+            where: () => ({
+              groupBy: () => Promise.resolve([]),
+            }),
           }),
         };
       },
@@ -60,7 +62,9 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: () => Promise.resolve([]),
+          where: () => ({
+            groupBy: () => Promise.resolve([]),
+          }),
         }),
       }),
     };
@@ -71,21 +75,30 @@ describe("PoolStatsAggregator Unit Tests", () => {
     assert.strictEqual(await aggregator.getPoolDrawStats(NaN), undefined);
   });
 
-  it("should query database, parse all aggregate fields, and cache result on success", async () => {
+  it("should query database, parse all aggregate fields, map statusCounts, and cache result on success", async () => {
     let queryCount = 0;
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            queryCount++;
-            return [
-              {
-                totalDistributed: "15500000",
-                totalDrawsCompleted: 2,
-                totalWinningBonds: 10,
-              },
-            ];
-          },
+          where: () => ({
+            groupBy: async () => {
+              queryCount++;
+              return [
+                {
+                  status: "Complete",
+                  count: 2,
+                  totalDistributed: "15500000",
+                  totalWinningBonds: 10,
+                },
+                {
+                  status: "Skipped",
+                  count: 1,
+                  totalDistributed: "0",
+                  totalWinningBonds: 0,
+                },
+              ];
+            },
+          }),
         }),
       }),
     };
@@ -99,6 +112,10 @@ describe("PoolStatsAggregator Unit Tests", () => {
       totalDrawsCompleted: 2,
       totalWinningBonds: 10,
       averagePrizePot: 7_750_000,
+      statusCounts: {
+        Complete: 2,
+        Skipped: 1,
+      },
     });
     assert.strictEqual(queryCount, 1);
 
@@ -126,16 +143,19 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            queryCount++;
-            return [
-              {
-                totalDistributed: (queryCount * 10_000_000).toString(),
-                totalDrawsCompleted: queryCount,
-                totalWinningBonds: queryCount * 5,
-              },
-            ];
-          },
+          where: () => ({
+            groupBy: async () => {
+              queryCount++;
+              return [
+                {
+                  status: "Complete",
+                  count: queryCount,
+                  totalDistributed: (queryCount * 10_000_000).toString(),
+                  totalWinningBonds: queryCount * 5,
+                },
+              ];
+            },
+          }),
         }),
       }),
     };
@@ -145,6 +165,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
     // First call populates cache with 10_000_000
     const res1 = await aggregator.getPoolDrawStats(1);
     assert.strictEqual(res1?.totalYieldDistributed, 10_000_000);
+    assert.deepStrictEqual(res1?.statusCounts, { Complete: 1 });
     assert.strictEqual(queryCount, 1);
 
     // Normal call uses cache
@@ -159,20 +180,24 @@ describe("PoolStatsAggregator Unit Tests", () => {
     assert.strictEqual(bypassedRes?.totalYieldDistributed, 20_000_000);
     assert.strictEqual(bypassedRes?.totalDrawsCompleted, 2);
     assert.strictEqual(bypassedRes?.averagePrizePot, 10_000_000);
+    assert.deepStrictEqual(bypassedRes?.statusCounts, { Complete: 2 });
     assert.strictEqual(queryCount, 2);
   });
 
-  it("should handle null or non-numeric totals by defaulting to 0", async () => {
+  it("should handle empty or null/non-numeric totals by defaulting to 0 and empty statusCounts", async () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => [
-            {
-              totalDistributed: null,
-              totalDrawsCompleted: null,
-              totalWinningBonds: null,
-            },
-          ],
+          where: () => ({
+            groupBy: async () => [
+              {
+                status: "Complete",
+                count: null as unknown as number,
+                totalDistributed: null,
+                totalWinningBonds: null,
+              },
+            ],
+          }),
         }),
       }),
     };
@@ -184,6 +209,29 @@ describe("PoolStatsAggregator Unit Tests", () => {
       totalDrawsCompleted: 0,
       totalWinningBonds: 0,
       averagePrizePot: 0,
+      statusCounts: {
+        Complete: 0,
+      },
+    });
+
+    // Completely empty rows test
+    const emptyDb: DbAggregationClient = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            groupBy: async () => [],
+          }),
+        }),
+      }),
+    };
+    const emptyAggregator = new PoolStatsAggregator(emptyDb, true);
+    const emptyRes = await emptyAggregator.getPoolDrawStats(1);
+    assert.deepStrictEqual(emptyRes, {
+      totalYieldDistributed: 0,
+      totalDrawsCompleted: 0,
+      totalWinningBonds: 0,
+      averagePrizePot: 0,
+      statusCounts: {},
     });
   });
 
@@ -191,15 +239,17 @@ describe("PoolStatsAggregator Unit Tests", () => {
     let queryCount = 0;
     let resolveQuery: (
       val: Array<{
+        status: string;
+        count: number;
         totalDistributed: string | null;
-        totalDrawsCompleted: number | null;
         totalWinningBonds: number | null;
       }>
     ) => void;
     const queryPromise = new Promise<
       Array<{
+        status: string;
+        count: number;
         totalDistributed: string | null;
-        totalDrawsCompleted: number | null;
         totalWinningBonds: number | null;
       }>
     >((resolve) => {
@@ -209,10 +259,12 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: () => {
-            queryCount++;
-            return queryPromise;
-          },
+          where: () => ({
+            groupBy: () => {
+              queryCount++;
+              return queryPromise;
+            },
+          }),
         }),
       }),
     };
@@ -231,8 +283,9 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
     resolveQuery!([
       {
+        status: "Complete",
+        count: 4,
         totalDistributed: "42000000",
-        totalDrawsCompleted: 4,
         totalWinningBonds: 20,
       },
     ]);
@@ -241,6 +294,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
     assert.strictEqual(r1?.totalYieldDistributed, 42_000_000);
     assert.strictEqual(r2?.totalYieldDistributed, 42_000_000);
     assert.strictEqual(r3?.totalYieldDistributed, 42_000_000);
+    assert.deepStrictEqual(r1?.statusCounts, { Complete: 4 });
     assert.strictEqual(queryCount, 1);
   });
 
@@ -251,19 +305,22 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            queryCount++;
-            if (shouldFail) {
-              throw new Error("PostgreSQL connection lost");
-            }
-            return [
-              {
-                totalDistributed: "10000000",
-                totalDrawsCompleted: 1,
-                totalWinningBonds: 5,
-              },
-            ];
-          },
+          where: () => ({
+            groupBy: async () => {
+              queryCount++;
+              if (shouldFail) {
+                throw new Error("PostgreSQL connection lost");
+              }
+              return [
+                {
+                  status: "Complete",
+                  count: 1,
+                  totalDistributed: "10000000",
+                  totalWinningBonds: 5,
+                },
+              ];
+            },
+          }),
         }),
       }),
     };
@@ -280,6 +337,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
     // 1. Initial success
     const res1 = await aggregator.getPoolDrawStats(1);
     assert.strictEqual(res1?.totalYieldDistributed, 10_000_000);
+    assert.deepStrictEqual(res1?.statusCounts, { Complete: 1 });
     assert.strictEqual(queryCount, 1);
 
     // Wait for TTL to expire
@@ -293,6 +351,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
       10_000_000,
       "Should return stale cached value on failure"
     );
+    assert.deepStrictEqual(res2?.statusCounts, { Complete: 1 });
     assert.strictEqual(queryCount, 2);
 
     // 3. Subsequent request during error cooldown should NOT hit DB again
@@ -313,9 +372,11 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            throw new Error("DB timeout");
-          },
+          where: () => ({
+            groupBy: async () => {
+              throw new Error("DB timeout");
+            },
+          }),
         }),
       }),
     };
@@ -330,16 +391,19 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            queryCount++;
-            return [
-              {
-                totalDistributed: "5000000",
-                totalDrawsCompleted: 1,
-                totalWinningBonds: 2,
-              },
-            ];
-          },
+          where: () => ({
+            groupBy: async () => {
+              queryCount++;
+              return [
+                {
+                  status: "Complete",
+                  count: 1,
+                  totalDistributed: "5000000",
+                  totalWinningBonds: 2,
+                },
+              ];
+            },
+          }),
         }),
       }),
     };
@@ -372,13 +436,16 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => [
-            {
-              totalDistributed: "25000000",
-              totalDrawsCompleted: 5,
-              totalWinningBonds: 20,
-            },
-          ],
+          where: () => ({
+            groupBy: async () => [
+              {
+                status: "Complete",
+                count: 5,
+                totalDistributed: "25000000",
+                totalWinningBonds: 20,
+              },
+            ],
+          }),
         }),
       }),
     };
@@ -413,16 +480,19 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const mockDb: DbAggregationClient = {
       select: () => ({
         from: () => ({
-          where: async () => {
-            dbQueryCount++;
-            return [
-              {
-                totalDistributed: "30000000",
-                totalDrawsCompleted: 3,
-                totalWinningBonds: 15,
-              },
-            ];
-          },
+          where: () => ({
+            groupBy: async () => {
+              dbQueryCount++;
+              return [
+                {
+                  status: "Complete",
+                  count: 3,
+                  totalDistributed: "30000000",
+                  totalWinningBonds: 15,
+                },
+              ];
+            },
+          }),
         }),
       }),
     };

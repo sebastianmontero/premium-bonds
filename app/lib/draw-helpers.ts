@@ -8,6 +8,7 @@ import type {
   DrawCycleSummary,
   DrawStatusName,
   DrawStatusArchetype,
+  DrawStatusCountMap,
   PrizeHistoryEntry,
 } from "../types";
 import { formatTokenAmount, formatTicketNumber } from "./formatters";
@@ -25,6 +26,23 @@ export const CANONICAL_DRAW_STATUS_ORDER: readonly DrawStatusName[] = [
   "HaltedInsolvent",
   "HaltedYieldSpike",
 ] as const;
+
+export const VALID_DRAW_STATUS_FILTERS = [
+  "all",
+  ...CANONICAL_DRAW_STATUS_ORDER,
+] as const;
+
+export type ValidDrawStatusFilter = (typeof VALID_DRAW_STATUS_FILTERS)[number];
+
+/**
+ * Pure domain helper to safely sanitize raw query params or user inputs into ValidDrawStatusFilter.
+ */
+export function sanitizeDrawStatusFilter(val: unknown): ValidDrawStatusFilter {
+  return typeof val === "string" &&
+    (VALID_DRAW_STATUS_FILTERS as readonly string[]).includes(val)
+    ? (val as ValidDrawStatusFilter)
+    : "all";
+}
 
 export const UNOVERRIDABLE_DRAW_STATUSES = [
   "ForceUnlocked",
@@ -169,46 +187,80 @@ export function getNoRandomnessExplanationKey(draw?: {
   return "noRandomnessGeneralSub";
 }
 
-/**
- * Dynamically builds status filter options with counts from a draws array,
- * canonically ordered and localized.
- */
-export function buildDrawStatusOptions(
-  draws: Pick<DrawCycleSummary, "status">[],
-  t: (key: string) => string
-): SelectOption<string>[] {
-  const totalCount = draws.length;
-  const counts = new Map<string, number>();
+const EN_US_NUMBER_FORMAT = new Intl.NumberFormat("en-US");
 
-  for (const d of draws) {
-    counts.set(d.status, (counts.get(d.status) ?? 0) + 1);
-  }
+export interface BuildDrawStatusOptionsParams {
+  statusCounts?: DrawStatusCountMap;
+  currentFilter?: ValidDrawStatusFilter | string;
+  t: (key: string) => string;
+}
+
+/**
+ * Dynamically builds status filter options with counts from a statusCounts map,
+ * canonically ordered, localized, and resilient to deep links and unknown statuses.
+ */
+export function buildDrawStatusOptions({
+  statusCounts,
+  currentFilter = "all",
+  t,
+}: BuildDrawStatusOptionsParams): SelectOption<string>[] {
+  const counts = statusCounts ?? {};
+  const totalCount = Object.values(counts).reduce(
+    (sum, c) => sum + (Number.isFinite(c) && c > 0 ? c : 0),
+    0
+  );
 
   const options: SelectOption<string>[] = [
     {
       value: "all",
-      label: `${t("allStatuses")} (${totalCount})`,
+      label: statusCounts
+        ? `${t("allStatuses")}\u00A0(${EN_US_NUMBER_FORMAT.format(totalCount)})`
+        : t("allStatuses"),
     },
   ];
 
-  // Canonical priority sort with deterministic alphabetical fallback for unknown statuses
-  const distinctStatuses = Array.from(counts.keys()).sort((a, b) => {
-    const idxA = CANONICAL_DRAW_STATUS_ORDER.indexOf(a as DrawStatusName);
-    const idxB = CANONICAL_DRAW_STATUS_ORDER.indexOf(b as DrawStatusName);
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  // 1. Ordered canonical statuses
+  for (const status of CANONICAL_DRAW_STATUS_ORDER) {
+    const rawCount = counts[status];
+    const count = Number.isFinite(rawCount) && rawCount! > 0 ? rawCount! : 0;
+    const isSelected = currentFilter === status;
 
-  for (const status of distinctStatuses) {
-    const count = counts.get(status) ?? 0;
-    const translationKey = getDrawStatusTranslationKey(status);
-    const statusLabel = translationKey ? t(translationKey) : status;
+    if (count > 0 || isSelected) {
+      const translationKey = getDrawStatusTranslationKey(status);
+      const statusLabel = translationKey ? t(translationKey) : status;
+      options.push({
+        value: status,
+        label: `${statusLabel}\u00A0(${EN_US_NUMBER_FORMAT.format(count)})`,
+      });
+    }
+  }
 
+  // 2. Unknown / future protocol upgrade statuses present in data or active filter
+  const unknownEntries = Object.entries(counts)
+    .filter(
+      ([status, rawCount]) =>
+        !CANONICAL_DRAW_STATUS_ORDER.includes(status as DrawStatusName) &&
+        (Number(rawCount) > 0 || currentFilter === status)
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  for (const [status, rawCount] of unknownEntries) {
+    const count =
+      Number.isFinite(rawCount) && Number(rawCount) > 0 ? Number(rawCount) : 0;
     options.push({
       value: status,
-      label: `${statusLabel} (${count})`,
+      label: `${status}\u00A0(${EN_US_NUMBER_FORMAT.format(count)})`,
+    });
+  }
+
+  // 3. Fallback for deep-linked non-canonical filter with 0 count
+  if (
+    currentFilter !== "all" &&
+    !options.some((opt) => opt.value === currentFilter)
+  ) {
+    options.push({
+      value: currentFilter,
+      label: `${currentFilter}\u00A0(0)`,
     });
   }
 

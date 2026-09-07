@@ -12,7 +12,6 @@ export type AnyStatus =
   | "Voided"
   | "HaltedInsolvent"
   | "HaltedYieldSpike"
-  | "Halted"
   | "processing"
   | "reinvested"
   | "timelocked"
@@ -127,7 +126,7 @@ export function StatusBadge({
           className={`${baseClasses} border-red-500/30 bg-red-500/15 text-red-300 animate-pulse`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-current shrink-0" />
-          {tDraws("statusHaltedInsolventBadge")}
+          {tDraws("statusHaltedInsolvent")}
         </span>
       );
 
@@ -137,17 +136,7 @@ export function StatusBadge({
           className={`${baseClasses} border-amber-500/30 bg-amber-500/15 text-amber-300 animate-pulse`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-current shrink-0" />
-          {tDraws("statusHaltedYieldSpikeBadge")}
-        </span>
-      );
-
-    case "Halted":
-      return (
-        <span
-          className={`${baseClasses} border-red-500/30 bg-red-500/15 text-red-300 animate-pulse`}
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-current shrink-0" />
-          {tDraws("statusHaltedAll")}
+          {tDraws("statusHaltedYieldSpike")}
         </span>
       );
 

@@ -86,13 +86,7 @@ export async function fetchPaginatedDraws(
   ];
 
   if (filters.status && filters.status !== "all") {
-    if (filters.status === "Halted") {
-      conditions.push(
-        sql`dh.status IN ('HaltedInsolvent', 'HaltedYieldSpike')`
-      );
-    } else {
-      conditions.push(sql`dh.status = ${filters.status}`);
-    }
+    conditions.push(sql`dh.status = ${filters.status}`);
   }
 
   if (filters.search) {

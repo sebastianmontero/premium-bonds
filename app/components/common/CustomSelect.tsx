@@ -100,6 +100,11 @@ export function CustomSelect<T extends string | number>({
         aria-label={ariaLabel}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
+        aria-activedescendant={
+          isOpen && focusedIndex >= 0
+            ? `${selectId}-option-${focusedIndex}`
+            : undefined
+        }
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
@@ -142,6 +147,7 @@ export function CustomSelect<T extends string | number>({
               return (
                 <button
                   key={String(opt.value)}
+                  id={`${selectId}-option-${idx}`}
                   type="button"
                   role="option"
                   aria-selected={isSelected}

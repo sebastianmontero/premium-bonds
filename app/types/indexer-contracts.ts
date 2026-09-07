@@ -99,11 +99,13 @@ export const ActivityLedgerFilterSchema = z.object({
 
 export type ActivityLedgerFilters = z.infer<typeof ActivityLedgerFilterSchema>;
 
+import { VALID_DRAW_STATUS_FILTERS } from "@/app/lib/draw-helpers";
+
 export const DrawExplorerFilterSchema = z.object({
   poolId: z.coerce.number().int().positive().default(1),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
-  status: z.string().trim().default("all"),
+  status: z.enum(VALID_DRAW_STATUS_FILTERS).default("all"),
   search: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });

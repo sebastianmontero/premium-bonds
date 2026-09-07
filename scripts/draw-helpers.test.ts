@@ -10,6 +10,8 @@ import {
   calculatePriorDustApplied,
   buildDrawStatusOptions,
   CANONICAL_DRAW_STATUS_ORDER,
+  VALID_DRAW_STATUS_FILTERS,
+  sanitizeDrawStatusFilter,
   getDrawStatusTranslationKey,
   getPayoutTimelockState,
   getClaimWinningsCapability,
@@ -369,7 +371,7 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     );
   });
 
-  it("should build canonical draw status options and translation mappings", () => {
+  it("should build dynamic faceted draw status options according to domain invariants", () => {
     const mockTranslations: Record<string, string> = {
       allStatuses: "All Statuses",
       statusComplete: "Complete",
@@ -378,36 +380,171 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       statusSkipped: "Skipped",
       statusForceUnlocked: "Force Unlocked",
       statusVoided: "Voided",
-      statusHaltedInsolvent: "Halted (Insolvency)",
-      statusHaltedYieldSpike: "Halted (Yield Spike)",
+      statusHaltedInsolvent: "Halted: Insolvency",
+      statusHaltedYieldSpike: "Halted: Yield Spike",
     };
     const mockT = (key: string) => mockTranslations[key] || key;
 
-    // Empty draws list
-    const emptyOptions = buildDrawStatusOptions([], mockT);
-    assert.strictEqual(emptyOptions.length, 1);
-    assert.deepStrictEqual(emptyOptions[0], {
+    // 1. Empty / Undefined Fallback: returns "All Statuses" without crashing when statusCounts is undefined or {}
+    const undefinedOptions = buildDrawStatusOptions({
+      statusCounts: undefined,
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.strictEqual(undefinedOptions.length, 1);
+    assert.deepStrictEqual(undefinedOptions[0], {
       value: "all",
-      label: "All Statuses (0)",
+      label: "All Statuses",
     });
 
-    // Standard draws dataset
-    const standardDraws = [
-      { status: "Complete" as const },
-      { status: "AwaitingRandomness" as const },
-      { status: "Complete" as const },
-      { status: "Complete" as const },
-      { status: "AwaitingRandomness" as const },
-      { status: "Complete" as const },
-      { status: "Complete" as const },
-    ];
-    const standardOptions = buildDrawStatusOptions(standardDraws, mockT);
-    assert.strictEqual(standardOptions.length, 3);
-    assert.deepStrictEqual(standardOptions, [
-      { value: "all", label: "All Statuses (7)" },
-      { value: "Complete", label: "Complete (5)" },
-      { value: "AwaitingRandomness", label: "Awaiting VRF (2)" },
+    const emptyCountsOptions = buildDrawStatusOptions({
+      statusCounts: {},
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.strictEqual(emptyCountsOptions.length, 1);
+    assert.deepStrictEqual(emptyCountsOptions[0], {
+      value: "all",
+      label: "All Statuses\u00A0(0)",
+    });
+
+    // 2. Zero-Count Omission: only statuses with count > 0 appear (dormant intervention states excluded)
+    const sparseCounts = {
+      Complete: 42,
+      Skipped: 3,
+      ForceUnlocked: 0,
+      Voided: 0,
+      HaltedInsolvent: 0,
+    };
+    const sparseOptions = buildDrawStatusOptions({
+      statusCounts: sparseCounts,
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.strictEqual(sparseOptions.length, 3);
+    assert.deepStrictEqual(sparseOptions, [
+      { value: "all", label: "All Statuses\u00A0(45)" },
+      { value: "Complete", label: "Complete\u00A0(42)" },
+      { value: "Skipped", label: "Skipped\u00A0(3)" },
     ]);
+
+    // 3. Deep-Link Zero-Count Invariant: active filter with count = 0 is appended with \u00A0(0)
+    const deepLinkZeroOptions = buildDrawStatusOptions({
+      statusCounts: { Complete: 10 },
+      currentFilter: "Voided",
+      t: mockT,
+    });
+    assert.strictEqual(deepLinkZeroOptions.length, 3);
+    assert.deepStrictEqual(deepLinkZeroOptions, [
+      { value: "all", label: "All Statuses\u00A0(10)" },
+      { value: "Complete", label: "Complete\u00A0(10)" },
+      { value: "Voided", label: "Voided\u00A0(0)" },
+    ]);
+
+    // 4. Active Filter with Count: active filter with count > 0 is not duplicated
+    const deepLinkWithCountOptions = buildDrawStatusOptions({
+      statusCounts: { Complete: 10, Skipped: 2 },
+      currentFilter: "Skipped",
+      t: mockT,
+    });
+    assert.strictEqual(deepLinkWithCountOptions.length, 3);
+    assert.deepStrictEqual(deepLinkWithCountOptions, [
+      { value: "all", label: "All Statuses\u00A0(12)" },
+      { value: "Complete", label: "Complete\u00A0(10)" },
+      { value: "Skipped", label: "Skipped\u00A0(2)" },
+    ]);
+
+    // 5. Canonical Ordering: order follows CANONICAL_DRAW_STATUS_ORDER regardless of object key order
+    const reverseOrderCounts = {
+      HaltedYieldSpike: 1,
+      Voided: 2,
+      Skipped: 3,
+      Complete: 4,
+    };
+    const orderedOptions = buildDrawStatusOptions({
+      statusCounts: reverseOrderCounts,
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.deepStrictEqual(
+      orderedOptions.map((o) => o.value),
+      ["all", "Complete", "Skipped", "Voided", "HaltedYieldSpike"]
+    );
+
+    // 6. Granular Halts: HaltedInsolvent and HaltedYieldSpike render independently
+    const haltsOptions = buildDrawStatusOptions({
+      statusCounts: { HaltedInsolvent: 1, HaltedYieldSpike: 2 },
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.deepStrictEqual(haltsOptions, [
+      { value: "all", label: "All Statuses\u00A0(3)" },
+      { value: "HaltedInsolvent", label: "Halted: Insolvency\u00A0(1)" },
+      { value: "HaltedYieldSpike", label: "Halted: Yield Spike\u00A0(2)" },
+    ]);
+
+    // 7. en-US Number Formatting: large counts format with commas
+    const largeCountOptions = buildDrawStatusOptions({
+      statusCounts: { Complete: 1234567, Skipped: 1000 },
+      currentFilter: "all",
+      t: mockT,
+    });
+    assert.deepStrictEqual(largeCountOptions, [
+      { value: "all", label: "All Statuses\u00A0(1,235,567)" },
+      { value: "Complete", label: "Complete\u00A0(1,234,567)" },
+      { value: "Skipped", label: "Skipped\u00A0(1,000)" },
+    ]);
+
+    // 8. Deterministic Unknown Status Fallback: unknown future statuses appear at end, sorted alphabetically
+    const unknownStatusOptions = buildDrawStatusOptions({
+      statusCounts: {
+        Complete: 5,
+        ZetaUpgrade: 2,
+        AlphaUpgrade: 1,
+      },
+      currentFilter: "BetaUpgrade",
+      t: mockT,
+    });
+    assert.deepStrictEqual(
+      unknownStatusOptions.map((o) => o.value),
+      ["all", "Complete", "AlphaUpgrade", "ZetaUpgrade", "BetaUpgrade"]
+    );
+    assert.deepStrictEqual(
+      unknownStatusOptions.map((o) => o.label),
+      [
+        "All Statuses\u00A0(8)",
+        "Complete\u00A0(5)",
+        "AlphaUpgrade\u00A0(1)",
+        "ZetaUpgrade\u00A0(2)",
+        "BetaUpgrade\u00A0(0)",
+      ]
+    );
+
+    // 9. Derived Array Parity & Single Source of Truth
+    assert.strictEqual(VALID_DRAW_STATUS_FILTERS[0], "all");
+    assert.deepStrictEqual(VALID_DRAW_STATUS_FILTERS.slice(1), [
+      ...CANONICAL_DRAW_STATUS_ORDER,
+    ]);
+    assert.strictEqual(VALID_DRAW_STATUS_FILTERS.length, 9);
+
+    // 10. Sanitization Helper: sanitizeDrawStatusFilter
+    assert.strictEqual(sanitizeDrawStatusFilter("Complete"), "Complete");
+    assert.strictEqual(sanitizeDrawStatusFilter("all"), "all");
+    assert.strictEqual(
+      sanitizeDrawStatusFilter("HaltedInsolvent"),
+      "HaltedInsolvent"
+    );
+    assert.strictEqual(
+      sanitizeDrawStatusFilter("HaltedYieldSpike"),
+      "HaltedYieldSpike"
+    );
+    assert.strictEqual(sanitizeDrawStatusFilter("Halted"), "all"); // Legacy alias rejected
+    assert.strictEqual(sanitizeDrawStatusFilter("MaliciousStatus"), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter(""), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter(null), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter(undefined), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter(123), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter({}), "all");
 
     // Translation Key Lookup & Canonical Array integrity
     assert.strictEqual(
@@ -657,4 +794,30 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.ok(msg.includes("won 25.00 USDC"));
     assert.ok(msg.includes("/dashboard/draws?cycle=14&winner=0"));
   });
+
+  it("should correctly handle filter resets and validate status options", () => {
+    // Validate sanitizeDrawStatusFilter on valid, invalid, and reset values
+    assert.strictEqual(sanitizeDrawStatusFilter("Complete"), "Complete");
+    assert.strictEqual(sanitizeDrawStatusFilter("all"), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter(null), "all");
+    assert.strictEqual(sanitizeDrawStatusFilter("InvalidStatus"), "all");
+
+    // Validate buildDrawStatusOptions with status counts and reset filter
+    const statusCounts = {
+      Complete: 5,
+      AwaitingRandomness: 2,
+    };
+    const mockT = ((key: string) => key) as any;
+    const options = buildDrawStatusOptions({
+      statusCounts,
+      currentFilter: "all",
+      t: mockT,
+    });
+
+    assert.ok(options.length > 0);
+    assert.strictEqual(options[0].value, "all");
+    assert.strictEqual(options[1].value, "Complete");
+    assert.ok(options[1].label.includes("(5)"));
+  });
 });
+

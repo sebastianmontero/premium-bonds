@@ -5,6 +5,7 @@ import { formatTokenAmount } from "@/app/lib/formatters";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
+  buildDrawStatusOptions,
 } from "@/app/lib/draw-helpers";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
@@ -12,7 +13,7 @@ import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
 import { DrawPayoutProgressBadge } from "@/app/components/draws/DrawPayoutProgressBadge";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
-import type { DrawCycleSummary } from "@/app/types";
+import type { DrawCycleSummary, DrawStatusCountMap } from "@/app/types";
 import type { PaginationMeta } from "@/app/types/indexer-contracts";
 import { useTranslations } from "next-intl";
 
@@ -22,6 +23,7 @@ interface DrawHistoryListProps {
   tokenDecimals?: number;
   tokenSymbol?: string;
   payoutTimelockSeconds?: number;
+  statusCounts?: DrawStatusCountMap;
   isLoading?: boolean;
   isSyncing?: boolean;
   isPlaceholderData?: boolean;
@@ -34,6 +36,7 @@ interface DrawHistoryListProps {
   onPageSizeChange?: (pageSize: number) => void;
   onStatusChange?: (status: string) => void;
   onSearchChange?: (search: string) => void;
+  onResetFilters?: () => void;
 }
 
 export function DrawHistoryList({
@@ -42,9 +45,11 @@ export function DrawHistoryList({
   tokenDecimals = 6,
   tokenSymbol = "USDC",
   payoutTimelockSeconds = 300,
+  statusCounts,
   isLoading = false,
   isSyncing = false,
   isPlaceholderData = false,
+
   pagination,
   currentPage: controlledPage,
   pageSize: controlledPageSize,
@@ -54,6 +59,7 @@ export function DrawHistoryList({
   onPageSizeChange,
   onStatusChange,
   onSearchChange,
+  onResetFilters,
 }: DrawHistoryListProps) {
   const [, startTransition] = useTransition();
   const [localSearchTerm, setLocalSearchTerm] = useState("");
@@ -96,17 +102,13 @@ export function DrawHistoryList({
   }, [searchInput, controlledSearch, onSearchChange]);
 
   const statusOptions = useMemo(
-    () => [
-      { value: "all", label: t("allStatuses") },
-      { value: "Complete", label: t("statusComplete") },
-      { value: "AwaitingRandomness", label: t("statusAwaitingVRF") },
-      { value: "AwaitingYield", label: t("statusAwaitingYield") },
-      { value: "Skipped", label: t("statusSkipped") },
-      { value: "ForceUnlocked", label: t("statusForceUnlocked") },
-      { value: "Voided", label: t("statusVoided") },
-      { value: "Halted", label: t("statusHaltedAll") },
-    ],
-    [t]
+    () =>
+      buildDrawStatusOptions({
+        statusCounts,
+        currentFilter: statusFilter,
+        t,
+      }),
+    [statusCounts, statusFilter, t]
   );
 
   const handleSearchChange = (val: string) => {
@@ -148,13 +150,25 @@ export function DrawHistoryList({
 
   const resetFilters = () => {
     setSearchInput("");
-    if (onSearchChange) {
-      onSearchChange("");
+    if (onResetFilters) {
+      onResetFilters();
     } else {
-      setLocalSearchTerm("");
+      if (onSearchChange) {
+        onSearchChange("");
+      } else {
+        setLocalSearchTerm("");
+      }
+      if (onStatusChange) {
+        onStatusChange("all");
+      } else {
+        setLocalStatusFilter("all");
+      }
+      if (onPageChange) {
+        onPageChange(1);
+      } else {
+        setLocalCurrentPage(1);
+      }
     }
-    handleStatusChange("all");
-    handlePageChange(1);
   };
 
   // Safe pagination math
@@ -231,7 +245,8 @@ export function DrawHistoryList({
               onChange={(val) => handleStatusChange(val)}
               options={statusOptions}
               align="right"
-              ariaLabel="Filter draws by status"
+              className="w-full"
+              ariaLabel={t("ariaFilterStatus")}
             />
           </div>
 
