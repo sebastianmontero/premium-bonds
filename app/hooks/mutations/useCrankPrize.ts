@@ -8,12 +8,15 @@ import {
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { useBondsContext } from "@/app/components/providers/BondsProvider";
 import { useWalletConnection } from "@solana/react-hooks";
-import { calculateReinvestmentBreakdown } from "@/app/lib/draw-helpers";
+import {
+  calculateReinvestmentBreakdown,
+  patchOptimisticPrizeInCache,
+  type UserPrizeLedgerCacheData,
+} from "@/app/lib/draw-helpers";
 import { addOptimisticActivity } from "@/app/lib/optimistic-activity-store";
 import { createOptimisticActivity } from "@/app/lib/activity-helpers";
 import type { PrizeHistoryEntry } from "@/app/types";
 import type { UserBondPosition } from "@/app/hooks/queries/useUserBondPosition";
-import type { PaginatedWinnersResponse } from "@/app/types/indexer-contracts";
 
 export interface CrankPrizeVariables {
   entry: PrizeHistoryEntry;
@@ -22,10 +25,12 @@ export interface CrankPrizeVariables {
 
 export interface CrankPrizeContext {
   previousLedgerSnapshots: Array<
-    [QueryKey, PaginatedWinnersResponse | undefined]
+    [QueryKey, UserPrizeLedgerCacheData | undefined]
   >;
+  previousHistorySnapshot: PrizeHistoryEntry[] | undefined;
   previousPosition: UserBondPosition | undefined;
   breakdown: ReturnType<typeof calculateReinvestmentBreakdown>;
+  bondPrice: number;
 }
 
 export function useCrankPrize(poolId: PoolId = 1) {
@@ -42,17 +47,21 @@ export function useCrankPrize(poolId: PoolId = 1) {
         poolId,
         userAddress
       );
+      const prizeHistoryKey = bondsKeys.userPrizeHistory(poolId, userAddress);
       const positionKey = bondsKeys.userPosition(poolId, userAddress);
 
       // 1. Cancel in-flight queries to prevent overwriting optimistic updates
       await queryClient.cancelQueries({ queryKey: prizeFilterRoot });
+      await queryClient.cancelQueries({ queryKey: prizeHistoryKey });
       await queryClient.cancelQueries({ queryKey: positionKey });
 
-      // 2. Snapshot all matching paginated prize queries across any filter combination
+      // 2. Snapshot all matching paginated and unpaginated prize queries
       const previousLedgerSnapshots =
-        queryClient.getQueriesData<PaginatedWinnersResponse>({
+        queryClient.getQueriesData<UserPrizeLedgerCacheData>({
           queryKey: prizeFilterRoot,
         });
+      const previousHistorySnapshot =
+        queryClient.getQueryData<PrizeHistoryEntry[]>(prizeHistoryKey);
       const previousPosition =
         queryClient.getQueryData<UserBondPosition>(positionKey);
 
@@ -63,27 +72,15 @@ export function useCrankPrize(poolId: PoolId = 1) {
         bondPrice
       );
 
-      // 4. Optimistically patch all active prize ledger views
-      queryClient.setQueriesData<PaginatedWinnersResponse>(
-        { queryKey: prizeFilterRoot },
-        (old) => {
-          if (!old || !old.data) return old;
-          return {
-            ...old,
-            data: old.data.map((p) =>
-              p.cycleId === entry.drawCycleId &&
-              p.winnerIndex === entry.winnerIndex
-                ? {
-                    ...p,
-                    processed: true,
-                    bondsBought: String(breakdown.bondsBought),
-                    dustAccumulated: String(breakdown.dustAccumulated),
-                  }
-                : p
-            ),
-          };
-        }
-      );
+      // 4. Optimistically patch all active prize views (both paginated & unpaginated)
+      patchOptimisticPrizeInCache({
+        queryClient,
+        poolId,
+        userAddress,
+        drawCycleId: entry.drawCycleId,
+        winnerIndex: entry.winnerIndex,
+        breakdown,
+      });
 
       // 5. Optimistically patch UserBondPosition
       queryClient.setQueryData<UserBondPosition>(positionKey, (old) => {
@@ -101,7 +98,13 @@ export function useCrankPrize(poolId: PoolId = 1) {
         };
       });
 
-      return { previousLedgerSnapshots, previousPosition, breakdown };
+      return {
+        previousLedgerSnapshots,
+        previousHistorySnapshot,
+        previousPosition,
+        breakdown,
+        bondPrice,
+      };
     },
     mutationFn: async ({ entry }) => {
       if (!userAddress) throw new Error("Wallet not connected");
@@ -118,6 +121,12 @@ export function useCrankPrize(poolId: PoolId = 1) {
           queryClient.setQueryData(key, data);
         }
       }
+      if (context?.previousHistorySnapshot && userAddress) {
+        queryClient.setQueryData(
+          bondsKeys.userPrizeHistory(poolId, userAddress),
+          context.previousHistorySnapshot
+        );
+      }
       if (context?.previousPosition && userAddress) {
         queryClient.setQueryData(
           bondsKeys.userPosition(poolId, userAddress),
@@ -128,6 +137,8 @@ export function useCrankPrize(poolId: PoolId = 1) {
     onSuccess: (txSignature, { entry }, context) => {
       if (!userAddress) return;
 
+      const effectiveBondPrice = context?.bondPrice ?? 5_000_000;
+
       // Append to shared optimistic activity store
       if (context?.breakdown.bondsBought && context.breakdown.bondsBought > 0) {
         addOptimisticActivity(
@@ -135,7 +146,7 @@ export function useCrankPrize(poolId: PoolId = 1) {
           createOptimisticActivity({
             activityType: "auto-reinvest",
             bonds: context.breakdown.bondsBought,
-            amountUsdc: context.breakdown.bondsBought * 5_000_000,
+            amountUsdc: context.breakdown.bondsBought * effectiveBondPrice,
             cycleId: entry.drawCycleId,
             txSignature,
           })
@@ -147,6 +158,10 @@ export function useCrankPrize(poolId: PoolId = 1) {
       // Re-fetch active ledger queries for authoritative server state
       queryClient.invalidateQueries({
         queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+        refetchType: "active",
+      });
+      queryClient.invalidateQueries({
+        queryKey: bondsKeys.userPrizeHistory(poolId, userAddress),
         refetchType: "active",
       });
       queryClient.invalidateQueries({

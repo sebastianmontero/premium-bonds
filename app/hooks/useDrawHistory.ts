@@ -4,7 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "../lib/query-keys";
 import type { PrizeHistoryEntry, RecentWinner } from "../types";
 import { useCallback, useMemo } from "react";
-import { type ReinvestmentBreakdown } from "../lib/draw-helpers";
+import {
+  type ReinvestmentBreakdown,
+  patchOptimisticPrizeInCache,
+} from "../lib/draw-helpers";
 import {
   mapDtoToPrizeHistoryEntry,
   mapDtoToRecentWinner,
@@ -89,32 +92,14 @@ export function useDrawHistory(
       txSignature,
     }: OptimisticPrizeParams) => {
       if (!userAddress) return;
-      const queryKey = bondsKeys.userPrizeHistory(poolId, userAddress);
-      queryClient.setQueryData<PrizeHistoryEntry[]>(queryKey, (old) => {
-        if (!old) return old;
-        return old.map((entry) => {
-          if (
-            entry.drawCycleId === drawCycleId &&
-            entry.winnerIndex === winnerIndex
-          ) {
-            return {
-              ...entry,
-              status: "reinvested",
-              bondsBought: breakdown.bondsBought,
-              reinvestedTickets: breakdown.bondsBought,
-              dustAccumulated:
-                breakdown.dustAccumulated > 0
-                  ? breakdown.dustAccumulated
-                  : undefined,
-              usedPriorDust:
-                breakdown.usedPriorDust > 0
-                  ? breakdown.usedPriorDust
-                  : undefined,
-              txSignature: txSignature ?? entry.txSignature,
-            };
-          }
-          return entry;
-        });
+      patchOptimisticPrizeInCache({
+        queryClient,
+        poolId,
+        userAddress,
+        drawCycleId,
+        winnerIndex,
+        breakdown,
+        txSignature,
       });
     },
     [queryClient, poolId, userAddress]
@@ -125,8 +110,12 @@ export function useDrawHistory(
       void drawCycleId;
       void winnerIndex;
       if (!userAddress) return;
-      const queryKey = bondsKeys.userPrizeHistory(poolId, userAddress);
-      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({
+        queryKey: bondsKeys.userPrizeHistory(poolId, userAddress),
+      });
+      queryClient.invalidateQueries({
+        queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+      });
     },
     [queryClient, poolId, userAddress]
   );

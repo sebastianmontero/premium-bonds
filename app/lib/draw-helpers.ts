@@ -4,6 +4,10 @@ import { deriveRandomIndex, formatSeedHex } from "./vrf-utils";
 import type { QueryClient } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "./query-keys";
 import type {
+  PaginationMeta,
+  PrizeLedgerAggregates,
+} from "../types/indexer-contracts";
+import type {
   DrawWinnerRecord,
   DrawCycleSummary,
   DrawStatusName,
@@ -652,6 +656,85 @@ export interface ReinvestmentBreakdown {
   usedPriorDust: number;
   dustAccumulated: number;
   totalAvailable: number;
+}
+
+/**
+ * Transforms an existing PrizeHistoryEntry into its optimistic "reinvested" state.
+ */
+export function applyOptimisticReinvestment(
+  entry: PrizeHistoryEntry,
+  breakdown: ReinvestmentBreakdown,
+  txSignature?: string
+): PrizeHistoryEntry {
+  return {
+    ...entry,
+    status: "reinvested",
+    bondsBought: breakdown.bondsBought,
+    reinvestedTickets: breakdown.bondsBought,
+    dustAccumulated:
+      breakdown.dustAccumulated > 0 ? breakdown.dustAccumulated : undefined,
+    usedPriorDust:
+      breakdown.usedPriorDust > 0 ? breakdown.usedPriorDust : undefined,
+    txSignature: txSignature ?? entry.txSignature,
+  };
+}
+
+export interface OptimisticPrizePatchParams {
+  queryClient: QueryClient;
+  poolId: PoolId;
+  userAddress: string;
+  drawCycleId: number;
+  winnerIndex: number;
+  breakdown: ReinvestmentBreakdown;
+  txSignature?: string;
+}
+
+export interface UserPrizeLedgerCacheData {
+  entries: PrizeHistoryEntry[];
+  pagination: PaginationMeta;
+  aggregates: PrizeLedgerAggregates;
+}
+
+/**
+ * Centrally and type-safely patches both unpaginated (top-50) and paginated prize query caches in TanStack Query.
+ */
+export function patchOptimisticPrizeInCache({
+  queryClient,
+  poolId,
+  userAddress,
+  drawCycleId,
+  winnerIndex,
+  breakdown,
+  txSignature,
+}: OptimisticPrizePatchParams): void {
+  // 1. Patch unpaginated top-50 prize history
+  queryClient.setQueryData<PrizeHistoryEntry[]>(
+    bondsKeys.userPrizeHistory(poolId, userAddress),
+    (old) => {
+      if (!old) return old;
+      return old.map((entry) =>
+        entry.drawCycleId === drawCycleId && entry.winnerIndex === winnerIndex
+          ? applyOptimisticReinvestment(entry, breakdown, txSignature)
+          : entry
+      );
+    }
+  );
+
+  // 2. Patch all active paginated prize ledger queries matching the root
+  queryClient.setQueriesData<UserPrizeLedgerCacheData>(
+    { queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress) },
+    (old) => {
+      if (!old || !Array.isArray(old.entries)) return old;
+      return {
+        ...old,
+        entries: old.entries.map((entry) =>
+          entry.drawCycleId === drawCycleId && entry.winnerIndex === winnerIndex
+            ? applyOptimisticReinvestment(entry, breakdown, txSignature)
+            : entry
+        ),
+      };
+    }
+  );
 }
 
 /**

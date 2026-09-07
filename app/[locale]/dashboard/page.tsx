@@ -12,7 +12,9 @@ import { bondsKeys } from "@/app/lib/query-keys";
 import {
   calculateReinvestmentBreakdown,
   invalidateDrawQueries,
+  type UserPrizeLedgerCacheData,
 } from "@/app/lib/draw-helpers";
+import { mapDtoToPrizeHistoryEntry } from "@/app/lib/indexer-mappers";
 import { createOptimisticActivity } from "@/app/lib/activity-helpers";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
@@ -143,7 +145,20 @@ export default function DashboardPage() {
         url.searchParams.set("page", "1");
         url.searchParams.set("pageSize", "10");
         const res = await fetch(url.toString());
-        return res.json();
+        const json = await res.json();
+        const entries = (json.data || []).map(mapDtoToPrizeHistoryEntry);
+        return {
+          entries,
+          pagination: json.meta ?? {
+            page: 1,
+            pageSize: 10,
+            totalCount: entries.length,
+            totalPages: Math.max(1, Math.ceil(entries.length / 10)),
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+          aggregates: json.aggregates ?? { totalFilteredValue: "0" },
+        };
       },
       staleTime: 10_000,
     });
@@ -206,6 +221,44 @@ export default function DashboardPage() {
     () => (isConnected ? onChainPrizeHistory : []),
     [isConnected, onChainPrizeHistory]
   );
+
+  // Multi-scope reactive derivation of the currently selected prize entry
+  const activeSelectedPrizeEntry = useMemo(() => {
+    if (!selectedPrizeEntry) return null;
+
+    // 1. Check unpaginated top-50 activePrizeHistory
+    const historyMatch = activePrizeHistory.find(
+      (p) =>
+        p.drawCycleId === selectedPrizeEntry.drawCycleId &&
+        p.winnerIndex === selectedPrizeEntry.winnerIndex
+    );
+    if (historyMatch) return historyMatch;
+
+    // 2. Check cached paginated userPrizeLedger queries
+    if (userAddress) {
+      const ledgerQueries =
+        queryClient.getQueriesData<UserPrizeLedgerCacheData>({
+          queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+        });
+      for (const [, queryData] of ledgerQueries) {
+        const ledgerMatch = queryData?.entries?.find(
+          (p) =>
+            p.drawCycleId === selectedPrizeEntry.drawCycleId &&
+            p.winnerIndex === selectedPrizeEntry.winnerIndex
+        );
+        if (ledgerMatch) return ledgerMatch;
+      }
+    }
+
+    return selectedPrizeEntry;
+  }, [
+    selectedPrizeEntry,
+    activePrizeHistory,
+    userAddress,
+    poolId,
+    queryClient,
+  ]);
+
   const activeActivityFeed: ActivityEntry[] = isConnected
     ? activityEntries
     : [];
@@ -272,11 +325,34 @@ export default function DashboardPage() {
   // Handlers for Prize Crank Reinvestment & Dust Claiming
   const handleSimulateCrank = useCallback(
     async (drawCycleId: number, winnerIndex: number) => {
-      const entry = activePrizeHistory.find(
-        (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
-      );
-      if (!entry) return;
-      if (entry.status === "reinvested") return;
+      // Multi-cache resolution
+      let entry =
+        selectedPrizeEntry?.drawCycleId === drawCycleId &&
+        selectedPrizeEntry?.winnerIndex === winnerIndex
+          ? selectedPrizeEntry
+          : activePrizeHistory.find(
+              (p) =>
+                p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+            );
+
+      if (!entry && userAddress) {
+        const ledgerQueries =
+          queryClient.getQueriesData<UserPrizeLedgerCacheData>({
+            queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+          });
+        for (const [, queryData] of ledgerQueries) {
+          const match = queryData?.entries?.find(
+            (p) =>
+              p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+          );
+          if (match) {
+            entry = match;
+            break;
+          }
+        }
+      }
+
+      if (!entry || entry.status === "reinvested") return;
       const key = crankKey(drawCycleId, winnerIndex);
       if (crankingCycles[key]) return;
 
@@ -310,6 +386,7 @@ export default function DashboardPage() {
             },
             (capturedSig) => {
               refetch();
+              refetchDrawHistory();
               invalidateDrawQueries(queryClient, poolId);
               if (breakdown.bondsBought > 0 && capturedSig) {
                 prependLocal(
@@ -332,6 +409,15 @@ export default function DashboardPage() {
                   ),
                 });
                 queryClient.invalidateQueries({
+                  queryKey: bondsKeys.userPrizeLedgerRoot(
+                    poolId,
+                    initiatingAddress
+                  ),
+                });
+                queryClient.invalidateQueries({
+                  queryKey: bondsKeys.userPosition(poolId, initiatingAddress),
+                });
+                queryClient.invalidateQueries({
                   queryKey: bondsKeys.activityFeed(poolId, initiatingAddress),
                 });
               }, 4000);
@@ -347,6 +433,7 @@ export default function DashboardPage() {
     },
     [
       activePrizeHistory,
+      selectedPrizeEntry,
       crankingCycles,
       activeUnclaimedWinnings,
       poolBondPrice,
@@ -357,6 +444,7 @@ export default function DashboardPage() {
       userAddress,
       markPrizeOptimisticallyProcessed,
       refetch,
+      refetchDrawHistory,
       prependLocal,
       poolTokenDecimals,
       queryClient,
@@ -666,12 +754,12 @@ export default function DashboardPage() {
 
       <PrizeDetailsModal
         key={
-          selectedPrizeEntry
-            ? `prize-details-${selectedPrizeEntry.drawCycleId}-${selectedPrizeEntry.winnerIndex}`
+          activeSelectedPrizeEntry
+            ? `prize-details-${activeSelectedPrizeEntry.drawCycleId}-${activeSelectedPrizeEntry.winnerIndex}`
             : "prize-details-none"
         }
-        entry={selectedPrizeEntry}
-        isOpen={selectedPrizeEntry !== null}
+        entry={activeSelectedPrizeEntry}
+        isOpen={activeSelectedPrizeEntry !== null}
         onClose={() => setSelectedPrizeEntry(null)}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}

@@ -4,7 +4,12 @@ import {
   calculateReinvestmentBreakdown,
   getEffectivePrizeBreakdown,
   getEffectivePrizeDust,
+  applyOptimisticReinvestment,
+  patchOptimisticPrizeInCache,
 } from "../draw-helpers";
+import { bondsKeys } from "../query-keys";
+import { QueryClient } from "@tanstack/react-query";
+import type { PrizeHistoryEntry } from "@/app/types";
 import { foldWinnerUpdateRows, type WinnerUpdateRow } from "../db/ingest";
 import { EMPTY_USER_BOND_POSITION } from "../../../app/hooks/queries/useUserBondPosition";
 import { address } from "@solana/kit";
@@ -250,6 +255,173 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
       const folded = foldWinnerUpdateRows(rows);
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(folded[0].amountReinvested, 245_000_000n);
+    });
+  });
+
+  describe("applyOptimisticReinvestment", () => {
+    it("should transform a processing entry into reinvested with bonds and remainder dust", () => {
+      const entry: PrizeHistoryEntry = {
+        drawCycleId: 10,
+        winnerIndex: 2,
+        date: "2026-09-01T00:00:00Z",
+        tierIndex: 1,
+        amount: 247_500_000,
+        status: "processing",
+        winningTicket: "00000042",
+      };
+
+      const breakdown = {
+        bondsBought: 49,
+        usedPriorDust: 0,
+        dustAccumulated: 2_500_000,
+        totalAvailable: 247_500_000,
+      };
+
+      const updated = applyOptimisticReinvestment(
+        entry,
+        breakdown,
+        "5abcSignature"
+      );
+
+      assert.strictEqual(updated.status, "reinvested");
+      assert.strictEqual(updated.bondsBought, 49);
+      assert.strictEqual(updated.reinvestedTickets, 49);
+      assert.strictEqual(updated.dustAccumulated, 2_500_000);
+      assert.strictEqual(updated.usedPriorDust, undefined);
+      assert.strictEqual(updated.txSignature, "5abcSignature");
+      assert.strictEqual(updated.drawCycleId, 10);
+      assert.strictEqual(updated.winnerIndex, 2);
+
+      // Verify original entry was not mutated (immutability)
+      assert.strictEqual(entry.status, "processing");
+      assert.strictEqual(entry.bondsBought, undefined);
+    });
+
+    it("should include usedPriorDust when > 0", () => {
+      const entry: PrizeHistoryEntry = {
+        drawCycleId: 10,
+        winnerIndex: 0,
+        date: "2026-09-01T00:00:00Z",
+        tierIndex: 0,
+        amount: 247_500_000,
+        status: "processing",
+      };
+
+      const breakdown = {
+        bondsBought: 50,
+        usedPriorDust: 2_500_000,
+        dustAccumulated: 0,
+        totalAvailable: 250_000_000,
+      };
+
+      const updated = applyOptimisticReinvestment(entry, breakdown);
+      assert.strictEqual(updated.status, "reinvested");
+      assert.strictEqual(updated.bondsBought, 50);
+      assert.strictEqual(updated.usedPriorDust, 2_500_000);
+      assert.strictEqual(updated.dustAccumulated, undefined);
+    });
+  });
+
+  describe("patchOptimisticPrizeInCache", () => {
+    it("should patch both unpaginated userPrizeHistory and paginated userPrizeLedger caches", () => {
+      const queryClient = new QueryClient();
+      const poolId = 1;
+      const testUser = "11111111111111111111111111111111";
+
+      const unpaginatedKey = bondsKeys.userPrizeHistory(poolId, testUser);
+      const paginatedKey1 = bondsKeys.userPrizeLedger(poolId, testUser, {
+        page: 1,
+        pageSize: 10,
+      });
+      const paginatedKey2 = bondsKeys.userPrizeLedger(poolId, testUser, {
+        status: "processing",
+      });
+
+      const initialHistory: PrizeHistoryEntry[] = [
+        {
+          drawCycleId: 5,
+          winnerIndex: 0,
+          date: "2026-09-01T00:00:00Z",
+          tierIndex: 0,
+          amount: 50_000_000,
+          status: "processing",
+        },
+        {
+          drawCycleId: 4,
+          winnerIndex: 1,
+          date: "2026-08-01T00:00:00Z",
+          tierIndex: 1,
+          amount: 10_000_000,
+          status: "reinvested",
+          bondsBought: 2,
+        },
+      ];
+
+      queryClient.setQueryData(unpaginatedKey, initialHistory);
+      queryClient.setQueryData(paginatedKey1, {
+        entries: initialHistory,
+        pagination: {
+          page: 1,
+          pageSize: 10,
+          totalCount: 2,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        aggregates: { totalFilteredValue: "60000000" },
+      });
+      queryClient.setQueryData(paginatedKey2, {
+        entries: [initialHistory[0]],
+        pagination: {
+          page: 1,
+          pageSize: 10,
+          totalCount: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        aggregates: { totalFilteredValue: "50000000" },
+      });
+
+      // Execute cache patch
+      patchOptimisticPrizeInCache({
+        queryClient,
+        poolId,
+        userAddress: testUser,
+        drawCycleId: 5,
+        winnerIndex: 0,
+        breakdown: {
+          bondsBought: 10,
+          usedPriorDust: 0,
+          dustAccumulated: 0,
+          totalAvailable: 50_000_000,
+        },
+        txSignature: "txSig12345",
+      });
+
+      // Assert unpaginated query updated
+      const updatedHistory =
+        queryClient.getQueryData<PrizeHistoryEntry[]>(unpaginatedKey);
+      assert.ok(updatedHistory);
+      assert.strictEqual(updatedHistory[0].status, "reinvested");
+      assert.strictEqual(updatedHistory[0].bondsBought, 10);
+      assert.strictEqual(updatedHistory[0].txSignature, "txSig12345");
+      assert.strictEqual(updatedHistory[1].status, "reinvested");
+
+      // Assert paginated queries updated
+      const updatedLedger1 = queryClient.getQueryData<{
+        entries: PrizeHistoryEntry[];
+      }>(paginatedKey1);
+      assert.ok(updatedLedger1);
+      assert.strictEqual(updatedLedger1.entries[0].status, "reinvested");
+      assert.strictEqual(updatedLedger1.entries[0].bondsBought, 10);
+
+      const updatedLedger2 = queryClient.getQueryData<{
+        entries: PrizeHistoryEntry[];
+      }>(paginatedKey2);
+      assert.ok(updatedLedger2);
+      assert.strictEqual(updatedLedger2.entries[0].status, "reinvested");
+      assert.strictEqual(updatedLedger2.entries[0].bondsBought, 10);
     });
   });
 });

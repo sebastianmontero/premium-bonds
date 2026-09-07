@@ -820,4 +820,3 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.ok(options[1].label.includes("(5)"));
   });
 });
-

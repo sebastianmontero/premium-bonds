@@ -52,6 +52,7 @@ export default function PrizeDetailsModal({
   const [copiedBond, setCopiedBond] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
 
   const t = useTranslations("PrizeDetails");
@@ -115,6 +116,21 @@ export default function PrizeDetailsModal({
       lastActiveElementRef.current?.focus();
     };
   }, [isOpen, onClose]);
+
+  // Focus retention: When status transitions to reinvested and the crank button unmounts, retain focus inside modal
+  useEffect(() => {
+    if (!isOpen || !entry) return;
+    if (entry.status === "reinvested") {
+      const activeEl = document.activeElement;
+      if (
+        !activeEl ||
+        activeEl === document.body ||
+        !modalRef.current?.contains(activeEl)
+      ) {
+        closeButtonRef.current?.focus();
+      }
+    }
+  }, [isOpen, entry]);
 
   if (!isOpen || !entry) return null;
 
@@ -443,6 +459,7 @@ export default function PrizeDetailsModal({
         {/* Action Row */}
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-surface-bright/5 shrink-0">
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={handleClose}
             className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 transition cursor-pointer"
