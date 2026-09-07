@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "../lib/query-keys";
 import type { DetailedDrawCycle, DrawWinnerRecord } from "../types";
+import type { ReinvestmentBreakdown } from "../lib/draw-helpers";
 import { useCallback, useMemo } from "react";
 
 interface DrawCycleDetailsResult {
@@ -13,7 +14,7 @@ interface DrawCycleDetailsResult {
   refetch: () => Promise<unknown>;
   markWinnerOptimisticallyProcessed: (
     winnerIndex: number,
-    bondsBought?: number,
+    bondsBoughtOrBreakdown?: number | ReinvestmentBreakdown,
     bondPrice?: number,
     txSignature?: string
   ) => void;
@@ -101,7 +102,7 @@ export function useDrawCycleDetails(
   const markWinnerOptimisticallyProcessed = useCallback(
     (
       winnerIndex: number,
-      bondsBought?: number,
+      bondsBoughtOrBreakdown?: number | ReinvestmentBreakdown,
       bondPrice: number = 5_000_000,
       txSignature?: string
     ) => {
@@ -112,15 +113,23 @@ export function useDrawCycleDetails(
           if (!old) return old;
           const updatedWinners = old.winners.map((w) => {
             if (w.winnerIndex !== winnerIndex) return w;
-            const estimatedBonds =
-              bondsBought ??
-              (w.amountOwed > 0
-                ? Math.floor(w.amountOwed / bondPrice)
-                : w.bondsBought);
+            const isBreakdown =
+              typeof bondsBoughtOrBreakdown === "object" &&
+              bondsBoughtOrBreakdown !== null;
+            const estimatedBonds = isBreakdown
+              ? bondsBoughtOrBreakdown.bondsBought
+              : (bondsBoughtOrBreakdown ??
+                (w.amountOwed > 0
+                  ? Math.floor(w.amountOwed / bondPrice)
+                  : w.bondsBought));
+            const estimatedDust = isBreakdown
+              ? bondsBoughtOrBreakdown.dustAccumulated
+              : w.dustAccumulated;
             return {
               ...w,
               processed: true,
               bondsBought: estimatedBonds,
+              dustAccumulated: estimatedDust,
               claimSignature: txSignature ?? w.claimSignature,
             };
           });

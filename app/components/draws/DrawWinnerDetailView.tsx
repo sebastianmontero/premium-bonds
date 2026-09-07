@@ -15,8 +15,7 @@ import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import {
-  getEffectivePrizeBreakdown,
-  getProjectedPrizeBreakdown,
+  resolvePrizeBreakdown,
   formatWinnerShareMessage,
 } from "@/app/lib/draw-helpers";
 import { PrizeReinvestmentBreakdown } from "./PrizeReinvestmentBreakdown";
@@ -29,6 +28,7 @@ export interface DrawWinnerDetailViewProps {
   revealedAt?: number;
   config?: DrawDisplayConfig;
   connectedUserAddress?: string;
+  unclaimedDust?: number;
   isClaimingPaused?: boolean;
   isVoided?: boolean;
   onBack: () => void;
@@ -42,6 +42,7 @@ export function DrawWinnerDetailView({
   revealedAt,
   config,
   connectedUserAddress,
+  unclaimedDust,
   isClaimingPaused = false,
   isVoided = false,
   onBack,
@@ -94,17 +95,14 @@ export function DrawWinnerDetailView({
     }
   };
 
-  const breakdown = winner.processed
-    ? getEffectivePrizeBreakdown(
-        {
-          amount: winner.amountOwed,
-          bondsBought: winner.bondsBought,
-          dustAccumulated: winner.dustAccumulated,
-          status: "reinvested",
-        },
-        bondPrice
-      )
-    : getProjectedPrizeBreakdown(winner.amountOwed, bondPrice);
+  const breakdown = resolvePrizeBreakdown({
+    amountWon: winner.amountOwed,
+    status: winner.processed ? "reinvested" : "processing",
+    bondsBought: winner.bondsBought,
+    dustAccumulated: winner.dustAccumulated,
+    bondPrice,
+    unclaimedDust: isConnectedWinner ? (unclaimedDust ?? 0) : 0,
+  });
 
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-y-auto pr-1">

@@ -19,6 +19,7 @@ import {
   sanitizeDrawStatusFilter,
   INDEXER_PROPAGATION_GRACE_PERIOD_MS,
 } from "@/app/lib/draw-helpers";
+import { bondsKeys } from "@/app/lib/query-keys";
 import { useTranslations } from "next-intl";
 
 function DrawHistoryContent() {
@@ -33,12 +34,18 @@ function DrawHistoryContent() {
 
   const {
     pool: onChainPool,
+    userWinnings: onChainWinnings,
     isPoolLoading,
     isPoolError,
     poolError,
     refetch: refetchPool,
     actions,
   } = useBondsContext();
+
+  const activeUnclaimedWinnings =
+    isConnected && onChainWinnings
+      ? Number(onChainWinnings.unclaimedNonReinvestedWinnings)
+      : 0;
 
   // Hoist URL search params for single-source-of-truth routing
   const urlPage = useMemo(() => {
@@ -232,6 +239,14 @@ function DrawHistoryContent() {
               deferIndexerQueries: true,
               trailingGracePeriodMs: INDEXER_PROPAGATION_GRACE_PERIOD_MS,
             });
+            if (userAddress) {
+              queryClient.invalidateQueries({
+                queryKey: bondsKeys.user(1, userAddress),
+              });
+              queryClient.invalidateQueries({
+                queryKey: bondsKeys.userPosition(1, userAddress),
+              });
+            }
           }
         );
       }
@@ -351,6 +366,7 @@ function DrawHistoryContent() {
         isOpen={selectedCycleId !== null}
         onClose={handleCloseInspector}
         userAddress={isConnected ? userAddress : undefined}
+        unclaimedDust={activeUnclaimedWinnings}
         tokenDecimals={activePool.tokenDecimals}
         tokenSymbol={activePool.tokenSymbol}
         bondPrice={activePool.bondPrice}

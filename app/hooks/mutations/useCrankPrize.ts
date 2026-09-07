@@ -89,7 +89,7 @@ export function useCrankPrize(poolId: PoolId = 1) {
         const currentUnclaimed = Number(old.unclaimedWinnings);
         const newUnclaimed = Math.max(
           0,
-          currentUnclaimed - breakdown.usedPriorDust
+          currentUnclaimed - breakdown.usedPriorDust + breakdown.dustAccumulated
         );
         return {
           ...old,

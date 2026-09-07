@@ -836,19 +836,109 @@ export function getEffectivePrizeBreakdown(
   };
 }
 
+export interface ProjectedPrizeParams {
+  amountWon: number | bigint;
+  bondPrice?: number | bigint;
+  unclaimedDust?: number | bigint;
+  isClosed?: boolean;
+}
+
+export interface ResolvePrizeBreakdownParams {
+  amountWon: number | bigint;
+  status?: string;
+  bondsBought?: number;
+  usedPriorDust?: number;
+  dustAccumulated?: number;
+  bondPrice?: number | bigint;
+  unclaimedDust?: number | bigint;
+  isClosed?: boolean;
+}
+
 /**
  * Calculates the projected compound reinvestment breakdown for an un-settled prize (processing or timelocked).
- * Projects how many bonds will be minted upon crank execution and what fractional dust will remain.
+ * Supports both structured parameter objects and legacy positional arguments.
  */
 export function getProjectedPrizeBreakdown(
+  params: ProjectedPrizeParams
+): ReinvestmentBreakdown;
+export function getProjectedPrizeBreakdown(
   amountWon: number | bigint,
-  bondPrice: number | bigint = 5_000_000,
-  unclaimedDust: number | bigint = 0
+  bondPrice?: number | bigint,
+  unclaimedDust?: number | bigint,
+  isClosed?: boolean
+): ReinvestmentBreakdown;
+export function getProjectedPrizeBreakdown(
+  paramOrAmount: ProjectedPrizeParams | number | bigint,
+  maybeBondPrice: number | bigint = 5_000_000,
+  maybeUnclaimedDust: number | bigint = 0,
+  maybeIsClosed: boolean = false
 ): ReinvestmentBreakdown {
+  const isObject =
+    typeof paramOrAmount === "object" &&
+    paramOrAmount !== null &&
+    !("toExponential" in paramOrAmount);
+
+  const amountWon = isObject ? paramOrAmount.amountWon : paramOrAmount;
+  const bondPrice = isObject
+    ? (paramOrAmount.bondPrice ?? 5_000_000)
+    : maybeBondPrice;
+  const unclaimedDust = isObject
+    ? (paramOrAmount.unclaimedDust ?? 0)
+    : maybeUnclaimedDust;
+  const isClosed = isObject ? Boolean(paramOrAmount.isClosed) : maybeIsClosed;
+
   const numPrice =
     typeof bondPrice === "bigint" ? Number(bondPrice) : bondPrice;
   const price = numPrice > 0 ? numPrice : 5_000_000;
-  return calculateReinvestmentBreakdown(amountWon, unclaimedDust, price);
+
+  return calculateReinvestmentBreakdown(
+    amountWon,
+    unclaimedDust,
+    price,
+    isClosed ? 0 : undefined
+  );
+}
+
+/**
+ * Centrally resolves the canonical prize breakdown for any prize view.
+ * Encapsulates status check, dust inclusion, and pool closure rules.
+ */
+export function resolvePrizeBreakdown(
+  params: ResolvePrizeBreakdownParams
+): ReinvestmentBreakdown {
+  const {
+    amountWon,
+    status,
+    bondsBought,
+    usedPriorDust,
+    dustAccumulated,
+    bondPrice = 5_000_000,
+    unclaimedDust = 0,
+    isClosed = false,
+  } = params;
+
+  if (
+    status === "reinvested" ||
+    (bondsBought !== undefined && bondsBought > 0)
+  ) {
+    return getEffectivePrizeBreakdown(
+      {
+        amount: typeof amountWon === "bigint" ? Number(amountWon) : amountWon,
+        status: "reinvested",
+        bondsBought,
+        usedPriorDust,
+        dustAccumulated,
+      },
+      bondPrice
+    );
+  }
+
+  return getProjectedPrizeBreakdown({
+    amountWon,
+    bondPrice,
+    unclaimedDust,
+    isClosed,
+  });
 }
 
 /**

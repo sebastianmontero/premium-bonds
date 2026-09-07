@@ -21,11 +21,12 @@ import {
   hasDrawVrfRandomness,
   getDrawArchetype,
   invalidateDrawQueries,
+  resolvePrizeBreakdown,
 } from "@/app/lib/draw-helpers";
 import type { DrawStatusName, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
 
-interface DrawCycleInspectorModalProps {
+export interface DrawCycleInspectorModalProps {
   poolId: number;
   cycleId: number | null;
   isOpen: boolean;
@@ -36,6 +37,7 @@ interface DrawCycleInspectorModalProps {
   bondPrice?: number;
   payoutTimelockSeconds?: number;
   userAddress?: string;
+  unclaimedDust?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
   initialStatus?: DrawStatusName;
@@ -61,6 +63,7 @@ export function DrawCycleInspectorModal({
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   userAddress,
+  unclaimedDust,
   pool,
   isFrozenForDraw,
   initialStatus,
@@ -407,6 +410,7 @@ export function DrawCycleInspectorModal({
                   revealedAt={details.revealedAt}
                   config={effectiveConfig}
                   connectedUserAddress={userAddress}
+                  unclaimedDust={unclaimedDust}
                   isClaimingPaused={pool?.isFrozenForDraw ?? isFrozenForDraw}
                   isVoided={details.status === "Voided"}
                   onBack={() => {
@@ -428,9 +432,22 @@ export function DrawCycleInspectorModal({
                               wIdx,
                               wAddr,
                               (sig) => {
+                                const isConnectedWinner =
+                                  !!userAddress &&
+                                  activeWinner.winnerAddress.toLowerCase() ===
+                                    userAddress.toLowerCase();
+                                const calculatedBreakdown =
+                                  resolvePrizeBreakdown({
+                                    amountWon: activeWinner.amountOwed,
+                                    status: "processing",
+                                    bondPrice: effectiveConfig.bondPrice,
+                                    unclaimedDust: isConnectedWinner
+                                      ? (unclaimedDust ?? 0)
+                                      : 0,
+                                  });
                                 markWinnerOptimisticallyProcessed(
                                   wIdx,
-                                  undefined,
+                                  calculatedBreakdown,
                                   effectiveConfig.bondPrice,
                                   sig
                                 );
@@ -503,9 +520,26 @@ export function DrawCycleInspectorModal({
                                     wIdx,
                                     wAddr,
                                     (sig) => {
+                                      const isConnectedWinner =
+                                        !!userAddress &&
+                                        wAddr?.toLowerCase() ===
+                                          userAddress.toLowerCase();
+                                      const winnerRecord =
+                                        details.winners[wIdx];
+                                      const calculatedBreakdown = winnerRecord
+                                        ? resolvePrizeBreakdown({
+                                            amountWon: winnerRecord.amountOwed,
+                                            status: "processing",
+                                            bondPrice:
+                                              effectiveConfig.bondPrice,
+                                            unclaimedDust: isConnectedWinner
+                                              ? (unclaimedDust ?? 0)
+                                              : 0,
+                                          })
+                                        : undefined;
                                       markWinnerOptimisticallyProcessed(
                                         wIdx,
-                                        undefined,
+                                        calculatedBreakdown,
                                         effectiveConfig.bondPrice,
                                         sig
                                       );

@@ -13,14 +13,13 @@ import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import {
-  getEffectivePrizeBreakdown,
-  getProjectedPrizeBreakdown,
+  resolvePrizeBreakdown,
 } from "@/app/lib/draw-helpers";
 import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
 import { useTranslations, useFormatter } from "next-intl";
 
-interface PrizeDetailsModalProps {
+export interface PrizeDetailsModalProps {
   entry: PrizeHistoryEntry | null;
   isOpen: boolean;
   onClose: () => void;
@@ -29,7 +28,8 @@ interface PrizeDetailsModalProps {
   ticketPrice?: number;
   bondPrice?: number;
   payoutTimelockSeconds?: number;
-  pool?: { isFrozenForDraw?: boolean } | null;
+  unclaimedDust?: number;
+  pool?: { isFrozenForDraw?: boolean; status?: string } | null;
   isFrozenForDraw?: boolean;
   onSimulateCrank: (drawCycleId: number, winnerIndex: number) => void;
   crankingCycles?: Record<string, boolean>;
@@ -44,6 +44,7 @@ export default function PrizeDetailsModal({
   ticketPrice,
   bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
+  unclaimedDust,
   pool,
   isFrozenForDraw,
   onSimulateCrank,
@@ -179,10 +180,17 @@ export default function PrizeDetailsModal({
       })
     : t("titleNoTicket", { drawCycleId: entry.drawCycleId });
 
-  const breakdown =
-    entry.status === "reinvested"
-      ? getEffectivePrizeBreakdown(entry, effectiveBondPrice)
-      : getProjectedPrizeBreakdown(entry.amount, effectiveBondPrice);
+  const breakdown = resolvePrizeBreakdown({
+    amountWon: entry.amount,
+    status: entry.status,
+    bondsBought: entry.bondsBought,
+    usedPriorDust: entry.usedPriorDust,
+    dustAccumulated: entry.dustAccumulated,
+    bondPrice: effectiveBondPrice,
+    unclaimedDust: unclaimedDust ?? 0,
+    isClosed:
+      (effectivePool as { status?: string } | null)?.status === "Closed",
+  });
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

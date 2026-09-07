@@ -4,6 +4,8 @@ import {
   calculateReinvestmentBreakdown,
   getEffectivePrizeBreakdown,
   getEffectivePrizeDust,
+  getProjectedPrizeBreakdown,
+  resolvePrizeBreakdown,
   applyOptimisticReinvestment,
   patchOptimisticPrizeInCache,
 } from "../draw-helpers";
@@ -422,6 +424,111 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
       assert.ok(updatedLedger2);
       assert.strictEqual(updatedLedger2.entries[0].status, "reinvested");
       assert.strictEqual(updatedLedger2.entries[0].bondsBought, 10);
+    });
+  });
+
+  describe("getProjectedPrizeBreakdown", () => {
+    it("should compute breakdown with positional parameters", () => {
+      // 7.50 USDC prize, 5 USDC bond price, 2.50 USDC dust -> 2 bonds, 0 dust
+      const breakdown = getProjectedPrizeBreakdown(
+        7_500_000,
+        5_000_000,
+        2_500_000
+      );
+      assert.strictEqual(breakdown.bondsBought, 2);
+      assert.strictEqual(breakdown.usedPriorDust, 2_500_000);
+      assert.strictEqual(breakdown.dustAccumulated, 0);
+      assert.strictEqual(breakdown.totalAvailable, 10_000_000);
+    });
+
+    it("should compute breakdown with structured object parameters", () => {
+      const breakdown = getProjectedPrizeBreakdown({
+        amountWon: 7_500_000,
+        bondPrice: 5_000_000,
+        unclaimedDust: 2_500_000,
+      });
+      assert.strictEqual(breakdown.bondsBought, 2);
+      assert.strictEqual(breakdown.usedPriorDust, 2_500_000);
+      assert.strictEqual(breakdown.dustAccumulated, 0);
+      assert.strictEqual(breakdown.totalAvailable, 10_000_000);
+    });
+
+    it("should handle BigInt in structured object parameters", () => {
+      const breakdown = getProjectedPrizeBreakdown({
+        amountWon: 7_500_000n,
+        bondPrice: 5_000_000n,
+        unclaimedDust: 2_500_000n,
+      });
+      assert.strictEqual(breakdown.bondsBought, 2);
+      assert.strictEqual(breakdown.usedPriorDust, 2_500_000);
+      assert.strictEqual(breakdown.dustAccumulated, 0);
+    });
+
+    it("should force bondsBought to 0 when isClosed is true", () => {
+      const breakdown = getProjectedPrizeBreakdown({
+        amountWon: 10_000_000,
+        bondPrice: 5_000_000,
+        unclaimedDust: 2_500_000,
+        isClosed: true,
+      });
+      assert.strictEqual(breakdown.bondsBought, 0);
+      assert.strictEqual(breakdown.dustAccumulated, 10_000_000);
+      assert.strictEqual(breakdown.usedPriorDust, 0);
+      assert.strictEqual(breakdown.totalAvailable, 12_500_000);
+    });
+  });
+
+  describe("resolvePrizeBreakdown", () => {
+    it("should resolve finalized reinvested prize with exact recorded metrics", () => {
+      const breakdown = resolvePrizeBreakdown({
+        amountWon: 7_500_000,
+        status: "reinvested",
+        bondsBought: 2,
+        usedPriorDust: 2_500_000,
+        dustAccumulated: 0,
+        bondPrice: 5_000_000,
+        unclaimedDust: 5_000_000, // should not affect finalized reinvested prize
+      });
+      assert.strictEqual(breakdown.bondsBought, 2);
+      assert.strictEqual(breakdown.usedPriorDust, 2_500_000);
+      assert.strictEqual(breakdown.dustAccumulated, 0);
+    });
+
+    it("should resolve processing prize including accumulated dust", () => {
+      const breakdown = resolvePrizeBreakdown({
+        amountWon: 7_500_000,
+        status: "processing",
+        bondPrice: 5_000_000,
+        unclaimedDust: 2_500_000,
+      });
+      assert.strictEqual(breakdown.bondsBought, 2);
+      assert.strictEqual(breakdown.usedPriorDust, 2_500_000);
+      assert.strictEqual(breakdown.dustAccumulated, 0);
+    });
+
+    it("should resolve processing prize with 0 dust in isolation (stranger prize)", () => {
+      const breakdown = resolvePrizeBreakdown({
+        amountWon: 7_500_000,
+        status: "processing",
+        bondPrice: 5_000_000,
+        unclaimedDust: 0,
+      });
+      assert.strictEqual(breakdown.bondsBought, 1);
+      assert.strictEqual(breakdown.usedPriorDust, 0);
+      assert.strictEqual(breakdown.dustAccumulated, 2_500_000);
+    });
+
+    it("should resolve processing prize with isClosed: true", () => {
+      const breakdown = resolvePrizeBreakdown({
+        amountWon: 7_500_000,
+        status: "processing",
+        bondPrice: 5_000_000,
+        unclaimedDust: 2_500_000,
+        isClosed: true,
+      });
+      assert.strictEqual(breakdown.bondsBought, 0);
+      assert.strictEqual(breakdown.dustAccumulated, 7_500_000);
+      assert.strictEqual(breakdown.usedPriorDust, 0);
     });
   });
 });

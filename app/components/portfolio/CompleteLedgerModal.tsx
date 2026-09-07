@@ -26,7 +26,7 @@ import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipCo
 import { useUserPrizeLedger } from "@/app/hooks/useUserPrizeLedger";
 import { useCrankPrize } from "@/app/hooks/mutations/useCrankPrize";
 
-interface CompleteLedgerModalProps {
+export interface CompleteLedgerModalProps {
   userAddress?: string;
   poolId?: number;
   isOpen: boolean;
@@ -38,6 +38,7 @@ interface CompleteLedgerModalProps {
   /** @deprecated Use `bondPrice` */
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
+  unclaimedDust?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
   onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
