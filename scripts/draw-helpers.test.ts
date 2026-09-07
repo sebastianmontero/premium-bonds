@@ -769,6 +769,31 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     assert.deepStrictEqual(invalidatedKeys[3], bondsKeys.poolState(1));
   });
 
+  it("should defer draws query invalidation when deferIndexerQueries is true", async () => {
+    const invalidatedKeys: unknown[] = [];
+    const mockQueryClient = {
+      invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
+        invalidatedKeys.push(options.queryKey);
+      },
+    } as unknown as QueryClient;
+
+    invalidateDrawQueries(mockQueryClient, 1, {
+      deferIndexerQueries: true,
+      trailingGracePeriodMs: 25,
+    });
+
+    // 1. Immediately: ONLY on-chain poolState is invalidated (draws is NOT invalidated)
+    assert.strictEqual(invalidatedKeys.length, 1);
+    assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.poolState(1));
+
+    // 2. Trailing: after grace period, BOTH draws and poolState are invalidated
+    await new Promise((r) => setTimeout(r, 40));
+
+    assert.strictEqual(invalidatedKeys.length, 3);
+    assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.draws(1));
+    assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.poolState(1));
+  });
+
   it("should build draw winner permalink with fallback or origin", () => {
     const link = buildDrawWinnerPermalink(14, 2);
     assert.ok(link.includes("/dashboard/draws?cycle=14&winner=2"));

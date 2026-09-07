@@ -95,7 +95,7 @@ export function useDrawCycleDetails(
         completedAt: d.completedAt ?? undefined,
       };
     },
-    staleTime: 0,
+    staleTime: 30_000,
   });
 
   const markWinnerOptimisticallyProcessed = useCallback(

@@ -17,6 +17,7 @@ import { PoolStateUninitializedCard } from "@/app/components/dashboard/PoolState
 import {
   invalidateDrawQueries,
   sanitizeDrawStatusFilter,
+  INDEXER_PROPAGATION_GRACE_PERIOD_MS,
 } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
@@ -203,7 +204,8 @@ function DrawHistoryContent() {
   const handleCrankWinner = async (
     drawCycleId: number,
     winnerIndex: number,
-    winnerAddress?: string
+    winnerAddress?: string,
+    onOptimisticSuccess?: (sig: string) => void
   ) => {
     const key = `${drawCycleId}-${winnerIndex}`;
     if (crankingCycles[key]) return;
@@ -213,11 +215,23 @@ function DrawHistoryContent() {
     try {
       if (isConnected) {
         return await runActionTx(
-          () =>
-            actions.reinvestWinnings(drawCycleId, winnerIndex, winnerAddress),
+          async () => {
+            const sig = await actions.reinvestWinnings(
+              drawCycleId,
+              winnerIndex,
+              winnerAddress
+            );
+            if (sig && onOptimisticSuccess) {
+              onOptimisticSuccess(sig);
+            }
+            return sig;
+          },
           () => {
             refetchPool();
-            invalidateDrawQueries(queryClient, 1);
+            invalidateDrawQueries(queryClient, 1, {
+              deferIndexerQueries: true,
+              trailingGracePeriodMs: INDEXER_PROPAGATION_GRACE_PERIOD_MS,
+            });
           }
         );
       }

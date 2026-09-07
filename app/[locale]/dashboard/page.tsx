@@ -12,6 +12,7 @@ import { bondsKeys } from "@/app/lib/query-keys";
 import {
   calculateReinvestmentBreakdown,
   invalidateDrawQueries,
+  INDEXER_PROPAGATION_GRACE_PERIOD_MS,
   type UserPrizeLedgerCacheData,
 } from "@/app/lib/draw-helpers";
 import { mapDtoToPrizeHistoryEntry } from "@/app/lib/indexer-mappers";
@@ -323,7 +324,7 @@ export default function DashboardPage() {
   };
 
   // Handlers for Prize Crank Reinvestment & Dust Claiming
-  const handleSimulateCrank = useCallback(
+  const handleCrankPrize = useCallback(
     async (drawCycleId: number, winnerIndex: number) => {
       // Multi-cache resolution
       let entry =
@@ -386,8 +387,10 @@ export default function DashboardPage() {
             },
             (capturedSig) => {
               refetch();
-              refetchDrawHistory();
-              invalidateDrawQueries(queryClient, poolId);
+              invalidateDrawQueries(queryClient, poolId, {
+                deferIndexerQueries: true,
+                trailingGracePeriodMs: INDEXER_PROPAGATION_GRACE_PERIOD_MS,
+              });
               if (breakdown.bondsBought > 0 && capturedSig) {
                 prependLocal(
                   createOptimisticActivity({
@@ -420,7 +423,7 @@ export default function DashboardPage() {
                 queryClient.invalidateQueries({
                   queryKey: bondsKeys.activityFeed(poolId, initiatingAddress),
                 });
-              }, 4000);
+              }, INDEXER_PROPAGATION_GRACE_PERIOD_MS);
             }
           );
         }
@@ -444,7 +447,6 @@ export default function DashboardPage() {
       userAddress,
       markPrizeOptimisticallyProcessed,
       refetch,
-      refetchDrawHistory,
       prependLocal,
       poolTokenDecimals,
       queryClient,
@@ -702,7 +704,7 @@ export default function DashboardPage() {
         unclaimedTotal={activeUnclaimedWinnings}
         pool={activePool}
         onClaim={handleClaimNonReinvestedWinnings}
-        onSimulateCrank={handleSimulateCrank}
+        onSimulateCrank={handleCrankPrize}
         onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
         onViewCompleteLedger={() => {
           prefetchPrizeLedger();
@@ -766,7 +768,7 @@ export default function DashboardPage() {
         ticketPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         pool={activePool}
-        onSimulateCrank={handleSimulateCrank}
+        onSimulateCrank={handleCrankPrize}
         crankingCycles={crankingCycles}
       />
 
@@ -782,7 +784,7 @@ export default function DashboardPage() {
         bondPrice={activePool.bondPrice}
         payoutTimelockSeconds={activePool.payoutTimelockSeconds ?? 300}
         pool={activePool}
-        onSimulateCrank={handleSimulateCrank}
+        onSimulateCrank={handleCrankPrize}
         onViewDetails={(entry) => setSelectedPrizeEntry(entry)}
         crankingCycles={crankingCycles}
         isLoading={isInitialLoading || (isConnected && isDrawHistoryLoading)}

@@ -44,7 +44,8 @@ interface DrawCycleInspectorModalProps {
   onCrankWinner?: (
     cycleId: number,
     winnerIndex: number,
-    winnerAddress?: string
+    winnerAddress?: string,
+    onOptimisticSuccess?: (sig: string) => void
   ) => Promise<unknown> | void;
   crankingCycles?: Record<string, boolean>;
 }
@@ -422,16 +423,18 @@ export function DrawCycleInspectorModal({
                       ? undefined
                       : async (wIdx, wAddr) => {
                           try {
-                            const sig = await onCrankWinner(
+                            await onCrankWinner(
                               details.cycleId,
                               wIdx,
-                              wAddr
-                            );
-                            markWinnerOptimisticallyProcessed(
-                              wIdx,
-                              undefined,
-                              effectiveConfig.bondPrice,
-                              typeof sig === "string" ? sig : undefined
+                              wAddr,
+                              (sig) => {
+                                markWinnerOptimisticallyProcessed(
+                                  wIdx,
+                                  undefined,
+                                  effectiveConfig.bondPrice,
+                                  sig
+                                );
+                              }
                             );
                           } catch {
                             // Handled by global transaction runner / error alert
@@ -495,16 +498,18 @@ export function DrawCycleInspectorModal({
                             ? undefined
                             : async (wIdx, wAddr) => {
                                 try {
-                                  const sig = await onCrankWinner(
+                                  await onCrankWinner(
                                     details.cycleId,
                                     wIdx,
-                                    wAddr
-                                  );
-                                  markWinnerOptimisticallyProcessed(
-                                    wIdx,
-                                    undefined,
-                                    effectiveConfig.bondPrice,
-                                    typeof sig === "string" ? sig : undefined
+                                    wAddr,
+                                    (sig) => {
+                                      markWinnerOptimisticallyProcessed(
+                                        wIdx,
+                                        undefined,
+                                        effectiveConfig.bondPrice,
+                                        sig
+                                      );
+                                    }
                                   );
                                 } catch {
                                   // Handled by global transaction runner / error alert

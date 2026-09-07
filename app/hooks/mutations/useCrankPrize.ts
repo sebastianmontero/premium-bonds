@@ -11,6 +11,7 @@ import { useWalletConnection } from "@solana/react-hooks";
 import {
   calculateReinvestmentBreakdown,
   patchOptimisticPrizeInCache,
+  INDEXER_PROPAGATION_GRACE_PERIOD_MS,
   type UserPrizeLedgerCacheData,
 } from "@/app/lib/draw-helpers";
 import { addOptimisticActivity } from "@/app/lib/optimistic-activity-store";
@@ -154,19 +155,22 @@ export function useCrankPrize(poolId: PoolId = 1) {
       }
 
       refetch();
+      queryClient.invalidateQueries({
+        queryKey: bondsKeys.userPosition(poolId, userAddress),
+      });
 
-      // Re-fetch active ledger queries for authoritative server state
-      queryClient.invalidateQueries({
-        queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
-        refetchType: "active",
-      });
-      queryClient.invalidateQueries({
-        queryKey: bondsKeys.userPrizeHistory(poolId, userAddress),
-        refetchType: "active",
-      });
-      queryClient.invalidateQueries({
-        queryKey: bondsKeys.activityFeed(poolId, userAddress),
-      });
+      // Trailing invalidation for off-chain indexer queries to avoid clobbering optimistic state
+      setTimeout(() => {
+        queryClient.invalidateQueries({
+          queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+        });
+        queryClient.invalidateQueries({
+          queryKey: bondsKeys.userPrizeHistory(poolId, userAddress),
+        });
+        queryClient.invalidateQueries({
+          queryKey: bondsKeys.activityFeed(poolId, userAddress),
+        });
+      }, INDEXER_PROPAGATION_GRACE_PERIOD_MS);
     },
   });
 }
