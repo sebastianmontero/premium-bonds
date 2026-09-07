@@ -130,16 +130,21 @@ export function DrawCycleInspectorModal({
     const modalEl = modalRef.current;
     if (!modalEl) return;
 
-    const focusableElements = modalEl.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    const firstElement = focusableElements[0];
-    const lastElement = focusableElements[focusableElements.length - 1];
+    const getFocusable = () =>
+      modalEl.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
 
-    firstElement?.focus();
+    const initial = getFocusable();
+    initial[0]?.focus();
 
     const handleTabTrap = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
+
+      const focusableElements = getFocusable();
+      if (focusableElements.length === 0) return;
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
 
       if (e.shiftKey) {
         if (document.activeElement === firstElement) {

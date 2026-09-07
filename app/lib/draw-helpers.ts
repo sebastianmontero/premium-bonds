@@ -686,6 +686,21 @@ export function getEffectivePrizeBreakdown(
 }
 
 /**
+ * Calculates the projected compound reinvestment breakdown for an un-settled prize (processing or timelocked).
+ * Projects how many bonds will be minted upon crank execution and what fractional dust will remain.
+ */
+export function getProjectedPrizeBreakdown(
+  amountWon: number | bigint,
+  bondPrice: number | bigint = 5_000_000,
+  unclaimedDust: number | bigint = 0
+): ReinvestmentBreakdown {
+  const numPrice =
+    typeof bondPrice === "bigint" ? Number(bondPrice) : bondPrice;
+  const price = numPrice > 0 ? numPrice : 5_000_000;
+  return calculateReinvestmentBreakdown(amountWon, unclaimedDust, price);
+}
+
+/**
  * Resolves the effective dust remainder for a prize entry.
  * Delegates to getEffectivePrizeBreakdown.
  */

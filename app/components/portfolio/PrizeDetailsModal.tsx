@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
@@ -12,7 +12,10 @@ import {
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
-import { getEffectivePrizeBreakdown } from "@/app/lib/draw-helpers";
+import {
+  getEffectivePrizeBreakdown,
+  getProjectedPrizeBreakdown,
+} from "@/app/lib/draw-helpers";
 import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
 import { useTranslations, useFormatter } from "next-intl";
@@ -24,6 +27,7 @@ interface PrizeDetailsModalProps {
   tokenDecimals: number;
   tokenSymbol: string;
   ticketPrice?: number;
+  bondPrice?: number;
   payoutTimelockSeconds?: number;
   pool?: { isFrozenForDraw?: boolean } | null;
   isFrozenForDraw?: boolean;
@@ -37,19 +41,24 @@ export default function PrizeDetailsModal({
   onClose,
   tokenDecimals,
   tokenSymbol,
-  ticketPrice = 5_000_000,
+  ticketPrice,
+  bondPrice = 5_000_000,
   payoutTimelockSeconds = 300,
   pool,
   isFrozenForDraw,
   onSimulateCrank,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
-  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [copiedBond, setCopiedBond] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
   const format = useFormatter();
 
+  const effectiveBondPrice = ticketPrice ?? bondPrice;
   const effectivePool =
     pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
 
@@ -58,36 +67,86 @@ export default function PrizeDetailsModal({
     payoutTimelockSeconds
   );
 
-  // Close on Escape key press
+  const isVoided = (entry?.status as string) === "voided";
+
+  // Focus trap & Escape key
   useEffect(() => {
+    if (!isOpen) return;
+    lastActiveElementRef.current = document.activeElement as HTMLElement | null;
+
+    const modalEl = modalRef.current;
+    if (!modalEl) return;
+
+    const getFocusable = () =>
+      modalEl.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+
+    const initial = getFocusable();
+    initial[0]?.focus();
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
+      if (e.key === "Escape") {
         onClose();
+        return;
+      }
+      if (e.key === "Tab") {
+        const focusable = getFocusable();
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last?.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first?.focus();
+          }
+        }
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      lastActiveElementRef.current?.focus();
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen || !entry) return null;
 
   const handleClose = () => {
-    setCopiedField(null);
+    setCopiedBond(false);
     setShareStatus(null);
     onClose();
   };
 
-  const handleCopy = (text: string, fieldName: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(fieldName);
-    setTimeout(() => setCopiedField(null), 2000);
+  const handleCopyBond = async () => {
+    if (entry.winningTicket) {
+      try {
+        await navigator.clipboard.writeText(
+          formatTicketNumber(entry.winningTicket)
+        );
+        setCopiedBond(true);
+        setTimeout(() => setCopiedBond(false), 2000);
+      } catch {
+        // Fallback
+      }
+    }
   };
 
-  const handleShare = () => {
-    const text = `Just checked my YieldBonds draw cycle ${entry.drawCycleId} - my bond ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
-    navigator.clipboard.writeText(text);
-    setShareStatus("Copied share template to clipboard!");
-    setTimeout(() => setShareStatus(null), 3000);
+  const handleShare = async () => {
+    const text = `Just checked my YieldBonds draw cycle #${entry.drawCycleId} - my bond ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareStatus("Copied share template to clipboard!");
+      setTimeout(() => setShareStatus(null), 3000);
+    } catch {
+      // Fallback
+    }
   };
 
   const formattedDate = formatLocalDate(
@@ -104,6 +163,11 @@ export default function PrizeDetailsModal({
       })
     : t("titleNoTicket", { drawCycleId: entry.drawCycleId });
 
+  const breakdown =
+    entry.status === "reinvested"
+      ? getEffectivePrizeBreakdown(entry, effectiveBondPrice)
+      : getProjectedPrizeBreakdown(entry.amount, effectiveBondPrice);
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       {/* Backdrop */}
@@ -114,20 +178,22 @@ export default function PrizeDetailsModal({
 
       {/* Modal Card */}
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label={modalTitle}
-        className="relative w-full max-w-2xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-6 shadow-ambient z-10 overflow-y-auto max-h-[90vh] glass-strong"
+        className="relative w-full max-w-2xl rounded-2xl border border-surface-bright/10 bg-[#0F111A]/95 p-4 sm:p-6 shadow-ambient z-10 overflow-y-auto max-h-[90vh] glass-strong space-y-4"
       >
         {/* Header */}
-        <div className="flex items-start justify-between pb-4 border-b border-surface-bright/5">
+        <div className="flex items-start justify-between pb-3 border-b border-surface-bright/5 shrink-0">
           <div>
-            <h3 className="text-xl font-bold font-display text-on-surface flex items-center gap-2">
+            <h3 className="text-lg sm:text-xl font-bold font-display text-on-surface flex items-center gap-2">
               <svg
-                className="w-5 h-5 text-primary"
+                className="w-5 h-5 text-primary shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -144,6 +210,7 @@ export default function PrizeDetailsModal({
           </div>
           <button
             onClick={handleClose}
+            aria-label={t("close")}
             className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
           >
             <svg
@@ -151,6 +218,7 @@ export default function PrizeDetailsModal({
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -162,11 +230,11 @@ export default function PrizeDetailsModal({
           </button>
         </div>
 
-        {/* Modal Content */}
-        <div className="space-y-6 pt-5">
-          {/* Summary Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+        {/* Hero Prize Summary Card */}
+        <div className="p-3.5 sm:p-4 rounded-xl bg-surface-container/20 border border-surface-bright/10 shrink-0">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Tier */}
+            <div className="flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 {t("tierWon")}
               </p>
@@ -176,83 +244,61 @@ export default function PrizeDetailsModal({
                 </span>
               </div>
             </div>
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+
+            {/* Amount Won */}
+            <div className="flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 {t("amountWon")}
               </p>
-              <p className="text-lg font-bold font-mono text-primary mt-0.5 truncate">
+              <p
+                className={`text-base sm:text-lg font-bold font-mono mt-0.5 truncate ${
+                  isVoided
+                    ? "line-through text-on-surface-variant/60"
+                    : "text-primary"
+                }`}
+              >
                 {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
               </p>
             </div>
-            <div className="p-4 rounded-xl bg-primary/[0.03] border border-primary/20 flex flex-col justify-between relative overflow-hidden">
+
+            {/* Winning Bond */}
+            <div className="flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">
                   {t("winningTicket")}
                 </p>
                 {entry.winningTicket && (
                   <button
-                    onClick={() =>
-                      handleCopy(
-                        formatTicketNumber(entry.winningTicket),
-                        "winningTicket"
-                      )
-                    }
-                    className="flex items-center gap-1 hover:text-primary transition cursor-pointer text-on-surface-variant text-[10px]"
-                    title="Copy bond number"
+                    onClick={handleCopyBond}
+                    className="text-[10px] text-on-surface-variant hover:text-primary transition cursor-pointer"
                   >
-                    {copiedField === "winningTicket" ? (
-                      <>
-                        <svg
-                          className="w-3 h-3 text-emerald-400"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                        <span className="text-emerald-400 font-semibold">
-                          {t("copied")}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                          />
-                        </svg>
-                        <span>{t("copy")}</span>
-                      </>
-                    )}
+                    {copiedBond ? t("copied") : t("copy")}
                   </button>
                 )}
               </div>
-              <p className="text-lg font-bold font-mono text-primary mt-1 flex items-center gap-1.5 truncate">
-                <span className="text-base shrink-0">🎫</span>
-                <span className="truncate">
-                  {formatTicketNumber(entry.winningTicket)}
+              <p className="text-base sm:text-lg font-bold font-mono text-on-surface mt-0.5 flex items-center gap-1.5 truncate">
+                <span aria-hidden="true">🎫</span>
+                <span>
+                  {entry.winningTicket
+                    ? formatTicketNumber(entry.winningTicket)
+                    : "—"}
                 </span>
               </p>
             </div>
-            <div className="p-4 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
+
+            {/* Verification Status */}
+            <div className="flex flex-col justify-between">
               <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
                 {t("verificationStatus")}
               </p>
               <div className="mt-1">
-                {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`] ? (
+                {isVoided ? (
+                  <span className="font-mono text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 inline-block">
+                    Prizes Revoked
+                  </span>
+                ) : crankingCycles[
+                    `${entry.drawCycleId}-${entry.winnerIndex}`
+                  ] ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 animate-pulse">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
                     {tLedger("cranking")}
@@ -287,13 +333,16 @@ export default function PrizeDetailsModal({
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Timelock Security Notice when processing */}
-          {entry.status === "processing" && timelockState.isTimelocked && (
-            <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-500/10 space-y-2">
+        {/* Timelock Security Notice when processing (strictly when not voided) */}
+        {!isVoided &&
+          entry.status === "processing" &&
+          timelockState.isTimelocked && (
+            <div className="p-3.5 rounded-xl border border-amber-500/25 bg-amber-500/10 space-y-1.5 shrink-0">
               <div className="flex items-center justify-between text-xs font-bold text-amber-300">
                 <span className="flex items-center gap-1.5">
-                  <span>🔒</span> {t("timelockActiveTitle")}
+                  <span aria-hidden="true">🔒</span> {t("timelockActiveTitle")}
                 </span>
                 <span className="font-mono bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-md text-amber-200">
                   {timelockState.formattedRemaining}
@@ -308,36 +357,42 @@ export default function PrizeDetailsModal({
             </div>
           )}
 
-          {/* Auto-Reinvestment Detail Section */}
-          {entry.status === "reinvested" && (
-            <PrizeReinvestmentBreakdown
-              amountWon={entry.amount}
-              breakdown={getEffectivePrizeBreakdown(entry, ticketPrice)}
-              config={{
-                tokenDecimals,
-                tokenSymbol,
-                bondPrice: ticketPrice,
-              }}
-              isOwnPrize={true}
-              isProcessed={true}
-            />
-          )}
+        {/* Auto-Reinvestment Receipt / Projected Ledger (rendered in all states!) */}
+        <div className="shrink-0">
+          <PrizeReinvestmentBreakdown
+            amountWon={entry.amount}
+            breakdown={breakdown}
+            config={{
+              tokenDecimals,
+              tokenSymbol,
+              bondPrice: effectiveBondPrice,
+            }}
+            isOwnPrize={true}
+            isProcessed={entry.status === "reinvested"}
+            isVoided={isVoided}
+          />
+        </div>
 
-          {/* Verification Code Fields */}
+        {/* Cryptographic Verification Proofs */}
+        <div className="shrink-0">
           <PrizeVerificationProofs
             vrfSeed={entry.vrfSeed}
             txSignature={entry.txSignature}
+            isVoided={isVoided}
           />
+        </div>
 
-          {/* Social Share Card */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-4 rounded-xl border border-primary/10 bg-primary/[0.02] gap-4">
+        {/* Social Share Card (rendered strictly when not voided) */}
+        {!isVoided && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-3.5 rounded-xl border border-primary/10 bg-primary/[0.02] gap-3 shrink-0">
             <div className="space-y-0.5">
-              <h5 className="text-sm font-semibold text-on-surface flex items-center gap-1.5">
+              <h5 className="text-xs font-semibold text-on-surface flex items-center gap-1.5 uppercase tracking-wider">
                 <svg
                   className="w-4 h-4 text-primary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"
@@ -355,14 +410,16 @@ export default function PrizeDetailsModal({
 
             <div className="relative">
               <button
+                type="button"
                 onClick={handleShare}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2.5 transition cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer"
               >
                 <svg
-                  className="w-4 h-4"
+                  className="w-3.5 h-3.5"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"
@@ -375,101 +432,101 @@ export default function PrizeDetailsModal({
               </button>
 
               {shareStatus && (
-                <div className="absolute right-0 top-full mt-2 z-10 whitespace-nowrap bg-emerald-500 text-surface-container text-[10px] font-bold px-2 py-1 rounded shadow-lg">
+                <div className="absolute right-0 top-full mt-1.5 z-10 whitespace-nowrap bg-emerald-500 text-surface-container text-[10px] font-bold px-2 py-0.5 rounded shadow-lg">
                   {shareStatus}
                 </div>
               )}
             </div>
           </div>
+        )}
 
-          {/* Action Row */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-surface-bright/5">
-            <button
-              onClick={handleClose}
-              className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-5 py-2.5 transition cursor-pointer"
-            >
-              {t("close")}
-            </button>
+        {/* Action Row */}
+        <div className="flex items-center justify-end gap-3 pt-3 border-t border-surface-bright/5 shrink-0">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 transition cursor-pointer"
+          >
+            {t("close")}
+          </button>
 
-            {entry.status === "processing" &&
-              (timelockState.isTimelocked ? (
-                <InteractiveTooltip
-                  ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
-                  align="right"
-                  side="top"
-                  triggerClassName="inline-flex p-0"
-                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                  content={<TimelockTooltipContent timelock={timelockState} />}
+          {!isVoided &&
+            entry.status === "processing" &&
+            (timelockState.isTimelocked ? (
+              <InteractiveTooltip
+                ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
+                align="right"
+                side="top"
+                triggerClassName="inline-flex p-0"
+                panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                content={<TimelockTooltipContent timelock={timelockState} />}
+              >
+                <span
+                  aria-disabled="true"
+                  className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
                 >
-                  <span
-                    aria-disabled="true"
-                    className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
-                  >
-                    <span>🔒</span> {tLedger("timelocked")} (
-                    {timelockState.formattedRemaining})
-                  </span>
-                </InteractiveTooltip>
-              ) : effectivePool?.isFrozenForDraw ? (
-                <InteractiveTooltip
-                  ariaLabel={tLedger("frozenCrankTooltip")}
-                  align="right"
-                  side="top"
-                  triggerClassName="inline-flex"
-                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                  content={
-                    <p className="text-xs leading-relaxed text-amber-200">
-                      {tLedger("frozenCrankTooltip")}
-                    </p>
-                  }
+                  <span aria-hidden="true">🔒</span> {tLedger("timelocked")} (
+                  {timelockState.formattedRemaining})
+                </span>
+              </InteractiveTooltip>
+            ) : effectivePool?.isFrozenForDraw ? (
+              <InteractiveTooltip
+                ariaLabel={tLedger("frozenCrankTooltip")}
+                align="right"
+                side="top"
+                triggerClassName="inline-flex"
+                panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
+                content={
+                  <p className="text-xs leading-relaxed text-amber-200">
+                    {tLedger("frozenCrankTooltip")}
+                  </p>
+                }
+              >
+                <span
+                  aria-disabled="true"
+                  className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs shrink-0"
                 >
-                  <span
-                    aria-disabled="true"
-                    className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs shrink-0"
-                  >
-                    <span>⏸️</span> {tLedger("frozenDrawStatus")}
-                  </span>
-                </InteractiveTooltip>
-              ) : (
-                <button
-                  disabled={
-                    !!crankingCycles[
-                      `${entry.drawCycleId}-${entry.winnerIndex}`
-                    ]
-                  }
-                  onClick={() =>
-                    onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
-                  }
-                  className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-5 py-2.5 transition shrink-0 ${
+                  <span aria-hidden="true">⏸️</span>{" "}
+                  {tLedger("frozenDrawStatus")}
+                </span>
+              </InteractiveTooltip>
+            ) : (
+              <button
+                type="button"
+                disabled={
+                  !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                }
+                onClick={() =>
+                  onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
+                }
+                className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 transition shrink-0 ${
+                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                    ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
+                    : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)]"
+                }`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={`animate-spin ${
                     crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                      ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                      : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)] animate-yield-pulse"
+                      ? "duration-1000 text-on-surface-variant/40"
+                      : "duration-3000"
                   }`}
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className={`animate-spin ${
-                      crankingCycles[
-                        `${entry.drawCycleId}-${entry.winnerIndex}`
-                      ]
-                        ? "duration-1000 text-on-surface-variant/40"
-                        : "duration-3000"
-                    }`}
-                  >
-                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-                  </svg>
-                  {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                    ? tLedger("cranking")
-                    : tLedger("runCrank")}
-                </button>
-              ))}
-          </div>
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
+                </svg>
+                {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+                  ? tLedger("cranking")
+                  : tLedger("runCrank")}
+              </button>
+            ))}
         </div>
       </div>
     </div>
