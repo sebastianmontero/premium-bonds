@@ -243,9 +243,9 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
   });
 
-  describe("Complete 51 Anchor Error Codes & Hex Parity", () => {
-    it("should contain all 51 Anchor error codes (6000 to 6050)", () => {
-      for (let code = 6000; code <= 6050; code++) {
+  describe("Complete 55 Anchor Error Codes & Hex Parity", () => {
+    it("should contain all 55 Anchor error codes (6000 to 6054)", () => {
+      for (let code = 6000; code <= 6054; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         assert.ok(item, `Error code ${code} must exist in ERROR_LOOKUP_ITEMS`);
         assert.strictEqual(
@@ -257,7 +257,7 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
 
     it("should have exact hex parity for all Anchor error codes (6000+x = 0x1770+x)", () => {
-      for (let code = 6000; code <= 6050; code++) {
+      for (let code = 6000; code <= 6054; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         const expectedHex = `0x${code.toString(16)}`;
         assert.strictEqual(

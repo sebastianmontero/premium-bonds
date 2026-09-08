@@ -76,7 +76,7 @@ export const ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT = 0x178c; // 6028
 export const ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED = 0x178d; // 6029
 /** StaleRandomnessRequest: The randomness request is stale or was committed before the harvest freeze. */
 export const ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST = 0x178e; // 6030
-/** RandomnessNotExpired: The randomness account cannot be re-locked because the current one is not yet expired. */
+/** RandomnessNotExpired: RandomnessNotExpired */
 export const ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED = 0x178f; // 6031
 /** InvalidUserEntryHint: Invalid registry user entry hint provided */
 export const ANCHOR_ERROR__INVALID_USER_ENTRY_HINT = 0x1790; // 6032
@@ -118,6 +118,12 @@ export const ANCHOR_ERROR__WINNER_MISMATCH = 0x17a1; // 6049
 export const ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION = 0x17a2; // 6050
 /** SameRandomnessAccount: Cannot rebind to the same randomness account. */
 export const ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT = 0x17a3; // 6051
+/** TooManyWinners: Winner count exceeds payout registry capacity */
+export const ANCHOR_ERROR__TOO_MANY_WINNERS = 0x17a4; // 6052
+/** InvalidHumaPoolData: Huma pool account data is truncated or malformed */
+export const ANCHOR_ERROR__INVALID_HUMA_POOL_DATA = 0x17a5; // 6053
+/** InvalidRegistryState: Ticket registry buffer layout or alignment is invalid */
+export const ANCHOR_ERROR__INVALID_REGISTRY_STATE = 0x17a6; // 6054
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -138,6 +144,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATUS
   | typeof ANCHOR_ERROR__INVALID_FEE_CONFIG
   | typeof ANCHOR_ERROR__INVALID_FEE_WALLET
+  | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_DATA
   | typeof ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS
   | typeof ANCHOR_ERROR__INVALID_MODE_MINT
   | typeof ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK
@@ -145,6 +152,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG
   | typeof ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_OWNER
+  | typeof ANCHOR_ERROR__INVALID_REGISTRY_STATE
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
   | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
@@ -165,6 +173,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__REGISTRY_TOO_SMALL
   | typeof ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST
+  | typeof ANCHOR_ERROR__TOO_MANY_WINNERS
   | typeof ANCHOR_ERROR__UNAUTHORIZED
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
@@ -194,6 +203,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_DRAW_STATUS]: `The draw cycle is in an invalid phase for this operation`,
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_FEE_WALLET]: `The provided fee wallet account is invalid or does not match the pool configuration`,
+    [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: `Huma pool account data is truncated or malformed`,
     [ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS]: `Max yield basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_MODE_MINT]: `The mode mint does not match the pool's mode mint.`,
     [ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK]: `Payout timelock delay must not exceed 86,400 seconds (24 hours).`,
@@ -201,6 +211,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: `Invalid prize tier configuration.`,
     [ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT]: `The provided randomness account is invalid or does not belong to Switchboard.`,
     [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `Beneficiary does not match pending redemption owner.`,
+    [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: `Ticket registry buffer layout or alignment is invalid`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,
@@ -214,13 +225,14 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
     [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
-    [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `The randomness account cannot be re-locked because the current one is not yet expired.`,
+    [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `RandomnessNotExpired`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,
     [ANCHOR_ERROR__REGISTRY_FULL]: `The prize pool registration capability has hit absolute capacity constraints.`,
     [ANCHOR_ERROR__REGISTRY_TOO_SMALL]: `The registry account is too small. Client must pre-allocate at least REGISTRY_INITIAL_SIZE bytes.`,
     [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: `Cannot rebind to the same randomness account.`,
     [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: `The randomness request is stale or was committed before the harvest freeze.`,
+    [ANCHOR_ERROR__TOO_MANY_WINNERS]: `Winner count exceeds payout registry capacity`,
     [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,

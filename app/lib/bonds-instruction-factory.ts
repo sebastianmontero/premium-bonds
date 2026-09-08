@@ -1,5 +1,6 @@
 import {
   Address,
+  AccountRole,
   type Instruction,
   type Rpc,
   type GetAccountInfoApi,
@@ -127,7 +128,7 @@ export async function buildSellBondsInstruction(params: {
       );
       remainingAccounts.push({
         address: swappedUserWinningsPda,
-        role: 1 /* writable */,
+        role: AccountRole.WRITABLE,
       });
     }
   }

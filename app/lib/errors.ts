@@ -51,6 +51,9 @@ import {
   ANCHOR_ERROR__WINNER_MISMATCH,
   ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION,
   ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT,
+  ANCHOR_ERROR__TOO_MANY_WINNERS,
+  ANCHOR_ERROR__INVALID_HUMA_POOL_DATA,
+  ANCHOR_ERROR__INVALID_REGISTRY_STATE,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -438,6 +441,24 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Cannot rebind to the same randomness account.",
     actionable:
       "Provide a different Switchboard randomness account that was freshly initialized.",
+  },
+  [ANCHOR_ERROR__TOO_MANY_WINNERS]: {
+    name: "TooManyWinners",
+    message: "Configured winner count exceeds payout registry capacity.",
+    actionable:
+      "Adjust prize tiers so the total number of winners does not exceed 50.",
+  },
+  [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: {
+    name: "InvalidHumaPoolData",
+    message: "Huma pool account data is truncated or malformed.",
+    actionable:
+      "Verify the Huma Protocol liquidity pool state and configuration accounts.",
+  },
+  [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: {
+    name: "InvalidRegistryState",
+    message: "Ticket registry buffer layout or alignment is invalid.",
+    actionable:
+      "Ensure ticket registry account data has sufficient byte capacity and valid memory layout.",
   },
 };
 

@@ -27,7 +27,7 @@ function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
   return {
     signer,
     rpcUrl: "http://127.0.0.1:8899",
-    maxPrepareBatchSize: 200,
+    maxPrepareBatchSize: 500,
     maxReinvestBatchSize: 5,
     enableAutoDisburse: true,
     dryRun: true,
@@ -35,9 +35,7 @@ function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
 }
 
 describe("Strategy Workers Unit Tests", () => {
-  it("HarvestYieldWorker should evaluate due harvest and report 150k CU", async () => {
-    const signer = await generateKeyPairSigner();
-    const ctx = createMockContext(signer);
+  it("HarvestYieldWorker should evaluate due harvest and report 150k CU", () => {
     const vrf = new MockVrfProvider();
     const worker = new HarvestYieldWorker(vrf);
 
@@ -51,6 +49,7 @@ describe("Strategy Workers Unit Tests", () => {
       currentTimestamp: toUnixTimestamp(1000),
       state: "YIELD_HARVEST_READY" as const,
       currentCycleId: toDrawCycleId(1),
+      dueTimestamp: toUnixTimestamp(900),
     };
 
     const decision = worker.evaluate(snapshot);
@@ -80,13 +79,11 @@ describe("Strategy Workers Unit Tests", () => {
 
     const decision = worker.evaluate(snapshot, ctx);
     assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /200 users/);
-    assert.strictEqual(worker.getComputeUnitLimit(), 150_000);
+    assert.match(decision.reason, /250 users/);
+    assert.strictEqual(worker.getComputeUnitLimit(snapshot), 100_000);
   });
 
-  it("RebindRandomnessWorker should trigger rebind on expired VRF", async () => {
-    const signer = await generateKeyPairSigner();
-    const ctx = createMockContext(signer);
+  it("RebindRandomnessWorker should trigger rebind on expired VRF", () => {
     const vrf = new MockVrfProvider();
     const worker = new RebindRandomnessWorker(vrf);
 
@@ -110,9 +107,7 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(worker.getComputeUnitLimit(), 120_000);
   });
 
-  it("AtomicRevealWorker should evaluate ready draw and report 500k CU", async () => {
-    const signer = await generateKeyPairSigner();
-    const ctx = createMockContext(signer);
+  it("AtomicRevealWorker should evaluate ready draw and report 500k CU", () => {
     const vrf = new MockVrfProvider();
     const worker = new AtomicRevealWorker(vrf);
 
@@ -169,9 +164,7 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(worker.getComputeUnitLimit(snapshot), 400_000);
   });
 
-  it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", async () => {
-    const signer = await generateKeyPairSigner();
-    const ctx = createMockContext(signer);
+  it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", () => {
     const sentinel = new CapacitySentinelWorker();
 
     const baseSnapshot = {

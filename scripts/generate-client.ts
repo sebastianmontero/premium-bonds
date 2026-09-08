@@ -74,6 +74,47 @@ function fixAllGeneratedFiles(dirPath: string) {
   }
 }
 
+function parseAnchorErrors(
+  errorRsPath: string
+): { code: number; name: string; msg: string }[] {
+  if (!fs.existsSync(errorRsPath)) return [];
+  const content = fs.readFileSync(errorRsPath, "utf-8");
+  const errors: { code: number; name: string; msg: string }[] = [];
+  let baseCode = 6000;
+
+  const enumMatch = content.match(
+    /pub\s+enum\s+PremiumBondsError\s*\{([\s\S]*?)\}/
+  );
+  if (!enumMatch) return [];
+
+  const enumBody = enumMatch[1];
+  const lines = enumBody.split("\n");
+  let currentMsg = "";
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith("//") || line.startsWith("///")) continue;
+
+    const msgMatch = line.match(/#\[msg\("([^"]+)"\)\]/);
+    if (msgMatch) {
+      currentMsg = msgMatch[1];
+      continue;
+    }
+
+    const variantMatch = line.match(/^([A-Za-z0-9_]+),?/);
+    if (variantMatch && variantMatch[1] && !variantMatch[1].startsWith("#")) {
+      const name = variantMatch[1];
+      errors.push({
+        code: baseCode++,
+        name,
+        msg: currentMsg || name,
+      });
+      currentMsg = "";
+    }
+  }
+  return errors;
+}
+
 async function main() {
   console.log("Generating Codama TypeScript clients from Anchor IDLs...");
 
@@ -90,6 +131,16 @@ async function main() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const yieldBondsIdl = JSON.parse(fs.readFileSync(yieldBondsPath, "utf-8"));
+
+  // Ensure errors from error.rs are populated in IDL
+  const errorRsPath = path.resolve(
+    __dirname,
+    "../anchor/programs/anchor/src/error.rs"
+  );
+  const parsedErrors = parseAnchorErrors(errorRsPath);
+  if (parsedErrors.length > 0) {
+    yieldBondsIdl.errors = parsedErrors;
+  }
 
   // Clean self-referential or account-field PDA seeds from IDL accounts before building Codama AST
   if (Array.isArray(yieldBondsIdl.instructions)) {

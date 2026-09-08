@@ -54,7 +54,7 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
       process.env.ENABLE_AUTO_DISBURSE !== "false",
     maxPrepareBatchSize:
       overrides?.maxPrepareBatchSize ??
-      parseNumber(process.env.MAX_PREPARE_BATCH_SIZE, 200),
+      parseNumber(process.env.MAX_PREPARE_BATCH_SIZE, 500),
     maxReinvestBatchSize:
       overrides?.maxReinvestBatchSize ??
       parseNumber(process.env.MAX_REINVEST_BATCH_SIZE, 5),

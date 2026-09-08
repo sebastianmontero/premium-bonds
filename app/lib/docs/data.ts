@@ -1371,7 +1371,7 @@ Sí. Los contratos inteligentes están desarrollados con Anchor en Rust, probado
 ];
 
 // =========================================================================
-// Complete 51 Anchor Error Codes (6000-6050) + Standard Solana Errors
+// Complete 55 Anchor Error Codes (6000-6054) + Standard Solana Errors
 // =========================================================================
 export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
   // Standard Solana & Wallet Errors
@@ -2200,6 +2200,10 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     numericCode: 6050,
     hexCode: "0x17a2",
     name: "UnsupportedAccountVersion",
+    summary: {
+      en: "Account data schema version is invalid or incompatible.",
+      es: "La versión del esquema de la cuenta es inválida o incompatible.",
+    },
     diagnosis: {
       en: "Account data schema version is invalid or incompatible with the current program version.",
       es: "La versión del esquema de la cuenta es inválida o incompatible con la versión actual del programa.",
@@ -2207,6 +2211,82 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     solution: {
       en: "Re-initialize or upgrade the account to the current version (CURRENT_VERSION = 1).",
       es: "Reinicializa o actualiza la cuenta a la versión actual (CURRENT_VERSION = 1).",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6051",
+    numericCode: 6051,
+    hexCode: "0x17a3",
+    name: "SameRandomnessAccount",
+    summary: {
+      en: "Cannot rebind randomness to identical account.",
+      es: "No se puede revincular la aleatoriedad a la misma cuenta.",
+    },
+    diagnosis: {
+      en: "Cannot rebind randomness to the identical Switchboard account.",
+      es: "No se puede revincular la aleatoriedad a la misma cuenta de Switchboard.",
+    },
+    solution: {
+      en: "Initialize and provide a fresh Switchboard randomness account.",
+      es: "Inicializa y proporciona una nueva cuenta de aleatoriedad de Switchboard.",
+    },
+    category: "crank",
+  },
+  {
+    code: "6052",
+    numericCode: 6052,
+    hexCode: "0x17a4",
+    name: "TooManyWinners",
+    summary: {
+      en: "Winner count exceeds registry capacity.",
+      es: "El número de ganadores excede la capacidad del registro.",
+    },
+    diagnosis: {
+      en: "Total configured winners across prize tiers exceed PayoutRegistry capacity.",
+      es: "El total de ganadores configurados excede la capacidad del PayoutRegistry.",
+    },
+    solution: {
+      en: "Reconfigure prize tiers so the sum of winners is <= 50.",
+      es: "Reconfigura los niveles de premios para que la suma de ganadores sea <= 50.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6053",
+    numericCode: 6053,
+    hexCode: "0x17a5",
+    name: "InvalidHumaPoolData",
+    summary: {
+      en: "Huma pool state account data is malformed.",
+      es: "Los datos de la cuenta del fondo Huma están malformados.",
+    },
+    diagnosis: {
+      en: "Huma pool account buffer is truncated, missing mode states, or malformed.",
+      es: "El búfer de la cuenta del fondo Huma está truncado o malformado.",
+    },
+    solution: {
+      en: "Verify that the Huma pool state account is initialized and accessible.",
+      es: "Verifica que la cuenta de estado del fondo Huma esté inicializada y accesible.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6054",
+    numericCode: 6054,
+    hexCode: "0x17a6",
+    name: "InvalidRegistryState",
+    summary: {
+      en: "Ticket registry buffer layout is invalid.",
+      es: "La estructura del registro de boletos es inválida.",
+    },
+    diagnosis: {
+      en: "Ticket registry buffer byte range is out of bounds or memory alignment is violated.",
+      es: "El rango de bytes del registro de boletos está fuera de límites o desalineado.",
+    },
+    solution: {
+      en: "Resize registry account to accommodate all active depositors.",
+      es: "Redimensiona la cuenta de registro para dar cabida a todos los depositantes.",
     },
     category: "anchor",
   },

@@ -51,7 +51,11 @@ export class PrepareDrawWorker implements ICrankWorker<
     return [ix];
   }
 
-  getComputeUnitLimit(): number {
-    return 150_000;
+  getComputeUnitLimit(
+    snapshot: Extract<PoolStateSnapshot, { state: "PREPARE_BATCHING" }>
+  ): number {
+    const remaining = Math.max(1, snapshot.total - snapshot.cursor);
+    const effectiveBatch = Math.min(500, remaining);
+    return Math.min(200_000, Math.max(100_000, 30_000 + effectiveBatch * 180));
   }
 }

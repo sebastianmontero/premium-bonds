@@ -12,9 +12,7 @@ import {
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
-import {
-  resolvePrizeBreakdown,
-} from "@/app/lib/draw-helpers";
+import { resolvePrizeBreakdown } from "@/app/lib/draw-helpers";
 import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
 import { useTranslations, useFormatter } from "next-intl";

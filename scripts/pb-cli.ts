@@ -198,7 +198,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       {
         flag: "--batch-size <num>",
         description: "Maximum entries to process per transaction batch",
-        default: "1000",
+        default: "500",
       },
     ],
     examples: [
@@ -1174,7 +1174,7 @@ export interface ExecutePrepareDrawParams {
 export async function executePrepareDraw({
   poolId = 1,
   cycleId,
-  batchSize = 1000,
+  batchSize = 500,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
 }: ExecutePrepareDrawParams) {
@@ -3356,7 +3356,7 @@ async function main() {
     }
 
     case "prepare-draw": {
-      const batchSize = parseInt(options["--batch-size"] || "1000", 10);
+      const batchSize = parseInt(options["--batch-size"] || "500", 10);
       const cycleId = options["--cycle"]
         ? parseInt(options["--cycle"], 10)
         : undefined;
