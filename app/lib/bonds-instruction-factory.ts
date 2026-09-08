@@ -15,6 +15,7 @@ import {
 } from "./generated/yield-bonds/src/generated/instructions";
 import {
   findPrizePoolPda,
+  findPayoutRegistryPda,
   findUserWinningsPda,
   findPoolVaultPda,
   findPoolPstVaultPda,
@@ -42,6 +43,25 @@ import {
 } from "./ticket-registry-helpers";
 import type { PoolId } from "./query-keys";
 
+/**
+ * Elevates account metadata for a signer address to AccountRole.WRITABLE_SIGNER
+ * without attaching a conflicting .signer property, ensuring correct message
+ * header compilation without triggering runtime duplicate signer collisions.
+ */
+export function elevateSignerRole(
+  instruction: Instruction,
+  signerAddress: Address
+): Instruction {
+  return {
+    ...instruction,
+    accounts: instruction.accounts?.map((acc) =>
+      acc.address === signerAddress
+        ? { ...acc, role: AccountRole.WRITABLE_SIGNER }
+        : acc
+    ),
+  };
+}
+
 export async function buildBuyBondsInstruction(params: {
   poolId: PoolId;
   userAddress: Address;
@@ -58,7 +78,7 @@ export async function buildBuyBondsInstruction(params: {
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
   const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
-  return getBuyBondsInstructionAsync({
+  const ix = await getBuyBondsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
     userWinnings,
     pool,
@@ -77,6 +97,8 @@ export async function buildBuyBondsInstruction(params: {
     pstTokenProgram: TOKEN_PROGRAM_ID,
     ticketsToBuy: params.ticketsToBuy,
   });
+
+  return elevateSignerRole(ix, params.userAddress);
 }
 
 export async function buildSellBondsInstruction(params: {
@@ -166,10 +188,13 @@ export async function buildSellBondsInstruction(params: {
     pendingToSell: params.pendingToSell,
   });
 
-  return {
-    ...ix,
-    accounts: [...(ix.accounts || []), ...remainingAccounts],
-  };
+  return elevateSignerRole(
+    {
+      ...ix,
+      accounts: [...(ix.accounts || []), ...remainingAccounts],
+    },
+    params.userAddress
+  );
 }
 
 export async function buildClaimRedemptionInstruction(params: {
@@ -186,7 +211,7 @@ export async function buildClaimRedemptionInstruction(params: {
   const poolVaultAccount = await findPoolVaultPda(params.poolId);
   const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
-  return getClaimRedemptionInstructionAsync({
+  const ix = await getClaimRedemptionInstructionAsync({
     caller: params.userAddress as unknown as TransactionSigner,
     beneficiary: params.userAddress,
     pool,
@@ -202,6 +227,8 @@ export async function buildClaimRedemptionInstruction(params: {
     humaPoolAuthority,
     humaPoolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
   });
+
+  return elevateSignerRole(ix, params.userAddress);
 }
 
 export async function buildReinvestWinningsInstruction(params: {
@@ -214,12 +241,13 @@ export async function buildReinvestWinningsInstruction(params: {
 }): Promise<Instruction> {
   const winner = params.winnerAddress ?? params.userAddress;
   const pool = await findPrizePoolPda(params.poolId);
-  const payoutRegistry = await import("./bonds-sdk").then((m) =>
-    m.findPayoutRegistryPda(params.poolId, params.cycleId)
+  const payoutRegistry = await findPayoutRegistryPda(
+    params.poolId,
+    params.cycleId
   );
   const userWinnings = await findUserWinningsPda(params.poolId, winner);
 
-  return getReinvestWinningsInstructionAsync({
+  const ix = await getReinvestWinningsInstructionAsync({
     crank: params.userAddress as unknown as TransactionSigner,
     winner,
     payoutRegistry,
@@ -229,6 +257,8 @@ export async function buildReinvestWinningsInstruction(params: {
     cycleId: params.cycleId,
     winnerIndex: params.winnerIndex,
   });
+
+  return elevateSignerRole(ix, params.userAddress);
 }
 
 export async function buildClaimNonReinvestedWinningsInstruction(params: {
@@ -249,7 +279,7 @@ export async function buildClaimNonReinvestedWinningsInstruction(params: {
   );
   const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
 
-  return getClaimNonReinvestedWinningsInstructionAsync({
+  const ix = await getClaimNonReinvestedWinningsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
     pool,
     userWinnings,
@@ -266,4 +296,6 @@ export async function buildClaimNonReinvestedWinningsInstruction(params: {
     humaPoolModeToken: HUMA_POOL_MODE_TOKEN,
     pstTokenProgram: TOKEN_PROGRAM_ID,
   });
+
+  return elevateSignerRole(ix, params.userAddress);
 }

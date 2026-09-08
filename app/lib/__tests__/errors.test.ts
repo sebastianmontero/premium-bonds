@@ -291,4 +291,103 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     const defaultTheme = getErrorCategoryTheme("unknown");
     assert.strictEqual(defaultTheme.icon, "⚠️");
   });
+
+  it("should parse SolanaError 7618003 wrapping JSON-RPC -32603 wallet error", () => {
+    const kitPlanErr = {
+      message:
+        "The provided transaction plan failed to execute. See the transactionPlanResult attribute for more details.",
+      context: { __code: 7618003 },
+      transactionPlanResult: {
+        results: [
+          {
+            error: {
+              code: -32603,
+              message: "Unexpected error during transaction simulation",
+            },
+          },
+        ],
+      },
+    };
+
+    const parsed = parseTransactionError(kitPlanErr);
+    assert.strictEqual(parsed.category, "network_rpc");
+    assert.strictEqual(parsed.code, -32603);
+    assert.strictEqual(parsed.title, "Wallet Simulation or Network Error");
+    assert.ok(
+      parsed.actionableStep?.includes("unlocked") ||
+        parsed.actionableStep?.includes("network")
+    );
+  });
+
+  it("should prioritize inner Anchor domain errors over outer JSON-RPC -32603", () => {
+    const rpcErrWithAnchorLogs = {
+      code: -32603,
+      message: "Internal JSON-RPC simulation error",
+      data: {
+        logs: [
+          "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
+          "Program log: AnchorError thrown in programs/yield_bonds/src/instructions/claim_redemption.rs:42. Error Code: HumaRedemptionNotSettled. Error Number: 6020. Error Message: Huma redemption request is not yet settled or approved.",
+          "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx failed: custom program error: 0x1784",
+        ],
+      },
+    };
+
+    const parsed = parseTransactionError(rpcErrWithAnchorLogs);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6020);
+    assert.strictEqual(parsed.title, "Program Error: HumaRedemptionNotSettled");
+  });
+
+  it("should disambiguate -32002 between duplicate transaction and non-duplicate simulation failure", () => {
+    // 1. Duplicate transaction with AlreadyProcessed
+    const dupErr = {
+      code: -32002,
+      message: "Transaction simulation failed",
+      data: { err: "AlreadyProcessed" },
+    };
+    const parsedDup = parseTransactionError(dupErr);
+    assert.strictEqual(parsedDup.category, "duplicate_transaction");
+    assert.strictEqual(parsedDup.code, -32002);
+    assert.strictEqual(parsedDup.title, "Transaction Already Processed");
+
+    // 2. Non-duplicate simulation failure with generic logs
+    const simFailErr = {
+      code: -32002,
+      message: "Transaction simulation failed: invalid instruction parameters",
+      data: {
+        logs: [
+          "Program 11111111111111111111111111111111 invoke [1]",
+          "Program 11111111111111111111111111111111 failed: invalid instruction parameters",
+        ],
+      },
+    };
+    const parsedSim = parseTransactionError(simFailErr);
+    assert.strictEqual(parsedSim.category, "network_rpc");
+    assert.strictEqual(parsedSim.code, -32002);
+    assert.strictEqual(parsedSim.title, "Transaction Simulation Failed");
+    assert.strictEqual(parsedSim.logs?.length, 2);
+  });
+
+  it("should detect deeply nested wallet rejection code 4001 via graph traversal", () => {
+    const deepNestedRejection = {
+      name: "TransactionExecutionError",
+      message: "Transaction plan execution failed",
+      cause: {
+        name: "SendTransactionError",
+        cause: {
+          error: {
+            code: 4001,
+            message: "User rejected the request from wallet UI.",
+          },
+        },
+      },
+    };
+
+    const parsed = parseTransactionError(deepNestedRejection);
+    assert.strictEqual(parsed.isCancellation, true);
+    assert.strictEqual(parsed.layer, "wallet");
+    assert.strictEqual(parsed.code, 4001);
+    assert.strictEqual(parsed.title, "Transaction Cancelled");
+  });
 });

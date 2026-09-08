@@ -24,6 +24,8 @@ test("bonds-instruction-factory: builds buy bonds instruction with all derived a
   assert.ok(ix);
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 21);
+  assert.equal(ix.accounts[0].address, dummyUser);
+  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
   assert.ok(ix.data && ix.data.length > 8);
 });
 
@@ -41,6 +43,8 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
   assert.ok(ix);
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 19);
+  assert.equal(ix.accounts[0].address, dummyUser);
+  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for self", async () => {
@@ -58,6 +62,8 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for self",
   assert.ok(ix);
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 9);
+  assert.equal(ix.accounts[0].address, dummyUser);
+  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for third-party crank", async () => {
@@ -77,6 +83,8 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for third-
   assert.ok(ix);
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 9);
+  assert.equal(ix.accounts[0].address, dummyCrank);
+  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
 });
 
 test("bonds-instruction-factory: builds claim non-reinvested winnings instruction", async () => {
@@ -92,6 +100,8 @@ test("bonds-instruction-factory: builds claim non-reinvested winnings instructio
   assert.ok(ix);
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 20);
+  assert.equal(ix.accounts[0].address, dummyUser);
+  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
 });
 
 test("bonds-instruction-factory: builds sell bonds instruction with positional remaining accounts on full exit", async () => {
@@ -203,6 +213,8 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
   assert.ok(ix.accounts);
   // Base accounts (22) + 1 remaining account = 23
   assert.equal(ix.accounts.length, 23);
+  assert.equal(ix.accounts[0].address, dummyUser);
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
   const remainingAccount = ix.accounts[ix.accounts.length - 1];
   assert.equal(remainingAccount.role, AccountRole.WRITABLE);
 });

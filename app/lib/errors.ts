@@ -701,15 +701,148 @@ export const SPL_TOKEN_ERRORS: Record<
   },
 };
 
+export interface ErrorTraversalResult {
+  messages: string[];
+  logs: string[];
+  codes: (number | string)[];
+  planErrorMessage: string | null;
+}
+
+/**
+ * Traverses an error graph recursively with cycle protection and bounded depth
+ * to extract messages, simulation logs, error codes, and plan errors.
+ */
+export function traverseErrorGraph(
+  root: unknown,
+  maxDepth = 6,
+  seen = new Set<object>()
+): ErrorTraversalResult {
+  const result: ErrorTraversalResult = {
+    messages: [],
+    logs: [],
+    codes: [],
+    planErrorMessage: null,
+  };
+
+  const visit = (node: unknown, depth: number) => {
+    if (!node || depth > maxDepth) return;
+    if (typeof node === "string") {
+      result.messages.push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    if (typeof node !== "object" || node === null) return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    const o = node as Record<string, unknown>;
+    if (typeof o.message === "string") result.messages.push(o.message);
+    if (typeof o.name === "string") result.messages.push(o.name);
+    if (typeof o.code === "number" || typeof o.code === "string") {
+      result.codes.push(o.code);
+    }
+    if (o.Custom !== undefined) {
+      result.codes.push(o.Custom as number | string);
+    }
+    if (o.custom !== undefined) {
+      result.codes.push(o.custom as number | string);
+    }
+    if (o.InstructionError !== undefined) {
+      visit(o.InstructionError, depth + 1);
+    }
+    if (Array.isArray(o.logs)) {
+      for (const l of o.logs) {
+        if (typeof l === "string") result.logs.push(l);
+      }
+    }
+    if (o.context && typeof o.context === "object") {
+      const ctx = o.context as Record<string, unknown>;
+      if (Array.isArray(ctx.logs)) {
+        for (const l of ctx.logs) {
+          if (typeof l === "string") result.logs.push(l);
+        }
+      }
+      if (ctx.code !== undefined) {
+        result.codes.push(ctx.code as number | string);
+      }
+      if (ctx.__code !== undefined) {
+        result.codes.push(ctx.__code as number | string);
+      }
+    }
+    if (o.data && typeof o.data === "object") {
+      const data = o.data as Record<string, unknown>;
+      if (Array.isArray(data.logs)) {
+        for (const l of data.logs) {
+          if (typeof l === "string") result.logs.push(l);
+        }
+      }
+      if (typeof data.err === "string") {
+        result.messages.push(data.err);
+      }
+      if (data.err && typeof data.err === "object") {
+        visit(data.err, depth + 1);
+      }
+    }
+    if (o.simulationResponse && typeof o.simulationResponse === "object") {
+      const sim = o.simulationResponse as Record<string, unknown>;
+      if (Array.isArray(sim.logs)) {
+        for (const l of sim.logs) {
+          if (typeof l === "string") result.logs.push(l);
+        }
+      }
+    }
+    if (o.transactionPlanResult && !result.planErrorMessage) {
+      const plan = o.transactionPlanResult as Record<string, unknown>;
+      const results = plan.results as
+        | Array<Record<string, unknown>>
+        | undefined;
+      const err = plan.error ?? results?.[0]?.error;
+      if (typeof err === "string") {
+        result.planErrorMessage = err;
+      } else if (err && typeof err === "object") {
+        const errRecord = err as Record<string, unknown>;
+        result.planErrorMessage =
+          typeof errRecord.message === "string"
+            ? errRecord.message
+            : JSON.stringify(err);
+      }
+    }
+
+    if (o.cause) visit(o.cause, depth + 1);
+    if (o.error) visit(o.error, depth + 1);
+    if (o.context) visit(o.context, depth + 1);
+    if (o.transactionPlanResult) visit(o.transactionPlanResult, depth + 1);
+    if (Array.isArray(o.results)) {
+      for (const r of o.results) visit(r, depth + 1);
+    }
+  };
+
+  visit(root, 0);
+  return result;
+}
+
 /**
  * Helper to test whether an error is a user wallet rejection (code 4001 or cancellation text).
  */
-function isWalletCancellation(err: unknown): boolean {
+export function isWalletCancellation(err: unknown): boolean {
   if (!err) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = err as any;
 
-  if (e?.code === 4001 || e?.name === "UserRejectedRequestError") {
+  if (
+    e?.code === 4001 ||
+    e?.cause?.code === 4001 ||
+    e?.error?.code === 4001 ||
+    e?.name === "UserRejectedRequestError"
+  ) {
+    return true;
+  }
+
+  const traversal = traverseErrorGraph(err);
+  if (traversal.codes.includes(4001) || traversal.codes.includes("4001")) {
     return true;
   }
 
@@ -717,45 +850,15 @@ function isWalletCancellation(err: unknown): boolean {
     typeof e?.message === "string" ? e.message : "",
     typeof e?.cause?.message === "string" ? e.cause.message : "",
     typeof e?.cause === "string" ? e.cause : "",
+    ...traversal.messages,
     String(err),
   ];
-
-  if (e?.transactionPlanResult) {
-    try {
-      msgParts.push(JSON.stringify(e.transactionPlanResult));
-    } catch {
-      // Ignored
-    }
-  }
 
   const fullText = msgParts.join(" ");
   const isCancelPattern =
     /user (rejected|cancell?ed|declined|denied)|transaction (cancell?ed|rejected)|cancell?ed by user|rejected the request/i;
 
   return isCancelPattern.test(fullText);
-}
-
-/**
- * Extract logs array from error or simulation response if available.
- */
-function extractLogs(err: unknown): string[] {
-  if (!err) return [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const e = err as any;
-  if (Array.isArray(e?.logs)) return e.logs;
-  if (Array.isArray(e?.context?.logs)) return e.context.logs;
-  if (Array.isArray(e?.context?.data?.logs)) return e.context.data.logs;
-  if (Array.isArray(e?.simulationResponse?.logs))
-    return e.simulationResponse.logs;
-  if (Array.isArray(e?.cause?.logs)) return e.cause.logs;
-  if (Array.isArray(e?.cause?.context?.logs)) return e.cause.context.logs;
-
-  if (Array.isArray(e?.transactionPlanResult?.results)) {
-    for (const res of e.transactionPlanResult.results) {
-      if (Array.isArray(res?.logs)) return res.logs;
-    }
-  }
-  return [];
 }
 
 /**
@@ -769,13 +872,17 @@ export function matchAnchorError(input: unknown): {
 } | null {
   if (!input) return null;
 
-  // 1. Direct object inspection (e.g. err.context?.code, err.cause?.context?.code, err.code)
+  // 1. Direct object inspection (e.g. err.context?.code, err.cause?.context?.code, err.code, err.Custom)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const errObj = input as any;
   const directCode =
     errObj?.context?.code ??
     errObj?.cause?.context?.code ??
     errObj?.code ??
+    errObj?.Custom ??
+    errObj?.custom ??
+    errObj?.InstructionError?.[1]?.Custom ??
+    errObj?.InstructionError?.[1]?.custom ??
     (typeof input === "number" ? input : null);
 
   if (typeof directCode === "number") {
@@ -795,7 +902,16 @@ export function matchAnchorError(input: unknown): {
     }
   }
 
-  const text = typeof input === "string" ? input : String(input);
+  let text = "";
+  if (typeof input === "string") {
+    text = input;
+  } else {
+    try {
+      text = JSON.stringify(input) + " " + String(input);
+    } catch {
+      text = String(input);
+    }
+  }
 
   // 2. Hex or decimal error pattern matching in string/logs
   const match =
@@ -991,32 +1107,6 @@ export function matchSquadsError(
 }
 
 /**
- * Helper to recursively extract underlying error messages from `@solana/kit` transactionPlanResult objects.
- */
-function extractPlanErrorMessage(err: unknown): string | null {
-  if (!err) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const e = err as any;
-  const target =
-    e?.transactionPlanResult?.error ??
-    e?.transactionPlanResult?.results?.[0]?.error;
-
-  if (target) {
-    if (typeof target === "string") return target;
-    if (typeof target === "object" && target !== null) {
-      const obj = target as Record<string, unknown>;
-      return typeof obj.message === "string"
-        ? obj.message
-        : JSON.stringify(target);
-    }
-  }
-  if (e?.cause) {
-    return extractPlanErrorMessage(e.cause);
-  }
-  return null;
-}
-
-/**
  * Sanitizes raw error strings to remove developer deprecation warnings,
  * internal object instructions, ANSI color codes, stack traces, and raw RPC endpoint URLs.
  */
@@ -1064,61 +1154,6 @@ export function sanitizeErrorMessage(rawMsg: string): string {
   }
 
   return clean;
-}
-
-/**
- * Helper to parse transaction errors from `@solana/kit`, wallet-standard adapters,
- * Anchor, and System program, identifying user cancellations gracefully and formatting
- * error messages according to the Solana error handling skill playbook.
- *
- * @param err - The raw error object caught from a transaction sending process.
- * @returns A structured `ParsedTransactionError` object.
- */
-function extractAllErrorText(err: unknown): string {
-  if (!err) return "";
-  const parts: string[] = [];
-
-  const visit = (obj: unknown, depth = 0) => {
-    if (!obj || depth > 6) return;
-    if (typeof obj === "string") {
-      parts.push(obj);
-      return;
-    }
-    if (typeof obj === "object" && obj !== null) {
-      const o = obj as Record<string, unknown>;
-      if (typeof o.message === "string") parts.push(o.message);
-      if (typeof o.name === "string") parts.push(o.name);
-      if (typeof o.code === "string" || typeof o.code === "number") {
-        parts.push(String(o.code));
-      }
-      if (o.cause) visit(o.cause, depth + 1);
-      if (o.error) visit(o.error, depth + 1);
-      if (o.context) visit(o.context, depth + 1);
-      if (o.transactionPlanResult) visit(o.transactionPlanResult, depth + 1);
-      if (Array.isArray(o.results)) {
-        for (const res of o.results) visit(res, depth + 1);
-      }
-      if (Array.isArray(o.logs)) {
-        for (const log of o.logs) {
-          if (typeof log === "string") parts.push(log);
-        }
-      }
-    }
-  };
-
-  visit(err);
-  try {
-    parts.push(JSON.stringify(err));
-  } catch {
-    // Ignored
-  }
-  try {
-    parts.push(String(err));
-  } catch {
-    // Ignored
-  }
-
-  return parts.filter(Boolean).join(" ");
 }
 
 function isGenericBoilerplate(msg: string): boolean {
@@ -1204,22 +1239,36 @@ export function parseTransactionError(
     };
   }
 
-  const logs = [...extractLogs(err), ...(explicitLogs || [])];
+  const traversal = traverseErrorGraph(err);
+  const logs = [...traversal.logs, ...(explicitLogs || [])];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const errorObj = (err || {}) as any;
   const rawMsg =
     errorObj.message || errorObj.cause?.message || (err ? String(err) : "");
-  const innerPlanErr = extractPlanErrorMessage(err);
-  const allExtractedText = extractAllErrorText(err);
-  const combinedSearchText = [rawMsg, innerPlanErr, allExtractedText, ...logs]
+  const innerPlanErr = traversal.planErrorMessage;
+  const combinedSearchText = [
+    rawMsg,
+    innerPlanErr,
+    ...traversal.messages,
+    ...logs,
+  ]
     .filter(Boolean)
     .join(" ");
 
   // 2. Check for Squads V4 and Anchor Custom / Framework Errors
   const squadsMatch =
     matchSquadsError(err) || matchSquadsError(combinedSearchText);
-  const anchorMatch =
+  let anchorMatch =
     matchAnchorError(err) || matchAnchorError(combinedSearchText);
+  if (!anchorMatch) {
+    for (const code of traversal.codes) {
+      const matched = matchAnchorError(code);
+      if (matched) {
+        anchorMatch = matched;
+        break;
+      }
+    }
+  }
 
   // If Squads error is matched without an inner Anchor failure, prioritize Squads
   if (squadsMatch) {
@@ -1329,7 +1378,9 @@ export function parseTransactionError(
   // 4. RPC Rate Limit (429) & Network Disconnections
   if (
     rawMsg.includes("429") ||
-    rawMsg.toLowerCase().includes("too many requests")
+    rawMsg.toLowerCase().includes("too many requests") ||
+    traversal.codes.includes(429) ||
+    traversal.codes.includes("429")
   ) {
     return {
       isCancellation: false,
@@ -1348,7 +1399,8 @@ export function parseTransactionError(
   if (
     rawMsg.toLowerCase().includes("failed to fetch") ||
     rawMsg.toLowerCase().includes("networkerror") ||
-    rawMsg.toLowerCase().includes("fetch failed")
+    rawMsg.toLowerCase().includes("fetch failed") ||
+    combinedSearchText.toLowerCase().includes("fetch failed")
   ) {
     return {
       isCancellation: false,
@@ -1406,13 +1458,13 @@ export function parseTransactionError(
     };
   }
 
-  // 6. Duplicate Transaction / Solana RPC -32002 / SDK Preflight TypeError
+  // 6. Duplicate Transaction / Solana RPC -32002
   const isDuplicateTx =
+    errorObj?.data?.err === "AlreadyProcessed" ||
+    errorObj?.cause?.data?.err === "AlreadyProcessed" ||
     /already been processed|alreadyprocessed|this transaction has already been processed|cannot destructure property 'err' of 'data'/i.test(
       combinedSearchText
-    ) ||
-    errorObj?.code === -32002 ||
-    errorObj?.cause?.code === -32002;
+    );
 
   if (isDuplicateTx) {
     return {
@@ -1430,7 +1482,56 @@ export function parseTransactionError(
     };
   }
 
-  // 7. Fallback for general errors (using sanitizeErrorMessage)
+  // 7. Wallet Internal / Simulation Preflight (-32603) Fallback
+  const isWalletRpcSimulationError =
+    traversal.codes.includes(-32603) ||
+    traversal.codes.includes("-32603") ||
+    /unexpected error/i.test(rawMsg);
+
+  if (isWalletRpcSimulationError) {
+    const isWalletLayer =
+      errorObj?.name === "WalletSendTransactionError" ||
+      /unexpected error/i.test(rawMsg) ||
+      /wallet/i.test(errorObj?.name || "");
+    return {
+      isCancellation: false,
+      layer: isWalletLayer ? "wallet" : "rpc",
+      category: "network_rpc",
+      title: "Wallet Simulation or Network Error",
+      message:
+        "The wallet encountered an internal error while simulating or signing the transaction.",
+      code: -32603,
+      actionableStep:
+        "Check that your wallet is unlocked, connected to the correct network (e.g. Localnet / Devnet), and has sufficient funds to simulate the transaction.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 8. Solana RPC -32002 Simulation Failure Fallback (when not duplicate and no Anchor match)
+  const isRpcSimulationFailed =
+    traversal.codes.includes(-32002) ||
+    traversal.codes.includes("-32002") ||
+    /transaction simulation failed/i.test(combinedSearchText);
+
+  if (isRpcSimulationFailed) {
+    return {
+      isCancellation: false,
+      layer: "rpc",
+      category: "network_rpc",
+      title: "Transaction Simulation Failed",
+      message:
+        sanitizeErrorMessage(innerPlanErr || rawMsg) ||
+        "The transaction failed during network simulation.",
+      code: -32002,
+      actionableStep:
+        "Check account balances, verify input parameters, and try again.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 9. Fallback for general errors (using sanitizeErrorMessage)
   let displayMsg = innerPlanErr || rawMsg;
   if (isGenericBoilerplate(displayMsg)) {
     if (

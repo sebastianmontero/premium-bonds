@@ -8,6 +8,7 @@
 import {
   address,
   Address,
+  AccountRole,
   getProgramDerivedAddress,
   getBase58Encoder,
   getBase64Encoder,
@@ -1657,6 +1658,24 @@ export interface BuildClaimRedemptionParams {
   humaAddresses: HumaPoolAddresses;
 }
 
+export function elevateSignerRole(
+  instruction: Instruction,
+  signerAddressOrSigner: Address | TransactionSigner
+): Instruction {
+  const signerAddress =
+    typeof signerAddressOrSigner === "string"
+      ? signerAddressOrSigner
+      : signerAddressOrSigner.address;
+  return {
+    ...instruction,
+    accounts: instruction.accounts?.map((acc) =>
+      acc.address === signerAddress
+        ? { ...acc, role: AccountRole.WRITABLE_SIGNER }
+        : acc
+    ),
+  };
+}
+
 export async function buildClaimRedemptionInstruction(
   params: BuildClaimRedemptionParams
 ) {
@@ -1675,7 +1694,7 @@ export async function buildClaimRedemptionInstruction(
   );
   const eventAuthority = await findEventAuthorityPda();
 
-  return getClaimRedemptionInstructionAsync({
+  const ix = await getClaimRedemptionInstructionAsync({
     caller: params.crank as TransactionSigner,
     beneficiary: params.beneficiary,
     pool,
@@ -1693,6 +1712,8 @@ export async function buildClaimRedemptionInstruction(
       params.humaAddresses.poolUnderlyingToken || poolVaultAccount,
     eventAuthority,
   });
+
+  return elevateSignerRole(ix, params.crank);
 }
 
 export async function buildPackedReinvestWinningsInstructions(params: {
