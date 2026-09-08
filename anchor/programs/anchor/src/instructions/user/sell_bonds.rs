@@ -247,7 +247,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
         will_exit = entry.active == 0 && entry.pending == 0;
 
-        let remaining = if will_exit {
+        if will_exit {
             user_winnings.registry_entry_index = u32::MAX;
             if user_entry_idx != last_entry_idx {
                 let last_entry = registry_get_entry(&data, last_entry_idx as usize)?;
@@ -266,8 +266,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
                 .active
                 .checked_add(entry.pending)
                 .ok_or(PremiumBondsError::MathOverflow)?
-        };
-        remaining
+        }
     };
 
     // 2. Second scope: update global counters, decrement user count, handle swapped winnings pda.
@@ -284,25 +283,14 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
         if will_exit {
             if user_entry_idx != last_entry_idx {
-                let pool_id_bytes = pool_id_for_seeds.to_le_bytes();
-                let expected_seeds = &[
-                    b"user_winnings",
-                    pool_id_bytes.as_ref(),
-                    swapped_owner.as_ref(),
-                ];
-                let (expected_pda, _) =
-                    Pubkey::find_program_address(expected_seeds, ctx.program_id);
-
-                let swapped_user_winnings_info = ctx
-                    .remaining_accounts
-                    .iter()
-                    .find(|acc| acc.key() == expected_pda)
-                    .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
-
-                let mut swapped_winnings =
-                    Account::<UserWinnings>::try_from(swapped_user_winnings_info)?;
-                swapped_winnings.registry_entry_index = user_entry_idx;
-                swapped_winnings.exit(ctx.program_id)?; // serialize changes back to account
+                UserWinnings::reindex_swapped(
+                    ctx.remaining_accounts.first(),
+                    ctx.program_id,
+                    pool_id_for_seeds,
+                    swapped_owner,
+                    last_entry_idx,
+                    user_entry_idx,
+                )?;
             }
             registry.user_count = registry
                 .user_count
@@ -350,15 +338,11 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     );
 
     // Calculate $PST shares to redeem for the principal amount
-    let total_assets = huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let huma_snapshot =
+        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let pst_shares = huma::usdc_to_pst_shares(expected_principal, pst_supply, total_assets)?;
-
-    // Read current last_request_id from the queue before Huma increments it.
-    // Huma assigns the new request ID as the pre-increment `last_request_id` (0-indexed).
-    // When Huma settles request M, `next_request_id` becomes M + 1, making `next_request_id > M` true.
-    let (_, huma_request_id) =
-        huma::read_huma_redemption_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let pst_shares = huma_snapshot.usdc_to_pst_shares(expected_principal, pst_supply)?;
+    let huma_request_id = huma_snapshot.pending_request_id();
 
     // CPI: request async redemption from Huma
     let signer_seeds: &[&[&[u8]]] =

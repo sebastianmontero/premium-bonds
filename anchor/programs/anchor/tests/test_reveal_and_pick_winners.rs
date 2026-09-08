@@ -1073,6 +1073,216 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     assert_eq!(pr.winners[2].amount_owed, 2_000_000);
 }
 
+#[test]
+fn test_reveal_fails_too_many_winners() {
+    // 51 winners exceeds the payout registry capacity of 50
+    let tiers = vec![
+        anchor::PrizeTier {
+            basis_points: 100,
+            num_winners: 51,
+            _padding: [0, 0],
+        },
+    ];
+
+    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 10_000_000, 10);
+
+    let err = send_reveal(&mut ctx, 1, 0, [42u8; 32]).unwrap_err();
+    assert!(err.contains("TooManyWinners"), "got: {err}");
+}
+
+#[test]
+fn test_reveal_winner_selection_with_zero_ticket_users() {
+    let (mut svm, _admin, crank) = setup_global_with_crank();
+
+    let user_0 = Keypair::new().pubkey(); // 0 active tickets (cumulative: 0)
+    let user_1 = Keypair::new().pubkey(); // 10 active tickets (cumulative: 10)
+    let user_2 = Keypair::new().pubkey(); // 0 active tickets (cumulative: 10, intermediate duplicate)
+    let user_3 = Keypair::new().pubkey(); // 20 active tickets (cumulative: 30)
+    let user_4 = Keypair::new().pubkey(); // 0 active tickets (cumulative: 30, trailing duplicate)
+
+    let entries = vec![
+        anchor::state::UserEntry {
+            owner: user_0,
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user_1,
+            active: 10,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 10,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user_2,
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 10,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user_3,
+            active: 20,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 30,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+        anchor::state::UserEntry {
+            owner: user_4,
+            active: 0,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 30,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        },
+    ];
+
+    let registry = Keypair::new().pubkey();
+    inject_registry_with_state(&mut svm, registry, 1, 100, 0, 5, &entries);
+
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10_000,
+        num_winners: 1,
+        _padding: [0, 0],
+    }];
+    inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers, 0);
+
+    let randomness_account = Keypair::new().pubkey();
+    update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+
+    inject_draw_cycle(
+        &mut svm,
+        1,
+        0,
+        anchor::DrawStatus::AwaitingRandomness,
+        30,
+        10_000_000,
+        randomness_account,
+    );
+
+    let mut ctx = RevealCtx {
+        svm,
+        crank,
+        ticket_registry: registry,
+        tickets: vec![user_0, user_1, user_2, user_3, user_4],
+        randomness_account,
+    };
+
+    let seed = [42u8; 32];
+    let random_idx = local_derive_random_index(&seed, 0, 0, 0, 30);
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 0, 0, seed);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_ok(), "reveal failed: {:?}", res);
+
+    let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winner = pr.winners[0].winner;
+
+    if random_idx < 10 {
+        assert_eq!(winner, user_1, "random_idx {random_idx} must select user_1");
+    } else {
+        assert_eq!(winner, user_3, "random_idx {random_idx} must select user_3");
+    }
+    assert_ne!(winner, user_0, "user_0 (0 tickets) should never win");
+    assert_ne!(winner, user_2, "user_2 (0 tickets) should never win");
+    assert_ne!(winner, user_4, "user_4 (0 tickets) should never win");
+}
+
+#[test]
+fn test_reveal_fails_invalid_winner_index() {
+    let (mut svm, _admin, crank) = setup_global_with_crank();
+
+    // Registry entries where cumulative_active is 0 for all users
+    let user_0 = Keypair::new().pubkey();
+    let entries = vec![anchor::state::UserEntry {
+        owner: user_0,
+        active: 0,
+        pending: 0,
+        merged_through_cycle: 0,
+        cumulative_active: 0,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    }];
+
+    let registry = Keypair::new().pubkey();
+    inject_registry_with_state(&mut svm, registry, 1, 100, 0, 1, &entries);
+
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 10_000,
+        num_winners: 1,
+        _padding: [0, 0],
+    }];
+    inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers, 0);
+
+    let randomness_account = Keypair::new().pubkey();
+    update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [42u8; 32]);
+
+    inject_draw_cycle(
+        &mut svm,
+        1,
+        0,
+        anchor::DrawStatus::AwaitingRandomness,
+        10,
+        10_000_000,
+        randomness_account,
+    );
+
+    let mut ctx = RevealCtx {
+        svm,
+        crank,
+        ticket_registry: registry,
+        tickets: vec![user_0],
+        randomness_account,
+    };
+
+    let err = send_reveal(&mut ctx, 1, 0, [42u8; 32]).unwrap_err();
+    assert!(
+        err.contains("InvalidWinnerIndex"),
+        "Expected InvalidWinnerIndex, got: {err}"
+    );
+}
+
+#[test]
+fn test_reveal_freshness_slot_difference_1000_succeeds() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+
+    // Randomness committed at seed_slot = 5, resolved at reveal_slot = 1005
+    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 1005, [1u8; 32]);
+
+    // Set clock to slot 1005 -> 1005 - 5 = 1000 (exact boundary)
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1005;
+    ctx.svm.set_sysvar(&clock);
+
+    let ix = build_reveal_ix(&ctx, 1, 0);
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_ok(), "reveal should succeed at exactly 1000 slot diff: {:?}", res);
+}
+
 
 
 

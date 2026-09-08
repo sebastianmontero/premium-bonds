@@ -1,8 +1,9 @@
 use crate::constants::{DRAW_CYCLE_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::DrawPreparationProgress;
+use crate::state::registry::UserEntryBatchExt;
 use crate::state::{DrawCycle, DrawStatus, PrizePool, TicketRegistry};
-use crate::utils::{registry_get_entry, registry_set_entry};
+use crate::utils::{get_user_entries_mut, registry_get_entry};
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `prepare_draw` instruction.
@@ -60,37 +61,35 @@ pub struct PrepareDraw<'info> {
 /// and saves the updated entries back to the registry. Finally, it updates the progress
 /// indicator `draw_prepared_up_to`.
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
+    require!(batch_size > 0, PremiumBondsError::InvalidBondQuantity);
+
     let registry_loader = &ctx.accounts.ticket_registry;
     let (merge_cycle_id, start, end) = {
         let mut registry = registry_loader.load_mut()?;
         registry.ensure_current_version()?;
         let cycle_id = registry.draw_cycle_id.saturating_sub(1);
         let start = registry.draw_prepared_up_to;
-        let end = (start + batch_size).min(registry.user_count);
+        require!(start < registry.user_count, PremiumBondsError::InvalidDrawState);
+        let end = start
+            .saturating_add(batch_size)
+            .min(registry.user_count);
         (cycle_id, start, end)
     };
 
     let registry_ai = registry_loader.to_account_info();
     let mut data = registry_ai.try_borrow_mut_data()?;
 
-    let mut cumulative = if start == 0 {
+    let cumulative = if start == 0 {
         0
     } else {
         registry_get_entry(&data, (start - 1) as usize)?.cumulative_active
     };
 
-    for i in start..end {
-        let mut entry = registry_get_entry(&data, i as usize)?;
-
-        // Apply lazy merge
-        entry.lazy_merge(merge_cycle_id)?;
-
-        cumulative = cumulative
-            .checked_add(entry.active)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        entry.cumulative_active = cumulative;
-
-        registry_set_entry(&mut data, i as usize, &entry)?;
+    let count = (end - start) as usize;
+    let mut final_cumulative = cumulative;
+    if count > 0 {
+        let entries = get_user_entries_mut(&mut data, start as usize, count)?;
+        final_cumulative = entries.prepare_batch(merge_cycle_id, cumulative)?;
     }
 
     drop(data);
@@ -113,8 +112,9 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
         "Prepared entries from index {} to {}. Cumulative active: {}",
         start,
         end,
-        cumulative
+        final_cumulative
     );
+    let _ = final_cumulative;
 
     Ok(())
 }

@@ -430,6 +430,60 @@ impl UserWinnings {
         }
         Ok(())
     }
+
+    /// Finds, verifies, and updates the swapped user's winnings PDA from remaining accounts during a swap-and-pop exit.
+    /// Enforces deterministic first-position indexing, cheap length/mutability/owner pre-filters,
+    /// PDA verification via `create_program_address`, version checking, and entry index continuity.
+    pub fn reindex_swapped<'info>(
+        swapped_info_opt: Option<&'info AccountInfo<'info>>,
+        program_id: &Pubkey,
+        pool_id: u32,
+        swapped_owner: Pubkey,
+        expected_old_idx: u32,
+        new_idx: u32,
+    ) -> Result<()> {
+        let swapped_info = swapped_info_opt
+            .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
+
+        // Cheap pre-filters before Borsh deserialization
+        require!(swapped_info.is_writable, PremiumBondsError::MissingSwappedUserWinnings);
+        require_keys_eq!(*swapped_info.owner, *program_id, PremiumBondsError::MissingSwappedUserWinnings);
+        require!(
+            swapped_info.data_len() == 8 + UserWinnings::INIT_SPACE,
+            PremiumBondsError::MissingSwappedUserWinnings
+        );
+
+        let mut swapped_winnings = Account::<UserWinnings>::try_from(swapped_info)
+            .map_err(|_| error!(PremiumBondsError::MissingSwappedUserWinnings))?;
+
+        require!(
+            swapped_winnings.user == swapped_owner && swapped_winnings.pool_id == pool_id,
+            PremiumBondsError::MissingSwappedUserWinnings
+        );
+
+        let pool_id_bytes = pool_id.to_le_bytes();
+        let expected_pda = Pubkey::create_program_address(
+            &[
+                b"user_winnings",
+                pool_id_bytes.as_ref(),
+                swapped_owner.as_ref(),
+                &[swapped_winnings.bump],
+            ],
+            program_id,
+        ).map_err(|_| error!(PremiumBondsError::MissingSwappedUserWinnings))?;
+
+        require_keys_eq!(swapped_info.key(), expected_pda, PremiumBondsError::MissingSwappedUserWinnings);
+
+        swapped_winnings.ensure_current_version()?;
+        require!(
+            swapped_winnings.registry_entry_index == expected_old_idx,
+            PremiumBondsError::InvalidUserEntryHint
+        );
+
+        swapped_winnings.registry_entry_index = new_idx;
+        swapped_winnings.exit(program_id)?;
+        Ok(())
+    }
 }
 
 // ─── Unit Tests ──────────────────────────────────────────────────────────────

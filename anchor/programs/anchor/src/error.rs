@@ -160,4 +160,13 @@ pub enum PremiumBondsError {
     /// Cannot rebind to the same randomness account.
     #[msg("Cannot rebind to the same randomness account.")]
     SameRandomnessAccount,
+    /// Winner count exceeds payout registry capacity.
+    #[msg("Winner count exceeds payout registry capacity")]
+    TooManyWinners,
+    /// Huma pool account data is truncated or malformed.
+    #[msg("Huma pool account data is truncated or malformed")]
+    InvalidHumaPoolData,
+    /// Ticket registry buffer layout or alignment is invalid.
+    #[msg("Ticket registry buffer layout or alignment is invalid")]
+    InvalidRegistryState,
 }

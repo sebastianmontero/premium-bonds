@@ -28,6 +28,43 @@ use anchor_lang::solana_program::{
 ///
 /// Offset to mode_states length prefix = 8 + 1 + 1 + 16 = 26
 const MODE_STATES_OFFSET: usize = 26;
+const MODE_STATE_SIZE: usize = 216;
+const PUBKEY_SIZE: usize = 32;
+
+use crate::error::PremiumBondsError;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct HumaPoolSnapshot {
+    pub mode_assets: u128,
+    pub next_request_id: u128,
+    pub last_request_id: u128,
+}
+
+impl HumaPoolSnapshot {
+    /// Returns the request ID assigned to the next queued redemption (Huma uses pre-increment 0-indexed IDs).
+    #[inline]
+    pub fn pending_request_id(&self) -> u128 {
+        self.last_request_id
+    }
+
+    /// Returns true if the given Huma redemption request has been settled and disbursed.
+    #[inline]
+    pub fn is_redemption_settled(&self, request_id: u128) -> bool {
+        self.next_request_id > request_id
+    }
+
+    /// Calculates the number of $PST shares equivalent to a given USDC amount.
+    #[inline]
+    pub fn usdc_to_pst_shares(&self, usdc_amount: u64, pst_supply: u64) -> Result<u64> {
+        usdc_to_pst_shares(usdc_amount, pst_supply, self.mode_assets)
+    }
+
+    /// Calculates the USDC value of a given number of $PST shares.
+    #[inline]
+    pub fn pst_shares_to_usdc(&self, pst_amount: u64, pst_supply: u64) -> Result<u64> {
+        pst_shares_to_usdc(pst_amount, pst_supply, self.mode_assets)
+    }
+}
 
 /// Reads the `assets` field (u128) from the first ModeState entry in a Huma PoolState account.
 ///
@@ -47,31 +84,107 @@ pub fn read_mode_assets(pool_state_info: &AccountInfo) -> Result<u128> {
     // Read Vec length (u32 LE) at MODE_STATES_OFFSET
     require!(
         data.len() >= MODE_STATES_OFFSET + 4,
-        PremiumBondsError::InvalidModeMint
+        PremiumBondsError::InvalidHumaPoolData
     );
     let vec_len_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?;
     let vec_len = u32::from_le_bytes(vec_len_bytes) as usize;
 
-    require!(vec_len > 0, PremiumBondsError::InvalidModeMint);
+    require!(vec_len > 0, PremiumBondsError::InvalidHumaPoolData);
 
     // First ModeState starts right after the 4-byte length prefix.
     // `assets` is the first field (u128, 16 bytes).
     let assets_start = MODE_STATES_OFFSET + 4;
     require!(
         data.len() >= assets_start + 16,
-        PremiumBondsError::InvalidModeMint
+        PremiumBondsError::InvalidHumaPoolData
     );
     let assets_bytes: [u8; 16] = data[assets_start..assets_start + 16]
         .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
+        .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?;
     let assets = u128::from_le_bytes(assets_bytes);
 
     Ok(assets)
 }
 
-use crate::error::PremiumBondsError;
+/// Reads both mode assets and the redemption queue in a single borrow.
+pub fn read_huma_assets_and_queue(pool_state_info: &AccountInfo) -> Result<HumaPoolSnapshot> {
+    let data = pool_state_info.try_borrow_data()?;
+
+    // 1. Read mode_assets length prefix & first ModeState.assets (using MODE_STATES_OFFSET = 26)
+    require!(
+        data.len() >= MODE_STATES_OFFSET + 4,
+        PremiumBondsError::InvalidHumaPoolData
+    );
+    let num_modes = u32::from_le_bytes(
+        data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?,
+    ) as usize;
+    require!(num_modes > 0, PremiumBondsError::InvalidHumaPoolData);
+
+    let assets_start = MODE_STATES_OFFSET
+        .checked_add(4)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        data.len() >= assets_start + 16,
+        PremiumBondsError::InvalidHumaPoolData
+    );
+    let mode_assets = u128::from_le_bytes(
+        data[assets_start..assets_start + 16]
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?,
+    );
+
+    // 2. Read redemption queue offsets with checked math
+    let mode_states_len = num_modes
+        .checked_mul(MODE_STATE_SIZE)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    let mode_config_keys_offset = assets_start
+        .checked_add(mode_states_len)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        data.len() >= mode_config_keys_offset + 4,
+        PremiumBondsError::InvalidHumaPoolData
+    );
+
+    let num_config_keys = u32::from_le_bytes(
+        data[mode_config_keys_offset..mode_config_keys_offset + 4]
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?,
+    ) as usize;
+
+    let config_keys_len = num_config_keys
+        .checked_mul(PUBKEY_SIZE)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    let redemption_offset = mode_config_keys_offset
+        .checked_add(4)
+        .ok_or(PremiumBondsError::MathOverflow)?
+        .checked_add(config_keys_len)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        data.len() >= redemption_offset + 32,
+        PremiumBondsError::InvalidHumaPoolData
+    );
+
+    let next_request_id = u128::from_le_bytes(
+        data[redemption_offset..redemption_offset + 16]
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?,
+    );
+    let last_request_id = u128::from_le_bytes(
+        data[redemption_offset + 16..redemption_offset + 32]
+            .try_into()
+            .map_err(|_| error!(PremiumBondsError::InvalidHumaPoolData))?,
+    );
+
+    Ok(HumaPoolSnapshot {
+        mode_assets,
+        next_request_id,
+        last_request_id,
+    })
+}
 
 /// Calculates the number of $PST shares equivalent to a given USDC amount.
 ///
@@ -489,67 +602,11 @@ pub fn disburse<'info>(
     Ok(())
 }
 
-/// Safely deserializes the next_request_id and last_request_id from the Huma PoolState account.
-///
-/// Layout:
-/// - discriminator: [u8; 8]
-/// - bump: u8
-/// - status: enum (u8)
-/// - disbursement_reserve: u128 (16 bytes)
-/// - mode_states: `Vec<ModeState>` (4-byte length prefix + N * 216 bytes)
-/// - mode_config_keys: `Vec<Pubkey>` (4-byte length prefix + M * 32 bytes)
-/// - redemption: Redemption (next_request_id: u128, last_request_id: u128, ...)
-///
-/// # Parameters
-/// * `pool_state_info` - AccountInfo of Huma's PoolState account.
-///
-/// # Returns
-/// * `Result<(u128, u128)>` - Tuple of (next_request_id, last_request_id).
+/// Retained standalone helper for claim_redemption: delegates to read_huma_assets_and_queue
+/// to eliminate unchecked integer math while maintaining backwards compatibility.
 pub fn read_huma_redemption_queue(pool_state_info: &AccountInfo) -> Result<(u128, u128)> {
-    let data = pool_state_info.try_borrow_data()?;
-
-    // Read mode_states length prefix (u32 LE) at offset 26
-    require!(
-        data.len() >= MODE_STATES_OFFSET + 4,
-        PremiumBondsError::InvalidModeMint
-    );
-    let num_modes_bytes: [u8; 4] = data[MODE_STATES_OFFSET..MODE_STATES_OFFSET + 4]
-        .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
-    let num_modes = u32::from_le_bytes(num_modes_bytes) as usize;
-
-    // Locate mode_config_keys length prefix offset
-    let mode_config_keys_offset = 30 + num_modes * 216;
-    require!(
-        data.len() >= mode_config_keys_offset + 4,
-        PremiumBondsError::InvalidModeMint
-    );
-
-    // Read mode_config_keys length prefix (u32 LE)
-    let num_config_keys_bytes: [u8; 4] = data[mode_config_keys_offset..mode_config_keys_offset + 4]
-        .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
-    let num_config_keys = u32::from_le_bytes(num_config_keys_bytes) as usize;
-
-    // Locate redemption offset
-    let redemption_offset = mode_config_keys_offset + 4 + num_config_keys * 32;
-    require!(
-        data.len() >= redemption_offset + 32,
-        PremiumBondsError::InvalidModeMint
-    );
-
-    // Read next_request_id and last_request_id
-    let next_req_bytes: [u8; 16] = data[redemption_offset..redemption_offset + 16]
-        .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
-    let next_request_id = u128::from_le_bytes(next_req_bytes);
-
-    let last_req_bytes: [u8; 16] = data[redemption_offset + 16..redemption_offset + 32]
-        .try_into()
-        .map_err(|_| error!(PremiumBondsError::InvalidModeMint))?;
-    let last_request_id = u128::from_le_bytes(last_req_bytes);
-
-    Ok((next_request_id, last_request_id))
+    let snapshot = read_huma_assets_and_queue(pool_state_info)?;
+    Ok((snapshot.next_request_id, snapshot.last_request_id))
 }
 
 #[cfg(test)]
@@ -593,5 +650,108 @@ mod tests {
     fn test_pst_shares_to_usdc_floor_rounding() {
         // 334 shares, supply 1000, assets 300 -> 334 * 300 / 1000 = 100.2 -> floor = 100
         assert_eq!(pst_shares_to_usdc(334, 1000, 300).unwrap(), 100);
+    }
+
+    fn build_mock_huma_pool_data(
+        num_modes: u32,
+        mode_assets_list: &[u128],
+        num_config_keys: u32,
+        next_request_id: u128,
+        last_request_id: u128,
+    ) -> Vec<u8> {
+        let mut data = vec![0u8; 8 + 1 + 1 + 16]; // discriminator(8) + bump(1) + status(1) + reserve(16) = 26 bytes
+        data.extend_from_slice(&num_modes.to_le_bytes()); // mode_states len
+        for &assets in mode_assets_list {
+            data.extend_from_slice(&assets.to_le_bytes()); // assets: u128
+            data.extend_from_slice(&[0u8; 200]); // rest of ModeState (216 - 16 = 200)
+        }
+        data.extend_from_slice(&num_config_keys.to_le_bytes()); // mode_config_keys len
+        for _ in 0..num_config_keys {
+            data.extend_from_slice(&[0u8; 32]); // pubkeys
+        }
+        data.extend_from_slice(&next_request_id.to_le_bytes());
+        data.extend_from_slice(&last_request_id.to_le_bytes());
+        data
+    }
+
+    #[test]
+    fn test_huma_pool_snapshot_methods() {
+        let snapshot = HumaPoolSnapshot {
+            mode_assets: 2000,
+            next_request_id: 5,
+            last_request_id: 10,
+        };
+
+        assert_eq!(snapshot.pending_request_id(), 10);
+        assert!(snapshot.is_redemption_settled(4));
+        assert!(!snapshot.is_redemption_settled(5));
+        assert!(!snapshot.is_redemption_settled(6));
+
+        // 100 USDC with supply 1000 and assets 2000 -> 100 * 1000 / 2000 = 50 shares
+        assert_eq!(snapshot.usdc_to_pst_shares(100, 1000).unwrap(), 50);
+        // 50 shares with supply 1000 and assets 2000 -> 50 * 2000 / 1000 = 100 USDC
+        assert_eq!(snapshot.pst_shares_to_usdc(50, 1000).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_read_huma_assets_and_queue_multi_mode() {
+        let mut lamports = 0u64;
+        let mut data = build_mock_huma_pool_data(2, &[500_000_000, 250_000_000], 1, 42, 88);
+        let owner = Pubkey::default();
+        let key = Pubkey::default();
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut lamports,
+            &mut data,
+            &owner,
+            false,
+        );
+
+        let snapshot = read_huma_assets_and_queue(&account_info).unwrap();
+        assert_eq!(snapshot.mode_assets, 500_000_000);
+        assert_eq!(snapshot.next_request_id, 42);
+        assert_eq!(snapshot.last_request_id, 88);
+    }
+
+    #[test]
+    fn test_read_huma_assets_and_queue_truncated_buffer() {
+        let mut lamports = 0u64;
+        let mut data = vec![0u8; 20]; // Truncated
+        let owner = Pubkey::default();
+        let key = Pubkey::default();
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut lamports,
+            &mut data,
+            &owner,
+            false,
+        );
+
+        let err = read_huma_assets_and_queue(&account_info).unwrap_err();
+        assert_eq!(err, PremiumBondsError::InvalidHumaPoolData.into());
+    }
+
+    #[test]
+    fn test_read_huma_assets_and_queue_zero_modes_rejected() {
+        let mut lamports = 0u64;
+        let mut data = build_mock_huma_pool_data(0, &[], 0, 0, 0);
+        let owner = Pubkey::default();
+        let key = Pubkey::default();
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut lamports,
+            &mut data,
+            &owner,
+            false,
+        );
+
+        let err = read_huma_assets_and_queue(&account_info).unwrap_err();
+        assert_eq!(err, PremiumBondsError::InvalidHumaPoolData.into());
     }
 }

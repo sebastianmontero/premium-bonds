@@ -81,9 +81,19 @@ impl TicketRegistry {
 }
 
 /// Zero-copy representation of a user's ticket balance in the TicketRegistry.
-#[zero_copy(unsafe)]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    AnchorSerialize,
+    AnchorDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
 pub struct UserEntry {
     /// The owner's public key.
     pub owner: Pubkey,
@@ -135,6 +145,34 @@ impl UserEntry {
             self.merged_through_cycle = current_cycle_id;
         }
         Ok(())
+    }
+
+    /// Encapsulates cumulative active ticket calculation with overflow check for single-entry mutations.
+    #[inline]
+    pub fn update_cumulative(&mut self, prior_cumulative: u32) -> Result<u32> {
+        let next = prior_cumulative
+            .checked_add(self.active)
+            .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+        self.cumulative_active = next;
+        Ok(next)
+    }
+}
+
+pub trait UserEntryBatchExt {
+    /// Lazily merges pending tickets and accumulates cumulative active tickets across a contiguous slice.
+    fn prepare_batch(&mut self, current_cycle_id: u32, initial_cumulative: u32) -> Result<u32>;
+}
+
+impl UserEntryBatchExt for [UserEntry] {
+    fn prepare_batch(&mut self, current_cycle_id: u32, mut cumulative: u32) -> Result<u32> {
+        for entry in self.iter_mut() {
+            entry.lazy_merge(current_cycle_id)?;
+            cumulative = cumulative
+                .checked_add(entry.active)
+                .ok_or(error!(crate::error::PremiumBondsError::MathOverflow))?;
+            entry.cumulative_active = cumulative;
+        }
+        Ok(cumulative)
     }
 }
 
@@ -210,6 +248,70 @@ mod tests {
             reg.validate_buy_bonds(false, 1).unwrap_err(),
             PremiumBondsError::UnsupportedAccountVersion.into()
         );
+    }
+
+    #[test]
+    fn test_user_entry_batch_prepare_batch() {
+        let mut entries = [
+            UserEntry {
+                owner: Pubkey::new_from_array([1; 32]),
+                active: 10,
+                pending: 5,
+                merged_through_cycle: 0,
+                cumulative_active: 0,
+                version: UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
+            },
+            UserEntry {
+                owner: Pubkey::new_from_array([2; 32]),
+                active: 20,
+                pending: 10,
+                merged_through_cycle: 0,
+                cumulative_active: 0,
+                version: UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
+            },
+        ];
+
+        let final_cumulative = entries.prepare_batch(1, 100).unwrap();
+        assert_eq!(final_cumulative, 100 + 15 + 30);
+        assert_eq!(entries[0].active, 15);
+        assert_eq!(entries[0].pending, 0);
+        assert_eq!(entries[0].cumulative_active, 115);
+        assert_eq!(entries[1].active, 30);
+        assert_eq!(entries[1].pending, 0);
+        assert_eq!(entries[1].cumulative_active, 145);
+    }
+
+    #[test]
+    fn test_user_entry_batch_overflow() {
+        let mut entries = [
+            UserEntry {
+                owner: Pubkey::new_from_array([1; 32]),
+                active: u32::MAX - 5,
+                pending: 0,
+                merged_through_cycle: 1,
+                cumulative_active: 0,
+                version: UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
+            },
+            UserEntry {
+                owner: Pubkey::new_from_array([2; 32]),
+                active: 10,
+                pending: 0,
+                merged_through_cycle: 1,
+                cumulative_active: 0,
+                version: UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
+            },
+        ];
+
+        let err = entries.prepare_batch(1, 0).unwrap_err();
+        assert_eq!(err, PremiumBondsError::MathOverflow.into());
     }
 }
 

@@ -463,7 +463,7 @@ pub fn update_pool_total_assets(pool_state_info: &AccountInfo, delta: i128) -> R
     }
     let current = u128::from_le_bytes(data[30..46].try_into().unwrap());
     let updated = if delta >= 0 {
-        current.checked_add(delta as u128).unwrap_or(u128::MAX)
+        current.saturating_add(delta as u128)
     } else {
         current.saturating_sub((-delta) as u128)
     };

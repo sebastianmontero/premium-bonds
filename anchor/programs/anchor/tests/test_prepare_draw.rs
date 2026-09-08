@@ -324,7 +324,7 @@ fn test_prepare_draw_excludes_pending_tickets() {
 }
 
 #[test]
-fn test_prepare_draw_idempotent_when_fully_prepared() {
+fn test_prepare_draw_already_complete_rejected() {
     let user_a = Keypair::new().pubkey();
     let entries = vec![anchor::state::UserEntry {
         owner: user_a,
@@ -347,14 +347,13 @@ fn test_prepare_draw_idempotent_when_fully_prepared() {
     let draw_prepared_up_to1 = u32::from_le_bytes(reg_acct1.data[32..36].try_into().unwrap());
     assert_eq!(draw_prepared_up_to1, 1);
 
-    // Second prepare_draw call when draw_prepared_up_to == user_count (1 == 1)
+    // Second prepare_draw call when draw_prepared_up_to == user_count (1 == 1) fails fast with InvalidDrawState
     ctx.svm.expire_blockhash();
-    let res2 = send_prepare(&mut ctx, 1);
-    assert!(res2.is_ok(), "second prepare should be idempotent: {:?}", res2);
-
-    let reg_acct2 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-    let draw_prepared_up_to2 = u32::from_le_bytes(reg_acct2.data[32..36].try_into().unwrap());
-    assert_eq!(draw_prepared_up_to2, 1);
+    let err = send_prepare(&mut ctx, 1).unwrap_err();
+    assert!(
+        err.contains("InvalidDrawState"),
+        "expected InvalidDrawState when already complete, got: {err}"
+    );
 }
 
 #[test]
@@ -397,7 +396,7 @@ fn test_prepare_draw_multi_batch_events() {
 }
 
 #[test]
-fn test_prepare_draw_with_zero_batch_size() {
+fn test_prepare_draw_batch_size_zero_rejected() {
     let user_a = Keypair::new().pubkey();
     let entries = vec![anchor::state::UserEntry {
         owner: user_a,
@@ -412,19 +411,12 @@ fn test_prepare_draw_with_zero_batch_size() {
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
-    // Call prepare_draw with batch_size = 0
-    let meta = send_prepare(&mut ctx, 0).expect("prepare with batch_size = 0 should succeed as no-op");
-    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.batch_start, 0);
-    assert_eq!(event.batch_end, 0);
-    assert_eq!(event.user_count, 1);
-    assert_eq!(event.is_complete, false);
-
-    let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-    let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
-    assert_eq!(draw_prepared_up_to, 0);
+    // Call prepare_draw with batch_size = 0 should fail fast with InvalidBondQuantity
+    let err = send_prepare(&mut ctx, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidBondQuantity"),
+        "expected InvalidBondQuantity when batch_size is 0, got: {err}"
+    );
 }
 
 #[test]
@@ -478,6 +470,119 @@ fn test_prepare_draw_first_cycle_genesis() {
     assert_eq!(entry2.pending, 0);
     assert_eq!(entry2.cumulative_active, 10);
     assert_eq!(entry2.merged_through_cycle, 1);
+}
+
+#[test]
+fn test_prepare_draw_non_aligned_batches() {
+    // 25 users with various active & pending balances
+    let entries = (0..25)
+        .map(|i| anchor::state::UserEntry {
+            owner: Keypair::new().pubkey(),
+            active: (i % 5 + 1) * 2, // 2, 4, 6, 8, 10...
+            pending: 1,              // pending will mature
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        })
+        .collect::<Vec<_>>();
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Set draw_cycle_id = 2 so that merge_cycle_id = 1 (matures pending from 0)
+    let mut reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    reg_acct.data[28..32].copy_from_slice(&2u32.to_le_bytes());
+    ctx.svm.set_account(ctx.ticket_registry, reg_acct).unwrap();
+
+    // Batch 1: 0..7
+    let meta1 = send_prepare(&mut ctx, 7).expect("Batch 1 should succeed");
+    let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
+    assert_eq!(event1.batch_start, 0);
+    assert_eq!(event1.batch_end, 7);
+    assert_eq!(event1.is_complete, false);
+
+    // Batch 2: 7..14
+    ctx.svm.expire_blockhash();
+    let meta2 = send_prepare(&mut ctx, 7).expect("Batch 2 should succeed");
+    let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
+    assert_eq!(event2.batch_start, 7);
+    assert_eq!(event2.batch_end, 14);
+    assert_eq!(event2.is_complete, false);
+
+    // Batch 3: 14..21
+    ctx.svm.expire_blockhash();
+    let meta3 = send_prepare(&mut ctx, 7).expect("Batch 3 should succeed");
+    let event3 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta3);
+    assert_eq!(event3.batch_start, 14);
+    assert_eq!(event3.batch_end, 21);
+    assert_eq!(event3.is_complete, false);
+
+    // Batch 4: 21..25 (clamped from 21 + 7 = 28 to 25)
+    ctx.svm.expire_blockhash();
+    let meta4 = send_prepare(&mut ctx, 7).expect("Batch 4 should succeed");
+    let event4 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta4);
+    assert_eq!(event4.batch_start, 21);
+    assert_eq!(event4.batch_end, 25);
+    assert_eq!(event4.is_complete, true);
+
+    // Batch 5: Already complete -> must fail fast with InvalidDrawState
+    ctx.svm.expire_blockhash();
+    let err = send_prepare(&mut ctx, 7).unwrap_err();
+    assert!(err.contains("InvalidDrawState"), "got: {err}");
+
+    // Verify all cumulative active prefix sums on disk
+    let reg_final = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let mut expected_cumulative = 0u32;
+    for i in 0..25 {
+        let entry = anchor::utils::registry_get_entry(&reg_final.data, i).unwrap();
+        let expected_active = (i as u32 % 5 + 1) * 2 + 1; // initial active + merged pending
+        assert_eq!(entry.active, expected_active, "entry {i} active mismatch");
+        assert_eq!(entry.pending, 0, "entry {i} pending mismatch");
+        expected_cumulative += expected_active;
+        assert_eq!(entry.cumulative_active, expected_cumulative, "entry {i} cumulative mismatch");
+    }
+}
+
+#[test]
+fn test_prepare_draw_zero_ticket_entries_at_boundary() {
+    let mut entries = Vec::new();
+    for i in 0..10 {
+        let is_zero = i == 6 || i == 7 || i == 8;
+        entries.push(anchor::state::UserEntry {
+            owner: Keypair::new().pubkey(),
+            active: if is_zero { 0 } else { 10 },
+            pending: 0,
+            merged_through_cycle: 1,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        });
+    }
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    // Batch 1: 0..7 (ends on user 6, who has 0 active tickets)
+    send_prepare(&mut ctx, 7).unwrap();
+
+    let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry5 = anchor::utils::registry_get_entry(&reg_acct1.data, 5).unwrap();
+    let entry6 = anchor::utils::registry_get_entry(&reg_acct1.data, 6).unwrap();
+    assert_eq!(entry5.cumulative_active, 60);
+    assert_eq!(entry6.cumulative_active, 60); // 0 active tickets added
+
+    // Batch 2: 7..10 (starts on user 7, who has 0 active tickets)
+    ctx.svm.expire_blockhash();
+    send_prepare(&mut ctx, 7).unwrap();
+
+    let reg_acct2 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let entry7 = anchor::utils::registry_get_entry(&reg_acct2.data, 7).unwrap();
+    let entry8 = anchor::utils::registry_get_entry(&reg_acct2.data, 8).unwrap();
+    let entry9 = anchor::utils::registry_get_entry(&reg_acct2.data, 9).unwrap();
+    assert_eq!(entry7.cumulative_active, 60); // 0 active tickets added
+    assert_eq!(entry8.cumulative_active, 60); // 0 active tickets added
+    assert_eq!(entry9.cumulative_active, 70); // 10 active tickets added
 }
 
 

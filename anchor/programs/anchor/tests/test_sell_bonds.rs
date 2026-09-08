@@ -6,7 +6,8 @@
 //! including simulated failures, multiple users, sequential sales, and claim validation.
 
 use anchor_lang::{
-    prelude::AccountMeta, AccountDeserialize, AnchorDeserialize, InstructionData, ToAccountMetas,
+    prelude::AccountMeta, AccountDeserialize, AccountSerialize, AnchorDeserialize, InstructionData,
+    Space, ToAccountMetas,
 };
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
@@ -1177,6 +1178,445 @@ fn test_sell_bonds_event_u128_boundary() {
     let event = assert_cpi_event::<anchor::events::BondsSold>(&meta);
     assert_eq!(event.huma_request_id, large_request_id);
     assert!(event.pst_shares > 0);
+}
+
+#[test]
+fn test_sell_bonds_exit_last_entry_no_swap_required() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+
+    // User A buys 3 bonds (slot 0)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
+    // User B buys 2 bonds (slot 1)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
+
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 2);
+
+    // User B (at index 1 == last_entry_idx) sells all 2 bonds -> full exit without swap
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_b,
+        0,
+        2,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    // 1. user_count is 1
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
+    // 2. slot 0 is still User A
+    let entry_0 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_0.owner, user_a.pubkey());
+    assert_eq!(entry_0.pending, 3);
+    // 3. slot 1 is zeroed
+    let entry_1 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(entry_1.owner, Pubkey::default());
+    assert_eq!(entry_1.pending, 0);
+    // 4. User B winnings index is u32::MAX
+    let winnings_b = read_user_winnings_state(&ctx.svm, 1, &user_b.pubkey());
+    assert_eq!(winnings_b.registry_entry_index, u32::MAX);
+    // 5. User A winnings index remains 0
+    let winnings_a = read_user_winnings_state(&ctx.svm, 1, &user_a.pubkey());
+    assert_eq!(winnings_a.registry_entry_index, 0);
+}
+
+#[test]
+fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+
+    // User A buys 3 bonds (slot 0), User B buys 2 bonds (slot 1)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
+
+    let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
+    let (pool_pda_key, _) = pool_pda(1);
+    let pool = read_pool_state(&ctx.svm, 1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
+    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let mut accounts = anchor::accounts::SellBonds {
+        user: user_a.pubkey(),
+        user_winnings: user_a_winnings,
+        pool: pool_pda_key,
+        ticket_registry: ctx.ticket_registry,
+        token_mint: ctx.usdc_mint,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: dummy,
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    // Explicitly push User B's UserWinnings PDA as remaining account 0
+    accounts.push(solana_program::instruction::AccountMeta::new(user_b_winnings, false));
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::SellBonds {
+            active_to_sell: 0,
+            pending_to_sell: 3,
+        }
+        .data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+    ctx.svm.send_transaction(tx).unwrap();
+
+    // Verify swap-and-pop results
+    assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
+    let entry_0 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+    assert_eq!(entry_0.owner, user_b.pubkey());
+    assert_eq!(entry_0.pending, 2);
+
+    let winnings_b = read_user_winnings_state(&ctx.svm, 1, &user_b.pubkey());
+    assert_eq!(winnings_b.registry_entry_index, 0);
+
+    let winnings_a = read_user_winnings_state(&ctx.svm, 1, &user_a.pubkey());
+    assert_eq!(winnings_a.registry_entry_index, u32::MAX);
+}
+
+#[test]
+fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+
+    // User A buys 3 bonds (slot 0), User B buys 2 bonds (slot 1)
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
+
+    let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
+
+    // Corrupt User B's winnings state so that registry_entry_index == 99 (instead of expected 1)
+    {
+        let mut winnings_b = read_user_winnings_state(&ctx.svm, 1, &user_b.pubkey());
+        winnings_b.registry_entry_index = 99;
+        let mut data = vec![];
+        winnings_b.try_serialize(&mut data).unwrap();
+        data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
+        let mut account = ctx.svm.get_account(&user_b_winnings).unwrap();
+        account.data = data;
+        ctx.svm.set_account(user_b_winnings, account).unwrap();
+    }
+
+    let (pool_pda_key, _) = pool_pda(1);
+    let pool = read_pool_state(&ctx.svm, 1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
+    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let mut accounts = anchor::accounts::SellBonds {
+        user: user_a.pubkey(),
+        user_winnings: user_a_winnings,
+        pool: pool_pda_key,
+        ticket_registry: ctx.ticket_registry,
+        token_mint: ctx.usdc_mint,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: dummy,
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    accounts.push(solana_program::instruction::AccountMeta::new(user_b_winnings, false));
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::SellBonds {
+            active_to_sell: 0,
+            pending_to_sell: 3,
+        }
+        .data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+    let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+    assert!(err.contains("InvalidUserEntryHint"), "Expected InvalidUserEntryHint, got: {err}");
+}
+
+#[test]
+fn test_sell_bonds_decoy_accounts_rejected() {
+    let mut ctx = setup_e2e();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let user_b = Keypair::new();
+    ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
+
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_usdc, 3, Pubkey::default()).unwrap();
+    send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
+
+    let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
+    let (pool_pda_key, _) = pool_pda(1);
+    let pool = read_pool_state(&ctx.svm, 1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
+    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let make_base_accounts = || {
+        anchor::accounts::SellBonds {
+            user: user_a.pubkey(),
+            user_winnings: user_a_winnings,
+            pool: pool_pda_key,
+            ticket_registry: ctx.ticket_registry,
+            token_mint: ctx.usdc_mint,
+            pool_pst_vault,
+            pending_redemption,
+            huma_program: huma_program_id(),
+            huma_config: dummy,
+            huma_pool_config: dummy,
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: dummy,
+            huma_mode_mint: ctx.pst_mint,
+            huma_redemption_request: dummy,
+            huma_lender_state: dummy,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_mode_token,
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+        .to_account_metas(None)
+    };
+
+    // Subcase 1: Read-only remaining account
+    {
+        let mut accounts = make_base_accounts();
+        accounts.push(solana_program::instruction::AccountMeta::new_readonly(user_b_winnings, false));
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for read-only account, got: {err}");
+    }
+
+    // Subcase 2: Wrong program owner (System Program owned)
+    {
+        let fake_key = Keypair::new().pubkey();
+        ctx.svm.set_account(
+            fake_key,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE],
+                owner: anchor_lang::system_program::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        ).unwrap();
+
+        let mut accounts = make_base_accounts();
+        accounts.push(solana_program::instruction::AccountMeta::new(fake_key, false));
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for wrong owner, got: {err}");
+    }
+
+    // Subcase 3: Wrong data length
+    {
+        let fake_key = Keypair::new().pubkey();
+        ctx.svm.set_account(
+            fake_key,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE + 20],
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        ).unwrap();
+
+        let mut accounts = make_base_accounts();
+        accounts.push(solana_program::instruction::AccountMeta::new(fake_key, false));
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for wrong data length, got: {err}");
+    }
+
+    // Subcase 4: Mismatched user in UserWinnings
+    {
+        let decoy_user = Keypair::new().pubkey();
+        let (decoy_pda, bump) = user_winnings_pda(1, &decoy_user);
+        let decoy_winnings = anchor::state::UserWinnings {
+            unclaimed_non_reinvested_winnings: 0,
+            total_claimed: 0,
+            total_reinvested: 0,
+            pool_id: 1,
+            registry_entry_index: 1,
+            user: decoy_user,
+            bump,
+            version: anchor::state::UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        let mut data = vec![];
+        decoy_winnings.try_serialize(&mut data).unwrap();
+        data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
+        ctx.svm.set_account(
+            decoy_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        ).unwrap();
+
+        let mut accounts = make_base_accounts();
+        accounts.push(solana_program::instruction::AccountMeta::new(decoy_pda, false));
+        let ix = Instruction {
+            program_id: anchor::id(),
+            accounts,
+            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+        };
+        let bh = ctx.svm.latest_blockhash();
+        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for mismatched user, got: {err}");
+    }
 }
 
 

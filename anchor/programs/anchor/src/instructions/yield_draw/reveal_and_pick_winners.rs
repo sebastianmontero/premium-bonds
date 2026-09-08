@@ -7,7 +7,7 @@ use crate::state::{
     DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
     Winner,
 };
-use crate::utils::{derive_random_index, registry_get_entry};
+use crate::utils::{derive_random_index, get_user_entries};
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `reveal_and_pick_winners` instruction.
@@ -189,6 +189,18 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     payout_registry._padding = [0; 6];
     payout_registry._reserved = [0; 64];
 
+    // Upfront fail-fast validation: ensures configured winners do not exceed payout registry capacity
+    let total_winners: usize = pool.prize_tiers[..pool.prize_tiers_count as usize]
+        .iter()
+        .map(|tier| tier.num_winners as usize)
+        .sum();
+    require!(
+        total_winners <= payout_registry.winners.len(),
+        PremiumBondsError::TooManyWinners
+    );
+
+    let entries = get_user_entries(&data, 0, user_count as usize)?;
+
     let mut total_distributed: u64 = 0;
     let mut winner_count: usize = 0;
 
@@ -202,22 +214,12 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
                 tier_idx as u32,
                 i,
                 draw_cycle.cycle_id,
-                draw_cycle.locked_ticket_count as u32,
+                draw_cycle.locked_ticket_count,
             );
 
-            let mut lo = 0;
-            let mut hi = user_count.saturating_sub(1);
-            while lo < hi {
-                let mid = (lo + hi) / 2;
-                let mid_entry = registry_get_entry(&data, mid as usize)?;
-                if (mid_entry.cumulative_active as u64) <= winning_index {
-                    lo = mid + 1;
-                } else {
-                    hi = mid;
-                }
-            }
-
-            let winning_entry = registry_get_entry(&data, lo as usize)?;
+            let lo = entries.partition_point(|e| (e.cumulative_active as u64) <= winning_index);
+            require!(lo < entries.len(), PremiumBondsError::InvalidWinnerIndex);
+            let winning_entry = &entries[lo];
 
             payout_registry.winners[winner_count] = Winner {
                 winner: winning_entry.owner,

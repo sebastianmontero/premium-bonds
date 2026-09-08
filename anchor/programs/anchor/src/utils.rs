@@ -59,16 +59,69 @@ pub const USER_ENTRY_REGISTRY_HEADER_SIZE: usize =
 /// Byte size of a single user entry inside the registry.
 pub const USER_ENTRY_SIZE: usize = std::mem::size_of::<crate::state::UserEntry>();
 
-/// Helper to calculate and validate the byte start offset for a user entry.
-/// Handles checked multiplication, addition, and bounds validation to prevent overflow.
+// Compile-time verification of Pod layout and SVM 8-byte alignment constraints
+const _: () = {
+    assert!(std::mem::size_of::<crate::state::UserEntry>() == 64);
+    assert!(std::mem::align_of::<crate::state::UserEntry>() == 4);
+    assert!(USER_ENTRY_REGISTRY_HEADER_SIZE.is_multiple_of(8));
+    assert!(USER_ENTRY_SIZE.is_multiple_of(8));
+};
+
+/// Helper to calculate and validate the byte range for a contiguous slice of user entries.
+/// Handles checked multiplication, addition, and bounds validation against account data length.
 #[inline]
-fn get_user_entry_start_offset(data_len: usize, idx: usize) -> Option<usize> {
-    idx.checked_mul(USER_ENTRY_SIZE)
-        .and_then(|val| val.checked_add(USER_ENTRY_REGISTRY_HEADER_SIZE))
-        .filter(|&s| {
-            s.checked_add(USER_ENTRY_SIZE)
-                .map_or(false, |end| end <= data_len)
-        })
+pub fn get_user_entries_byte_range(
+    data_len: usize,
+    start_idx: usize,
+    count: usize,
+) -> Result<std::ops::Range<usize>> {
+    let start_offset = USER_ENTRY_REGISTRY_HEADER_SIZE
+        .checked_add(
+            start_idx
+                .checked_mul(USER_ENTRY_SIZE)
+                .ok_or(PremiumBondsError::MathOverflow)?,
+        )
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    let byte_len = count
+        .checked_mul(USER_ENTRY_SIZE)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    let end_offset = start_offset
+        .checked_add(byte_len)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        end_offset <= data_len,
+        PremiumBondsError::InvalidRegistryState
+    );
+    Ok(start_offset..end_offset)
+}
+
+/// Returns a direct immutable slice of user entries in the ticket registry account data.
+///
+/// # Safety & Alignment
+/// In Solana SBF runtime, account data pointers are 8-byte aligned at base offset 0.
+/// `USER_ENTRY_REGISTRY_HEADER_SIZE` (104) and `USER_ENTRY_SIZE` (64) are both multiples of 8.
+/// `align_of::<UserEntry>()` is 4 bytes, so all returned slices are naturally aligned.
+#[inline]
+pub fn get_user_entries(
+    data: &[u8],
+    start_idx: usize,
+    count: usize,
+) -> Result<&[crate::state::UserEntry]> {
+    let range = get_user_entries_byte_range(data.len(), start_idx, count)?;
+    bytemuck::try_cast_slice(&data[range])
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))
+}
+
+/// Returns a direct mutable slice of user entries in the ticket registry account data.
+#[inline]
+pub fn get_user_entries_mut(
+    data: &mut [u8],
+    start_idx: usize,
+    count: usize,
+) -> Result<&mut [crate::state::UserEntry]> {
+    let range = get_user_entries_byte_range(data.len(), start_idx, count)?;
+    bytemuck::try_cast_slice_mut(&mut data[range])
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))
 }
 
 /// Read the user entry at `idx` from raw account data.
@@ -79,13 +132,10 @@ fn get_user_entry_start_offset(data_len: usize, idx: usize) -> Option<usize> {
 ///
 /// # Returns
 /// * `Result<UserEntry>` - Deserialized user entry struct or error if out of bounds.
+#[inline]
 pub fn registry_get_entry(data: &[u8], idx: usize) -> Result<crate::state::UserEntry> {
-    let start = get_user_entry_start_offset(data.len(), idx)
-        .ok_or_else(|| error!(PremiumBondsError::InvalidUserEntryHint))?;
-    unsafe {
-        let ptr = data.as_ptr().add(start) as *const crate::state::UserEntry;
-        Ok(std::ptr::read_unaligned(ptr))
-    }
+    let entries = get_user_entries(data, idx, 1)?;
+    Ok(entries[0])
 }
 
 /// Write `entry` into the user entry slot at `idx` in raw account data.
@@ -97,14 +147,15 @@ pub fn registry_get_entry(data: &[u8], idx: usize) -> Result<crate::state::UserE
 ///
 /// # Returns
 /// * `Result<()>` - Ok if successfully written or error if out of bounds.
-pub fn registry_set_entry(data: &mut [u8], idx: usize, entry: &crate::state::UserEntry) -> Result<()> {
-    let start = get_user_entry_start_offset(data.len(), idx)
-        .ok_or_else(|| error!(PremiumBondsError::InvalidUserEntryHint))?;
-    unsafe {
-        let ptr = data.as_mut_ptr().add(start) as *mut crate::state::UserEntry;
-        std::ptr::write_unaligned(ptr, *entry);
-        Ok(())
-    }
+#[inline]
+pub fn registry_set_entry(
+    data: &mut [u8],
+    idx: usize,
+    entry: &crate::state::UserEntry,
+) -> Result<()> {
+    let entries = get_user_entries_mut(data, idx, 1)?;
+    entries[0] = *entry;
+    Ok(())
 }
 
 /// Derive the maximum user entry capacity from the raw account data length.
@@ -460,7 +511,7 @@ mod tests {
         let err = registry_get_entry(&data, 2).unwrap_err();
         assert_eq!(
             err,
-            crate::error::PremiumBondsError::InvalidUserEntryHint.into()
+            crate::error::PremiumBondsError::InvalidRegistryState.into()
         );
     }
 
@@ -471,7 +522,70 @@ mod tests {
         let err = registry_set_entry(&mut data, 2, &entry).unwrap_err();
         assert_eq!(
             err,
-            crate::error::PremiumBondsError::InvalidUserEntryHint.into()
+            crate::error::PremiumBondsError::InvalidRegistryState.into()
+        );
+    }
+
+    #[test]
+    fn test_get_user_entries_byte_range_zero_count() {
+        let range = get_user_entries_byte_range(make_entry_data(2).len(), 0, 0).unwrap();
+        assert_eq!(range, USER_ENTRY_REGISTRY_HEADER_SIZE..USER_ENTRY_REGISTRY_HEADER_SIZE);
+    }
+
+    #[test]
+    fn test_get_user_entries_byte_range_overflow() {
+        let err = get_user_entries_byte_range(1000, usize::MAX / 2, 2).unwrap_err();
+        assert_eq!(
+            err,
+            crate::error::PremiumBondsError::MathOverflow.into()
+        );
+    }
+
+    #[test]
+    fn test_get_user_entries_batch_roundtrip() {
+        let mut data = make_entry_data(3);
+        let entry0 = crate::state::UserEntry {
+            owner: pk(10),
+            active: 10,
+            pending: 5,
+            merged_through_cycle: 1,
+            cumulative_active: 10,
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        };
+        let entry1 = crate::state::UserEntry {
+            owner: pk(11),
+            active: 20,
+            pending: 0,
+            merged_through_cycle: 1,
+            cumulative_active: 30,
+            version: crate::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        };
+
+        {
+            let entries_mut = get_user_entries_mut(&mut data, 0, 2).unwrap();
+            entries_mut[0] = entry0;
+            entries_mut[1] = entry1;
+        }
+
+        let entries = get_user_entries(&data, 0, 2).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].owner, pk(10));
+        assert_eq!(entries[0].active, 10);
+        assert_eq!(entries[1].owner, pk(11));
+        assert_eq!(entries[1].active, 20);
+    }
+
+    #[test]
+    fn test_get_user_entries_out_of_bounds() {
+        let data = make_entry_data(2);
+        let err = get_user_entries(&data, 1, 2).unwrap_err();
+        assert_eq!(
+            err,
+            crate::error::PremiumBondsError::InvalidRegistryState.into()
         );
     }
 
