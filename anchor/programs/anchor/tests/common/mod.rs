@@ -2213,3 +2213,95 @@ pub fn assert_prize_tier_distribution(
         "Dust remainder ({dust}) exceeded 10,000 basis point limit"
     );
 }
+
+// ─── Token-2022 Test Utilities ───────────────────────────────────────────────
+
+pub fn inject_token_2022_mint(
+    svm: &mut LiteSVM,
+    mint: Pubkey,
+    decimals: u8,
+    extension: Option<anchor_spl::token_2022::spl_token_2022::extension::ExtensionType>,
+) {
+    use anchor_spl::token_2022::spl_token_2022::extension::{
+        BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+    };
+
+    let space = if let Some(ext) = extension {
+        ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Mint,
+        >(&[ext])
+        .unwrap()
+    } else {
+        82
+    };
+
+    let mut data = vec![0u8; space];
+    if let Some(ext) = extension {
+        let mut state = StateWithExtensionsMut::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack_uninitialized(&mut data).unwrap();
+        state.init_account_type().unwrap();
+        match ext {
+            ExtensionType::TransferFeeConfig => {
+                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig>(true);
+            }
+            ExtensionType::TransferHook => {
+                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_hook::TransferHook>(true);
+            }
+            ExtensionType::PermanentDelegate => {
+                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::permanent_delegate::PermanentDelegate>(true);
+            }
+            ExtensionType::MintCloseAuthority => {
+                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::mint_close_authority::MintCloseAuthority>(true);
+            }
+            _ => panic!("Unsupported test extension"),
+        }
+    }
+    // Set standard mint header fields: is_initialized = true, decimals
+    data[44] = decimals;
+    data[45] = 1;
+
+    svm.set_account(
+        mint,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token_2022::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+pub fn inject_token_2022_account(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    mint: Pubkey,
+    owner: Pubkey,
+    amount: u64,
+) {
+    let token_state = anchor_spl::token::spl_token::state::Account {
+        mint,
+        owner,
+        amount,
+        delegate: solana_program::program_option::COption::None,
+        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
+        is_native: solana_program::program_option::COption::None,
+        delegated_amount: 0,
+        close_authority: solana_program::program_option::COption::None,
+    };
+    let mut data = vec![0u8; anchor_spl::token::spl_token::state::Account::LEN];
+    Pack::pack_into_slice(&token_state, &mut data);
+
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner: anchor_spl::token_2022::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+

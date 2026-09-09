@@ -348,6 +348,10 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         description: "Fee wallet token account address",
       },
       {
+        flag: "--huma-pool-state <pubkey>",
+        description: "Huma pool state account address",
+      },
+      {
         flag: "--min-yield-threshold <num>",
         description:
           "Minimum yield threshold in base units (0 = uncapped/no min)",

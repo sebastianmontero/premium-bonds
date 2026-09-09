@@ -24,96 +24,6 @@ mod common;
 use common::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Helper Functions for Adversarial Testing
-// ═══════════════════════════════════════════════════════════════════════════
-
-fn inject_token_2022_mint(
-    svm: &mut LiteSVM,
-    mint: Pubkey,
-    decimals: u8,
-    extension: Option<ExtensionType>,
-) {
-    let space = if let Some(ext) = extension {
-        ExtensionType::try_calculate_account_len::<
-            anchor_spl::token_2022::spl_token_2022::state::Mint,
-        >(&[ext])
-        .unwrap()
-    } else {
-        82
-    };
-
-    let mut data = vec![0u8; space];
-    if let Some(ext) = extension {
-        let mut state = StateWithExtensionsMut::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack_uninitialized(&mut data).unwrap();
-        state.init_account_type().unwrap();
-        match ext {
-            ExtensionType::TransferFeeConfig => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig>(true);
-            }
-            ExtensionType::TransferHook => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_hook::TransferHook>(true);
-            }
-            ExtensionType::PermanentDelegate => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::permanent_delegate::PermanentDelegate>(true);
-            }
-            ExtensionType::MintCloseAuthority => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::mint_close_authority::MintCloseAuthority>(true);
-            }
-            _ => panic!("Unsupported test extension"),
-        }
-    }
-    // Set standard mint header fields: is_initialized = true, decimals
-    data[44] = decimals;
-    data[45] = 1;
-
-    svm.set_account(
-        mint,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token_2022::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn inject_token_2022_account(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    mint: Pubkey,
-    owner: Pubkey,
-    amount: u64,
-) {
-    use solana_program::program_pack::Pack;
-    let token_state = anchor_spl::token::spl_token::state::Account {
-        mint,
-        owner,
-        amount,
-        delegate: solana_program::program_option::COption::None,
-        state: anchor_spl::token::spl_token::state::AccountState::Initialized,
-        is_native: solana_program::program_option::COption::None,
-        delegated_amount: 0,
-        close_authority: solana_program::program_option::COption::None,
-    };
-    let mut data = vec![0u8; anchor_spl::token::spl_token::state::Account::LEN];
-    Pack::pack_into_slice(&token_state, &mut data);
-
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor_spl::token_2022::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // SEC-01: Huma State Pinning Spoofing Defense
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -628,6 +538,225 @@ fn test_sell_bonds_fails_when_committed_yield_exceeds_vault() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
     let res = ctx.svm.send_transaction(tx);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
+}
+
+#[test]
+fn test_claim_winnings_fails_when_insolvent() {
+    let mut ctx = setup_e2e();
+    let dummy = Keypair::new().pubkey();
+    // Buy 10 bonds = 10 USDC (10_000_000 lamports)
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+
+    // Set up user_winnings with 5_000_000 unclaimed winnings and pool with 5_000_000 total_prizes_allocated
+    let (pool_pda_addr, _) = pool_pda(1);
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_prizes_allocated = 5_000_000;
+    // Total liabilities = 10_000_000 principal + 5_000_000 allocated = 15_000_000
+
+    let mut pool_data = vec![];
+    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
+    ctx.svm
+        .set_account(
+            pool_pda_addr,
+            Account {
+                lamports: 10_000_000,
+                data: pool_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
+    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000, 0, 0);
+
+    // Impair Huma assets to 8,000,000 (less than 15,000,000 book liabilities)
+    let mut data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
+    data[30..46].copy_from_slice(&8_000_000u128.to_le_bytes());
+    ctx.svm
+        .set_account(
+            ctx.huma_pool_state,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: huma_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Ensure pst_mint supply = 10_000_000
+    let mut pst_data = ctx.svm.get_account(&ctx.pst_mint).unwrap().data;
+    pst_data[36..44].copy_from_slice(&10_000_000u64.to_le_bytes());
+    ctx.svm
+        .set_account(
+            ctx.pst_mint,
+            Account {
+                lamports: 1_000_000_000,
+                data: pst_data,
+                owner: anchor_spl::token::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, 0);
+
+    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
+        user: ctx.user.pubkey(),
+        pool: pool_pda_addr,
+        user_winnings: user_winnings_addr,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: Keypair::new().pubkey(),
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token: Keypair::new().pubkey(),
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
+
+    // Verify user unclaimed balance remains untouched
+    let unwrapped_user_winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
+    assert_eq!(
+        unwrapped_user_winnings.unclaimed_non_reinvested_winnings,
+        5_000_000
+    );
+}
+
+#[test]
+fn test_withdraw_fees_fails_when_insolvent() {
+    let mut ctx = setup_e2e();
+    let dummy = Keypair::new().pubkey();
+    // Buy 50 bonds = 50 USDC (50_000_000 lamports)
+    send_e2e_buy_bonds(&mut ctx, 50).unwrap();
+
+    // Set accrued fees = 2,000,000 on pool (total book liabilities = 50M principal + 2M fees = 52M)
+    let (pool_pda_addr, _) = pool_pda(1);
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_fees_accrued = 2_000_000;
+    pool.total_fees_withdrawn = 0;
+
+    let mut pool_data = vec![];
+    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
+    ctx.svm
+        .set_account(
+            pool_pda_addr,
+            Account {
+                lamports: 10_000_000,
+                data: pool_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Impair Huma assets to 40,000,000 (below 52,000,000 book liabilities)
+    let mut data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
+    data[30..46].copy_from_slice(&40_000_000u128.to_le_bytes());
+    ctx.svm
+        .set_account(
+            ctx.huma_pool_state,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: huma_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Ensure pst_mint supply = 50_000_000
+    let mut pst_data = ctx.svm.get_account(&ctx.pst_mint).unwrap().data;
+    pst_data[36..44].copy_from_slice(&50_000_000u64.to_le_bytes());
+    ctx.svm
+        .set_account(
+            ctx.pst_mint,
+            Account {
+                lamports: 1_000_000_000,
+                data: pst_data,
+                owner: anchor_spl::token::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let (global_config, _) = global_config_pda();
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, 0);
+
+    let accounts = anchor::accounts::WithdrawFees {
+        admin: ctx.admin.pubkey(),
+        global_config,
+        pool: pool_pda_addr,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: Keypair::new().pubkey(),
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token: Keypair::new().pubkey(),
+        token_mint: ctx.usdc_mint,
+        fee_wallet: pool.fee_wallet,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
+
+    // Verify pool total_fees_withdrawn remains 0
+    let updated_pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(updated_pool.total_fees_withdrawn, 0);
 }
 
 #[test]

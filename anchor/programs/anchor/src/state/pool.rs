@@ -268,6 +268,22 @@ impl PrizePool {
         Ok(())
     }
 
+    /// Reads the Huma pool snapshot, computes current pool PST vault valuation in USDC,
+    /// and asserts full liabilities solvency against book liabilities.
+    ///
+    /// Returns the parsed `HumaPoolSnapshot` for subsequent share redemption calculations.
+    pub fn assert_huma_solvency(
+        &self,
+        huma_pool_state: &AccountInfo,
+        pool_pst_vault_amount: u64,
+        pst_supply: u64,
+    ) -> Result<crate::huma::HumaPoolSnapshot> {
+        let huma_snapshot = crate::huma::read_huma_assets_and_queue(huma_pool_state)?;
+        let current_value = huma_snapshot.pst_shares_to_usdc(pool_pst_vault_amount, pst_supply)?;
+        self.assert_solvent(current_value)?;
+        Ok(huma_snapshot)
+    }
+
     /// Validates all pre-CPI guard checks for the `buy_bonds` instruction.
     ///
     /// These checks run before any token transfers or Huma CPI calls.

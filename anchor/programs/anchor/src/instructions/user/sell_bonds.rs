@@ -168,12 +168,12 @@ pub struct SellBonds<'info> {
 /// * `active_to_sell` - The number of active tickets to sell.
 /// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
-    let huma_snapshot =
-        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let current_value =
-        huma_snapshot.pst_shares_to_usdc(ctx.accounts.pool_pst_vault.amount, pst_supply)?;
-    ctx.accounts.pool.load()?.assert_solvent(current_value)?;
+    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
+        &ctx.accounts.huma_pool_state.to_account_info(),
+        ctx.accounts.pool_pst_vault.amount,
+        pst_supply,
+    )?;
 
     let (bond_price, pool_id_for_seeds) = {
         let mut pool = ctx.accounts.pool.load_mut()?;

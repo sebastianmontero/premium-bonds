@@ -331,6 +331,11 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
         "create-pool options must include --tiers"
       );
       assert.strictEqual(
+        createFlags?.includes("--huma-pool-state"),
+        true,
+        "create-pool options must include --huma-pool-state"
+      );
+      assert.strictEqual(
         createFlags?.includes("--timelock"),
         false,
         "create-pool options must not contain deprecated --timelock"

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Address, lamports } from "@solana/kit";
+import { Address, lamports, address } from "@solana/kit";
 import {
   decodeUserWinnings,
   decodeGlobalConfig,
@@ -30,6 +30,9 @@ import {
   REGISTRY_HEADER_SIZE,
   USER_ENTRY_SIZE,
   UserEntryInfo,
+  buildNominateAdminInstruction,
+  buildCancelAdminNominationInstruction,
+  buildAcceptAdminInstruction,
 } from "../app/lib/bonds-sdk";
 import {
   serializeTicketRegistry,
@@ -905,6 +908,35 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
           }),
         /Pool PST balance must be greater than zero/
       );
+    });
+  });
+
+  describe("Admin Governance Instruction Builders", () => {
+    it("should build nominateAdmin instruction", async () => {
+      const admin = address("11111111111111111111111111111111");
+      const pendingAdmin = address(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      );
+      const ix = await buildNominateAdminInstruction({ admin, pendingAdmin });
+      assert.ok(ix);
+      assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[1].address, admin);
+    });
+
+    it("should build cancelAdminNomination instruction", async () => {
+      const admin = address("11111111111111111111111111111111");
+      const ix = await buildCancelAdminNominationInstruction({ admin });
+      assert.ok(ix);
+      assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[1].address, admin);
+    });
+
+    it("should build acceptAdmin instruction", async () => {
+      const newAdmin = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+      const ix = await buildAcceptAdminInstruction({ newAdmin });
+      assert.ok(ix);
+      assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[1].address, newAdmin);
     });
   });
 });

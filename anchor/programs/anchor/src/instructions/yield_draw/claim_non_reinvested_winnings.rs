@@ -145,12 +145,12 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// A `PendingRedemption` receipt is created on-chain to record this request and the Huma queue request ID,
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
-    let huma_snapshot =
-        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let current_value =
-        huma_snapshot.pst_shares_to_usdc(ctx.accounts.pool_pst_vault.amount, pst_supply)?;
-    ctx.accounts.pool.load()?.assert_solvent(current_value)?;
+    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
+        &ctx.accounts.huma_pool_state.to_account_info(),
+        ctx.accounts.pool_pst_vault.amount,
+        pst_supply,
+    )?;
 
     let user_winnings = &mut ctx.accounts.user_winnings;
     user_winnings.ensure_current_version()?;

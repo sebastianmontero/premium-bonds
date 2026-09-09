@@ -160,12 +160,12 @@ pub struct WithdrawFees<'info> {
 /// * `ctx` - The context of the withdraw fees instruction.
 /// * `amount` - The amount of accrued USDC fees to withdraw.
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
-    let huma_snapshot =
-        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let current_value =
-        huma_snapshot.pst_shares_to_usdc(ctx.accounts.pool_pst_vault.amount, pst_supply)?;
-    ctx.accounts.pool.load()?.assert_solvent(current_value)?;
+    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
+        &ctx.accounts.huma_pool_state.to_account_info(),
+        ctx.accounts.pool_pst_vault.amount,
+        pst_supply,
+    )?;
 
     let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
