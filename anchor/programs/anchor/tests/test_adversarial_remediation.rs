@@ -544,14 +544,25 @@ fn test_sell_bonds_fails_when_committed_yield_exceeds_vault() {
 fn test_claim_winnings_fails_when_insolvent() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
-    // Buy 10 bonds = 10 USDC (10_000_000 lamports)
-    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    // Set up user_winnings with 5_000_000 unclaimed winnings and pool with 5_000_000 total_prizes_allocated
+    // Pre-fund user with 10,000 USDC ($10,000 in 6 decimals = 10_000_000_000 base units)
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.user_usdc_account,
+        &ctx.usdc_mint_authority,
+        10_000_000_000,
+    );
+
+    // Buy 10,000 bonds = 10,000 USDC (10_000_000_000 base units)
+    send_e2e_buy_bonds(&mut ctx, 10_000).unwrap();
+
+    // Set up user_winnings with 5_000_000_000 unclaimed winnings and pool with 5_000_000_000 total_prizes_allocated
     let (pool_pda_addr, _) = pool_pda(1);
     let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_prizes_allocated = 5_000_000;
-    // Total liabilities = 10_000_000 principal + 5_000_000 allocated = 15_000_000
+    pool.total_prizes_allocated = 5_000_000_000;
+    // Total liabilities = 10_000_000_000 principal + 5_000_000_000 allocated = 15_000_000_000
 
     let mut pool_data = vec![];
     pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
@@ -570,39 +581,16 @@ fn test_claim_winnings_fails_when_insolvent() {
         .unwrap();
 
     let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
-    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000, 0, 0);
+    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000_000, 0, 0);
 
-    // Impair Huma assets to 8,000,000 (less than 15,000,000 book liabilities)
-    let mut data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
-    data[30..46].copy_from_slice(&8_000_000u128.to_le_bytes());
-    ctx.svm
-        .set_account(
-            ctx.huma_pool_state,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: huma_program_id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-
-    // Ensure pst_mint supply = 10_000_000
-    let mut pst_data = ctx.svm.get_account(&ctx.pst_mint).unwrap().data;
-    pst_data[36..44].copy_from_slice(&10_000_000u64.to_le_bytes());
-    ctx.svm
-        .set_account(
-            ctx.pst_mint,
-            Account {
-                lamports: 1_000_000_000,
-                data: pst_data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Impair Huma assets to 8,000_000_000 (less than 15,000_000_000 book liabilities) with 10_000_000_000 PST supply
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        8_000_000_000,
+        10_000_000_000,
+    );
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
@@ -647,7 +635,7 @@ fn test_claim_winnings_fails_when_insolvent() {
     let unwrapped_user_winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     assert_eq!(
         unwrapped_user_winnings.unclaimed_non_reinvested_winnings,
-        5_000_000
+        5_000_000_000
     );
 }
 
@@ -655,13 +643,24 @@ fn test_claim_winnings_fails_when_insolvent() {
 fn test_withdraw_fees_fails_when_insolvent() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
-    // Buy 50 bonds = 50 USDC (50_000_000 lamports)
-    send_e2e_buy_bonds(&mut ctx, 50).unwrap();
 
-    // Set accrued fees = 2,000,000 on pool (total book liabilities = 50M principal + 2M fees = 52M)
+    // Pre-fund user with 50,000 USDC ($50,000 in 6 decimals = 50_000_000_000 base units)
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.user_usdc_account,
+        &ctx.usdc_mint_authority,
+        50_000_000_000,
+    );
+
+    // Buy 50,000 bonds = 50,000 USDC (50_000_000_000 base units)
+    send_e2e_buy_bonds(&mut ctx, 50_000).unwrap();
+
+    // Set accrued fees = 2,000_000_000 on pool (total book liabilities = 50B principal + 2B fees = 52B)
     let (pool_pda_addr, _) = pool_pda(1);
     let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 2_000_000;
+    pool.total_fees_accrued = 2_000_000_000;
     pool.total_fees_withdrawn = 0;
 
     let mut pool_data = vec![];
@@ -680,37 +679,14 @@ fn test_withdraw_fees_fails_when_insolvent() {
         )
         .unwrap();
 
-    // Impair Huma assets to 40,000,000 (below 52,000,000 book liabilities)
-    let mut data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
-    data[30..46].copy_from_slice(&40_000_000u128.to_le_bytes());
-    ctx.svm
-        .set_account(
-            ctx.huma_pool_state,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: huma_program_id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-
-    // Ensure pst_mint supply = 50_000_000
-    let mut pst_data = ctx.svm.get_account(&ctx.pst_mint).unwrap().data;
-    pst_data[36..44].copy_from_slice(&50_000_000u64.to_le_bytes());
-    ctx.svm
-        .set_account(
-            ctx.pst_mint,
-            Account {
-                lamports: 1_000_000_000,
-                data: pst_data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Impair Huma assets to 40,000_000_000 (below 52,000_000_000 book liabilities) with 50_000_000_000 PST supply
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        40_000_000_000,
+        50_000_000_000,
+    );
 
     let (global_config, _) = global_config_pda();
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -745,7 +721,7 @@ fn test_withdraw_fees_fails_when_insolvent() {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
+        data: anchor::instruction::WithdrawFees { amount: 1_000_000_000 }.data(),
     };
 
     let bh = ctx.svm.latest_blockhash();

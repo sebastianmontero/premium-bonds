@@ -645,6 +645,12 @@ mod tests {
     }
 
     #[test]
+    fn test_pst_shares_to_usdc_zero_inputs() {
+        assert_eq!(pst_shares_to_usdc(0, 1_000_000, 1_000_000).unwrap(), 0);
+        assert_eq!(pst_shares_to_usdc(1_000_000, 1_000_000, 0).unwrap(), 0);
+    }
+
+    #[test]
     fn test_pst_shares_to_usdc_floor_rounding() {
         // 334 shares, supply 1000, assets 300 -> 334 * 300 / 1000 = 100.2 -> floor = 100
         assert_eq!(pst_shares_to_usdc(334, 1000, 300).unwrap(), 100);

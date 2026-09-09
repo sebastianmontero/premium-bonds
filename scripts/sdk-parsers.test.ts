@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Address, lamports, address } from "@solana/kit";
+import { Address, lamports, address, AccountRole, createNoopSigner } from "@solana/kit";
 import {
   decodeUserWinnings,
   decodeGlobalConfig,
@@ -8,6 +8,7 @@ import {
   decodeDrawCycle,
   decodePayoutRegistry,
 } from "../app/lib/generated/yield-bonds/src/generated/accounts";
+import { ANCHOR_PROGRAM_ADDRESS } from "../app/lib/generated/yield-bonds/src/generated";
 import {
   RedemptionType,
   parseDrawCycle,
@@ -917,26 +918,42 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
       const pendingAdmin = address(
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
       );
-      const ix = await buildNominateAdminInstruction({ admin, pendingAdmin });
+      const ix = await buildNominateAdminInstruction({
+        admin: createNoopSigner(admin),
+        pendingAdmin,
+      });
       assert.ok(ix);
+      assert.equal(ix.programAddress, ANCHOR_PROGRAM_ADDRESS);
       assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[0].role, AccountRole.WRITABLE);
       assert.equal(ix.accounts[1].address, admin);
+      assert.equal(ix.accounts[1].role, AccountRole.READONLY_SIGNER);
     });
 
     it("should build cancelAdminNomination instruction", async () => {
       const admin = address("11111111111111111111111111111111");
-      const ix = await buildCancelAdminNominationInstruction({ admin });
+      const ix = await buildCancelAdminNominationInstruction({
+        admin: createNoopSigner(admin),
+      });
       assert.ok(ix);
+      assert.equal(ix.programAddress, ANCHOR_PROGRAM_ADDRESS);
       assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[0].role, AccountRole.WRITABLE);
       assert.equal(ix.accounts[1].address, admin);
+      assert.equal(ix.accounts[1].role, AccountRole.READONLY_SIGNER);
     });
 
     it("should build acceptAdmin instruction", async () => {
       const newAdmin = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-      const ix = await buildAcceptAdminInstruction({ newAdmin });
+      const ix = await buildAcceptAdminInstruction({
+        newAdmin: createNoopSigner(newAdmin),
+      });
       assert.ok(ix);
+      assert.equal(ix.programAddress, ANCHOR_PROGRAM_ADDRESS);
       assert.equal(ix.accounts.length, 4);
+      assert.equal(ix.accounts[0].role, AccountRole.WRITABLE);
       assert.equal(ix.accounts[1].address, newAdmin);
+      assert.equal(ix.accounts[1].role, AccountRole.READONLY_SIGNER);
     });
   });
 });

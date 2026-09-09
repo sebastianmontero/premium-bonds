@@ -850,7 +850,58 @@ fn test_err_yield_venue_insolvent_and_unauthorized() {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Module 6: Adversarial Hardening & Two-Step Governance Errors
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn assert_create_pool_fails_with_token_2022_extension(
+    extension: anchor_spl::token_2022::spl_token_2022::extension::ExtensionType,
+    expected_error: PremiumBondsError,
+) {
+    let (mut svm, admin) = setup_global_config();
+    let mint = Keypair::new().pubkey();
+    inject_token_2022_mint(&mut svm, mint, 6, Some(extension));
+    let pst_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, pst_mint, 6);
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_2022_account(&mut svm, fee_wallet, mint, admin.pubkey(), 0);
+    let ticket_registry = Keypair::new().pubkey();
+    svm.set_account(
+        ticket_registry,
+        Account {
+            lamports: 10_000_000_000,
+            data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    let ix = build_create_pool_instruction_with_programs(
+        &admin,
+        1,
+        1_000_000,
+        24,
+        100,
+        0,
+        0,
+        300,
+        default_prize_tiers(),
+        mint,
+        pst_mint,
+        ticket_registry,
+        fee_wallet,
+        huma_pool_state,
+        anchor_spl::token_2022::ID,
+        anchor_spl::token::ID,
+    );
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, expected_error);
+}
 
 #[test]
 fn test_err_adversarial_governance_and_extensions() {
@@ -904,166 +955,26 @@ fn test_err_adversarial_governance_and_extensions() {
     );
 
     // 4. TransferFeeNotSupported
-    {
-        let (mut svm, admin) = setup_global_config();
-        let fee_mint = Keypair::new().pubkey();
-        inject_token_2022_mint(
-            &mut svm,
-            fee_mint,
-            6,
-            Some(anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferFeeConfig),
-        );
-        let pst_mint = Keypair::new().pubkey();
-        inject_mint(&mut svm, pst_mint, 6);
-        let fee_wallet = Keypair::new().pubkey();
-        inject_token_2022_account(&mut svm, fee_wallet, fee_mint, admin.pubkey(), 0);
-        let ticket_registry = Keypair::new().pubkey();
-        svm.set_account(
-            ticket_registry,
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-        let huma_pool_state = Keypair::new().pubkey();
-        inject_huma_pool_state(&mut svm, huma_pool_state);
-
-        let ix = build_create_pool_instruction_with_programs(
-            &admin,
-            1,
-            1_000_000,
-            24,
-            100,
-            0,
-            0,
-            300,
-            default_prize_tiers(),
-            fee_mint,
-            pst_mint,
-            ticket_registry,
-            fee_wallet,
-            huma_pool_state,
-            anchor_spl::token_2022::ID,
-            anchor_spl::token::ID,
-        );
-        let bh = svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-        let res = svm.send_transaction(tx);
-        assert_custom_error(res, PremiumBondsError::TransferFeeNotSupported);
-    }
+    assert_create_pool_fails_with_token_2022_extension(
+        anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferFeeConfig,
+        PremiumBondsError::TransferFeeNotSupported,
+    );
 
     // 5. TransferHookNotSupported
-    {
-        let (mut svm, admin) = setup_global_config();
-        let hook_mint = Keypair::new().pubkey();
-        inject_token_2022_mint(
-            &mut svm,
-            hook_mint,
-            6,
-            Some(anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferHook),
-        );
-        let pst_mint = Keypair::new().pubkey();
-        inject_mint(&mut svm, pst_mint, 6);
-        let fee_wallet = Keypair::new().pubkey();
-        inject_token_2022_account(&mut svm, fee_wallet, hook_mint, admin.pubkey(), 0);
-        let ticket_registry = Keypair::new().pubkey();
-        svm.set_account(
-            ticket_registry,
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-        let huma_pool_state = Keypair::new().pubkey();
-        inject_huma_pool_state(&mut svm, huma_pool_state);
+    assert_create_pool_fails_with_token_2022_extension(
+        anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferHook,
+        PremiumBondsError::TransferHookNotSupported,
+    );
 
-        let ix = build_create_pool_instruction_with_programs(
-            &admin,
-            1,
-            1_000_000,
-            24,
-            100,
-            0,
-            0,
-            300,
-            default_prize_tiers(),
-            hook_mint,
-            pst_mint,
-            ticket_registry,
-            fee_wallet,
-            huma_pool_state,
-            anchor_spl::token_2022::ID,
-            anchor_spl::token::ID,
-        );
-        let bh = svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-        let res = svm.send_transaction(tx);
-        assert_custom_error(res, PremiumBondsError::TransferHookNotSupported);
-    }
-
-    // 6. InvalidTokenMint (PermanentDelegate)
-    {
-        let (mut svm, admin) = setup_global_config();
-        let perm_mint = Keypair::new().pubkey();
-        inject_token_2022_mint(
-            &mut svm,
-            perm_mint,
-            6,
-            Some(anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::PermanentDelegate),
-        );
-        let pst_mint = Keypair::new().pubkey();
-        inject_mint(&mut svm, pst_mint, 6);
-        let fee_wallet = Keypair::new().pubkey();
-        inject_token_2022_account(&mut svm, fee_wallet, perm_mint, admin.pubkey(), 0);
-        let ticket_registry = Keypair::new().pubkey();
-        svm.set_account(
-            ticket_registry,
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-        let huma_pool_state = Keypair::new().pubkey();
-        inject_huma_pool_state(&mut svm, huma_pool_state);
-
-        let ix = build_create_pool_instruction_with_programs(
-            &admin,
-            1,
-            1_000_000,
-            24,
-            100,
-            0,
-            0,
-            300,
-            default_prize_tiers(),
-            perm_mint,
-            pst_mint,
-            ticket_registry,
-            fee_wallet,
-            huma_pool_state,
-            anchor_spl::token_2022::ID,
-            anchor_spl::token::ID,
-        );
-        let bh = svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-        let res = svm.send_transaction(tx);
-        assert_custom_error(res, PremiumBondsError::InvalidTokenMint);
-    }
+    // 6. InvalidTokenMint (PermanentDelegate & MintCloseAuthority)
+    assert_create_pool_fails_with_token_2022_extension(
+        anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::PermanentDelegate,
+        PremiumBondsError::InvalidTokenMint,
+    );
+    assert_create_pool_fails_with_token_2022_extension(
+        anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::MintCloseAuthority,
+        PremiumBondsError::InvalidTokenMint,
+    );
 
     // 7. InvalidHumaPoolState
     {

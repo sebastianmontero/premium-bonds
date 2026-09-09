@@ -2241,16 +2241,16 @@ pub fn inject_token_2022_mint(
         state.init_account_type().unwrap();
         match ext {
             ExtensionType::TransferFeeConfig => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig>(true);
+                state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig>(true).unwrap();
             }
             ExtensionType::TransferHook => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_hook::TransferHook>(true);
+                state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_hook::TransferHook>(true).unwrap();
             }
             ExtensionType::PermanentDelegate => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::permanent_delegate::PermanentDelegate>(true);
+                state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::permanent_delegate::PermanentDelegate>(true).unwrap();
             }
             ExtensionType::MintCloseAuthority => {
-                let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::mint_close_authority::MintCloseAuthority>(true);
+                state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::mint_close_authority::MintCloseAuthority>(true).unwrap();
             }
             _ => panic!("Unsupported test extension"),
         }
@@ -2304,4 +2304,25 @@ pub fn inject_token_2022_account(
     )
     .unwrap();
 }
+
+pub fn set_huma_solvency_state(
+    svm: &mut LiteSVM,
+    huma_pool_state: Pubkey,
+    pst_mint: Pubkey,
+    total_assets: u128,
+    pst_supply: u64,
+) {
+    let mut pool_acc = svm
+        .get_account(&huma_pool_state)
+        .expect("huma pool state exists");
+    pool_acc.data[30..46].copy_from_slice(&total_assets.to_le_bytes());
+    svm.set_account(huma_pool_state, pool_acc).unwrap();
+
+    let mut mint_acc = svm
+        .get_account(&pst_mint)
+        .expect("pst mint exists");
+    mint_acc.data[36..44].copy_from_slice(&pst_supply.to_le_bytes());
+    svm.set_account(pst_mint, mint_acc).unwrap();
+}
+
 
