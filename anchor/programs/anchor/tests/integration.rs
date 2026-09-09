@@ -6,7 +6,9 @@
 
 use {
     anchor::state::PayoutRegistryStatus,
-    anchor_lang::{AccountDeserialize, AnchorSerialize, Discriminator, InstructionData, ToAccountMetas},
+    anchor_lang::{
+        AccountDeserialize, AnchorSerialize, Discriminator, InstructionData, ToAccountMetas,
+    },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_program::{instruction::Instruction, pubkey::Pubkey},
@@ -67,7 +69,8 @@ fn test_full_protocol_lifecycle_e2e() {
     // Phase 2: Setup Mints & Create PrizePool
     // ═══════════════════════════════════════════════════════════════════════════
     let usdc_mint_authority = Keypair::new();
-    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000)
+        .unwrap();
     let usdc_mint = create_spl_mint(&mut svm, &admin, &usdc_mint_authority.pubkey(), 6);
 
     let huma_pool_state = Keypair::new().pubkey();
@@ -145,10 +148,17 @@ fn test_full_protocol_lifecycle_e2e() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix_create_pool], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx).expect("Phase 2: CreatePool failed");
+    svm.send_transaction(tx)
+        .expect("Phase 2: CreatePool failed");
 
     let huma_pool_underlying = Keypair::new().pubkey();
-    inject_token_account(&mut svm, huma_pool_underlying, usdc_mint, huma_pool_authority, 0);
+    inject_token_account(
+        &mut svm,
+        huma_pool_underlying,
+        usdc_mint,
+        huma_pool_authority,
+        0,
+    );
 
     let mut ctx = E2eContext {
         svm,
@@ -170,8 +180,22 @@ fn test_full_protocol_lifecycle_e2e() {
     let alice_usdc = create_spl_token_account(&mut ctx.svm, &alice, &usdc_mint, &alice.pubkey());
     let bob_usdc = create_spl_token_account(&mut ctx.svm, &bob, &usdc_mint, &bob.pubkey());
 
-    mint_tokens(&mut ctx.svm, &ctx.admin, &usdc_mint, &alice_usdc, &ctx.usdc_mint_authority, 200_000_000);
-    mint_tokens(&mut ctx.svm, &ctx.admin, &usdc_mint, &bob_usdc, &ctx.usdc_mint_authority, 100_000_000);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &usdc_mint,
+        &alice_usdc,
+        &ctx.usdc_mint_authority,
+        200_000_000,
+    );
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &usdc_mint,
+        &bob_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
 
     send_e2e_buy_bonds_for_user(&mut ctx, &alice, alice_usdc, 100, Pubkey::default())
         .expect("Phase 3: Alice BuyBonds failed");
@@ -200,16 +224,18 @@ fn test_full_protocol_lifecycle_e2e() {
 
     let rand_acc_0 = Keypair::new().pubkey();
     let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    ctx.svm.set_account(
-        rand_acc_0,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: Pubkey::new_from_array(owner_bytes),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            rand_acc_0,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: Pubkey::new_from_array(owner_bytes),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let accounts_harvest_0 = anchor::accounts::HarvestYieldAndCommit {
         crank: crank.pubkey(),
@@ -236,7 +262,9 @@ fn test_full_protocol_lifecycle_e2e() {
     let bh = ctx.svm.latest_blockhash();
     let msg0 = Message::new_with_blockhash(&[ix_harvest_0], Some(&crank.pubkey()), &bh);
     let tx0 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg0), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx0).expect("Phase 4: Cycle 0 Harvest failed");
+    ctx.svm
+        .send_transaction(tx0)
+        .expect("Phase 4: Cycle 0 Harvest failed");
 
     // Tickets are now merged and active for Cycle 1!
     let reg_cycle_1 = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
@@ -262,16 +290,18 @@ fn test_full_protocol_lifecycle_e2e() {
 
     let (draw_cycle_1_pda, _) = draw_cycle_pda(pool_id, 1);
     let rand_acc_1 = Keypair::new().pubkey();
-    ctx.svm.set_account(
-        rand_acc_1,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: Pubkey::new_from_array(owner_bytes),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            rand_acc_1,
+            Account {
+                lamports: 1_000_000_000,
+                data: vec![],
+                owner: Pubkey::new_from_array(owner_bytes),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let accounts_harvest_1 = anchor::accounts::HarvestYieldAndCommit {
         crank: crank.pubkey(),
@@ -298,7 +328,9 @@ fn test_full_protocol_lifecycle_e2e() {
     let bh1 = ctx.svm.latest_blockhash();
     let msg1 = Message::new_with_blockhash(&[ix_harvest_1], Some(&crank.pubkey()), &bh1);
     let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx1).expect("Phase 4: Cycle 1 Harvest failed");
+    ctx.svm
+        .send_transaction(tx1)
+        .expect("Phase 4: Cycle 1 Harvest failed");
 
     let pool_frozen = read_pool_state(&ctx.svm, pool_id);
     assert_eq!(pool_frozen.is_frozen_for_draw, 1);
@@ -321,23 +353,28 @@ fn test_full_protocol_lifecycle_e2e() {
     };
     let bh_prep = ctx.svm.latest_blockhash();
     let msg_prep = Message::new_with_blockhash(&[ix_prepare], Some(&crank.pubkey()), &bh_prep);
-    let tx_prep = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx_prep).expect("Phase 5: PrepareDraw failed");
+    let tx_prep =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&crank]).unwrap();
+    ctx.svm
+        .send_transaction(tx_prep)
+        .expect("Phase 5: PrepareDraw failed");
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Phase 6: Winner Selection & Payout Registration
     // ═══════════════════════════════════════════════════════════════════════════
     let (payout_reg_pda, _) = payout_pda(pool_id, 1);
-    ctx.svm.set_account(
-        payout_reg_pda,
-        Account {
-            lamports: 10_000_000_000,
-            data: vec![0u8; 8 + std::mem::size_of::<anchor::state::PayoutRegistry>()],
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            payout_reg_pda,
+            Account {
+                lamports: 10_000_000_000,
+                data: vec![0u8; 8 + std::mem::size_of::<anchor::state::PayoutRegistry>()],
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     // 15 USDC yield: 10% fee (1.5 USDC) -> 13.5 USDC prize pot
     // Tier 1 (70%): Alice wins 9.45 USDC (9_450_000)
@@ -385,7 +422,14 @@ fn test_full_protocol_lifecycle_e2e() {
             _reserved: [0; 8],
         },
     ];
-    inject_payout_registry(&mut ctx.svm, pool_id, 1, winners, 0, PayoutRegistryStatus::Active);
+    inject_payout_registry(
+        &mut ctx.svm,
+        pool_id,
+        1,
+        winners,
+        0,
+        PayoutRegistryStatus::Active,
+    );
 
     // Unfreeze pool post-reveal and record prize liabilities
     {
@@ -428,8 +472,11 @@ fn test_full_protocol_lifecycle_e2e() {
     };
     let bh_reinv = ctx.svm.latest_blockhash();
     let msg_reinv = Message::new_with_blockhash(&[ix_reinvest], Some(&crank.pubkey()), &bh_reinv);
-    let tx_reinv = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx_reinv).expect("Phase 7: Alice ReinvestWinnings failed");
+    let tx_reinv =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&crank]).unwrap();
+    ctx.svm
+        .send_transaction(tx_reinv)
+        .expect("Phase 7: Alice ReinvestWinnings failed");
 
     let alice_winnings = read_user_winnings_state(&ctx.svm, pool_id, &alice.pubkey());
     assert_eq!(alice_winnings.total_reinvested, 9_000_000);
@@ -478,15 +525,15 @@ fn test_full_protocol_lifecycle_e2e() {
     let ix_withdraw_fees = Instruction {
         program_id: anchor::id(),
         accounts: accounts_withdraw_fees,
-        data: anchor::instruction::WithdrawFees {
-            amount: 1_500_000,
-        }
-        .data(),
+        data: anchor::instruction::WithdrawFees { amount: 1_500_000 }.data(),
     };
     let bh_fee = ctx.svm.latest_blockhash();
     let msg_fee = Message::new_with_blockhash(&[ix_withdraw_fees], Some(&admin.pubkey()), &bh_fee);
-    let tx_fee = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&admin]).unwrap();
-    ctx.svm.send_transaction(tx_fee).expect("Phase 8: WithdrawFees failed");
+    let tx_fee =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&admin]).unwrap();
+    ctx.svm
+        .send_transaction(tx_fee)
+        .expect("Phase 8: WithdrawFees failed");
 
     let pool_post_fees = read_pool_state(&ctx.svm, pool_id);
     assert_eq!(pool_post_fees.total_fees_withdrawn, 1_500_000);
@@ -544,9 +591,13 @@ fn test_full_protocol_lifecycle_e2e() {
         data: anchor::instruction::ClaimRedemption {}.data(),
     };
     let bh_claim = ctx.svm.latest_blockhash();
-    let msg_claim = Message::new_with_blockhash(&[ix_claim_redemption], Some(&alice.pubkey()), &bh_claim);
-    let tx_claim = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_claim), &[&alice]).unwrap();
-    ctx.svm.send_transaction(tx_claim).expect("Phase 10: ClaimRedemption failed");
+    let msg_claim =
+        Message::new_with_blockhash(&[ix_claim_redemption], Some(&alice.pubkey()), &bh_claim);
+    let tx_claim =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_claim), &[&alice]).unwrap();
+    ctx.svm
+        .send_transaction(tx_claim)
+        .expect("Phase 10: ClaimRedemption failed");
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Phase 11: Emergency Governance Controls
@@ -571,8 +622,12 @@ fn test_full_protocol_lifecycle_e2e() {
 
     // INV-PB-04: Registry active + pending matches pool active principal
     let active_tickets_principal = (final_reg.total_active_tickets as u64) * final_pool.bond_price;
-    let pending_tickets_principal = (final_reg.total_pending_tickets as u64) * final_pool.bond_price;
-    assert_eq!(active_tickets_principal + pending_tickets_principal, final_pool.total_deposited_principal);
+    let pending_tickets_principal =
+        (final_reg.total_pending_tickets as u64) * final_pool.bond_price;
+    assert_eq!(
+        active_tickets_principal + pending_tickets_principal,
+        final_pool.total_deposited_principal
+    );
 
     // INV-PB-07: Protocol fees accounting
     assert_eq!(final_pool.total_fees_withdrawn, 1_500_000);

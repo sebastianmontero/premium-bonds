@@ -211,7 +211,11 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
     let numerator = (usdc_amount as u128)
         .checked_mul(pst_supply as u128)
         .ok_or(PremiumBondsError::MathOverflow)?
-        .checked_add(total_assets.checked_sub(1).ok_or(PremiumBondsError::MathOverflow)?)
+        .checked_add(
+            total_assets
+                .checked_sub(1)
+                .ok_or(PremiumBondsError::MathOverflow)?,
+        )
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     let shares = numerator
@@ -699,15 +703,8 @@ mod tests {
         let mut data = build_mock_huma_pool_data(2, &[500_000_000, 250_000_000], 1, 42, 88);
         let owner = Pubkey::default();
         let key = Pubkey::default();
-        let account_info = AccountInfo::new(
-            &key,
-            false,
-            true,
-            &mut lamports,
-            &mut data,
-            &owner,
-            false,
-        );
+        let account_info =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &owner, false);
 
         let snapshot = read_huma_assets_and_queue(&account_info).unwrap();
         assert_eq!(snapshot.mode_assets, 500_000_000);
@@ -721,15 +718,8 @@ mod tests {
         let mut data = vec![0u8; 20]; // Truncated
         let owner = Pubkey::default();
         let key = Pubkey::default();
-        let account_info = AccountInfo::new(
-            &key,
-            false,
-            true,
-            &mut lamports,
-            &mut data,
-            &owner,
-            false,
-        );
+        let account_info =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &owner, false);
 
         let err = read_huma_assets_and_queue(&account_info).unwrap_err();
         assert_eq!(err, PremiumBondsError::InvalidHumaPoolData.into());
@@ -741,15 +731,8 @@ mod tests {
         let mut data = build_mock_huma_pool_data(0, &[], 0, 0, 0);
         let owner = Pubkey::default();
         let key = Pubkey::default();
-        let account_info = AccountInfo::new(
-            &key,
-            false,
-            true,
-            &mut lamports,
-            &mut data,
-            &owner,
-            false,
-        );
+        let account_info =
+            AccountInfo::new(&key, false, true, &mut lamports, &mut data, &owner, false);
 
         let err = read_huma_assets_and_queue(&account_info).unwrap_err();
         assert_eq!(err, PremiumBondsError::InvalidHumaPoolData.into());

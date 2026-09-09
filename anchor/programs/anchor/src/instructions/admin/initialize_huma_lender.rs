@@ -5,7 +5,7 @@ use crate::huma;
 use crate::state::{GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token_interface::{TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 /// Accounts required to initialize Huma lender state for a pool.
 #[derive(Accounts)]
@@ -69,9 +69,12 @@ pub struct InitializeHumaLender<'info> {
     /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_mode_config: UncheckedAccount<'info>,
 
-    /// CHECK: This is the Huma mode mint account. It is unchecked here because its structure
-    /// and validity are fully validated by the Huma program during the CPI call.
-    pub huma_mode_mint: UncheckedAccount<'info>,
+    /// The Huma mode token mint ($PST token mint).
+    #[account(
+        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
+        mint::token_program = pst_token_program
+    )]
+    pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
 
     /// CHECK: This is the Huma lender state account to be initialized. It is unchecked here because
     /// its initialization and ownership are fully managed and validated by the Huma program during the CPI call.

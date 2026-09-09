@@ -19,7 +19,6 @@ use {
 mod common;
 use common::*;
 
-
 /// Helper to inject a `PrizePool` account directly into the SVM, bypassing `create_pool`.
 fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pubkey {
     let (pda, bump) = pool_pda(pool_id);
@@ -47,7 +46,11 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32, is_frozen_for_draw: bool) -> Pub
         total_prizes_allocated: 0,
         next_redemption_id: 0,
         total_pending_redemptions: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -122,7 +125,9 @@ fn read_prize_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
         .get_account(&pda)
         .expect("prize_pool account must exist");
 
-    *bytemuck::from_bytes::<anchor::PrizePool>(&account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
+    *bytemuck::from_bytes::<anchor::PrizePool>(
+        &account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -67,7 +67,6 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
     assert_eq!(config.jobs_account, jobs);
 }
 
-
 /// Initialization succeeds when authority != admin (decoupled upgrade authority and operational admin).
 #[test]
 fn test_initialize_global_succeeds_different_authority_and_admin() {
@@ -99,8 +98,14 @@ fn test_initialize_global_sets_jobs_account_default() {
     let mut svm = setup_svm_with_authority(&authority);
     let guardian = Keypair::new().pubkey();
 
-    send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &Pubkey::default())
-        .expect("should succeed with default jobs pubkey");
+    send_initialize_global(
+        &mut svm,
+        &authority,
+        &authority.pubkey(),
+        &guardian,
+        &Pubkey::default(),
+    )
+    .expect("should succeed with default jobs pubkey");
 
     let config = read_global_config(&svm);
     assert_eq!(config.jobs_account, Pubkey::default());
@@ -155,11 +160,18 @@ fn test_initialize_global_fails_when_signer_is_not_upgrade_authority() {
     let real_upgrade_authority = Keypair::new();
     let fake_attacker = Keypair::new();
     let mut svm = setup_svm_with_authority(&real_upgrade_authority);
-    svm.airdrop(&fake_attacker.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&fake_attacker.pubkey(), 10_000_000_000)
+        .unwrap();
 
     let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
-    let result = send_initialize_global(&mut svm, &fake_attacker, &fake_attacker.pubkey(), &guardian, &jobs);
+    let result = send_initialize_global(
+        &mut svm,
+        &fake_attacker,
+        &fake_attacker.pubkey(),
+        &guardian,
+        &jobs,
+    );
     assert!(
         result.is_err(),
         "Must fail when signer is not the program's upgrade authority"
@@ -172,7 +184,8 @@ fn test_initialize_global_requires_authority_signature() {
     let real_authority = Keypair::new();
     let unsigned_authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&unsigned_authority);
-    svm.airdrop(&real_authority.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&real_authority.pubkey(), 10_000_000_000)
+        .unwrap();
 
     let (global_config, _) = global_config_pda();
     let (program_data, _) = program_data_pda();
@@ -206,9 +219,13 @@ fn test_initialize_global_requires_authority_signature() {
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&real_authority.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&real_authority]).unwrap();
+    let tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&real_authority]).unwrap();
 
-    assert!(svm.send_transaction(tx).is_err(), "Must fail when authority does not sign");
+    assert!(
+        svm.send_transaction(tx).is_err(),
+        "Must fail when authority does not sign"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -247,7 +264,10 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
     let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(svm.send_transaction(tx).is_err(), "Wrong global_config PDA must be rejected");
+    assert!(
+        svm.send_transaction(tx).is_err(),
+        "Wrong global_config PDA must be rejected"
+    );
 }
 
 /// Supplying an invalid `program_data` account must fail.
@@ -256,7 +276,8 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
     let (global_config, _) = global_config_pda();
-    let (wrong_program_data, _) = Pubkey::find_program_address(&[b"wrong_program_data"], &anchor::id());
+    let (wrong_program_data, _) =
+        Pubkey::find_program_address(&[b"wrong_program_data"], &anchor::id());
     let guardian = Keypair::new().pubkey();
     let jobs = Keypair::new().pubkey();
 
@@ -282,7 +303,10 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
     let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(svm.send_transaction(tx).is_err(), "Wrong program_data PDA must be rejected");
+    assert!(
+        svm.send_transaction(tx).is_err(),
+        "Wrong program_data PDA must be rejected"
+    );
 }
 
 /// Calling `initialize_global` a second time must fail due to `init` constraint.
@@ -298,6 +322,7 @@ fn test_initialize_global_fails_on_double_init() {
         .expect("first init should succeed");
 
     // Second call must fail
-    let result = send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs);
+    let result =
+        send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs);
     assert!(result.is_err(), "Second init on the same PDA must fail");
 }

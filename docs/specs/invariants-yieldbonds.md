@@ -741,7 +741,7 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`admin_void_payout_registry.rs#L9-L130`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/admin_void_payout_registry.rs#L9-L130)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && payout_registry.payouts_completed == 0 && payout_registry.status == PayoutRegistryStatus::Active && draw_cycle.status == DrawStatus::Complete && (pool.total_fees_accrued - pool.total_fees_withdrawn) >= draw_cycle.cycle_fee_collected`.
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && pool.is_frozen_for_draw == 0 && payout_registry.payouts_completed == 0 && payout_registry.status == PayoutRegistryStatus::Active && draw_cycle.status == DrawStatus::Complete && (pool.total_fees_accrued - pool.total_fees_withdrawn) >= draw_cycle.cycle_fee_collected`.
 - **Action:** `admin_void_payout_registry()`
 - **Postcondition:**
   - `total_distributed = sum(winner.amount_owed)`.
@@ -755,6 +755,7 @@ stateDiagram-v2
   - If draw already voided: `ErrorCode::DrawAlreadyVoided` (6043)
   - If protocol fees already withdrawn: `ErrorCode::FeesAlreadyWithdrawn` (6046)
   - If pool is closed: `ErrorCode::PoolClosed` (6041)
+  - If pool is frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
   - If draw status $\neq$ `Complete`: `ErrorCode::InvalidDrawStatus` (6016)
 
 ---

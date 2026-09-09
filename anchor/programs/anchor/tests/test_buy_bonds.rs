@@ -49,7 +49,7 @@ fn build_buy_bonds_ix(
         huma_pool_config: dummy,
         huma_pool_state,
         huma_mode_config: dummy,
-        huma_mode_mint: dummy,
+        huma_mode_mint: pst_mint,
         huma_pool_authority: dummy,
         huma_pool_underlying_token: dummy,
         token_program: anchor_spl::token::ID,
@@ -241,7 +241,15 @@ fn test_buy_bonds_passes_guards() {
 fn test_buy_bonds_fails_registry_full_pre_cpi() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 10, 0, 0);
     let dummy_users: Vec<Pubkey> = (0..10).map(|_| Keypair::new().pubkey()).collect();
-    inject_registry_with_tickets(&mut ctx.svm, ctx.ticket_registry, 1, 10, 10, 0, &dummy_users);
+    inject_registry_with_tickets(
+        &mut ctx.svm,
+        ctx.ticket_registry,
+        1,
+        10,
+        10,
+        0,
+        &dummy_users,
+    );
 
     let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
     assert!(
@@ -266,7 +274,15 @@ fn test_buy_bonds_fails_total_pending_overflow_pre_cpi() {
 fn test_buy_bonds_reentering_user_fails_registry_full() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 10, 0, 0);
     let dummy_users: Vec<Pubkey> = (0..10).map(|_| Keypair::new().pubkey()).collect();
-    inject_registry_with_tickets(&mut ctx.svm, ctx.ticket_registry, 1, 10, 10, 0, &dummy_users);
+    inject_registry_with_tickets(
+        &mut ctx.svm,
+        ctx.ticket_registry,
+        1,
+        10,
+        10,
+        0,
+        &dummy_users,
+    );
 
     inject_user_winnings_with_index(
         &mut ctx.svm,
@@ -651,7 +667,7 @@ fn test_buy_bonds_fails_invalid_huma_program() {
         huma_pool_config: dummy,
         huma_pool_state: ctx.huma_pool_state,
         huma_mode_config: dummy,
-        huma_mode_mint: dummy,
+        huma_mode_mint: ctx.pst_mint,
         huma_pool_authority: dummy,
         huma_pool_underlying_token: dummy,
         token_program: anchor_spl::token::ID,
@@ -677,6 +693,37 @@ fn test_buy_bonds_fails_invalid_huma_program() {
     assert!(
         err_str.contains("ConstraintAddress") || err_str.contains("Raw"),
         "Expected ConstraintAddress for huma_program, got: {err_str}"
+    );
+}
+
+/// INV-BOND-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.
+#[test]
+fn test_buy_bonds_fails_invalid_mode_mint() {
+    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
+    let fake_pst_mint = create_spl_mint(&mut ctx.svm, &ctx.user, &ctx.user.pubkey(), 6);
+
+    let ix = build_buy_bonds_ix(
+        ctx.user.pubkey(),
+        1,
+        ctx.token_mint,
+        fake_pst_mint, // Mismatched huma_mode_mint
+        ctx.user_token_account,
+        ctx.ticket_registry,
+        ctx.huma_pool_state,
+        1,
+    );
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+
+    assert!(
+        err_str.contains("InvalidModeMint")
+            || err_str.contains("ConstraintAddress")
+            || err_str.contains("6056"),
+        "Expected InvalidModeMint (6056) or ConstraintAddress, got: {err_str}"
     );
 }
 
@@ -907,8 +954,7 @@ fn test_mtr003_deposit_order_commutativity() {
 
         let bob = Keypair::new();
         ctx.svm.airdrop(&bob.pubkey(), 10_000_000_000).unwrap();
-        let bob_usdc =
-            create_spl_token_account(&mut ctx.svm, &bob, &ctx.usdc_mint, &bob.pubkey());
+        let bob_usdc = create_spl_token_account(&mut ctx.svm, &bob, &ctx.usdc_mint, &bob.pubkey());
         mint_tokens(
             &mut ctx.svm,
             &ctx.admin,
@@ -989,4 +1035,3 @@ fn test_mtr003_deposit_order_commutativity() {
     assert_eq!(result_a.bob_pending, 3);
     assert_eq!(result_b.bob_pending, 3);
 }
-

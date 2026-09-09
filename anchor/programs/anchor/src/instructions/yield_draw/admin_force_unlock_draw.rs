@@ -110,4 +110,3 @@ pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     );
     Ok(())
 }
-

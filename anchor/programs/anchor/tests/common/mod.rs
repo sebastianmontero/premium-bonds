@@ -390,11 +390,7 @@ pub fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey) {
     inject_huma_pool_state_with_assets(svm, address, 0);
 }
 
-pub fn inject_huma_pool_state_with_assets(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    total_assets: u128,
-) {
+pub fn inject_huma_pool_state_with_assets(svm: &mut LiteSVM, address: Pubkey, total_assets: u128) {
     let mut huma_pool_state_data = vec![0u8; 512];
     huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
     huma_pool_state_data[30..46].copy_from_slice(&total_assets.to_le_bytes()); // assets field
@@ -538,8 +534,12 @@ pub fn inject_pending_redemption(
 
 pub fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
-    let acc = svm.get_account(&pda).expect("payout registry account exists");
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+    let acc = svm
+        .get_account(&pda)
+        .expect("payout registry account exists");
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
+        &acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+    )
 }
 
 pub fn read_pending_redemption(
@@ -555,7 +555,9 @@ pub fn read_pending_redemption(
     anchor::PendingRedemption::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
-pub fn extract_instruction_error(err: &litesvm::types::FailedTransactionMetadata) -> Option<&solana_program::instruction::InstructionError> {
+pub fn extract_instruction_error(
+    err: &litesvm::types::FailedTransactionMetadata,
+) -> Option<&solana_program::instruction::InstructionError> {
     match &err.err {
         solana_sdk::transaction::TransactionError::InstructionError(_, ix_err) => Some(ix_err),
         _ => None,
@@ -895,7 +897,6 @@ pub fn setup_global_config() -> (LiteSVM, Keypair) {
     (svm, authority)
 }
 
-
 // ─── SPL Helpers ─────────────────────────────────────────────────────────────
 
 pub fn create_spl_mint(
@@ -1007,12 +1008,18 @@ pub fn read_token_balance(svm: &LiteSVM, address: Pubkey) -> u64 {
 pub fn read_pool_state(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     let (pda, _) = pool_pda(pool_id);
     let acct = svm.get_account(&pda).expect("pool should exist");
-    *bytemuck::from_bytes::<anchor::PrizePool>(&acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
+    *bytemuck::from_bytes::<anchor::PrizePool>(
+        &acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    )
 }
 
 pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::TicketRegistry {
-    let acc = svm.get_account(&address).expect("ticket registry account exists");
-    *bytemuck::from_bytes::<anchor::state::TicketRegistry>(&acc.data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()])
+    let acc = svm
+        .get_account(&address)
+        .expect("ticket registry account exists");
+    *bytemuck::from_bytes::<anchor::state::TicketRegistry>(
+        &acc.data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()],
+    )
 }
 
 pub fn assert_ticket_registry_integrity(
@@ -1039,7 +1046,8 @@ pub fn assert_ticket_registry_integrity(
     assert!(
         reg.user_count <= reg.capacity,
         "Registry integrity: user_count ({}) exceeds capacity ({})",
-        reg.user_count, reg.capacity
+        reg.user_count,
+        reg.capacity
     );
 }
 
@@ -1229,8 +1237,14 @@ pub fn setup_e2e() -> E2eContext {
     setup_program_data(&mut svm, Some(&admin.pubkey()));
 
     // 1. Initialize GlobalConfig
-    send_initialize_global(&mut svm, &admin, &admin.pubkey(), &admin.pubkey(), &admin.pubkey()).expect("init_global");
-
+    send_initialize_global(
+        &mut svm,
+        &admin,
+        &admin.pubkey(),
+        &admin.pubkey(),
+        &admin.pubkey(),
+    )
+    .expect("init_global");
 
     // 2. Create USDC mint (admin is mint authority for test convenience)
     let usdc_mint_authority = Keypair::new();
@@ -1407,12 +1421,13 @@ pub fn send_e2e_buy_bonds_for_user(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
-pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> Result<litesvm::types::TransactionMetadata, String> {
+pub fn send_e2e_buy_bonds(
+    ctx: &mut E2eContext,
+    bonds: u32,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let bytes = ctx.user.to_bytes();
     let mut secret = [0u8; 32];
     secret.copy_from_slice(&bytes[0..32]);
@@ -1514,9 +1529,7 @@ pub fn send_e2e_sell_bonds_for_user(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count: u64) {
@@ -1694,7 +1707,8 @@ pub fn send_update_global_config(
     new_guardian: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let ix = build_update_global_config_ix(&admin.pubkey(), new_admin, new_guardian, new_jobs_account);
+    let ix =
+        build_update_global_config_ix(&admin.pubkey(), new_admin, new_guardian, new_jobs_account);
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
@@ -1808,7 +1822,11 @@ pub fn send_set_prize_tiers(
     svm.send_transaction(tx)
 }
 
-pub fn build_admin_void_payout_registry_ix(admin: &Pubkey, pool_id: u32, cycle_id: u32) -> Instruction {
+pub fn build_admin_void_payout_registry_ix(
+    admin: &Pubkey,
+    pool_id: u32,
+    cycle_id: u32,
+) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
@@ -1860,7 +1878,8 @@ where
     let mut account = svm.get_account(&pda).expect("Pool account must exist");
     let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut account.data[8..]);
     mutator(pool);
-    svm.set_account(pda, account).expect("Set pool account failed");
+    svm.set_account(pda, account)
+        .expect("Set pool account failed");
 }
 
 /// Set mock Huma pool total_assets and pst_mint total supply to model yield accrual.
@@ -1872,7 +1891,9 @@ pub fn inject_huma_yield_ratio(
     pst_supply: u64,
 ) {
     // 1. Update Huma pool state ModeState total_assets (offset 30..38)
-    let mut state_acc = svm.get_account(&huma_pool_state).expect("Huma pool state must exist");
+    let mut state_acc = svm
+        .get_account(&huma_pool_state)
+        .expect("Huma pool state must exist");
     state_acc.data[30..38].copy_from_slice(&total_assets.to_le_bytes());
     svm.set_account(huma_pool_state, state_acc).unwrap();
 
@@ -2048,6 +2069,3 @@ pub fn assert_prize_tier_distribution(
         "Dust remainder ({dust}) exceeded 10,000 basis point limit"
     );
 }
-
-
-

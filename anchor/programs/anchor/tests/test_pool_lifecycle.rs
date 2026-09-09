@@ -63,12 +63,18 @@ fn test_lifecycle_buy_bonds() {
     let mut pool_paused = pool_active;
     pool_paused.status = anchor::PoolStatus::Paused as u8;
     let err_paused = pool_paused.validate_buy_bonds(1).unwrap_err();
-    assert_eq!(err_paused, anchor::error::PremiumBondsError::PoolNotActive.into());
+    assert_eq!(
+        err_paused,
+        anchor::error::PremiumBondsError::PoolNotActive.into()
+    );
 
     let mut pool_closed = pool_active;
     pool_closed.status = anchor::PoolStatus::Closed as u8;
     let err_closed = pool_closed.validate_buy_bonds(1).unwrap_err();
-    assert_eq!(err_closed, anchor::error::PremiumBondsError::PoolNotActive.into());
+    assert_eq!(
+        err_closed,
+        anchor::error::PremiumBondsError::PoolNotActive.into()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -105,7 +111,14 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        false,
+    );
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
@@ -218,7 +231,14 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     )
     .unwrap();
 
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        false,
+    );
 
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state);
@@ -283,10 +303,23 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
 
     let (pool_pda_addr, _) = pool_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 10_000_000);
+    inject_token_account(
+        &mut svm,
+        pool_pst_vault,
+        pst_mint,
+        pool_pda_addr,
+        10_000_000,
+    );
     inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
 
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -409,7 +442,14 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     .unwrap();
 
     // 1. Paused
-    let pool_pda_addr = inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, true);
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        true,
+    );
     let accounts = anchor::accounts::PrepareDraw {
         crank: crank.pubkey(),
         pool: pool_pda_addr,
@@ -431,7 +471,14 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, true);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Closed,
+        true,
+    );
     // Use new crank keypair to guarantee distinct signature
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
@@ -505,7 +552,14 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     .unwrap();
 
     // 1. Paused
-    let pool_pda_addr = inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, true);
+    let pool_pda_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        true,
+    );
     let accounts = anchor::accounts::CrankRebindExpiredRandomness {
         crank: crank.pubkey(),
         global_config: gc,
@@ -530,7 +584,14 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, true);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Closed,
+        true,
+    );
     // Rotate global_config jobs account to crank2
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
@@ -606,7 +667,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
     // 1. Paused -> Blocked with PoolPaused
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Paused, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Paused,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -614,7 +682,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         pool.payout_timelock_seconds = 0;
         svm.set_account(pool_pda_addr, acc).unwrap();
     }
-    inject_payout_registry(&mut svm, pool_id, 0, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        0,
+        vec![winner_entry],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
     inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
 
     let accounts = anchor::accounts::ReinvestWinnings {
@@ -647,7 +722,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 
     // 2. Active -> Allowed
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -655,7 +737,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         pool.payout_timelock_seconds = 0;
         svm.set_account(pool_pda_addr, acc).unwrap();
     }
-    inject_payout_registry(&mut svm, pool_id, 0, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        0,
+        vec![winner_entry],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
     inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
 
     let crank2 = Keypair::new();
@@ -677,7 +766,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     assert!(svm.send_transaction(tx2).is_ok());
 
     // 3. Closed -> Allowed (graceful cash fallback)
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Closed, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Closed,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -685,7 +781,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         pool.payout_timelock_seconds = 0;
         svm.set_account(pool_pda_addr, acc).unwrap();
     }
-    inject_payout_registry(&mut svm, pool_id, 1, vec![winner_entry], 0, anchor::PayoutRegistryStatus::Active);
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        1,
+        vec![winner_entry],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
     inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
 
     let (payout_reg_1, _) = payout_pda(pool_id, 1);
@@ -708,4 +811,3 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let tx3 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg3), &[&crank3]).unwrap();
     assert!(svm.send_transaction(tx3).is_ok());
 }
-

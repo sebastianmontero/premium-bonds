@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
 use crate::error::PremiumBondsError;
+use anchor_lang::prelude::*;
 
 /// Global protocol configuration account.
 ///

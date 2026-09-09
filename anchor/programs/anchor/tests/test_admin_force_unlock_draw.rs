@@ -44,7 +44,6 @@ fn setup_with_amounts(
 ) -> Ctx {
     let mut svm = setup_global_config_with_admin(admin, &admin.pubkey(), None);
 
-
     // Inject pool
     let (pool_key, bump) = pool_pda(1);
     let ticket_registry = Keypair::new().pubkey();
@@ -71,7 +70,11 @@ fn setup_with_amounts(
         current_cycle_end_at: i64::MAX,
         is_frozen_for_draw: 1,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -135,7 +138,10 @@ fn setup_with_amounts(
     }
 }
 
-fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::TransactionMetadata, String> {
+fn send_force_unlock(
+    ctx: &mut Ctx,
+    signer: &Keypair,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::AdminForceUnlockDraw {
         global_config,
@@ -156,9 +162,7 @@ fn send_force_unlock(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 #[test]
@@ -183,10 +187,12 @@ fn test_admin_force_unlock_happy_path() {
 
     // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     assert_eq!(pool.is_frozen_for_draw, 0);
     assert_eq!(pool.total_prizes_allocated, 1_500_000); // 2_500_000 - 1_000_000
-    assert_eq!(pool.total_fees_accrued, 200_000);       // 300_000 - 100_000
+    assert_eq!(pool.total_fees_accrued, 200_000); // 300_000 - 100_000
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
@@ -209,7 +215,9 @@ fn test_admin_force_unlock_with_zero_fee() {
     send_force_unlock(&mut ctx, &admin).unwrap();
 
     let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     assert_eq!(pool.total_prizes_allocated, 0);
     assert_eq!(pool.total_fees_accrued, 50_000);
 
@@ -351,5 +359,3 @@ fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
         );
     }
 }
-
-

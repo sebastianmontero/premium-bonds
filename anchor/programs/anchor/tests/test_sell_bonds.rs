@@ -880,6 +880,56 @@ fn test_sell_bonds_fails_invalid_user_entry_hint_owner_mismatch() {
     );
 }
 
+/// INV-SELL-001: Adversarial test for PB-SEC-03.
+/// Even if raw registry memory at out-of-bounds slot (e.g. index 5 with user_count = 1) is forged
+/// with the user's pubkey as owner, SellBonds must reject it with InvalidUserEntryHint because
+/// validate_user_entry_index enforces idx < user_count strictly before any mutation or owner read.
+#[test]
+fn test_sell_bonds_fails_user_entry_idx_ge_user_count() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+
+    // Forge slot 5 with owner = user.pubkey() in raw registry data while keeping user_count = 1
+    {
+        let mut acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+        let forged_entry = anchor::state::UserEntry {
+            owner: ctx.user.pubkey(),
+            active: 1,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        };
+        anchor::utils::registry_set_entry(&mut acc.data, 5, &forged_entry).unwrap();
+        ctx.svm.set_account(ctx.ticket_registry, acc).unwrap();
+    }
+
+    // Set user winnings registry_entry_index = 5
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 5);
+
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
+}
+
+/// INV-SELL-001: Boundary test for PB-SEC-03.
+/// Exact off-by-one boundary (idx == user_count) must be rejected with InvalidUserEntryHint.
+#[test]
+fn test_sell_bonds_fails_user_entry_idx_exact_boundary() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    // user_count is 1, so idx = 1 is exactly at the boundary idx == user_count
+    inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 1);
+
+    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
+}
+
 #[test]
 fn test_sell_bonds_fails_math_overflow() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
@@ -958,7 +1008,13 @@ fn test_sell_bonds_pst_share_accounting_with_accrued_yield() {
     send_e2e_harvest_yield_and_commit(&mut ctx).expect("harvest and commit");
 
     // Model yield in Huma: total_assets = 1_200_000, pst_supply = 1_000_000 (1.2x PST price)
-    common::inject_huma_yield_ratio(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 1_200_000, 1_000_000);
+    common::inject_huma_yield_ratio(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        1_200_000,
+        1_000_000,
+    );
 
     let initial_pool = read_pool_state(&ctx.svm, 1);
     let user_a = clone_keypair(&ctx.user);
@@ -978,13 +1034,19 @@ fn test_sell_bonds_pst_share_accounting_with_accrued_yield() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     // 1. Total deposited principal decremented by exact expected principal
-    assert_eq!(pool.total_deposited_principal, initial_pool.total_deposited_principal - 10_000_000);
+    assert_eq!(
+        pool.total_deposited_principal,
+        initial_pool.total_deposited_principal - 10_000_000
+    );
     // 2. Pending redemptions incremented by expected principal
     assert_eq!(pool.total_pending_redemptions, 10_000_000);
 
     // 3. PendingRedemption PDA stores expected_principal amount and locked PST shares (< 10_000_000)
     let (pending_pda, _) = pending_redemption_pda(1, 0);
-    let pending_acc = ctx.svm.get_account(&pending_pda).expect("PendingRedemption exists");
+    let pending_acc = ctx
+        .svm
+        .get_account(&pending_pda)
+        .expect("PendingRedemption exists");
     let pending = anchor::state::PendingRedemption::try_from_slice(&pending_acc.data[8..]).unwrap();
     assert_eq!(pending.amount, 10_000_000);
     assert_eq!(pending.pst_shares_locked, 8_333_334);
@@ -1135,7 +1197,11 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
+    let err = ctx
+        .svm
+        .send_transaction(tx)
+        .map_err(|e| format!("{e:?}"))
+        .unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
 }
 
@@ -1310,7 +1376,10 @@ fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
     .to_account_metas(None);
 
     // Explicitly push User B's UserWinnings PDA as remaining account 0
-    accounts.push(solana_program::instruction::AccountMeta::new(user_b_winnings, false));
+    accounts.push(solana_program::instruction::AccountMeta::new(
+        user_b_winnings,
+        false,
+    ));
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -1418,7 +1487,10 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
     }
     .to_account_metas(None);
 
-    accounts.push(solana_program::instruction::AccountMeta::new(user_b_winnings, false));
+    accounts.push(solana_program::instruction::AccountMeta::new(
+        user_b_winnings,
+        false,
+    ));
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -1433,8 +1505,15 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
-    assert!(err.contains("InvalidUserEntryHint"), "Expected InvalidUserEntryHint, got: {err}");
+    let err = ctx
+        .svm
+        .send_transaction(tx)
+        .map_err(|e| format!("{e:?}"))
+        .unwrap_err();
+    assert!(
+        err.contains("InvalidUserEntryHint"),
+        "Expected InvalidUserEntryHint, got: {err}"
+    );
 }
 
 #[test]
@@ -1506,73 +1585,117 @@ fn test_sell_bonds_decoy_accounts_rejected() {
     // Subcase 1: Read-only remaining account
     {
         let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new_readonly(user_b_winnings, false));
+        accounts.push(solana_program::instruction::AccountMeta::new_readonly(
+            user_b_winnings,
+            false,
+        ));
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
-            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+            data: anchor::instruction::SellBonds {
+                active_to_sell: 0,
+                pending_to_sell: 3,
+            }
+            .data(),
         };
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
-        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for read-only account, got: {err}");
+        let err = ctx
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| format!("{e:?}"))
+            .unwrap_err();
+        assert!(
+            err.contains("MissingSwappedUserWinnings"),
+            "Expected MissingSwappedUserWinnings for read-only account, got: {err}"
+        );
     }
 
     // Subcase 2: Wrong program owner (System Program owned)
     {
         let fake_key = Keypair::new().pubkey();
-        ctx.svm.set_account(
-            fake_key,
-            Account {
-                lamports: 1_000_000_000,
-                data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE],
-                owner: anchor_lang::system_program::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        ).unwrap();
+        ctx.svm
+            .set_account(
+                fake_key,
+                Account {
+                    lamports: 1_000_000_000,
+                    data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE],
+                    owner: anchor_lang::system_program::ID,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
 
         let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(fake_key, false));
+        accounts.push(solana_program::instruction::AccountMeta::new(
+            fake_key, false,
+        ));
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
-            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+            data: anchor::instruction::SellBonds {
+                active_to_sell: 0,
+                pending_to_sell: 3,
+            }
+            .data(),
         };
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
-        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for wrong owner, got: {err}");
+        let err = ctx
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| format!("{e:?}"))
+            .unwrap_err();
+        assert!(
+            err.contains("MissingSwappedUserWinnings"),
+            "Expected MissingSwappedUserWinnings for wrong owner, got: {err}"
+        );
     }
 
     // Subcase 3: Wrong data length
     {
         let fake_key = Keypair::new().pubkey();
-        ctx.svm.set_account(
-            fake_key,
-            Account {
-                lamports: 1_000_000_000,
-                data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE + 20],
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        ).unwrap();
+        ctx.svm
+            .set_account(
+                fake_key,
+                Account {
+                    lamports: 1_000_000_000,
+                    data: vec![0u8; 8 + anchor::state::UserWinnings::INIT_SPACE + 20],
+                    owner: anchor::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
 
         let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(fake_key, false));
+        accounts.push(solana_program::instruction::AccountMeta::new(
+            fake_key, false,
+        ));
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
-            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+            data: anchor::instruction::SellBonds {
+                active_to_sell: 0,
+                pending_to_sell: 3,
+            }
+            .data(),
         };
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
-        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for wrong data length, got: {err}");
+        let err = ctx
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| format!("{e:?}"))
+            .unwrap_err();
+        assert!(
+            err.contains("MissingSwappedUserWinnings"),
+            "Expected MissingSwappedUserWinnings for wrong data length, got: {err}"
+        );
     }
 
     // Subcase 4: Mismatched user in UserWinnings
@@ -1593,32 +1716,43 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let mut data = vec![];
         decoy_winnings.try_serialize(&mut data).unwrap();
         data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-        ctx.svm.set_account(
-            decoy_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        ).unwrap();
+        ctx.svm
+            .set_account(
+                decoy_pda,
+                Account {
+                    lamports: 1_000_000_000,
+                    data,
+                    owner: anchor::id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
 
         let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(decoy_pda, false));
+        accounts.push(solana_program::instruction::AccountMeta::new(
+            decoy_pda, false,
+        ));
         let ix = Instruction {
             program_id: anchor::id(),
             accounts,
-            data: anchor::instruction::SellBonds { active_to_sell: 0, pending_to_sell: 3 }.data(),
+            data: anchor::instruction::SellBonds {
+                active_to_sell: 0,
+                pending_to_sell: 3,
+            }
+            .data(),
         };
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}")).unwrap_err();
-        assert!(err.contains("MissingSwappedUserWinnings"), "Expected MissingSwappedUserWinnings for mismatched user, got: {err}");
+        let err = ctx
+            .svm
+            .send_transaction(tx)
+            .map_err(|e| format!("{e:?}"))
+            .unwrap_err();
+        assert!(
+            err.contains("MissingSwappedUserWinnings"),
+            "Expected MissingSwappedUserWinnings for mismatched user, got: {err}"
+        );
     }
 }
-
-
-
-

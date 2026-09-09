@@ -57,7 +57,11 @@ fn inject_pool_with_next_redemption_id(
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -318,7 +322,13 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     set_pool_prizes_allocated(&mut ctx.svm, 1, 1_000_000);
 
     // Fund pool_pst_vault with 1_000_000 PST tokens
-    inject_token_account(&mut ctx.svm, pool_pst_vault, ctx.pst_mint, pool_pda(1).0, 1_000_000);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda(1).0,
+        1_000_000,
+    );
 
     // Send claim instruction
     let ix = build_claim_ix_with_redemption_id(
@@ -332,7 +342,10 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let meta = ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("claim non-reinvested winnings");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
     assert_eq!(event.user, ctx.user.pubkey());
     assert_eq!(event.pool_id, 1);
@@ -365,7 +378,10 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert!(pr.pst_shares_locked > 0);
     assert_eq!(pr.huma_request_id, 0);
     assert_eq!(pr.version, anchor::PendingRedemption::CURRENT_VERSION);
-    assert_eq!(pr.redemption_type, anchor::state::RedemptionType::PrizeClaim);
+    assert_eq!(
+        pr.redemption_type,
+        anchor::state::RedemptionType::PrizeClaim
+    );
 }
 
 fn inject_pool_with_frozen(
@@ -399,7 +415,11 @@ fn inject_pool_with_frozen(
         current_cycle_end_at: 0,
         is_frozen_for_draw,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: anchor::PrizePool::CURRENT_VERSION,
@@ -426,7 +446,13 @@ fn inject_pool_with_frozen(
 fn test_claim_non_reinvested_winnings_fails_when_frozen() {
     let mut ctx = setup_claim_guard(100_000, anchor::PoolStatus::Active);
     // Freeze pool for draw
-    inject_pool_with_frozen(&mut ctx.svm, 1, ctx.token_mint, anchor::PoolStatus::Active, 1);
+    inject_pool_with_frozen(
+        &mut ctx.svm,
+        1,
+        ctx.token_mint,
+        anchor::PoolStatus::Active,
+        1,
+    );
 
     let ix = build_claim_ix_with_redemption_id(
         ctx.user.pubkey(),
@@ -460,7 +486,13 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     );
 
     // Setup pool in Closed state
-    inject_pool_with_frozen(&mut ctx.svm, 1, ctx.usdc_mint, anchor::PoolStatus::Closed, 0);
+    inject_pool_with_frozen(
+        &mut ctx.svm,
+        1,
+        ctx.usdc_mint,
+        anchor::PoolStatus::Closed,
+        0,
+    );
 
     // Setup user winnings with 500_000 unclaimed winnings
     let (user_winnings_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
@@ -470,7 +502,13 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     set_pool_prizes_allocated(&mut ctx.svm, 1, 1_000_000);
 
     // Fund pool_pst_vault with 1_000_000 PST tokens
-    inject_token_account(&mut ctx.svm, pool_pst_vault, ctx.pst_mint, pool_pda(1).0, 1_000_000);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda(1).0,
+        1_000_000,
+    );
 
     // Send claim instruction on closed pool
     let ix = build_claim_ix_with_redemption_id(
@@ -484,7 +522,10 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let meta = ctx.svm.send_transaction(tx).expect("claim non-reinvested winnings on closed pool should succeed");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("claim non-reinvested winnings on closed pool should succeed");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
     assert_eq!(event.user, ctx.user.pubkey());
     assert_eq!(event.pool_id, 1);
@@ -523,4 +564,3 @@ fn test_claim_non_reinvested_winnings_fails_yield_venue_insolvent() {
     let res = ctx.svm.send_transaction(tx);
     assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
 }
-

@@ -125,7 +125,10 @@ fn test_create_pool_succeeds() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
-    let meta = ctx.svm.send_transaction(tx).expect("create_pool should succeed");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("create_pool should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
@@ -140,7 +143,10 @@ fn test_create_pool_succeeds() {
     assert_eq!(pool_state.max_yield_basis_points, 0);
     assert_eq!(pool_state.payout_timelock_seconds, 300);
     assert_eq!(pool_state.prize_tiers_count, 1);
-    assert_eq!(pool_state.prize_tiers[0], anchor::PrizeTier::default_single_winner());
+    assert_eq!(
+        pool_state.prize_tiers[0],
+        anchor::PrizeTier::default_single_winner()
+    );
 }
 
 #[test]
@@ -152,7 +158,10 @@ fn test_create_pool_with_custom_security_parameters_succeeds() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
-    let meta = ctx.svm.send_transaction(tx).expect("create_pool should succeed");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("create_pool should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.max_yield_basis_points, 500);
@@ -173,7 +182,10 @@ fn test_create_pool_boundary_values_succeed() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
-    let meta = ctx.svm.send_transaction(tx).expect("create_pool boundary should succeed");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("create_pool boundary should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
     assert_eq!(event.max_yield_basis_points, 10_000);
     assert_eq!(event.payout_timelock_seconds, 86_400);
@@ -397,7 +409,8 @@ fn test_create_pool_fails_on_incorrect_total_basis_points() {
 fn test_create_pool_fails_on_exceeding_total_winners() {
     let mut ctx = setup_create_pool_context();
     let too_many_winners = vec![anchor::PrizeTier::new(51, 10_000)];
-    let ix = build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, too_many_winners);
+    let ix =
+        build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, too_many_winners);
 
     let blockhash = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &blockhash);

@@ -91,7 +91,11 @@ fn inject_prize_pool_account(
         current_cycle_end_at: 0,
         is_frozen_for_draw: if is_frozen_for_draw { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -207,7 +211,8 @@ fn test_resize_registry_succeeds() {
     let expected_new_capacity = anchor::utils::registry_capacity_from_len(expected_new_size);
 
     // Execute the resize
-    let meta = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry).expect("Resize should succeed");
+    let meta = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry)
+        .expect("Resize should succeed");
     let event = assert_log_event::<anchor::events::RegistryResized>(&meta);
     assert_eq!(event.pool_id, pool_id);
     assert_eq!(event.caller, payer.pubkey());
@@ -331,7 +336,8 @@ fn test_resize_registry_permissionless_any_caller() {
 
     // Any arbitrary user / third-party keypair can initiate and fund the resize
     let random_caller = Keypair::new();
-    svm.airdrop(&random_caller.pubkey(), 10_000_000_000).unwrap();
+    svm.airdrop(&random_caller.pubkey(), 10_000_000_000)
+        .unwrap();
 
     let meta = send_resize_registry_simple(&mut svm, &random_caller, pool_id, ticket_registry)
         .expect("Permissionless resize by arbitrary caller should succeed");
@@ -342,7 +348,9 @@ fn test_resize_registry_permissionless_any_caller() {
     assert_eq!(event.old_capacity, initial_capacity);
     assert_eq!(
         event.new_capacity,
-        anchor::utils::registry_capacity_from_len(initial_size + anchor::constants::REGISTRY_REALLOC_STEP)
+        anchor::utils::registry_capacity_from_len(
+            initial_size + anchor::constants::REGISTRY_REALLOC_STEP
+        )
     );
 }
 
@@ -390,11 +398,13 @@ fn test_resize_registry_fails_unsigned_payer() {
     };
 
     let non_payer_signer = Keypair::new();
-    svm.airdrop(&non_payer_signer.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&non_payer_signer.pubkey(), 1_000_000_000)
+        .unwrap();
 
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&non_payer_signer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&non_payer_signer]).unwrap();
+    let tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&non_payer_signer]).unwrap();
     let res = svm.send_transaction(tx);
 
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotSigner);
@@ -440,7 +450,10 @@ fn test_resize_registry_fails_wrong_pool_pda() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res = svm.send_transaction(tx);
 
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -463,7 +476,10 @@ fn test_resize_registry_fails_pool_frozen() {
     inject_prize_pool_account(&mut svm, pool_id, ticket_registry, true);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 #[test]
@@ -548,7 +564,8 @@ fn test_resize_registry_to_exact_max_capacity() {
 
     let ticket_registry = Keypair::new().pubkey();
     // Start at exactly the maximum resizeable size given Anchor's post-realloc constraint check
-    let initial_size = anchor::constants::REGISTRY_MAX_SIZE - 2 * anchor::constants::REGISTRY_REALLOC_STEP;
+    let initial_size =
+        anchor::constants::REGISTRY_MAX_SIZE - 2 * anchor::constants::REGISTRY_REALLOC_STEP;
     inject_ticket_registry_account(
         &mut svm,
         ticket_registry,
@@ -570,7 +587,8 @@ fn test_resize_registry_to_exact_max_capacity() {
 
     // Verify capacity was correctly updated in the header
     let header_capacity = u32::from_le_bytes(reg_acc.data[12..16].try_into().unwrap());
-    assert_eq!(header_capacity, anchor::utils::registry_capacity_from_len(expected_new_size));
+    assert_eq!(
+        header_capacity,
+        anchor::utils::registry_capacity_from_len(expected_new_size)
+    );
 }
-
-

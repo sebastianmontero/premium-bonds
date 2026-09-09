@@ -41,7 +41,11 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -113,7 +117,9 @@ fn build_update_pool_config_full_ix(
     .to_account_metas(None);
 
     if let Some(fee_wallet) = new_fee_wallet {
-        accounts.push(solana_program::instruction::AccountMeta::new_readonly(fee_wallet, false));
+        accounts.push(solana_program::instruction::AccountMeta::new_readonly(
+            fee_wallet, false,
+        ));
     }
 
     Instruction {
@@ -158,7 +164,9 @@ fn test_update_pool_config_succeeds_one_field() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating one field");
+    let meta = svm
+        .send_transaction(tx)
+        .expect("update_pool_config should succeed updating one field");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, admin.pubkey());
@@ -182,7 +190,13 @@ fn test_update_pool_config_succeeds_all_fields() {
     let pool_pda = inject_pool(&mut svm, 1);
 
     let new_fee_wallet = Keypair::new().pubkey();
-    inject_token_account(&mut svm, new_fee_wallet, Pubkey::default(), admin.pubkey(), 0);
+    inject_token_account(
+        &mut svm,
+        new_fee_wallet,
+        Pubkey::default(),
+        admin.pubkey(),
+        0,
+    );
 
     let ix = build_update_pool_config_ix(
         admin.pubkey(),
@@ -198,7 +212,9 @@ fn test_update_pool_config_succeeds_all_fields() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating all fields");
+    let meta = svm
+        .send_transaction(tx)
+        .expect("update_pool_config should succeed updating all fields");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.old_stake_cycle_duration_hrs, 24);
     assert_eq!(event.new_stake_cycle_duration_hrs, 168);
@@ -228,7 +244,9 @@ fn test_update_pool_config_succeeds_stake_cycle_duration() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let meta = svm.send_transaction(tx).expect("update_pool_config should succeed updating duration");
+    let meta = svm
+        .send_transaction(tx)
+        .expect("update_pool_config should succeed updating duration");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.old_stake_cycle_duration_hrs, 24);
@@ -367,14 +385,18 @@ fn test_update_pool_config_fails_when_deposited_principal_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 5_000_000, 0, 0, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
+    let ix =
+        build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
+    assert_custom_error(
+        res,
+        PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
+    );
 }
 
 #[test]
@@ -382,14 +404,18 @@ fn test_update_pool_config_fails_when_prizes_allocated_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 0, 1_000_000, 0, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
+    let ix =
+        build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
+    assert_custom_error(
+        res,
+        PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
+    );
 }
 
 #[test]
@@ -397,14 +423,18 @@ fn test_update_pool_config_fails_when_pending_redemptions_non_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool_custom(&mut svm, 1, 0, 0, 2, 0);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
+    let ix =
+        build_update_pool_config_ix(admin.pubkey(), 1, None, Some(2_000_000), None, None, None);
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
     let res = svm.send_transaction(tx);
-    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
+    assert_custom_error(
+        res,
+        PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
+    );
 }
 
 #[test]
@@ -492,15 +522,7 @@ fn test_update_pool_config_duration_advances_on_next_harvest() {
     clock.unix_timestamp = 50_000;
     svm.set_sysvar(&clock);
 
-    let ix = build_update_pool_config_ix(
-        admin.pubkey(),
-        1,
-        None,
-        None,
-        None,
-        None,
-        Some(168),
-    );
+    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(168));
 
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
@@ -657,8 +679,8 @@ fn test_update_pool_config_succeeds_max_yield_and_timelock() {
         None,
         None,
         None,
-        Some(500),  // 5%
-        Some(600),  // 600s
+        Some(500), // 5%
+        Some(600), // 600s
     );
 
     let blockhash = svm.latest_blockhash();
@@ -709,7 +731,9 @@ fn test_update_pool_config_bond_price_change_after_full_exit() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
 
-    let meta = svm.send_transaction(tx).expect("bond price change after full exit should succeed");
+    let meta = svm
+        .send_transaction(tx)
+        .expect("bond price change after full exit should succeed");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.old_bond_price, 1_000_000);
     assert_eq!(event.new_bond_price, 5_000_000);
@@ -719,5 +743,3 @@ fn test_update_pool_config_bond_price_change_after_full_exit() {
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
     assert_eq!(pool_state.bond_price, 5_000_000);
 }
-
-

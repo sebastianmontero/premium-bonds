@@ -26,7 +26,6 @@ fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey) {
     (svm, admin, initial_jobs_account)
 }
 
-
 /// Deserialize the `GlobalConfig` account from raw LiteSVM account data.
 fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
     let (global_config_pda, _) = global_config_pda();

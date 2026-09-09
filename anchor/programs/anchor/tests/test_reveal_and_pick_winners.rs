@@ -25,7 +25,11 @@ fn inject_pool_custom(
 ) -> Pubkey {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let mut fixed_tiers = [anchor::PrizeTier {
+        num_winners: 0,
+        basis_points: 0,
+        _padding: [0, 0],
+    }; 10];
     let count = prize_tiers.len().min(10);
     fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
@@ -124,7 +128,6 @@ fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
     (svm, admin, crank)
 }
 
-
 // ─── Context + helpers ───────────────────────────────────────────────────────
 
 struct RevealCtx {
@@ -211,14 +214,18 @@ fn send_reveal(
     seed: [u8; 32],
 ) -> Result<litesvm::types::TransactionMetadata, String> {
     let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
-    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, clock.slot, clock.slot, seed);
+    update_mock_randomness_account(
+        &mut ctx.svm,
+        ctx.randomness_account,
+        clock.slot,
+        clock.slot,
+        seed,
+    );
     let ix = build_reveal_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
@@ -226,7 +233,9 @@ fn send_reveal(
 fn read_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
     let (pda, _) = pool_pda(pool_id);
     let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PrizePool>(&account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
+    *bytemuck::from_bytes::<anchor::PrizePool>(
+        &account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    )
 }
 
 fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCycle {
@@ -238,7 +247,9 @@ fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCy
 fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
     let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
+        &account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+    )
 }
 
 /// Recompute derive_random_index locally (mirrors program logic).
@@ -509,7 +520,14 @@ fn test_reveal_multi_tier_multi_winner() {
         },
     ];
     let prize_pot = 1_000_000u64;
-    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers.clone(), 10, prize_pot, 10);
+    let mut ctx = setup_reveal(
+        anchor::PoolStatus::Active,
+        true,
+        tiers.clone(),
+        10,
+        prize_pot,
+        10,
+    );
     send_reveal(&mut ctx, 1, 0, [7u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
@@ -912,11 +930,27 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
         let (mut svm, _admin, crank) = setup_global_with_crank();
         let registry = Keypair::new().pubkey();
         inject_registry_with_state(&mut svm, registry, 1, 100, 0, 3, &entries);
-        inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers.clone(), 0);
+        inject_pool_custom(
+            &mut svm,
+            1,
+            registry,
+            anchor::PoolStatus::Active,
+            true,
+            tiers.clone(),
+            0,
+        );
 
         let randomness_account = Keypair::new().pubkey();
         update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
-        inject_draw_cycle(&mut svm, 1, 0, anchor::DrawStatus::AwaitingRandomness, 30, 1_000_000, randomness_account);
+        inject_draw_cycle(
+            &mut svm,
+            1,
+            0,
+            anchor::DrawStatus::AwaitingRandomness,
+            30,
+            1_000_000,
+            randomness_account,
+        );
 
         let mut ctx = RevealCtx {
             svm,
@@ -950,14 +984,21 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
     // Index 9 -> User 1
     assert_eq!(run_reveal_with_seed(9), user1, "Index 9 must pick User 1");
     // Index 10 -> User 3 (User 2 skipped!)
-    assert_eq!(run_reveal_with_seed(10), user3, "Index 10 must pick User 3 (skipping User 2 with 0 active tickets)");
+    assert_eq!(
+        run_reveal_with_seed(10),
+        user3,
+        "Index 10 must pick User 3 (skipping User 2 with 0 active tickets)"
+    );
     // Index 29 -> User 3
     assert_eq!(run_reveal_with_seed(29), user3, "Index 29 must pick User 3");
 
     // Comprehensive boundary verification: Across all 30 ticket indices, User 2 is NEVER selected
     for idx in 0..30 {
         let winner = run_reveal_with_seed(idx);
-        assert_ne!(winner, user2, "User 2 with 0 active tickets must NEVER be picked as winner (checked at index {idx})");
+        assert_ne!(
+            winner, user2,
+            "User 2 with 0 active tickets must NEVER be picked as winner (checked at index {idx})"
+        );
         if idx < 10 {
             assert_eq!(winner, user1, "Indices 0..10 must pick User 1");
         } else {
@@ -999,7 +1040,10 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
 
     // Verify pool on-chain state: full pot (5_000) deducted as dust from allocated liabilities
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 5_000);
+    assert_eq!(
+        pool.total_prizes_allocated,
+        INITIAL_ALLOCATED_PRIZES - 5_000
+    );
 }
 
 #[test]
@@ -1057,7 +1101,8 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     // Single user with 1 ticket (user_count = 1, locked_ticket_count = 1)
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 1, 10_000_000, 1);
 
-    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed for sole user");
+    let meta =
+        send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed for sole user");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
     assert_eq!(event.winners_count, 3);
     assert_eq!(event.total_distributed, 10_000_000);
@@ -1076,13 +1121,11 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
 #[test]
 fn test_reveal_fails_too_many_winners() {
     // 51 winners exceeds the payout registry capacity of 50
-    let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 100,
-            num_winners: 51,
-            _padding: [0, 0],
-        },
-    ];
+    let tiers = vec![anchor::PrizeTier {
+        basis_points: 100,
+        num_winners: 51,
+        _padding: [0, 0],
+    }];
 
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 10_000_000, 10);
 
@@ -1161,7 +1204,15 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
         num_winners: 1,
         _padding: [0, 0],
     }];
-    inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers, 0);
+    inject_pool_custom(
+        &mut svm,
+        1,
+        registry,
+        anchor::PoolStatus::Active,
+        true,
+        tiers,
+        0,
+    );
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
@@ -1233,7 +1284,15 @@ fn test_reveal_fails_invalid_winner_index() {
         num_winners: 1,
         _padding: [0, 0],
     }];
-    inject_pool_custom(&mut svm, 1, registry, anchor::PoolStatus::Active, true, tiers, 0);
+    inject_pool_custom(
+        &mut svm,
+        1,
+        registry,
+        anchor::PoolStatus::Active,
+        true,
+        tiers,
+        0,
+    );
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [42u8; 32]);
@@ -1280,10 +1339,9 @@ fn test_reveal_freshness_slot_difference_1000_succeeds() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_ok(), "reveal should succeed at exactly 1000 slot diff: {:?}", res);
+    assert!(
+        res.is_ok(),
+        "reveal should succeed at exactly 1000 slot diff: {:?}",
+        res
+    );
 }
-
-
-
-
-

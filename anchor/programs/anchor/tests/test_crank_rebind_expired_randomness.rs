@@ -37,7 +37,6 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
     let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
 
-
     // Inject pool
     let pool_key = pool_pda(1).0;
     let ticket_registry = Keypair::new().pubkey();
@@ -110,7 +109,10 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
     }
 }
 
-fn send_rebind(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::TransactionMetadata, String> {
+fn send_rebind(
+    ctx: &mut Ctx,
+    signer: &Keypair,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::CrankRebindExpiredRandomness {
         global_config,
@@ -132,9 +134,7 @@ fn send_rebind(ctx: &mut Ctx, signer: &Keypair) -> Result<litesvm::types::Transa
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 #[test]
@@ -246,7 +246,8 @@ fn test_crank_rebind_exact_slot_boundary() {
     ctx.svm.set_sysvar(&clock);
     ctx.svm.expire_blockhash();
 
-    let meta = send_rebind(&mut ctx, &crank).expect("rebind at exact expiration slot boundary should succeed");
+    let meta = send_rebind(&mut ctx, &crank)
+        .expect("rebind at exact expiration slot boundary should succeed");
     let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
@@ -306,5 +307,3 @@ fn test_rebind_fails_unoverridable_statuses() {
         );
     }
 }
-
-

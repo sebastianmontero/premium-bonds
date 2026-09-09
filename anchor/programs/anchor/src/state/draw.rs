@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
 use crate::error::PremiumBondsError;
 use crate::state::UserWinnings;
+use anchor_lang::prelude::*;
 
 /// Status phases of an active or completed draw cycle.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
@@ -82,9 +82,17 @@ impl DrawCycle {
         Ok(())
     }
 
-    pub fn halt(&mut self, status: DrawStatus, locked_ticket_count: u32, current_time: i64) -> Result<()> {
+    pub fn halt(
+        &mut self,
+        status: DrawStatus,
+        locked_ticket_count: u32,
+        current_time: i64,
+    ) -> Result<()> {
         require!(
-            matches!(status, DrawStatus::HaltedInsolvent | DrawStatus::HaltedYieldSpike),
+            matches!(
+                status,
+                DrawStatus::HaltedInsolvent | DrawStatus::HaltedYieldSpike
+            ),
             PremiumBondsError::InvalidDrawStatus
         );
         self.status = status;
@@ -111,7 +119,11 @@ impl DrawCycle {
         self.cycle_fee_collected = fee;
     }
 
-    pub fn rebind_randomness(&mut self, new_randomness_account: Pubkey, current_slot: u64) -> Result<()> {
+    pub fn rebind_randomness(
+        &mut self,
+        new_randomness_account: Pubkey,
+        current_slot: u64,
+    ) -> Result<()> {
         require!(
             self.status == DrawStatus::AwaitingRandomness,
             PremiumBondsError::InvalidDrawStatus
@@ -217,7 +229,17 @@ impl PayoutRegistry {
 
 /// Details of an individual winner's allocation within a draw cycle.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    AnchorSerialize,
+    AnchorDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
 pub struct Winner {
     /// Public key of the winning user.
     pub winner: Pubkey,

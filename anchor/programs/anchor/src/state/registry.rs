@@ -1,5 +1,5 @@
-use anchor_lang::prelude::*;
 use crate::error::PremiumBondsError;
+use anchor_lang::prelude::*;
 
 /// Zero-copy header for the TicketRegistry account.
 /// User entries are stored in the raw bytes immediately following this struct
@@ -76,6 +76,16 @@ impl TicketRegistry {
         self.total_pending_tickets
             .checked_add(bonds_to_buy)
             .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    /// Validates that a user entry index is strictly within current user count bounds.
+    #[inline]
+    pub fn validate_user_entry_index(&self, entry_index: u32) -> Result<()> {
+        require!(
+            entry_index < self.user_count,
+            PremiumBondsError::InvalidUserEntryHint
+        );
         Ok(())
     }
 }
@@ -251,6 +261,35 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_user_entry_index_success() {
+        let reg = sample_registry(10, 5, 0);
+        assert!(reg.validate_user_entry_index(0).is_ok());
+        assert!(reg.validate_user_entry_index(4).is_ok());
+    }
+
+    #[test]
+    fn test_validate_user_entry_index_out_of_bounds() {
+        let reg = sample_registry(10, 5, 0);
+        assert_eq!(
+            reg.validate_user_entry_index(5).unwrap_err(),
+            PremiumBondsError::InvalidUserEntryHint.into()
+        );
+        assert_eq!(
+            reg.validate_user_entry_index(10).unwrap_err(),
+            PremiumBondsError::InvalidUserEntryHint.into()
+        );
+    }
+
+    #[test]
+    fn test_validate_user_entry_index_empty_registry() {
+        let reg = sample_registry(10, 0, 0);
+        assert_eq!(
+            reg.validate_user_entry_index(0).unwrap_err(),
+            PremiumBondsError::InvalidUserEntryHint.into()
+        );
+    }
+
+    #[test]
     fn test_user_entry_batch_prepare_batch() {
         let mut entries = [
             UserEntry {
@@ -314,4 +353,3 @@ mod tests {
         assert_eq!(err, PremiumBondsError::MathOverflow.into());
     }
 }
-

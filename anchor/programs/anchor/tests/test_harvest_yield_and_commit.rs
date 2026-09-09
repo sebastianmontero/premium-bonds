@@ -34,7 +34,11 @@ fn inject_pool_custom(
 ) -> Pubkey {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let mut fixed_tiers = [anchor::PrizeTier {
+        num_winners: 0,
+        basis_points: 0,
+        _padding: [0, 0],
+    }; 10];
     let count = prize_tiers.len().min(10);
     fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
@@ -126,7 +130,6 @@ fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
     (svm, admin, crank)
 }
 
-
 // ─── Context + instruction builder ──────────────────────────────────────────
 
 struct HarvestCtx {
@@ -196,9 +199,7 @@ fn send_harvest(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
@@ -628,7 +629,9 @@ fn test_harvest_fails_math_overflow() {
 
     let (pool_pda_key, _) = pool_pda(1);
     let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
-    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     pool.total_prizes_allocated = u64::MAX;
     use anchor_lang::Discriminator;
     let mut new_data = vec![];
@@ -657,7 +660,9 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     // Set min_yield_threshold to 1M (1,000,000 > 500,000 raw yield)
     let (pool_pda_key, _) = pool_pda(1);
     let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
-    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     pool.min_yield_threshold = 1_000_000;
     let mut new_data = vec![];
     new_data.extend_from_slice(&<anchor::PrizePool as anchor_lang::Discriminator>::DISCRIMINATOR);
@@ -701,7 +706,8 @@ fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_depo
         1_000_000,
     );
 
-    send_harvest(&mut ctx, 1, 0).expect("harvest should succeed immediately with atomic prize tiers");
+    send_harvest(&mut ctx, 1, 0)
+        .expect("harvest should succeed immediately with atomic prize tiers");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
@@ -709,7 +715,10 @@ fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_depo
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.is_frozen_for_draw, 1);
     assert_eq!(pool.prize_tiers_count, 1);
-    assert_eq!(pool.prize_tiers[0], anchor::PrizeTier::default_single_winner());
+    assert_eq!(
+        pool.prize_tiers[0],
+        anchor::PrizeTier::default_single_winner()
+    );
 }
 
 // ─── Dust Rollover Verification ──────────────────────────────────────────────
@@ -824,5 +833,3 @@ fn test_harvest_yield_fee_truncation_rounding() {
     assert_eq!(updated_pool.total_prizes_allocated, 9_999);
     assert_eq!(updated_pool.total_fees_accrued, 0);
 }
-
-

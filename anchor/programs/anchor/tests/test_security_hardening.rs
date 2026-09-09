@@ -377,7 +377,11 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         current_cycle_end_at: i64::MAX,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -951,16 +955,18 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
     let mut ctx = setup_e2e();
     let wrong_pool_state = Keypair::new().pubkey();
     // Initialize account owned by System Program instead of Huma Program
-    ctx.svm.set_account(
-        wrong_pool_state,
-        solana_sdk::account::Account {
-            lamports: 1_000_000,
-            data: vec![0u8; 100],
-            owner: anchor_lang::system_program::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            wrong_pool_state,
+            solana_sdk::account::Account {
+                lamports: 1_000_000,
+                data: vec![0u8; 100],
+                owner: anchor_lang::system_program::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let (pool_pda_key, _) = pool_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
@@ -1000,16 +1006,20 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
     };
 
     let bh = ctx.svm.latest_blockhash();
-    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let msg =
+        solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = solana_transaction::versioned::VersionedTransaction::try_new(
         solana_sdk::message::VersionedMessage::Legacy(msg),
         &[&ctx.user],
-    ).unwrap();
+    )
+    .unwrap();
 
     let err = ctx.svm.send_transaction(tx).unwrap_err();
     let err_str = format!("{err:?}");
     assert!(
-        err_str.contains("ConstraintRaw") || err_str.contains("ConstraintOwner") || err_str.contains("Custom"),
+        err_str.contains("ConstraintRaw")
+            || err_str.contains("ConstraintOwner")
+            || err_str.contains("Custom"),
         "Expected owner constraint error, got: {err_str}"
     );
 }
@@ -1018,16 +1028,18 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
 fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
     let mut ctx = setup_e2e();
     let wrong_pool_state = Keypair::new().pubkey();
-    ctx.svm.set_account(
-        wrong_pool_state,
-        solana_sdk::account::Account {
-            lamports: 1_000_000,
-            data: vec![0u8; 100],
-            owner: anchor_lang::system_program::ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            wrong_pool_state,
+            solana_sdk::account::Account {
+                lamports: 1_000_000,
+                data: vec![0u8; 100],
+                owner: anchor_lang::system_program::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let (global_config, _) = global_config_pda();
     let (pool_pda_key, _) = pool_pda(1);
@@ -1061,16 +1073,20 @@ fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
     };
 
     let bh = ctx.svm.latest_blockhash();
-    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let msg =
+        solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = solana_transaction::versioned::VersionedTransaction::try_new(
         solana_sdk::message::VersionedMessage::Legacy(msg),
         &[&ctx.admin],
-    ).unwrap();
+    )
+    .unwrap();
 
     let err = ctx.svm.send_transaction(tx).unwrap_err();
     let err_str = format!("{err:?}");
     assert!(
-        err_str.contains("ConstraintRaw") || err_str.contains("ConstraintOwner") || err_str.contains("Custom"),
+        err_str.contains("ConstraintRaw")
+            || err_str.contains("ConstraintOwner")
+            || err_str.contains("Custom"),
         "Expected owner constraint error, got: {err_str}"
     );
 }
@@ -1149,10 +1165,12 @@ fn test_direct_vault_token_donation_does_not_break_solvency() {
 
     // Harvest should recognize increased value as surplus yield without failing solvency check
     let meta = send_e2e_harvest_yield_and_commit(&mut ctx);
-    assert!(meta.is_ok(), "Harvest must succeed gracefully with donated tokens: {:?}", meta);
+    assert!(
+        meta.is_ok(),
+        "Harvest must succeed gracefully with donated tokens: {:?}",
+        meta
+    );
 }
-
-
 
 #[test]
 fn test_interleaved_async_redemption_fifo_queue_sequence() {
@@ -1177,8 +1195,16 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     // Setup User B
     let user_b = Keypair::new();
     ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
-    let user_b_usdc = create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
-    mint_tokens(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b_usdc, &ctx.usdc_mint_authority, 100_000_000);
+    let user_b_usdc =
+        create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b.pubkey());
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_usdc,
+        &ctx.usdc_mint_authority,
+        100_000_000,
+    );
 
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
@@ -1188,10 +1214,28 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 5, Pubkey::default()).unwrap();
 
     // User A sells bonds (Request 0)
-    send_e2e_sell_bonds_for_user(&mut ctx, &user_a, 0, 5, Pubkey::default(), Pubkey::default(), huma_pool_mode_token).unwrap();
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        5,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
 
     // User B sells bonds (Request 1)
-    send_e2e_sell_bonds_for_user(&mut ctx, &user_b, 0, 5, Pubkey::default(), Pubkey::default(), huma_pool_mode_token).unwrap();
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_b,
+        0,
+        5,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
@@ -1200,11 +1244,29 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // User B tries to claim redemption 1 -> MUST FAIL with NotSettled
-    let err_b = send_e2e_claim_redemption_for_user(&mut ctx, &user_b, user_b_usdc, 1, Pubkey::default(), huma_lender_state).unwrap_err();
-    assert!(err_b.contains("HumaRedemptionNotSettled") || err_b.contains("6034"), "got: {err_b}");
+    let err_b = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_b,
+        user_b_usdc,
+        1,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .unwrap_err();
+    assert!(
+        err_b.contains("HumaRedemptionNotSettled") || err_b.contains("6034"),
+        "got: {err_b}"
+    );
 
     // User A claims redemption 0 -> SUCCEEDS
-    let res_a = send_e2e_claim_redemption_for_user(&mut ctx, &user_a, user_a_usdc, 0, Pubkey::default(), huma_lender_state);
+    let res_a = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
     assert!(res_a.is_ok(), "User A claim should succeed");
 
     // Now Huma settles request 1 (next_request_id = 2)
@@ -1212,8 +1274,18 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     ctx.svm.expire_blockhash();
 
     // User B claims redemption 1 -> SUCCEEDS
-    let res_b = send_e2e_claim_redemption_for_user(&mut ctx, &user_b, user_b_usdc, 1, Pubkey::default(), huma_lender_state);
-    assert!(res_b.is_ok(), "User B claim should succeed after settlement");
+    let res_b = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_b,
+        user_b_usdc,
+        1,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert!(
+        res_b.is_ok(),
+        "User B claim should succeed after settlement"
+    );
 }
 
 #[test]
@@ -1235,13 +1307,18 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
     // Cycle 3: merge_cycle_id = 2 (already mature, no change)
     let mut reg_data = reg_acc.data.clone();
     reg_data[28..32].copy_from_slice(&3u32.to_le_bytes()); // draw_cycle_id = 3
-    ctx.svm.set_account(ctx.ticket_registry, Account {
-        lamports: reg_acc.lamports,
-        data: reg_data,
-        owner: reg_acc.owner,
-        executable: false,
-        rent_epoch: 0,
-    }).unwrap();
+    ctx.svm
+        .set_account(
+            ctx.ticket_registry,
+            Account {
+                lamports: reg_acc.lamports,
+                data: reg_data,
+                owner: reg_acc.owner,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     // Prepare draw for cycle 3: merge_cycle_id = 3 - 1 = 2
     // Lazy merge merges all pending tickets up to cycle 2 in a single step
@@ -1269,7 +1346,9 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm.send_transaction(tx).expect("Prepare draw after multi-cycle skip should succeed");
+    ctx.svm
+        .send_transaction(tx)
+        .expect("Prepare draw after multi-cycle skip should succeed");
 
     let reg_acc_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry_after = anchor::utils::registry_get_entry(&reg_acc_after.data, 0).unwrap();
@@ -1326,7 +1405,10 @@ fn test_event_emission_payload_verification_e2e() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let meta = ctx.svm.send_transaction(tx).expect("Buy bonds should succeed");
+    let meta = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("Buy bonds should succeed");
 
     let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
     assert_eq!(event.pool_id, 1);
@@ -1344,12 +1426,12 @@ fn test_pst_usdc_conversion_roundtrip_precision_bounds() {
     let test_cases: [(u128, u64, u64); 7] = [
         // (total_assets, pst_supply, usdc_amount)
         (1_000_000u128, 1_000_000u64, 1_000_000u64), // 1:1
-        (1_200_000, 1_000_000, 10_000_000),         // 1.2x (accrued yield)
-        (1_250_000, 1_000_000, 500_000),            // 1.25x
-        (2_000_000, 1_000_000, 100_000_000),        // 2.0x
-        (10_000_000, 1_000_000, 1),                 // 10x with 1 lamport
-        (950_000, 1_000_000, 10_000_000),           // 0.95x
-        (1_000_001, 1_000_000, 777_777),            // slight yield with odd amount
+        (1_200_000, 1_000_000, 10_000_000),          // 1.2x (accrued yield)
+        (1_250_000, 1_000_000, 500_000),             // 1.25x
+        (2_000_000, 1_000_000, 100_000_000),         // 2.0x
+        (10_000_000, 1_000_000, 1),                  // 10x with 1 lamport
+        (950_000, 1_000_000, 10_000_000),            // 0.95x
+        (1_000_001, 1_000_000, 777_777),             // slight yield with odd amount
     ];
 
     for (total_assets, pst_supply, usdc_amount) in test_cases {
@@ -1376,7 +1458,3 @@ fn test_pst_usdc_conversion_roundtrip_precision_bounds() {
         );
     }
 }
-
-
-
-

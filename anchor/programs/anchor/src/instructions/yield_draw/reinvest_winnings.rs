@@ -100,18 +100,11 @@ pub struct ReinvestWinnings<'info> {
 ///
 /// Any leftover dust less than the price of a single bond is stored in the user's `UserWinnings` state
 /// to be claimed or aggregated in subsequent reinvestments.
-pub fn handle(
-    ctx: Context<ReinvestWinnings>,
-    _cycle_id: u32,
-    winner_index: u32,
-) -> Result<()> {
+pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32) -> Result<()> {
     // ── 1. Validate winner entry & statuses ──────────────────────────────────
     let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
     payout_registry.ensure_current_version()?;
-    require!(
-        payout_registry.is_active(),
-        PremiumBondsError::DrawVoided
-    );
+    require!(payout_registry.is_active(), PremiumBondsError::DrawVoided);
 
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
@@ -243,6 +236,7 @@ pub fn handle(
         } else {
             let mut registry = registry_loader.load_mut()?;
             registry.ensure_current_version()?;
+            registry.validate_user_entry_index(user_entry_idx)?;
             registry.total_active_tickets = registry
                 .total_active_tickets
                 .checked_add(bonds_to_buy)

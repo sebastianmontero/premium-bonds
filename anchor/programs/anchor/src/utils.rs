@@ -529,16 +529,16 @@ mod tests {
     #[test]
     fn test_get_user_entries_byte_range_zero_count() {
         let range = get_user_entries_byte_range(make_entry_data(2).len(), 0, 0).unwrap();
-        assert_eq!(range, USER_ENTRY_REGISTRY_HEADER_SIZE..USER_ENTRY_REGISTRY_HEADER_SIZE);
+        assert_eq!(
+            range,
+            USER_ENTRY_REGISTRY_HEADER_SIZE..USER_ENTRY_REGISTRY_HEADER_SIZE
+        );
     }
 
     #[test]
     fn test_get_user_entries_byte_range_overflow() {
         let err = get_user_entries_byte_range(1000, usize::MAX / 2, 2).unwrap_err();
-        assert_eq!(
-            err,
-            crate::error::PremiumBondsError::MathOverflow.into()
-        );
+        assert_eq!(err, crate::error::PremiumBondsError::MathOverflow.into());
     }
 
     #[test]
@@ -673,7 +673,11 @@ mod tests {
             current_draw_cycle_id: 0,
             prize_tiers_count: 0,
             _padding: [0; 3],
-            prize_tiers: [crate::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
+            prize_tiers: [crate::state::PrizeTier {
+                num_winners: 0,
+                basis_points: 0,
+                _padding: [0; 2],
+            }; 10],
             next_redemption_id: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,

@@ -88,7 +88,9 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
 fn read_payout(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
     let (pda, _) = payout_pda(pool_id, cycle_id);
     let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
+        &account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+    )
 }
 
 fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
@@ -161,7 +163,11 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 1,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: anchor::PrizePool::CURRENT_VERSION,
@@ -247,7 +253,9 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let meta = svm.send_transaction(tx).expect("reinvest after index swap must succeed");
+    let meta = svm
+        .send_transaction(tx)
+        .expect("reinvest after index swap must succeed");
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner, user_b);

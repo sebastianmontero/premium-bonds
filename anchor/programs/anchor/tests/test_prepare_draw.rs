@@ -115,7 +115,11 @@ fn inject_pool_custom(
 ) {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10];
+    let mut fixed_tiers = [anchor::PrizeTier {
+        num_winners: 0,
+        basis_points: 0,
+        _padding: [0, 0],
+    }; 10];
     let count = prize_tiers.len().min(10);
     fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
     let pool = anchor::PrizePool {
@@ -163,7 +167,10 @@ fn inject_pool_custom(
     .unwrap();
 }
 
-fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<litesvm::types::TransactionMetadata, String> {
+fn send_prepare(
+    ctx: &mut Ctx,
+    batch_size: u32,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let accounts = anchor::accounts::PrepareDraw {
         crank: ctx.crank.pubkey(),
         pool: ctx.pool_key,
@@ -181,9 +188,7 @@ fn send_prepare(ctx: &mut Ctx, batch_size: u32) -> Result<litesvm::types::Transa
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 #[test]
@@ -444,7 +449,11 @@ fn test_prepare_draw_first_cycle_genesis() {
 
     // Prepare draw for cycle 1: 0 < 0 is false, so pending tickets do NOT merge (maturation delay)
     let res = send_prepare(&mut ctx, 1);
-    assert!(res.is_ok(), "prepare genesis cycle should succeed: {:?}", res);
+    assert!(
+        res.is_ok(),
+        "prepare genesis cycle should succeed: {:?}",
+        res
+    );
 
     let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry1 = anchor::utils::registry_get_entry(&reg_acct1.data, 0).unwrap();
@@ -540,7 +549,10 @@ fn test_prepare_draw_non_aligned_batches() {
         assert_eq!(entry.active, expected_active, "entry {i} active mismatch");
         assert_eq!(entry.pending, 0, "entry {i} pending mismatch");
         expected_cumulative += expected_active;
-        assert_eq!(entry.cumulative_active, expected_cumulative, "entry {i} cumulative mismatch");
+        assert_eq!(
+            entry.cumulative_active, expected_cumulative,
+            "entry {i} cumulative mismatch"
+        );
     }
 }
 
@@ -584,6 +596,3 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
     assert_eq!(entry8.cumulative_active, 60); // 0 active tickets added
     assert_eq!(entry9.cumulative_active, 70); // 10 active tickets added
 }
-
-
-

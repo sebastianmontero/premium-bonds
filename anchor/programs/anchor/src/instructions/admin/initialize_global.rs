@@ -74,4 +74,3 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
 
     Ok(())
 }
-

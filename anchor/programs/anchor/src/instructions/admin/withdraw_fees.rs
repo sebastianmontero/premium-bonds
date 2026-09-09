@@ -94,6 +94,7 @@ pub struct WithdrawFees<'info> {
 
     /// The Huma mode token mint ($PST token mint).
     #[account(
+        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
         mint::token_program = pst_token_program
     )]
     pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -199,14 +200,14 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         let pool_id_bytes = pool_id.to_le_bytes();
         let authority_bump = pool.vault_authority_bump;
         let fee_wallet = pool.fee_wallet;
-        (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet)
+        (
+            pool_id,
+            pool_id_bytes,
+            authority_bump,
+            current_redemption_id,
+            fee_wallet,
+        )
     };
-
-    // Verify that the huma_mode_mint matches the pool_pst_vault mint
-    require!(
-        ctx.accounts.pool_pst_vault.mint == ctx.accounts.huma_mode_mint.key(),
-        PremiumBondsError::InvalidModeMint
-    );
 
     // Calculate $PST shares for the fee amount
     let huma_snapshot =

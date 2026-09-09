@@ -6,7 +6,9 @@
 
 use {
     anchor::error::PremiumBondsError,
-    anchor_lang::{AccountDeserialize, AnchorSerialize, Discriminator, InstructionData, ToAccountMetas},
+    anchor_lang::{
+        AccountDeserialize, AnchorSerialize, Discriminator, InstructionData, ToAccountMetas,
+    },
     litesvm::LiteSVM,
     solana_keypair::Keypair,
     solana_program::{instruction::Instruction, pubkey::Pubkey},
@@ -126,7 +128,14 @@ fn test_err_bond_price_locked_and_pool_states() {
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
 
-    let pool_addr = inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, false);
+    let pool_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_addr).unwrap();
         let p = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -161,7 +170,10 @@ fn test_err_bond_price_locked_and_pool_states() {
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
     let res = svm.send_transaction(tx);
-    assert_custom_error(res, PremiumBondsError::CannotModifyBondPriceWithActiveDeposits);
+    assert_custom_error(
+        res,
+        PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
+    );
 }
 
 #[test]
@@ -171,7 +183,14 @@ fn test_err_pool_paused_and_closed_guards() {
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
 
-    let pool_addr = inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Closed, false);
+    let pool_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Closed,
+        false,
+    );
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
     inject_draw_cycle(
@@ -185,7 +204,14 @@ fn test_err_pool_paused_and_closed_guards() {
             ..unsafe { std::mem::zeroed() }
         },
     );
-    inject_payout_registry(&mut svm, pool_id, 0, vec![], 0, anchor::PayoutRegistryStatus::Active);
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        0,
+        vec![],
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
 
     let accounts = anchor::accounts::AdminVoidPayoutRegistry {
         admin: admin.pubkey(),
@@ -315,7 +341,14 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
     }];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
-    inject_pool(&mut svm, pool_id, token_mint, ticket_registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
@@ -398,7 +431,14 @@ fn test_err_cycle_not_ended_and_freeze_guards() {
     inject_mint(&mut svm, pst_mint, 6);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_addr, 10_000_000);
     inject_registry(&mut svm, registry, pool_id, 1000, 0, 0);
-    inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     {
         let mut acc = svm.get_account(&pool_addr).unwrap();
         let p = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -451,7 +491,14 @@ fn test_err_draw_already_voided() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let pool_addr = inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, false);
+    let pool_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
@@ -466,7 +513,14 @@ fn test_err_draw_already_voided() {
             ..unsafe { std::mem::zeroed() }
         },
     );
-    inject_payout_registry(&mut svm, pool_id, 0, vec![], 0, anchor::PayoutRegistryStatus::Voided);
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        0,
+        vec![],
+        0,
+        anchor::PayoutRegistryStatus::Voided,
+    );
 
     let accounts = anchor::accounts::AdminVoidPayoutRegistry {
         admin: admin.pubkey(),
@@ -497,7 +551,14 @@ fn test_err_payouts_already_started() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let pool_addr = inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, false);
+    let pool_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
@@ -512,7 +573,14 @@ fn test_err_payouts_already_started() {
             ..unsafe { std::mem::zeroed() }
         },
     );
-    inject_payout_registry(&mut svm, pool_id, 0, vec![], 1, anchor::PayoutRegistryStatus::Active); // processed_count = 1
+    inject_payout_registry(
+        &mut svm,
+        pool_id,
+        0,
+        vec![],
+        1,
+        anchor::PayoutRegistryStatus::Active,
+    ); // processed_count = 1
 
     let accounts = anchor::accounts::AdminVoidPayoutRegistry {
         admin: admin.pubkey(),
@@ -551,9 +619,16 @@ fn test_err_randomness_not_expired_and_unauthorized_crank() {
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
 
-    let pool_addr = inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, true);
+    let pool_addr = inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        true,
+    );
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
-    
+
     // Inject DrawCycle with harvest_slot = 100
     let dc = anchor::state::DrawCycle {
         prize_pot: 10_000_000,
@@ -634,7 +709,14 @@ fn test_err_no_winnings_and_already_claimed() {
 
     let (pool_addr, _) = pool_pda(pool_id);
     let registry = Keypair::new().pubkey();
-    inject_pool(&mut svm, pool_id, token_mint, registry, anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0); // 0 unclaimed winnings
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
@@ -736,9 +818,21 @@ fn test_err_yield_venue_insolvent_and_unauthorized() {
     let authority = Keypair::new();
     let admin = Keypair::new();
     let guardian = Keypair::new();
-    let mut svm = setup_global_config_with_admin_and_guardian(&authority, &admin.pubkey(), &guardian.pubkey(), None);
+    let mut svm = setup_global_config_with_admin_and_guardian(
+        &authority,
+        &admin.pubkey(),
+        &guardian.pubkey(),
+        None,
+    );
 
-    let _pool_pda = inject_pool(&mut svm, 1, Pubkey::default(), Pubkey::default(), anchor::PoolStatus::Active, false);
+    let _pool_pda = inject_pool(
+        &mut svm,
+        1,
+        Pubkey::default(),
+        Pubkey::default(),
+        anchor::PoolStatus::Active,
+        false,
+    );
     let attacker = Keypair::new();
     svm.airdrop(&attacker.pubkey(), 10_000_000_000).unwrap();
 

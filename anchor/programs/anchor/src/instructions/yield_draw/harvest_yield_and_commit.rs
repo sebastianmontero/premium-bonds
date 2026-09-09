@@ -212,7 +212,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     if current_value < book_value {
         let deficit = book_value.saturating_sub(current_value);
         if deficit > crate::constants::SOLVENCY_DUST_TOLERANCE {
-            draw_cycle.halt(DrawStatus::HaltedInsolvent, eligible_locked_count, current_time)?;
+            draw_cycle.halt(
+                DrawStatus::HaltedInsolvent,
+                eligible_locked_count,
+                current_time,
+            )?;
             pool.pause_and_advance_cycle(current_time)?;
             emit_cpi!(crate::events::EmergencyInsolvencyDetected {
                 pool_id: pool.pool_id,
@@ -242,7 +246,11 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             .checked_div(10_000)
             .ok_or(PremiumBondsError::MathOverflow)?;
         if (yield_generated as u128) > max_allowed_yield {
-            draw_cycle.halt(DrawStatus::HaltedYieldSpike, eligible_locked_count, current_time)?;
+            draw_cycle.halt(
+                DrawStatus::HaltedYieldSpike,
+                eligible_locked_count,
+                current_time,
+            )?;
             pool.pause_and_advance_cycle(current_time)?;
             emit_cpi!(crate::events::YieldVelocityBreached {
                 pool_id: pool.pool_id,
@@ -261,7 +269,10 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         .checked_sub(fee)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    if yield_generated > 0 && yield_generated >= pool.min_yield_threshold && eligible_locked_count > 0 {
+    if yield_generated > 0
+        && yield_generated >= pool.min_yield_threshold
+        && eligible_locked_count > 0
+    {
         require!(
             pool.prize_tiers_count > 0,
             PremiumBondsError::PrizeTiersNotConfigured

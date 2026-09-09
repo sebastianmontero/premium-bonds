@@ -143,9 +143,7 @@ fn send_e2e_claim_redemption_full(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&caller.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ─── Guard Test Setup ────────────────────────────────────────────────────────
@@ -281,8 +279,8 @@ fn test_claim_redemption_fails_wrong_user() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, Some(wrong_user));
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
-    let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None).unwrap_err();
+    let err = send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None)
+        .unwrap_err();
     assert!(err.contains("InvalidRedemptionOwner"), "got: {err}");
 }
 
@@ -292,9 +290,18 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
-    let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, Some(wrong_mint), None, None, None)
-            .unwrap_err();
+    let err = send_claim_redemption_guard(
+        &mut ctx,
+        &user_kp,
+        None,
+        1,
+        0,
+        Some(wrong_mint),
+        None,
+        None,
+        None,
+    )
+    .unwrap_err();
     assert!(
         err.contains("ConstraintAddress") || err.contains("ConstraintRaw"),
         "Expected address constraint failure, got: {err}"
@@ -306,8 +313,8 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. It will fail to resolve pool account or pending redemption constraint checks.
-    let err =
-        send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None).unwrap_err();
+    let err = send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None)
+        .unwrap_err();
     assert!(
         err.contains("AccountNotFound")
             || err.contains("ConstraintSeeds")
@@ -1007,12 +1014,8 @@ fn test_claim_redemption_fails_diverted_token_account() {
     ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
 
     // Attacker crank tries to pass their own token account as the recipient
-    let crank_usdc = create_spl_token_account(
-        &mut ctx.svm,
-        &crank,
-        &ctx.usdc_mint,
-        &crank.pubkey(),
-    );
+    let crank_usdc =
+        create_spl_token_account(&mut ctx.svm, &crank, &ctx.usdc_mint, &crank.pubkey());
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
@@ -1070,12 +1073,8 @@ fn test_claim_redemption_fails_on_double_claim() {
     )
     .unwrap();
 
-    let user_a_usdc = create_spl_token_account(
-        &mut ctx.svm,
-        &user_a,
-        &ctx.usdc_mint,
-        &user_a.pubkey(),
-    );
+    let user_a_usdc =
+        create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
@@ -1093,7 +1092,10 @@ fn test_claim_redemption_fails_on_double_claim() {
     assert!(meta1.is_ok(), "First claim redemption must succeed");
 
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    assert!(ctx.svm.get_account(&pending_redemption_key).is_none(), "Pending redemption account must be closed");
+    assert!(
+        ctx.svm.get_account(&pending_redemption_key).is_none(),
+        "Pending redemption account must be closed"
+    );
 
     // Second claim fails because the account is already closed and cannot be re-executed
     ctx.svm.expire_blockhash();
@@ -1107,7 +1109,11 @@ fn test_claim_redemption_fails_on_double_claim() {
     )
     .unwrap_err();
     assert!(
-        err.contains("AccountNotInitialized") || err.contains("AccountNotFound") || err.contains("ConstraintOwner") || err.contains("3012") || err.contains("2003"),
+        err.contains("AccountNotInitialized")
+            || err.contains("AccountNotFound")
+            || err.contains("ConstraintOwner")
+            || err.contains("3012")
+            || err.contains("2003"),
         "Expected account closed/not initialized failure on second claim, got: {err}"
     );
 }
@@ -1145,12 +1151,8 @@ fn test_claim_redemption_fails_pending_redemptions_underflow() {
     )
     .unwrap();
 
-    let user_a_usdc = create_spl_token_account(
-        &mut ctx.svm,
-        &user_a,
-        &ctx.usdc_mint,
-        &user_a.pubkey(),
-    );
+    let user_a_usdc =
+        create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
@@ -1207,12 +1209,8 @@ fn test_claim_redemption_succeeds_while_pool_frozen() {
     )
     .unwrap();
 
-    let user_a_usdc = create_spl_token_account(
-        &mut ctx.svm,
-        &user_a,
-        &ctx.usdc_mint,
-        &user_a.pubkey(),
-    );
+    let user_a_usdc =
+        create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
@@ -1238,6 +1236,3 @@ fn test_claim_redemption_succeeds_while_pool_frozen() {
         res
     );
 }
-
-
-

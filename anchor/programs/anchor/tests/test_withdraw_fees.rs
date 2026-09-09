@@ -85,8 +85,7 @@ fn send_withdraw_fees(
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -946,7 +945,8 @@ fn test_withdraw_fees_and_claim_e2e() {
         2_000_000, // withdraw 2 USDC
     );
 
-    let meta = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw).expect("withdraw_fees should succeed");
+    let meta = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw)
+        .expect("withdraw_fees should succeed");
     let event = assert_cpi_event::<anchor::events::FeesWithdrawn>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
@@ -1086,7 +1086,12 @@ fn test_withdraw_fees_fails_invalid_fee_wallet() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
-    let wrong_wallet = create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &ctx.admin.pubkey());
+    let wrong_wallet = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.admin.pubkey(),
+    );
 
     let mut ix = build_withdraw_fees_ix(
         &ctx.svm,
@@ -1175,4 +1180,3 @@ fn test_withdraw_fees_succeeds_from_closed_pool() {
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.total_fees_withdrawn, 2_000_000);
 }
-

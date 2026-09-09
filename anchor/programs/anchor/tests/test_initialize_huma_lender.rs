@@ -76,8 +76,7 @@ fn send_initialize_huma_lender(
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 /// Send an `InitializeHumaLender` instruction unsigned by the admin (marked as non-signer).
@@ -98,8 +97,7 @@ fn send_initialize_huma_lender_unsigned(
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    svm.send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -125,7 +123,8 @@ fn test_initialize_huma_lender_succeeds() {
         dummy,
     );
 
-    let meta = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix).expect("initialize_huma_lender should succeed");
+    let meta = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix)
+        .expect("initialize_huma_lender should succeed");
     let event = assert_log_event::<anchor::events::HumaLenderInitialized>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
@@ -444,6 +443,39 @@ fn test_initialize_huma_lender_fails_huma_cpi_error() {
             || err_str.contains("6003")
             || err_str.contains("0x1773"),
         "Expected SimulatedCreateLenderFailure error (6003 or 0x1773), got: {}",
+        err_str
+    );
+}
+
+/// INV-INIT-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.
+#[test]
+fn test_initialize_huma_lender_fails_invalid_mode_mint() {
+    let mut ctx = setup_e2e();
+    let dummy = Keypair::new().pubkey();
+    let fake_pst_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
+
+    let ix = build_initialize_huma_lender_ix(
+        ctx.admin.pubkey(),
+        1,
+        anchor_spl::token::ID,
+        huma_program_id(),
+        dummy,
+        dummy,
+        ctx.huma_pool_state,
+        dummy,
+        fake_pst_mint, // Mismatched huma_mode_mint
+        dummy,
+        dummy,
+    );
+
+    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    assert!(res.is_err(), "Must fail with invalid mode mint");
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(
+        err_str.contains("InvalidModeMint")
+            || err_str.contains("ConstraintAddress")
+            || err_str.contains("6056"),
+        "Expected InvalidModeMint (6056) or ConstraintAddress, got: {}",
         err_str
     );
 }

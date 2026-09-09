@@ -73,6 +73,10 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
         pool.status != (crate::state::PoolStatus::Closed as u8),
         PremiumBondsError::PoolClosed
     );
+    require!(
+        !pool.is_frozen(),
+        PremiumBondsError::AwaitingRandomnessFreeze
+    );
 
     let mut payout_registry = ctx.accounts.payout_registry.load_mut()?;
     payout_registry.ensure_current_version()?;

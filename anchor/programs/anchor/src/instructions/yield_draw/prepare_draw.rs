@@ -69,10 +69,11 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
         registry.ensure_current_version()?;
         let cycle_id = registry.draw_cycle_id.saturating_sub(1);
         let start = registry.draw_prepared_up_to;
-        require!(start < registry.user_count, PremiumBondsError::InvalidDrawState);
-        let end = start
-            .saturating_add(batch_size)
-            .min(registry.user_count);
+        require!(
+            start < registry.user_count,
+            PremiumBondsError::InvalidDrawState
+        );
+        let end = start.saturating_add(batch_size).min(registry.user_count);
         (cycle_id, start, end)
     };
 

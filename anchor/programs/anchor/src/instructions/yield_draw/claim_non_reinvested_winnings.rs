@@ -105,6 +105,7 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     pub huma_mode_config: UncheckedAccount<'info>,
     /// The Huma mode mint ($PST mint).
     #[account(
+        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
         mint::token_program = pst_token_program
     )]
     pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -189,14 +190,13 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
         let authority_bump = pool.vault_authority_bump;
-        (pool_id, pool_id_bytes, authority_bump, current_redemption_id)
+        (
+            pool_id,
+            pool_id_bytes,
+            authority_bump,
+            current_redemption_id,
+        )
     };
-
-    // Verify that the huma_mode_mint matches the pool_pst_vault mint
-    require!(
-        ctx.accounts.pool_pst_vault.mint == ctx.accounts.huma_mode_mint.key(),
-        PremiumBondsError::InvalidModeMint
-    );
 
     // Calculate $PST shares for the claimable USDC amount
     let huma_snapshot =

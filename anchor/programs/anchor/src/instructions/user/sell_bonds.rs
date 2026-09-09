@@ -112,6 +112,7 @@ pub struct SellBonds<'info> {
 
     /// The Huma mode token mint ($PST token mint).
     #[account(
+        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
         mint::token_program = pst_token_program
     )]
     pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -203,11 +204,8 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let (current_cycle, last_entry_idx) = {
         let mut registry = registry_loader.load_mut()?;
         registry.ensure_current_version()?;
-        let last_idx = if registry.user_count > 0 {
-            registry.user_count - 1
-        } else {
-            0
-        };
+        registry.validate_user_entry_index(user_entry_idx)?;
+        let last_idx = registry.user_count - 1;
         (registry.draw_cycle_id, last_idx)
     };
 
@@ -300,7 +298,13 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     }
 
     // Update pool principal & redemption counter in a scoped borrow
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, new_total_deposited_principal) = {
+    let (
+        pool_id,
+        pool_id_bytes,
+        authority_bump,
+        current_redemption_id,
+        new_total_deposited_principal,
+    ) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.total_deposited_principal = pool
             .total_deposited_principal
@@ -330,12 +334,6 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
             new_principal,
         )
     };
-
-    // Verify that the huma_mode_mint matches the pool_pst_vault mint
-    require!(
-        ctx.accounts.pool_pst_vault.mint == ctx.accounts.huma_mode_mint.key(),
-        PremiumBondsError::InvalidModeMint
-    );
 
     // Calculate $PST shares to redeem for the principal amount
     let huma_snapshot =

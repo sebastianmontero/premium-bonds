@@ -27,7 +27,17 @@ impl TryFrom<u8> for PoolStatus {
 
 /// Defines the configuration for a single prize tier within a pool.
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    AnchorSerialize,
+    AnchorDeserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
 pub struct PrizeTier {
     /// Number of winners that can be selected for this tier in a single draw.
     pub num_winners: u32,
@@ -59,7 +69,9 @@ impl PrizeTier {
             .ok_or(PremiumBondsError::MathOverflow)?
             .checked_div(10_000)
             .ok_or(PremiumBondsError::MathOverflow)?;
-        prize.try_into().map_err(|_| PremiumBondsError::MathOverflow.into())
+        prize
+            .try_into()
+            .map_err(|_| PremiumBondsError::MathOverflow.into())
     }
 }
 
@@ -442,12 +454,18 @@ impl UserWinnings {
         expected_old_idx: u32,
         new_idx: u32,
     ) -> Result<()> {
-        let swapped_info = swapped_info_opt
-            .ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
+        let swapped_info = swapped_info_opt.ok_or(PremiumBondsError::MissingSwappedUserWinnings)?;
 
         // Cheap pre-filters before Borsh deserialization
-        require!(swapped_info.is_writable, PremiumBondsError::MissingSwappedUserWinnings);
-        require_keys_eq!(*swapped_info.owner, *program_id, PremiumBondsError::MissingSwappedUserWinnings);
+        require!(
+            swapped_info.is_writable,
+            PremiumBondsError::MissingSwappedUserWinnings
+        );
+        require_keys_eq!(
+            *swapped_info.owner,
+            *program_id,
+            PremiumBondsError::MissingSwappedUserWinnings
+        );
         require!(
             swapped_info.data_len() == 8 + UserWinnings::INIT_SPACE,
             PremiumBondsError::MissingSwappedUserWinnings
@@ -470,9 +488,14 @@ impl UserWinnings {
                 &[swapped_winnings.bump],
             ],
             program_id,
-        ).map_err(|_| error!(PremiumBondsError::MissingSwappedUserWinnings))?;
+        )
+        .map_err(|_| error!(PremiumBondsError::MissingSwappedUserWinnings))?;
 
-        require_keys_eq!(swapped_info.key(), expected_pda, PremiumBondsError::MissingSwappedUserWinnings);
+        require_keys_eq!(
+            swapped_info.key(),
+            expected_pda,
+            PremiumBondsError::MissingSwappedUserWinnings
+        );
 
         swapped_winnings.ensure_current_version()?;
         require!(
@@ -522,7 +545,11 @@ mod tests {
             current_draw_cycle_id: 0,
             prize_tiers_count: 0,
             _padding: [0; 3],
-            prize_tiers: [PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
+            prize_tiers: [PrizeTier {
+                num_winners: 0,
+                basis_points: 0,
+                _padding: [0; 2],
+            }; 10],
             next_redemption_id: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
@@ -657,12 +684,18 @@ mod tests {
 
     #[test]
     fn fee_100_percent() {
-        assert_eq!(default_pool(10_000, 24).calculate_fee(888_888).unwrap(), 888_888);
+        assert_eq!(
+            default_pool(10_000, 24).calculate_fee(888_888).unwrap(),
+            888_888
+        );
     }
 
     #[test]
     fn fee_50_percent() {
-        assert_eq!(default_pool(5_000, 24).calculate_fee(1_000_000).unwrap(), 500_000);
+        assert_eq!(
+            default_pool(5_000, 24).calculate_fee(1_000_000).unwrap(),
+            500_000
+        );
     }
 
     #[test]
@@ -685,7 +718,9 @@ mod tests {
     fn fee_large_yield_no_overflow() {
         // 1 % of 1 trillion lamports = 10 billion
         assert_eq!(
-            default_pool(100, 24).calculate_fee(1_000_000_000_000).unwrap(),
+            default_pool(100, 24)
+                .calculate_fee(1_000_000_000_000)
+                .unwrap(),
             10_000_000_000
         );
     }
@@ -998,31 +1033,38 @@ mod tests {
     fn test_validate_pool_creation_params() {
         let valid_tiers = [PrizeTier::default_single_winner()];
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &valid_tiers).unwrap(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &valid_tiers)
+                .unwrap(),
             1
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(0, 24, 100, 500, 300, &valid_tiers).unwrap_err(),
+            PrizePool::validate_pool_creation_params(0, 24, 100, 500, 300, &valid_tiers)
+                .unwrap_err(),
             PremiumBondsError::InvalidBondPrice.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 0, 100, 500, 300, &valid_tiers).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 0, 100, 500, 300, &valid_tiers)
+                .unwrap_err(),
             PremiumBondsError::InvalidStakeCycleDuration.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 10_001, 500, 300, &valid_tiers).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 10_001, 500, 300, &valid_tiers)
+                .unwrap_err(),
             PremiumBondsError::InvalidFeeConfig.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 10_001, 300, &valid_tiers).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 10_001, 300, &valid_tiers)
+                .unwrap_err(),
             PremiumBondsError::InvalidMaxYieldBasisPoints.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 86_401, &valid_tiers).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 86_401, &valid_tiers)
+                .unwrap_err(),
             PremiumBondsError::InvalidPayoutTimelock.into()
         );
         assert_eq!(
-            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &[]).unwrap_err(),
+            PrizePool::validate_pool_creation_params(1_000_000, 24, 100, 500, 300, &[])
+                .unwrap_err(),
             PremiumBondsError::InvalidPrizeTierConfig.into()
         );
     }
@@ -1032,10 +1074,7 @@ mod tests {
         let single_tier = [PrizeTier::default_single_winner()];
         assert_eq!(PrizePool::validate_prize_tiers(&single_tier).unwrap(), 1);
 
-        let multi_tier = [
-            PrizeTier::new(1, 5000),
-            PrizeTier::new(5, 1000),
-        ];
+        let multi_tier = [PrizeTier::new(1, 5000), PrizeTier::new(5, 1000)];
         assert_eq!(PrizePool::validate_prize_tiers(&multi_tier).unwrap(), 6);
     }
 
@@ -1104,7 +1143,11 @@ mod tests {
             current_draw_cycle_id: 0,
             prize_tiers_count: 0,
             _padding: [0; 3],
-            prize_tiers: [PrizeTier { num_winners: 99, basis_points: 99, _padding: [0; 2] }; 10],
+            prize_tiers: [PrizeTier {
+                num_winners: 99,
+                basis_points: 99,
+                _padding: [0; 2],
+            }; 10],
             next_redemption_id: 0,
             total_fees_accrued: 0,
             total_fees_withdrawn: 0,
@@ -1114,10 +1157,7 @@ mod tests {
             _reserved: [0; 128],
         };
 
-        let tiers = [
-            PrizeTier::new(1, 6000),
-            PrizeTier::new(4, 1000),
-        ];
+        let tiers = [PrizeTier::new(1, 6000), PrizeTier::new(4, 1000)];
         let total_winners = pool.set_prize_tiers(&tiers).unwrap();
         assert_eq!(total_winners, 5);
         assert_eq!(pool.prize_tiers_count, 2);
@@ -1125,7 +1165,14 @@ mod tests {
         assert_eq!(pool.prize_tiers[1], PrizeTier::new(4, 1000));
         // Remaining slots are zeroed
         for i in 2..10 {
-            assert_eq!(pool.prize_tiers[i], PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] });
+            assert_eq!(
+                pool.prize_tiers[i],
+                PrizeTier {
+                    num_winners: 0,
+                    basis_points: 0,
+                    _padding: [0; 2]
+                }
+            );
         }
     }
 

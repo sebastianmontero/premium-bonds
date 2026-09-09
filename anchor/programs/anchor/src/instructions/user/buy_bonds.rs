@@ -1,4 +1,5 @@
 use crate::constants::{POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
+use crate::error::PremiumBondsError;
 use crate::events::BondsPurchased;
 use crate::huma;
 use crate::state::{PrizePool, TicketRegistry};
@@ -109,10 +110,13 @@ pub struct BuyBonds<'info> {
     /// structure and validity are fully validated by the Huma program during the CPI call.
     pub huma_mode_config: UncheckedAccount<'info>,
 
-    /// CHECK: This is the Huma mode mint account. It is unchecked here because its structure
-    /// and validity are fully validated by the Huma program during the CPI call.
-    #[account(mut)]
-    pub huma_mode_mint: UncheckedAccount<'info>,
+    /// The Huma mode token mint ($PST token mint).
+    #[account(
+        mut,
+        address = pool_pst_vault.mint @ PremiumBondsError::InvalidModeMint,
+        mint::token_program = pst_token_program
+    )]
+    pub huma_mode_mint: Box<InterfaceAccount<'info, Mint>>,
 
     /// CHECK: This is the Huma pool authority PDA. It is unchecked here because its validity as the
     /// pool's authority is fully validated by the Huma program during the CPI call.
@@ -242,6 +246,8 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
                 .user_count
                 .checked_add(1)
                 .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
+        } else {
+            registry.validate_user_entry_index(user_entry_idx)?;
         }
         registry.total_pending_tickets = registry
             .total_pending_tickets

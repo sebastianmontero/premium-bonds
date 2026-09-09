@@ -74,10 +74,23 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
 
     inject_mint_with_supply(&mut svm, token_mint, 6, 1_000_000_000_000);
     inject_mint_with_supply(&mut svm, pst_mint, 6, params.pst_supply);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda, params.pst_shares_amount);
+    inject_token_account(
+        &mut svm,
+        pool_pst_vault,
+        pst_mint,
+        pool_pda,
+        params.pst_shares_amount,
+    );
 
     let ticket_registry = Keypair::new().pubkey();
-    inject_registry(&mut svm, ticket_registry, pool_id, 100, params.active_tickets, params.pending_tickets);
+    inject_registry(
+        &mut svm,
+        ticket_registry,
+        pool_id,
+        100,
+        params.active_tickets,
+        params.pending_tickets,
+    );
 
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, params.total_assets);
@@ -108,7 +121,11 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
         current_cycle_end_at: 0,
         is_frozen_for_draw: 0,
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 1, basis_points: 10000, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 10000,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 1,
         _padding: [0; 3],
         version: 1,
@@ -173,7 +190,11 @@ fn build_harvest_ix(ctx: &CircuitBreakerCtx, pool_id: u32, cycle_id: u32) -> Ins
     }
 }
 
-fn send_harvest(ctx: &mut CircuitBreakerCtx, pool_id: u32, cycle_id: u32) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+fn send_harvest(
+    ctx: &mut CircuitBreakerCtx,
+    pool_id: u32,
+    cycle_id: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let ix = build_harvest_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
@@ -218,7 +239,8 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
     // Verify DrawCycle is HaltedInsolvent
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
-    let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+    let dc: anchor::DrawCycle =
+        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent);
     assert_eq!(dc.locked_ticket_count, 10);
     assert_eq!(dc.prize_pot, 0);
@@ -244,7 +266,8 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
         total_assets,
     );
 
-    let meta = send_harvest(&mut ctx, 1, 0).expect("Harvest should succeed and commit pause state on velocity spike");
+    let meta = send_harvest(&mut ctx, 1, 0)
+        .expect("Harvest should succeed and commit pause state on velocity spike");
 
     // Verify YieldVelocityBreached event was emitted
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta);
@@ -264,7 +287,8 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
     // Verify DrawCycle is HaltedYieldSpike
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
-    let dc: anchor::DrawCycle = anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+    let dc: anchor::DrawCycle =
+        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(dc.status, anchor::DrawStatus::HaltedYieldSpike);
     assert_eq!(dc.locked_ticket_count, 10);
     assert_eq!(dc.prize_pot, 0);
@@ -287,7 +311,7 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
         pst_shares_amount,
         pst_supply,
         total_assets,
-        active_tickets: 0,  // 0 active tickets!
+        active_tickets: 0,   // 0 active tickets!
         pending_tickets: 10, // 10 pending tickets
     });
 
@@ -338,7 +362,8 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
         pst_supply,
         9_999_000u128,
     );
-    let meta_pass = send_harvest(&mut ctx_pass, 1, 0).expect("Deficit <= dust tolerance should proceed normally");
+    let meta_pass = send_harvest(&mut ctx_pass, 1, 0)
+        .expect("Deficit <= dust tolerance should proceed normally");
     let pool_pass = read_pool_state(&ctx_pass.svm, 1);
     assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
 
@@ -351,7 +376,8 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
         pst_supply,
         9_998_999u128,
     );
-    let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
+    let meta_halt =
+        send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
     assert_eq!(event.deficit, 1001);
     assert_eq!(event.cycle_id, 0);
@@ -359,7 +385,6 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);
     assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
 }
-
 
 #[test]
 fn test_yield_velocity_spike_guard_exact_boundary() {
@@ -377,7 +402,8 @@ fn test_yield_velocity_spike_guard_exact_boundary() {
         pst_supply,
         10_500_000u128,
     );
-    let meta_pass = send_harvest(&mut ctx_pass, 1, 0).expect("Yield <= max allowed should proceed normally");
+    let meta_pass =
+        send_harvest(&mut ctx_pass, 1, 0).expect("Yield <= max allowed should proceed normally");
     let pool_pass = read_pool_state(&ctx_pass.svm, 1);
     assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
 
@@ -399,5 +425,3 @@ fn test_yield_velocity_spike_guard_exact_boundary() {
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);
     assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8);
 }
-
-

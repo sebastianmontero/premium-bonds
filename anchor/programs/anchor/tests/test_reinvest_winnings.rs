@@ -78,7 +78,11 @@ fn inject_pool(
         current_cycle_end_at: 0,
         is_frozen_for_draw: if frozen { 1 } else { 0 },
         current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0, 0] }; 10],
+        prize_tiers: [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10],
         prize_tiers_count: 0,
         _padding: [0; 3],
         version: 1,
@@ -169,7 +173,11 @@ struct Ctx {
     registry: Pubkey,
 }
 
-fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32) -> Result<litesvm::types::TransactionMetadata, String> {
+fn send(
+    ctx: &mut Ctx,
+    cycle_id: u32,
+    winner_index: u32,
+) -> Result<litesvm::types::TransactionMetadata, String> {
     let (pool, _) = pool_pda(1);
     let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
     let (payout_registry, _) = payout_pda(1, cycle_id);
@@ -200,9 +208,7 @@ fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32) -> Result<litesvm::type
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
@@ -210,13 +216,17 @@ fn send(ctx: &mut Ctx, cycle_id: u32, winner_index: u32) -> Result<litesvm::type
 fn read_pool(svm: &LiteSVM) -> anchor::PrizePool {
     let (p, _) = pool_pda(1);
     let data = svm.get_account(&p).unwrap().data;
-    *bytemuck::from_bytes::<anchor::PrizePool>(&data[8..8 + std::mem::size_of::<anchor::PrizePool>()])
+    *bytemuck::from_bytes::<anchor::PrizePool>(
+        &data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    )
 }
 
 fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
     let (p, _) = payout_pda(1, cid);
     let data = svm.get_account(&p).unwrap().data;
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(&data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()])
+    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
+        &data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+    )
 }
 
 fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnings {
@@ -300,7 +310,10 @@ fn test_reinvest_fails_wrong_winner() {
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
     let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("InvalidWinnerIndex") || err.contains("WinnerMismatch"), "got: {err}");
+    assert!(
+        err.contains("InvalidWinnerIndex") || err.contains("WinnerMismatch"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -522,7 +535,12 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1000, &entries);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
-    inject_payout(&mut ctx.svm, 1, 0, vec![w(ctx.winner, 3_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut ctx.svm,
+        1,
+        0,
+        vec![w(ctx.winner, 3_000_000, 0, 0, false)],
+    );
 
     let err = send(&mut ctx, 0, 0).unwrap_err();
     assert!(err.contains("InvalidUserEntryHint"), "got: {err}");
@@ -533,7 +551,12 @@ fn test_reinvest_exited_user_full_registry_fallback() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
-    inject_payout(&mut ctx.svm, 1, 0, vec![w(ctx.winner, 3_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut ctx.svm,
+        1,
+        0,
+        vec![w(ctx.winner, 3_000_000, 0, 0, false)],
+    );
 
     let entries = vec![anchor::state::UserEntry {
         owner: Keypair::new().pubkey(),
@@ -613,11 +636,24 @@ fn test_reinvest_preserves_existing_pending_tickets() {
     reg_acc.data[24..28].copy_from_slice(&5u32.to_le_bytes());
     svm.set_account(reg, reg_acc).unwrap();
 
-    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_pool(
+        &mut svm,
+        1,
+        mint,
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     inject_payout(&mut svm, 1, 1, vec![w(winner, 3_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner,
+        registry: reg,
+    };
 
     send(&mut ctx, 1, 0).expect("reinvest");
 
@@ -646,11 +682,24 @@ fn test_reinvest_exited_user_creates_active_entry() {
     let entries: Vec<anchor::state::UserEntry> = vec![];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_pool(
+        &mut svm,
+        1,
+        mint,
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     inject_payout(&mut svm, 1, 0, vec![w(winner, 4_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, u32::MAX);
 
-    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner,
+        registry: reg,
+    };
 
     send(&mut ctx, 0, 0).expect("reinvest exited user");
 
@@ -694,11 +743,24 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
     reg_acc.data[28..32].copy_from_slice(&1u32.to_le_bytes()); // draw_cycle_id = 1
     svm.set_account(reg, reg_acc).unwrap();
 
-    inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_pool(
+        &mut svm,
+        1,
+        mint,
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     inject_payout(&mut svm, 1, 1, vec![w(winner, 2_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner,
+        registry: reg,
+    };
 
     send(&mut ctx, 1, 0).expect("reinvest with lazy merge");
 
@@ -735,7 +797,15 @@ fn test_reinvest_fails_payout_timelock_active() {
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-    let pool_pda = inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Active, false, 1_000_000);
+    let pool_pda = inject_pool(
+        &mut svm,
+        1,
+        mint,
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     // Set payout_timelock_seconds = 300
     {
         let mut acc = svm.get_account(&pool_pda).unwrap();
@@ -761,7 +831,12 @@ fn test_reinvest_fails_payout_timelock_active() {
     clock.unix_timestamp = 1_200;
     svm.set_sysvar(&clock);
 
-    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner,
+        registry: reg,
+    };
     let err = send(&mut ctx, 0, 0).unwrap_err();
     assert!(err.contains("PayoutTimelockActive"), "got: {err}");
 
@@ -911,7 +986,15 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     }];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-    let pool_pda = inject_pool(&mut svm, 1, mint, reg, anchor::PoolStatus::Closed, false, 1_000_000);
+    let pool_pda = inject_pool(
+        &mut svm,
+        1,
+        mint,
+        reg,
+        anchor::PoolStatus::Closed,
+        false,
+        1_000_000,
+    );
     {
         let mut acc = svm.get_account(&pool_pda).unwrap();
         let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
@@ -934,7 +1017,12 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     clock.unix_timestamp = 1_200; // within 300s timelock (1_000 + 300 = 1_300)
     svm.set_sysvar(&clock);
 
-    let mut ctx = Ctx { svm, crank, winner, registry: reg };
+    let mut ctx = Ctx {
+        svm,
+        crank,
+        winner,
+        registry: reg,
+    };
     let err = send(&mut ctx, 0, 0).unwrap_err();
     assert!(err.contains("PayoutTimelockActive"), "got: {err}");
 
@@ -1082,15 +1170,20 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
         },
     ];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
-    inject_pool(&mut svm, 1, Keypair::new().pubkey(), reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_pool(
+        &mut svm,
+        1,
+        Keypair::new().pubkey(),
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     inject_payout(
         &mut svm,
         1,
         0,
-        vec![
-            w(winner0, 0, 0, 0, false),
-            w(winner1, 0, 1, 0, false),
-        ],
+        vec![w(winner0, 0, 0, 0, false), w(winner1, 0, 1, 0, false)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
     common::inject_user_winnings_with_index(&mut svm, 1, winner1, 0, 0, 0, 0);
@@ -1135,7 +1228,10 @@ fn test_reinvest_fails_if_already_processed_zero_prize() {
     ctx.svm.expire_blockhash();
 
     let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("AlreadyClaimed") || err.contains("6012"), "got: {err}");
+    assert!(
+        err.contains("AlreadyClaimed") || err.contains("6012"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -1170,7 +1266,10 @@ fn test_reinvest_winnings_with_unit_bond_price() {
     assert_eq!(pr.winners[0].processed, 1);
 
     // Registry active tickets increased by exactly 500
-    assert_eq!(read_reg_active(&ctx.svm, ctx.registry), initial_reg_active + 500);
+    assert_eq!(
+        read_reg_active(&ctx.svm, ctx.registry),
+        initial_reg_active + 500
+    );
 }
 
 #[test]
@@ -1217,7 +1316,15 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
         },
     ];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
-    inject_pool(&mut svm, 1, Keypair::new().pubkey(), reg, anchor::PoolStatus::Active, false, 1_000_000);
+    inject_pool(
+        &mut svm,
+        1,
+        Keypair::new().pubkey(),
+        reg,
+        anchor::PoolStatus::Active,
+        false,
+        1_000_000,
+    );
     inject_payout(
         &mut svm,
         1,

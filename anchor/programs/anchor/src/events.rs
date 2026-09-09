@@ -352,4 +352,3 @@ pub struct DrawPreparationProgress {
     /// Unix timestamp when this preparation progress was recorded.
     pub timestamp: i64,
 }
-
