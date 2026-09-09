@@ -98,11 +98,12 @@ pub struct SellBonds<'info> {
     pub huma_pool_config: UncheckedAccount<'info>,
 
     /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
-    /// to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+    /// to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
     /// are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
+        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
@@ -167,6 +168,13 @@ pub struct SellBonds<'info> {
 /// * `active_to_sell` - The number of active tickets to sell.
 /// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
+    let huma_snapshot =
+        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
+    let current_value =
+        huma_snapshot.pst_shares_to_usdc(ctx.accounts.pool_pst_vault.amount, pst_supply)?;
+    ctx.accounts.pool.load()?.assert_solvent(current_value)?;
+
     let (bond_price, pool_id_for_seeds) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.ensure_current_version()?;
@@ -336,9 +344,6 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     };
 
     // Calculate $PST shares to redeem for the principal amount
-    let huma_snapshot =
-        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pst_shares = huma_snapshot.usdc_to_pst_shares(expected_principal, pst_supply)?;
     let huma_request_id = huma_snapshot.pending_request_id();
 

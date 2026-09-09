@@ -252,11 +252,11 @@ export type BuyBondsAsyncInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+  /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** The Huma mode token mint ($PST token mint). */
   humaModeMint: Address<TAccountHumaModeMint>;
   /** pool's authority is fully validated by the Huma program during the CPI call. */
   humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
@@ -540,11 +540,11 @@ export type BuyBondsInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+  /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** The Huma mode token mint ($PST token mint). */
   humaModeMint: Address<TAccountHumaModeMint>;
   /** pool's authority is fully validated by the Huma program during the CPI call. */
   humaPoolAuthority: Address<TAccountHumaPoolAuthority>;
@@ -806,11 +806,11 @@ export type ParsedBuyBondsInstruction<
     humaConfig: TAccountMetas[9];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaPoolConfig: TAccountMetas[10];
-    /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+    /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
     humaPoolState: TAccountMetas[11];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaModeConfig: TAccountMetas[12];
-    /** and validity are fully validated by the Huma program during the CPI call. */
+    /** The Huma mode token mint ($PST token mint). */
     humaModeMint: TAccountMetas[13];
     /** pool's authority is fully validated by the Huma program during the CPI call. */
     humaPoolAuthority: TAccountMetas[14];

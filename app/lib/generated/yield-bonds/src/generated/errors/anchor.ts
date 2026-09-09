@@ -124,12 +124,29 @@ export const ANCHOR_ERROR__TOO_MANY_WINNERS = 0x17a4; // 6052
 export const ANCHOR_ERROR__INVALID_HUMA_POOL_DATA = 0x17a5; // 6053
 /** InvalidRegistryState: Ticket registry buffer layout or alignment is invalid */
 export const ANCHOR_ERROR__INVALID_REGISTRY_STATE = 0x17a6; // 6054
+/** TransferFeeNotSupported: Token mint contains unsupported transfer fee extension. */
+export const ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED = 0x17a7; // 6055
+/** TransferHookNotSupported: Token mint contains unsupported transfer hook extension. */
+export const ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED = 0x17a8; // 6056
+/** InvalidTokenMint: Token mint account data is malformed or invalid. */
+export const ANCHOR_ERROR__INVALID_TOKEN_MINT = 0x17a9; // 6057
+/** NoPendingAdmin: No pending admin transfer nomination in progress. */
+export const ANCHOR_ERROR__NO_PENDING_ADMIN = 0x17aa; // 6058
+/** NotPendingAdmin: Caller is not the nominated pending admin. */
+export const ANCHOR_ERROR__NOT_PENDING_ADMIN = 0x17ab; // 6059
+/** InvalidAdminAddress: Admin address cannot be the default zero address. */
+export const ANCHOR_ERROR__INVALID_ADMIN_ADDRESS = 0x17ac; // 6060
+/** CannotNominateSelf: Cannot nominate current admin as pending admin. */
+export const ANCHOR_ERROR__CANNOT_NOMINATE_SELF = 0x17ad; // 6061
+/** InvalidHumaPoolState: Provided Huma pool state is invalid or uninitialized. */
+export const ANCHOR_ERROR__INVALID_HUMA_POOL_STATE = 0x17ae; // 6062
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
   | typeof ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE
   | typeof ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000
   | typeof ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS
+  | typeof ANCHOR_ERROR__CANNOT_NOMINATE_SELF
   | typeof ANCHOR_ERROR__CYCLE_NOT_ENDED
   | typeof ANCHOR_ERROR__DRAW_ALREADY_VOIDED
   | typeof ANCHOR_ERROR__DRAW_VOIDED
@@ -138,6 +155,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
   | typeof ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS
+  | typeof ANCHOR_ERROR__INVALID_ADMIN_ADDRESS
   | typeof ANCHOR_ERROR__INVALID_BOND_PRICE
   | typeof ANCHOR_ERROR__INVALID_BOND_QUANTITY
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATE
@@ -145,6 +163,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_FEE_CONFIG
   | typeof ANCHOR_ERROR__INVALID_FEE_WALLET
   | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_DATA
+  | typeof ANCHOR_ERROR__INVALID_HUMA_POOL_STATE
   | typeof ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS
   | typeof ANCHOR_ERROR__INVALID_MODE_MINT
   | typeof ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK
@@ -154,10 +173,13 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_OWNER
   | typeof ANCHOR_ERROR__INVALID_REGISTRY_STATE
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
+  | typeof ANCHOR_ERROR__INVALID_TOKEN_MINT
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
   | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
   | typeof ANCHOR_ERROR__MATH_OVERFLOW
   | typeof ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS
+  | typeof ANCHOR_ERROR__NO_PENDING_ADMIN
+  | typeof ANCHOR_ERROR__NOT_PENDING_ADMIN
   | typeof ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM
   | typeof ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED
   | typeof ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE
@@ -174,6 +196,8 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST
   | typeof ANCHOR_ERROR__TOO_MANY_WINNERS
+  | typeof ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED
+  | typeof ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED
   | typeof ANCHOR_ERROR__UNAUTHORIZED
   | typeof ANCHOR_ERROR__UNAUTHORIZED_ADMIN
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
@@ -189,6 +213,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__AWAITING_RANDOMNESS_FREEZE]: `The snapshot relies on a frozen state during the drawing phase. Withdrawals/Deposits are momentarily paused.`,
     [ANCHOR_ERROR__BASIS_POINTS_MUST_EQUAL10000]: `Total basis points across all tiers must equal exactly 10,000 (100%).`,
     [ANCHOR_ERROR__CANNOT_MODIFY_BOND_PRICE_WITH_ACTIVE_DEPOSITS]: `Cannot modify bond price while pool has active deposits, pending redemptions, or allocated prizes.`,
+    [ANCHOR_ERROR__CANNOT_NOMINATE_SELF]: `Cannot nominate current admin as pending admin.`,
     [ANCHOR_ERROR__CYCLE_NOT_ENDED]: `The current stake cycle has not yet ended.`,
     [ANCHOR_ERROR__DRAW_ALREADY_VOIDED]: `This draw has already been voided.`,
     [ANCHOR_ERROR__DRAW_VOIDED]: `This draw has been voided.`,
@@ -197,6 +222,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
     [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: `Insufficient pending tickets for this transaction`,
+    [ANCHOR_ERROR__INVALID_ADMIN_ADDRESS]: `Admin address cannot be the default zero address.`,
     [ANCHOR_ERROR__INVALID_BOND_PRICE]: `Bond price must be greater than 0.`,
     [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: `Invalid bond quantity.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATE]: `The draw cycle has an invalid locked count or prize pot.`,
@@ -204,6 +230,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_FEE_CONFIG]: `Fee basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_FEE_WALLET]: `The provided fee wallet account is invalid or does not match the pool configuration`,
     [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: `Huma pool account data is truncated or malformed`,
+    [ANCHOR_ERROR__INVALID_HUMA_POOL_STATE]: `Provided Huma pool state is invalid or uninitialized.`,
     [ANCHOR_ERROR__INVALID_MAX_YIELD_BASIS_POINTS]: `Max yield basis points must be less than or equal to 10,000 (100%).`,
     [ANCHOR_ERROR__INVALID_MODE_MINT]: `The mode mint does not match the pool's mode mint.`,
     [ANCHOR_ERROR__INVALID_PAYOUT_TIMELOCK]: `Payout timelock delay must not exceed 86,400 seconds (24 hours).`,
@@ -213,10 +240,13 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `Beneficiary does not match pending redemption owner.`,
     [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: `Ticket registry buffer layout or alignment is invalid`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
+    [ANCHOR_ERROR__INVALID_TOKEN_MINT]: `Token mint account data is malformed or invalid.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,
     [ANCHOR_ERROR__MATH_OVERFLOW]: `Calculation overflow occurred natively.`,
     [ANCHOR_ERROR__MISSING_SWAPPED_USER_WINNINGS]: `Required remaining account for swapped user's UserWinnings is missing`,
+    [ANCHOR_ERROR__NO_PENDING_ADMIN]: `No pending admin transfer nomination in progress.`,
+    [ANCHOR_ERROR__NOT_PENDING_ADMIN]: `Caller is not the nominated pending admin.`,
     [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: `No unclaimed non-reinvested winnings to claim.`,
     [ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED]: `Winner payouts have already begun processing.`,
     [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: `Payout settlement timelock is active.`,
@@ -233,6 +263,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__SAME_RANDOMNESS_ACCOUNT]: `Cannot rebind to the same randomness account.`,
     [ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST]: `The randomness request is stale or was committed before the harvest freeze.`,
     [ANCHOR_ERROR__TOO_MANY_WINNERS]: `Winner count exceeds payout registry capacity`,
+    [ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED]: `Token mint contains unsupported transfer fee extension.`,
+    [ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED]: `Token mint contains unsupported transfer hook extension.`,
     [ANCHOR_ERROR__UNAUTHORIZED]: `Unauthorized signer.`,
     [ANCHOR_ERROR__UNAUTHORIZED_ADMIN]: `Unauthorized admin.`,
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,

@@ -166,6 +166,7 @@ pub struct PoolCreated {
     pub pst_mint: Pubkey,
     pub fee_wallet: Pubkey,
     pub ticket_registry: Pubkey,
+    pub huma_pool_state: Pubkey,
     pub bond_price: u64,
     pub stake_cycle_duration_hrs: i64,
     pub fee_basis_points: u16,
@@ -199,12 +200,34 @@ pub struct GlobalConfigInitialized {
 pub struct GlobalConfigUpdated {
     /// The admin authority who performed the change.
     pub authority: Pubkey,
-    pub old_admin: Pubkey,
-    pub new_admin: Pubkey,
     pub old_guardian: Pubkey,
     pub new_guardian: Pubkey,
     pub old_jobs_account: Pubkey,
     pub new_jobs_account: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when a pending admin is nominated by the current admin.
+#[event]
+pub struct AdminNominated {
+    pub current_admin: Pubkey,
+    pub pending_admin: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when a pending admin nomination is cancelled.
+#[event]
+pub struct AdminNominationCancelled {
+    pub current_admin: Pubkey,
+    pub cancelled_pending_admin: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when the pending admin accepts the role.
+#[event]
+pub struct AdminTransferred {
+    pub old_admin: Pubkey,
+    pub new_admin: Pubkey,
     pub timestamp: i64,
 }
 

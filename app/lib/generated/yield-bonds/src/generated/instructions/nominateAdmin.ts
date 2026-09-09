@@ -20,16 +20,12 @@ import {
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
-  getOptionDecoder,
-  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
   transformEncoder,
-  type Codec,
-  type Decoder,
-  type Encoder,
-  type Option,
-  type OptionOrNullable,
+  type FixedSizeCodec,
+  type FixedSizeDecoder,
+  type FixedSizeEncoder,
   type ReadonlyUint8Array } from "@solana/codecs";
 import {
 SolanaError } from "@solana/errors";
@@ -53,16 +49,17 @@ import {
 import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
-export const UPDATE_GLOBAL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
-  new Uint8Array([164, 84, 130, 189, 111, 58, 250, 200]);
+export const NOMINATE_ADMIN_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
+  134, 11, 31, 244, 20, 77, 138, 121,
+]);
 
-export function getUpdateGlobalConfigDiscriminatorBytes(): ReadonlyUint8Array {
+export function getNominateAdminDiscriminatorBytes(): ReadonlyUint8Array {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    UPDATE_GLOBAL_CONFIG_DISCRIMINATOR
+    NOMINATE_ADMIN_DISCRIMINATOR
   );
 }
 
-export type UpdateGlobalConfigInstruction<
+export type NominateAdminInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
@@ -91,75 +88,64 @@ export type UpdateGlobalConfigInstruction<
     ]
   >;
 
-export type UpdateGlobalConfigInstructionData = {
+export type NominateAdminInstructionData = {
   discriminator: ReadonlyUint8Array;
-  newGuardian: Option<Address>;
-  newJobsAccount: Option<Address>;
+  pendingAdmin: Address;
 };
 
-export type UpdateGlobalConfigInstructionDataArgs = {
-  newGuardian: OptionOrNullable<Address>;
-  newJobsAccount: OptionOrNullable<Address>;
-};
+export type NominateAdminInstructionDataArgs = { pendingAdmin: Address };
 
-export function getUpdateGlobalConfigInstructionDataEncoder(): Encoder<UpdateGlobalConfigInstructionDataArgs> {
+export function getNominateAdminInstructionDataEncoder(): FixedSizeEncoder<NominateAdminInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["newGuardian", getOptionEncoder(getAddressEncoder())],
-      ["newJobsAccount", getOptionEncoder(getAddressEncoder())],
+      ["pendingAdmin", getAddressEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: UPDATE_GLOBAL_CONFIG_DISCRIMINATOR })
+    (value) => ({ ...value, discriminator: NOMINATE_ADMIN_DISCRIMINATOR })
   );
 }
 
-export function getUpdateGlobalConfigInstructionDataDecoder(): Decoder<UpdateGlobalConfigInstructionData> {
+export function getNominateAdminInstructionDataDecoder(): FixedSizeDecoder<NominateAdminInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["newGuardian", getOptionDecoder(getAddressDecoder())],
-    ["newJobsAccount", getOptionDecoder(getAddressDecoder())],
+    ["pendingAdmin", getAddressDecoder()],
   ]);
 }
 
-export function getUpdateGlobalConfigInstructionDataCodec(): Codec<
-  UpdateGlobalConfigInstructionDataArgs,
-  UpdateGlobalConfigInstructionData
+export function getNominateAdminInstructionDataCodec(): FixedSizeCodec<
+  NominateAdminInstructionDataArgs,
+  NominateAdminInstructionData
 > {
   return combineCodec(
-    getUpdateGlobalConfigInstructionDataEncoder(),
-    getUpdateGlobalConfigInstructionDataDecoder()
+    getNominateAdminInstructionDataEncoder(),
+    getNominateAdminInstructionDataDecoder()
   );
 }
 
-export type UpdateGlobalConfigAsyncInput<
+export type NominateAdminAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration account to update. */
   globalConfig?: Address<TAccountGlobalConfig>;
-  /** The admin authority. */
+  /** The current admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
   eventAuthority?: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
+  pendingAdmin: NominateAdminInstructionDataArgs["pendingAdmin"];
 };
 
-export async function getUpdateGlobalConfigInstructionAsync<
+export async function getNominateAdminInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigAsyncInput<
+  input: NominateAdminAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountEventAuthority,
@@ -167,7 +153,7 @@ export async function getUpdateGlobalConfigInstructionAsync<
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
-  UpdateGlobalConfigInstruction<
+  NominateAdminInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -213,11 +199,11 @@ export async function getUpdateGlobalConfigInstructionAsync<
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
+    data: getNominateAdminInstructionDataEncoder().encode(
+      args as NominateAdminInstructionDataArgs
     ),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as NominateAdminInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -226,42 +212,37 @@ export async function getUpdateGlobalConfigInstructionAsync<
   >);
 }
 
-export type UpdateGlobalConfigInput<
+export type NominateAdminInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration account to update. */
   globalConfig: Address<TAccountGlobalConfig>;
-  /** The admin authority. */
+  /** The current admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
   eventAuthority: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
+  pendingAdmin: NominateAdminInstructionDataArgs["pendingAdmin"];
 };
 
-export function getUpdateGlobalConfigInstruction<
+export function getNominateAdminInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigInput<
+  input: NominateAdminInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountEventAuthority,
     TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
-): UpdateGlobalConfigInstruction<
+): NominateAdminInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
@@ -300,11 +281,11 @@ export function getUpdateGlobalConfigInstruction<
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
+    data: getNominateAdminInstructionDataEncoder().encode(
+      args as NominateAdminInstructionDataArgs
     ),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as NominateAdminInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -313,35 +294,31 @@ export function getUpdateGlobalConfigInstruction<
   >);
 }
 
-export type ParsedUpdateGlobalConfigInstruction<
+export type ParsedNominateAdminInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /**
-     * The global configuration state account to update.
-     *
-     * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-     */
+    /** The global configuration account to update. */
     globalConfig: TAccountMetas[0];
-    /** The admin authority. */
+    /** The current admin authority. */
     admin: TAccountMetas[1];
     eventAuthority: TAccountMetas[2];
     /** The YieldBonds program itself. */
     program: TAccountMetas[3];
   };
-  data: UpdateGlobalConfigInstructionData;
+  data: NominateAdminInstructionData;
 };
 
-export function parseUpdateGlobalConfigInstruction<
+export function parseNominateAdminInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
-): ParsedUpdateGlobalConfigInstruction<TProgram, TAccountMetas> {
+): ParsedNominateAdminInstruction<TProgram, TAccountMetas> {
   if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
@@ -365,8 +342,6 @@ export function parseUpdateGlobalConfigInstruction<
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },
-    data: getUpdateGlobalConfigInstructionDataDecoder().decode(
-      instruction.data
-    ),
+    data: getNominateAdminInstructionDataDecoder().decode(instruction.data),
   };
 }

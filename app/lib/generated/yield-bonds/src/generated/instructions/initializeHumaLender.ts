@@ -212,11 +212,11 @@ export type InitializeHumaLenderAsyncInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+  /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** The Huma mode token mint ($PST token mint). */
   humaModeMint: Address<TAccountHumaModeMint>;
   /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
   humaLenderState: Address<TAccountHumaLenderState>;
@@ -436,11 +436,11 @@ export type InitializeHumaLenderInput<
   humaConfig: Address<TAccountHumaConfig>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
-  /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+  /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
   humaPoolState: Address<TAccountHumaPoolState>;
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaModeConfig: Address<TAccountHumaModeConfig>;
-  /** and validity are fully validated by the Huma program during the CPI call. */
+  /** The Huma mode token mint ($PST token mint). */
   humaModeMint: Address<TAccountHumaModeMint>;
   /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
   humaLenderState: Address<TAccountHumaLenderState>;
@@ -643,11 +643,11 @@ export type ParsedInitializeHumaLenderInstruction<
     humaConfig: TAccountMetas[5];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaPoolConfig: TAccountMetas[6];
-    /** to ensure it is owned by the Huma program, and further validated during the Huma CPI. */
+    /** to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI. */
     humaPoolState: TAccountMetas[7];
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaModeConfig: TAccountMetas[8];
-    /** and validity are fully validated by the Huma program during the CPI call. */
+    /** The Huma mode token mint ($PST token mint). */
     humaModeMint: TAccountMetas[9];
     /** its initialization and ownership are fully managed and validated by the Huma program during the CPI call. */
     humaLenderState: TAccountMetas[10];

@@ -957,6 +957,7 @@ async function initializePrizePoolOnChain(
       pstMint: address(addresses.pstMint),
       ticketRegistry: address(addresses.ticketRegistry),
       feeWallet: address(addresses.feeWallet),
+      humaPoolState: address(addresses.humaPoolState),
     });
     await sendTx(rpc, ix, adminSigner);
     await ensurePrizeTiersConfigured(poolId, rpc, adminSigner);

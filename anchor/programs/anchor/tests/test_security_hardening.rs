@@ -316,7 +316,9 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     assert!(
         err.contains("ConstraintOwner")
             || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw"),
+            || err.contains("ConstraintRaw")
+            || err.contains("InvalidHumaPoolState")
+            || err.contains("6062"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -361,6 +363,7 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         token_mint,
         ticket_registry: Keypair::new().pubkey(),
         fee_wallet,
+        huma_pool_state: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -443,7 +446,9 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     assert!(
         err.contains("ConstraintOwner")
             || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw"),
+            || err.contains("ConstraintRaw")
+            || err.contains("InvalidHumaPoolState")
+            || err.contains("6062"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -546,7 +551,9 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     assert!(
         err.contains("ConstraintOwner")
             || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw"),
+            || err.contains("ConstraintRaw")
+            || err.contains("InvalidHumaPoolState")
+            || err.contains("6062"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -628,7 +635,9 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     assert!(
         err.contains("ConstraintOwner")
             || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw"),
+            || err.contains("ConstraintRaw")
+            || err.contains("InvalidHumaPoolState")
+            || err.contains("6062"),
         "expected owner constraint check failure, got: {}",
         err
     );
@@ -733,7 +742,9 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     assert!(
         err.contains("ConstraintOwner")
             || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw"),
+            || err.contains("ConstraintRaw")
+            || err.contains("InvalidHumaPoolState")
+            || err.contains("6062"),
         "expected owner constraint check failure, got: {}",
         err
     );

@@ -255,7 +255,7 @@ export type WithdrawFeesAsyncInput<
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
   /**
-   * to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+   * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
    * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
    */
   humaPoolState: Address<TAccountHumaPoolState>;
@@ -555,7 +555,7 @@ export type WithdrawFeesInput<
   /** structure and validity are fully validated by the Huma program during the CPI call. */
   humaPoolConfig: Address<TAccountHumaPoolConfig>;
   /**
-   * to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+   * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
    * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
    */
   humaPoolState: Address<TAccountHumaPoolState>;
@@ -829,7 +829,7 @@ export type ParsedWithdrawFeesInstruction<
     /** structure and validity are fully validated by the Huma program during the CPI call. */
     humaPoolConfig: TAccountMetas[7];
     /**
-     * to ensure it is owned by the Huma program, and its internal structures/amounts (assets, redemption queues)
+     * to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and its internal structures/amounts (assets, redemption queues)
      * are read manually via Huma state parsers in the handler and further validated during the Huma CPI.
      */
     humaPoolState: TAccountMetas[8];

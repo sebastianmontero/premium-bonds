@@ -22,8 +22,9 @@ fn inject_pool(
     pool_id: u32,
     token_mint: Pubkey,
     status: anchor::PoolStatus,
+    huma_pool_state: Pubkey,
 ) -> Pubkey {
-    inject_pool_with_next_redemption_id(svm, pool_id, token_mint, status, 0)
+    inject_pool_with_next_redemption_id(svm, pool_id, token_mint, status, 0, huma_pool_state)
 }
 
 fn inject_pool_with_next_redemption_id(
@@ -32,6 +33,7 @@ fn inject_pool_with_next_redemption_id(
     token_mint: Pubkey,
     status: anchor::PoolStatus,
     next_redemption_id: u64,
+    huma_pool_state: Pubkey,
 ) -> Pubkey {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
@@ -41,6 +43,7 @@ fn inject_pool_with_next_redemption_id(
         token_mint,
         ticket_registry: Pubkey::default(),
         fee_wallet: Pubkey::default(),
+        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -172,19 +175,19 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     let token_mint = Keypair::new().pubkey();
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, token_mint, 6);
-    inject_mint(&mut svm, pst_mint, 6);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, 1_000_000_000);
+
+    // Setup and inject valid huma_pool_state stub with matching assets
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 1_000_000_000);
 
     let pool_key = pool_pda(1).0;
-    inject_pool(&mut svm, 1, token_mint, status);
+    inject_pool(&mut svm, 1, token_mint, status, huma_pool_state);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 1_000_000_000); // Fund vault with PST to pass Huma transfer
 
     inject_user_winnings(&mut svm, 1, user.pubkey(), unclaimed_amount, 0, 0);
-
-    // Setup and inject valid huma_pool_state stub
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     // Setup and inject huma_pool_mode_token
     let huma_pool_mode_token = Keypair::new().pubkey();
@@ -269,6 +272,7 @@ fn test_claim_fails_next_redemption_id_overflow() {
         ctx.token_mint,
         anchor::PoolStatus::Active,
         u64::MAX,
+        ctx.huma_pool_state,
     );
     let err = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX).unwrap_err();
     assert!(err.contains("MathOverflow"), "got: {err}");
@@ -329,6 +333,8 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
         pool_pda(1).0,
         1_000_000,
     );
+    inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
+    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
     // Send claim instruction
     let ix = build_claim_ix_with_redemption_id(
@@ -390,6 +396,7 @@ fn inject_pool_with_frozen(
     token_mint: Pubkey,
     status: anchor::PoolStatus,
     is_frozen_for_draw: u8,
+    huma_pool_state: Pubkey,
 ) -> Pubkey {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
@@ -399,6 +406,7 @@ fn inject_pool_with_frozen(
         token_mint,
         ticket_registry: Pubkey::default(),
         fee_wallet: Pubkey::default(),
+        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -452,6 +460,7 @@ fn test_claim_non_reinvested_winnings_fails_when_frozen() {
         ctx.token_mint,
         anchor::PoolStatus::Active,
         1,
+        ctx.huma_pool_state,
     );
 
     let ix = build_claim_ix_with_redemption_id(
@@ -492,6 +501,7 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
         ctx.usdc_mint,
         anchor::PoolStatus::Closed,
         0,
+        ctx.huma_pool_state,
     );
 
     // Setup user winnings with 500_000 unclaimed winnings
@@ -509,6 +519,8 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
         pool_pda(1).0,
         1_000_000,
     );
+    inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
+    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
     // Send claim instruction on closed pool
     let ix = build_claim_ix_with_redemption_id(

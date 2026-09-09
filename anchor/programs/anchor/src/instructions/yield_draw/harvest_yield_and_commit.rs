@@ -93,8 +93,11 @@ pub struct HarvestYieldAndCommit<'info> {
     pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 
     // ── Huma Finance read-only account ──────────────────────────────────────
-    /// CHECK: This is the raw Huma PoolState account. It is unchecked because it is a foreign program account that is deserialized manually inside the instruction handler using the `huma::read_mode_assets` and `huma::read_huma_redemption_queue` helpers. To ensure safety, it is validated using an ownership constraint check (`huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID`) to verify it belongs to the official Huma program.
-    #[account(constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID)]
+    /// CHECK: This is the raw Huma PoolState account. It is unchecked because it is a foreign program account that is deserialized manually inside the instruction handler using the `huma::read_mode_assets` and `huma::read_huma_redemption_queue` helpers. To ensure safety, it is validated using an ownership constraint check (`huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID`) and pinned to pool.huma_pool_state.
+    #[account(
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
+        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
+    )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
     /// CHECK: This is the raw randomness account from Switchboard On-Demand. It is unchecked because it is a foreign account owned by the Switchboard On-Demand program. Safety is guaranteed by the constraint check verifying that its owner matches the Switchboard On-Demand program ID (`switchboard_on_demand::get_switchboard_on_demand_program_id()`). In `reveal_and_pick_winners`, its data is also parsed and validated using `RandomnessAccountData::parse`.
@@ -186,17 +189,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     // current_value = pool_pst_balance × total_assets / pst_supply
     let current_value = huma::pst_shares_to_usdc(pool_pst_balance, pst_supply, total_assets)?;
 
-    let fees_in_vault = pool
-        .total_fees_accrued
-        .checked_sub(pool.total_fees_withdrawn)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    let book_value = pool
-        .total_deposited_principal
-        .checked_add(fees_in_vault)
-        .ok_or(PremiumBondsError::MathOverflow)?
-        .checked_add(pool.total_prizes_allocated)
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    let book_value = pool.calculate_book_value()?;
 
     // ── Base Draw Cycle metadata (unconditionally initialized) ───────────────
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;

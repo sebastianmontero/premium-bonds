@@ -6,9 +6,11 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./acceptAdmin";
 export * from "./adminForceUnlockDraw";
 export * from "./adminVoidPayoutRegistry";
 export * from "./buyBonds";
+export * from "./cancelAdminNomination";
 export * from "./claimNonReinvestedWinnings";
 export * from "./claimRedemption";
 export * from "./closePool";
@@ -17,6 +19,7 @@ export * from "./createPool";
 export * from "./harvestYieldAndCommit";
 export * from "./initializeGlobal";
 export * from "./initializeHumaLender";
+export * from "./nominateAdmin";
 export * from "./pausePool";
 export * from "./prepareDraw";
 export * from "./reinvestWinnings";

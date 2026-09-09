@@ -438,6 +438,15 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
         )
         .unwrap();
 
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda,
+        1_000_000,
+    );
+
     let ix = build_withdraw_fees_ix(
         &ctx.svm,
         ctx.admin.pubkey(),
@@ -526,6 +535,15 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
             },
         )
         .unwrap();
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda_key,
+        5_000_000,
+    );
 
     let ix = build_withdraw_fees_ix(
         &ctx.svm,
@@ -774,6 +792,15 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
             },
         )
         .unwrap();
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda,
+        5_000_000,
+    );
 
     // Initialize huma_pool_mode_token owned by huma_pool_authority so it passes Anchor validation
     let huma_pool_mode_token = Keypair::new().pubkey();

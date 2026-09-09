@@ -59,6 +59,8 @@ export type GlobalConfig = {
   guardian: Address;
   /** Designated crank/bot account allowed to trigger restricted drawings and cranks. */
   jobsAccount: Address;
+  /** Nominated pending admin awaiting role acceptance via two-step transfer. */
+  pendingAdmin: Address;
   /** Schema version of the struct. */
   version: number;
   /** Reserved space for future upgrades. */
@@ -72,6 +74,8 @@ export type GlobalConfigArgs = {
   guardian: Address;
   /** Designated crank/bot account allowed to trigger restricted drawings and cranks. */
   jobsAccount: Address;
+  /** Nominated pending admin awaiting role acceptance via two-step transfer. */
+  pendingAdmin: Address;
   /** Schema version of the struct. */
   version: number;
   /** Reserved space for future upgrades. */
@@ -86,6 +90,7 @@ export function getGlobalConfigEncoder(): FixedSizeEncoder<GlobalConfigArgs> {
       ["admin", getAddressEncoder()],
       ["guardian", getAddressEncoder()],
       ["jobsAccount", getAddressEncoder()],
+      ["pendingAdmin", getAddressEncoder()],
       ["version", getU8Encoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
@@ -100,6 +105,7 @@ export function getGlobalConfigDecoder(): FixedSizeDecoder<GlobalConfig> {
     ["admin", getAddressDecoder()],
     ["guardian", getAddressDecoder()],
     ["jobsAccount", getAddressDecoder()],
+    ["pendingAdmin", getAddressDecoder()],
     ["version", getU8Decoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
@@ -167,5 +173,5 @@ export async function fetchAllMaybeGlobalConfig(
 }
 
 export function getGlobalConfigSize(): number {
-  return 169;
+  return 201;
 }

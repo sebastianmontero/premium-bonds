@@ -115,6 +115,8 @@ export type PrizePool = {
   ticketRegistry: Address;
   /** Public key of the token account that collects protocol fees. */
   feeWallet: Address;
+  /** Pinned Huma pool state account to prevent arbitrary venue injection. */
+  humaPoolState: Address;
   /** Configured prize tiers for this pool. */
   prizeTiers: Array<PrizeTier>;
   /** Reserved space for future upgrades. */
@@ -170,6 +172,8 @@ export type PrizePoolArgs = {
   ticketRegistry: Address;
   /** Public key of the token account that collects protocol fees. */
   feeWallet: Address;
+  /** Pinned Huma pool state account to prevent arbitrary venue injection. */
+  humaPoolState: Address;
   /** Configured prize tiers for this pool. */
   prizeTiers: Array<PrizeTierArgs>;
   /** Reserved space for future upgrades. */
@@ -205,6 +209,7 @@ export function getPrizePoolEncoder(): FixedSizeEncoder<PrizePoolArgs> {
       ["tokenMint", getAddressEncoder()],
       ["ticketRegistry", getAddressEncoder()],
       ["feeWallet", getAddressEncoder()],
+      ["humaPoolState", getAddressEncoder()],
       ["prizeTiers", getArrayEncoder(getPrizeTierEncoder(), { size: 10 })],
       ["reserved", fixEncoderSize(getBytesEncoder(), 128)],
     ]),
@@ -240,6 +245,7 @@ export function getPrizePoolDecoder(): FixedSizeDecoder<PrizePool> {
     ["tokenMint", getAddressDecoder()],
     ["ticketRegistry", getAddressDecoder()],
     ["feeWallet", getAddressDecoder()],
+    ["humaPoolState", getAddressDecoder()],
     ["prizeTiers", getArrayDecoder(getPrizeTierDecoder(), { size: 10 })],
     ["reserved", fixDecoderSize(getBytesDecoder(), 128)],
   ]);
@@ -304,5 +310,5 @@ export async function fetchAllMaybePrizePool(
 }
 
 export function getPrizePoolSize(): number {
-  return 416;
+  return 448;
 }

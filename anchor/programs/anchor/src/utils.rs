@@ -169,6 +169,39 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
     ((data_len.saturating_sub(USER_ENTRY_REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32
 }
 
+/// Validates that a mint account does not configure Token-2022 transfer fee, transfer hook,
+/// permanent delegate, or close authority extensions.
+pub fn assert_supported_mint_extensions(mint_info: &AccountInfo) -> Result<()> {
+    if mint_info.owner == &anchor_spl::token_2022::ID {
+        use anchor_spl::token_2022::spl_token_2022::extension::BaseStateWithExtensions;
+        let mint_data = mint_info.try_borrow_data()?;
+        let state_with_extensions =
+            anchor_spl::token_2022::spl_token_2022::extension::StateWithExtensions::<
+                anchor_spl::token_2022::spl_token_2022::state::Mint,
+            >::unpack(&mint_data)
+            .map_err(|_| PremiumBondsError::InvalidTokenMint)?;
+        let extension_types = state_with_extensions
+            .get_extension_types()
+            .map_err(|_| PremiumBondsError::InvalidTokenMint)?;
+        require!(
+            !extension_types.contains(&anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferFeeConfig),
+            PremiumBondsError::TransferFeeNotSupported
+        );
+        require!(
+            !extension_types.contains(
+                &anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferHook
+            ),
+            PremiumBondsError::TransferHookNotSupported
+        );
+        require!(
+            !extension_types.contains(&anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::PermanentDelegate)
+                && !extension_types.contains(&anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::MintCloseAuthority),
+            PremiumBondsError::InvalidTokenMint
+        );
+    }
+    Ok(())
+}
+
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -395,12 +428,12 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::TicketRegistry>(), 96);
         assert_eq!(std::mem::size_of::<crate::state::UserEntry>(), 64);
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>(), 8);
-        assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 408);
+        assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 440);
         assert_eq!(std::mem::size_of::<crate::state::Winner>(), 56);
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 2896);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
-            32 + 32 + 32 + 1 + 64
+            32 + 32 + 32 + 32 + 1 + 64
         );
         assert_eq!(
             crate::state::UserWinnings::INIT_SPACE,
@@ -635,6 +668,7 @@ mod tests {
             admin: Pubkey::default(),
             guardian: Pubkey::default(),
             jobs_account: Pubkey::default(),
+            pending_admin: Pubkey::default(),
             version: GlobalConfig::CURRENT_VERSION,
             _reserved: [0; 64],
         };
@@ -660,6 +694,7 @@ mod tests {
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
+            huma_pool_state: Pubkey::default(),
             bond_price: 1_000_000,
             stake_cycle_duration_hrs: 24,
             min_yield_threshold: 0,
@@ -741,6 +776,118 @@ mod tests {
         assert_eq!(
             winner.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+    }
+
+    #[test]
+    fn test_assert_supported_mint_extensions() {
+        use anchor_spl::token_2022::spl_token_2022::extension::{
+            BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
+        };
+
+        let key = Pubkey::new_unique();
+        let mut lamports = 1_000_000;
+        let mut data = vec![0u8; 82];
+        data[45] = 1;
+        let spl_token_id = anchor_spl::token::ID;
+        let token_2022_id = anchor_spl::token_2022::ID;
+
+        // 1. Standard SPL token mint -> succeeds
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut data,
+            &spl_token_id,
+            false,
+        );
+        assert!(assert_supported_mint_extensions(&account_info).is_ok());
+
+        // 2. Token-2022 mint with no extensions -> succeeds
+        let mut t22_data = vec![0u8; 82];
+        t22_data[45] = 1;
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut t22_data,
+            &token_2022_id,
+            false,
+        );
+        assert!(assert_supported_mint_extensions(&account_info).is_ok());
+
+        // 3. Token-2022 mint with TransferFeeConfig -> rejected
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Mint,
+        >(&[ExtensionType::TransferFeeConfig])
+        .unwrap();
+        let mut fee_mint_data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack_uninitialized(&mut fee_mint_data).unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_fee::TransferFeeConfig>(true);
+        fee_mint_data[45] = 1; // is_initialized = true
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut fee_mint_data,
+            &token_2022_id,
+            false,
+        );
+        assert_eq!(
+            assert_supported_mint_extensions(&account_info).unwrap_err(),
+            crate::error::PremiumBondsError::TransferFeeNotSupported.into()
+        );
+
+        // 4. Token-2022 mint with TransferHook -> rejected
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Mint,
+        >(&[ExtensionType::TransferHook])
+        .unwrap();
+        let mut hook_mint_data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack_uninitialized(&mut hook_mint_data).unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::transfer_hook::TransferHook>(true);
+        hook_mint_data[45] = 1; // is_initialized = true
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut hook_mint_data,
+            &token_2022_id,
+            false,
+        );
+        assert_eq!(
+            assert_supported_mint_extensions(&account_info).unwrap_err(),
+            crate::error::PremiumBondsError::TransferHookNotSupported.into()
+        );
+
+        // 5. Token-2022 mint with PermanentDelegate -> rejected
+        let space = ExtensionType::try_calculate_account_len::<
+            anchor_spl::token_2022::spl_token_2022::state::Mint,
+        >(&[ExtensionType::PermanentDelegate])
+        .unwrap();
+        let mut perm_mint_data = vec![0u8; space];
+        let mut state = StateWithExtensionsMut::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack_uninitialized(&mut perm_mint_data).unwrap();
+        state.init_account_type().unwrap();
+        let _ = state.init_extension::<anchor_spl::token_2022::spl_token_2022::extension::permanent_delegate::PermanentDelegate>(true);
+        perm_mint_data[45] = 1; // is_initialized = true
+        let account_info = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut perm_mint_data,
+            &token_2022_id,
+            false,
+        );
+        assert_eq!(
+            assert_supported_mint_extensions(&account_info).unwrap_err(),
+            crate::error::PremiumBondsError::InvalidTokenMint.into()
         );
     }
 }

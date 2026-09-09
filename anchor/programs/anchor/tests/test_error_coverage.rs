@@ -276,6 +276,9 @@ fn test_err_registry_too_small_and_at_max_size() {
     let fee_wallet = create_spl_token_account(&mut svm, &admin, &token_mint, &admin.pubkey());
     let registry = Keypair::new().pubkey();
 
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
     // Small registry (less than REGISTRY_INITIAL_SIZE)
     svm.set_account(
         registry,
@@ -303,6 +306,7 @@ fn test_err_registry_too_small_and_at_max_size() {
         pst_mint,
         registry,
         fee_wallet,
+        huma_pool_state,
     );
 
     let bh = svm.latest_blockhash();
@@ -341,19 +345,21 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
     }];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
-    inject_pool(
+
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         ticket_registry,
         anchor::PoolStatus::Active,
         false,
+        huma_pool_state,
     );
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let accounts = anchor::accounts::SellBonds {
         user: user.pubkey(),
@@ -431,13 +437,17 @@ fn test_err_cycle_not_ended_and_freeze_guards() {
     inject_mint(&mut svm, pst_mint, 6);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_addr, 10_000_000);
     inject_registry(&mut svm, registry, pool_id, 1000, 0, 0);
-    inject_pool(
+
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         registry,
         anchor::PoolStatus::Active,
         false,
+        huma_pool_state,
     );
     {
         let mut acc = svm.get_account(&pool_addr).unwrap();
@@ -451,8 +461,6 @@ fn test_err_cycle_not_ended_and_freeze_guards() {
     });
 
     let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
 
@@ -709,13 +717,16 @@ fn test_err_no_winnings_and_already_claimed() {
 
     let (pool_addr, _) = pool_pda(pool_id);
     let registry = Keypair::new().pubkey();
-    inject_pool(
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         registry,
         anchor::PoolStatus::Active,
         false,
+        huma_pool_state,
     );
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0); // 0 unclaimed winnings
 
@@ -723,9 +734,6 @@ fn test_err_no_winnings_and_already_claimed() {
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_addr, 10_000_000);
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
         user: user.pubkey(),
@@ -838,4 +846,60 @@ fn test_err_yield_venue_insolvent_and_unauthorized() {
 
     let res = send_pause_pool(&mut svm, &attacker, 1);
     assert_custom_error(res, PremiumBondsError::Unauthorized);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Module 6: Adversarial Hardening & Two-Step Governance Errors
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_err_adversarial_governance_and_extensions() {
+    // 1. InvalidAdminAddress
+    let res_init: Result<
+        litesvm::types::TransactionMetadata,
+        litesvm::types::FailedTransactionMetadata,
+    > = {
+        let mut svm = LiteSVM::new();
+        let _ = svm.add_program(
+            anchor::id(),
+            include_bytes!("../../../target/deploy/anchor.so"),
+        );
+        let payer = Keypair::new();
+        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+        setup_program_data(&mut svm, Some(&payer.pubkey()));
+        send_initialize_global(
+            &mut svm,
+            &payer,
+            &Pubkey::default(),
+            &payer.pubkey(),
+            &payer.pubkey(),
+        )
+    };
+    assert_custom_error(res_init, PremiumBondsError::InvalidAdminAddress);
+
+    // 2. CannotNominateSelf & NoPendingAdmin & NotPendingAdmin
+    let (mut svm, admin) = setup_global_config();
+    let res_self = send_nominate_admin(&mut svm, &admin, admin.pubkey());
+    assert_custom_error(res_self, PremiumBondsError::CannotNominateSelf);
+
+    let res_cancel = send_cancel_admin_nomination(&mut svm, &admin);
+    assert_custom_error(res_cancel, PremiumBondsError::NoPendingAdmin);
+
+    let alice = Keypair::new().pubkey();
+    let bob = Keypair::new();
+    svm.airdrop(&bob.pubkey(), 1_000_000_000).unwrap();
+    send_nominate_admin(&mut svm, &admin, alice).unwrap();
+
+    let res_bob = send_accept_admin(&mut svm, &bob);
+    assert_custom_error(res_bob, PremiumBondsError::NotPendingAdmin);
+
+    // 3. Solvency helper assert_solvent error code
+    let pool = anchor::PrizePool {
+        total_deposited_principal: 10_000_000,
+        ..unsafe { std::mem::zeroed() }
+    };
+    assert_eq!(
+        pool.assert_solvent(0).unwrap_err(),
+        PremiumBondsError::YieldVenueInsolvent.into()
+    );
 }

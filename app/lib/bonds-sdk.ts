@@ -1045,6 +1045,9 @@ import {
   getResizeRegistryInstruction,
   getUpdatePoolConfigInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
+  getNominateAdminInstructionAsync,
+  getCancelAdminNominationInstructionAsync,
+  getAcceptAdminInstructionAsync,
   getWithdrawFeesInstructionAsync,
   getAdminForceUnlockDrawInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
@@ -1077,6 +1080,9 @@ export {
   getResizeRegistryInstruction,
   getUpdatePoolConfigInstructionAsync,
   getUpdateGlobalConfigInstructionAsync,
+  getNominateAdminInstructionAsync,
+  getCancelAdminNominationInstructionAsync,
+  getAcceptAdminInstructionAsync,
   getWithdrawFeesInstructionAsync,
   getAdminForceUnlockDrawInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
@@ -1133,15 +1139,39 @@ export async function buildInitializeGlobalInstruction(params: {
 
 export async function buildUpdateGlobalConfigInstruction(params: {
   admin: Address | TransactionSigner;
-  newAdmin?: Address;
   newGuardian?: Address;
   newJobsAccount?: Address;
 }) {
   return getUpdateGlobalConfigInstructionAsync({
     admin: params.admin as TransactionSigner,
-    newAdmin: params.newAdmin ?? null,
     newGuardian: params.newGuardian ?? null,
     newJobsAccount: params.newJobsAccount ?? null,
+  });
+}
+
+export async function buildNominateAdminInstruction(params: {
+  admin: Address | TransactionSigner;
+  pendingAdmin: Address;
+}) {
+  return getNominateAdminInstructionAsync({
+    admin: params.admin as TransactionSigner,
+    pendingAdmin: params.pendingAdmin,
+  });
+}
+
+export async function buildCancelAdminNominationInstruction(params: {
+  admin: Address | TransactionSigner;
+}) {
+  return getCancelAdminNominationInstructionAsync({
+    admin: params.admin as TransactionSigner,
+  });
+}
+
+export async function buildAcceptAdminInstruction(params: {
+  newAdmin: Address | TransactionSigner;
+}) {
+  return getAcceptAdminInstructionAsync({
+    newAdmin: params.newAdmin as TransactionSigner,
   });
 }
 
@@ -1177,6 +1207,7 @@ export async function buildCreatePoolInstruction(params: {
   pstMint: Address;
   ticketRegistry: Address;
   feeWallet: Address;
+  humaPoolState: Address;
   pstTokenProgram?: Address;
 }) {
   return getCreatePoolInstructionAsync({
@@ -1196,6 +1227,7 @@ export async function buildCreatePoolInstruction(params: {
     pstMint: params.pstMint,
     ticketRegistry: params.ticketRegistry,
     feeWallet: params.feeWallet,
+    humaPoolState: params.humaPoolState,
     pstTokenProgram: params.pstTokenProgram ?? TOKEN_PROGRAM_ID,
   });
 }

@@ -276,6 +276,26 @@ pub fn inject_pool(
     status: anchor::PoolStatus,
     is_frozen: bool,
 ) -> Pubkey {
+    inject_pool_with_huma_state(
+        svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        status,
+        is_frozen,
+        Pubkey::default(),
+    )
+}
+
+pub fn inject_pool_with_huma_state(
+    svm: &mut LiteSVM,
+    pool_id: u32,
+    token_mint: Pubkey,
+    ticket_registry: Pubkey,
+    status: anchor::PoolStatus,
+    is_frozen: bool,
+    huma_pool_state: Pubkey,
+) -> Pubkey {
     use anchor_lang::Discriminator;
     let (pda, bump) = pool_pda(pool_id);
     let pool = anchor::PrizePool {
@@ -284,6 +304,7 @@ pub fn inject_pool(
         token_mint,
         ticket_registry,
         fee_wallet: Pubkey::default(),
+        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -1146,7 +1167,7 @@ pub fn default_prize_tiers() -> Vec<anchor::PrizeTier> {
     vec![anchor::PrizeTier::default_single_winner()]
 }
 
-/// Builds a `CreatePool` instruction with full parameters.
+/// Builds a `CreatePool` instruction with full parameters and default Token program.
 pub fn build_create_pool_instruction(
     admin: &Keypair,
     pool_id: u32,
@@ -1161,6 +1182,46 @@ pub fn build_create_pool_instruction(
     pst_mint: Pubkey,
     ticket_registry: Pubkey,
     fee_wallet: Pubkey,
+    huma_pool_state: Pubkey,
+) -> Instruction {
+    build_create_pool_instruction_with_programs(
+        admin,
+        pool_id,
+        bond_price,
+        stake_cycle_duration_hrs,
+        fee_basis_points,
+        min_yield_threshold,
+        max_yield_basis_points,
+        payout_timelock_seconds,
+        prize_tiers,
+        token_mint,
+        pst_mint,
+        ticket_registry,
+        fee_wallet,
+        huma_pool_state,
+        anchor_spl::token::ID,
+        anchor_spl::token::ID,
+    )
+}
+
+/// Builds a `CreatePool` instruction specifying underlying and PST token programs explicitly.
+pub fn build_create_pool_instruction_with_programs(
+    admin: &Keypair,
+    pool_id: u32,
+    bond_price: u64,
+    stake_cycle_duration_hrs: i64,
+    fee_basis_points: u16,
+    min_yield_threshold: u64,
+    max_yield_basis_points: u16,
+    payout_timelock_seconds: u32,
+    prize_tiers: Vec<anchor::PrizeTier>,
+    token_mint: Pubkey,
+    pst_mint: Pubkey,
+    ticket_registry: Pubkey,
+    fee_wallet: Pubkey,
+    huma_pool_state: Pubkey,
+    token_program: Pubkey,
+    pst_token_program: Pubkey,
 ) -> Instruction {
     let (global_config, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
@@ -1179,9 +1240,10 @@ pub fn build_create_pool_instruction(
             pool_vault_account: pool_vault,
             pool_pst_vault,
             fee_wallet,
+            huma_pool_state,
             system_program: anchor_lang::system_program::ID,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
+            token_program,
+            pst_token_program,
         }
         .to_account_metas(None),
         data: anchor::instruction::CreatePool {
@@ -1327,6 +1389,7 @@ pub fn setup_e2e() -> E2eContext {
             pst_mint,
             ticket_registry,
             fee_wallet,
+            huma_pool_state,
         );
 
         let bh = svm.latest_blockhash();
@@ -1675,7 +1738,6 @@ pub fn send_close_pool(
 
 pub fn build_update_global_config_ix(
     admin: &Pubkey,
-    new_admin: Option<Pubkey>,
     new_guardian: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
 ) -> Instruction {
@@ -1692,7 +1754,6 @@ pub fn build_update_global_config_ix(
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::UpdateGlobalConfig {
-            new_admin,
             new_guardian,
             new_jobs_account,
         }
@@ -1703,15 +1764,98 @@ pub fn build_update_global_config_ix(
 pub fn send_update_global_config(
     svm: &mut LiteSVM,
     admin: &Keypair,
-    new_admin: Option<Pubkey>,
     new_guardian: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let ix =
-        build_update_global_config_ix(&admin.pubkey(), new_admin, new_guardian, new_jobs_account);
+    let ix = build_update_global_config_ix(&admin.pubkey(), new_guardian, new_jobs_account);
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_nominate_admin_ix(admin: &Pubkey, pending_admin: Pubkey) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::NominateAdmin {
+        global_config,
+        admin: *admin,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::NominateAdmin { pending_admin }.data(),
+    }
+}
+
+pub fn send_nominate_admin(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pending_admin: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_nominate_admin_ix(&admin.pubkey(), pending_admin);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_cancel_admin_nomination_ix(admin: &Pubkey) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::CancelAdminNomination {
+        global_config,
+        admin: *admin,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::CancelAdminNomination {}.data(),
+    }
+}
+
+pub fn send_cancel_admin_nomination(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_cancel_admin_nomination_ix(&admin.pubkey());
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn build_accept_admin_ix(new_admin: &Pubkey) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::AcceptAdmin {
+        global_config,
+        new_admin: *new_admin,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::AcceptAdmin {}.data(),
+    }
+}
+
+pub fn send_accept_admin(
+    svm: &mut LiteSVM,
+    new_admin: &Keypair,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let ix = build_accept_admin_ix(&new_admin.pubkey());
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&new_admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[new_admin]).unwrap();
     svm.send_transaction(tx)
 }
 

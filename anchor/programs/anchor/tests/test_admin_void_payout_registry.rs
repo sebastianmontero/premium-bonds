@@ -1079,12 +1079,10 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
 
     // 6. Reveal and pick winners for Cycle 1
     {
-        let (gc, _) = global_config_pda();
         let (pool, _) = pool_pda(1);
         let (payout, _) = payout_pda(1, 1);
         let accounts = anchor::accounts::RevealAndPickWinners {
             crank: ctx.admin.pubkey(),
-            global_config: gc,
             current_draw_cycle: dc_pda,
             pool,
             ticket_registry: ctx.ticket_registry,

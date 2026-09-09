@@ -125,17 +125,18 @@ fn setup_buy_bonds(
     inject_token_account(&mut svm, pool_vault, token_mint, pool_key, 0);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 0);
 
-    inject_pool(
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    inject_pool_with_huma_state(
         &mut svm,
         1,
         token_mint,
         ticket_registry,
         pool_status,
         is_frozen,
+        huma_pool_state,
     );
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     BuyBondsCtx {
         svm,

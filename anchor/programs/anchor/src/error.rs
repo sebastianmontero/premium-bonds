@@ -169,4 +169,28 @@ pub enum PremiumBondsError {
     /// Ticket registry buffer layout or alignment is invalid.
     #[msg("Ticket registry buffer layout or alignment is invalid")]
     InvalidRegistryState,
+    /// Token mint contains unsupported transfer fee extension.
+    #[msg("Token mint contains unsupported transfer fee extension.")]
+    TransferFeeNotSupported,
+    /// Token mint contains unsupported transfer hook extension.
+    #[msg("Token mint contains unsupported transfer hook extension.")]
+    TransferHookNotSupported,
+    /// Token mint account data is malformed or invalid.
+    #[msg("Token mint account data is malformed or invalid.")]
+    InvalidTokenMint,
+    /// No pending admin transfer nomination in progress.
+    #[msg("No pending admin transfer nomination in progress.")]
+    NoPendingAdmin,
+    /// Caller is not the nominated pending admin.
+    #[msg("Caller is not the nominated pending admin.")]
+    NotPendingAdmin,
+    /// Admin address cannot be the default zero address.
+    #[msg("Admin address cannot be the default zero address.")]
+    InvalidAdminAddress,
+    /// Cannot nominate current admin as pending admin.
+    #[msg("Cannot nominate current admin as pending admin.")]
+    CannotNominateSelf,
+    /// Provided Huma pool state is invalid or uninitialized.
+    #[msg("Provided Huma pool state is invalid or uninitialized.")]
+    InvalidHumaPoolState,
 }

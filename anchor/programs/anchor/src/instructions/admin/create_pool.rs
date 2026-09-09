@@ -91,6 +91,13 @@ pub struct CreatePool<'info> {
     )]
     pub fee_wallet: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    /// Pinned Huma pool state account for this pool.
+    /// CHECK: Validated against Huma program owner and verified via state deserialization in handler.
+    #[account(
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState
+    )]
+    pub huma_pool_state: UncheckedAccount<'info>,
+
     /// Solana System Program.
     pub system_program: Program<'info, System>,
 
@@ -134,12 +141,20 @@ pub fn handle(
         &prize_tiers,
     )?;
 
+    // Deep validation: verify the account is an active, readable Huma pool state before pinning
+    crate::huma::read_mode_assets(&ctx.accounts.huma_pool_state.to_account_info())?;
+
+    // Verify neither mint configures unsupported extensions
+    crate::utils::assert_supported_mint_extensions(&ctx.accounts.token_mint.to_account_info())?;
+    crate::utils::assert_supported_mint_extensions(&ctx.accounts.pst_mint.to_account_info())?;
+
     let mut pool = ctx.accounts.pool.load_init()?;
     pool.vault_authority_bump = ctx.bumps.pool;
     pool.pool_id = pool_id;
     pool.token_mint = ctx.accounts.token_mint.key();
     pool.ticket_registry = ctx.accounts.ticket_registry.key();
     pool.fee_wallet = ctx.accounts.fee_wallet.key();
+    pool.huma_pool_state = ctx.accounts.huma_pool_state.key();
     pool.bond_price = bond_price;
     pool.stake_cycle_duration_hrs = stake_cycle_duration_hrs;
     pool.fee_basis_points = fee_basis_points;
@@ -188,6 +203,7 @@ pub fn handle(
         pst_mint: ctx.accounts.pst_mint.key(),
         fee_wallet: ctx.accounts.fee_wallet.key(),
         ticket_registry: ctx.accounts.ticket_registry.key(),
+        huma_pool_state: pool.huma_pool_state,
         bond_price,
         stake_cycle_duration_hrs,
         fee_basis_points,

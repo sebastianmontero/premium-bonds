@@ -87,6 +87,7 @@ export type CreatePoolInstruction<
   TAccountPoolVaultAccount extends string | AccountMeta<string> = string,
   TAccountPoolPstVault extends string | AccountMeta<string> = string,
   TAccountFeeWallet extends string | AccountMeta<string> = string,
+  TAccountHumaPoolState extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TAccountTokenProgram extends string | AccountMeta<string> =
@@ -125,6 +126,9 @@ export type CreatePoolInstruction<
       TAccountFeeWallet extends string
         ? ReadonlyAccount<TAccountFeeWallet>
         : TAccountFeeWallet,
+      TAccountHumaPoolState extends string
+        ? ReadonlyAccount<TAccountHumaPoolState>
+        : TAccountHumaPoolState,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -212,6 +216,7 @@ export type CreatePoolAsyncInput<
   TAccountPoolVaultAccount extends string = string,
   TAccountPoolPstVault extends string = string,
   TAccountFeeWallet extends string = string,
+  TAccountHumaPoolState extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
@@ -253,6 +258,8 @@ export type CreatePoolAsyncInput<
   poolPstVault?: Address<TAccountPoolPstVault>;
   /** The token account designated to receive protocol fees. */
   feeWallet: Address<TAccountFeeWallet>;
+  /** Pinned Huma pool state account for this pool. */
+  humaPoolState: Address<TAccountHumaPoolState>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   /** Token program for the underlying mint. */
@@ -279,6 +286,7 @@ export async function getCreatePoolInstructionAsync<
   TAccountPoolVaultAccount extends string,
   TAccountPoolPstVault extends string,
   TAccountFeeWallet extends string,
+  TAccountHumaPoolState extends string,
   TAccountSystemProgram extends string,
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
@@ -294,6 +302,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountPoolVaultAccount,
     TAccountPoolPstVault,
     TAccountFeeWallet,
+    TAccountHumaPoolState,
     TAccountSystemProgram,
     TAccountTokenProgram,
     TAccountPstTokenProgram
@@ -311,6 +320,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountPoolVaultAccount,
     TAccountPoolPstVault,
     TAccountFeeWallet,
+    TAccountHumaPoolState,
     TAccountSystemProgram,
     TAccountTokenProgram,
     TAccountPstTokenProgram
@@ -333,6 +343,7 @@ export async function getCreatePoolInstructionAsync<
     },
     poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
     feeWallet: { value: input.feeWallet ?? null, isWritable: false },
+    humaPoolState: { value: input.humaPoolState ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     pstTokenProgram: {
@@ -388,6 +399,7 @@ export async function getCreatePoolInstructionAsync<
       getAccountMeta("poolVaultAccount", accounts.poolVaultAccount),
       getAccountMeta("poolPstVault", accounts.poolPstVault),
       getAccountMeta("feeWallet", accounts.feeWallet),
+      getAccountMeta("humaPoolState", accounts.humaPoolState),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
@@ -407,6 +419,7 @@ export async function getCreatePoolInstructionAsync<
     TAccountPoolVaultAccount,
     TAccountPoolPstVault,
     TAccountFeeWallet,
+    TAccountHumaPoolState,
     TAccountSystemProgram,
     TAccountTokenProgram,
     TAccountPstTokenProgram
@@ -423,6 +436,7 @@ export type CreatePoolInput<
   TAccountPoolVaultAccount extends string = string,
   TAccountPoolPstVault extends string = string,
   TAccountFeeWallet extends string = string,
+  TAccountHumaPoolState extends string = string,
   TAccountSystemProgram extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountPstTokenProgram extends string = string,
@@ -464,6 +478,8 @@ export type CreatePoolInput<
   poolPstVault: Address<TAccountPoolPstVault>;
   /** The token account designated to receive protocol fees. */
   feeWallet: Address<TAccountFeeWallet>;
+  /** Pinned Huma pool state account for this pool. */
+  humaPoolState: Address<TAccountHumaPoolState>;
   /** Solana System Program. */
   systemProgram?: Address<TAccountSystemProgram>;
   /** Token program for the underlying mint. */
@@ -490,6 +506,7 @@ export function getCreatePoolInstruction<
   TAccountPoolVaultAccount extends string,
   TAccountPoolPstVault extends string,
   TAccountFeeWallet extends string,
+  TAccountHumaPoolState extends string,
   TAccountSystemProgram extends string,
   TAccountTokenProgram extends string,
   TAccountPstTokenProgram extends string,
@@ -505,6 +522,7 @@ export function getCreatePoolInstruction<
     TAccountPoolVaultAccount,
     TAccountPoolPstVault,
     TAccountFeeWallet,
+    TAccountHumaPoolState,
     TAccountSystemProgram,
     TAccountTokenProgram,
     TAccountPstTokenProgram
@@ -521,6 +539,7 @@ export function getCreatePoolInstruction<
   TAccountPoolVaultAccount,
   TAccountPoolPstVault,
   TAccountFeeWallet,
+  TAccountHumaPoolState,
   TAccountSystemProgram,
   TAccountTokenProgram,
   TAccountPstTokenProgram
@@ -542,6 +561,7 @@ export function getCreatePoolInstruction<
     },
     poolPstVault: { value: input.poolPstVault ?? null, isWritable: true },
     feeWallet: { value: input.feeWallet ?? null, isWritable: false },
+    humaPoolState: { value: input.humaPoolState ?? null, isWritable: false },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     pstTokenProgram: {
@@ -579,6 +599,7 @@ export function getCreatePoolInstruction<
       getAccountMeta("poolVaultAccount", accounts.poolVaultAccount),
       getAccountMeta("poolPstVault", accounts.poolPstVault),
       getAccountMeta("feeWallet", accounts.feeWallet),
+      getAccountMeta("humaPoolState", accounts.humaPoolState),
       getAccountMeta("systemProgram", accounts.systemProgram),
       getAccountMeta("tokenProgram", accounts.tokenProgram),
       getAccountMeta("pstTokenProgram", accounts.pstTokenProgram),
@@ -598,6 +619,7 @@ export function getCreatePoolInstruction<
     TAccountPoolVaultAccount,
     TAccountPoolPstVault,
     TAccountFeeWallet,
+    TAccountHumaPoolState,
     TAccountSystemProgram,
     TAccountTokenProgram,
     TAccountPstTokenProgram
@@ -647,12 +669,14 @@ export type ParsedCreatePoolInstruction<
     poolPstVault: TAccountMetas[7];
     /** The token account designated to receive protocol fees. */
     feeWallet: TAccountMetas[8];
+    /** Pinned Huma pool state account for this pool. */
+    humaPoolState: TAccountMetas[9];
     /** Solana System Program. */
-    systemProgram: TAccountMetas[9];
+    systemProgram: TAccountMetas[10];
     /** Token program for the underlying mint. */
-    tokenProgram: TAccountMetas[10];
+    tokenProgram: TAccountMetas[11];
     /** Token program for the Huma $PST mint. */
-    pstTokenProgram: TAccountMetas[11];
+    pstTokenProgram: TAccountMetas[12];
   };
   data: CreatePoolInstructionData;
 };
@@ -665,12 +689,12 @@ export function parseCreatePoolInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedCreatePoolInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 12) {
+  if (instruction.accounts.length < 13) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 12,
+        expectedAccountMetas: 13,
       }
     );
   }
@@ -692,6 +716,7 @@ export function parseCreatePoolInstruction<
       poolVaultAccount: getNextAccount(),
       poolPstVault: getNextAccount(),
       feeWallet: getNextAccount(),
+      humaPoolState: getNextAccount(),
       systemProgram: getNextAccount(),
       tokenProgram: getNextAccount(),
       pstTokenProgram: getNextAccount(),

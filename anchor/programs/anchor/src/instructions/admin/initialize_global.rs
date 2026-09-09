@@ -57,6 +57,11 @@ pub struct InitializeGlobal<'info> {
 /// # Parameters
 /// * `ctx` - The context of the initialize global instruction.
 pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
+    require!(
+        ctx.accounts.admin.key() != Pubkey::default(),
+        PremiumBondsError::InvalidAdminAddress
+    );
+
     let global_config = &mut ctx.accounts.global_config;
 
     global_config.init(

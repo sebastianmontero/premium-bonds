@@ -1861,6 +1861,7 @@ export interface ExecuteCreatePoolParams {
   tokenMint?: string;
   pstMint?: string;
   feeWallet?: string;
+  humaPoolState?: string;
   ticketRegistryAccount?: string;
   rpcUrl?: string;
   signer: KeyPairSigner;
@@ -1879,6 +1880,7 @@ export async function executeCreatePool({
   tokenMint,
   pstMint,
   feeWallet,
+  humaPoolState,
   ticketRegistryAccount,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
@@ -1919,9 +1921,13 @@ export async function executeCreatePool({
   const resolvedPstMint = pstMint || stateAddresses.pstMint;
   const resolvedFeeWallet =
     feeWallet || stateAddresses.feeWallet || signer.address;
+  const resolvedHumaPoolState = humaPoolState || stateAddresses.humaPoolState;
 
   if (!resolvedPstMint) {
     throw new Error(`Missing pstMint in state addresses or options.`);
+  }
+  if (!resolvedHumaPoolState) {
+    throw new Error(`Missing humaPoolState in state addresses or options.`);
   }
 
   let registryAddress: Address;
@@ -2016,6 +2022,7 @@ export async function executeCreatePool({
       pstMint: address(resolvedPstMint),
       ticketRegistry: registryAddress,
       feeWallet: address(resolvedFeeWallet),
+      humaPoolState: address(resolvedHumaPoolState),
     });
 
     await sendTx(rpc, [createRegistryIx, createPoolIx], signer);
@@ -2041,6 +2048,7 @@ export async function executeCreatePool({
           pstMint: address(resolvedPstMint),
           ticketRegistry: registryAddress,
           feeWallet: address(resolvedFeeWallet),
+          humaPoolState: address(resolvedHumaPoolState),
         });
       },
     });
@@ -3109,6 +3117,7 @@ async function main() {
         tokenMint: options["--token-mint"],
         pstMint: options["--pst-mint"],
         feeWallet: options["--fee-wallet"],
+        humaPoolState: options["--huma-pool-state"],
         ticketRegistryAccount: options["--ticket-registry"],
         rpcUrl,
         signer: signer!,

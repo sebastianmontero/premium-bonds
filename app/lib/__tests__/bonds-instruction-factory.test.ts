@@ -143,6 +143,7 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
     tokenMint: dummyUser,
     ticketRegistry: mockRegistryAddress,
     feeWallet: dummyUser,
+    humaPoolState: dummyUser,
     prizeTiers: [
       { basisPoints: 10000, numWinners: 1, padding: new Uint8Array(2) },
       ...Array.from({ length: 9 }, () => ({

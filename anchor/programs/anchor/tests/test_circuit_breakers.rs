@@ -105,6 +105,7 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
         token_mint,
         ticket_registry,
         fee_wallet: Pubkey::default(),
+        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,

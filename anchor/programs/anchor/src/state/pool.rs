@@ -133,6 +133,8 @@ pub struct PrizePool {
     pub ticket_registry: Pubkey,
     /// Public key of the token account that collects protocol fees.
     pub fee_wallet: Pubkey,
+    /// Pinned Huma pool state account to prevent arbitrary venue injection.
+    pub huma_pool_state: Pubkey,
 
     /// Configured prize tiers for this pool.
     pub prize_tiers: [PrizeTier; 10],
@@ -141,7 +143,7 @@ pub struct PrizePool {
 }
 
 // Compile-time static assertions for zero-copy layout safety
-const _: () = assert!(std::mem::size_of::<PrizePool>() == 408);
+const _: () = assert!(std::mem::size_of::<PrizePool>() == 440);
 const _: () = assert!(std::mem::align_of::<PrizePool>() == 8);
 
 use crate::error::PremiumBondsError;
@@ -222,6 +224,47 @@ impl PrizePool {
             .total_prizes_allocated
             .checked_sub(amount)
             .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    /// Computes accrued protocol fees that have not yet been withdrawn.
+    #[inline]
+    pub fn unwithdrawn_fees(&self) -> Result<u64> {
+        self.total_fees_accrued
+            .checked_sub(self.total_fees_withdrawn)
+            .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
+    }
+
+    /// Computes total active book liabilities (principal + unwithdrawn fees + allocated prizes).
+    ///
+    /// NOTE: Allocated prizes represent future compounded principal bonds since most winnings
+    /// are automatically reinvested into new bonds.
+    ///
+    /// NOTE: `total_pending_redemptions` is intentionally excluded because corresponding PST shares
+    /// have already left `pool_pst_vault` during the redemption request phase, so `current_value`
+    /// is already reduced proportionally.
+    pub fn calculate_book_value(&self) -> Result<u64> {
+        let fees_in_vault = self.unwithdrawn_fees()?;
+        self.total_deposited_principal
+            .checked_add(fees_in_vault)
+            .ok_or_else(|| error!(PremiumBondsError::MathOverflow))?
+            .checked_add(self.total_prizes_allocated)
+            .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
+    }
+
+    /// Enforces that the pool's PST asset valuation covers all protocol liabilities within dust tolerance.
+    /// Strictly subsumes macro venue parity (since current_value >= book_value mathematically guarantees
+    /// mode_assets >= pst_supply), while ensuring first sellers cannot drain assets and leave last sellers
+    /// or winning bondholders shortchanged.
+    pub fn assert_solvent(&self, current_asset_value: u64) -> Result<()> {
+        let book_value = self.calculate_book_value()?;
+        if current_asset_value < book_value {
+            let deficit = book_value.saturating_sub(current_asset_value);
+            require!(
+                deficit <= crate::constants::SOLVENCY_DUST_TOLERANCE,
+                PremiumBondsError::YieldVenueInsolvent
+            );
+        }
         Ok(())
     }
 
@@ -532,6 +575,7 @@ mod tests {
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
+            huma_pool_state: Pubkey::default(),
             bond_price: 1_000_000,
             stake_cycle_duration_hrs,
             min_yield_threshold: 0,
@@ -1130,6 +1174,7 @@ mod tests {
             token_mint: Pubkey::default(),
             ticket_registry: Pubkey::default(),
             fee_wallet: Pubkey::default(),
+            huma_pool_state: Pubkey::default(),
             bond_price: 1_000_000,
             stake_cycle_duration_hrs: 24,
             current_cycle_end_at: 0,
@@ -1263,5 +1308,54 @@ mod tests {
 
         let err = pool.pause_and_advance_cycle(1_000_000).unwrap_err();
         assert_eq!(err, PremiumBondsError::MathOverflow.into());
+    }
+
+    #[test]
+    fn test_unwithdrawn_fees() {
+        let mut pool = default_pool(250, 24);
+        pool.total_fees_accrued = 10_000;
+        pool.total_fees_withdrawn = 3_000;
+        assert_eq!(pool.unwithdrawn_fees().unwrap(), 7_000);
+
+        pool.total_fees_withdrawn = 10_000;
+        assert_eq!(pool.unwithdrawn_fees().unwrap(), 0);
+
+        pool.total_fees_withdrawn = 10_001;
+        assert_eq!(
+            pool.unwithdrawn_fees().unwrap_err(),
+            PremiumBondsError::MathOverflow.into()
+        );
+    }
+
+    #[test]
+    fn test_calculate_book_value() {
+        let mut pool = default_pool(250, 24);
+        pool.total_deposited_principal = 100_000;
+        pool.total_fees_accrued = 5_000;
+        pool.total_fees_withdrawn = 1_000; // 4,000 unwithdrawn
+        pool.total_prizes_allocated = 6_000;
+        pool.total_pending_redemptions = 50_000; // Excluded from book value calculation
+
+        assert_eq!(pool.calculate_book_value().unwrap(), 110_000);
+    }
+
+    #[test]
+    fn test_assert_solvent_tolerances() {
+        let mut pool = default_pool(250, 24);
+        pool.total_deposited_principal = 100_000;
+        pool.total_fees_accrued = 0;
+        pool.total_fees_withdrawn = 0;
+        pool.total_prizes_allocated = 0;
+
+        // Fully solvent
+        assert!(pool.assert_solvent(100_000).is_ok());
+        assert!(pool.assert_solvent(105_000).is_ok());
+
+        // Deficit within dust tolerance (1,000)
+        assert!(pool.assert_solvent(99_000).is_ok()); // deficit = 1,000 <= 1,000
+
+        // Deficit exceeds dust tolerance (1,001)
+        let err = pool.assert_solvent(98_999).unwrap_err(); // deficit = 1,001 > 1,000
+        assert_eq!(err, PremiumBondsError::YieldVenueInsolvent.into());
     }
 }

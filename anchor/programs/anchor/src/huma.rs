@@ -240,11 +240,15 @@ pub fn usdc_to_pst_shares(usdc_amount: u64, pst_supply: u64, total_assets: u128)
 /// # Returns
 /// * `Result<u64>` - Equivalent USDC amount in base units.
 pub fn pst_shares_to_usdc(pst_amount: u64, pst_supply: u64, total_assets: u128) -> Result<u64> {
-    if pst_amount == 0 || total_assets == 0 {
+    if pst_amount == 0 {
         return Ok(0);
     }
+    // 1:1 initial parity applies strictly when both supply and assets are zero (or supply is 0)
     if pst_supply == 0 {
         return Ok(pst_amount);
+    }
+    if total_assets == 0 {
+        return Ok(0);
     }
     let value = (pst_amount as u128)
         .checked_mul(total_assets)
@@ -645,8 +649,12 @@ mod tests {
     }
 
     #[test]
+    fn test_pst_shares_to_usdc_initial_parity() {
+        assert_eq!(pst_shares_to_usdc(1_000_000, 0, 0).unwrap(), 1_000_000);
+    }
+
+    #[test]
     fn test_pst_shares_to_usdc_zero_assets_returns_zero() {
-        assert_eq!(pst_shares_to_usdc(1_000_000, 0, 0).unwrap(), 0);
         assert_eq!(pst_shares_to_usdc(1_000_000, 1_000_000, 0).unwrap(), 0);
     }
 

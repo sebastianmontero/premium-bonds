@@ -24,6 +24,7 @@ fn inject_pool_custom(
     token_mint: Pubkey,
     ticket_registry: Pubkey,
     fee_wallet: Pubkey,
+    huma_pool_state: Pubkey,
     status: anchor::PoolStatus,
     is_frozen: bool,
     fee_basis_points: u16,
@@ -47,6 +48,7 @@ fn inject_pool_custom(
         token_mint,
         ticket_registry,
         fee_wallet,
+        huma_pool_state,
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -242,12 +244,16 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 0);
 
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state, 0);
+
     inject_pool_custom(
         &mut svm,
         1,
         token_mint,
         registry,
         fee_wallet,
+        huma_pool_state,
         status,
         is_frozen,
         100,
@@ -256,9 +262,6 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
         vec![],
         0,
     );
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state, 0);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
@@ -306,12 +309,16 @@ fn setup_happy(
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, pst_balance);
 
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state, total_assets);
+
     inject_pool_custom(
         &mut svm,
         1,
         token_mint,
         registry,
         fee_wallet,
+        huma_pool_state,
         anchor::PoolStatus::Active,
         false,
         fee_bps,
@@ -320,9 +327,6 @@ fn setup_happy(
         prize_tiers,
         principal,
     );
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state, total_assets);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);

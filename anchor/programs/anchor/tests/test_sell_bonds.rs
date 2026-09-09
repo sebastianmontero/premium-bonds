@@ -191,18 +191,19 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
     // Inject user winnings
     inject_user_winnings_with_index(&mut svm, 1, user.pubkey(), 0, 0, 0, 0);
 
-    inject_pool(
+    // Setup and inject valid huma_pool_state stub
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    inject_pool_with_huma_state(
         &mut svm,
         1,
         token_mint,
         ticket_registry,
         anchor::PoolStatus::Active,
         is_frozen,
+        huma_pool_state,
     );
-
-    // Setup and inject valid huma_pool_state stub
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     GuardCtx {
         svm,
@@ -1146,14 +1147,24 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
 
-    // Set pool next_redemption_id to u64::MAX
+    let (pool, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+
+    // Set pool next_redemption_id to u64::MAX and ensure solvency
     common::mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.total_deposited_principal = 10_000_000;
         p.next_redemption_id = u64::MAX;
     });
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.huma_mode_mint,
+        pool,
+        10_000_000,
+    );
+    inject_mint_with_supply(&mut ctx.svm, ctx.huma_mode_mint, 6, 10_000_000);
+    inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 10_000_000);
 
-    let (pool, _) = pool_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, u64::MAX);
     let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
     let dummy = Keypair::new().pubkey();

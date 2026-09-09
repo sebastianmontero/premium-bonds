@@ -110,21 +110,21 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     }];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
 
-    inject_pool(
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         ticket_registry,
         anchor::PoolStatus::Paused,
         false,
+        huma_pool_state,
     );
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let huma_redemption_request = Keypair::new().pubkey();
     let huma_lender_state = Keypair::new().pubkey();
@@ -231,17 +231,18 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     )
     .unwrap();
 
-    inject_pool(
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         ticket_registry,
         anchor::PoolStatus::Paused,
         false,
+        huma_pool_state,
     );
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let huma_lender_state = Keypair::new().pubkey();
     let huma_pool_underlying_token = Keypair::new().pubkey();
@@ -299,7 +300,7 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
     let fee_wallet = Keypair::new().pubkey();
 
     inject_mint(&mut svm, token_mint, 6);
-    inject_mint(&mut svm, pst_mint, 6);
+    inject_mint_with_supply(&mut svm, pst_mint, 6, 10_000_000);
 
     let (pool_pda_addr, _) = pool_pda(pool_id);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
@@ -312,13 +313,17 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
     );
     inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
 
-    inject_pool(
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 10_000_000);
+
+    inject_pool_with_huma_state(
         &mut svm,
         pool_id,
         token_mint,
         ticket_registry,
         anchor::PoolStatus::Paused,
         false,
+        huma_pool_state,
     );
     {
         let mut acc = svm.get_account(&pool_pda_addr).unwrap();
@@ -330,9 +335,6 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
 
     let (gc, _) = global_config_pda();
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let huma_redemption_request = Keypair::new().pubkey();
     let huma_lender_state = Keypair::new().pubkey();

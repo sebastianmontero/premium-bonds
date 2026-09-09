@@ -43,7 +43,7 @@ import {
   type AccountSignerMeta,
   type TransactionSigner,
 } from "@solana/signers";
-import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
+import { findEventAuthorityPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
 export const REVEAL_AND_PICK_WINNERS_DISCRIMINATOR: ReadonlyUint8Array =
@@ -58,7 +58,6 @@ export function getRevealAndPickWinnersDiscriminatorBytes(): ReadonlyUint8Array 
 export type RevealAndPickWinnersInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountCrank extends string | AccountMeta<string> = string,
-  TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountTicketRegistry extends string | AccountMeta<string> = string,
@@ -78,9 +77,6 @@ export type RevealAndPickWinnersInstruction<
         ? WritableSignerAccount<TAccountCrank> &
             AccountSignerMeta<TAccountCrank>
         : TAccountCrank,
-      TAccountGlobalConfig extends string
-        ? ReadonlyAccount<TAccountGlobalConfig>
-        : TAccountGlobalConfig,
       TAccountCurrentDrawCycle extends string
         ? WritableAccount<TAccountCurrentDrawCycle>
         : TAccountCurrentDrawCycle,
@@ -143,7 +139,6 @@ export function getRevealAndPickWinnersInstructionDataCodec(): FixedSizeCodec<
 
 export type RevealAndPickWinnersAsyncInput<
   TAccountCrank extends string = string,
-  TAccountGlobalConfig extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountPool extends string = string,
   TAccountTicketRegistry extends string = string,
@@ -153,10 +148,8 @@ export type RevealAndPickWinnersAsyncInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The crank signer executing the instruction. Must match the jobs_account. */
+  /** The crank signer executing the instruction (permissionless). */
   crank: TransactionSigner<TAccountCrank>;
-  /** The global configuration account, checked to verify that the signer is the authorized jobs account. */
-  globalConfig?: Address<TAccountGlobalConfig>;
   /** The current draw cycle account, validated to match the randomness account. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   /** The prize pool state account, validated with has_one ticket_registry constraint. */
@@ -175,7 +168,6 @@ export type RevealAndPickWinnersAsyncInput<
 
 export async function getRevealAndPickWinnersInstructionAsync<
   TAccountCrank extends string,
-  TAccountGlobalConfig extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountPool extends string,
   TAccountTicketRegistry extends string,
@@ -188,7 +180,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
 >(
   input: RevealAndPickWinnersAsyncInput<
     TAccountCrank,
-    TAccountGlobalConfig,
     TAccountCurrentDrawCycle,
     TAccountPool,
     TAccountTicketRegistry,
@@ -203,7 +194,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
   RevealAndPickWinnersInstruction<
     TProgramAddress,
     TAccountCrank,
-    TAccountGlobalConfig,
     TAccountCurrentDrawCycle,
     TAccountPool,
     TAccountTicketRegistry,
@@ -220,7 +210,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
   // Original accounts.
   const originalAccounts = {
     crank: { value: input.crank ?? null, isWritable: true },
-    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
@@ -242,9 +231,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
   >;
 
   // Resolve default values.
-  if (!accounts.globalConfig.value) {
-    accounts.globalConfig.value = await findGlobalConfigPda();
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -261,7 +247,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
   return Object.freeze({
     accounts: [
       getAccountMeta("crank", accounts.crank),
-      getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
@@ -276,7 +261,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
   } as RevealAndPickWinnersInstruction<
     TProgramAddress,
     TAccountCrank,
-    TAccountGlobalConfig,
     TAccountCurrentDrawCycle,
     TAccountPool,
     TAccountTicketRegistry,
@@ -290,7 +274,6 @@ export async function getRevealAndPickWinnersInstructionAsync<
 
 export type RevealAndPickWinnersInput<
   TAccountCrank extends string = string,
-  TAccountGlobalConfig extends string = string,
   TAccountCurrentDrawCycle extends string = string,
   TAccountPool extends string = string,
   TAccountTicketRegistry extends string = string,
@@ -300,10 +283,8 @@ export type RevealAndPickWinnersInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** The crank signer executing the instruction. Must match the jobs_account. */
+  /** The crank signer executing the instruction (permissionless). */
   crank: TransactionSigner<TAccountCrank>;
-  /** The global configuration account, checked to verify that the signer is the authorized jobs account. */
-  globalConfig: Address<TAccountGlobalConfig>;
   /** The current draw cycle account, validated to match the randomness account. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
   /** The prize pool state account, validated with has_one ticket_registry constraint. */
@@ -322,7 +303,6 @@ export type RevealAndPickWinnersInput<
 
 export function getRevealAndPickWinnersInstruction<
   TAccountCrank extends string,
-  TAccountGlobalConfig extends string,
   TAccountCurrentDrawCycle extends string,
   TAccountPool extends string,
   TAccountTicketRegistry extends string,
@@ -335,7 +315,6 @@ export function getRevealAndPickWinnersInstruction<
 >(
   input: RevealAndPickWinnersInput<
     TAccountCrank,
-    TAccountGlobalConfig,
     TAccountCurrentDrawCycle,
     TAccountPool,
     TAccountTicketRegistry,
@@ -349,7 +328,6 @@ export function getRevealAndPickWinnersInstruction<
 ): RevealAndPickWinnersInstruction<
   TProgramAddress,
   TAccountCrank,
-  TAccountGlobalConfig,
   TAccountCurrentDrawCycle,
   TAccountPool,
   TAccountTicketRegistry,
@@ -365,7 +343,6 @@ export function getRevealAndPickWinnersInstruction<
   // Original accounts.
   const originalAccounts = {
     crank: { value: input.crank ?? null, isWritable: true },
-    globalConfig: { value: input.globalConfig ?? null, isWritable: false },
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
@@ -400,7 +377,6 @@ export function getRevealAndPickWinnersInstruction<
   return Object.freeze({
     accounts: [
       getAccountMeta("crank", accounts.crank),
-      getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("ticketRegistry", accounts.ticketRegistry),
@@ -415,7 +391,6 @@ export function getRevealAndPickWinnersInstruction<
   } as RevealAndPickWinnersInstruction<
     TProgramAddress,
     TAccountCrank,
-    TAccountGlobalConfig,
     TAccountCurrentDrawCycle,
     TAccountPool,
     TAccountTicketRegistry,
@@ -433,24 +408,22 @@ export type ParsedRevealAndPickWinnersInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** The crank signer executing the instruction. Must match the jobs_account. */
+    /** The crank signer executing the instruction (permissionless). */
     crank: TAccountMetas[0];
-    /** The global configuration account, checked to verify that the signer is the authorized jobs account. */
-    globalConfig: TAccountMetas[1];
     /** The current draw cycle account, validated to match the randomness account. */
-    currentDrawCycle: TAccountMetas[2];
+    currentDrawCycle: TAccountMetas[1];
     /** The prize pool state account, validated with has_one ticket_registry constraint. */
-    pool: TAccountMetas[3];
+    pool: TAccountMetas[2];
     /** The ticket registry account loader holding all the user entries. */
-    ticketRegistry: TAccountMetas[4];
-    randomnessAccount: TAccountMetas[5];
+    ticketRegistry: TAccountMetas[3];
+    randomnessAccount: TAccountMetas[4];
     /** The payout registry account initialized to record the winners of this draw. */
-    payoutRegistry: TAccountMetas[6];
+    payoutRegistry: TAccountMetas[5];
     /** The Solana System Program. */
-    systemProgram: TAccountMetas[7];
-    eventAuthority: TAccountMetas[8];
+    systemProgram: TAccountMetas[6];
+    eventAuthority: TAccountMetas[7];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[9];
+    program: TAccountMetas[8];
   };
   data: RevealAndPickWinnersInstructionData;
 };
@@ -463,12 +436,12 @@ export function parseRevealAndPickWinnersInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedRevealAndPickWinnersInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 10) {
+  if (instruction.accounts.length < 9) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 10,
+        expectedAccountMetas: 9,
       }
     );
   }
@@ -482,7 +455,6 @@ export function parseRevealAndPickWinnersInstruction<
     programAddress: instruction.programAddress,
     accounts: {
       crank: getNextAccount(),
-      globalConfig: getNextAccount(),
       currentDrawCycle: getNextAccount(),
       pool: getNextAccount(),
       ticketRegistry: getNextAccount(),

@@ -62,6 +62,7 @@ fn inject_pool(
         token_mint: mint,
         ticket_registry: reg,
         fee_wallet: Pubkey::default(),
+        huma_pool_state: Pubkey::default(),
         bond_price,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,

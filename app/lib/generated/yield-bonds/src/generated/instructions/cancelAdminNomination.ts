@@ -10,26 +10,19 @@ const SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS = 1200004 as any
  * @see https://github.com/codama-idl/codama
  */
 
-import {
-  getAddressDecoder,
-  getAddressEncoder,
-  type Address } from "@solana/addresses";
+import { type Address } from "@solana/addresses";
 import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
-  getOptionDecoder,
-  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
   transformEncoder,
-  type Codec,
-  type Decoder,
-  type Encoder,
-  type Option,
-  type OptionOrNullable,
+  type FixedSizeCodec,
+  type FixedSizeDecoder,
+  type FixedSizeEncoder,
   type ReadonlyUint8Array } from "@solana/codecs";
 import {
 SolanaError } from "@solana/errors";
@@ -53,16 +46,16 @@ import {
 import { findEventAuthorityPda, findGlobalConfigPda } from "../pdas";
 import { ANCHOR_PROGRAM_ADDRESS } from "../programs";
 
-export const UPDATE_GLOBAL_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
-  new Uint8Array([164, 84, 130, 189, 111, 58, 250, 200]);
+export const CANCEL_ADMIN_NOMINATION_DISCRIMINATOR: ReadonlyUint8Array =
+  new Uint8Array([24, 177, 168, 131, 72, 94, 236, 165]);
 
-export function getUpdateGlobalConfigDiscriminatorBytes(): ReadonlyUint8Array {
+export function getCancelAdminNominationDiscriminatorBytes(): ReadonlyUint8Array {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    UPDATE_GLOBAL_CONFIG_DISCRIMINATOR
+    CANCEL_ADMIN_NOMINATION_DISCRIMINATOR
   );
 }
 
-export type UpdateGlobalConfigInstruction<
+export type CancelAdminNominationInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountAdmin extends string | AccountMeta<string> = string,
@@ -91,75 +84,61 @@ export type UpdateGlobalConfigInstruction<
     ]
   >;
 
-export type UpdateGlobalConfigInstructionData = {
+export type CancelAdminNominationInstructionData = {
   discriminator: ReadonlyUint8Array;
-  newGuardian: Option<Address>;
-  newJobsAccount: Option<Address>;
 };
 
-export type UpdateGlobalConfigInstructionDataArgs = {
-  newGuardian: OptionOrNullable<Address>;
-  newJobsAccount: OptionOrNullable<Address>;
-};
+export type CancelAdminNominationInstructionDataArgs = {};
 
-export function getUpdateGlobalConfigInstructionDataEncoder(): Encoder<UpdateGlobalConfigInstructionDataArgs> {
+export function getCancelAdminNominationInstructionDataEncoder(): FixedSizeEncoder<CancelAdminNominationInstructionDataArgs> {
   return transformEncoder(
-    getStructEncoder([
-      ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["newGuardian", getOptionEncoder(getAddressEncoder())],
-      ["newJobsAccount", getOptionEncoder(getAddressEncoder())],
-    ]),
-    (value) => ({ ...value, discriminator: UPDATE_GLOBAL_CONFIG_DISCRIMINATOR })
+    getStructEncoder([["discriminator", fixEncoderSize(getBytesEncoder(), 8)]]),
+    (value) => ({
+      ...value,
+      discriminator: CANCEL_ADMIN_NOMINATION_DISCRIMINATOR,
+    })
   );
 }
 
-export function getUpdateGlobalConfigInstructionDataDecoder(): Decoder<UpdateGlobalConfigInstructionData> {
+export function getCancelAdminNominationInstructionDataDecoder(): FixedSizeDecoder<CancelAdminNominationInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["newGuardian", getOptionDecoder(getAddressDecoder())],
-    ["newJobsAccount", getOptionDecoder(getAddressDecoder())],
   ]);
 }
 
-export function getUpdateGlobalConfigInstructionDataCodec(): Codec<
-  UpdateGlobalConfigInstructionDataArgs,
-  UpdateGlobalConfigInstructionData
+export function getCancelAdminNominationInstructionDataCodec(): FixedSizeCodec<
+  CancelAdminNominationInstructionDataArgs,
+  CancelAdminNominationInstructionData
 > {
   return combineCodec(
-    getUpdateGlobalConfigInstructionDataEncoder(),
-    getUpdateGlobalConfigInstructionDataDecoder()
+    getCancelAdminNominationInstructionDataEncoder(),
+    getCancelAdminNominationInstructionDataDecoder()
   );
 }
 
-export type UpdateGlobalConfigAsyncInput<
+export type CancelAdminNominationAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration account. */
   globalConfig?: Address<TAccountGlobalConfig>;
-  /** The admin authority. */
+  /** The current admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
   eventAuthority?: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
 };
 
-export async function getUpdateGlobalConfigInstructionAsync<
+export async function getCancelAdminNominationInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigAsyncInput<
+  input: CancelAdminNominationAsyncInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountEventAuthority,
@@ -167,7 +146,7 @@ export async function getUpdateGlobalConfigInstructionAsync<
   >,
   config?: { programAddress?: TProgramAddress }
 ): Promise<
-  UpdateGlobalConfigInstruction<
+  CancelAdminNominationInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -190,9 +169,6 @@ export async function getUpdateGlobalConfigInstructionAsync<
     ResolvedInstructionAccount
   >;
 
-  // Original args.
-  const args = { ...input };
-
   // Resolve default values.
   if (!accounts.globalConfig.value) {
     accounts.globalConfig.value = await findGlobalConfigPda();
@@ -213,11 +189,9 @@ export async function getUpdateGlobalConfigInstructionAsync<
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
-    ),
+    data: getCancelAdminNominationInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as CancelAdminNominationInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -226,42 +200,36 @@ export async function getUpdateGlobalConfigInstructionAsync<
   >);
 }
 
-export type UpdateGlobalConfigInput<
+export type CancelAdminNominationInput<
   TAccountGlobalConfig extends string = string,
   TAccountAdmin extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /**
-   * The global configuration state account to update.
-   *
-   * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-   */
+  /** The global configuration account. */
   globalConfig: Address<TAccountGlobalConfig>;
-  /** The admin authority. */
+  /** The current admin authority. */
   admin: TransactionSigner<TAccountAdmin>;
   eventAuthority: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
   program?: Address<TAccountProgram>;
-  newGuardian: UpdateGlobalConfigInstructionDataArgs["newGuardian"];
-  newJobsAccount: UpdateGlobalConfigInstructionDataArgs["newJobsAccount"];
 };
 
-export function getUpdateGlobalConfigInstruction<
+export function getCancelAdminNominationInstruction<
   TAccountGlobalConfig extends string,
   TAccountAdmin extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof ANCHOR_PROGRAM_ADDRESS,
 >(
-  input: UpdateGlobalConfigInput<
+  input: CancelAdminNominationInput<
     TAccountGlobalConfig,
     TAccountAdmin,
     TAccountEventAuthority,
     TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress }
-): UpdateGlobalConfigInstruction<
+): CancelAdminNominationInstruction<
   TProgramAddress,
   TAccountGlobalConfig,
   TAccountAdmin,
@@ -283,9 +251,6 @@ export function getUpdateGlobalConfigInstruction<
     ResolvedInstructionAccount
   >;
 
-  // Original args.
-  const args = { ...input };
-
   // Resolve default values.
   if (!accounts.program.value) {
     accounts.program.value =
@@ -300,11 +265,9 @@ export function getUpdateGlobalConfigInstruction<
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
     ],
-    data: getUpdateGlobalConfigInstructionDataEncoder().encode(
-      args as UpdateGlobalConfigInstructionDataArgs
-    ),
+    data: getCancelAdminNominationInstructionDataEncoder().encode({}),
     programAddress,
-  } as UpdateGlobalConfigInstruction<
+  } as CancelAdminNominationInstruction<
     TProgramAddress,
     TAccountGlobalConfig,
     TAccountAdmin,
@@ -313,35 +276,31 @@ export function getUpdateGlobalConfigInstruction<
   >);
 }
 
-export type ParsedUpdateGlobalConfigInstruction<
+export type ParsedCancelAdminNominationInstruction<
   TProgram extends string = typeof ANCHOR_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /**
-     * The global configuration state account to update.
-     *
-     * PDA seeds: `[GLOBAL_CONFIG_SEED]` (i.e., `b"global_config"`).
-     */
+    /** The global configuration account. */
     globalConfig: TAccountMetas[0];
-    /** The admin authority. */
+    /** The current admin authority. */
     admin: TAccountMetas[1];
     eventAuthority: TAccountMetas[2];
     /** The YieldBonds program itself. */
     program: TAccountMetas[3];
   };
-  data: UpdateGlobalConfigInstructionData;
+  data: CancelAdminNominationInstructionData;
 };
 
-export function parseUpdateGlobalConfigInstruction<
+export function parseCancelAdminNominationInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
-): ParsedUpdateGlobalConfigInstruction<TProgram, TAccountMetas> {
+): ParsedCancelAdminNominationInstruction<TProgram, TAccountMetas> {
   if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
@@ -365,7 +324,7 @@ export function parseUpdateGlobalConfigInstruction<
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },
-    data: getUpdateGlobalConfigInstructionDataDecoder().decode(
+    data: getCancelAdminNominationInstructionDataDecoder().decode(
       instruction.data
     ),
   };

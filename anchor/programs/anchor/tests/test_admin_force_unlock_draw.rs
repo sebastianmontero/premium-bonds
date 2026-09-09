@@ -54,6 +54,7 @@ fn setup_with_amounts(
         token_mint: Keypair::new().pubkey(),
         ticket_registry,
         fee_wallet: Pubkey::default(),
+        huma_pool_state: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,

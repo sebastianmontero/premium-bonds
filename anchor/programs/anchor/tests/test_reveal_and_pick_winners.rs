@@ -38,6 +38,7 @@ fn inject_pool_custom(
         token_mint: Pubkey::default(),
         ticket_registry,
         fee_wallet: Pubkey::default(),
+        huma_pool_state: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,
@@ -181,14 +182,12 @@ fn update_mock_randomness_account(
 }
 
 fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32) -> Instruction {
-    let (gc, _) = global_config_pda();
     let (pool, _) = pool_pda(pool_id);
     let (dc, _) = draw_cycle_pda(pool_id, cycle_id);
     let (payout, _) = payout_pda(pool_id, cycle_id);
 
     let accounts = anchor::accounts::RevealAndPickWinners {
         crank: ctx.crank.pubkey(),
-        global_config: gc,
         current_draw_cycle: dc,
         pool,
         ticket_registry: ctx.ticket_registry,
@@ -357,7 +356,7 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
 // ═════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_reveal_fails_unauthorized_crank() {
+fn test_permissionless_reveal_succeeds() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
@@ -370,11 +369,16 @@ fn test_reveal_fails_unauthorized_crank() {
         1_000_000,
         5,
     );
-    let fake = Keypair::new();
-    ctx.svm.airdrop(&fake.pubkey(), 10_000_000_000).unwrap();
-    ctx.crank = fake;
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("UnauthorizedCrank"), "got: {err}");
+    let arbitrary_signer = Keypair::new();
+    ctx.svm
+        .airdrop(&arbitrary_signer.pubkey(), 10_000_000_000)
+        .unwrap();
+    ctx.crank = arbitrary_signer;
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert!(
+        res.is_ok(),
+        "Arbitrary third party crank should succeed in permissionless reveal: {res:?}"
+    );
 }
 
 #[test]

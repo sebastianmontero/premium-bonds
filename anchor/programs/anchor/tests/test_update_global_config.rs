@@ -1,9 +1,10 @@
-//! Integration tests for the `update_global_config` instruction.
+//! Integration tests for `update_global_config` and two-step admin governance lifecycle.
 //!
 //! Run with:
 //!   cargo +nightly test --package anchor --test test_update_global_config -- --nocapture
 
 use {
+    anchor::error::PremiumBondsError,
     anchor_lang::prelude::Pubkey,
     anchor_lang::{InstructionData, ToAccountMetas},
     litesvm::LiteSVM,
@@ -16,8 +17,6 @@ use {
 
 mod common;
 use common::*;
-
-// ─── Constants mirrored from the program ────────────────────────────────────
 
 fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey) {
     let admin = Keypair::new();
@@ -39,13 +38,12 @@ fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
 }
 
 /// Helper to send `update_global_config` and return the `Result`.
-fn send_update_global_config(
+fn send_update_global_config_test(
     svm: &mut LiteSVM,
     admin: &Keypair,
     global_config_account: Pubkey,
     admin_account_override: Option<Pubkey>,
     override_is_signer: Option<bool>,
-    new_admin: Option<Pubkey>,
     new_guardian: Option<Pubkey>,
     new_jobs_account: Option<Pubkey>,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
@@ -70,7 +68,6 @@ fn send_update_global_config(
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::UpdateGlobalConfig {
-            new_admin,
             new_guardian,
             new_jobs_account,
         }
@@ -80,15 +77,12 @@ fn send_update_global_config(
     let blockhash = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
 
-    // Sign the tx. Only the keys provided here will sign. If `override_is_signer` is false,
-    // the client won't panic, but SVM program verification will fail it.
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-
     svm.send_transaction(tx)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Happy-path tests
+// Update Global Config Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -96,52 +90,12 @@ fn test_update_global_config_no_fields() {
     let (mut svm, admin, jobs) = setup_and_initialize();
     let (global_config, _) = global_config_pda();
 
-    send_update_global_config(
-        &mut svm,
-        &admin,
-        global_config,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("Updating no fields should succeed");
+    send_update_global_config_test(&mut svm, &admin, global_config, None, None, None, None)
+        .expect("Updating no fields should succeed");
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey());
     assert_eq!(config.jobs_account, jobs);
-}
-
-#[test]
-fn test_update_global_config_admin_only() {
-    let (mut svm, admin, jobs) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
-
-    let new_admin = Keypair::new().pubkey();
-
-    let meta = send_update_global_config(
-        &mut svm,
-        &admin,
-        global_config,
-        None,
-        None,
-        Some(new_admin),
-        None,
-        None,
-    )
-    .expect("Updating admin should succeed");
-    let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.authority, admin.pubkey());
-    assert_eq!(event.old_admin, admin.pubkey());
-    assert_eq!(event.new_admin, new_admin);
-    assert_eq!(event.old_jobs_account, jobs);
-    assert_eq!(event.new_jobs_account, jobs);
-    assert!(event.timestamp > 0);
-
-    let config = read_global_config(&svm);
-    assert_eq!(config.admin, new_admin);
-    assert_eq!(config.jobs_account, jobs); // remains unchanged
 }
 
 #[test]
@@ -152,11 +106,10 @@ fn test_update_global_config_guardian_only() {
 
     let new_guardian = Keypair::new().pubkey();
 
-    let meta = send_update_global_config(
+    let meta = send_update_global_config_test(
         &mut svm,
         &admin,
         global_config,
-        None,
         None,
         None,
         Some(new_guardian),
@@ -165,8 +118,6 @@ fn test_update_global_config_guardian_only() {
     .expect("Updating guardian should succeed");
     let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
     assert_eq!(event.authority, admin.pubkey());
-    assert_eq!(event.old_admin, admin.pubkey());
-    assert_eq!(event.new_admin, admin.pubkey());
     assert_eq!(event.old_guardian, initial_config.guardian);
     assert_eq!(event.new_guardian, new_guardian);
     assert_eq!(event.old_jobs_account, jobs);
@@ -186,17 +137,19 @@ fn test_update_global_config_jobs_account_only() {
 
     let new_jobs_account = Keypair::new().pubkey();
 
-    send_update_global_config(
+    let meta = send_update_global_config_test(
         &mut svm,
         &admin,
         global_config,
         None,
         None,
         None,
-        None,
         Some(new_jobs_account),
     )
     .expect("Updating jobs account should succeed");
+    let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
+    assert_eq!(event.authority, admin.pubkey());
+    assert_eq!(event.new_jobs_account, new_jobs_account);
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey()); // unchanged
@@ -208,69 +161,45 @@ fn test_update_global_config_all_fields() {
     let (mut svm, admin, _) = setup_and_initialize();
     let (global_config, _) = global_config_pda();
 
-    let new_admin = Keypair::new().pubkey();
     let new_guardian = Keypair::new().pubkey();
     let new_jobs_account = Keypair::new().pubkey();
 
-    send_update_global_config(
+    send_update_global_config_test(
         &mut svm,
         &admin,
         global_config,
         None,
         None,
-        Some(new_admin),
         Some(new_guardian),
         Some(new_jobs_account),
     )
     .expect("Updating all fields should succeed");
 
     let config = read_global_config(&svm);
-    assert_eq!(config.admin, new_admin);
+    assert_eq!(config.admin, admin.pubkey());
     assert_eq!(config.guardian, new_guardian);
     assert_eq!(config.jobs_account, new_jobs_account);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Access-control tests
-// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_update_global_config_unauthorized_admin() {
     let (mut svm, _admin, _) = setup_and_initialize();
     let (global_config, _) = global_config_pda();
 
-    // A random attacker tries to call update
     let attacker = Keypair::new();
     svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
-    let new_admin = Keypair::new().pubkey();
-
-    let result = send_update_global_config(
+    let result = send_update_global_config_test(
         &mut svm,
-        &attacker, // Attacker signs the tx
+        &attacker,
         global_config,
-        None, // The admin account passed in the IX defaults to `attacker.pubkey()`
         None,
-        Some(new_admin),
         None,
+        Some(Keypair::new().pubkey()),
         None,
     );
 
-    assert!(
-        result.is_err(),
-        "Update should fail with an unauthorized admin"
-    );
-
-    // We expect a ConstraintHasOne error because `attacker.pubkey() != global_config.admin`.
-    let err = result.unwrap_err();
-    let err_str = format!("{:?}", err);
-    assert!(
-        err_str.contains("UnauthorizedAdmin")
-            || err_str.contains("ConstraintHasOne")
-            || err_str.contains("custom program error"),
-        "Expected constraint error but got: {}",
-        err_str
-    );
+    assert_custom_error(result, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -278,22 +207,16 @@ fn test_update_global_config_requires_admin_signature() {
     let (mut svm, admin, _) = setup_and_initialize();
     let (global_config, _) = global_config_pda();
 
-    // We pass `admin.pubkey()` as the admin account in the instruction,
-    // BUT we override `is_signer` to `false`. Then we sign with a random payer.
     let random_payer = Keypair::new();
     svm.airdrop(&random_payer.pubkey(), 1_000_000_000).unwrap();
 
-    // Here we use `random_payer` to build and sign the Tx.
-    // The `admin_account_override` is the true admin pubkey.
-    // We must override `is_signer` to `false` so the client doesn't panic.
-    let result = send_update_global_config(
+    let result = send_update_global_config_test(
         &mut svm,
         &random_payer,
         global_config,
-        Some(admin.pubkey()), // Pass the true admin
-        Some(false),          // But clear the signer flag
+        Some(admin.pubkey()),
+        Some(false),
         Some(Keypair::new().pubkey()),
-        None,
         None,
     );
 
@@ -303,24 +226,18 @@ fn test_update_global_config_requires_admin_signature() {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Wrong PDA tests
-// ═══════════════════════════════════════════════════════════════════════════
-
 #[test]
 fn test_update_global_config_wrong_pda() {
     let (mut svm, admin, _) = setup_and_initialize();
-
     let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
 
-    let result = send_update_global_config(
+    let result = send_update_global_config_test(
         &mut svm,
         &admin,
-        wrong_pda, // Incorrect PDA
+        wrong_pda,
         None,
         None,
         Some(Keypair::new().pubkey()),
-        None,
         None,
     );
 
@@ -328,4 +245,182 @@ fn test_update_global_config_wrong_pda() {
         result.is_err(),
         "Update must fail when passing the wrong PDA"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Two-Step Admin Governance Lifecycle Tests (SEC-04)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_initialize_global_rejects_zero_admin() {
+    let mut svm = LiteSVM::new();
+    let _ = svm.add_program(
+        anchor::id(),
+        include_bytes!("../../../target/deploy/anchor.so"),
+    );
+
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    setup_program_data(&mut svm, Some(&payer.pubkey()));
+
+    let res = send_initialize_global(
+        &mut svm,
+        &payer,
+        &Pubkey::default(),
+        &payer.pubkey(),
+        &payer.pubkey(),
+    );
+    assert_custom_error(res, PremiumBondsError::InvalidAdminAddress);
+}
+
+#[test]
+fn test_nominate_admin_happy_path() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new().pubkey();
+
+    let meta = send_nominate_admin(&mut svm, &admin, alice).expect("Nominate admin should succeed");
+    let event = assert_cpi_event::<anchor::events::AdminNominated>(&meta);
+    assert_eq!(event.current_admin, admin.pubkey());
+    assert_eq!(event.pending_admin, alice);
+    assert!(event.timestamp > 0);
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, admin.pubkey());
+    assert_eq!(config.pending_admin, alice);
+}
+
+#[test]
+fn test_nominate_admin_overwrite_prior_nomination() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new().pubkey();
+    let bob = Keypair::new().pubkey();
+
+    send_nominate_admin(&mut svm, &admin, alice).expect("Nominate Alice");
+    let meta = send_nominate_admin(&mut svm, &admin, bob).expect("Nominate Bob (overwrite)");
+    let event = assert_cpi_event::<anchor::events::AdminNominated>(&meta);
+    assert_eq!(event.current_admin, admin.pubkey());
+    assert_eq!(event.pending_admin, bob);
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, admin.pubkey());
+    assert_eq!(config.pending_admin, bob);
+}
+
+#[test]
+fn test_nominate_admin_rejects_self_nomination() {
+    let (mut svm, admin, _) = setup_and_initialize();
+
+    let res = send_nominate_admin(&mut svm, &admin, admin.pubkey());
+    assert_custom_error(res, PremiumBondsError::CannotNominateSelf);
+}
+
+#[test]
+fn test_nominate_admin_rejects_zero_address() {
+    let (mut svm, admin, _) = setup_and_initialize();
+
+    let res = send_nominate_admin(&mut svm, &admin, Pubkey::default());
+    assert_custom_error(res, PremiumBondsError::InvalidAdminAddress);
+}
+
+#[test]
+fn test_nominate_admin_unauthorized_fails() {
+    let (mut svm, _admin, _) = setup_and_initialize();
+    let attacker = Keypair::new();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+
+    let res = send_nominate_admin(&mut svm, &attacker, Keypair::new().pubkey());
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
+}
+
+#[test]
+fn test_cancel_admin_nomination_happy_path() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new().pubkey();
+
+    send_nominate_admin(&mut svm, &admin, alice).expect("Nominate Alice");
+    let meta = send_cancel_admin_nomination(&mut svm, &admin)
+        .expect("Cancel admin nomination should succeed");
+    let event = assert_cpi_event::<anchor::events::AdminNominationCancelled>(&meta);
+    assert_eq!(event.current_admin, admin.pubkey());
+    assert_eq!(event.cancelled_pending_admin, alice);
+    assert!(event.timestamp > 0);
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, admin.pubkey());
+    assert_eq!(config.pending_admin, Pubkey::default());
+}
+
+#[test]
+fn test_cancel_admin_nomination_fails_when_none_pending() {
+    let (mut svm, admin, _) = setup_and_initialize();
+
+    let res = send_cancel_admin_nomination(&mut svm, &admin);
+    assert_custom_error(res, PremiumBondsError::NoPendingAdmin);
+}
+
+#[test]
+fn test_cancel_admin_nomination_unauthorized_fails() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new().pubkey();
+    send_nominate_admin(&mut svm, &admin, alice).expect("Nominate Alice");
+
+    let attacker = Keypair::new();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+
+    let res = send_cancel_admin_nomination(&mut svm, &attacker);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
+}
+
+#[test]
+fn test_accept_admin_happy_path() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new();
+    svm.airdrop(&alice.pubkey(), 1_000_000_000).unwrap();
+
+    send_nominate_admin(&mut svm, &admin, alice.pubkey()).expect("Nominate Alice");
+    let meta = send_accept_admin(&mut svm, &alice).expect("Accept admin should succeed");
+    let event = assert_cpi_event::<anchor::events::AdminTransferred>(&meta);
+    assert_eq!(event.old_admin, admin.pubkey());
+    assert_eq!(event.new_admin, alice.pubkey());
+    assert!(event.timestamp > 0);
+
+    let config = read_global_config(&svm);
+    assert_eq!(config.admin, alice.pubkey());
+    assert_eq!(config.pending_admin, Pubkey::default());
+}
+
+#[test]
+fn test_accept_admin_unauthorized_caller_fails() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new().pubkey();
+    let bob = Keypair::new();
+    svm.airdrop(&bob.pubkey(), 1_000_000_000).unwrap();
+
+    send_nominate_admin(&mut svm, &admin, alice).expect("Nominate Alice");
+    let res = send_accept_admin(&mut svm, &bob);
+    assert_custom_error(res, PremiumBondsError::NotPendingAdmin);
+}
+
+#[test]
+fn test_accept_admin_fails_when_none_pending() {
+    let (mut svm, _admin, _) = setup_and_initialize();
+    let caller = Keypair::new();
+    svm.airdrop(&caller.pubkey(), 1_000_000_000).unwrap();
+
+    let res = send_accept_admin(&mut svm, &caller);
+    assert_custom_error(res, PremiumBondsError::NoPendingAdmin);
+}
+
+#[test]
+fn test_accept_admin_second_call_fails() {
+    let (mut svm, admin, _) = setup_and_initialize();
+    let alice = Keypair::new();
+    svm.airdrop(&alice.pubkey(), 1_000_000_000).unwrap();
+
+    send_nominate_admin(&mut svm, &admin, alice.pubkey()).expect("Nominate Alice");
+    send_accept_admin(&mut svm, &alice).expect("First accept succeeds");
+
+    svm.expire_blockhash();
+    let res = send_accept_admin(&mut svm, &alice);
+    assert_custom_error(res, PremiumBondsError::NoPendingAdmin);
 }

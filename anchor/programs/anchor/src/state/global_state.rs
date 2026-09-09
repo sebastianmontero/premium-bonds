@@ -16,6 +16,8 @@ pub struct GlobalConfig {
     pub guardian: Pubkey,
     /// Designated crank/bot account allowed to trigger restricted drawings and cranks.
     pub jobs_account: Pubkey,
+    /// Nominated pending admin awaiting role acceptance via two-step transfer.
+    pub pending_admin: Pubkey,
     /// Schema version of the struct.
     pub version: u8,
     /// Reserved space for future upgrades.
@@ -31,6 +33,7 @@ impl GlobalConfig {
         self.admin = admin;
         self.guardian = guardian;
         self.jobs_account = jobs_account;
+        self.pending_admin = Pubkey::default();
         self.version = Self::CURRENT_VERSION;
         self._reserved = [0; 64];
     }

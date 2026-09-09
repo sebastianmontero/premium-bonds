@@ -37,19 +37,28 @@ pub mod anchor {
 
     /// Updates the protocol-wide global configuration.
     ///
-    /// Allows the admin to change the admin wallet address, the guardian address, or the cranking bot address.
+    /// Allows the admin to change the guardian address or the cranking bot address.
     pub fn update_global_config(
         ctx: Context<UpdateGlobalConfig>,
-        new_admin: Option<Pubkey>,
         new_guardian: Option<Pubkey>,
         new_jobs_account: Option<Pubkey>,
     ) -> Result<()> {
-        instructions::admin::update_global_config::handle(
-            ctx,
-            new_admin,
-            new_guardian,
-            new_jobs_account,
-        )
+        instructions::admin::update_global_config::handle(ctx, new_guardian, new_jobs_account)
+    }
+
+    /// Nominates a new pending admin awaiting role acceptance via two-step transfer.
+    pub fn nominate_admin(ctx: Context<NominateAdmin>, pending_admin: Pubkey) -> Result<()> {
+        instructions::admin::nominate_admin::handle(ctx, pending_admin)
+    }
+
+    /// Cancels an active pending admin nomination.
+    pub fn cancel_admin_nomination(ctx: Context<CancelAdminNomination>) -> Result<()> {
+        instructions::admin::cancel_admin_nomination::handle(ctx)
+    }
+
+    /// Finalizes the two-step admin transfer by having the pending admin accept the role.
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        instructions::admin::accept_admin::handle(ctx)
     }
 
     /// Immediately pauses deposits, sales, claims, and harvests for a prize pool.

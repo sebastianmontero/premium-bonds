@@ -75,6 +75,7 @@ fn inject_prize_pool_account(
         token_mint: Pubkey::default(),
         ticket_registry,
         fee_wallet: Pubkey::default(),
+        huma_pool_state: Pubkey::default(),
         bond_price: 1_000_000,
         stake_cycle_duration_hrs: 24,
         min_yield_threshold: 0,

@@ -99,10 +99,11 @@ pub struct BuyBonds<'info> {
     pub huma_pool_config: UncheckedAccount<'info>,
 
     /// CHECK: This is the Huma pool state account. It is validated via the owner constraint
-    /// to ensure it is owned by the Huma program, and further validated during the Huma CPI.
+    /// to ensure it is owned by the Huma program, pinned to match pool.huma_pool_state, and further validated during the Huma CPI.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
+        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 

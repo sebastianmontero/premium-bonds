@@ -1,25 +1,21 @@
-use crate::constants::{
-    DISCRIMINATOR, DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED,
-};
+use crate::constants::{DISCRIMINATOR, DRAW_CYCLE_SEED, PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::DrawCompleted;
 use crate::state::{
-    DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry,
-    Winner,
+    DrawCycle, DrawStatus, PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, Winner,
 };
 use crate::utils::{derive_random_index, get_user_entries};
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `reveal_and_pick_winners` instruction.
 ///
-/// This instruction is executed by a authorized crank bot to consume the verified
+/// This instruction is permissionless and can be executed by anyone to consume the verified
 /// randomness from Switchboard, resolve the winning ticket indices, map those indices
 /// to users in the ticket registry, and initialize the payout registry for the draw cycle.
 ///
 /// # Accounts
 ///
-/// * `crank`: The crank signer executing the instruction. Must match the `jobs_account` specified in `global_config`.
-/// * `global_config`: The global configuration account for checking authorization.
+/// * `crank`: The crank signer executing the instruction (permissionless).
 /// * `current_draw_cycle`: The draw cycle account to finalize.
 /// * `pool`: The prize pool account.
 /// * `ticket_registry`: The ticket registry loader.
@@ -29,23 +25,14 @@ use anchor_lang::prelude::*;
 ///
 /// # PDA Derivations
 ///
-/// * `global_config`: PDA derived with seeds `[GLOBAL_CONFIG_SEED]` (i.e. `b"global_config"`) and a dynamic bump.
 /// * `current_draw_cycle`: PDA derived with seeds `[DRAW_CYCLE_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()]` (i.e. `b"draw_cycle"`) and a dynamic bump.
 /// * `pool`: PDA derived with seeds `[PRIZE_POOL_SEED, pool.pool_id.to_le_bytes().as_ref()]` (i.e. `b"prize_pool"`) and a dynamic bump.
 /// * `payout_registry`: PDA initialized with seeds `[PAYOUT_SEED, pool.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()]` (i.e. `b"payout"`) and a dynamic bump.
 #[derive(Accounts)]
 pub struct RevealAndPickWinners<'info> {
-    /// The crank signer executing the instruction. Must match the jobs_account.
+    /// The crank signer executing the instruction (permissionless).
     #[account(mut)]
     pub crank: Signer<'info>,
-
-    /// The global configuration account, checked to verify that the signer is the authorized jobs account.
-    #[account(
-        seeds = [GLOBAL_CONFIG_SEED],
-        bump,
-        constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
-    )]
-    pub global_config: Box<Account<'info, GlobalConfig>>,
 
     /// The current draw cycle account, validated to match the randomness account.
     #[account(

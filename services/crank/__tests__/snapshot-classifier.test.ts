@@ -57,6 +57,7 @@ function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
     feeWallet: mockPoolAddress,
     tokenMint: mockPoolAddress,
     ticketRegistry: mockRegistryAddress,
+    humaPoolState: mockPoolAddress,
     prizeTiers: [],
     reserved: new Uint8Array(64),
     ...overrides,

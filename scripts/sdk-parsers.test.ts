@@ -86,7 +86,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode GlobalConfig account correctly", () => {
-    const buffer = new Uint8Array(169);
+    const buffer = new Uint8Array(201);
     const parsed = decodeGlobalConfig(mockAccount(buffer)).data;
     assert.ok(parsed.admin, "GlobalConfig must contain admin address");
     assert.ok(parsed.guardian, "GlobalConfig must contain guardian address");
@@ -193,7 +193,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should parse PrizePool account correctly", () => {
-    const buffer = new Uint8Array(8 + 408);
+    const buffer = new Uint8Array(8 + 440);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 1_000_000n, true); // bondPrice (0)
@@ -219,8 +219,8 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     buffer[8 + 99] = 1; // version (99)
     buffer[8 + 100] = 1; // prizeTiersCount (100)
 
-    // prizeTier 0 at offset 8 + 200
-    const tierOffset = 8 + 200;
+    // prizeTier 0 at offset 8 + 232 (after 4 x 32-byte pubkeys: tokenMint, ticketRegistry, feeWallet, humaPoolState)
+    const tierOffset = 8 + 232;
     view.setUint32(tierOffset, 1, true); // numWinners
     view.setUint16(tierOffset + 4, 10000, true); // basisPoints
 

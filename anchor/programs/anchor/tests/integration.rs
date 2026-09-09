@@ -144,6 +144,7 @@ fn test_full_protocol_lifecycle_e2e() {
         pst_mint,
         ticket_registry,
         fee_wallet,
+        huma_pool_state,
     );
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix_create_pool], Some(&admin.pubkey()), &bh);

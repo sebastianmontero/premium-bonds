@@ -34,6 +34,7 @@ struct TestContext {
     pst_mint: Pubkey,
     fee_wallet: Pubkey,
     ticket_registry: Pubkey,
+    huma_pool_state: Pubkey,
 }
 
 fn setup_create_pool_context() -> TestContext {
@@ -43,10 +44,12 @@ fn setup_create_pool_context() -> TestContext {
     let pst_mint = Keypair::new().pubkey();
     let fee_wallet = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
+    let huma_pool_state = Keypair::new().pubkey();
 
     inject_mint(&mut svm, token_mint, 6);
     inject_mint(&mut svm, pst_mint, 6);
     inject_token_account(&mut svm, fee_wallet, token_mint, fee_wallet, 0);
+    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     // Inject the ticket registry with the minimum initial size
     inject_zero_account(
@@ -62,6 +65,7 @@ fn setup_create_pool_context() -> TestContext {
         pst_mint,
         fee_wallet,
         ticket_registry,
+        huma_pool_state,
     }
 }
 
@@ -113,6 +117,7 @@ fn build_create_pool_ix_with_tiers(
         ctx.pst_mint,
         ctx.ticket_registry,
         ctx.fee_wallet,
+        ctx.huma_pool_state,
     )
 }
 
@@ -290,6 +295,7 @@ fn test_create_pool_fails_on_unauthorized_admin() {
         ctx.pst_mint,
         ctx.ticket_registry,
         ctx.fee_wallet,
+        ctx.huma_pool_state,
     );
 
     let blockhash = ctx.svm.latest_blockhash();

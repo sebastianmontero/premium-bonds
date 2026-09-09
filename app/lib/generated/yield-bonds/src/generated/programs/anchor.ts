@@ -67,9 +67,11 @@ import {
   type UserWinningsArgs,
 } from "../accounts";
 import {
+  getAcceptAdminInstructionAsync,
   getAdminForceUnlockDrawInstructionAsync,
   getAdminVoidPayoutRegistryInstructionAsync,
   getBuyBondsInstructionAsync,
+  getCancelAdminNominationInstructionAsync,
   getClaimNonReinvestedWinningsInstructionAsync,
   getClaimRedemptionInstructionAsync,
   getClosePoolInstructionAsync,
@@ -78,6 +80,7 @@ import {
   getHarvestYieldAndCommitInstructionAsync,
   getInitializeGlobalInstructionAsync,
   getInitializeHumaLenderInstructionAsync,
+  getNominateAdminInstructionAsync,
   getPausePoolInstructionAsync,
   getPrepareDrawInstruction,
   getReinvestWinningsInstructionAsync,
@@ -89,9 +92,11 @@ import {
   getUpdateGlobalConfigInstructionAsync,
   getUpdatePoolConfigInstructionAsync,
   getWithdrawFeesInstructionAsync,
+  parseAcceptAdminInstruction,
   parseAdminForceUnlockDrawInstruction,
   parseAdminVoidPayoutRegistryInstruction,
   parseBuyBondsInstruction,
+  parseCancelAdminNominationInstruction,
   parseClaimNonReinvestedWinningsInstruction,
   parseClaimRedemptionInstruction,
   parseClosePoolInstruction,
@@ -100,6 +105,7 @@ import {
   parseHarvestYieldAndCommitInstruction,
   parseInitializeGlobalInstruction,
   parseInitializeHumaLenderInstruction,
+  parseNominateAdminInstruction,
   parsePausePoolInstruction,
   parsePrepareDrawInstruction,
   parseReinvestWinningsInstruction,
@@ -111,9 +117,11 @@ import {
   parseUpdateGlobalConfigInstruction,
   parseUpdatePoolConfigInstruction,
   parseWithdrawFeesInstruction,
+  type AcceptAdminAsyncInput,
   type AdminForceUnlockDrawAsyncInput,
   type AdminVoidPayoutRegistryAsyncInput,
   type BuyBondsAsyncInput,
+  type CancelAdminNominationAsyncInput,
   type ClaimNonReinvestedWinningsAsyncInput,
   type ClaimRedemptionAsyncInput,
   type ClosePoolAsyncInput,
@@ -122,9 +130,12 @@ import {
   type HarvestYieldAndCommitAsyncInput,
   type InitializeGlobalAsyncInput,
   type InitializeHumaLenderAsyncInput,
+  type NominateAdminAsyncInput,
+  type ParsedAcceptAdminInstruction,
   type ParsedAdminForceUnlockDrawInstruction,
   type ParsedAdminVoidPayoutRegistryInstruction,
   type ParsedBuyBondsInstruction,
+  type ParsedCancelAdminNominationInstruction,
   type ParsedClaimNonReinvestedWinningsInstruction,
   type ParsedClaimRedemptionInstruction,
   type ParsedClosePoolInstruction,
@@ -133,6 +144,7 @@ import {
   type ParsedHarvestYieldAndCommitInstruction,
   type ParsedInitializeGlobalInstruction,
   type ParsedInitializeHumaLenderInstruction,
+  type ParsedNominateAdminInstruction,
   type ParsedPausePoolInstruction,
   type ParsedPrepareDrawInstruction,
   type ParsedReinvestWinningsInstruction,
@@ -265,9 +277,11 @@ export function identifyAnchorAccount(
 }
 
 export enum AnchorInstruction {
+  AcceptAdmin,
   AdminForceUnlockDraw,
   AdminVoidPayoutRegistry,
   BuyBonds,
+  CancelAdminNomination,
   ClaimNonReinvestedWinnings,
   ClaimRedemption,
   ClosePool,
@@ -276,6 +290,7 @@ export enum AnchorInstruction {
   HarvestYieldAndCommit,
   InitializeGlobal,
   InitializeHumaLender,
+  NominateAdmin,
   PausePool,
   PrepareDraw,
   ReinvestWinnings,
@@ -293,6 +308,17 @@ export function identifyAnchorInstruction(
   instruction: { data: ReadonlyUint8Array } | ReadonlyUint8Array
 ): AnchorInstruction {
   const data = "data" in instruction ? instruction.data : instruction;
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([112, 42, 45, 90, 116, 181, 13, 170])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.AcceptAdmin;
+  }
   if (
     containsBytes(
       data,
@@ -325,6 +351,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.BuyBonds;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([24, 177, 168, 131, 72, 94, 236, 165])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.CancelAdminNomination;
   }
   if (
     containsBytes(
@@ -413,6 +450,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.InitializeHumaLender;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([134, 11, 31, 244, 20, 77, 138, 121])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.NominateAdmin;
   }
   if (
     containsBytes(
@@ -545,6 +593,9 @@ export type ParsedAnchorInstruction<
   TProgram extends string = "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
 > =
   | ({
+      instructionType: AnchorInstruction.AcceptAdmin;
+    } & ParsedAcceptAdminInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.AdminForceUnlockDraw;
     } & ParsedAdminForceUnlockDrawInstruction<TProgram>)
   | ({
@@ -553,6 +604,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.BuyBonds;
     } & ParsedBuyBondsInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.CancelAdminNomination;
+    } & ParsedCancelAdminNominationInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.ClaimNonReinvestedWinnings;
     } & ParsedClaimNonReinvestedWinningsInstruction<TProgram>)
@@ -577,6 +631,9 @@ export type ParsedAnchorInstruction<
   | ({
       instructionType: AnchorInstruction.InitializeHumaLender;
     } & ParsedInitializeHumaLenderInstruction<TProgram>)
+  | ({
+      instructionType: AnchorInstruction.NominateAdmin;
+    } & ParsedNominateAdminInstruction<TProgram>)
   | ({
       instructionType: AnchorInstruction.PausePool;
     } & ParsedPausePoolInstruction<TProgram>)
@@ -616,6 +673,13 @@ export function parseAnchorInstruction<TProgram extends string>(
 ): ParsedAnchorInstruction<TProgram> {
   const instructionType = identifyAnchorInstruction(instruction);
   switch (instructionType) {
+    case AnchorInstruction.AcceptAdmin: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.AcceptAdmin,
+        ...parseAcceptAdminInstruction(instruction),
+      };
+    }
     case AnchorInstruction.AdminForceUnlockDraw: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -635,6 +699,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.BuyBonds,
         ...parseBuyBondsInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.CancelAdminNomination: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.CancelAdminNomination,
+        ...parseCancelAdminNominationInstruction(instruction),
       };
     }
     case AnchorInstruction.ClaimNonReinvestedWinnings: {
@@ -691,6 +762,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.InitializeHumaLender,
         ...parseInitializeHumaLenderInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.NominateAdmin: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.NominateAdmin,
+        ...parseNominateAdminInstruction(instruction),
       };
     }
     case AnchorInstruction.PausePool: {
@@ -805,6 +883,10 @@ export type AnchorPluginAccounts = {
 };
 
 export type AnchorPluginInstructions = {
+  acceptAdmin: (
+    input: AcceptAdminAsyncInput
+  ) => ReturnType<typeof getAcceptAdminInstructionAsync> &
+    SelfPlanAndSendFunctions;
   adminForceUnlockDraw: (
     input: AdminForceUnlockDrawAsyncInput
   ) => ReturnType<typeof getAdminForceUnlockDrawInstructionAsync> &
@@ -816,6 +898,10 @@ export type AnchorPluginInstructions = {
   buyBonds: (
     input: BuyBondsAsyncInput
   ) => ReturnType<typeof getBuyBondsInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  cancelAdminNomination: (
+    input: CancelAdminNominationAsyncInput
+  ) => ReturnType<typeof getCancelAdminNominationInstructionAsync> &
     SelfPlanAndSendFunctions;
   claimNonReinvestedWinnings: (
     input: ClaimNonReinvestedWinningsAsyncInput
@@ -848,6 +934,10 @@ export type AnchorPluginInstructions = {
   initializeHumaLender: (
     input: InitializeHumaLenderAsyncInput
   ) => ReturnType<typeof getInitializeHumaLenderInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  nominateAdmin: (
+    input: NominateAdminAsyncInput
+  ) => ReturnType<typeof getNominateAdminInstructionAsync> &
     SelfPlanAndSendFunctions;
   pausePool: (
     input: PausePoolAsyncInput
@@ -934,6 +1024,11 @@ export function anchorProgram() {
           userWinnings: addSelfFetchFunctions(client, getUserWinningsCodec()),
         },
         instructions: {
+          acceptAdmin: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getAcceptAdminInstructionAsync(input)
+            ),
           adminForceUnlockDraw: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -948,6 +1043,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getBuyBondsInstructionAsync(input)
+            ),
+          cancelAdminNomination: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCancelAdminNominationInstructionAsync(input)
             ),
           claimNonReinvestedWinnings: (input) =>
             addSelfPlanAndSendFunctions(
@@ -988,6 +1088,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getInitializeHumaLenderInstructionAsync(input)
+            ),
+          nominateAdmin: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getNominateAdminInstructionAsync(input)
             ),
           pausePool: (input) =>
             addSelfPlanAndSendFunctions(

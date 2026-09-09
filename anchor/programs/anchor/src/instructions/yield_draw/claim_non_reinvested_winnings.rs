@@ -95,10 +95,11 @@ pub struct ClaimNonReinvestedWinnings<'info> {
     pub huma_config: UncheckedAccount<'info>,
     /// CHECK: This is the Huma pool configuration account. It is unchecked because it is passed directly to the Huma program via CPI, which performs all necessary verification and validation.
     pub huma_pool_config: UncheckedAccount<'info>,
-    /// CHECK: This is the Huma pool state account containing assets and queue information. It is unchecked because we deserialize it manually inside the handler to read mode assets and the redemption queue. To prevent spoofing, we enforce an ownership constraint that it must be owned by the Huma program. The Huma CPI also validates this account.
+    /// CHECK: This is the Huma pool state account containing assets and queue information. It is unchecked because we deserialize it manually inside the handler to read mode assets and the redemption queue. To prevent spoofing, we enforce an ownership constraint that it must be owned by the Huma program and pinned to match pool.huma_pool_state. The Huma CPI also validates this account.
     #[account(
         mut,
-        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID
+        constraint = huma_pool_state.owner == &crate::constants::HUMA_PROGRAM_ID @ PremiumBondsError::InvalidHumaPoolState,
+        constraint = huma_pool_state.key() == pool.load()?.huma_pool_state @ PremiumBondsError::InvalidHumaPoolState
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
     /// CHECK: This is the Huma mode configuration account. It is unchecked because it is passed directly to the Huma program via CPI, which performs all necessary validation on it.
@@ -144,6 +145,13 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// A `PendingRedemption` receipt is created on-chain to record this request and the Huma queue request ID,
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
+    let huma_snapshot =
+        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
+    let current_value =
+        huma_snapshot.pst_shares_to_usdc(ctx.accounts.pool_pst_vault.amount, pst_supply)?;
+    ctx.accounts.pool.load()?.assert_solvent(current_value)?;
+
     let user_winnings = &mut ctx.accounts.user_winnings;
     user_winnings.ensure_current_version()?;
     let claimable = user_winnings.unclaimed_non_reinvested_winnings;
@@ -199,9 +207,6 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     };
 
     // Calculate $PST shares for the claimable USDC amount
-    let huma_snapshot =
-        huma::read_huma_assets_and_queue(&ctx.accounts.huma_pool_state.to_account_info())?;
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pst_shares = huma_snapshot.usdc_to_pst_shares(claimable, pst_supply)?;
     let huma_request_id = huma_snapshot.pending_request_id();
 
