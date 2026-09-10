@@ -728,6 +728,17 @@ export async function ingestTransactionBatch(
             claimSignature: context.signature,
           });
 
+          if (evt.data.newTotalDepositedPrincipal != null) {
+            snapshotRows.push({
+              poolId: evt.data.poolId,
+              cycleId: 0,
+              snapshotTime: context.blockTime,
+              totalDepositedPrincipal: evt.data.newTotalDepositedPrincipal,
+              totalFeesAccrued: 0n,
+              totalFeesWithdrawn: 0n,
+            });
+          }
+
           if (evt.data.bondsBought > 0) {
             activityRows.push({
               signature: context.signature,

@@ -262,6 +262,10 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     assert_eq!(event.winner, user_b);
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 5);
+    assert_eq!(event.amount_reinvested, 5_000_000);
+    assert_eq!(event.new_total_deposited_principal, 15_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
+    assert_eq!(event.crank, crank.pubkey());
 
     let pr = read_payout(&svm, 1, 0);
     assert_eq!(pr.winners[0].processed, 1);

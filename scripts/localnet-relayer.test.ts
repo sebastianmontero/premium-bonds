@@ -101,6 +101,9 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
         winnerIndex: 4,
         bondsBought: 2,
         amountReinvested: 10000000n,
+        newTotalDepositedPrincipal: 50000000n,
+        remainingUnclaimedWinnings: 500000n,
+        crank: TEST_ADMIN,
         timestamp: 1700000000n,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
@@ -111,6 +114,9 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.winnerIndex, 4);
       assert.strictEqual(parsed[0].data.bondsBought, 2);
       assert.strictEqual(parsed[0].data.amountReinvested, 10000000n);
+      assert.strictEqual(parsed[0].data.newTotalDepositedPrincipal, 50000000n);
+      assert.strictEqual(parsed[0].data.remainingUnclaimedWinnings, 500000n);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
     }
 
     // 4. WinningsClaimed

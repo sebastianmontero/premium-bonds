@@ -207,7 +207,7 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
             .ok_or(PremiumBondsError::MathOverflow)?;
 
         // Register new tickets
-        let mut user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
+        let mut user_entry_idx = user_winnings.registry_entry_index;
         let is_new = is_new_user;
 
         let registry_loader = &ctx.accounts.ticket_registry;
@@ -224,7 +224,7 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
                 crate::error::PremiumBondsError::RegistryFull
             );
             user_entry_idx = registry.user_count;
-            ctx.accounts.user_winnings.registry_entry_index = user_entry_idx;
+            user_winnings.registry_entry_index = user_entry_idx;
             registry.user_count = registry
                 .user_count
                 .checked_add(1)
@@ -291,6 +291,9 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
         winner_index,
         bonds_bought: bonds_to_buy,
         amount_reinvested: cost,
+        new_total_deposited_principal: pool.total_deposited_principal,
+        remaining_unclaimed_winnings: user_winnings.unclaimed_non_reinvested_winnings,
+        crank: ctx.accounts.crank.key(),
         timestamp: clock.unix_timestamp,
     });
 

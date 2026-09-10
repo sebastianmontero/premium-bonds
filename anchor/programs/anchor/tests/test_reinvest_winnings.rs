@@ -353,6 +353,9 @@ fn test_reinvest_single_batch_full() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 3);
     assert_eq!(event.amount_reinvested, 3_000_000);
+    assert_eq!(event.new_total_deposited_principal, 3_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -579,6 +582,9 @@ fn test_reinvest_exited_user_full_registry_fallback() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -852,6 +858,9 @@ fn test_reinvest_fails_payout_timelock_active() {
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 3);
+    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.new_total_deposited_principal, 3_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
 }
 
 #[test]
@@ -886,6 +895,9 @@ fn test_reinvest_closed_pool_graceful_cash_fallback() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -944,6 +956,9 @@ fn test_reinvest_closed_pool_exited_user() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 4_000_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -1039,6 +1054,9 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
@@ -1057,6 +1075,9 @@ fn test_reinvest_zero_prize_owed_without_prior_dust() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     // Verify PayoutRegistry is marked processed
     let pr = read_payout(&ctx.svm, 0);
@@ -1091,6 +1112,9 @@ fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 0);
     assert_eq!(event.amount_reinvested, 0);
+    assert_eq!(event.new_total_deposited_principal, 0);
+    assert_eq!(event.remaining_unclaimed_winnings, 400_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -1120,6 +1144,9 @@ fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 1);
     assert_eq!(event.amount_reinvested, 1_000_000);
+    assert_eq!(event.new_total_deposited_principal, 1_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 500_000);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.winners[0].processed, 1);
@@ -1202,6 +1229,10 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event0.winner, winner0);
     assert_eq!(event0.winner_index, 0);
     assert_eq!(event0.bonds_bought, 0);
+    assert_eq!(event0.amount_reinvested, 0);
+    assert_eq!(event0.new_total_deposited_principal, 0);
+    assert_eq!(event0.remaining_unclaimed_winnings, 0);
+    assert_eq!(event0.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 1);
@@ -1215,6 +1246,10 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event1.winner, winner1);
     assert_eq!(event1.winner_index, 1);
     assert_eq!(event1.bonds_bought, 0);
+    assert_eq!(event1.amount_reinvested, 0);
+    assert_eq!(event1.new_total_deposited_principal, 0);
+    assert_eq!(event1.remaining_unclaimed_winnings, 0);
+    assert_eq!(event1.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 2);
@@ -1355,6 +1390,9 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     assert_eq!(event.winner_index, 2);
     assert_eq!(event.bonds_bought, 4);
     assert_eq!(event.amount_reinvested, 4_000_000);
+    assert_eq!(event.new_total_deposited_principal, 4_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 1);

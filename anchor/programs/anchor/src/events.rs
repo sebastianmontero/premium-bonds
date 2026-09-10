@@ -60,6 +60,12 @@ pub struct WinningsReinvested {
     pub bonds_bought: u32,
     /// Amount of USDC reinvested (in base units).
     pub amount_reinvested: u64,
+    /// Pool's total deposited principal after this reinvestment.
+    pub new_total_deposited_principal: u64,
+    /// User's remaining unclaimed non-reinvested winnings (dust) after this operation.
+    pub remaining_unclaimed_winnings: u64,
+    /// Public key of the crank that executed this reinvestment.
+    pub crank: Pubkey,
     /// Unix timestamp of the reinvestment.
     pub timestamp: i64,
 }

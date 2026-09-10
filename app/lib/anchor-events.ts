@@ -166,6 +166,9 @@ export interface WinningsReinvestedEvent {
   winnerIndex: number;
   bondsBought: number;
   amountReinvested: bigint;
+  newTotalDepositedPrincipal?: bigint;
+  remainingUnclaimedWinnings?: bigint;
+  crank?: Address;
   timestamp?: bigint;
 }
 
@@ -630,7 +633,15 @@ function decodeEventData(
         const winnerIndex = reader.readU32();
         const bondsBought = reader.readU32();
         const amountReinvested = reader.readU64();
+        let newTotalDepositedPrincipal: bigint | undefined;
+        let remainingUnclaimedWinnings: bigint | undefined;
+        let crank: Address | undefined;
         let timestamp: bigint | undefined;
+        if (reader.remaining >= 8)
+          newTotalDepositedPrincipal = reader.readU64();
+        if (reader.remaining >= 8)
+          remainingUnclaimedWinnings = reader.readU64();
+        if (reader.remaining >= 32) crank = reader.readPubkey();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           winner,
@@ -639,6 +650,9 @@ function decodeEventData(
           winnerIndex,
           bondsBought,
           amountReinvested,
+          newTotalDepositedPrincipal,
+          remainingUnclaimedWinnings,
+          crank,
           timestamp,
         } as WinningsReinvestedEvent;
       }
