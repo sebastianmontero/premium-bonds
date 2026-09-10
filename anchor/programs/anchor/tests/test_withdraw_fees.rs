@@ -118,29 +118,21 @@ fn test_withdraw_fees_succeeds() {
         10_000_000,
     );
 
-    // Update pool state to have accrued fees
-    let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.next_redemption_id = 0;
+    // Set Huma venue solvency state to cover book liabilities (1:1 parity, 10M assets / 10M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        10_000_000,
+        10_000_000,
+    );
 
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Update pool state to have accrued fees
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.next_redemption_id = 0;
+    });
 
     let ix = build_withdraw_fees_ix(
         &ctx.svm,
@@ -185,42 +177,14 @@ fn test_withdraw_fees_math_non_1_to_1() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
-    // 1. Set huma_pool_state to total_assets = 20,000,000 USDC
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
-    huma_pool_state_data[30..46].copy_from_slice(&20_000_000u128.to_le_bytes()); // assets = 20 USDC
-    ctx.svm
-        .set_account(
-            ctx.huma_pool_state,
-            Account {
-                lamports: 1_000_000_000,
-                data: huma_pool_state_data,
-                owner: huma_program_id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-
-    // 2. Set pst_mint to supply = 10,000,000 PST (meaning 1 PST = 2 USDC)
-    let mut mint_data = vec![0u8; 82];
-    mint_data[0..4].copy_from_slice(&1u32.to_le_bytes()); // COption::Some
-    mint_data[4..36].copy_from_slice(&ctx.huma_pool_authority.to_bytes());
-    mint_data[36..44].copy_from_slice(&10_000_000u64.to_le_bytes()); // supply = 10M
-    mint_data[44] = 6;
-    mint_data[45] = 1;
-    ctx.svm
-        .set_account(
-            ctx.pst_mint,
-            Account {
-                lamports: 1_000_000_000,
-                data: mint_data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Set Huma venue solvency state: total_assets = 20M, supply = 10M (1 PST = 2 USDC)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        20_000_000,
+        10_000_000,
+    );
 
     // Initialize huma_pool_mode_token owned by huma_pool_authority
     let huma_pool_mode_token = Keypair::new().pubkey();
@@ -244,28 +208,11 @@ fn test_withdraw_fees_math_non_1_to_1() {
     );
 
     // Update pool state to have accrued fees
-    let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.next_redemption_id = 0;
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.next_redemption_id = 0;
+    });
 
     // Withdraw 2 USDC (2_000_000). At 1 PST = 2 USDC, this should equal 1 PST (1_000_000 shares)
     let ix = build_withdraw_fees_ix(
@@ -415,30 +362,23 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
-    // Set up pool state
-    let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 4_000_000; // Available = 1_000_000
+    // Set Huma venue solvency state to cover book liabilities (1M assets / 1M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        1_000_000,
+        1_000_000,
+    );
 
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Set up pool state
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 4_000_000; // Available = 1_000_000
+    });
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pool_pda, _) = pool_pda(1);
     inject_token_account(
         &mut ctx.svm,
         pool_pst_vault,
@@ -513,28 +453,21 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
 
+    // Set Huma venue solvency state to cover book liabilities (5M assets / 5M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        5_000_000,
+        5_000_000,
+    );
+
     // Set accrued fees and freeze the pool for draw
     let (pool_pda_key, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.is_frozen_for_draw = 1;
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_key,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.is_frozen_for_draw = 1;
+    });
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(
@@ -769,29 +702,22 @@ fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
 fn test_withdraw_fees_fails_huma_redemption_error() {
     let mut ctx = setup_e2e();
 
+    // Set Huma venue solvency state to cover book liabilities (5M assets / 5M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        5_000_000,
+        5_000_000,
+    );
+
     // Set up pool state
     let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.next_redemption_id = 0;
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.next_redemption_id = 0;
+    });
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(
@@ -913,28 +839,21 @@ fn test_withdraw_fees_and_claim_e2e() {
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
 
-    // Setup pool state with accrued fees
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.next_redemption_id = 0;
+    // Set Huma venue solvency state to cover book liabilities (10M assets / 10M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        10_000_000,
+        10_000_000,
+    );
 
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    // Setup pool state with accrued fees
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.next_redemption_id = 0;
+    });
 
     // Set up mock $PST in pool's pst vault (representing Huma yield)
     inject_token_account(
@@ -1156,6 +1075,15 @@ fn test_withdraw_fees_succeeds_from_closed_pool() {
     let (pool_pda, _) = pool_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
 
+    // Set Huma venue solvency state to cover book liabilities (10M assets / 10M supply)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        10_000_000,
+        10_000_000,
+    );
+
     // Setup pool state with accrued fees and Closed status
     common::mutate_pool_state(&mut ctx.svm, 1, |pool| {
         pool.total_fees_accrued = 5_000_000;
@@ -1207,3 +1135,71 @@ fn test_withdraw_fees_succeeds_from_closed_pool() {
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.total_fees_withdrawn, 2_000_000);
 }
+
+#[test]
+fn test_withdraw_fees_fails_when_yield_venue_insolvent() {
+    let mut ctx = setup_e2e();
+    let (pool_pda, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let dummy = Keypair::new().pubkey();
+
+    // Setup pool state with 5,000,000 USDC accrued fees liabilities
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+        pool.total_fees_withdrawn = 0;
+        pool.next_redemption_id = 0;
+    });
+
+    // Inject 5,000,000 PST into vault
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda,
+        5_000_000,
+    );
+
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        huma_pool_mode_token,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        0,
+    );
+
+    // Impair Huma assets to 2,000,000 with 5,000,000 PST supply (value = 2M < 5M book liabilities)
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        2_000_000,
+        5_000_000,
+    );
+
+    let ix = build_withdraw_fees_ix(
+        &ctx.svm,
+        ctx.admin.pubkey(),
+        1,
+        0,
+        pool_pst_vault,
+        dummy,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        1_000_000,
+    );
+
+    let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
+    assert!(res.is_err(), "Must fail when yield venue is insolvent");
+    let err_str = format!("{:?}", res.unwrap_err());
+    assert!(
+        err_str.contains("YieldVenueInsolvent")
+            || err_str.contains("6047")
+            || err_str.contains("0x179f"),
+        "Expected YieldVenueInsolvent error, got: {}",
+        err_str
+    );
+}
+

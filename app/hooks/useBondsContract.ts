@@ -119,6 +119,9 @@ export function useBondsContract(poolId: number = 1) {
         ticketsToBuy,
         ticketRegistry: address(pool.ticketRegistry),
         userTokenAccount: userAta,
+        humaPoolState: pool.humaPoolState
+          ? address(pool.humaPoolState)
+          : undefined,
       });
 
       const sig = await send({ instructions: [ix] });
@@ -185,12 +188,15 @@ export function useBondsContract(poolId: number = 1) {
         userAddress: address(userAddress),
         redemptionId,
         userTokenAccount: userAta,
+        humaPoolState: pool?.humaPoolState
+          ? address(pool.humaPoolState)
+          : undefined,
       });
 
       const sig = await send({ instructions: [ix] });
       return sig.toString();
     },
-    [userAddress, poolId, send]
+    [userAddress, pool, poolId, send]
   );
 
   const claimNonReinvestedWinnings = useCallback(
@@ -203,6 +209,9 @@ export function useBondsContract(poolId: number = 1) {
         userAddress: address(userAddress),
         amount,
         nextRedemptionId: pool.nextRedemptionId || 0,
+        humaPoolState: pool.humaPoolState
+          ? address(pool.humaPoolState)
+          : undefined,
       });
 
       const sig = await send({ instructions: [ix] });

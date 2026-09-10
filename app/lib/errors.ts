@@ -54,6 +54,14 @@ import {
   ANCHOR_ERROR__TOO_MANY_WINNERS,
   ANCHOR_ERROR__INVALID_HUMA_POOL_DATA,
   ANCHOR_ERROR__INVALID_REGISTRY_STATE,
+  ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED,
+  ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED,
+  ANCHOR_ERROR__INVALID_TOKEN_MINT,
+  ANCHOR_ERROR__NO_PENDING_ADMIN,
+  ANCHOR_ERROR__NOT_PENDING_ADMIN,
+  ANCHOR_ERROR__INVALID_ADMIN_ADDRESS,
+  ANCHOR_ERROR__CANNOT_NOMINATE_SELF,
+  ANCHOR_ERROR__INVALID_HUMA_POOL_STATE,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -416,9 +424,10 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   },
   [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: {
     name: "YieldVenueInsolvent",
-    message: "Yield venue balance dropped below deposited book value.",
+    message:
+      "Yield venue valuation is insufficient to cover total protocol liabilities (deposited principal, unwithdrawn fees, and prize allocations).",
     actionable:
-      "The pool has been paused by the automated solvency guard to prevent capital leakage.",
+      "Deposits, withdrawals, and fee claims are temporarily protected until venue solvency reaches parity.",
   },
   [ANCHOR_ERROR__UNAUTHORIZED]: {
     name: "Unauthorized",
@@ -459,6 +468,58 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Ticket registry buffer layout or alignment is invalid.",
     actionable:
       "Ensure ticket registry account data has sufficient byte capacity and valid memory layout.",
+  },
+  [ANCHOR_ERROR__TRANSFER_FEE_NOT_SUPPORTED]: {
+    name: "TransferFeeNotSupported",
+    message:
+      "Token mint contains unsupported Token-2022 transfer fee extension.",
+    actionable:
+      "Select or initialize a token mint without transfer fee extensions.",
+  },
+  [ANCHOR_ERROR__TRANSFER_HOOK_NOT_SUPPORTED]: {
+    name: "TransferHookNotSupported",
+    message:
+      "Token mint contains unsupported Token-2022 transfer hook extension.",
+    actionable:
+      "Select or initialize a token mint without transfer hook extensions.",
+  },
+  [ANCHOR_ERROR__INVALID_TOKEN_MINT]: {
+    name: "InvalidTokenMint",
+    message:
+      "Token mint account data is malformed or configures unauthorized permanent delegate/close extensions.",
+    actionable:
+      "Ensure the token mint does not configure permanent delegate or close authority extensions.",
+  },
+  [ANCHOR_ERROR__NO_PENDING_ADMIN]: {
+    name: "NoPendingAdmin",
+    message: "No pending administrator nomination is currently active.",
+    actionable:
+      "Nominate a pending admin using nominate-admin before attempting acceptance.",
+  },
+  [ANCHOR_ERROR__NOT_PENDING_ADMIN]: {
+    name: "NotPendingAdmin",
+    message: "Caller is not the nominated pending administrator.",
+    actionable:
+      "Sign the accept-admin transaction with the designated pending admin keypair.",
+  },
+  [ANCHOR_ERROR__INVALID_ADMIN_ADDRESS]: {
+    name: "InvalidAdminAddress",
+    message: "Administrator address cannot be the default zero address.",
+    actionable: "Provide a valid, non-default Solana public key address.",
+  },
+  [ANCHOR_ERROR__CANNOT_NOMINATE_SELF]: {
+    name: "CannotNominateSelf",
+    message:
+      "Current administrator cannot nominate themselves as pending admin.",
+    actionable:
+      "Nominate a distinct administrator public key to initiate role transfer.",
+  },
+  [ANCHOR_ERROR__INVALID_HUMA_POOL_STATE]: {
+    name: "InvalidHumaPoolState",
+    message:
+      "Provided Huma pool state account is invalid, uninitialized, or does not match the pool configuration.",
+    actionable:
+      "Ensure the Huma pool state account exists, is owned by the Huma program, and matches the pool configuration.",
   },
 };
 

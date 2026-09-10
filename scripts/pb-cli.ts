@@ -82,6 +82,9 @@ import {
   buildPrepareDrawInstruction,
   buildInitializeGlobalInstruction,
   buildUpdateGlobalConfigInstruction,
+  buildNominateAdminInstruction,
+  buildCancelAdminNominationInstruction,
+  buildAcceptAdminInstruction,
   buildCreatePoolInstruction,
   buildInitializeHumaLenderInstruction,
   buildResizeRegistryInstruction,
@@ -287,15 +290,11 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
   "update-global-config": {
     command: "update-global-config",
     category: "Admin",
-    summary: "Update global config (admin, guardian, jobs account)",
+    summary: "Update global config (guardian, jobs account)",
     description:
-      "Update global configuration parameters including admin authority, guardian authority, and jobs account.",
+      "Update global configuration parameters including guardian authority and jobs account. For admin transfer, use nominate-admin and accept-admin.",
     requiresSigner: true,
     options: [
-      {
-        flag: "--new-admin <pubkey>",
-        description: "New admin authority address (requires --confirm)",
-      },
       {
         flag: "--guardian <pubkey>",
         description: "New emergency guardian authority address",
@@ -304,13 +303,47 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
         flag: "--jobs <pubkey>",
         description: "New crank bot/jobs account public key",
       },
+    ],
+    examples: [
+      "npm run pb-cli update-global-config -- --guardian <pubkey>",
+      "npm run pb-cli update-global-config -- --jobs <pubkey>",
+    ],
+  },
+  "nominate-admin": {
+    command: "nominate-admin",
+    category: "Admin",
+    summary: "Nominate a pending admin in two-step governance",
+    description:
+      "Set the pendingAdmin field on GlobalConfig. The nominated address must subsequently call accept-admin.",
+    requiresSigner: true,
+    options: [
       {
-        flag: "--confirm",
-        description:
-          "Explicit confirmation flag required for changing admin authority",
+        flag: "--new-admin <pubkey>",
+        description: "Public key of the candidate admin to nominate",
+        required: true,
       },
     ],
-    examples: ["npm run pb-cli update-global-config -- --guardian <pubkey>"],
+    examples: ["npm run pb-cli nominate-admin -- --new-admin <pubkey>"],
+  },
+  "cancel-admin-nomination": {
+    command: "cancel-admin-nomination",
+    category: "Admin",
+    summary: "Cancel an active pending admin nomination",
+    description:
+      "Clears the pendingAdmin field on GlobalConfig back to the zero address (System Program).",
+    requiresSigner: true,
+    examples: ["npm run pb-cli cancel-admin-nomination"],
+  },
+  "accept-admin": {
+    command: "accept-admin",
+    category: "Admin",
+    summary: "Accept admin role as the nominated pending admin",
+    description:
+      "Finalizes the two-step admin transfer. Must be signed by the nominated pending admin.",
+    requiresSigner: true,
+    examples: [
+      "npm run pb-cli accept-admin --keypair <path-to-pending-admin-keypair>",
+    ],
   },
   "create-pool": {
     command: "create-pool",
@@ -1710,20 +1743,16 @@ export async function getGlobalAdmin(rpc: SolanaRpc): Promise<Address> {
 }
 
 export interface ExecuteUpdateGlobalConfigParams {
-  newAdmin?: string;
   guardianAccount?: string;
   jobsAccount?: string;
-  confirm?: boolean;
   rpcUrl?: string;
   signer: KeyPairSigner;
   mode?: AdminExecutionMode;
 }
 
 export async function executeUpdateGlobalConfig({
-  newAdmin,
   guardianAccount,
   jobsAccount,
-  confirm = false,
   rpcUrl = "http://127.0.0.1:8899",
   signer,
   mode = { kind: "direct" },
@@ -1745,22 +1774,15 @@ export async function executeUpdateGlobalConfig({
     new Uint8Array(base64Encoder.encode(acc.value.data[0]))
   );
 
-  if (!newAdmin && !guardianAccount && !jobsAccount) {
+  if (!guardianAccount && !jobsAccount) {
     throw new Error(
-      "No update parameters specified. Pass --new-admin, --guardian, or --jobs."
-    );
-  }
-
-  if (newAdmin && !confirm) {
-    throw new Error(
-      `CAUTION: Transferring admin authority to "${newAdmin}" cannot be undone unless the new key signs future transactions. Pass --confirm to proceed.`
+      "No update parameters specified. Pass --guardian or --jobs."
     );
   }
 
   console.log(`Updating Global Config:
   Current Admin: ${state.admin}
   Current Guardian: ${state.guardian}
-  ${newAdmin ? `New Admin: ${newAdmin}` : ""}
   ${guardianAccount ? `New Guardian: ${guardianAccount}` : ""}
   ${jobsAccount ? `New Jobs Account: ${jobsAccount}` : ""}
 `);
@@ -1774,9 +1796,159 @@ export async function executeUpdateGlobalConfig({
     builder: async (auth) => {
       return await buildUpdateGlobalConfigInstruction({
         admin: auth,
-        newAdmin: newAdmin ? address(newAdmin) : undefined,
         newGuardian: guardianAccount ? address(guardianAccount) : undefined,
         newJobsAccount: jobsAccount ? address(jobsAccount) : undefined,
+      });
+    },
+  });
+}
+
+export interface ExecuteNominateAdminParams {
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
+  newAdmin: string;
+}
+
+export async function executeNominateAdmin({
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+  mode = { kind: "direct" },
+  newAdmin,
+}: ExecuteNominateAdminParams) {
+  if (!newAdmin) {
+    throw new CliArgumentError(
+      "Missing required parameter: --new-admin <pubkey>"
+    );
+  }
+
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const configPda = await findGlobalConfigPda();
+
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (!acc || !acc.value) {
+    throw new Error(
+      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
+    );
+  }
+
+  const state = parseGlobalConfig(
+    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
+  );
+
+  console.log(`Nominating Admin:
+  Current Admin: ${state.admin}
+  Nominated Pending Admin: ${newAdmin}
+`);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: state.admin,
+    mode,
+    commandName: "nominate-admin",
+    builder: async (auth) => {
+      return await buildNominateAdminInstruction({
+        admin: auth,
+        pendingAdmin: address(newAdmin),
+      });
+    },
+  });
+}
+
+export interface ExecuteCancelAdminNominationParams {
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
+}
+
+export async function executeCancelAdminNomination({
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+  mode = { kind: "direct" },
+}: ExecuteCancelAdminNominationParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const configPda = await findGlobalConfigPda();
+
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (!acc || !acc.value) {
+    throw new Error(
+      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
+    );
+  }
+
+  const state = parseGlobalConfig(
+    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
+  );
+
+  console.log(`Cancelling Admin Nomination:
+  Current Admin: ${state.admin}
+  Pending Admin being cancelled: ${state.pendingAdmin || "(none)"}
+`);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: state.admin,
+    mode,
+    commandName: "cancel-admin-nomination",
+    builder: async (auth) => {
+      return await buildCancelAdminNominationInstruction({
+        admin: auth,
+      });
+    },
+  });
+}
+
+export interface ExecuteAcceptAdminParams {
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+  mode?: AdminExecutionMode;
+}
+
+export async function executeAcceptAdmin({
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+  mode = { kind: "direct" },
+}: ExecuteAcceptAdminParams) {
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const configPda = await findGlobalConfigPda();
+
+  const acc = await rpc
+    .getAccountInfo(configPda, { encoding: "base64" })
+    .send();
+  if (!acc || !acc.value) {
+    throw new Error(
+      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
+    );
+  }
+
+  const state = parseGlobalConfig(
+    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
+  );
+
+  console.log(`Accepting Admin Role:
+  Previous Admin: ${state.admin}
+  Pending Admin: ${state.pendingAdmin}
+  Signing as: ${signer.address}
+`);
+
+  await dispatchAdminInstruction({
+    rpc,
+    signer,
+    expectedAdmin: state.pendingAdmin,
+    mode,
+    commandName: "accept-admin",
+    builder: async (auth) => {
+      return await buildAcceptAdminInstruction({
+        newAdmin: auth,
       });
     },
   });
@@ -3073,15 +3245,40 @@ async function main() {
     }
 
     case "update-global-config": {
-      const newAdmin = options["--new-admin"];
       const guardianAccount = options["--guardian"];
       const jobsAccount = options["--jobs"];
-      const confirm = options["--confirm"] === "true";
       await executeUpdateGlobalConfig({
-        newAdmin,
         guardianAccount,
         jobsAccount,
-        confirm,
+        rpcUrl,
+        signer: signer!,
+        mode: adminMode,
+      });
+      break;
+    }
+
+    case "nominate-admin": {
+      const newAdmin = options["--new-admin"] || positionals[0];
+      await executeNominateAdmin({
+        newAdmin: newAdmin!,
+        rpcUrl,
+        signer: signer!,
+        mode: adminMode,
+      });
+      break;
+    }
+
+    case "cancel-admin-nomination": {
+      await executeCancelAdminNomination({
+        rpcUrl,
+        signer: signer!,
+        mode: adminMode,
+      });
+      break;
+    }
+
+    case "accept-admin": {
+      await executeAcceptAdmin({
         rpcUrl,
         signer: signer!,
         mode: adminMode,
@@ -3414,6 +3611,7 @@ async function main() {
       const state = parseGlobalConfig(bytes);
       console.log(`Global Config:
   Admin: ${state.admin}
+  Pending Admin: ${state.pendingAdmin || "(none)"}
   Guardian (Pause Authority): ${state.guardian}
   Jobs Account (Crank): ${state.jobsAccount}
 `);
@@ -3444,6 +3642,7 @@ async function main() {
 
       console.log(`Prize Pool ${targetPoolId}:
   Token Mint: ${state.tokenMint}
+  Pinned Huma Pool State: ${state.humaPoolState}
   Pool Vault (PDA / Token Account): ${poolVault}
   Pool PST Vault (PDA / Token Account): ${poolPstVault}
   Ticket Registry: ${state.ticketRegistry}

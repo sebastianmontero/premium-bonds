@@ -10,6 +10,7 @@ import { address, signature as toSignature, type Address } from "@solana/kit";
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { buildClaimRedemptionInstruction } from "@/app/lib/bonds-instruction-factory";
 import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
+import { usePrizePool } from "../queries/usePrizePool";
 
 import type { PendingRedemption } from "@/app/types";
 
@@ -24,6 +25,7 @@ export function useClaimRedemption(poolId: PoolId = 1) {
   const rpc = client.runtime.rpc;
   const { wallet } = useWalletConnection();
   const { send } = useSendTransaction();
+  const { data: poolData } = usePrizePool(poolId);
   const userAddress = wallet?.account.address.toString();
 
   return useMutation({
@@ -38,6 +40,9 @@ export function useClaimRedemption(poolId: PoolId = 1) {
         userAddress: address(userAddress),
         redemptionId,
         userTokenAccount,
+        humaPoolState: poolData?.humaPoolState
+          ? address(poolData.humaPoolState)
+          : undefined,
       });
 
       const signature = await send({ instructions: [ix] });

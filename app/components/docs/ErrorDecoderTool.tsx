@@ -22,6 +22,8 @@ const FEATURED_ERROR_PRESETS = [
   "6020",
   "6044",
   "6047",
+  "6055",
+  "6058",
 ];
 
 export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {

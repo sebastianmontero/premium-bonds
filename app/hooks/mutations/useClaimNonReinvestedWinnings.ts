@@ -39,6 +39,9 @@ export function useClaimNonReinvestedWinnings(poolId: PoolId = 1) {
         userAddress: address(userAddress),
         amount: 0, // Ignored by on-chain instruction (claims 100%)
         nextRedemptionId: resolvedRedemptionId,
+        humaPoolState: poolData?.humaPoolState
+          ? address(poolData.humaPoolState)
+          : undefined,
       });
 
       const signature = await send({ instructions: [ix] });

@@ -216,12 +216,14 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     view.setUint16(96, 250, true); // feeBasisPoints (88)
     view.setUint16(98, 500, true); // maxYieldBasisPoints (90)
     view.setUint32(100, 300, true); // payoutTimelockSeconds (92)
-
     buffer[8 + 96] = 254; // vaultAuthorityBump (96)
     buffer[8 + 97] = 0; // status (0 = Active) (97)
     buffer[8 + 98] = 0; // isFrozenForDraw (98)
     buffer[8 + 99] = 1; // version (99)
     buffer[8 + 100] = 1; // prizeTiersCount (100)
+
+    // 4 x 32-byte pubkeys: tokenMint (104), ticketRegistry (136), feeWallet (168), humaPoolState (200)
+    buffer.fill(3, 8 + 200, 8 + 232); // humaPoolState
 
     // prizeTier 0 at offset 8 + 232 (after 4 x 32-byte pubkeys: tokenMint, ticketRegistry, feeWallet, humaPoolState)
     const tierOffset = 8 + 232;
@@ -233,6 +235,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.strictEqual(parsed.status, "Active");
     assert.strictEqual(parsed.bondPrice, 1_000_000);
     assert.strictEqual(parsed.totalDepositedPrincipal, 50_000_000);
+    assert.ok(parsed.humaPoolState, "humaPoolState must be present");
     assert.strictEqual(parsed.prizeTiers.length, 1);
     assert.strictEqual(parsed.prizeTiers[0].basisPoints, 10000);
 

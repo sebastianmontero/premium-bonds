@@ -8,9 +8,9 @@ import {
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 55 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 55 errors defined from 6000 to 6054 inclusive
-    for (let code = 6000; code <= 6054; code++) {
+  it("should have complete 63 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 63 errors defined from 6000 to 6062 inclusive
+    for (let code = 6000; code <= 6062; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -117,5 +117,31 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       "wallet_cancellation",
       "Category must be wallet_cancellation"
     );
+  });
+
+  it("should correctly parse and sanitize newly added security remediation errors", () => {
+    // 6047: YieldVenueInsolvent
+    const parsed6047 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: YieldVenueInsolvent. Error Number: 6047.",
+    });
+    assert.strictEqual(parsed6047.code, 6047);
+    assert.strictEqual(parsed6047.title, "Program Error: YieldVenueInsolvent");
+
+    // 6055: TransferFeeNotSupported
+    const parsed6055 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: TransferFeeNotSupported. Error Number: 6055.",
+    });
+    assert.strictEqual(parsed6055.code, 6055);
+    assert.strictEqual(parsed6055.title, "Program Error: TransferFeeNotSupported");
+
+    // 6062: InvalidHumaPoolState
+    const parsed6062 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: InvalidHumaPoolState. Error Number: 6062.",
+    });
+    assert.strictEqual(parsed6062.code, 6062);
+    assert.strictEqual(parsed6062.title, "Program Error: InvalidHumaPoolState");
   });
 });

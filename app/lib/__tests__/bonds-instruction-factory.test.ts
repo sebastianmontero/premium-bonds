@@ -29,6 +29,31 @@ test("bonds-instruction-factory: builds buy bonds instruction with all derived a
   assert.ok(ix.data && ix.data.length > 8);
 });
 
+test("bonds-instruction-factory: derives humaPoolAuthority dynamically from custom humaPoolState", async () => {
+  const dummyUser = address("11111111111111111111111111111111");
+  const dummyRegistry = address("11111111111111111111111111111111");
+  const customHumaPoolState = address(
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  );
+  const { findHumaPoolAuthorityPda } = await import("../bonds-sdk");
+  const expectedHumaAuthority =
+    await findHumaPoolAuthorityPda(customHumaPoolState);
+
+  const ix = await buildBuyBondsInstruction({
+    poolId: 1,
+    userAddress: dummyUser,
+    ticketsToBuy: 1,
+    ticketRegistry: dummyRegistry,
+    userTokenAccount: dummyUser,
+    humaPoolState: customHumaPoolState,
+  });
+
+  assert.ok(ix);
+  assert.ok(ix.accounts);
+  assert.equal(ix.accounts[11].address, customHumaPoolState);
+  assert.equal(ix.accounts[14].address, expectedHumaAuthority);
+});
+
 test("bonds-instruction-factory: builds claim redemption instruction", async () => {
   const dummyUser = address("11111111111111111111111111111111");
   const dummyUserToken = address("11111111111111111111111111111111");

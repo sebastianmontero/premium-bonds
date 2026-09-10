@@ -111,6 +111,7 @@ export async function getPoolInfo(
         totalPrizesDistributed: undefined,
         payoutTimelockSeconds: parsedPool.payoutTimelockSeconds,
         ticketRegistry: parsedPool.ticketRegistry,
+        humaPoolState: parsedPool.humaPoolState,
         nextRedemptionId: parsedPool.nextRedemptionId,
       };
 

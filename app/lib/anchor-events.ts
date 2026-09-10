@@ -255,6 +255,7 @@ export interface PoolCreatedEvent {
   pstMint: Address;
   feeWallet: Address;
   ticketRegistry: Address;
+  humaPoolState: Address;
   bondPrice: bigint;
   stakeCycleDurationHrs: bigint;
   feeBasisPoints: number;
@@ -281,12 +282,28 @@ export interface GlobalConfigInitializedEvent {
 
 export interface GlobalConfigUpdatedEvent {
   authority: Address;
-  oldAdmin: Address;
-  newAdmin: Address;
   oldGuardian: Address;
   newGuardian: Address;
   oldJobsAccount: Address;
   newJobsAccount: Address;
+  timestamp?: bigint;
+}
+
+export interface AdminNominatedEvent {
+  currentAdmin: Address;
+  pendingAdmin: Address;
+  timestamp?: bigint;
+}
+
+export interface AdminNominationCancelledEvent {
+  currentAdmin: Address;
+  cancelledPendingAdmin: Address;
+  timestamp?: bigint;
+}
+
+export interface AdminTransferredEvent {
+  oldAdmin: Address;
+  newAdmin: Address;
   timestamp?: bigint;
 }
 
@@ -392,6 +409,9 @@ export type ParsedProgramEvent =
   | { type: "HumaLenderInitialized"; data: HumaLenderInitializedEvent }
   | { type: "GlobalConfigInitialized"; data: GlobalConfigInitializedEvent }
   | { type: "GlobalConfigUpdated"; data: GlobalConfigUpdatedEvent }
+  | { type: "AdminNominated"; data: AdminNominatedEvent }
+  | { type: "AdminNominationCancelled"; data: AdminNominationCancelledEvent }
+  | { type: "AdminTransferred"; data: AdminTransferredEvent }
   | { type: "PoolConfigUpdated"; data: PoolConfigUpdatedEvent }
   | { type: "PoolStatusChanged"; data: PoolStatusChangedEvent }
   | {
@@ -484,6 +504,9 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["pool"]);
     case "GlobalConfigInitialized":
     case "GlobalConfigUpdated":
+    case "AdminNominated":
+    case "AdminNominationCancelled":
+    case "AdminTransferred":
       return createMetadata(0, ["all"]);
     case "PoolConfigUpdated":
     case "PoolStatusChanged":
@@ -519,6 +542,9 @@ const DISCRIMINATOR_MAP: Record<string, ParsedProgramEvent["type"]> = {
   "42d0fe019915d733": "HumaLenderInitialized",
   "05ddac9e4d579d71": "GlobalConfigInitialized",
   e8ee9e7bd2ac9f2e: "GlobalConfigUpdated",
+  "16f735213b3b4470": "AdminNominated",
+  a91d73721a4bda1b: "AdminNominationCancelled",
+  ff93b605c7d926b3: "AdminTransferred",
   ce211d0854548227: "PoolConfigUpdated",
   "94be513e51ef89bc": "PoolStatusChanged",
   a8998a09be43e611: "EmergencyInsolvencyDetected",
@@ -781,6 +807,7 @@ function decodeEventData(
           pstMint: reader.readPubkey(),
           feeWallet: reader.readPubkey(),
           ticketRegistry: reader.readPubkey(),
+          humaPoolState: reader.readPubkey(),
           bondPrice: reader.readU64(),
           stakeCycleDurationHrs: reader.readI64(),
           feeBasisPoints: reader.readU16(),
@@ -810,14 +837,33 @@ function decodeEventData(
       case "GlobalConfigUpdated": {
         return {
           authority: reader.readPubkey(),
-          oldAdmin: reader.readPubkey(),
-          newAdmin: reader.readPubkey(),
           oldGuardian: reader.readPubkey(),
           newGuardian: reader.readPubkey(),
           oldJobsAccount: reader.readPubkey(),
           newJobsAccount: reader.readPubkey(),
           timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
         } as GlobalConfigUpdatedEvent;
+      }
+      case "AdminNominated": {
+        return {
+          currentAdmin: reader.readPubkey(),
+          pendingAdmin: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as AdminNominatedEvent;
+      }
+      case "AdminNominationCancelled": {
+        return {
+          currentAdmin: reader.readPubkey(),
+          cancelledPendingAdmin: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as AdminNominationCancelledEvent;
+      }
+      case "AdminTransferred": {
+        return {
+          oldAdmin: reader.readPubkey(),
+          newAdmin: reader.readPubkey(),
+          timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
+        } as AdminTransferredEvent;
       }
       case "PoolConfigUpdated": {
         return {

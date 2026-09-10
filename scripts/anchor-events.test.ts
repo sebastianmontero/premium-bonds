@@ -640,4 +640,110 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     assert.deepStrictEqual(metaSpike.scopes, ["pool", "draws"]);
   });
+
+  it("should roundtrip AdminNominated, AdminNominationCancelled, and AdminTransferred events", () => {
+    // AdminNominated
+    const nomLog = serializeAnchorEvent("AdminNominated", {
+      currentAdmin: dummyPubkeyStr,
+      pendingAdmin: "22222222222222222222222222222222222222222222",
+    });
+    const parsedNom = parseEventsFromTxMeta({ logMessages: [nomLog] });
+    assert.strictEqual(parsedNom.length, 1);
+    assert.strictEqual(parsedNom[0].type, "AdminNominated");
+    if (parsedNom[0].type === "AdminNominated") {
+      assert.strictEqual(parsedNom[0].data.currentAdmin, dummyPubkeyStr);
+      assert.strictEqual(
+        parsedNom[0].data.pendingAdmin,
+        "22222222222222222222222222222222222222222222"
+      );
+    }
+
+    // AdminNominationCancelled
+    const cancelLog = serializeAnchorEvent("AdminNominationCancelled", {
+      currentAdmin: dummyPubkeyStr,
+      cancelledPendingAdmin: "22222222222222222222222222222222222222222222",
+    });
+    const parsedCancel = parseEventsFromTxMeta({ logMessages: [cancelLog] });
+    assert.strictEqual(parsedCancel.length, 1);
+    assert.strictEqual(parsedCancel[0].type, "AdminNominationCancelled");
+    if (parsedCancel[0].type === "AdminNominationCancelled") {
+      assert.strictEqual(parsedCancel[0].data.currentAdmin, dummyPubkeyStr);
+      assert.strictEqual(
+        parsedCancel[0].data.cancelledPendingAdmin,
+        "22222222222222222222222222222222222222222222"
+      );
+    }
+
+    // AdminTransferred
+    const transLog = serializeAnchorEvent("AdminTransferred", {
+      oldAdmin: dummyPubkeyStr,
+      newAdmin: "22222222222222222222222222222222222222222222",
+    });
+    const parsedTrans = parseEventsFromTxMeta({ logMessages: [transLog] });
+    assert.strictEqual(parsedTrans.length, 1);
+    assert.strictEqual(parsedTrans[0].type, "AdminTransferred");
+    if (parsedTrans[0].type === "AdminTransferred") {
+      assert.strictEqual(parsedTrans[0].data.oldAdmin, dummyPubkeyStr);
+      assert.strictEqual(
+        parsedTrans[0].data.newAdmin,
+        "22222222222222222222222222222222222222222222"
+      );
+    }
+  });
+
+  it("should roundtrip PoolCreated with humaPoolState and GlobalConfigUpdated with 5 pubkeys", () => {
+    // PoolCreated
+    const poolLog = serializeAnchorEvent("PoolCreated", {
+      poolId: 1,
+      admin: dummyPubkeyStr,
+      tokenMint: dummyPubkeyStr,
+      pstMint: dummyPubkeyStr,
+      feeWallet: dummyPubkeyStr,
+      ticketRegistry: dummyPubkeyStr,
+      humaPoolState: "33333333333333333333333333333333333333333333",
+      bondPrice: 1_000_000n,
+      stakeCycleDurationHrs: 24n,
+      feeBasisPoints: 500,
+      minYieldThreshold: 100_000n,
+      maxYieldBasisPoints: 1000,
+      payoutTimelockSeconds: 300,
+      tiersCount: 1,
+      totalWinners: 1,
+    });
+    const parsedPool = parseEventsFromTxMeta({ logMessages: [poolLog] });
+    assert.strictEqual(parsedPool.length, 1);
+    assert.strictEqual(parsedPool[0].type, "PoolCreated");
+    if (parsedPool[0].type === "PoolCreated") {
+      assert.strictEqual(parsedPool[0].data.poolId, 1);
+      assert.strictEqual(
+        parsedPool[0].data.humaPoolState,
+        "33333333333333333333333333333333333333333333"
+      );
+      assert.strictEqual(parsedPool[0].data.feeBasisPoints, 500);
+      assert.strictEqual(parsedPool[0].data.tiersCount, 1);
+    }
+
+    // GlobalConfigUpdated
+    const gcLog = serializeAnchorEvent("GlobalConfigUpdated", {
+      authority: dummyPubkeyStr,
+      oldGuardian: dummyPubkeyStr,
+      newGuardian: "44444444444444444444444444444444444444444444",
+      oldJobsAccount: dummyPubkeyStr,
+      newJobsAccount: "55555555555555555555555555555555555555555555",
+    });
+    const parsedGc = parseEventsFromTxMeta({ logMessages: [gcLog] });
+    assert.strictEqual(parsedGc.length, 1);
+    assert.strictEqual(parsedGc[0].type, "GlobalConfigUpdated");
+    if (parsedGc[0].type === "GlobalConfigUpdated") {
+      assert.strictEqual(parsedGc[0].data.authority, dummyPubkeyStr);
+      assert.strictEqual(
+        parsedGc[0].data.newGuardian,
+        "44444444444444444444444444444444444444444444"
+      );
+      assert.strictEqual(
+        parsedGc[0].data.newJobsAccount,
+        "55555555555555555555555555555555555555555555"
+      );
+    }
+  });
 });

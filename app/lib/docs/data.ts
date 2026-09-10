@@ -2290,6 +2290,158 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     category: "anchor",
   },
+  {
+    code: "6055",
+    numericCode: 6055,
+    hexCode: "0x17a7",
+    name: "TransferFeeNotSupported",
+    summary: {
+      en: "Token-2022 transfer fee extension is not supported.",
+      es: "La extensión de tarifa de transferencia Token-2022 no es compatible.",
+    },
+    diagnosis: {
+      en: "Underlying token or PST mint contains TransferFeeConfig extension, which violates protocol accounting invariants.",
+      es: "El token subyacente o PST contiene la extensión TransferFeeConfig, lo que viola los invariantes de contabilidad del protocolo.",
+    },
+    solution: {
+      en: "Use a standard SPL Token or Token-2022 mint without transfer fee extensions.",
+      es: "Utiliza un token SPL estándar o Token-2022 sin extensiones de tarifa de transferencia.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6056",
+    numericCode: 6056,
+    hexCode: "0x17a8",
+    name: "TransferHookNotSupported",
+    summary: {
+      en: "Token-2022 transfer hook extension is not supported.",
+      es: "La extensión transfer hook de Token-2022 no es compatible.",
+    },
+    diagnosis: {
+      en: "Underlying token or PST mint contains TransferHook extension, which introduces CPI reentrancy or unpredictable compute unit risks.",
+      es: "El token subyacente o PST contiene la extensión TransferHook, introduciendo riesgos de reentrada o consumo impredecible de unidades de cómputo.",
+    },
+    solution: {
+      en: "Select a token mint without custom transfer hook program configurations.",
+      es: "Selecciona un token sin programas de transfer hook configurados.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6057",
+    numericCode: 6057,
+    hexCode: "0x17a9",
+    name: "InvalidTokenMint",
+    summary: {
+      en: "Token mint data is malformed or configures unauthorized control extensions.",
+      es: "Los datos del token están malformados o configuran extensiones de control no autorizadas.",
+    },
+    diagnosis: {
+      en: "Token mint account data is malformed or configures permanent delegate or close authority extensions.",
+      es: "La cuenta del token está malformada o configura extensiones de delegado permanente o autoridad de cierre.",
+    },
+    solution: {
+      en: "Ensure the token mint does not configure permanent delegate or close authority extensions.",
+      es: "Asegúrate de que el token no configure extensiones de delegado permanente ni autoridad de cierre.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6058",
+    numericCode: 6058,
+    hexCode: "0x17aa",
+    name: "NoPendingAdmin",
+    summary: {
+      en: "No pending administrator nomination is currently active.",
+      es: "No hay ninguna nominación de administrador pendiente activa.",
+    },
+    diagnosis: {
+      en: "An accept or cancel admin operation was attempted when no pending admin nomination exists in GlobalConfig.",
+      es: "Se intentó aceptar o cancelar la administración cuando no existe ninguna nominación pendiente en GlobalConfig.",
+    },
+    solution: {
+      en: "Execute nominate-admin from the current administrator authority before attempting acceptance.",
+      es: "Ejecuta nominate-admin desde la autoridad administradora actual antes de intentar la aceptación.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6059",
+    numericCode: 6059,
+    hexCode: "0x17ab",
+    name: "NotPendingAdmin",
+    summary: {
+      en: "Caller is not the nominated pending administrator.",
+      es: "El firmante no es el administrador pendiente nominado.",
+    },
+    diagnosis: {
+      en: "The transaction signer does not match the pending_admin public key recorded in GlobalConfig.",
+      es: "El firmante de la transacción no coincide con la clave pública pending_admin registrada en GlobalConfig.",
+    },
+    solution: {
+      en: "Sign the accept-admin transaction with the designated pending admin keypair.",
+      es: "Firma la transacción accept-admin con la clave del administrador pendiente designado.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6060",
+    numericCode: 6060,
+    hexCode: "0x17ac",
+    name: "InvalidAdminAddress",
+    summary: {
+      en: "Administrator address cannot be the default zero address.",
+      es: "La dirección del administrador no puede ser la dirección cero predeterminada.",
+    },
+    diagnosis: {
+      en: "An administrator initialization or nomination passed Pubkey::default() (11111111111111111111111111111111).",
+      es: "Una inicialización o nominación de administrador envió Pubkey::default() (11111111111111111111111111111111).",
+    },
+    solution: {
+      en: "Provide a valid, non-default Solana public key address.",
+      es: "Proporciona una dirección de clave pública de Solana válida y no predeterminada.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6061",
+    numericCode: 6061,
+    hexCode: "0x17ad",
+    name: "CannotNominateSelf",
+    summary: {
+      en: "Current administrator cannot nominate themselves as pending admin.",
+      es: "El administrador actual no puede nominarse a sí mismo como administrador pendiente.",
+    },
+    diagnosis: {
+      en: "The current administrator public key was provided as the pending admin nominee.",
+      es: "Se proporcionó la clave pública del administrador actual como nominado a administrador pendiente.",
+    },
+    solution: {
+      en: "Nominate a distinct new administrator address to initiate a governance role handover.",
+      es: "Nomina una dirección de administrador distinta para iniciar la transferencia de gobernanza.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6062",
+    numericCode: 6062,
+    hexCode: "0x17ae",
+    name: "InvalidHumaPoolState",
+    summary: {
+      en: "Provided Huma pool state account is invalid or uninitialized.",
+      es: "La cuenta de estado del fondo Huma proporcionada es inválida o no está inicializada.",
+    },
+    diagnosis: {
+      en: "The Huma pool state account does not exist, is not owned by the Huma program, or does not match the pinned pool configuration.",
+      es: "La cuenta de estado del fondo Huma no existe, no pertenece al programa Huma o no coincide con la configuración del fondo.",
+    },
+    solution: {
+      en: "Ensure the Huma pool state account exists, is owned by the Huma program, and matches the pool's pinned venue.",
+      es: "Asegúrate de que la cuenta de estado del fondo Huma exista, pertenezca al programa Huma y coincida con el fondo.",
+    },
+    category: "anchor",
+  },
 ];
 
 // =========================================================================

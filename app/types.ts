@@ -46,6 +46,8 @@ export interface PoolInfo {
   payoutTimelockSeconds?: number;
   /** Public key address of the TicketRegistry PDA (base58) */
   ticketRegistry?: string;
+  /** Public key address of the pinned Huma Pool State account (base58) */
+  humaPoolState?: string;
   /** Next sequential redemption request ID on-chain */
   nextRedemptionId?: number;
 }

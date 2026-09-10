@@ -52,11 +52,13 @@ export class DisburseSentinelWorker {
     humaAddresses?: HumaPoolAddresses
   ): Promise<Instruction[]> {
     const defaultHumaAddresses: HumaPoolAddresses = humaAddresses || {
-      poolState: address(
-        process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-          process.env.HUMA_POOL_STATE ||
-          SYSTEM_PROGRAM_ID
-      ),
+      poolState:
+        snapshot.pool.humaPoolState ||
+        address(
+          process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
+            process.env.HUMA_POOL_STATE ||
+            SYSTEM_PROGRAM_ID
+        ),
       config: address(
         process.env.NEXT_PUBLIC_HUMA_CONFIG ||
           process.env.HUMA_CONFIG ||

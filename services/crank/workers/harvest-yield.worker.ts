@@ -44,11 +44,13 @@ export class HarvestYieldWorker implements ICrankWorker<
         SYSTEM_PROGRAM_ID
     );
 
-    const humaPoolState = address(
-      process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-        process.env.HUMA_POOL_STATE ||
-        SYSTEM_PROGRAM_ID
-    );
+    const humaPoolState =
+      snapshot.pool.humaPoolState ||
+      address(
+        process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
+          process.env.HUMA_POOL_STATE ||
+          SYSTEM_PROGRAM_ID
+      );
 
     const ix = await buildHarvestYieldAndCommitInstruction({
       crank: context.signer,

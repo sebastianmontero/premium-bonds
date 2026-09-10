@@ -563,6 +563,7 @@ export function parsePrizePool(data: Uint8Array) {
     tokenMint: decoded.tokenMint,
     ticketRegistry: decoded.ticketRegistry,
     feeWallet: decoded.feeWallet,
+    humaPoolState: decoded.humaPoolState,
     currentDrawCycleId: decoded.currentDrawCycleId,
     maxYieldBasisPoints: decoded.maxYieldBasisPoints,
     vaultAuthorityBump: decoded.vaultAuthorityBump,

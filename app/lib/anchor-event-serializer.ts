@@ -41,6 +41,15 @@ export const ANCHOR_EVENT_DISCRIMINATORS: Record<string, Uint8Array> = {
   GlobalConfigUpdated: new Uint8Array([
     0xe8, 0xee, 0x9e, 0x7b, 0xd2, 0xac, 0x9f, 0x2e,
   ]),
+  AdminNominated: new Uint8Array([
+    0x16, 0xf7, 0x35, 0x21, 0x3b, 0x3b, 0x44, 0x70,
+  ]),
+  AdminNominationCancelled: new Uint8Array([
+    0xa9, 0x1d, 0x73, 0x72, 0x1a, 0x4b, 0xda, 0x1b,
+  ]),
+  AdminTransferred: new Uint8Array([
+    0xff, 0x93, 0xb6, 0x05, 0xc7, 0xd9, 0x26, 0xb3,
+  ]),
   PoolConfigUpdated: new Uint8Array([
     0xce, 0x21, 0x1d, 0x08, 0x54, 0x54, 0x82, 0x27,
   ]),
@@ -335,6 +344,58 @@ export function serializeAnchorEvent(
       view.setBigUint64(16, BigInt(data.maxAllowedYield || 0), true);
       view.setUint32(24, Number(data.lockedTicketCount || 0), true);
       view.setBigInt64(28, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "PoolCreated": {
+      // u32(4) + Pubkey(32)*6 + u64(8) + i64(8) + u16(2) + u64(8) + u16(2) + u32(4) + u8(1) + u32(4) = 233 bytes
+      fields = new Uint8Array(233);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      fields.set(pubkeyToBytes(data.admin || "11111111111111111111111111111111"), 4);
+      fields.set(pubkeyToBytes(data.tokenMint || "11111111111111111111111111111111"), 36);
+      fields.set(pubkeyToBytes(data.pstMint || "11111111111111111111111111111111"), 68);
+      fields.set(pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"), 100);
+      fields.set(pubkeyToBytes(data.ticketRegistry || "11111111111111111111111111111111"), 132);
+      fields.set(pubkeyToBytes(data.humaPoolState || "11111111111111111111111111111111"), 164);
+      view.setBigUint64(196, BigInt(data.bondPrice || 0), true);
+      view.setBigInt64(204, BigInt(data.stakeCycleDurationHrs || 0), true);
+      view.setUint16(212, Number(data.feeBasisPoints || 0), true);
+      view.setBigUint64(214, BigInt(data.minYieldThreshold || 0), true);
+      view.setUint16(222, Number(data.maxYieldBasisPoints || 0), true);
+      view.setUint32(224, Number(data.payoutTimelockSeconds || 0), true);
+      view.setUint8(228, Number(data.tiersCount || 0));
+      view.setUint32(229, Number(data.totalWinners || 0), true);
+      break;
+    }
+    case "GlobalConfigUpdated": {
+      // Pubkey(32)*5 = 160 bytes
+      fields = new Uint8Array(160);
+      fields.set(pubkeyToBytes(data.authority || "11111111111111111111111111111111"), 0);
+      fields.set(pubkeyToBytes(data.oldGuardian || "11111111111111111111111111111111"), 32);
+      fields.set(pubkeyToBytes(data.newGuardian || "11111111111111111111111111111111"), 64);
+      fields.set(pubkeyToBytes(data.oldJobsAccount || "11111111111111111111111111111111"), 96);
+      fields.set(pubkeyToBytes(data.newJobsAccount || "11111111111111111111111111111111"), 128);
+      break;
+    }
+    case "AdminNominated": {
+      // Pubkey(32) + Pubkey(32) = 64 bytes
+      fields = new Uint8Array(64);
+      fields.set(pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"), 0);
+      fields.set(pubkeyToBytes(data.pendingAdmin || "11111111111111111111111111111111"), 32);
+      break;
+    }
+    case "AdminNominationCancelled": {
+      // Pubkey(32) + Pubkey(32) = 64 bytes
+      fields = new Uint8Array(64);
+      fields.set(pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"), 0);
+      fields.set(pubkeyToBytes(data.cancelledPendingAdmin || "11111111111111111111111111111111"), 32);
+      break;
+    }
+    case "AdminTransferred": {
+      // Pubkey(32) + Pubkey(32) = 64 bytes
+      fields = new Uint8Array(64);
+      fields.set(pubkeyToBytes(data.oldAdmin || "11111111111111111111111111111111"), 0);
+      fields.set(pubkeyToBytes(data.newAdmin || "11111111111111111111111111111111"), 32);
       break;
     }
     default:

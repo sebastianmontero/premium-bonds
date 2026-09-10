@@ -25,6 +25,7 @@ import {
   fetchUserRegistryEntrySlice,
   parsePrizePool,
   decodeAccountBase64Data,
+  elevateSignerRole,
   USDC_MINT,
   TOKEN_PROGRAM_ID,
   HUMA_CONFIG,
@@ -43,24 +44,7 @@ import {
 } from "./ticket-registry-helpers";
 import type { PoolId } from "./query-keys";
 
-/**
- * Elevates account metadata for a signer address to AccountRole.WRITABLE_SIGNER
- * without attaching a conflicting .signer property, ensuring correct message
- * header compilation without triggering runtime duplicate signer collisions.
- */
-export function elevateSignerRole(
-  instruction: Instruction,
-  signerAddress: Address
-): Instruction {
-  return {
-    ...instruction,
-    accounts: instruction.accounts?.map((acc) =>
-      acc.address === signerAddress
-        ? { ...acc, role: AccountRole.WRITABLE_SIGNER }
-        : acc
-    ),
-  };
-}
+export { elevateSignerRole };
 
 export async function buildBuyBondsInstruction(params: {
   poolId: PoolId;
@@ -68,7 +52,9 @@ export async function buildBuyBondsInstruction(params: {
   ticketsToBuy: number;
   ticketRegistry: Address;
   userTokenAccount: Address;
+  humaPoolState?: Address;
 }): Promise<Instruction> {
+  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
   const pool = await findPrizePoolPda(params.poolId);
   const userWinnings = await findUserWinningsPda(
     params.poolId,
@@ -76,7 +62,7 @@ export async function buildBuyBondsInstruction(params: {
   );
   const poolVaultAccount = await findPoolVaultPda(params.poolId);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(targetHumaPoolState);
 
   const ix = await getBuyBondsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
@@ -89,7 +75,7 @@ export async function buildBuyBondsInstruction(params: {
     poolPstVault,
     humaConfig: HUMA_CONFIG,
     humaPoolConfig: HUMA_POOL_CONFIG,
-    humaPoolState: HUMA_POOL_STATE,
+    humaPoolState: targetHumaPoolState,
     humaModeConfig: HUMA_MODE_CONFIG,
     humaModeMint: HUMA_MODE_MINT,
     humaPoolAuthority,
@@ -164,7 +150,8 @@ export async function buildSellBondsInstruction(params: {
     params.poolId,
     BigInt(poolInfo.nextRedemptionId)
   );
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+  const targetHumaPoolState = poolInfo.humaPoolState || HUMA_POOL_STATE;
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(targetHumaPoolState);
 
   const ix = await getSellBondsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
@@ -176,7 +163,7 @@ export async function buildSellBondsInstruction(params: {
     pendingRedemption,
     humaConfig: HUMA_CONFIG,
     humaPoolConfig: HUMA_POOL_CONFIG,
-    humaPoolState: HUMA_POOL_STATE,
+    humaPoolState: targetHumaPoolState,
     humaModeConfig: HUMA_MODE_CONFIG,
     humaModeMint: HUMA_MODE_MINT,
     humaRedemptionRequest: HUMA_REDEMPTION_REQUEST,
@@ -202,14 +189,16 @@ export async function buildClaimRedemptionInstruction(params: {
   userAddress: Address;
   redemptionId: number | bigint;
   userTokenAccount: Address;
+  humaPoolState?: Address;
 }): Promise<Instruction> {
+  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
   const pool = await findPrizePoolPda(params.poolId);
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     BigInt(params.redemptionId)
   );
   const poolVaultAccount = await findPoolVaultPda(params.poolId);
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(targetHumaPoolState);
 
   const ix = await getClaimRedemptionInstructionAsync({
     caller: params.userAddress as unknown as TransactionSigner,
@@ -221,7 +210,7 @@ export async function buildClaimRedemptionInstruction(params: {
     beneficiaryTokenAccount: params.userTokenAccount,
     humaConfig: HUMA_CONFIG,
     humaPoolConfig: HUMA_POOL_CONFIG,
-    humaPoolState: HUMA_POOL_STATE,
+    humaPoolState: targetHumaPoolState,
     humaModeConfig: HUMA_MODE_CONFIG,
     humaLenderState: HUMA_LENDER_STATE,
     humaPoolAuthority,
@@ -266,7 +255,9 @@ export async function buildClaimNonReinvestedWinningsInstruction(params: {
   userAddress: Address;
   amount: bigint | number;
   nextRedemptionId: number | bigint;
+  humaPoolState?: Address;
 }): Promise<Instruction> {
+  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
   const pool = await findPrizePoolPda(params.poolId);
   const userWinnings = await findUserWinningsPda(
     params.poolId,
@@ -277,7 +268,7 @@ export async function buildClaimNonReinvestedWinningsInstruction(params: {
     params.poolId,
     BigInt(params.nextRedemptionId)
   );
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(HUMA_POOL_STATE);
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(targetHumaPoolState);
 
   const ix = await getClaimNonReinvestedWinningsInstructionAsync({
     user: params.userAddress as unknown as TransactionSigner,
@@ -287,7 +278,7 @@ export async function buildClaimNonReinvestedWinningsInstruction(params: {
     pendingRedemption,
     humaConfig: HUMA_CONFIG,
     humaPoolConfig: HUMA_POOL_CONFIG,
-    humaPoolState: HUMA_POOL_STATE,
+    humaPoolState: targetHumaPoolState,
     humaModeConfig: HUMA_MODE_CONFIG,
     humaModeMint: HUMA_MODE_MINT,
     humaRedemptionRequest: HUMA_REDEMPTION_REQUEST,
