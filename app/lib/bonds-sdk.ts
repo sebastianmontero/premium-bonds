@@ -606,10 +606,31 @@ import {
   parsePayoutRegistry,
   type ParsedPayoutRegistry,
   type ParsedWinner,
+  PayoutRegistryStatus,
+  type PayoutRegistryStatusName,
+  formatPayoutRegistryStatus,
+  isPayoutRegistryVoided,
+  canClosePayoutRegistry,
+  payoutRegistrySpace,
+  getPayoutRegistryAccountSize,
+  WINNER_SIZE,
+  PAYOUT_REGISTRY_HEADER_SIZE,
+  MAX_TOTAL_WINNERS,
 } from "./payout-registry-helpers";
 
-export { parsePayoutRegistry };
-export type { ParsedPayoutRegistry, ParsedWinner };
+export {
+  parsePayoutRegistry,
+  PayoutRegistryStatus,
+  formatPayoutRegistryStatus,
+  isPayoutRegistryVoided,
+  canClosePayoutRegistry,
+  payoutRegistrySpace,
+  getPayoutRegistryAccountSize,
+  WINNER_SIZE,
+  PAYOUT_REGISTRY_HEADER_SIZE,
+  MAX_TOTAL_WINNERS,
+};
+export type { ParsedPayoutRegistry, ParsedWinner, PayoutRegistryStatusName };
 
 export function parseUserWinnings(data: Uint8Array): UserWinnings {
   return decodedData<UserWinnings>(decodeUserWinnings(mockAccount(data)));

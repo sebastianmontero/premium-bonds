@@ -53,9 +53,7 @@ export function resolveInvalidationQueryKeys(
         }
         break;
       case "activity":
-        keysToInvalidate.push(
-          bondsKeys.activityFeed(poolId, currentAddress)
-        );
+        keysToInvalidate.push(bondsKeys.activityFeed(poolId, currentAddress));
         break;
       case "redemptions":
         if (currentAddress) {
@@ -67,9 +65,7 @@ export function resolveInvalidationQueryKeys(
       case "user":
       case "tickets":
         if (currentAddress) {
-          keysToInvalidate.push(
-            bondsKeys.userPosition(poolId, currentAddress)
-          );
+          keysToInvalidate.push(bondsKeys.userPosition(poolId, currentAddress));
           keysToInvalidate.push(
             bondsKeys.userPrizeHistory(poolId, currentAddress)
           );

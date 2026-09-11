@@ -218,9 +218,8 @@ test("partitionBroadcastInvalidations isolates user scopes, prevents leaky pool 
 });
 
 test("resolveInvalidationQueryKeys accurately resolves query keys and enforces multi-pool isolation", async () => {
-  const { resolveInvalidationQueryKeys } = await import(
-    "../../../hooks/useRealtimeSync"
-  );
+  const { resolveInvalidationQueryKeys } =
+    await import("../../../hooks/useRealtimeSync");
   const { bondsKeys } = await import("../../query-keys");
 
   const sampleWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
@@ -244,9 +243,7 @@ test("resolveInvalidationQueryKeys accurately resolves query keys and enforces m
   assert.ok(keyStrings.includes(JSON.stringify(bondsKeys.draws(1))));
   assert.ok(keyStrings.includes(JSON.stringify(bondsKeys.prizes(1))));
   assert.ok(
-    keyStrings.includes(
-      JSON.stringify(bondsKeys.userPosition(1, sampleWallet))
-    )
+    keyStrings.includes(JSON.stringify(bondsKeys.userPosition(1, sampleWallet)))
   );
   assert.ok(
     keyStrings.includes(
@@ -299,12 +296,10 @@ test("resolveInvalidationQueryKeys accurately resolves query keys and enforces m
 });
 
 test("Full Invalidation Pipeline: DrawSkipped event deterministically produces userPosition query invalidation", async () => {
-  const { partitionBroadcastInvalidations, derivePrimaryScope } = await import(
-    "../channels"
-  );
-  const { resolveInvalidationQueryKeys } = await import(
-    "../../../hooks/useRealtimeSync"
-  );
+  const { partitionBroadcastInvalidations, derivePrimaryScope } =
+    await import("../channels");
+  const { resolveInvalidationQueryKeys } =
+    await import("../../../hooks/useRealtimeSync");
   const { bondsKeys } = await import("../../query-keys");
 
   const sampleWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
@@ -353,5 +348,3 @@ test("Full Invalidation Pipeline: DrawSkipped event deterministically produces u
     "Pipeline must generate bondsKeys.userPosition so Hero and Pool cards update upon DrawSkipped"
   );
 });
-
-

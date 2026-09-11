@@ -21,6 +21,14 @@ import {
   parseDrawCycle,
   parsePrizePool,
   parsePayoutRegistry,
+  PayoutRegistryStatus,
+  formatPayoutRegistryStatus,
+  isPayoutRegistryVoided,
+  canClosePayoutRegistry,
+  payoutRegistrySpace,
+  getPayoutRegistryAccountSize,
+  WINNER_SIZE,
+  PAYOUT_REGISTRY_HEADER_SIZE,
   parseMockHumaPoolState,
   parseTokenAccountBalance,
   parseMintSupply,
@@ -209,7 +217,14 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.strictEqual(parsed.winnersCount, 1);
     assert.strictEqual(parsed.payoutsCompleted, 0);
     assert.strictEqual(parsed.revealedAt, 1700000000n);
-    assert.strictEqual(parsed.status, 0);
+    assert.strictEqual(parsed.status, PayoutRegistryStatus.Active);
+    assert.strictEqual(formatPayoutRegistryStatus(parsed.status), "Active");
+    assert.strictEqual(isPayoutRegistryVoided(parsed), false);
+    assert.strictEqual(WINNER_SIZE, 56);
+    assert.strictEqual(PAYOUT_REGISTRY_HEADER_SIZE, 104);
+    assert.strictEqual(payoutRegistrySpace(1), 160);
+    assert.strictEqual(getPayoutRegistryAccountSize(1), 160);
+    assert.strictEqual(canClosePayoutRegistry(parsed), false);
     assert.strictEqual(parsed.winners.length, 1);
     assert.strictEqual(parsed.winners[0].amountOwed, 5_000_000n);
     assert.strictEqual(parsed.winners[0].bondsBought, 2);

@@ -6,6 +6,7 @@ import {
   payoutRegistrySpace,
   getPayoutRegistryAccountSize,
   PayoutRegistryStatus,
+  formatPayoutRegistryStatus,
   isPayoutRegistryVoided,
   canClosePayoutRegistry,
   PAYOUT_REGISTRY_MAGIC,
@@ -15,6 +16,19 @@ import {
 import { address } from "@solana/kit";
 
 describe("PayoutRegistry Dynamic Serialization & Parsing Helpers", () => {
+  it("formats PayoutRegistryStatus cleanly with fallback for unknown status", () => {
+    assert.strictEqual(
+      formatPayoutRegistryStatus(PayoutRegistryStatus.Active),
+      "Active"
+    );
+    assert.strictEqual(
+      formatPayoutRegistryStatus(PayoutRegistryStatus.Voided),
+      "Voided"
+    );
+    assert.strictEqual(formatPayoutRegistryStatus(0), "Active");
+    assert.strictEqual(formatPayoutRegistryStatus(1), "Voided");
+    assert.strictEqual(formatPayoutRegistryStatus(99), "Unknown (99)");
+  });
   it("calculates exact required account space and validates bounds", () => {
     assert.throws(() => payoutRegistrySpace(0), /Invalid winnersCount/);
     assert.throws(() => payoutRegistrySpace(-1), /Invalid winnersCount/);

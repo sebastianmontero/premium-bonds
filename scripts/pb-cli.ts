@@ -62,6 +62,10 @@ import {
   parseGlobalConfig,
   parseDrawCycle,
   parsePayoutRegistry,
+  PayoutRegistryStatus,
+  formatPayoutRegistryStatus,
+  isPayoutRegistryVoided,
+  WINNER_SIZE,
   buildHarvestYieldAndCommitInstruction,
   buildRevealAndPickWinnersInstruction,
   buildReinvestWinningsInstruction,
@@ -1573,7 +1577,7 @@ export async function executeReinvest({
   );
   const state = parsePayoutRegistry(bytes);
 
-  if (state.status === 1) {
+  if (isPayoutRegistryVoided(state)) {
     throw new Error(
       `Cannot reinvest winners: Draw cycle ${targetCycleId} has been voided by the administrator.`
     );
@@ -2849,7 +2853,7 @@ export async function executeVoidDraw({
   Pool ID: ${poolId}
   Cycle ID: ${targetCycleId}
   Draw Status: ${drawCycleState.status}
-  Payout Status: ${payoutState.status}
+  Payout Status: ${formatPayoutRegistryStatus(payoutState.status)}
   Winners Drawn: ${payoutState.winnersCount}
   Payouts Completed: ${payoutState.payoutsCompleted}
   Committed Prize Pot: ${formatAmount(drawCycleState.prizePot)}
@@ -3783,6 +3787,9 @@ async function main() {
       console.log(`Payout Registry for Pool ${poolId}, Cycle ${cycleId}:
   Pool ID: ${state.poolId}
   Cycle ID: ${state.cycleId}
+  Status: ${formatPayoutRegistryStatus(state.status)}
+  Account Size: ${bytes.byteLength.toLocaleString("en-US")} bytes
+  Winner Struct Size: ${WINNER_SIZE} bytes
   Winners Count: ${state.winnersCount}
   Payouts Completed: ${state.payoutsCompleted}
   Payout Progress: ${state.payoutsCompleted} / ${state.winnersCount} processed

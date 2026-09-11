@@ -505,9 +505,19 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
     case "DrawForceUnlocked":
       return createMetadata(evt.data.poolId, ["draws", "pool", "tickets"]);
     case "DrawVoided":
-      return createMetadata(evt.data.poolId, ["draws", "pool", "user", "tickets"]);
+      return createMetadata(evt.data.poolId, [
+        "draws",
+        "pool",
+        "user",
+        "tickets",
+      ]);
     case "DrawSkipped":
-      return createMetadata(evt.data.poolId, ["draws", "pool", "clock", "tickets"]);
+      return createMetadata(evt.data.poolId, [
+        "draws",
+        "pool",
+        "clock",
+        "tickets",
+      ]);
     case "DrawPreparationProgress":
       return createMetadata(evt.data.poolId, ["draws"]);
     case "PoolCreated":

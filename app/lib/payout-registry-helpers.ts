@@ -90,6 +90,14 @@ export enum PayoutRegistryStatus {
   Voided = 1,
 }
 
+export type PayoutRegistryStatusName = "Active" | "Voided";
+
+export function formatPayoutRegistryStatus(
+  status: number | PayoutRegistryStatus
+): string {
+  return PayoutRegistryStatus[status] ?? `Unknown (${status})`;
+}
+
 export function isPayoutRegistryVoided(
   registry: Pick<PayoutRegistry, "status">
 ): boolean {
