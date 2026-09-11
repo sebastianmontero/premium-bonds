@@ -453,19 +453,7 @@ pub fn inject_payout_registry(
     status: anchor::PayoutRegistryStatus,
 ) -> Pubkey {
     let (pda, _) = payout_pda(pool_id, cycle_id);
-    let default_winner = anchor::Winner {
-        winner: Pubkey::default(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let mut fixed_winners = [default_winner; 50];
-    let count = winners.len().min(50);
-    fixed_winners[..count].copy_from_slice(&winners[..count]);
+    let count = winners.len();
 
     let pr = anchor::PayoutRegistry {
         pool_id,
@@ -477,12 +465,12 @@ pub fn inject_payout_registry(
         version: anchor::PayoutRegistry::CURRENT_VERSION,
         _padding: [0; 6],
         _reserved: [0; 64],
-        winners: fixed_winners,
     };
 
     let mut d = vec![];
     d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
     d.extend_from_slice(bytemuck::bytes_of(&pr));
+    d.extend_from_slice(bytemuck::cast_slice(&winners));
 
     svm.set_account(
         pda,
@@ -561,6 +549,19 @@ pub fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> ancho
     *bytemuck::from_bytes::<anchor::PayoutRegistry>(
         &acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
     )
+}
+
+pub fn read_payout_winners(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> Vec<anchor::Winner> {
+    let (pda, _) = payout_pda(pool_id, cycle_id);
+    let acc = svm
+        .get_account(&pda)
+        .expect("payout registry account exists");
+    let pr = *bytemuck::from_bytes::<anchor::PayoutRegistry>(
+        &acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+    );
+    let winners_bytes = &acc.data[8 + std::mem::size_of::<anchor::PayoutRegistry>()..];
+    let winners = bytemuck::cast_slice::<u8, anchor::Winner>(winners_bytes);
+    winners[..pr.winners_count as usize].to_vec()
 }
 
 pub fn read_pending_redemption(

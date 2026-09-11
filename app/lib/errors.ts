@@ -62,6 +62,7 @@ import {
   ANCHOR_ERROR__INVALID_ADMIN_ADDRESS,
   ANCHOR_ERROR__CANNOT_NOMINATE_SELF,
   ANCHOR_ERROR__INVALID_HUMA_POOL_STATE,
+  ANCHOR_ERROR__PAYOUTS_PENDING,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -455,7 +456,7 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     name: "TooManyWinners",
     message: "Configured winner count exceeds payout registry capacity.",
     actionable:
-      "Adjust prize tiers so the total number of winners does not exceed 50.",
+      "Adjust prize tiers so the total number of winners does not exceed 180.",
   },
   [ANCHOR_ERROR__INVALID_HUMA_POOL_DATA]: {
     name: "InvalidHumaPoolData",
@@ -520,6 +521,13 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
       "Provided Huma pool state account is invalid, uninitialized, or does not match the pool configuration.",
     actionable:
       "Ensure the Huma pool state account exists, is owned by the Huma program, and matches the pool configuration.",
+  },
+  [ANCHOR_ERROR__PAYOUTS_PENDING]: {
+    name: "PayoutsPending",
+    message:
+      "Payout registry cannot be closed while winner payouts or reinvestments remain uncompleted.",
+    actionable:
+      "Execute reinvestment or claim cranks for all remaining winners before attempting to close the registry.",
   },
 };
 

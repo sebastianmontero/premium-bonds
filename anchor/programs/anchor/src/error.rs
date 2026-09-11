@@ -193,4 +193,7 @@ pub enum PremiumBondsError {
     /// Provided Huma pool state is invalid or uninitialized.
     #[msg("Provided Huma pool state is invalid or uninitialized.")]
     InvalidHumaPoolState,
+    /// Cannot close the payout registry while payouts are still pending.
+    #[msg("Cannot close payout registry: payouts are still pending.")]
+    PayoutsPending,
 }

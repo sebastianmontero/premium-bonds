@@ -202,6 +202,137 @@ pub fn assert_supported_mint_extensions(mint_info: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
+/// Byte size of the PayoutRegistry header including Anchor discriminator (8 + 96 = 104 bytes).
+pub const PAYOUT_REGISTRY_HEADER_SIZE: usize =
+    8 + std::mem::size_of::<crate::state::PayoutRegistry>();
+/// Byte size of a single Winner inside the PayoutRegistry trailing slice (56 bytes).
+pub const WINNER_SIZE: usize = std::mem::size_of::<crate::state::Winner>();
+
+const _: () = {
+    assert!(PAYOUT_REGISTRY_HEADER_SIZE.is_multiple_of(8));
+    assert!(WINNER_SIZE.is_multiple_of(8));
+};
+
+#[inline]
+pub fn payout_registry_space(total_winners: usize) -> Result<usize> {
+    require!(
+        total_winners > 0,
+        crate::error::PremiumBondsError::InvalidPrizeTierConfig
+    );
+    require!(
+        total_winners <= crate::constants::MAX_TOTAL_WINNERS,
+        crate::error::PremiumBondsError::TooManyWinners
+    );
+    let winners_bytes = total_winners
+        .checked_mul(WINNER_SIZE)
+        .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
+    PAYOUT_REGISTRY_HEADER_SIZE
+        .checked_add(winners_bytes)
+        .ok_or_else(|| error!(crate::error::PremiumBondsError::MathOverflow))
+}
+
+#[inline]
+pub fn split_raw_payout_registry(
+    data: &[u8],
+) -> Result<(&crate::state::PayoutRegistry, &[u8])> {
+    require!(
+        data.len() >= PAYOUT_REGISTRY_HEADER_SIZE,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (disc, rest) = data.split_at(8);
+    require!(
+        disc == crate::state::PayoutRegistry::DISCRIMINATOR,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (header_slice, trailing_slice) =
+        rest.split_at(std::mem::size_of::<crate::state::PayoutRegistry>());
+    let header = bytemuck::try_from_bytes::<crate::state::PayoutRegistry>(header_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    Ok((header, trailing_slice))
+}
+
+#[inline]
+pub fn split_raw_payout_registry_mut(
+    data: &mut [u8],
+) -> Result<(&mut crate::state::PayoutRegistry, &mut [u8])> {
+    require!(
+        data.len() >= PAYOUT_REGISTRY_HEADER_SIZE,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (disc, rest) = data.split_at_mut(8);
+    require!(
+        disc == crate::state::PayoutRegistry::DISCRIMINATOR,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (header_slice, trailing_slice) =
+        rest.split_at_mut(std::mem::size_of::<crate::state::PayoutRegistry>());
+    let header = bytemuck::try_from_bytes_mut::<crate::state::PayoutRegistry>(header_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    Ok((header, trailing_slice))
+}
+
+pub fn init_payout_registry_uninit_mut<'a>(
+    data: &'a mut [u8],
+) -> Result<crate::state::PayoutRegistryMut<'a>> {
+    require!(
+        data.len() >= PAYOUT_REGISTRY_HEADER_SIZE,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (disc, rest) = data.split_at_mut(8);
+    disc.copy_from_slice(&crate::state::PayoutRegistry::DISCRIMINATOR);
+    let (header_slice, trailing_slice) =
+        rest.split_at_mut(std::mem::size_of::<crate::state::PayoutRegistry>());
+    let header = bytemuck::try_from_bytes_mut::<crate::state::PayoutRegistry>(header_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let capacity = trailing_slice.len() / WINNER_SIZE;
+    let valid_bytes = capacity * WINNER_SIZE;
+    let winners = bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(&mut trailing_slice[..valid_bytes])
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    Ok(crate::state::PayoutRegistryMut { header, winners })
+}
+
+pub fn get_payout_registry_mut<'a>(
+    data: &'a mut [u8],
+) -> Result<crate::state::PayoutRegistryMut<'a>> {
+    let (header, trailing) = split_raw_payout_registry_mut(data)?;
+    let count = header.winners_count as usize;
+    require!(
+        count <= crate::constants::MAX_TOTAL_WINNERS,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let expected_bytes = count
+        .checked_mul(WINNER_SIZE)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        trailing.len() == expected_bytes,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let winners = bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(&mut trailing[..expected_bytes])
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    Ok(crate::state::PayoutRegistryMut { header, winners })
+}
+
+pub fn get_payout_registry<'a>(
+    data: &'a [u8],
+) -> Result<crate::state::PayoutRegistryRef<'a>> {
+    let (header, trailing_slice) = split_raw_payout_registry(data)?;
+    let count = header.winners_count as usize;
+    require!(
+        count <= crate::constants::MAX_TOTAL_WINNERS,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let expected_bytes = count
+        .checked_mul(WINNER_SIZE)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(
+        trailing_slice.len() == expected_bytes,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let winners = bytemuck::try_cast_slice::<u8, crate::state::Winner>(&trailing_slice[..expected_bytes])
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    Ok(crate::state::PayoutRegistryRef { header, winners })
+}
+
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -430,7 +561,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>(), 8);
         assert_eq!(std::mem::size_of::<crate::state::PrizePool>(), 440);
         assert_eq!(std::mem::size_of::<crate::state::Winner>(), 56);
-        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 2896);
+        assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>(), 96);
         assert_eq!(
             crate::state::GlobalConfig::INIT_SPACE,
             32 + 32 + 32 + 32 + 1 + 64
@@ -889,5 +1020,102 @@ mod tests {
             assert_supported_mint_extensions(&account_info).unwrap_err(),
             crate::error::PremiumBondsError::InvalidTokenMint.into()
         );
+    }
+
+    #[test]
+    fn test_payout_registry_space_calculations() {
+        assert!(payout_registry_space(0).is_err());
+        assert_eq!(payout_registry_space(1).unwrap(), 104 + 56);
+        assert_eq!(payout_registry_space(50).unwrap(), 104 + 50 * 56);
+        assert_eq!(payout_registry_space(180).unwrap(), 104 + 180 * 56); // 10184
+        assert!(payout_registry_space(181).is_err());
+    }
+
+    #[test]
+    fn test_dynamic_payout_registry_memory_roundtrip() {
+        let space = payout_registry_space(3).unwrap();
+        let mut data = vec![0u8; space];
+
+        {
+            let mut view = init_payout_registry_uninit_mut(&mut data).unwrap();
+            view.header.pool_id = 42;
+            view.header.cycle_id = 7;
+            view.header.winners_count = 3;
+            view.header.status = crate::state::PayoutRegistryStatus::Active as u8;
+            view.header.version = crate::state::PayoutRegistry::CURRENT_VERSION;
+
+            view.winners[0] = crate::state::Winner {
+                winner: pk(1),
+                amount_owed: 1_000,
+                bonds_bought: 0,
+                processed: 0,
+                tier_index: 0,
+                version: crate::state::Winner::CURRENT_VERSION,
+                _padding: [0; 1],
+                _reserved: [0; 8],
+            };
+            view.winners[1] = crate::state::Winner {
+                winner: pk(2),
+                amount_owed: 500,
+                bonds_bought: 0,
+                processed: 0,
+                tier_index: 1,
+                version: crate::state::Winner::CURRENT_VERSION,
+                _padding: [0; 1],
+                _reserved: [0; 8],
+            };
+            view.winners[2] = crate::state::Winner {
+                winner: pk(3),
+                amount_owed: 250,
+                bonds_bought: 0,
+                processed: 0,
+                tier_index: 2,
+                version: crate::state::Winner::CURRENT_VERSION,
+                _padding: [0; 1],
+                _reserved: [0; 8],
+            };
+        }
+
+        // Test immutable read
+        let view_ref = get_payout_registry(&data).unwrap();
+        assert_eq!(view_ref.header.pool_id, 42);
+        assert_eq!(view_ref.header.cycle_id, 7);
+        assert_eq!(view_ref.header.winners_count, 3);
+        assert_eq!(view_ref.total_amount_owed().unwrap(), 1750);
+        assert_eq!(view_ref.get_winner(0).unwrap().winner, pk(1));
+        assert_eq!(view_ref.get_winner(1).unwrap().winner, pk(2));
+        assert_eq!(view_ref.get_winner(2).unwrap().winner, pk(3));
+        assert!(view_ref.get_winner(3).is_err());
+
+        // Test mutable operations
+        let mut view_mut = get_payout_registry_mut(&mut data).unwrap();
+        let owed = view_mut.complete_payout(1, 1).unwrap();
+        assert_eq!(owed, 500);
+        assert_eq!(view_mut.header.payouts_completed, 1);
+        assert_eq!(view_mut.winners[1].processed, 1);
+        assert_eq!(view_mut.winners[1].bonds_bought, 1);
+        assert!(!view_mut.header.can_close());
+
+        // Complete remaining
+        view_mut.complete_payout(0, 2).unwrap();
+        view_mut.complete_payout(2, 0).unwrap();
+        assert_eq!(view_mut.header.payouts_completed, 3);
+        assert!(view_mut.header.can_close());
+    }
+
+    #[test]
+    fn test_dynamic_payout_registry_corrupted_length_rejected() {
+        // Truncated buffer
+        let data = vec![0u8; 100];
+        assert!(get_payout_registry(&data).is_err());
+
+        // Trailing slice mismatch with winners_count
+        let space = payout_registry_space(2).unwrap();
+        let mut data = vec![0u8; space];
+        {
+            let mut view = init_payout_registry_uninit_mut(&mut data).unwrap();
+            view.header.winners_count = 5; // Mismatch: 5 declared but buffer only sized for 2
+        }
+        assert!(get_payout_registry(&data).is_err());
     }
 }

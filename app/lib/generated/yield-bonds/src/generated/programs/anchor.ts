@@ -75,6 +75,7 @@ import {
   getClaimNonReinvestedWinningsInstructionAsync,
   getClaimRedemptionInstructionAsync,
   getClosePoolInstructionAsync,
+  getCrankClosePayoutRegistryInstructionAsync,
   getCrankRebindExpiredRandomnessInstructionAsync,
   getCreatePoolInstructionAsync,
   getHarvestYieldAndCommitInstructionAsync,
@@ -100,6 +101,7 @@ import {
   parseClaimNonReinvestedWinningsInstruction,
   parseClaimRedemptionInstruction,
   parseClosePoolInstruction,
+  parseCrankClosePayoutRegistryInstruction,
   parseCrankRebindExpiredRandomnessInstruction,
   parseCreatePoolInstruction,
   parseHarvestYieldAndCommitInstruction,
@@ -125,6 +127,7 @@ import {
   type ClaimNonReinvestedWinningsAsyncInput,
   type ClaimRedemptionAsyncInput,
   type ClosePoolAsyncInput,
+  type CrankClosePayoutRegistryAsyncInput,
   type CrankRebindExpiredRandomnessAsyncInput,
   type CreatePoolAsyncInput,
   type HarvestYieldAndCommitAsyncInput,
@@ -139,6 +142,7 @@ import {
   type ParsedClaimNonReinvestedWinningsInstruction,
   type ParsedClaimRedemptionInstruction,
   type ParsedClosePoolInstruction,
+  type ParsedCrankClosePayoutRegistryInstruction,
   type ParsedCrankRebindExpiredRandomnessInstruction,
   type ParsedCreatePoolInstruction,
   type ParsedHarvestYieldAndCommitInstruction,
@@ -171,6 +175,7 @@ import {
 import {
   findEventAuthorityPda,
   findGlobalConfigPda,
+  findPayoutRegistryPda,
   findPoolPda,
   findPoolPstVaultPda,
   findPoolVaultAccountPda,
@@ -285,6 +290,7 @@ export enum AnchorInstruction {
   ClaimNonReinvestedWinnings,
   ClaimRedemption,
   ClosePool,
+  CrankClosePayoutRegistry,
   CrankRebindExpiredRandomness,
   CreatePool,
   HarvestYieldAndCommit,
@@ -395,6 +401,17 @@ export function identifyAnchorInstruction(
     )
   ) {
     return AnchorInstruction.ClosePool;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([55, 40, 175, 15, 143, 107, 40, 102])
+      ),
+      0
+    )
+  ) {
+    return AnchorInstruction.CrankClosePayoutRegistry;
   }
   if (
     containsBytes(
@@ -617,6 +634,9 @@ export type ParsedAnchorInstruction<
       instructionType: AnchorInstruction.ClosePool;
     } & ParsedClosePoolInstruction<TProgram>)
   | ({
+      instructionType: AnchorInstruction.CrankClosePayoutRegistry;
+    } & ParsedCrankClosePayoutRegistryInstruction<TProgram>)
+  | ({
       instructionType: AnchorInstruction.CrankRebindExpiredRandomness;
     } & ParsedCrankRebindExpiredRandomnessInstruction<TProgram>)
   | ({
@@ -727,6 +747,13 @@ export function parseAnchorInstruction<TProgram extends string>(
       return {
         instructionType: AnchorInstruction.ClosePool,
         ...parseClosePoolInstruction(instruction),
+      };
+    }
+    case AnchorInstruction.CrankClosePayoutRegistry: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: AnchorInstruction.CrankClosePayoutRegistry,
+        ...parseCrankClosePayoutRegistryInstruction(instruction),
       };
     }
     case AnchorInstruction.CrankRebindExpiredRandomness: {
@@ -915,6 +942,10 @@ export type AnchorPluginInstructions = {
     input: ClosePoolAsyncInput
   ) => ReturnType<typeof getClosePoolInstructionAsync> &
     SelfPlanAndSendFunctions;
+  crankClosePayoutRegistry: (
+    input: CrankClosePayoutRegistryAsyncInput
+  ) => ReturnType<typeof getCrankClosePayoutRegistryInstructionAsync> &
+    SelfPlanAndSendFunctions;
   crankRebindExpiredRandomness: (
     input: CrankRebindExpiredRandomnessAsyncInput
   ) => ReturnType<typeof getCrankRebindExpiredRandomnessInstructionAsync> &
@@ -987,6 +1018,7 @@ export type AnchorPluginInstructions = {
 export type AnchorPluginPdas = {
   globalConfig: typeof findGlobalConfigPda;
   eventAuthority: typeof findEventAuthorityPda;
+  payoutRegistry: typeof findPayoutRegistryPda;
   pool: typeof findPoolPda;
   poolVaultAccount: typeof findPoolVaultAccountPda;
   poolPstVault: typeof findPoolPstVaultPda;
@@ -1063,6 +1095,11 @@ export function anchorProgram() {
             addSelfPlanAndSendFunctions(
               client,
               getClosePoolInstructionAsync(input)
+            ),
+          crankClosePayoutRegistry: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCrankClosePayoutRegistryInstructionAsync(input)
             ),
           crankRebindExpiredRandomness: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1156,6 +1193,7 @@ export function anchorProgram() {
         pdas: {
           globalConfig: findGlobalConfigPda,
           eventAuthority: findEventAuthorityPda,
+          payoutRegistry: findPayoutRegistryPda,
           pool: findPoolPda,
           poolVaultAccount: findPoolVaultAccountPda,
           poolPstVault: findPoolPstVaultPda,

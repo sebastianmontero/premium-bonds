@@ -78,26 +78,16 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
         PremiumBondsError::AwaitingRandomnessFreeze
     );
 
-    let mut payout_registry = ctx.accounts.payout_registry.load_mut()?;
-    payout_registry.ensure_current_version()?;
-    require!(
-        payout_registry.payouts_completed == 0,
-        PremiumBondsError::PayoutsAlreadyStarted
-    );
-    require!(
-        payout_registry.status == (PayoutRegistryStatus::Active as u8),
-        PremiumBondsError::DrawAlreadyVoided
-    );
+    let payout_ai = ctx.accounts.payout_registry.to_account_info();
+    let mut payout_data = payout_ai.try_borrow_mut_data()?;
+    let mut payout_view = crate::utils::get_payout_registry_mut(&mut payout_data)?;
+    payout_view.header.ensure_current_version()?;
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.ensure_current_version()?;
 
-    // 1. Calculate actual distributed prize sum (excluding dust)
-    let total_distributed: u64 = payout_registry.winners[..payout_registry.winners_count as usize]
-        .iter()
-        .map(|w| w.amount_owed)
-        .try_fold(0u64, |acc, amt| acc.checked_add(amt))
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    // 1. Mark voided and get total distributed prize sum
+    let total_distributed = payout_view.void_draw()?;
 
     // 2. Decrement pool.total_prizes_allocated exactly by total_distributed
     pool.deduct_allocated_prizes(total_distributed)?;
@@ -117,7 +107,6 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     // 4. Update statuses
-    payout_registry.status = PayoutRegistryStatus::Voided as u8;
     draw_cycle.status = DrawStatus::Voided;
     draw_cycle.completed_at = Clock::get()?.unix_timestamp;
 

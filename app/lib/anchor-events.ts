@@ -241,6 +241,14 @@ export interface DrawVoidedEvent {
   timestamp?: bigint;
 }
 
+export interface PayoutRegistryClosedEvent {
+  poolId: number;
+  cycleId: number;
+  crank: Address;
+  rentReclaimedLamports: bigint;
+  timestamp?: bigint;
+}
+
 export interface DrawPreparationProgressEvent {
   poolId: number;
   cycleId: number;
@@ -425,7 +433,8 @@ export type ParsedProgramEvent =
   | { type: "PrizeTiersUpdated"; data: PrizeTiersUpdatedEvent }
   | { type: "RegistryResized"; data: RegistryResizedEvent }
   | { type: "RandomnessRebound"; data: RandomnessReboundEvent }
-  | { type: "FeesWithdrawn"; data: FeesWithdrawnEvent };
+  | { type: "FeesWithdrawn"; data: FeesWithdrawnEvent }
+  | { type: "PayoutRegistryClosed"; data: PayoutRegistryClosedEvent };
 
 export type ProgramEvent = ParsedProgramEvent & {
   signature: string;
@@ -524,6 +533,8 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["draws", "pool"]);
     case "FeesWithdrawn":
       return createMetadata(evt.data.poolId, ["pool", "redemptions"]);
+    case "PayoutRegistryClosed":
+      return createMetadata(evt.data.poolId, ["draws", "pool", "activity"]);
   }
 }
 
@@ -559,6 +570,7 @@ const DISCRIMINATOR_MAP: Record<string, ParsedProgramEvent["type"]> = {
   c2b5cada34801342: "RandomnessRebound",
   ea0f007794f12815: "FeesWithdrawn",
   b0870012acfe8782: "DrawPreparationProgress",
+  f4d899334f650909: "PayoutRegistryClosed",
 };
 
 // ─── Borsh Decoders ──────────────────────────────────────────────────────────
@@ -812,6 +824,21 @@ function decodeEventData(
           isComplete,
           timestamp,
         } as DrawPreparationProgressEvent;
+      }
+      case "PayoutRegistryClosed": {
+        const poolId = reader.readU32();
+        const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
+        const rentReclaimedLamports = reader.readU64();
+        let timestamp: bigint | undefined;
+        if (reader.remaining >= 8) timestamp = reader.readI64();
+        return {
+          poolId,
+          cycleId,
+          crank,
+          rentReclaimedLamports,
+          timestamp,
+        } as PayoutRegistryClosedEvent;
       }
       case "PoolCreated": {
         return {

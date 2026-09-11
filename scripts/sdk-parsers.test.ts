@@ -1,18 +1,26 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Address, lamports, address, AccountRole, createNoopSigner } from "@solana/kit";
+import {
+  Address,
+  lamports,
+  address,
+  AccountRole,
+  createNoopSigner,
+} from "@solana/kit";
 import {
   decodeUserWinnings,
   decodeGlobalConfig,
   decodePendingRedemption,
   decodeDrawCycle,
   decodePayoutRegistry,
+  PAYOUT_REGISTRY_DISCRIMINATOR,
 } from "../app/lib/generated/yield-bonds/src/generated/accounts";
 import { ANCHOR_PROGRAM_ADDRESS } from "../app/lib/generated/yield-bonds/src/generated";
 import {
   RedemptionType,
   parseDrawCycle,
   parsePrizePool,
+  parsePayoutRegistry,
   parseMockHumaPoolState,
   parseTokenAccountBalance,
   parseMintSupply,
@@ -163,8 +171,9 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.throws(() => parseDrawCycle(buffer));
   });
 
-  it("should decode PayoutRegistry account correctly", () => {
-    const buffer = new Uint8Array(8 + 2896);
+  it("should decode and parse PayoutRegistry account correctly", () => {
+    const buffer = new Uint8Array(104 + 56);
+    buffer.set(PAYOUT_REGISTRY_DISCRIMINATOR, 0);
     const view = new DataView(buffer.buffer);
 
     view.setUint32(8, 1, true); // pool_id
@@ -184,13 +193,24 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     buffer[wOffset + 45] = 0; // tier_index (45..46)
     buffer[wOffset + 46] = 1; // version (46..47)
 
-    const parsed = decodePayoutRegistry(mockAccount(buffer)).data;
+    const decodedHeader = decodePayoutRegistry(
+      mockAccount(buffer.slice(0, 104))
+    ).data;
+    assert.strictEqual(decodedHeader.poolId, 1);
+    assert.strictEqual(decodedHeader.cycleId, 0);
+    assert.strictEqual(decodedHeader.winnersCount, 1);
+    assert.strictEqual(decodedHeader.payoutsCompleted, 0);
+    assert.strictEqual(decodedHeader.revealedAt, 1700000000n);
+    assert.strictEqual(decodedHeader.status, 0);
+
+    const parsed = parsePayoutRegistry(mockAccount(buffer));
     assert.strictEqual(parsed.poolId, 1);
     assert.strictEqual(parsed.cycleId, 0);
     assert.strictEqual(parsed.winnersCount, 1);
     assert.strictEqual(parsed.payoutsCompleted, 0);
     assert.strictEqual(parsed.revealedAt, 1700000000n);
     assert.strictEqual(parsed.status, 0);
+    assert.strictEqual(parsed.winners.length, 1);
     assert.strictEqual(parsed.winners[0].amountOwed, 5_000_000n);
     assert.strictEqual(parsed.winners[0].bondsBought, 2);
     assert.ok(parsed.winners[0].winner, "Winner address must be present");

@@ -381,3 +381,13 @@ pub struct DrawPreparationProgress {
     /// Unix timestamp when this preparation progress was recorded.
     pub timestamp: i64,
 }
+
+/// Emitted when a completed or voided PayoutRegistry account is closed and rent is reimbursed.
+#[event]
+pub struct PayoutRegistryClosed {
+    pub pool_id: u32,
+    pub cycle_id: u32,
+    pub crank: Pubkey,
+    pub rent_reclaimed_lamports: u64,
+    pub timestamp: i64,
+}

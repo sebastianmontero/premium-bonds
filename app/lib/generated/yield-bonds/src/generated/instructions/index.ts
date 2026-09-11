@@ -14,6 +14,7 @@ export * from "./cancelAdminNomination";
 export * from "./claimNonReinvestedWinnings";
 export * from "./claimRedemption";
 export * from "./closePool";
+export * from "./crankClosePayoutRegistry";
 export * from "./crankRebindExpiredRandomness";
 export * from "./createPool";
 export * from "./harvestYieldAndCommit";

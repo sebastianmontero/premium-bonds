@@ -47,7 +47,7 @@ pub struct RevealAndPickWinners<'info> {
     #[account(
         mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
-        bump,
+        bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry,
     )]
     pub pool: AccountLoader<'info, PrizePool>,
@@ -66,7 +66,7 @@ pub struct RevealAndPickWinners<'info> {
     #[account(
         init,
         payer = crank,
-        space = 8 + std::mem::size_of::<PayoutRegistry>(),
+        space = crate::utils::payout_registry_space(pool.load()?.total_winners()? as usize)?,
         seeds = [PAYOUT_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump
     )]
@@ -166,23 +166,23 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         PremiumBondsError::InvalidDrawState
     );
 
-    let mut payout_registry = ctx.accounts.payout_registry.load_init()?;
-    payout_registry.pool_id = draw_cycle.pool_id;
-    payout_registry.cycle_id = draw_cycle.cycle_id;
-    payout_registry.version = PayoutRegistry::CURRENT_VERSION;
-    payout_registry.payouts_completed = 0;
-    payout_registry.revealed_at = clock.unix_timestamp;
-    payout_registry.status = crate::state::PayoutRegistryStatus::Active as u8;
-    payout_registry._padding = [0; 6];
-    payout_registry._reserved = [0; 64];
+    let payout_ai = ctx.accounts.payout_registry.to_account_info();
+    let mut payout_data = payout_ai.try_borrow_mut_data()?;
+    let mut payout_view = crate::utils::init_payout_registry_uninit_mut(&mut payout_data)?;
+
+    payout_view.header.pool_id = draw_cycle.pool_id;
+    payout_view.header.cycle_id = draw_cycle.cycle_id;
+    payout_view.header.version = PayoutRegistry::CURRENT_VERSION;
+    payout_view.header.payouts_completed = 0;
+    payout_view.header.revealed_at = clock.unix_timestamp;
+    payout_view.header.status = crate::state::PayoutRegistryStatus::Active as u8;
+    payout_view.header._padding = [0; 6];
+    payout_view.header._reserved = [0; 64];
 
     // Upfront fail-fast validation: ensures configured winners do not exceed payout registry capacity
-    let total_winners: usize = pool.prize_tiers[..pool.prize_tiers_count as usize]
-        .iter()
-        .map(|tier| tier.num_winners as usize)
-        .sum();
+    let total_winners = pool.total_winners()? as usize;
     require!(
-        total_winners <= payout_registry.winners.len(),
+        total_winners <= payout_view.winners.len(),
         PremiumBondsError::TooManyWinners
     );
 
@@ -208,7 +208,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
             require!(lo < entries.len(), PremiumBondsError::InvalidWinnerIndex);
             let winning_entry = &entries[lo];
 
-            payout_registry.winners[winner_count] = Winner {
+            payout_view.winners[winner_count] = Winner {
                 winner: winning_entry.owner,
                 amount_owed: prize_per_winner,
                 bonds_bought: 0,
@@ -227,7 +227,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         }
     }
 
-    payout_registry.winners_count = winner_count as u32;
+    payout_view.header.winners_count = winner_count as u32;
 
     let dust = draw_cycle
         .prize_pot
@@ -239,7 +239,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
         prize_pot: draw_cycle.prize_pot,
-        winners_count: payout_registry.winners_count,
+        winners_count: payout_view.header.winners_count,
         total_distributed,
         timestamp: clock.unix_timestamp,
     });

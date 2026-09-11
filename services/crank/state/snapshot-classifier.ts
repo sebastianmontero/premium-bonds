@@ -4,6 +4,7 @@ import {
   DrawCycle,
   TicketRegistry,
   PayoutRegistry,
+  ParsedPayoutRegistry,
   DrawStatus,
   PoolStatus,
 } from "../../../app/lib/bonds-sdk";
@@ -14,6 +15,13 @@ import {
   toUnixTimestamp,
 } from "../types";
 
+export interface ClassifierWinnerEntry {
+  winner: Address;
+  processed?: number;
+  isReinvested?: unknown;
+  isClaimed?: unknown;
+}
+
 export interface ClassifierInput {
   poolId: number;
   poolAddress: Address;
@@ -22,7 +30,10 @@ export interface ClassifierInput {
   ticketRegistry: TicketRegistry;
   drawCycle?: DrawCycle | null;
   payoutRegistryAddress?: Address | null;
-  payoutRegistry?: PayoutRegistry | null;
+  payoutRegistry?:
+    | ParsedPayoutRegistry
+    | (PayoutRegistry & { winners?: ClassifierWinnerEntry[] })
+    | null;
   currentSlot: bigint;
   currentTimestamp: bigint;
 }
@@ -140,19 +151,18 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     );
 
     const unprocessedWinners: { winner: Address; winnerIndex: number }[] = [];
-    if (Array.isArray(payoutRegistry.winners)) {
-      payoutRegistry.winners.forEach((w, index) => {
+    const winners = (payoutRegistry as { winners?: ClassifierWinnerEntry[] })
+      .winners;
+    if (Array.isArray(winners)) {
+      winners.forEach((w: ClassifierWinnerEntry, index: number) => {
         // Winner is unprocessed if processed is 0 (or neither reinvested nor claimed in mocks)
         const isProcessed =
           typeof w.processed === "number"
             ? w.processed !== 0
-            : Boolean(
-                (w as { isReinvested?: unknown }).isReinvested ||
-                (w as { isClaimed?: unknown }).isClaimed
-              );
+            : Boolean(w.isReinvested || w.isClaimed);
         if (!isProcessed) {
           unprocessedWinners.push({
-            winner: w.winner as Address,
+            winner: w.winner,
             winnerIndex: index,
           });
         }

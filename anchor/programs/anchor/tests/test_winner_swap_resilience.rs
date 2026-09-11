@@ -42,55 +42,14 @@ fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
 }
 
 fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
-    use anchor_lang::Discriminator;
-    let (pda, _) = payout_pda(pool_id, cycle_id);
-    let default_winner = anchor::Winner {
-        winner: Pubkey::default(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let mut fixed_winners = [default_winner; 50];
-    let count = winners.len().min(50);
-    fixed_winners[..count].copy_from_slice(&winners[..count]);
-    let pr = anchor::PayoutRegistry {
+    inject_payout_registry(
+        svm,
         pool_id,
         cycle_id,
-        winners_count: count as u32,
-        payouts_completed: 0,
-        revealed_at: 0,
-        status: anchor::PayoutRegistryStatus::Active as u8,
-        version: anchor::PayoutRegistry::CURRENT_VERSION,
-        _padding: [0; 6],
-        _reserved: [0; 64],
-        winners: fixed_winners,
-    };
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pr));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 10_000_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
-fn read_payout(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
-    let (pda, _) = payout_pda(pool_id, cycle_id);
-    let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
-        &account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-    )
+        winners,
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
 }
 
 fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
@@ -267,8 +226,8 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     assert_eq!(event.remaining_unclaimed_winnings, 0);
     assert_eq!(event.crank, crank.pubkey());
 
-    let pr = read_payout(&svm, 1, 0);
-    assert_eq!(pr.winners[0].processed, 1);
+    let winners = read_payout_winners(&svm, 1, 0);
+    assert_eq!(winners[0].processed, 1);
 
     let uw_b = read_user_winnings(&svm, 1, &user_b);
     assert_eq!(uw_b.total_reinvested, 5_000_000);

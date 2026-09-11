@@ -414,7 +414,7 @@ fn test_create_pool_fails_on_incorrect_total_basis_points() {
 #[test]
 fn test_create_pool_fails_on_exceeding_total_winners() {
     let mut ctx = setup_create_pool_context();
-    let too_many_winners = vec![anchor::PrizeTier::new(51, 10_000)];
+    let too_many_winners = vec![anchor::PrizeTier::new(181, 10_000)];
     let ix =
         build_create_pool_ix_with_tiers(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300, too_many_winners);
 
@@ -423,5 +423,5 @@ fn test_create_pool_fails_on_exceeding_total_winners() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
 
     let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, PremiumBondsError::InvalidPrizeTierConfig);
+    assert_custom_error(res, PremiumBondsError::TooManyWinners);
 }

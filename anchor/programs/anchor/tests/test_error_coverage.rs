@@ -773,7 +773,7 @@ fn test_err_no_winnings_and_already_claimed() {
 
 #[test]
 fn test_err_winner_mismatch_and_invalid_index() {
-    let mut payout = anchor::PayoutRegistry {
+    let payout = anchor::PayoutRegistry {
         pool_id: 1,
         cycle_id: 0,
         winners_count: 1,
@@ -783,21 +783,26 @@ fn test_err_winner_mismatch_and_invalid_index() {
         version: 1,
         _padding: [0; 6],
         _reserved: [0; 64],
-        winners: [anchor::Winner {
-            winner: Pubkey::new_unique(),
-            amount_owed: 1_000_000,
-            bonds_bought: 0,
-            processed: 0,
-            tier_index: 0,
-            version: 1,
-            _padding: [0; 1],
-            _reserved: [0; 8],
-        }; 50],
     };
 
     let user1 = Keypair::new().pubkey();
     let user2 = Keypair::new().pubkey();
-    payout.winners[0].winner = user1;
+
+    let winners = vec![anchor::Winner {
+        winner: user1,
+        amount_owed: 1_000_000,
+        bonds_bought: 0,
+        processed: 0,
+        tier_index: 0,
+        version: 1,
+        _padding: [0; 1],
+        _reserved: [0; 8],
+    }];
+
+    let pref = anchor::PayoutRegistryRef {
+        header: &payout,
+        winners: &winners,
+    };
 
     let uw_user1 = anchor::state::UserWinnings {
         user: user1,
@@ -810,13 +815,13 @@ fn test_err_winner_mismatch_and_invalid_index() {
 
     // 1. InvalidWinnerIndex
     assert_eq!(
-        payout.validate_winner(1, &uw_user1).unwrap_err(),
+        pref.validate_winner(1, user1).unwrap_err(),
         PremiumBondsError::InvalidWinnerIndex.into()
     );
 
     // 2. WinnerMismatch
     assert_eq!(
-        payout.validate_winner(0, &uw_user2).unwrap_err(),
+        pref.validate_winner(0, user2).unwrap_err(),
         PremiumBondsError::WinnerMismatch.into()
     );
 }

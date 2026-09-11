@@ -149,9 +149,29 @@ const _: () = assert!(std::mem::align_of::<PrizePool>() == 8);
 use crate::error::PremiumBondsError;
 use crate::utils::calculate_percentage_fee;
 
+/// Computes total winners across all prize tiers with checked arithmetic.
+#[inline]
+pub fn sum_tier_winners(tiers: &[PrizeTier]) -> Result<u32> {
+    tiers
+        .iter()
+        .try_fold(0u32, |acc, tier| acc.checked_add(tier.num_winners))
+        .ok_or_else(|| error!(PremiumBondsError::MathOverflow))
+}
+
 impl PrizePool {
     /// Current schema version of the PrizePool account.
     pub const CURRENT_VERSION: u8 = 1;
+
+    #[inline]
+    pub fn active_prize_tiers(&self) -> &[PrizeTier] {
+        let count = (self.prize_tiers_count as usize).min(self.prize_tiers.len());
+        &self.prize_tiers[..count]
+    }
+
+    #[inline]
+    pub fn total_winners(&self) -> Result<u32> {
+        sum_tier_winners(self.active_prize_tiers())
+    }
 
     /// Lazily migrates this account to the current schema version and guards against invalid versions.
     pub fn ensure_current_version(&mut self) -> Result<()> {
@@ -367,7 +387,6 @@ impl PrizePool {
             PremiumBondsError::InvalidPrizeTierConfig
         );
 
-        let mut total_winners: u32 = 0;
         let mut total_basis_points: u32 = 0;
 
         for tier in tiers.iter() {
@@ -375,10 +394,6 @@ impl PrizePool {
                 tier.basis_points > 0 && tier.num_winners > 0,
                 PremiumBondsError::InvalidPrizeTierConfig
             );
-
-            total_winners = total_winners
-                .checked_add(tier.num_winners)
-                .ok_or(PremiumBondsError::MathOverflow)?;
 
             total_basis_points = total_basis_points
                 .checked_add(
@@ -389,9 +404,10 @@ impl PrizePool {
                 .ok_or(PremiumBondsError::MathOverflow)?;
         }
 
+        let total_winners = sum_tier_winners(tiers)?;
         require!(
-            total_winners as usize <= crate::constants::MAX_TOTAL_WINNERS,
-            PremiumBondsError::InvalidPrizeTierConfig
+            (total_winners as usize) <= crate::constants::MAX_TOTAL_WINNERS,
+            PremiumBondsError::TooManyWinners
         );
 
         require!(
@@ -1174,11 +1190,11 @@ mod tests {
             PremiumBondsError::BasisPointsMustEqual10000.into()
         );
 
-        // Exceeding max winners (> 50)
-        let too_many_winners = [PrizeTier::new(51, 10_000)];
+        // Exceeding max winners (> 180)
+        let too_many_winners = [PrizeTier::new(181, 10_000)];
         assert_eq!(
             PrizePool::validate_prize_tiers(&too_many_winners).unwrap_err(),
-            PremiumBondsError::InvalidPrizeTierConfig.into()
+            PremiumBondsError::TooManyWinners.into()
         );
     }
 

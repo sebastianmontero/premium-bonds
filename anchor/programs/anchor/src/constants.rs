@@ -28,8 +28,10 @@ pub const MAX_STAKE_CYCLE_DURATION_HRS: i64 = 8760;
 
 /// Maximum number of prize tiers per pool.
 pub const MAX_PRIZE_TIERS: usize = 10;
-/// Maximum number of total winners per draw.
-pub const MAX_TOTAL_WINNERS: usize = 50;
+/// Maximum number of total winners across all prize tiers in a single draw cycle.
+/// Sized to fit safely within Solana's 10 KiB (10,240 B) CPI account allocation limit:
+/// 104 (header) + 180 * 56 (Winner) = 10,184 bytes.
+pub const MAX_TOTAL_WINNERS: usize = 180;
 
 /// Maximum allowable basis points (100.00%).
 pub const MAX_BASIS_POINTS: u16 = 10_000;

@@ -233,10 +233,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
       res.events[0].data.newTotalDepositedPrincipal,
       50_000_000n
     );
-    assert.strictEqual(
-      res.events[0].data.remainingUnclaimedWinnings,
-      500_000n
-    );
+    assert.strictEqual(res.events[0].data.remainingUnclaimedWinnings, 500_000n);
     assert.strictEqual(res.events[0].data.crank, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.timestamp, 1700000000n);
   });

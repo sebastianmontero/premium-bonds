@@ -71,6 +71,9 @@ export const ANCHOR_EVENT_DISCRIMINATORS: Record<string, Uint8Array> = {
   RandomnessRebound: new Uint8Array([
     0xc2, 0xb5, 0xca, 0xda, 0x34, 0x80, 0x13, 0x42,
   ]),
+  PayoutRegistryClosed: new Uint8Array([
+    0xf4, 0xd8, 0x99, 0x33, 0x4f, 0x65, 0x09, 0x09,
+  ]),
   FeesWithdrawn: new Uint8Array([
     0xea, 0x0f, 0x00, 0x77, 0x94, 0xf1, 0x28, 0x15,
   ]),
@@ -357,12 +360,32 @@ export function serializeAnchorEvent(
       fields = new Uint8Array(233);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
-      fields.set(pubkeyToBytes(data.admin || "11111111111111111111111111111111"), 4);
-      fields.set(pubkeyToBytes(data.tokenMint || "11111111111111111111111111111111"), 36);
-      fields.set(pubkeyToBytes(data.pstMint || "11111111111111111111111111111111"), 68);
-      fields.set(pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"), 100);
-      fields.set(pubkeyToBytes(data.ticketRegistry || "11111111111111111111111111111111"), 132);
-      fields.set(pubkeyToBytes(data.humaPoolState || "11111111111111111111111111111111"), 164);
+      fields.set(
+        pubkeyToBytes(data.admin || "11111111111111111111111111111111"),
+        4
+      );
+      fields.set(
+        pubkeyToBytes(data.tokenMint || "11111111111111111111111111111111"),
+        36
+      );
+      fields.set(
+        pubkeyToBytes(data.pstMint || "11111111111111111111111111111111"),
+        68
+      );
+      fields.set(
+        pubkeyToBytes(data.feeWallet || "11111111111111111111111111111111"),
+        100
+      );
+      fields.set(
+        pubkeyToBytes(
+          data.ticketRegistry || "11111111111111111111111111111111"
+        ),
+        132
+      );
+      fields.set(
+        pubkeyToBytes(data.humaPoolState || "11111111111111111111111111111111"),
+        164
+      );
       view.setBigUint64(196, BigInt(data.bondPrice || 0), true);
       view.setBigInt64(204, BigInt(data.stakeCycleDurationHrs || 0), true);
       view.setUint16(212, Number(data.feeBasisPoints || 0), true);
@@ -376,32 +399,85 @@ export function serializeAnchorEvent(
     case "GlobalConfigUpdated": {
       // Pubkey(32)*5 = 160 bytes
       fields = new Uint8Array(160);
-      fields.set(pubkeyToBytes(data.authority || "11111111111111111111111111111111"), 0);
-      fields.set(pubkeyToBytes(data.oldGuardian || "11111111111111111111111111111111"), 32);
-      fields.set(pubkeyToBytes(data.newGuardian || "11111111111111111111111111111111"), 64);
-      fields.set(pubkeyToBytes(data.oldJobsAccount || "11111111111111111111111111111111"), 96);
-      fields.set(pubkeyToBytes(data.newJobsAccount || "11111111111111111111111111111111"), 128);
+      fields.set(
+        pubkeyToBytes(data.authority || "11111111111111111111111111111111"),
+        0
+      );
+      fields.set(
+        pubkeyToBytes(data.oldGuardian || "11111111111111111111111111111111"),
+        32
+      );
+      fields.set(
+        pubkeyToBytes(data.newGuardian || "11111111111111111111111111111111"),
+        64
+      );
+      fields.set(
+        pubkeyToBytes(
+          data.oldJobsAccount || "11111111111111111111111111111111"
+        ),
+        96
+      );
+      fields.set(
+        pubkeyToBytes(
+          data.newJobsAccount || "11111111111111111111111111111111"
+        ),
+        128
+      );
       break;
     }
     case "AdminNominated": {
       // Pubkey(32) + Pubkey(32) = 64 bytes
       fields = new Uint8Array(64);
-      fields.set(pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"), 0);
-      fields.set(pubkeyToBytes(data.pendingAdmin || "11111111111111111111111111111111"), 32);
+      fields.set(
+        pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"),
+        0
+      );
+      fields.set(
+        pubkeyToBytes(data.pendingAdmin || "11111111111111111111111111111111"),
+        32
+      );
       break;
     }
     case "AdminNominationCancelled": {
       // Pubkey(32) + Pubkey(32) = 64 bytes
       fields = new Uint8Array(64);
-      fields.set(pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"), 0);
-      fields.set(pubkeyToBytes(data.cancelledPendingAdmin || "11111111111111111111111111111111"), 32);
+      fields.set(
+        pubkeyToBytes(data.currentAdmin || "11111111111111111111111111111111"),
+        0
+      );
+      fields.set(
+        pubkeyToBytes(
+          data.cancelledPendingAdmin || "11111111111111111111111111111111"
+        ),
+        32
+      );
       break;
     }
     case "AdminTransferred": {
       // Pubkey(32) + Pubkey(32) = 64 bytes
       fields = new Uint8Array(64);
-      fields.set(pubkeyToBytes(data.oldAdmin || "11111111111111111111111111111111"), 0);
-      fields.set(pubkeyToBytes(data.newAdmin || "11111111111111111111111111111111"), 32);
+      fields.set(
+        pubkeyToBytes(data.oldAdmin || "11111111111111111111111111111111"),
+        0
+      );
+      fields.set(
+        pubkeyToBytes(data.newAdmin || "11111111111111111111111111111111"),
+        32
+      );
+      break;
+    }
+    case "PayoutRegistryClosed": {
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + i64(8) = 56 bytes
+      fields = new Uint8Array(56);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint32(4, Number(data.cycleId || 1), true);
+      fields.set(
+        pubkeyToBytes(data.rentRecipient || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.rentReclaimed || 0), true);
+      view.setBigInt64(48, BigInt(data.timestamp || 0), true);
       break;
     }
     default:

@@ -269,10 +269,10 @@ fn test_set_prize_tiers_fails_on_exceeding_total_winners() {
     let pool_id = 1;
     inject_pool(&mut svm, pool_id, false);
 
-    // MAX_TOTAL_WINNERS is 50. Let's send 51 winners.
+    // MAX_TOTAL_WINNERS is 180. Let's send 181 winners.
     let tiers = vec![anchor::PrizeTier {
         basis_points: 10000,
-        num_winners: 51,
+        num_winners: 181,
         _padding: [0, 0],
     }];
 
@@ -283,7 +283,7 @@ fn test_set_prize_tiers_fails_on_exceeding_total_winners() {
     );
 
     let err_str = format!("{:?}", result.unwrap_err());
-    assert!(err_str.contains("InvalidPrizeTierConfig"));
+    assert!(err_str.contains("TooManyWinners"));
 }
 
 #[test]

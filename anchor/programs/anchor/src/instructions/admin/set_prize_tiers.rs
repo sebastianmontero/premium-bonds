@@ -61,10 +61,7 @@ pub fn handle(ctx: Context<SetPrizeTiers>, tiers: Vec<PrizeTier>) -> Result<()> 
     );
 
     let old_tiers_count = pool.prize_tiers_count;
-    let old_total_winners: u32 = pool.prize_tiers[..old_tiers_count as usize]
-        .iter()
-        .try_fold(0u32, |acc, t| acc.checked_add(t.num_winners))
-        .ok_or(PremiumBondsError::MathOverflow)?;
+    let old_total_winners = pool.total_winners()?;
 
     let total_winners = pool.set_prize_tiers(&tiers)?;
 

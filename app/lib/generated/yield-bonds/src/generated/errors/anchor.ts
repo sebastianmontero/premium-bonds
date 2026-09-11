@@ -140,6 +140,8 @@ export const ANCHOR_ERROR__INVALID_ADMIN_ADDRESS = 0x17ac; // 6060
 export const ANCHOR_ERROR__CANNOT_NOMINATE_SELF = 0x17ad; // 6061
 /** InvalidHumaPoolState: Provided Huma pool state is invalid or uninitialized. */
 export const ANCHOR_ERROR__INVALID_HUMA_POOL_STATE = 0x17ae; // 6062
+/** PayoutsPending: Cannot close payout registry: payouts are still pending. */
+export const ANCHOR_ERROR__PAYOUTS_PENDING = 0x17af; // 6063
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -182,6 +184,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__NOT_PENDING_ADMIN
   | typeof ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM
   | typeof ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED
+  | typeof ANCHOR_ERROR__PAYOUTS_PENDING
   | typeof ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE
   | typeof ANCHOR_ERROR__POOL_CLOSED
   | typeof ANCHOR_ERROR__POOL_NOT_ACTIVE
@@ -249,6 +252,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__NOT_PENDING_ADMIN]: `Caller is not the nominated pending admin.`,
     [ANCHOR_ERROR__NO_WINNINGS_TO_CLAIM]: `No unclaimed non-reinvested winnings to claim.`,
     [ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED]: `Winner payouts have already begun processing.`,
+    [ANCHOR_ERROR__PAYOUTS_PENDING]: `Cannot close payout registry: payouts are still pending.`,
     [ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE]: `Payout settlement timelock is active.`,
     [ANCHOR_ERROR__POOL_CLOSED]: `The prize pool is closed permanently.`,
     [ANCHOR_ERROR__POOL_NOT_ACTIVE]: `The prize pool is not currently active.`,

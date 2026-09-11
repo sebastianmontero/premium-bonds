@@ -8,9 +8,9 @@ import {
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 63 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 63 errors defined from 6000 to 6062 inclusive
-    for (let code = 6000; code <= 6062; code++) {
+  it("should have complete 64 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 64 errors defined from 6000 to 6063 inclusive
+    for (let code = 6000; code <= 6063; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -134,7 +134,10 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
         "Transaction simulation failed: AnchorError occurred. Error Code: TransferFeeNotSupported. Error Number: 6055.",
     });
     assert.strictEqual(parsed6055.code, 6055);
-    assert.strictEqual(parsed6055.title, "Program Error: TransferFeeNotSupported");
+    assert.strictEqual(
+      parsed6055.title,
+      "Program Error: TransferFeeNotSupported"
+    );
 
     // 6062: InvalidHumaPoolState
     const parsed6062 = parseTransactionError({
@@ -143,5 +146,18 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
     });
     assert.strictEqual(parsed6062.code, 6062);
     assert.strictEqual(parsed6062.title, "Program Error: InvalidHumaPoolState");
+
+    // 6063: PayoutsPending
+    const parsed6063 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: PayoutsPending. Error Number: 6063.",
+    });
+    assert.strictEqual(parsed6063.code, 6063);
+    assert.strictEqual(parsed6063.title, "Program Error: PayoutsPending");
+    assert.ok(
+      parsed6063.message.includes(
+        "Payout registry cannot be closed while winner payouts"
+      )
+    );
   });
 });

@@ -168,8 +168,7 @@ fn test_admin_void_payout_registry_success() {
     );
 
     // Verify PayoutRegistry status
-    let payout_acc = svm.get_account(&payout_pda_addr).unwrap();
-    let pr = bytemuck::from_bytes::<anchor::PayoutRegistry>(&payout_acc.data[8..]);
+    let pr = read_payout_registry(&svm, pool_id, cycle_id);
     assert_eq!(pr.status, anchor::PayoutRegistryStatus::Voided as u8);
 
     // Verify DrawCycle status
@@ -841,8 +840,7 @@ fn test_admin_void_draw_with_zero_truncated_prize_succeeds_before_crank() {
     assert_eq!(pool.total_fees_accrued, 0);
 
     // Verify PayoutRegistry marked as Voided
-    let payout_acc = svm.get_account(&payout_pda_addr).unwrap();
-    let pr = bytemuck::from_bytes::<anchor::PayoutRegistry>(&payout_acc.data[8..]);
+    let pr = read_payout_registry(&svm, pool_id, cycle_id);
     assert_eq!(pr.status, anchor::PayoutRegistryStatus::Voided as u8);
 
     // Verify DrawCycle marked as Voided

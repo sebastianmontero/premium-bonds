@@ -251,6 +251,10 @@ fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::P
     )
 }
 
+fn read_winners(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> Vec<anchor::Winner> {
+    common::read_payout_winners(svm, pool_id, cycle_id)
+}
+
 /// Recompute derive_random_index locally (mirrors program logic).
 fn local_derive_random_index(
     seed: &[u8; 32],
@@ -440,7 +444,10 @@ fn test_reveal_fails_prize_tiers_not_configured() {
         5,
     );
     let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("PrizeTiersNotConfigured"), "got: {err}");
+    assert!(
+        err.contains("PrizeTiersNotConfigured") || err.contains("InvalidPrizeTierConfig"),
+        "got: {err}"
+    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -503,10 +510,11 @@ fn test_reveal_single_tier_single_winner() {
     assert_eq!(event.winners_count, 1);
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 1);
-    assert_eq!(pr.winners[0].amount_owed, 1_000_000); // 10000bps of 1M
-    assert_eq!(pr.winners[0].processed, 0);
-    assert_eq!(pr.winners[0].tier_index, 0);
+    assert_eq!(winners[0].amount_owed, 1_000_000); // 10000bps of 1M
+    assert_eq!(winners[0].processed, 0);
+    assert_eq!(winners[0].tier_index, 0);
 }
 
 #[test]
@@ -535,8 +543,9 @@ fn test_reveal_multi_tier_multi_winner() {
     send_reveal(&mut ctx, 1, 0, [7u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 4); // 1 + 3
-    assert_prize_tier_distribution(prize_pot, &tiers, &pr.winners, pr.winners_count as usize);
+    assert_prize_tier_distribution(prize_pot, &tiers, &winners, pr.winners_count as usize);
 }
 
 #[test]
@@ -566,6 +575,7 @@ fn test_reveal_winner_determinism() {
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 3);
 
     // Recompute expected winners
@@ -573,9 +583,9 @@ fn test_reveal_winner_determinism() {
     let idx1 = local_derive_random_index(&seed, 0, 1, 0, locked) as usize;
     let idx2 = local_derive_random_index(&seed, 1, 0, 0, locked) as usize;
 
-    assert_eq!(pr.winners[0].winner, ctx.tickets[idx0]);
-    assert_eq!(pr.winners[1].winner, ctx.tickets[idx1]);
-    assert_eq!(pr.winners[2].winner, ctx.tickets[idx2]);
+    assert_eq!(winners[0].winner, ctx.tickets[idx0]);
+    assert_eq!(winners[1].winner, ctx.tickets[idx1]);
+    assert_eq!(winners[2].winner, ctx.tickets[idx2]);
 }
 
 #[test]
@@ -589,12 +599,13 @@ fn test_reveal_payout_registry_fields() {
     send_reveal(&mut ctx, 1, 0, [3u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.pool_id, 1);
     assert_eq!(pr.cycle_id, 0);
     assert_eq!(pr.winners_count, 2);
     assert_eq!(pr.payouts_completed, 0);
 
-    for w in &pr.winners[..pr.winners_count as usize] {
+    for w in &winners[..pr.winners_count as usize] {
         assert_eq!(w.processed, 0);
         assert_eq!(w.bonds_bought, 0);
     }
@@ -647,11 +658,12 @@ fn test_reveal_duplicate_winner_across_tiers() {
     send_reveal(&mut ctx, 1, 0, [10u8; 32]).expect("reveal");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 2);
-    assert_eq!(pr.winners[0].winner, ctx.tickets[0]);
-    assert_eq!(pr.winners[1].winner, ctx.tickets[0]);
-    assert_eq!(pr.winners[0].amount_owed, 600_000);
-    assert_eq!(pr.winners[1].amount_owed, 400_000);
+    assert_eq!(winners[0].winner, ctx.tickets[0]);
+    assert_eq!(winners[1].winner, ctx.tickets[0]);
+    assert_eq!(winners[0].amount_owed, 600_000);
+    assert_eq!(winners[1].amount_owed, 400_000);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -979,8 +991,8 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
         assert!(found, "Must find seed for index {target_index}");
 
         send_reveal(&mut ctx, 1, 0, seed).expect("reveal should succeed");
-        let pr = read_payout_registry(&ctx.svm, 1, 0);
-        pr.winners[0].winner
+        let winners = read_winners(&ctx.svm, 1, 0);
+        winners[0].winner
     };
 
     // Index 0 -> User 1
@@ -1036,11 +1048,12 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
 
     // Verify PayoutRegistry state: winner recorded with amount_owed = 0, processed = 0
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 1);
     assert_eq!(pr.payouts_completed, 0);
-    assert_eq!(pr.winners[0].amount_owed, 0);
-    assert_eq!(pr.winners[0].processed, 0);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    assert_eq!(winners[0].amount_owed, 0);
+    assert_eq!(winners[0].processed, 0);
+    assert_eq!(winners[0].bonds_bought, 0);
 
     // Verify pool on-chain state: full pot (5_000) deducted as dust from allocated liabilities
     let pool = read_pool(&ctx.svm, 1);
@@ -1078,10 +1091,11 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
     assert_eq!(event.winners_count, 2);
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners[0].amount_owed, 4_999);
-    assert_eq!(pr.winners[0].processed, 0);
-    assert_eq!(pr.winners[1].amount_owed, 0);
-    assert_eq!(pr.winners[1].processed, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
+    assert_eq!(winners[0].amount_owed, 4_999);
+    assert_eq!(winners[0].processed, 0);
+    assert_eq!(winners[1].amount_owed, 0);
+    assert_eq!(winners[1].processed, 0);
 
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 1);
@@ -1112,22 +1126,23 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     assert_eq!(event.total_distributed, 10_000_000);
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
+    let winners = read_winners(&ctx.svm, 1, 0);
     assert_eq!(pr.winners_count, 3);
     let user_pubkey = ctx.tickets[0];
-    assert_eq!(pr.winners[0].winner, user_pubkey);
-    assert_eq!(pr.winners[0].amount_owed, 6_000_000);
-    assert_eq!(pr.winners[1].winner, user_pubkey);
-    assert_eq!(pr.winners[1].amount_owed, 2_000_000);
-    assert_eq!(pr.winners[2].winner, user_pubkey);
-    assert_eq!(pr.winners[2].amount_owed, 2_000_000);
+    assert_eq!(winners[0].winner, user_pubkey);
+    assert_eq!(winners[0].amount_owed, 6_000_000);
+    assert_eq!(winners[1].winner, user_pubkey);
+    assert_eq!(winners[1].amount_owed, 2_000_000);
+    assert_eq!(winners[2].winner, user_pubkey);
+    assert_eq!(winners[2].amount_owed, 2_000_000);
 }
 
 #[test]
 fn test_reveal_fails_too_many_winners() {
-    // 51 winners exceeds the payout registry capacity of 50
+    // 181 winners exceeds the payout registry capacity of 180
     let tiers = vec![anchor::PrizeTier {
         basis_points: 100,
-        num_winners: 51,
+        num_winners: 181,
         _padding: [0, 0],
     }];
 
@@ -1250,8 +1265,8 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
     let res = ctx.svm.send_transaction(tx);
     assert!(res.is_ok(), "reveal failed: {:?}", res);
 
-    let pr = read_payout_registry(&ctx.svm, 1, 0);
-    let winner = pr.winners[0].winner;
+    let winners = read_winners(&ctx.svm, 1, 0);
+    let winner = winners[0].winner;
 
     if random_idx < 10 {
         assert_eq!(winner, user_1, "random_idx {random_idx} must select user_1");

@@ -8,6 +8,7 @@
 
 export * from "./eventAuthority";
 export * from "./globalConfig";
+export * from "./payoutRegistry";
 export * from "./pool";
 export * from "./poolPstVault";
 export * from "./poolVaultAccount";

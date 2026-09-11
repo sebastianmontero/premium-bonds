@@ -9,4 +9,3 @@
 export * from "./drawStatus";
 export * from "./prizeTier";
 export * from "./redemptionType";
-export * from "./winner";

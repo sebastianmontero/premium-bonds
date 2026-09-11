@@ -245,6 +245,15 @@ pub mod anchor {
         instructions::yield_draw::reinvest_winnings::handle(ctx, cycle_id, winner_index)
     }
 
+    /// Closes a fully processed or voided PayoutRegistry account, reimbursing 100% of rent lamports directly to the crank bot.
+    pub fn crank_close_payout_registry(
+        ctx: Context<CrankClosePayoutRegistry>,
+        pool_id: u32,
+        cycle_id: u32,
+    ) -> Result<()> {
+        instructions::yield_draw::crank_close_payout_registry::handle(ctx, pool_id, cycle_id)
+    }
+
     /// Withdraws accrued protocol fees from the pool state.
     pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         instructions::admin::withdraw_fees::handle(ctx, amount)

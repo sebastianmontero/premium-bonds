@@ -107,47 +107,14 @@ fn inject_pool(
 }
 
 fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
-    use anchor_lang::Discriminator;
-    let (pda, _) = payout_pda(pool_id, cycle_id);
-    let default_winner = anchor::Winner {
-        winner: Pubkey::default(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let mut fixed_winners = [default_winner; 50];
-    let count = winners.len().min(50);
-    fixed_winners[..count].copy_from_slice(&winners[..count]);
-    let pr = anchor::PayoutRegistry {
+    common::inject_payout_registry(
+        svm,
         pool_id,
         cycle_id,
-        winners_count: count as u32,
-        payouts_completed: 0,
-        revealed_at: 0,
-        status: anchor::PayoutRegistryStatus::Active as u8,
-        version: anchor::PayoutRegistry::CURRENT_VERSION,
-        _padding: [0; 6],
-        _reserved: [0; 64],
-        winners: fixed_winners,
-    };
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pr));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 10_000_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+        winners,
+        0,
+        anchor::PayoutRegistryStatus::Active,
+    );
 }
 
 use common::*;
@@ -228,6 +195,10 @@ fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
     *bytemuck::from_bytes::<anchor::PayoutRegistry>(
         &data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
     )
+}
+
+fn read_winners(svm: &LiteSVM, cid: u32) -> Vec<anchor::Winner> {
+    common::read_payout_winners(svm, 1, cid)
 }
 
 fn read_user_winnings(svm: &LiteSVM, user: &Pubkey) -> anchor::state::UserWinnings {
@@ -358,8 +329,9 @@ fn test_reinvest_single_batch_full() {
     assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 3);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 3);
     assert_eq!(pr.payouts_completed, 1);
 
     let pool = read_pool(&ctx.svm);
@@ -376,9 +348,9 @@ fn test_reinvest_single_batch_with_dust() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_500_000, 0);
     send(&mut ctx, 0, 0).expect("reinvest");
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 3);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 3);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 500_000);
@@ -413,9 +385,9 @@ fn test_reinvest_populates_bonds_bought() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000, 0);
     send(&mut ctx, 0, 0).expect("reinvest");
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 5);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 5);
 }
 
 #[test]
@@ -427,9 +399,9 @@ fn test_reinvest_combines_prior_dust_and_current_prize() {
 
     send(&mut ctx, 0, 0).expect("reinvest");
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 1);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
@@ -446,9 +418,9 @@ fn test_reinvest_dust_only_no_bonds() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
     send(&mut ctx, 0, 0).expect("dust only");
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
 
     let pool = read_pool(&ctx.svm);
     assert_eq!(pool.total_deposited_principal, 0);
@@ -484,9 +456,9 @@ fn test_reinvest_using_accumulated_dust() {
     // This allows buying 1 bond (1M), leaving 100K dust.
     send(&mut ctx, 0, 0).expect("reinvest");
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 1);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 100_000); // 1.1M - 1M bond = 100K remaining
@@ -586,8 +558,8 @@ fn test_reinvest_exited_user_full_registry_fallback() {
     assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
     assert_eq!(event.crank, ctx.crank.pubkey());
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
@@ -826,7 +798,7 @@ fn test_reinvest_fails_payout_timelock_active() {
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
     {
         let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
         pr.revealed_at = 1_000;
         svm.set_account(payout_pda, acc).unwrap();
     }
@@ -869,7 +841,7 @@ fn test_reinvest_fails_draw_voided() {
     let (pda, _) = payout_pda(1, 0);
     {
         let mut acc = ctx.svm.get_account(&pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
         pr.status = anchor::PayoutRegistryStatus::Voided as u8;
         ctx.svm.set_account(pda, acc).unwrap();
     }
@@ -900,8 +872,9 @@ fn test_reinvest_closed_pool_graceful_cash_fallback() {
     assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
     assert_eq!(pr.payouts_completed, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -931,8 +904,9 @@ fn test_reinvest_closed_pool_with_existing_dust() {
     send(&mut ctx, 0, 0).expect("reinvest closed pool with dust");
 
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
     assert_eq!(pr.payouts_completed, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -960,9 +934,9 @@ fn test_reinvest_closed_pool_exited_user() {
     assert_eq!(event.remaining_unclaimed_winnings, 4_000_000);
     assert_eq!(event.crank, ctx.crank.pubkey());
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 4_000_000);
@@ -1022,7 +996,7 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
     {
         let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
         pr.revealed_at = 1_000;
         svm.set_account(payout_pda, acc).unwrap();
     }
@@ -1081,8 +1055,9 @@ fn test_reinvest_zero_prize_owed_without_prior_dust() {
 
     // Verify PayoutRegistry is marked processed
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
     assert_eq!(pr.payouts_completed, 1);
 
     // Verify UserWinnings remains 0
@@ -1117,8 +1092,9 @@ fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
     assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 0);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 0);
     assert_eq!(pr.payouts_completed, 1);
 
     // Verify sub-bond dust is preserved exactly
@@ -1149,8 +1125,9 @@ fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
     assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[0].bonds_bought, 1);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].bonds_bought, 1);
     assert_eq!(pr.payouts_completed, 1);
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
@@ -1235,9 +1212,10 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event0.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
+    let winners0 = read_winners(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 1);
-    assert_eq!(pr.winners[0].processed, 1);
-    assert_eq!(pr.winners[1].processed, 0);
+    assert_eq!(winners0[0].processed, 1);
+    assert_eq!(winners0[1].processed, 0);
 
     // Crank winner 1
     ctx.winner = winner1;
@@ -1252,8 +1230,9 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event1.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
+    let winners1 = read_winners(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 2);
-    assert_eq!(pr.winners[1].processed, 1);
+    assert_eq!(winners1[1].processed, 1);
 }
 
 #[test]
@@ -1297,9 +1276,9 @@ fn test_reinvest_winnings_with_unit_bond_price() {
     assert_eq!(uw.total_reinvested, 500);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
 
-    let pr = read_payout(&ctx.svm, 0);
-    assert_eq!(pr.winners[0].bonds_bought, 500);
-    assert_eq!(pr.winners[0].processed, 1);
+    let winners = read_winners(&ctx.svm, 0);
+    assert_eq!(winners[0].bonds_bought, 500);
+    assert_eq!(winners[0].processed, 1);
 
     // Registry active tickets increased by exactly 500
     assert_eq!(
@@ -1395,9 +1374,10 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     assert_eq!(event.crank, ctx.crank.pubkey());
 
     let pr = read_payout(&ctx.svm, 0);
+    let winners = read_winners(&ctx.svm, 0);
     assert_eq!(pr.payouts_completed, 1);
-    assert_eq!(pr.winners[0].processed, 0);
-    assert_eq!(pr.winners[1].processed, 0);
-    assert_eq!(pr.winners[2].processed, 1);
-    assert_eq!(pr.winners[2].bonds_bought, 4);
+    assert_eq!(winners[0].processed, 0);
+    assert_eq!(winners[1].processed, 0);
+    assert_eq!(winners[2].processed, 1);
+    assert_eq!(winners[2].bonds_bought, 4);
 }

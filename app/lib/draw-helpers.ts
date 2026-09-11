@@ -348,6 +348,11 @@ export async function parseWinnersWithVrf(
 
   for (let wi = 0; wi < payout.winnersCount; wi++) {
     const w = payout.winners[wi];
+    if (!w) {
+      throw new Error(
+        `Corrupt draw record: winner at index ${wi} is missing in draw ${drawCycle.cycleId}`
+      );
+    }
     const slotInTier = tierWinnerCounts[w.tierIndex] ?? 0;
     tierWinnerCounts[w.tierIndex] = slotInTier + 1;
 

@@ -101,10 +101,11 @@ pub struct ReinvestWinnings<'info> {
 /// Any leftover dust less than the price of a single bond is stored in the user's `UserWinnings` state
 /// to be claimed or aggregated in subsequent reinvestments.
 pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32) -> Result<()> {
-    // ── 1. Validate winner entry & statuses ──────────────────────────────────
-    let payout_registry = &mut ctx.accounts.payout_registry.load_mut()?;
-    payout_registry.ensure_current_version()?;
-    require!(payout_registry.is_active(), PremiumBondsError::DrawVoided);
+    let payout_ai = ctx.accounts.payout_registry.to_account_info();
+    let mut payout_data = payout_ai.try_borrow_mut_data()?;
+    let mut payout_view = crate::utils::get_payout_registry_mut(&mut payout_data)?;
+    payout_view.header.ensure_current_version()?;
+    require!(payout_view.header.is_active(), PremiumBondsError::DrawVoided);
 
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
@@ -119,7 +120,8 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
 
     let clock = Clock::get()?;
     if pool.payout_timelock_seconds > 0 {
-        let eligible_at = payout_registry
+        let eligible_at = payout_view
+            .header
             .revealed_at
             .checked_add(pool.payout_timelock_seconds as i64)
             .ok_or(PremiumBondsError::MathOverflow)?;
@@ -131,7 +133,7 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
 
     let user_winnings = &mut ctx.accounts.user_winnings;
     user_winnings.ensure_current_version()?;
-    let winner = payout_registry.validate_winner(winner_index, user_winnings)?;
+    let winner = payout_view.validate_winner(winner_index, user_winnings.user)?;
 
     // ── 2. Calculate remaining amount and bonds for atomic reinvestment ──────
     let remaining_current = winner.amount_owed;
@@ -175,8 +177,7 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
         .checked_sub(cost)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
-    // Set bonds_bought and update user_winnings dust/unclaimed accounting
-    payout_registry.winners[winner_index as usize].bonds_bought = bonds_to_buy;
+    // Update user_winnings dust/unclaimed accounting
     user_winnings.unclaimed_non_reinvested_winnings = remaining_unclaimed;
 
     if bonds_to_buy > 0 {
@@ -186,8 +187,8 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    // Mark winner as processed
-    payout_registry.mark_processed(winner_index)?;
+    // Mark winner as processed and increment payouts_completed
+    payout_view.complete_payout(winner_index, bonds_to_buy)?;
 
     // ── 3. Reinvest: accounting-only bond registration ──────────────────────
     //

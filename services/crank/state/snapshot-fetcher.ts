@@ -9,11 +9,11 @@ import {
   findDrawCyclePda,
   findPayoutRegistryPda,
   parseTicketRegistry,
+  parsePayoutRegistry,
 } from "../../../app/lib/bonds-sdk";
 import {
   getPrizePoolDecoder,
   getDrawCycleDecoder,
-  getPayoutRegistryDecoder,
 } from "../../../app/lib/generated/yield-bonds/src/generated";
 import { PoolStateSnapshot } from "../types";
 import { classifyPoolState } from "./snapshot-classifier";
@@ -103,7 +103,7 @@ export async function fetchPoolStateSnapshot(
       const payoutBytes = new Uint8Array(
         base64Encoder.encode(currentPayoutAcc.data[0])
       );
-      payoutRegistry = getPayoutRegistryDecoder().decode(payoutBytes);
+      payoutRegistry = parsePayoutRegistry(payoutBytes);
       payoutRegistryAddress = currentPayoutPda;
     } catch {}
   }
@@ -115,7 +115,7 @@ export async function fetchPoolStateSnapshot(
         const payoutBytes = new Uint8Array(
           base64Encoder.encode(prevPayoutAcc.data[0])
         );
-        payoutRegistry = getPayoutRegistryDecoder().decode(payoutBytes);
+        payoutRegistry = parsePayoutRegistry(payoutBytes);
         payoutRegistryAddress = prevPayoutPda;
       } catch {}
     }

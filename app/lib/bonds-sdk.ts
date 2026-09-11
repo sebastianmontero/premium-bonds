@@ -602,16 +602,14 @@ export function parseDrawCycle(data: Uint8Array) {
   };
 }
 
-export function parsePayoutRegistry(data: Uint8Array) {
-  const decoded = decodedData<PayoutRegistry>(
-    decodePayoutRegistry(mockAccount(data))
-  );
-  return {
-    ...decoded,
-    winnersCount: Number(decoded.winnersCount),
-    payoutsCompleted: Number(decoded.payoutsCompleted),
-  };
-}
+import {
+  parsePayoutRegistry,
+  type ParsedPayoutRegistry,
+  type ParsedWinner,
+} from "./payout-registry-helpers";
+
+export { parsePayoutRegistry };
+export type { ParsedPayoutRegistry, ParsedWinner };
 
 export function parseUserWinnings(data: Uint8Array): UserWinnings {
   return decodedData<UserWinnings>(decodeUserWinnings(mockAccount(data)));
@@ -1057,6 +1055,8 @@ import {
   getClosePoolInstructionAsync,
   getAdminVoidPayoutRegistryInstructionAsync,
   getClaimRedemptionInstructionAsync,
+  getCrankClosePayoutRegistryInstructionAsync,
+  getCrankClosePayoutRegistryInstructionDataEncoder,
 } from "./generated/yield-bonds/src/generated/instructions";
 
 import {
@@ -1092,6 +1092,8 @@ export {
   getClosePoolInstructionAsync,
   getAdminVoidPayoutRegistryInstructionAsync,
   getClaimRedemptionInstructionAsync,
+  getCrankClosePayoutRegistryInstructionAsync,
+  getCrankClosePayoutRegistryInstructionDataEncoder,
   getSimulateYieldInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
@@ -1449,6 +1451,26 @@ export async function buildReinvestWinningsInstruction(params: {
     ticketRegistry: params.ticketRegistry,
     cycleId: params.cycleId,
     winnerIndex: params.winnerIndex,
+  });
+}
+
+export async function buildCrankClosePayoutRegistryInstruction(params: {
+  crank: Address | TransactionSigner;
+  poolId: number;
+  cycleId: number;
+}) {
+  const globalConfig = await findGlobalConfigPda();
+  const payoutRegistry = await findPayoutRegistryPda(
+    params.poolId,
+    params.cycleId
+  );
+
+  return getCrankClosePayoutRegistryInstructionAsync({
+    globalConfig,
+    crank: params.crank as unknown as TransactionSigner,
+    payoutRegistry,
+    poolId: params.poolId,
+    cycleId: params.cycleId,
   });
 }
 

@@ -24,8 +24,6 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
-  getArrayDecoder,
-  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
   getI64Decoder,
@@ -42,12 +40,6 @@ import {
   type FixedSizeEncoder,
   type ReadonlyUint8Array,
 } from "@solana/codecs";
-import {
-  getWinnerDecoder,
-  getWinnerEncoder,
-  type Winner,
-  type WinnerArgs,
-} from "../types";
 
 export const PAYOUT_REGISTRY_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array(
   [54, 200, 184, 56, 100, 227, 130, 95]
@@ -79,8 +71,6 @@ export type PayoutRegistry = {
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
-  /** List of winners and their allocation details. */
-  winners: Array<Winner>;
 };
 
 export type PayoutRegistryArgs = {
@@ -102,8 +92,6 @@ export type PayoutRegistryArgs = {
   padding: ReadonlyUint8Array;
   /** Reserved space for future upgrades. */
   reserved: ReadonlyUint8Array;
-  /** List of winners and their allocation details. */
-  winners: Array<WinnerArgs>;
 };
 
 /** Gets the encoder for {@link PayoutRegistryArgs} account data. */
@@ -120,7 +108,6 @@ export function getPayoutRegistryEncoder(): FixedSizeEncoder<PayoutRegistryArgs>
       ["version", getU8Encoder()],
       ["padding", fixEncoderSize(getBytesEncoder(), 6)],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
-      ["winners", getArrayEncoder(getWinnerEncoder(), { size: 50 })],
     ]),
     (value) => ({ ...value, discriminator: PAYOUT_REGISTRY_DISCRIMINATOR })
   );
@@ -139,7 +126,6 @@ export function getPayoutRegistryDecoder(): FixedSizeDecoder<PayoutRegistry> {
     ["version", getU8Decoder()],
     ["padding", fixDecoderSize(getBytesDecoder(), 6)],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
-    ["winners", getArrayDecoder(getWinnerDecoder(), { size: 50 })],
   ]);
 }
 
@@ -213,5 +199,5 @@ export async function fetchAllMaybePayoutRegistry(
 }
 
 export function getPayoutRegistrySize(): number {
-  return 2904;
+  return 104;
 }
