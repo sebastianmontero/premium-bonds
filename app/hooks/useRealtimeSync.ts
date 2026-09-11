@@ -12,6 +12,78 @@ import {
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { useWalletConnection } from "@solana/react-hooks";
 
+/**
+ * Pure helper to resolve TanStack Query keys to invalidate from an incoming protocol sync message.
+ *
+ * Invariant:
+ * - If the message explicitly lists targeted poolIds and does not include the active poolId, returns []
+ * - If the message targets a single poolId different from active poolId, returns []
+ * - If scope includes "tickets" or "user" and currentAddress is present, invalidates userPosition and userPrizeHistory
+ */
+export function resolveInvalidationQueryKeys(
+  msg: ProtocolSyncMessage | null | undefined,
+  poolId: PoolId,
+  currentAddress?: string
+): (readonly unknown[])[] {
+  if (!msg) return [];
+  if (msg.poolIds && msg.poolIds.length > 0 && !msg.poolIds.includes(poolId)) {
+    return [];
+  }
+  if (msg.poolId !== undefined && msg.poolId !== poolId) {
+    return [];
+  }
+
+  const scopes = msg.scopes || (msg.scope ? [msg.scope] : ["all"]);
+  const keysToInvalidate: (readonly unknown[])[] = [];
+
+  for (const s of scopes) {
+    switch (s) {
+      case "pool":
+        keysToInvalidate.push(bondsKeys.poolState(poolId));
+        break;
+      case "draws":
+      case "draw":
+        keysToInvalidate.push(bondsKeys.poolState(poolId));
+        keysToInvalidate.push(bondsKeys.draws(poolId));
+        keysToInvalidate.push(bondsKeys.prizes(poolId));
+        if (currentAddress) {
+          keysToInvalidate.push(
+            bondsKeys.userPrizeHistory(poolId, currentAddress)
+          );
+        }
+        break;
+      case "activity":
+        keysToInvalidate.push(
+          bondsKeys.activityFeed(poolId, currentAddress)
+        );
+        break;
+      case "redemptions":
+        if (currentAddress) {
+          keysToInvalidate.push(
+            bondsKeys.userRedemptions(poolId, currentAddress)
+          );
+        }
+        break;
+      case "user":
+      case "tickets":
+        if (currentAddress) {
+          keysToInvalidate.push(
+            bondsKeys.userPosition(poolId, currentAddress)
+          );
+          keysToInvalidate.push(
+            bondsKeys.userPrizeHistory(poolId, currentAddress)
+          );
+        }
+        break;
+      case "all":
+        keysToInvalidate.push(bondsKeys.poolRoot(poolId));
+        break;
+    }
+  }
+
+  return keysToInvalidate;
+}
+
 export function useRealtimeSync(poolId: PoolId = 1) {
   const queryClient = useQueryClient();
   const { wallet } = useWalletConnection();
@@ -49,57 +121,11 @@ export function useRealtimeSync(poolId: PoolId = 1) {
     client.connection.bind("disconnected", handleDisconnected);
 
     const handleProtocolSync = (msg: ProtocolSyncMessage) => {
-      if (!msg) return;
-      if (msg.poolId !== undefined && msg.poolId !== poolId) return;
-
-      const scopes = msg.scopes || (msg.scope ? [msg.scope] : ["all"]);
-      const currentAddress = userAddressRef.current;
-      const keysToInvalidate: (readonly unknown[])[] = [];
-
-      for (const s of scopes) {
-        switch (s) {
-          case "pool":
-            keysToInvalidate.push(bondsKeys.poolState(poolId));
-            break;
-          case "draws":
-          case "draw":
-            keysToInvalidate.push(bondsKeys.poolState(poolId));
-            keysToInvalidate.push(bondsKeys.draws(poolId));
-            keysToInvalidate.push(bondsKeys.prizes(poolId));
-            if (currentAddress) {
-              keysToInvalidate.push(
-                bondsKeys.userPrizeHistory(poolId, currentAddress)
-              );
-            }
-            break;
-          case "activity":
-            keysToInvalidate.push(
-              bondsKeys.activityFeed(poolId, currentAddress)
-            );
-            break;
-          case "redemptions":
-            if (currentAddress) {
-              keysToInvalidate.push(
-                bondsKeys.userRedemptions(poolId, currentAddress)
-              );
-            }
-            break;
-          case "user":
-          case "tickets":
-            if (currentAddress) {
-              keysToInvalidate.push(
-                bondsKeys.userPosition(poolId, currentAddress)
-              );
-              keysToInvalidate.push(
-                bondsKeys.userPrizeHistory(poolId, currentAddress)
-              );
-            }
-            break;
-          case "all":
-            keysToInvalidate.push(bondsKeys.poolRoot(poolId));
-            break;
-        }
-      }
+      const keysToInvalidate = resolveInvalidationQueryKeys(
+        msg,
+        poolId,
+        userAddressRef.current
+      );
 
       // Deduplicate keys before invalidating
       const seen = new Set<string>();

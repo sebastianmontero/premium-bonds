@@ -622,7 +622,12 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
         feesReversed: 100n,
       },
     });
-    assert.deepStrictEqual(metaVoided.scopes, ["draws", "pool", "user"]);
+    assert.deepStrictEqual(metaVoided.scopes, [
+      "draws",
+      "pool",
+      "user",
+      "tickets",
+    ]);
 
     const metaInsolv = resolveEventMetadata({
       type: "EmergencyInsolvencyDetected",
@@ -635,7 +640,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
         lockedTicketCount: 10,
       },
     });
-    assert.deepStrictEqual(metaInsolv.scopes, ["pool", "draws"]);
+    assert.deepStrictEqual(metaInsolv.scopes, ["pool", "draws", "tickets"]);
 
     const metaSpike = resolveEventMetadata({
       type: "YieldVelocityBreached",
@@ -647,7 +652,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
         lockedTicketCount: 10,
       },
     });
-    assert.deepStrictEqual(metaSpike.scopes, ["pool", "draws"]);
+    assert.deepStrictEqual(metaSpike.scopes, ["pool", "draws", "tickets"]);
   });
 
   it("should roundtrip AdminNominated, AdminNominationCancelled, and AdminTransferred events", () => {

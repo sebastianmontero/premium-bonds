@@ -90,6 +90,8 @@ export async function POST(req: NextRequest) {
       "DrawVoided",
       "DrawForceUnlocked",
       "DrawSkipped",
+      "EmergencyInsolvencyDetected",
+      "YieldVelocityBreached",
     ]);
 
     for (const item of batch) {

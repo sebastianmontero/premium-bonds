@@ -145,7 +145,7 @@ export function PoolCard({
           accent="text-on-surface"
         />
         <StatCell
-          label={t("yourTickets")}
+          label={t("yourActiveTickets")}
           value={activeTicketsCount.toLocaleString("en-US")}
           accent="text-primary"
         />

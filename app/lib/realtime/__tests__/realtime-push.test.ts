@@ -103,3 +103,255 @@ test("getPusherClient and disconnectPusherClient execute safely in node/SSR envi
     disconnectPusherClient();
   });
 });
+
+test("USER_SPECIFIC_SCOPES contains all user-targeted scopes and excludes protocol-wide scopes", async () => {
+  const { USER_SPECIFIC_SCOPES } = await import("../channels");
+  assert.ok(USER_SPECIFIC_SCOPES.has("user"));
+  assert.ok(USER_SPECIFIC_SCOPES.has("tickets"));
+  assert.ok(USER_SPECIFIC_SCOPES.has("redemptions"));
+  assert.ok(USER_SPECIFIC_SCOPES.has("activity"));
+  assert.strictEqual(USER_SPECIFIC_SCOPES.has("pool"), false);
+  assert.strictEqual(USER_SPECIFIC_SCOPES.has("draws"), false);
+  assert.strictEqual(USER_SPECIFIC_SCOPES.has("clock"), false);
+  assert.strictEqual(USER_SPECIFIC_SCOPES.has("all"), false);
+});
+
+test("partitionBroadcastInvalidations isolates user scopes, prevents leaky pool IDs, and preserves tickets on protocol lifecycle events", async () => {
+  const { partitionBroadcastInvalidations } = await import("../channels");
+
+  // 1. Protocol lifecycle event (DrawSkipped) without userAddress:
+  // All declared scopes (including "tickets") MUST be preserved on the global channel
+  const skippedDrawBatch = [
+    {
+      scopes: ["draws", "pool", "clock", "tickets"] as const,
+      poolId: 1,
+      reason: "webhook:DrawSkipped",
+    },
+  ];
+  const skippedResult = partitionBroadcastInvalidations(skippedDrawBatch);
+  assert.strictEqual(skippedResult.userPartitions.size, 0);
+  assert.ok(skippedResult.globalScopes.has("tickets"));
+  assert.ok(skippedResult.globalScopes.has("draws"));
+  assert.ok(skippedResult.globalScopes.has("pool"));
+  assert.ok(skippedResult.globalScopes.has("clock"));
+  assert.deepStrictEqual(Array.from(skippedResult.globalPoolIds), [1]);
+
+  // 2. Targeted user deposit event:
+  // User-specific scopes ("tickets", "user") route to userPartition, "pool" routes to globalScopes.
+  // Pool ID is recorded on user partition and on globalPoolIds (since "pool" contributes to global).
+  const depositBatch = [
+    {
+      userAddress: "UserA",
+      scopes: ["tickets", "user", "pool"] as const,
+      poolId: 1,
+      reason: "webhook:BondsPurchased",
+    },
+  ];
+  const depositResult = partitionBroadcastInvalidations(depositBatch);
+  assert.strictEqual(depositResult.globalScopes.has("tickets"), false);
+  assert.strictEqual(depositResult.globalScopes.has("user"), false);
+  assert.ok(depositResult.globalScopes.has("pool"));
+  assert.deepStrictEqual(Array.from(depositResult.globalPoolIds), [1]);
+
+  const userAPartition = depositResult.userPartitions.get("UserA");
+  assert.ok(userAPartition);
+  assert.ok(userAPartition.scopes.has("tickets"));
+  assert.ok(userAPartition.scopes.has("user"));
+  assert.strictEqual(userAPartition.scopes.has("pool"), false);
+  assert.deepStrictEqual(Array.from(userAPartition.poolIds), [1]);
+
+  // 3. User event with ONLY user-specific scopes on Pool 1 mixed with Global event on Pool 2:
+  // Pool 1 must NOT leak into globalPoolIds!
+  const userOnlyBatch = [
+    {
+      userAddress: "UserB",
+      scopes: ["tickets"] as const,
+      poolId: 1,
+      reason: "webhook:UserTicketsOnly",
+    },
+    {
+      scopes: ["draws"] as const,
+      poolId: 2,
+      reason: "webhook:DrawCompleted",
+    },
+  ];
+  const userOnlyResult = partitionBroadcastInvalidations(userOnlyBatch);
+  assert.deepStrictEqual(Array.from(userOnlyResult.globalPoolIds), [2]);
+  assert.deepStrictEqual(Array.from(userOnlyResult.globalScopes), ["draws"]);
+
+  const userB = userOnlyResult.userPartitions.get("UserB");
+  assert.ok(userB);
+  assert.deepStrictEqual(Array.from(userB.scopes), ["tickets"]);
+  assert.deepStrictEqual(Array.from(userB.poolIds), [1]);
+
+  // 4. User event with ONLY global scopes (e.g. "pool") must NOT create a zombie user partition
+  const zombieCheckResult = partitionBroadcastInvalidations([
+    { userAddress: "UserC", scopes: ["pool"] as const, poolId: 1 },
+  ]);
+  assert.strictEqual(zombieCheckResult.userPartitions.has("UserC"), false);
+  assert.ok(zombieCheckResult.globalScopes.has("pool"));
+  assert.deepStrictEqual(Array.from(zombieCheckResult.globalPoolIds), [1]);
+
+  // 5. Mixed batch: user deposit + skipped draw
+  const mixedBatch = [
+    {
+      userAddress: "UserA",
+      scopes: ["tickets", "user", "pool"] as const,
+      poolId: 1,
+    },
+    {
+      scopes: ["draws", "pool", "clock", "tickets"] as const,
+      poolId: 1,
+    },
+  ];
+  const mixedResult = partitionBroadcastInvalidations(mixedBatch);
+  // Global channel contains "tickets" from the DrawSkipped lifecycle event
+  assert.ok(mixedResult.globalScopes.has("tickets"));
+  assert.ok(mixedResult.globalScopes.has("draws"));
+  assert.ok(mixedResult.globalScopes.has("pool"));
+  assert.ok(mixedResult.globalScopes.has("clock"));
+  // UserA partition contains targeted "tickets" and "user"
+  const mixedUserA = mixedResult.userPartitions.get("UserA");
+  assert.ok(mixedUserA);
+  assert.ok(mixedUserA.scopes.has("tickets"));
+  assert.ok(mixedUserA.scopes.has("user"));
+});
+
+test("resolveInvalidationQueryKeys accurately resolves query keys and enforces multi-pool isolation", async () => {
+  const { resolveInvalidationQueryKeys } = await import(
+    "../../../hooks/useRealtimeSync"
+  );
+  const { bondsKeys } = await import("../../query-keys");
+
+  const sampleWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+
+  // 1. DrawSkipped global message with tickets scope
+  const skippedMsg = {
+    scope: "draws",
+    scopes: ["draws", "pool", "clock", "tickets"],
+    poolId: 1,
+    timestamp: Date.now(),
+  };
+  const keysForSkipped = resolveInvalidationQueryKeys(
+    skippedMsg,
+    1,
+    sampleWallet
+  );
+  const keyStrings = keysForSkipped.map((k) => JSON.stringify(k));
+
+  // Must invalidate poolState, draws, prizes, userPrizeHistory, and userPosition
+  assert.ok(keyStrings.includes(JSON.stringify(bondsKeys.poolState(1))));
+  assert.ok(keyStrings.includes(JSON.stringify(bondsKeys.draws(1))));
+  assert.ok(keyStrings.includes(JSON.stringify(bondsKeys.prizes(1))));
+  assert.ok(
+    keyStrings.includes(
+      JSON.stringify(bondsKeys.userPosition(1, sampleWallet))
+    )
+  );
+  assert.ok(
+    keyStrings.includes(
+      JSON.stringify(bondsKeys.userPrizeHistory(1, sampleWallet))
+    )
+  );
+
+  // 2. Multi-pool vector filtering: message targeting poolIds [2, 3] ignored by pool 1 client
+  const multiPoolMsg = {
+    scope: "draws",
+    scopes: ["draws", "pool"],
+    poolIds: [2, 3],
+    timestamp: Date.now(),
+  };
+  const keysForPool1 = resolveInvalidationQueryKeys(
+    multiPoolMsg,
+    1,
+    sampleWallet
+  );
+  assert.deepStrictEqual(keysForPool1, []);
+
+  // Same message accepted by pool 2 client
+  const keysForPool2 = resolveInvalidationQueryKeys(
+    multiPoolMsg,
+    2,
+    sampleWallet
+  );
+  assert.ok(keysForPool2.length > 0);
+
+  // 3. Scalar poolId filtering: message targeting pool 2 ignored by pool 1 client
+  const singlePool2Msg = {
+    scope: "draws",
+    scopes: ["draws", "pool"],
+    poolId: 2,
+    timestamp: Date.now(),
+  };
+  assert.deepStrictEqual(
+    resolveInvalidationQueryKeys(singlePool2Msg, 1, sampleWallet),
+    []
+  );
+
+  // 4. Anonymous user (no connected wallet) does not generate user-specific keys
+  const anonKeys = resolveInvalidationQueryKeys(skippedMsg, 1, undefined);
+  const anonKeyStrings = anonKeys.map((k) => JSON.stringify(k));
+  assert.ok(anonKeyStrings.includes(JSON.stringify(bondsKeys.poolState(1))));
+  assert.ok(
+    !anonKeyStrings.some((k) => k.includes("user-pos")),
+    "Should not include user position key for anonymous user"
+  );
+});
+
+test("Full Invalidation Pipeline: DrawSkipped event deterministically produces userPosition query invalidation", async () => {
+  const { partitionBroadcastInvalidations, derivePrimaryScope } = await import(
+    "../channels"
+  );
+  const { resolveInvalidationQueryKeys } = await import(
+    "../../../hooks/useRealtimeSync"
+  );
+  const { bondsKeys } = await import("../../query-keys");
+
+  const sampleWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+
+  // Step 1: Simulate Webhook receiving on-chain DrawSkipped event
+  const webhookBatch = [
+    {
+      scope: "draws" as const,
+      scopes: ["draws", "pool", "clock", "tickets"] as const,
+      poolId: 1,
+      reason: "webhook:DrawSkipped",
+    },
+  ];
+
+  // Step 2: Server partitions broadcast items
+  const { globalScopes, globalPoolIds } =
+    partitionBroadcastInvalidations(webhookBatch);
+  const globalScopesArray = Array.from(globalScopes);
+  const globalPoolsArray = Array.from(globalPoolIds);
+
+  const globalPayload = {
+    scope: derivePrimaryScope(globalScopesArray),
+    scopes: globalScopesArray,
+    poolId: globalPoolsArray.length === 1 ? globalPoolsArray[0] : undefined,
+    poolIds: globalPoolsArray.length > 0 ? globalPoolsArray : undefined,
+    reason: "webhook:aggregated_1_events",
+    timestamp: Date.now(),
+  };
+
+  // Step 3: Client useRealtimeSync receives globalPayload
+  const generatedQueryKeys = resolveInvalidationQueryKeys(
+    globalPayload,
+    1,
+    sampleWallet
+  );
+  const serializedKeys = new Set(
+    generatedQueryKeys.map((k) => JSON.stringify(k))
+  );
+
+  // Step 4: Verify critical user position invalidation key is present
+  const expectedUserPosKey = JSON.stringify(
+    bondsKeys.userPosition(1, sampleWallet)
+  );
+  assert.ok(
+    serializedKeys.has(expectedUserPosKey),
+    "Pipeline must generate bondsKeys.userPosition so Hero and Pool cards update upon DrawSkipped"
+  );
+});
+
+

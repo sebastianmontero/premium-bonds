@@ -221,7 +221,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(drawEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "pool"]);
+      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "tickets"]);
       assert.strictEqual(meta.poolId, 1);
       assert.strictEqual(meta.userAddress, undefined);
     });
@@ -239,7 +239,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(forceUnlockEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "pool"]);
+      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "tickets"]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -256,7 +256,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(voidEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "user"]);
+      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "user", "tickets"]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -273,7 +273,12 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(skipEvent);
       assert.strictEqual(meta.scope, "draws");
-      assert.deepStrictEqual(meta.scopes, ["draws", "pool", "clock"]);
+      assert.deepStrictEqual(meta.scopes, [
+        "draws",
+        "pool",
+        "clock",
+        "tickets",
+      ]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -290,7 +295,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(event);
       assert.strictEqual(meta.scope, "pool");
-      assert.deepStrictEqual(meta.scopes, ["pool", "draws"]);
+      assert.deepStrictEqual(meta.scopes, ["pool", "draws", "tickets"]);
       assert.strictEqual(meta.poolId, 1);
     });
 
@@ -308,7 +313,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       };
       const meta = resolveEventMetadata(event);
       assert.strictEqual(meta.scope, "pool");
-      assert.deepStrictEqual(meta.scopes, ["pool", "draws"]);
+      assert.deepStrictEqual(meta.scopes, ["pool", "draws", "tickets"]);
       assert.strictEqual(meta.poolId, 1);
     });
 

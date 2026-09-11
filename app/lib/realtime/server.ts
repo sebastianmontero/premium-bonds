@@ -4,9 +4,12 @@ import {
   REALTIME_PROTOCOL_SYNC_EVENT,
   getRealtimeUserChannel,
   isValidPusherChannel,
-  type ProtocolSyncScope,
   derivePrimaryScope,
+  partitionBroadcastInvalidations,
+  type RealtimeBroadcastItem,
 } from "./channels";
+
+export type { RealtimeBroadcastItem };
 
 let pusherServer: Pusher | null = null;
 
@@ -33,15 +36,6 @@ export function getPusherServer(): Pusher | null {
   return pusherServer;
 }
 
-export interface RealtimeBroadcastItem {
-  scope?: ProtocolSyncScope;
-  scopes?: readonly ProtocolSyncScope[];
-  poolId?: number;
-  userAddress?: string;
-  txSignature?: string;
-  reason?: string;
-}
-
 export async function broadcastAggregatedInvalidations(
   events: RealtimeBroadcastItem[]
 ): Promise<void> {
@@ -49,54 +43,23 @@ export async function broadcastAggregatedInvalidations(
   if (!server || events.length === 0) return;
 
   try {
-    const scopes = new Set<ProtocolSyncScope>();
-    const userScopes = new Map<string, Set<ProtocolSyncScope>>();
-    const userPoolIds = new Map<string, Set<number>>();
-    const poolIds = new Set<number>();
-
-    for (const evt of events) {
-      const evtScopes = evt.scopes ?? (evt.scope ? [evt.scope] : ["all"]);
-      for (const s of evtScopes) scopes.add(s);
-      if (evt.poolId !== undefined) poolIds.add(evt.poolId);
-
-      if (evt.userAddress) {
-        const existingScopes = userScopes.get(evt.userAddress) ?? new Set();
-        for (const s of evtScopes) existingScopes.add(s);
-        userScopes.set(evt.userAddress, existingScopes);
-
-        if (evt.poolId !== undefined) {
-          const existingPools = userPoolIds.get(evt.userAddress) ?? new Set();
-          existingPools.add(evt.poolId);
-          userPoolIds.set(evt.userAddress, existingPools);
-        }
-      }
-    }
+    const { globalScopes, globalPoolIds, userPartitions } =
+      partitionBroadcastInvalidations(events);
 
     const broadcastPromises: Promise<unknown>[] = [];
-    const poolIdsArray = Array.from(poolIds);
+    const globalPoolsArray = Array.from(globalPoolIds);
     const primaryPoolId =
-      poolIdsArray.length === 1 ? poolIdsArray[0] : undefined;
-    const scopesArray = Array.from(scopes);
+      globalPoolsArray.length === 1 ? globalPoolsArray[0] : undefined;
+    const globalScopesArray = Array.from(globalScopes);
 
-    const USER_SPECIFIC_SCOPES: ReadonlySet<ProtocolSyncScope> = new Set([
-      "user",
-      "tickets",
-      "redemptions",
-      "activity",
-    ]);
-
-    // 1. Single Global / Pool Invalidation Broadcast (protocol/pool scopes, plus protocol-wide user invalidation if no targeted users)
-    const globalScopes = scopesArray.filter(
-      (s) =>
-        !USER_SPECIFIC_SCOPES.has(s) || (s === "user" && userScopes.size === 0)
-    );
-    if (globalScopes.length > 0) {
+    // 1. Single Global / Pool Invalidation Broadcast
+    if (globalScopesArray.length > 0) {
       broadcastPromises.push(
         server.trigger(REALTIME_GLOBAL_CHANNEL, REALTIME_PROTOCOL_SYNC_EVENT, {
-          scope: derivePrimaryScope(globalScopes),
-          scopes: globalScopes,
+          scope: derivePrimaryScope(globalScopesArray),
+          scopes: globalScopesArray,
           poolId: primaryPoolId,
-          poolIds: poolIdsArray.length > 0 ? poolIdsArray : undefined,
+          poolIds: globalPoolsArray.length > 0 ? globalPoolsArray : undefined,
           reason: `webhook:aggregated_${events.length}_events`,
           timestamp: Date.now(),
         })
@@ -104,12 +67,13 @@ export async function broadcastAggregatedInvalidations(
     }
 
     // 2. Targeted User Channel Invalidation Broadcasts
-    for (const [user, uScopes] of userScopes.entries()) {
+    for (const [user, partition] of userPartitions.entries()) {
+      if (partition.scopes.size === 0) continue;
       const userChannel = getRealtimeUserChannel(user);
       if (!isValidPusherChannel(userChannel)) continue;
 
-      const uScopesArray = Array.from(uScopes);
-      const uPoolsArray = Array.from(userPoolIds.get(user) ?? []);
+      const uScopesArray = Array.from(partition.scopes);
+      const uPoolsArray = Array.from(partition.poolIds);
 
       broadcastPromises.push(
         server.trigger(userChannel, REALTIME_PROTOCOL_SYNC_EVENT, {

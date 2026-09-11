@@ -503,11 +503,11 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
     case "DrawCompleted":
     case "DrawForceUnlocked":
-      return createMetadata(evt.data.poolId, ["draws", "pool"]);
+      return createMetadata(evt.data.poolId, ["draws", "pool", "tickets"]);
     case "DrawVoided":
-      return createMetadata(evt.data.poolId, ["draws", "pool", "user"]);
+      return createMetadata(evt.data.poolId, ["draws", "pool", "user", "tickets"]);
     case "DrawSkipped":
-      return createMetadata(evt.data.poolId, ["draws", "pool", "clock"]);
+      return createMetadata(evt.data.poolId, ["draws", "pool", "clock", "tickets"]);
     case "DrawPreparationProgress":
       return createMetadata(evt.data.poolId, ["draws"]);
     case "PoolCreated":
@@ -525,7 +525,7 @@ export function resolveEventMetadata(evt: ParsedProgramEvent): EventMetadata {
       return createMetadata(evt.data.poolId, ["pool"]);
     case "EmergencyInsolvencyDetected":
     case "YieldVelocityBreached":
-      return createMetadata(evt.data.poolId, ["pool", "draws"]);
+      return createMetadata(evt.data.poolId, ["pool", "draws", "tickets"]);
     case "PrizeTiersUpdated":
     case "RegistryResized":
       return createMetadata(evt.data.poolId, ["pool"]);
