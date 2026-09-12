@@ -2442,6 +2442,44 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     category: "anchor",
   },
+  {
+    code: "6063",
+    numericCode: 6063,
+    hexCode: "0x17af",
+    name: "PayoutsPending",
+    summary: {
+      en: "Payout registry cannot be closed while winner payouts are still pending.",
+      es: "El registro de pagos no se puede cerrar mientras haya pagos de ganadores pendientes.",
+    },
+    diagnosis: {
+      en: "An attempt was made to crank-close the payout registry before all winners have been processed via reinvestment or claim.",
+      es: "Se intentó cerrar el registro de pagos antes de que todos los ganadores fueran procesados mediante reinversión o reclamo.",
+    },
+    solution: {
+      en: "Execute reinvestment or claim cranks for all remaining winners before attempting to close the payout registry.",
+      es: "Ejecuta los procesos de reinversión o reclamo para todos los ganadores restantes antes de intentar cerrar el registro de pagos.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6064",
+    numericCode: 6064,
+    hexCode: "0x17b0",
+    name: "InvalidRedemptionType",
+    summary: {
+      en: "Invalid redemption type discriminant value.",
+      es: "Valor discriminante de tipo de redención inválido.",
+    },
+    diagnosis: {
+      en: "The redemption record has an unrecognized redemption type discriminant that does not map to BondSale, PrizeClaim, or FeeWithdrawal.",
+      es: "El registro de redención tiene un discriminante no reconocido que no coincide con BondSale (0), PrizeClaim (1) o FeeWithdrawal (2).",
+    },
+    solution: {
+      en: "Ensure the redemption request was properly created with a valid type (0: BondSale, 1: PrizeClaim, 2: FeeWithdrawal).",
+      es: "Asegúrate de que la solicitud de redención se haya creado con un tipo válido (0: BondSale, 1: PrizeClaim, 2: FeeWithdrawal).",
+    },
+    category: "anchor",
+  },
 ];
 
 // =========================================================================

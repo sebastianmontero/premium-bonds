@@ -129,6 +129,11 @@ export class BorshReader {
   }
 }
 
+// ─── Event Enums ────────────────────────────────────────────────────────────
+import { PoolStatus, DrawSkipReason, RedemptionType } from "./bonds-sdk";
+
+export { PoolStatus, DrawSkipReason, RedemptionType };
+
 // ─── Event Type Definitions (All 23 Program Events) ─────────────────────────
 
 export interface PrizeTierData {
@@ -183,11 +188,12 @@ export interface WinningsClaimedEvent {
 }
 
 export interface RedemptionClaimedEvent {
+  caller: Address;
   user: Address;
   poolId: number;
   amount: bigint;
   redemptionId: bigint;
-  redemptionType?: number;
+  redemptionType: RedemptionType;
   pstSharesLocked?: bigint;
   humaRequestId?: bigint;
   requestedAt?: bigint;
@@ -197,6 +203,7 @@ export interface RedemptionClaimedEvent {
 export interface YieldHarvestedEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   rawYield: bigint;
   fee: bigint;
   prizePot: bigint;
@@ -208,15 +215,18 @@ export interface YieldHarvestedEvent {
 export interface DrawSkippedEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   rawYield: bigint;
   threshold: bigint;
   lockedTicketCount: number;
+  reason: DrawSkipReason;
   timestamp?: bigint;
 }
 
 export interface DrawCompletedEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   prizePot: bigint;
   winnersCount: number;
   totalDistributed?: bigint;
@@ -252,6 +262,7 @@ export interface PayoutRegistryClosedEvent {
 export interface DrawPreparationProgressEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   batchStart: number;
   batchEnd: number;
   userCount: number;
@@ -285,6 +296,7 @@ export interface HumaLenderInitializedEvent {
 }
 
 export interface GlobalConfigInitializedEvent {
+  authority: Address;
   admin: Address;
   guardian: Address;
   jobsAccount: Address;
@@ -340,8 +352,8 @@ export interface PoolConfigUpdatedEvent {
 
 export interface PoolStatusChangedEvent {
   poolId: number;
-  previousStatus: number;
-  newStatus: number;
+  previousStatus: PoolStatus;
+  newStatus: PoolStatus;
   authority: Address;
   timestamp?: bigint;
 }
@@ -349,6 +361,7 @@ export interface PoolStatusChangedEvent {
 export interface EmergencyInsolvencyDetectedEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   currentValue: bigint;
   bookValue: bigint;
   deficit: bigint;
@@ -359,6 +372,7 @@ export interface EmergencyInsolvencyDetectedEvent {
 export interface YieldVelocityBreachedEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   yieldGenerated: bigint;
   maxAllowedYield: bigint;
   lockedTicketCount: number;
@@ -387,6 +401,7 @@ export interface RegistryResizedEvent {
 export interface RandomnessReboundEvent {
   poolId: number;
   cycleId: number;
+  crank: Address;
   oldRandomnessAccount: Address;
   newRandomnessAccount: Address;
   harvestSlot: bigint;
@@ -700,21 +715,22 @@ function decodeEventData(
         } as WinningsClaimedEvent;
       }
       case "RedemptionClaimed": {
+        const caller = reader.readPubkey();
         const user = reader.readPubkey();
         const poolId = reader.readU32();
         const amount = reader.readU64();
         const redemptionId = reader.readU64();
-        let redemptionType: number | undefined;
+        const redemptionType = reader.readU8() as RedemptionType;
         let pstSharesLocked: bigint | undefined;
         let humaRequestId: bigint | undefined;
         let requestedAt: bigint | undefined;
         let timestamp: bigint | undefined;
-        if (reader.remaining >= 1) redemptionType = reader.readU8();
         if (reader.remaining >= 8) pstSharesLocked = reader.readU64();
         if (reader.remaining >= 16) humaRequestId = reader.readU128();
         if (reader.remaining >= 8) requestedAt = reader.readI64();
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
+          caller,
           user,
           poolId,
           amount,
@@ -729,6 +745,7 @@ function decodeEventData(
       case "YieldHarvested": {
         const poolId = reader.readU32();
         const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
         const rawYield = reader.readU64();
         const fee = reader.readU64();
         const prizePot = reader.readU64();
@@ -739,6 +756,7 @@ function decodeEventData(
         return {
           poolId,
           cycleId,
+          crank,
           rawYield,
           fee,
           prizePot,
@@ -750,23 +768,28 @@ function decodeEventData(
       case "DrawSkipped": {
         const poolId = reader.readU32();
         const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
         const rawYield = reader.readU64();
         const threshold = reader.readU64();
         const lockedTicketCount = reader.readU32();
+        const reason = reader.readU8() as DrawSkipReason;
         let timestamp: bigint | undefined;
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
           poolId,
           cycleId,
+          crank,
           rawYield,
           threshold,
           lockedTicketCount,
+          reason,
           timestamp,
         } as DrawSkippedEvent;
       }
       case "DrawCompleted": {
         const poolId = reader.readU32();
         const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
         const prizePot = reader.readU64();
         const winnersCount = reader.readU32();
         let totalDistributed: bigint | undefined;
@@ -776,6 +799,7 @@ function decodeEventData(
         return {
           poolId,
           cycleId,
+          crank,
           prizePot,
           winnersCount,
           totalDistributed: totalDistributed ?? prizePot,
@@ -819,6 +843,7 @@ function decodeEventData(
       case "DrawPreparationProgress": {
         const poolId = reader.readU32();
         const cycleId = reader.readU32();
+        const crank = reader.readPubkey();
         const batchStart = reader.readU32();
         const batchEnd = reader.readU32();
         const userCount = reader.readU32();
@@ -828,6 +853,7 @@ function decodeEventData(
         return {
           poolId,
           cycleId,
+          crank,
           batchStart,
           batchEnd,
           userCount,
@@ -879,6 +905,7 @@ function decodeEventData(
       }
       case "GlobalConfigInitialized": {
         return {
+          authority: reader.readPubkey(),
           admin: reader.readPubkey(),
           guardian: reader.readPubkey(),
           jobsAccount: reader.readPubkey(),
@@ -940,8 +967,8 @@ function decodeEventData(
       case "PoolStatusChanged": {
         return {
           poolId: reader.readU32(),
-          previousStatus: reader.readU8(),
-          newStatus: reader.readU8(),
+          previousStatus: reader.readU8() as PoolStatus,
+          newStatus: reader.readU8() as PoolStatus,
           authority: reader.readPubkey(),
           timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
         } as PoolStatusChangedEvent;
@@ -950,6 +977,7 @@ function decodeEventData(
         return {
           poolId: reader.readU32(),
           cycleId: reader.readU32(),
+          crank: reader.readPubkey(),
           currentValue: reader.readU64(),
           bookValue: reader.readU64(),
           deficit: reader.readU64(),
@@ -961,6 +989,7 @@ function decodeEventData(
         return {
           poolId: reader.readU32(),
           cycleId: reader.readU32(),
+          crank: reader.readPubkey(),
           yieldGenerated: reader.readU64(),
           maxAllowedYield: reader.readU64(),
           lockedTicketCount: reader.readU32(),
@@ -1003,6 +1032,7 @@ function decodeEventData(
         return {
           poolId: reader.readU32(),
           cycleId: reader.readU32(),
+          crank: reader.readPubkey(),
           oldRandomnessAccount: reader.readPubkey(),
           newRandomnessAccount: reader.readPubkey(),
           harvestSlot: reader.readU64(),

@@ -149,6 +149,7 @@ fn test_rebind_happy_path() {
     let crank = clone_keypair(&ctx.crank);
     let meta = send_rebind(&mut ctx, &crank).unwrap();
     let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
+    assert_eq!(event.crank, crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.old_randomness_account, Pubkey::default());
@@ -249,6 +250,7 @@ fn test_crank_rebind_exact_slot_boundary() {
     let meta = send_rebind(&mut ctx, &crank)
         .expect("rebind at exact expiration slot boundary should succeed");
     let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
+    assert_eq!(event.crank, crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.old_randomness_account, Pubkey::default());

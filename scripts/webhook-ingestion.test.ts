@@ -183,7 +183,8 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
       data: {
         poolId: 2,
         drawCycleId: 5,
-        totalDistributed: 100_000_000n,
+        crank: "Crank11111111111111111111111111111111111111" as never,
+        prizePot: 100_000_000n,
         winnersCount: 3,
         completedAt: 1720000000n,
       },
@@ -192,5 +193,155 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
     assert.strictEqual(meta.poolId, 2);
     assert.ok(meta.scopes.includes("draws"));
     assert.ok(meta.scopes.includes("pool"));
+  });
+
+  it("should verify dynamic scope-driven cache invalidation mappings for all event types", async () => {
+    const { resolveEventMetadata } = await import("../app/lib/anchor-events");
+
+    // Events that must invalidate "pool" scope
+    const poolScopeEvents = [
+      {
+        type: "BondsPurchased" as const,
+        data: { poolId: 1, user: "u" as never, bonds: 1, amount: 1n },
+      },
+      {
+        type: "PoolStatusChanged" as const,
+        data: {
+          poolId: 1,
+          previousStatus: 0,
+          newStatus: 1,
+          authority: "a" as never,
+        },
+      },
+      {
+        type: "PoolConfigUpdated" as const,
+        data: {
+          poolId: 1,
+          admin: "a" as never,
+          oldFeeBasisPoints: 0,
+          newFeeBasisPoints: 100,
+          oldBondPrice: 1n,
+          newBondPrice: 1n,
+          oldFeeWallet: "f" as never,
+          newFeeWallet: "f" as never,
+          oldMinYieldThreshold: 0n,
+          newMinYieldThreshold: 1n,
+          oldStakeCycleDurationHrs: 1n,
+          newStakeCycleDurationHrs: 1n,
+          oldMaxYieldBasisPoints: 0,
+          newMaxYieldBasisPoints: 0,
+          oldPayoutTimelockSeconds: 0,
+          newPayoutTimelockSeconds: 0,
+        },
+      },
+      {
+        type: "PrizeTiersUpdated" as const,
+        data: {
+          poolId: 1,
+          admin: "a" as never,
+          oldTiersCount: 1,
+          oldTotalWinners: 1,
+          newTiersCount: 1,
+          newTotalWinners: 1,
+          tiers: [],
+        },
+      },
+      {
+        type: "RegistryResized" as const,
+        data: {
+          poolId: 1,
+          caller: "c" as never,
+          oldCapacity: 100,
+          newCapacity: 200,
+        },
+      },
+      {
+        type: "PoolCreated" as const,
+        data: {
+          poolId: 1,
+          admin: "a" as never,
+          tokenMint: "t" as never,
+          pstMint: "p" as never,
+          feeWallet: "f" as never,
+          ticketRegistry: "r" as never,
+          humaPoolState: "h" as never,
+          bondPrice: 1n,
+          stakeCycleDurationHrs: 1n,
+          feeBasisPoints: 100,
+          minYieldThreshold: 0n,
+          maxYieldBasisPoints: 0,
+          payoutTimelockSeconds: 0,
+          tiersCount: 1,
+          totalWinners: 1,
+        },
+      },
+    ];
+
+    for (const evt of poolScopeEvents) {
+      const meta = resolveEventMetadata(evt);
+      assert.strictEqual(meta.poolId, 1);
+      assert.ok(
+        meta.scopes.includes("pool"),
+        `Event ${evt.type} must include 'pool' in scopes to trigger pool cache invalidation`
+      );
+    }
+
+    // Events that must invalidate "draws" scope
+    const drawsScopeEvents = [
+      {
+        type: "YieldHarvested" as const,
+        data: {
+          poolId: 1,
+          cycleId: 1,
+          crank: "c" as never,
+          rawYield: 1n,
+          fee: 1n,
+          prizePot: 1n,
+          lockedTicketCount: 1,
+          randomnessAccount: "r" as never,
+        },
+      },
+      {
+        type: "DrawSkipped" as const,
+        data: {
+          poolId: 1,
+          cycleId: 1,
+          crank: "c" as never,
+          rawYield: 1n,
+          threshold: 2n,
+          lockedTicketCount: 0,
+          reason: 1,
+        },
+      },
+      {
+        type: "DrawCompleted" as const,
+        data: {
+          poolId: 1,
+          cycleId: 1,
+          crank: "c" as never,
+          prizePot: 1n,
+          winnersCount: 1,
+        },
+      },
+      {
+        type: "DrawVoided" as const,
+        data: {
+          poolId: 1,
+          cycleId: 1,
+          admin: "a" as never,
+          prizesReversed: 1n,
+          feesReversed: 1n,
+        },
+      },
+    ];
+
+    for (const evt of drawsScopeEvents) {
+      const meta = resolveEventMetadata(evt);
+      assert.strictEqual(meta.poolId, 1);
+      assert.ok(
+        meta.scopes.includes("draws"),
+        `Event ${evt.type} must include 'draws' in scopes to trigger draw cache invalidation`
+      );
+    }
   });
 });

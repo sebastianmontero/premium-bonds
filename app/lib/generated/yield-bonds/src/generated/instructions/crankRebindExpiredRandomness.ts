@@ -32,8 +32,8 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
+  type ReadonlySignerAccount,
   type WritableAccount,
-  type WritableSignerAccount,
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
@@ -71,14 +71,14 @@ export type CrankRebindExpiredRandomnessInstruction<
   InstructionWithAccounts<
     [
       TAccountCrank extends string
-        ? WritableSignerAccount<TAccountCrank> &
+        ? ReadonlySignerAccount<TAccountCrank> &
             AccountSignerMeta<TAccountCrank>
         : TAccountCrank,
       TAccountGlobalConfig extends string
         ? ReadonlyAccount<TAccountGlobalConfig>
         : TAccountGlobalConfig,
       TAccountPool extends string
-        ? WritableAccount<TAccountPool>
+        ? ReadonlyAccount<TAccountPool>
         : TAccountPool,
       TAccountCurrentDrawCycle extends string
         ? WritableAccount<TAccountCurrentDrawCycle>
@@ -188,9 +188,9 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    crank: { value: input.crank ?? null, isWritable: true },
+    crank: { value: input.crank ?? null, isWritable: false },
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
-    pool: { value: input.pool ?? null, isWritable: true },
+    pool: { value: input.pool ?? null, isWritable: false },
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
@@ -302,9 +302,9 @@ export function getCrankRebindExpiredRandomnessInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    crank: { value: input.crank ?? null, isWritable: true },
+    crank: { value: input.crank ?? null, isWritable: false },
     globalConfig: { value: input.globalConfig ?? null, isWritable: false },
-    pool: { value: input.pool ?? null, isWritable: true },
+    pool: { value: input.pool ?? null, isWritable: false },
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,

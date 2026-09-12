@@ -1,3 +1,6 @@
+use crate::state::draw::DrawSkipReason;
+use crate::state::pending_redemption::RedemptionType;
+use crate::state::pool::PoolStatus;
 use crate::state::PrizeTier;
 use anchor_lang::prelude::*;
 
@@ -92,6 +95,8 @@ pub struct WinningsClaimed {
 /// Emitted when a user claims a settled redemption (receives USDC) and closes PendingRedemption.
 #[event]
 pub struct RedemptionClaimed {
+    /// Public key of the caller who triggered the claim.
+    pub caller: Pubkey,
     /// Public key of the user receiving the disbursed USDC.
     pub user: Pubkey,
     /// Pool ID this redemption belongs to.
@@ -100,8 +105,8 @@ pub struct RedemptionClaimed {
     pub amount: u64,
     /// Unique identifier of the redeemed pending redemption.
     pub redemption_id: u64,
-    /// Origin type of the redemption (0 = BondSale, 1 = PrizeClaim, 2 = FeeWithdrawal).
-    pub redemption_type: u8,
+    /// Origin type of the redemption (BondSale, PrizeClaim, FeeWithdrawal).
+    pub redemption_type: RedemptionType,
     /// $PST shares that were locked in the original redemption request.
     pub pst_shares_locked: u64,
     /// The corresponding Huma request ID in the pool redemption queue.
@@ -119,6 +124,8 @@ pub struct DrawCompleted {
     pub pool_id: u32,
     /// Draw cycle ID that was completed.
     pub cycle_id: u32,
+    /// Public key of the crank that executed the draw resolution.
+    pub crank: Pubkey,
     /// Total prize pot (in base units) generated during the cycle.
     pub prize_pot: u64,
     /// Total number of winners selected for the cycle.
@@ -136,12 +143,16 @@ pub struct DrawSkipped {
     pub pool_id: u32,
     /// Draw cycle ID that was skipped.
     pub cycle_id: u32,
+    /// Public key of the crank that executed the harvest.
+    pub crank: Pubkey,
     /// Yield generated in base units.
     pub raw_yield: u64,
     /// Pool's minimum yield threshold.
     pub threshold: u64,
     /// Number of locked tickets at the time of skip.
     pub locked_ticket_count: u32,
+    /// Strongly-typed reason why the draw cycle was skipped.
+    pub reason: DrawSkipReason,
     /// Unix timestamp when the draw was skipped.
     pub timestamp: i64,
 }
@@ -195,6 +206,7 @@ pub struct HumaLenderInitialized {
 /// Emitted when global configuration is initialized for the first time.
 #[event]
 pub struct GlobalConfigInitialized {
+    pub authority: Pubkey,
     pub admin: Pubkey,
     pub guardian: Pubkey,
     pub jobs_account: Pubkey,
@@ -263,8 +275,8 @@ pub struct PoolConfigUpdated {
 #[event]
 pub struct PoolStatusChanged {
     pub pool_id: u32,
-    pub previous_status: u8,
-    pub new_status: u8,
+    pub previous_status: PoolStatus,
+    pub new_status: PoolStatus,
     pub authority: Pubkey,
     pub timestamp: i64,
 }
@@ -274,6 +286,7 @@ pub struct PoolStatusChanged {
 pub struct EmergencyInsolvencyDetected {
     pub pool_id: u32,
     pub cycle_id: u32,
+    pub crank: Pubkey,
     pub current_value: u64,
     pub book_value: u64,
     pub deficit: u64,
@@ -286,6 +299,7 @@ pub struct EmergencyInsolvencyDetected {
 pub struct YieldVelocityBreached {
     pub pool_id: u32,
     pub cycle_id: u32,
+    pub crank: Pubkey,
     pub yield_generated: u64,
     pub max_allowed_yield: u64,
     pub locked_ticket_count: u32,
@@ -331,6 +345,7 @@ pub struct RegistryResized {
 pub struct YieldHarvested {
     pub pool_id: u32,
     pub cycle_id: u32,
+    pub crank: Pubkey,
     pub raw_yield: u64,
     pub fee: u64,
     pub prize_pot: u64,
@@ -344,6 +359,7 @@ pub struct YieldHarvested {
 pub struct RandomnessRebound {
     pub pool_id: u32,
     pub cycle_id: u32,
+    pub crank: Pubkey,
     pub old_randomness_account: Pubkey,
     pub new_randomness_account: Pubkey,
     pub harvest_slot: u64,
@@ -370,6 +386,8 @@ pub struct DrawPreparationProgress {
     pub pool_id: u32,
     /// Draw cycle ID being prepared.
     pub cycle_id: u32,
+    /// Public key of the crank that executed the preparation batch.
+    pub crank: Pubkey,
     /// Starting index of this batch (inclusive).
     pub batch_start: u32,
     /// Ending index of this batch (exclusive).

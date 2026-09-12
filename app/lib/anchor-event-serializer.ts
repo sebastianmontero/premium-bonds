@@ -211,61 +211,87 @@ export function serializeAnchorEvent(
       break;
     }
     case "RedemptionClaimed": {
-      // Pubkey(32) + u32(4) + u64(8) + u64(8) + u8(1) + u64(8) + u128(16) + i64(8) + i64(8) = 93 bytes
-      fields = new Uint8Array(93);
+      // Pubkey(32) + Pubkey(32) + u32(4) + u64(8) + u64(8) + u8(1) + u64(8) + u128(16) + i64(8) + i64(8) = 125 bytes
+      fields = new Uint8Array(125);
       const view = new DataView(fields.buffer);
       fields.set(
-        pubkeyToBytes(data.user || "11111111111111111111111111111111"),
+        pubkeyToBytes(
+          data.caller || data.user || "11111111111111111111111111111111"
+        ),
         0
       );
-      view.setUint32(32, Number(data.poolId || 1), true);
-      view.setBigUint64(36, BigInt(data.amount || 0), true);
-      view.setBigUint64(44, BigInt(data.redemptionId || 0), true);
-      view.setUint8(52, Number(data.redemptionType ?? 0));
-      view.setBigUint64(53, BigInt(data.pstSharesLocked || 0), true);
-      writeU128(view, 61, data.humaRequestId || 0);
-      view.setBigInt64(77, BigInt(data.requestedAt || 0), true);
-      view.setBigInt64(85, BigInt(data.timestamp || 0), true);
+      fields.set(
+        pubkeyToBytes(data.user || "11111111111111111111111111111111"),
+        32
+      );
+      view.setUint32(64, Number(data.poolId || 1), true);
+      view.setBigUint64(68, BigInt(data.amount || 0), true);
+      view.setBigUint64(76, BigInt(data.redemptionId || 0), true);
+      view.setUint8(84, Number(data.redemptionType ?? 0));
+      view.setBigUint64(85, BigInt(data.pstSharesLocked || 0), true);
+      writeU128(view, 93, data.humaRequestId || 0);
+      view.setBigInt64(109, BigInt(data.requestedAt || 0), true);
+      view.setBigInt64(117, BigInt(data.timestamp || 0), true);
       break;
     }
     case "YieldHarvested": {
-      // u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) = 68 bytes
-      fields = new Uint8Array(68);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) + i64(8) = 108 bytes
+      fields = new Uint8Array(108);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setBigUint64(8, BigInt(data.rawYield || 0), true);
-      view.setBigUint64(16, BigInt(data.fee || 0), true);
-      view.setBigUint64(24, BigInt(data.prizePot || 0), true);
-      view.setUint32(32, Number(data.lockedTicketCount || 0), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.rawYield || 0), true);
+      view.setBigUint64(48, BigInt(data.fee || 0), true);
+      view.setBigUint64(56, BigInt(data.prizePot || 0), true);
+      view.setUint32(64, Number(data.lockedTicketCount || 0), true);
       fields.set(
         pubkeyToBytes(
           data.randomnessAccount || "11111111111111111111111111111111"
         ),
-        36
+        68
       );
+      view.setBigInt64(100, BigInt(data.timestamp || 0), true);
       break;
     }
     case "DrawSkipped": {
-      // u32(4) + u32(4) + u64(8) + u64(8) + u32(4) + i64(8) = 36 bytes
-      fields = new Uint8Array(36);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u32(4) + u8(1) + i64(8) = 69 bytes
+      fields = new Uint8Array(69);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setBigUint64(8, BigInt(data.rawYield || 0), true);
-      view.setBigUint64(16, BigInt(data.threshold || 0), true);
-      view.setUint32(24, Number(data.lockedTicketCount || 0), true);
-      view.setBigInt64(28, BigInt(data.timestamp || 0), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.rawYield || 0), true);
+      view.setBigUint64(48, BigInt(data.threshold || 0), true);
+      view.setUint32(56, Number(data.lockedTicketCount || 0), true);
+      view.setUint8(60, Number(data.reason ?? 0));
+      view.setBigInt64(61, BigInt(data.timestamp || 0), true);
       break;
     }
     case "DrawCompleted": {
-      // u32(4) + u32(4) + u64(8) + u32(4) = 20 bytes
-      fields = new Uint8Array(20);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u32(4) + u64(8) + i64(8) = 68 bytes
+      fields = new Uint8Array(68);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setBigUint64(8, BigInt(data.prizePot || 0), true);
-      view.setUint32(16, Number(data.winnersCount || 0), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.prizePot || 0), true);
+      view.setUint32(48, Number(data.winnersCount || 0), true);
+      view.setBigUint64(
+        52,
+        BigInt(data.totalDistributed ?? data.prizePot ?? 0),
+        true
+      );
+      view.setBigInt64(60, BigInt(data.timestamp || 0), true);
       break;
     }
     case "DrawForceUnlocked": {
@@ -297,62 +323,118 @@ export function serializeAnchorEvent(
       break;
     }
     case "DrawPreparationProgress": {
-      // u32(4) + u32(4) + u32(4) + u32(4) + u32(4) + bool(1) = 21 bytes
-      fields = new Uint8Array(21);
-      const view = new DataView(fields.buffer);
-      view.setUint32(0, Number(data.poolId || 1), true);
-      view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setUint32(8, Number(data.batchStart || 0), true);
-      view.setUint32(12, Number(data.batchEnd || 0), true);
-      view.setUint32(16, Number(data.userCount || 0), true);
-      view.setUint8(20, data.isComplete ? 1 : 0);
-      break;
-    }
-    case "RandomnessRebound": {
-      // u32(4) + u32(4) + Pubkey(32) + Pubkey(32) + u64(8) + i64(8) = 88 bytes
-      fields = new Uint8Array(88);
+      // u32(4) + u32(4) + Pubkey(32) + u32(4) + u32(4) + u32(4) + bool(1) + i64(8) = 61 bytes
+      fields = new Uint8Array(61);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
       fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setUint32(40, Number(data.batchStart || 0), true);
+      view.setUint32(44, Number(data.batchEnd || 0), true);
+      view.setUint32(48, Number(data.userCount || 0), true);
+      view.setUint8(52, data.isComplete ? 1 : 0);
+      view.setBigInt64(53, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "RandomnessRebound": {
+      // u32(4) + u32(4) + Pubkey(32) + Pubkey(32) + Pubkey(32) + u64(8) + i64(8) = 120 bytes
+      fields = new Uint8Array(120);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint32(4, Number(data.cycleId || 1), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      fields.set(
         pubkeyToBytes(
           data.oldRandomnessAccount || "11111111111111111111111111111111"
         ),
-        8
+        40
       );
       fields.set(
         pubkeyToBytes(
           data.newRandomnessAccount || "11111111111111111111111111111111"
         ),
-        40
+        72
       );
-      view.setBigUint64(72, BigInt(data.harvestSlot || 0), true);
-      view.setBigInt64(80, BigInt(data.timestamp || 0), true);
+      view.setBigUint64(104, BigInt(data.harvestSlot || 0), true);
+      view.setBigInt64(112, BigInt(data.timestamp || 0), true);
       break;
     }
     case "EmergencyInsolvencyDetected": {
-      // u32(4) + u32(4) + u64(8) + u64(8) + u64(8) + u32(4) + i64(8) = 44 bytes
-      fields = new Uint8Array(44);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u32(4) + i64(8) = 76 bytes
+      fields = new Uint8Array(76);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setBigUint64(8, BigInt(data.currentValue || 0), true);
-      view.setBigUint64(16, BigInt(data.bookValue || 0), true);
-      view.setBigUint64(24, BigInt(data.deficit || 0), true);
-      view.setUint32(32, Number(data.lockedTicketCount || 0), true);
-      view.setBigInt64(36, BigInt(data.timestamp || 0), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.currentValue || 0), true);
+      view.setBigUint64(48, BigInt(data.bookValue || 0), true);
+      view.setBigUint64(56, BigInt(data.deficit || 0), true);
+      view.setUint32(64, Number(data.lockedTicketCount || 0), true);
+      view.setBigInt64(68, BigInt(data.timestamp || 0), true);
       break;
     }
     case "YieldVelocityBreached": {
-      // u32(4) + u32(4) + u64(8) + u64(8) + u32(4) + i64(8) = 36 bytes
-      fields = new Uint8Array(36);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u32(4) + i64(8) = 68 bytes
+      fields = new Uint8Array(68);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
-      view.setBigUint64(8, BigInt(data.yieldGenerated || 0), true);
-      view.setBigUint64(16, BigInt(data.maxAllowedYield || 0), true);
-      view.setUint32(24, Number(data.lockedTicketCount || 0), true);
-      view.setBigInt64(28, BigInt(data.timestamp || 0), true);
+      fields.set(
+        pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
+        8
+      );
+      view.setBigUint64(40, BigInt(data.yieldGenerated || 0), true);
+      view.setBigUint64(48, BigInt(data.maxAllowedYield || 0), true);
+      view.setUint32(56, Number(data.lockedTicketCount || 0), true);
+      view.setBigInt64(60, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "GlobalConfigInitialized": {
+      // Pubkey(32)*4 + i64(8) = 136 bytes
+      fields = new Uint8Array(136);
+      const view = new DataView(fields.buffer);
+      fields.set(
+        pubkeyToBytes(
+          data.authority || data.admin || "11111111111111111111111111111111"
+        ),
+        0
+      );
+      fields.set(
+        pubkeyToBytes(data.admin || "11111111111111111111111111111111"),
+        32
+      );
+      fields.set(
+        pubkeyToBytes(data.guardian || "11111111111111111111111111111111"),
+        64
+      );
+      fields.set(
+        pubkeyToBytes(data.jobsAccount || "11111111111111111111111111111111"),
+        96
+      );
+      view.setBigInt64(128, BigInt(data.timestamp || 0), true);
+      break;
+    }
+    case "PoolStatusChanged": {
+      // u32(4) + u8(1) + u8(1) + Pubkey(32) + i64(8) = 46 bytes
+      fields = new Uint8Array(46);
+      const view = new DataView(fields.buffer);
+      view.setUint32(0, Number(data.poolId || 1), true);
+      view.setUint8(4, Number(data.previousStatus ?? 0));
+      view.setUint8(5, Number(data.newStatus ?? 0));
+      fields.set(
+        pubkeyToBytes(data.authority || "11111111111111111111111111111111"),
+        6
+      );
+      view.setBigInt64(38, BigInt(data.timestamp || 0), true);
       break;
     }
     case "PoolCreated": {

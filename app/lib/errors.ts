@@ -63,6 +63,7 @@ import {
   ANCHOR_ERROR__CANNOT_NOMINATE_SELF,
   ANCHOR_ERROR__INVALID_HUMA_POOL_STATE,
   ANCHOR_ERROR__PAYOUTS_PENDING,
+  ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -528,6 +529,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
       "Payout registry cannot be closed while winner payouts or reinvestments remain uncompleted.",
     actionable:
       "Execute reinvestment or claim cranks for all remaining winners before attempting to close the registry.",
+  },
+  [ANCHOR_ERROR__INVALID_REDEMPTION_TYPE]: {
+    name: "InvalidRedemptionType",
+    message: "Invalid redemption type value.",
+    actionable:
+      "Ensure the redemption request originates from a valid bond sale, prize claim, or fee withdrawal.",
   },
 };
 

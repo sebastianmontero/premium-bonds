@@ -962,11 +962,16 @@ fn test_withdraw_fees_and_claim_e2e() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix_claim], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res_claim = ctx.svm.send_transaction(tx);
-    assert!(
-        res_claim.is_ok(),
-        "claim_redemption should succeed for fee wallet owner: {:?}",
-        res_claim
+    let meta_claim = ctx
+        .svm
+        .send_transaction(tx)
+        .expect("claim_redemption should succeed for fee wallet owner");
+    let claim_event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta_claim);
+    assert_eq!(claim_event.caller, ctx.admin.pubkey());
+    assert_eq!(claim_event.user, ctx.admin.pubkey());
+    assert_eq!(
+        claim_event.redemption_type,
+        anchor::state::RedemptionType::FeeWithdrawal
     );
 
     // Assert that the admin received the 2 USDC fees

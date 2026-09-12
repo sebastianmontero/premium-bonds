@@ -53,7 +53,6 @@ pub struct RevealAndPickWinners<'info> {
     pub pool: AccountLoader<'info, PrizePool>,
 
     /// The ticket registry account loader holding all the user entries.
-    #[account(mut)]
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
     /// CHECK: This is the raw Switchboard On-Demand randomness account. It is unchecked because it belongs to the Switchboard program. We validate it by checking that its owner matches the Switchboard On-Demand program ID and its address matches `current_draw_cycle.randomness_account`. Additionally, in the instruction handler, the account data is parsed and validated using `RandomnessAccountData::parse` to extract the randomness value.
@@ -238,6 +237,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     emit_cpi!(DrawCompleted {
         pool_id: pool.pool_id,
         cycle_id: draw_cycle.cycle_id,
+        crank: ctx.accounts.crank.key(),
         prize_pot: draw_cycle.prize_pot,
         winners_count: payout_view.header.winners_count,
         total_distributed,

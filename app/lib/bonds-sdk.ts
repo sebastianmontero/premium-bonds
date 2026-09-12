@@ -57,7 +57,7 @@ export type {
 
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
-import { DrawStatus } from "./generated/yield-bonds/src/generated";
+import { DrawStatus, PoolStatus } from "./generated/yield-bonds/src/generated";
 import { DEFAULT_APY, DEFAULT_APY_BPS, bpsToRate } from "./formatters";
 import {
   UNASSIGNED_REGISTRY_INDEX,
@@ -72,13 +72,9 @@ export type { TicketRegistry };
 export {
   RedemptionType,
   DrawStatus,
+  DrawSkipReason,
+  PoolStatus,
 } from "./generated/yield-bonds/src/generated";
-
-export enum PoolStatus {
-  Active = 0,
-  Paused = 1,
-  Closed = 2,
-}
 
 export type PoolStatusName = "Active" | "Paused" | "Closed";
 import type { DrawStatusName, DrawStatusArchetype } from "../types";

@@ -21,6 +21,7 @@ import {
   isHaltedStatus,
   isDrawStatusName,
   getSkippedDrawReason,
+  normalizeRawSkipReason,
   getNoRandomnessExplanationKey,
   invalidateDrawQueries,
   buildDrawWinnerPermalink,
@@ -32,6 +33,7 @@ import {
   chunkArray,
   DrawCycleInfo,
   PayoutRegistryInfo,
+  DrawSkipReason,
 } from "../app/lib/bonds-sdk";
 import { address } from "@solana/kit";
 
@@ -743,6 +745,97 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
         lockedTicketCount: 500,
       }),
       "noRandomnessGeneralSub"
+    );
+  });
+
+  it("should normalize raw skip reasons and respect explicit reason precedence", () => {
+    // 1. normalizeRawSkipReason
+    assert.strictEqual(
+      normalizeRawSkipReason(DrawSkipReason.ZeroActiveTickets),
+      "zero-tickets",
+      "DrawSkipReason.ZeroActiveTickets (1) -> zero-tickets"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason(DrawSkipReason.InsufficientYield),
+      "below-threshold",
+      "DrawSkipReason.InsufficientYield (0) -> below-threshold"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason(1),
+      "zero-tickets",
+      "Numeric 1 -> zero-tickets"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason(0),
+      "below-threshold",
+      "Numeric 0 -> below-threshold"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("ZeroActiveTickets"),
+      "zero-tickets",
+      "String ZeroActiveTickets -> zero-tickets"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("InsufficientYield"),
+      "below-threshold",
+      "String InsufficientYield -> below-threshold"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("zero-tickets"),
+      "zero-tickets",
+      "String zero-tickets -> zero-tickets"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("below-threshold"),
+      "below-threshold",
+      "String below-threshold -> below-threshold"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason(undefined),
+      undefined,
+      "undefined -> undefined"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason(null),
+      undefined,
+      "null -> undefined"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("unknown-reason"),
+      undefined,
+      "unknown string -> undefined"
+    );
+
+    // 2. Explicit reason taking precedence over lockedTicketCount
+    assert.strictEqual(
+      getSkippedDrawReason({
+        status: "Skipped",
+        lockedTicketCount: 500, // would otherwise evaluate to below-threshold
+        reason: DrawSkipReason.ZeroActiveTickets,
+      }),
+      "zero-tickets",
+      "Explicit reason (ZeroActiveTickets) overrides lockedTicketCount > 0"
+    );
+
+    assert.strictEqual(
+      getSkippedDrawReason({
+        status: "Skipped",
+        lockedTicketCount: 0, // would otherwise evaluate to zero-tickets
+        reason: DrawSkipReason.InsufficientYield,
+      }),
+      "below-threshold",
+      "Explicit reason (InsufficientYield) overrides lockedTicketCount == 0"
+    );
+
+    // 3. skipReason alias field
+    assert.strictEqual(
+      getSkippedDrawReason({
+        status: "Skipped",
+        lockedTicketCount: 500,
+        skipReason: 1,
+      }),
+      "zero-tickets",
+      "skipReason field alias works"
     );
   });
 

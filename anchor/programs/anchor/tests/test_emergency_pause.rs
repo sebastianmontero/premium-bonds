@@ -68,8 +68,8 @@ fn test_guardian_can_pause_active_pool() {
         send_pause_pool(&mut svm, &guardian, 1).expect("Guardian should be able to pause pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
-    assert_eq!(event.previous_status, anchor::PoolStatus::Active as u8);
-    assert_eq!(event.new_status, anchor::PoolStatus::Paused as u8);
+    assert_eq!(event.previous_status, anchor::PoolStatus::Active);
+    assert_eq!(event.new_status, anchor::PoolStatus::Paused);
     assert_eq!(event.authority, guardian.pubkey());
     assert!(event.timestamp > 0);
 
@@ -87,7 +87,7 @@ fn test_admin_can_pause_active_pool() {
     let meta = send_pause_pool(&mut svm, &admin, 1).expect("Admin should be able to pause pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
-    assert_eq!(event.new_status, anchor::PoolStatus::Paused as u8);
+    assert_eq!(event.new_status, anchor::PoolStatus::Paused);
     assert_eq!(event.authority, admin.pubkey());
     assert!(event.timestamp > 0);
 
@@ -121,8 +121,8 @@ fn test_admin_can_unpause_paused_pool() {
         send_unpause_pool(&mut svm, &admin, 1).expect("Admin should be able to unpause pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
-    assert_eq!(event.previous_status, anchor::PoolStatus::Paused as u8);
-    assert_eq!(event.new_status, anchor::PoolStatus::Active as u8);
+    assert_eq!(event.previous_status, anchor::PoolStatus::Paused);
+    assert_eq!(event.new_status, anchor::PoolStatus::Active);
     assert_eq!(event.authority, admin.pubkey());
     assert!(event.timestamp > 0);
 
@@ -156,8 +156,8 @@ fn test_admin_can_close_pool() {
     let meta = send_close_pool(&mut svm, &admin, 1).expect("Admin should be able to close pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
     assert_eq!(event.pool_id, 1);
-    assert_eq!(event.previous_status, anchor::PoolStatus::Active as u8);
-    assert_eq!(event.new_status, anchor::PoolStatus::Closed as u8);
+    assert_eq!(event.previous_status, anchor::PoolStatus::Active);
+    assert_eq!(event.new_status, anchor::PoolStatus::Closed);
     assert_eq!(event.authority, admin.pubkey());
     assert!(event.timestamp > 0);
 

@@ -196,4 +196,7 @@ pub enum PremiumBondsError {
     /// Cannot close the payout registry while payouts are still pending.
     #[msg("Cannot close payout registry: payouts are still pending.")]
     PayoutsPending,
+    /// Invalid redemption type discriminant value.
+    #[msg("Invalid redemption type value.")]
+    InvalidRedemptionType,
 }

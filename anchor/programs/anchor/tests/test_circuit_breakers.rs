@@ -225,6 +225,7 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.current_value, 8_000_000);
     assert_eq!(event.book_value, 10_000_000);
     assert_eq!(event.deficit, 2_000_000);
@@ -274,6 +275,7 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.yield_generated, 2_000_000);
     assert_eq!(event.max_allowed_yield, 500_000); // 5% of 10M
     assert_eq!(event.locked_ticket_count, 10);
@@ -322,6 +324,7 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.current_value, 7_000_000);
     assert_eq!(event.book_value, 10_000_000);
     assert_eq!(event.deficit, 3_000_000);
@@ -380,6 +383,7 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
     let meta_halt =
         send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
+    assert_eq!(event.crank, ctx_halt.crank.pubkey());
     assert_eq!(event.deficit, 1001);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.locked_ticket_count, 10);
@@ -419,6 +423,7 @@ fn test_yield_velocity_spike_guard_exact_boundary() {
     );
     let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Yield > max allowed should halt");
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta_halt);
+    assert_eq!(event.crank, ctx_halt.crank.pubkey());
     assert_eq!(event.yield_generated, 500_001);
     assert_eq!(event.max_allowed_yield, 500_000);
     assert_eq!(event.cycle_id, 0);

@@ -142,6 +142,8 @@ export const ANCHOR_ERROR__CANNOT_NOMINATE_SELF = 0x17ad; // 6061
 export const ANCHOR_ERROR__INVALID_HUMA_POOL_STATE = 0x17ae; // 6062
 /** PayoutsPending: Cannot close payout registry: payouts are still pending. */
 export const ANCHOR_ERROR__PAYOUTS_PENDING = 0x17af; // 6063
+/** InvalidRedemptionType: Invalid redemption type value. */
+export const ANCHOR_ERROR__INVALID_REDEMPTION_TYPE = 0x17b0; // 6064
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -173,6 +175,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG
   | typeof ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_OWNER
+  | typeof ANCHOR_ERROR__INVALID_REDEMPTION_TYPE
   | typeof ANCHOR_ERROR__INVALID_REGISTRY_STATE
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
   | typeof ANCHOR_ERROR__INVALID_TOKEN_MINT
@@ -241,6 +244,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_PRIZE_TIER_CONFIG]: `Invalid prize tier configuration.`,
     [ANCHOR_ERROR__INVALID_RANDOMNESS_ACCOUNT]: `The provided randomness account is invalid or does not belong to Switchboard.`,
     [ANCHOR_ERROR__INVALID_REDEMPTION_OWNER]: `Beneficiary does not match pending redemption owner.`,
+    [ANCHOR_ERROR__INVALID_REDEMPTION_TYPE]: `Invalid redemption type value.`,
     [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: `Ticket registry buffer layout or alignment is invalid`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
     [ANCHOR_ERROR__INVALID_TOKEN_MINT]: `Token mint account data is malformed or invalid.`,

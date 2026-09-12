@@ -5,7 +5,8 @@ import { USDC_DECIMALS, USDC_MINT, usdc } from "./lib/formatters";
 // anchor/programs/anchor/src/state/*.rs
 // They will be populated from RPC later; for now they drive mock data.
 
-export type PoolStatus = "Active" | "Paused" | "Closed";
+export type PoolStatusName = "Active" | "Paused" | "Closed";
+export type PoolStatus = PoolStatusName;
 
 export interface PrizeTier {
   basisPoints: number; // share of yield each winner in this tier receives
@@ -277,6 +278,8 @@ export interface DrawCycleSummary {
   winnersCount: number;
   payoutsCompleted: number;
   hasPayoutRegistry: boolean;
+  reason?: number | string;
+  skipReason?: number | string;
 }
 
 export interface DetailedDrawCycle extends DrawCycleSummary {

@@ -26,7 +26,6 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct CrankRebindExpiredRandomness<'info> {
     /// The crank signer executing the instruction. Must match the jobs_account.
-    #[account(mut)]
     pub crank: Signer<'info>,
 
     /// The global configuration account, checked to verify that the signer is the authorized jobs account.
@@ -39,7 +38,6 @@ pub struct CrankRebindExpiredRandomness<'info> {
 
     /// The prize pool state account.
     #[account(
-        mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
         constraint = pool.load()?.status == (crate::state::PoolStatus::Active as u8) @ PremiumBondsError::PoolNotActive,
@@ -105,6 +103,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     emit_cpi!(RandomnessRebound {
         pool_id,
         cycle_id: draw_cycle.cycle_id,
+        crank: ctx.accounts.crank.key(),
         old_randomness_account: old_randomness,
         new_randomness_account: draw_cycle.randomness_account,
         harvest_slot: clock.slot,

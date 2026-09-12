@@ -172,7 +172,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
             p.huma_request_id,
             p.pst_shares_locked,
             p.requested_at,
-            p.redemption_type as u8,
+            p.redemption_type,
         )
     };
 
@@ -241,6 +241,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     );
 
     emit_cpi!(RedemptionClaimed {
+        caller: ctx.accounts.caller.key(),
         user: ctx.accounts.beneficiary.key(),
         pool_id,
         amount: redemption_amount,

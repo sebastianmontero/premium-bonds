@@ -139,14 +139,17 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
     // 5. RedemptionClaimed
     {
       const log = serializeAnchorEvent("RedemptionClaimed", {
+        caller: TEST_ADMIN,
         user: TEST_USER,
         poolId: 1,
         amount: 25000000n,
         redemptionId: 789n,
+        redemptionType: 0,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
       assert.strictEqual(parsed[0].type, "RedemptionClaimed");
+      assert.strictEqual(parsed[0].data.caller, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.user, TEST_USER);
       assert.strictEqual(parsed[0].data.poolId, 1);
       assert.strictEqual(parsed[0].data.amount, 25000000n);
@@ -158,6 +161,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       const log = serializeAnchorEvent("YieldHarvested", {
         poolId: 2,
         cycleId: 4,
+        crank: TEST_ADMIN,
         rawYield: 10000000n,
         fee: 250000n,
         prizePot: 9750000n,
@@ -169,6 +173,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].type, "YieldHarvested");
       assert.strictEqual(parsed[0].data.poolId, 2);
       assert.strictEqual(parsed[0].data.cycleId, 4);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.prizePot, 9750000n);
       assert.strictEqual(parsed[0].data.randomnessAccount, TEST_RANDOMNESS);
     }
@@ -178,12 +183,16 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       const log = serializeAnchorEvent("DrawCompleted", {
         poolId: 1,
         cycleId: 4,
+        crank: TEST_ADMIN,
         prizePot: 250000000n,
         winnersCount: 3,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
       assert.strictEqual(parsed[0].type, "DrawCompleted");
+      assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 4);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.prizePot, 250000000n);
       assert.strictEqual(parsed[0].data.winnersCount, 3);
     }
@@ -193,14 +202,18 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       const log = serializeAnchorEvent("DrawSkipped", {
         poolId: 1,
         cycleId: 2,
+        crank: TEST_ADMIN,
         rawYield: 1000000n,
         threshold: 5000000n,
+        lockedTicketCount: 0,
+        reason: 0,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
       assert.strictEqual(parsed[0].type, "DrawSkipped");
       assert.strictEqual(parsed[0].data.poolId, 1);
       assert.strictEqual(parsed[0].data.cycleId, 2);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.rawYield, 1000000n);
       assert.strictEqual(parsed[0].data.threshold, 5000000n);
     }
@@ -242,6 +255,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       const log = serializeAnchorEvent("DrawPreparationProgress", {
         poolId: 1,
         cycleId: 6,
+        crank: TEST_ADMIN,
         batchStart: 0,
         batchEnd: 50,
         userCount: 100,
@@ -251,6 +265,8 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed.length, 1);
       assert.strictEqual(parsed[0].type, "DrawPreparationProgress");
       assert.strictEqual(parsed[0].data.poolId, 1);
+      assert.strictEqual(parsed[0].data.cycleId, 6);
+      assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.batchEnd, 50);
       assert.strictEqual(parsed[0].data.isComplete, false);
     }

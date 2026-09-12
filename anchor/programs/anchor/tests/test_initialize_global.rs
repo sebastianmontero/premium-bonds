@@ -50,6 +50,7 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
         .expect("initialize_global should succeed");
 
     let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
+    assert_eq!(event.authority, authority.pubkey());
     assert_eq!(event.admin, authority.pubkey());
     assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);
@@ -80,6 +81,7 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
         .expect("initialize_global should succeed with separate admin");
 
     let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
+    assert_eq!(event.authority, authority.pubkey());
     assert_eq!(event.admin, designated_admin);
     assert_eq!(event.guardian, guardian);
     assert_eq!(event.jobs_account, jobs);

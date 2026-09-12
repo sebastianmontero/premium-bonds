@@ -84,31 +84,27 @@ export async function POST(req: NextRequest) {
     });
     const eventCount = ingestResult.insertedCount;
 
-    // Invalidate server-side caches on terminal draw events before waking up clients
-    const terminalDrawTypes = new Set([
-      "DrawCompleted",
-      "DrawVoided",
-      "DrawForceUnlocked",
-      "DrawSkipped",
-      "EmergencyInsolvencyDetected",
-      "YieldVelocityBreached",
-    ]);
-
-    for (const item of batch) {
-      for (const evt of item.events) {
-        if (terminalDrawTypes.has(evt.type)) {
-          const meta = resolveEventMetadata(evt);
-          invalidatePoolStats(meta.poolId);
-          invalidatePoolInfoCache(meta.poolId);
-        }
-      }
-    }
-
-    // Collect invalidation events and perform single aggregated broadcast
+    // Single-pass event handling: scope-driven cache invalidation and realtime broadcasts
     const broadcastEvents: RealtimeBroadcastItem[] = [];
+
     for (const item of batch) {
       for (const evt of item.events) {
         const meta = resolveEventMetadata(evt);
+
+        // Dynamic Scope-Driven Server Cache Invalidation
+        if (meta.scopes.includes("all")) {
+          invalidatePoolStats();
+          invalidatePoolInfoCache();
+        } else {
+          if (meta.scopes.includes("pool")) {
+            invalidatePoolInfoCache(meta.poolId);
+          }
+          if (meta.scopes.includes("draws")) {
+            invalidatePoolStats(meta.poolId);
+          }
+        }
+
+        // Queue realtime Pusher WebSocket broadcast
         broadcastEvents.push({
           scope: meta.scope,
           scopes: meta.scopes,

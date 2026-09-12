@@ -4,13 +4,14 @@ import { parseTransactionError, ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
+  ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 64 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 64 errors defined from 6000 to 6063 inclusive
-    for (let code = 6000; code <= 6063; code++) {
+  it("should have complete 65 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 65 errors defined from 6000 to 6064 inclusive
+    for (let code = 6000; code <= 6064; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -159,5 +160,22 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
         "Payout registry cannot be closed while winner payouts"
       )
     );
+
+    // 6064: InvalidRedemptionType
+    assert.strictEqual(
+      ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
+      6064,
+      "ANCHOR_ERROR__INVALID_REDEMPTION_TYPE must equal 6064"
+    );
+    const parsed6064 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: InvalidRedemptionType. Error Number: 6064.",
+    });
+    assert.strictEqual(parsed6064.code, 6064);
+    assert.strictEqual(
+      parsed6064.title,
+      "Program Error: InvalidRedemptionType"
+    );
+    assert.ok(parsed6064.message.includes("Invalid redemption type value"));
   });
 });

@@ -223,6 +223,7 @@ fn test_prepare_draw_happy_path() {
 
     let meta = send_prepare(&mut ctx, 2).unwrap();
     let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.batch_start, 0);
@@ -382,6 +383,7 @@ fn test_prepare_draw_multi_batch_events() {
     // Batch 1: Process 2 of 4 entries (partial)
     let meta1 = send_prepare(&mut ctx, 2).expect("Batch 1 should succeed");
     let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
+    assert_eq!(event1.crank, ctx.crank.pubkey());
     assert_eq!(event1.pool_id, 1);
     assert_eq!(event1.cycle_id, 0);
     assert_eq!(event1.batch_start, 0);
@@ -393,6 +395,7 @@ fn test_prepare_draw_multi_batch_events() {
     ctx.svm.expire_blockhash();
     let meta2 = send_prepare(&mut ctx, 2).expect("Batch 2 should succeed");
     let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
+    assert_eq!(event2.crank, ctx.crank.pubkey());
     assert_eq!(event2.pool_id, 1);
     assert_eq!(event2.cycle_id, 0);
     assert_eq!(event2.batch_start, 2);
@@ -508,6 +511,7 @@ fn test_prepare_draw_non_aligned_batches() {
     // Batch 1: 0..7
     let meta1 = send_prepare(&mut ctx, 7).expect("Batch 1 should succeed");
     let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
+    assert_eq!(event1.crank, ctx.crank.pubkey());
     assert_eq!(event1.batch_start, 0);
     assert_eq!(event1.batch_end, 7);
     assert_eq!(event1.is_complete, false);
@@ -516,6 +520,7 @@ fn test_prepare_draw_non_aligned_batches() {
     ctx.svm.expire_blockhash();
     let meta2 = send_prepare(&mut ctx, 7).expect("Batch 2 should succeed");
     let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
+    assert_eq!(event2.crank, ctx.crank.pubkey());
     assert_eq!(event2.batch_start, 7);
     assert_eq!(event2.batch_end, 14);
     assert_eq!(event2.is_complete, false);
@@ -524,6 +529,7 @@ fn test_prepare_draw_non_aligned_batches() {
     ctx.svm.expire_blockhash();
     let meta3 = send_prepare(&mut ctx, 7).expect("Batch 3 should succeed");
     let event3 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta3);
+    assert_eq!(event3.crank, ctx.crank.pubkey());
     assert_eq!(event3.batch_start, 14);
     assert_eq!(event3.batch_end, 21);
     assert_eq!(event3.is_complete, false);
@@ -532,6 +538,7 @@ fn test_prepare_draw_non_aligned_batches() {
     ctx.svm.expire_blockhash();
     let meta4 = send_prepare(&mut ctx, 7).expect("Batch 4 should succeed");
     let event4 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta4);
+    assert_eq!(event4.crank, ctx.crank.pubkey());
     assert_eq!(event4.batch_start, 21);
     assert_eq!(event4.batch_end, 25);
     assert_eq!(event4.is_complete, true);

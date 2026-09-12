@@ -23,6 +23,27 @@ pub enum DrawStatus {
     HaltedYieldSpike,
 }
 
+/// Reason why a draw cycle was skipped instead of executing.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
+#[repr(u8)]
+pub enum DrawSkipReason {
+    /// Generated yield did not meet the pool's minimum yield threshold.
+    InsufficientYield,
+    /// There are zero mature active tickets eligible for drawing.
+    ZeroActiveTickets,
+}
+
+impl TryFrom<u8> for DrawSkipReason {
+    type Error = crate::error::PremiumBondsError;
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::InsufficientYield),
+            1 => Ok(Self::ZeroActiveTickets),
+            _ => Err(crate::error::PremiumBondsError::InvalidDrawStatus),
+        }
+    }
+}
+
 /// Lifecycle status of a PayoutRegistry.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq, InitSpace)]
 #[repr(u8)]

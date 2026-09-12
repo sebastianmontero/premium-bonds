@@ -504,6 +504,7 @@ fn test_reveal_single_tier_single_winner() {
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.prize_pot, 1_000_000);
@@ -861,6 +862,7 @@ fn test_reveal_multi_winner_dust_accounting_and_event() {
 
     // Verify CPI event emission includes exact distributed and cumulative amounts
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.prize_pot, 100_000);
@@ -1040,6 +1042,7 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
 
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.prize_pot, 5_000);
@@ -1087,6 +1090,7 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
 
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.total_distributed, 4_999);
     assert_eq!(event.winners_count, 2);
 
@@ -1122,6 +1126,7 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     let meta =
         send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed for sole user");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.winners_count, 3);
     assert_eq!(event.total_distributed, 10_000_000);
 

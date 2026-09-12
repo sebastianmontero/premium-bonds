@@ -33,8 +33,9 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type ReadonlyAccount,
+  type ReadonlySignerAccount,
   type WritableAccount,
-  type WritableSignerAccount,
 } from "@solana/instructions";
 import {
   getAccountMetaFactory,
@@ -68,14 +69,14 @@ export type PrepareDrawInstruction<
   InstructionWithAccounts<
     [
       TAccountCrank extends string
-        ? WritableSignerAccount<TAccountCrank> &
+        ? ReadonlySignerAccount<TAccountCrank> &
             AccountSignerMeta<TAccountCrank>
         : TAccountCrank,
       TAccountPool extends string
-        ? WritableAccount<TAccountPool>
+        ? ReadonlyAccount<TAccountPool>
         : TAccountPool,
       TAccountDrawCycle extends string
-        ? WritableAccount<TAccountDrawCycle>
+        ? ReadonlyAccount<TAccountDrawCycle>
         : TAccountDrawCycle,
       TAccountTicketRegistry extends string
         ? WritableAccount<TAccountTicketRegistry>
@@ -161,9 +162,9 @@ export function getPrepareDrawInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    crank: { value: input.crank ?? null, isWritable: true },
-    pool: { value: input.pool ?? null, isWritable: true },
-    drawCycle: { value: input.drawCycle ?? null, isWritable: true },
+    crank: { value: input.crank ?? null, isWritable: false },
+    pool: { value: input.pool ?? null, isWritable: false },
+    drawCycle: { value: input.drawCycle ?? null, isWritable: false },
     ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
   };
   const accounts = originalAccounts as Record<

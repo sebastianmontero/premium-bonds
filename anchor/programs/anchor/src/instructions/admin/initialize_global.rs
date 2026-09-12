@@ -71,6 +71,7 @@ pub fn handle(ctx: Context<InitializeGlobal>) -> Result<()> {
     );
 
     emit!(GlobalConfigInitialized {
+        authority: ctx.accounts.authority.key(),
         admin: global_config.admin,
         guardian: global_config.guardian,
         jobs_account: global_config.jobs_account,

@@ -6,6 +6,8 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./drawSkipReason";
 export * from "./drawStatus";
+export * from "./poolStatus";
 export * from "./prizeTier";
 export * from "./redemptionType";

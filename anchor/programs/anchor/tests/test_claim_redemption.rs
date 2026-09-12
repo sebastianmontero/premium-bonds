@@ -399,7 +399,7 @@ fn test_claim_redemption_e2e_happy_path() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim redemption
-    send_e2e_claim_redemption_for_user(
+    let meta = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
@@ -408,6 +408,10 @@ fn test_claim_redemption_e2e_happy_path() {
         huma_lender_state,
     )
     .expect("claim redemption should succeed");
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(event.caller, user_a.pubkey());
+    assert_eq!(event.user, user_a.pubkey());
+    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
 
     // User A should have received 3 USDC back (93 USDC total)
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
@@ -804,11 +808,12 @@ fn test_claim_redemption_case_b_accrued_yield() {
     )
     .expect("Redemption 0 should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(event.caller, user_a.pubkey());
     assert_eq!(event.user, user_a.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.amount, 3_000_000);
     assert_eq!(event.redemption_id, 0);
-    assert_eq!(event.redemption_type, 0); // BondSale
+    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
     assert!(event.pst_shares_locked > 0);
     assert_eq!(event.huma_request_id, 0);
     assert!(event.requested_at > 0);
@@ -843,7 +848,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim redemption 1
-    send_e2e_claim_redemption_for_user(
+    let meta1 = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
@@ -852,6 +857,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
         huma_lender_state1,
     )
     .expect("Redemption 1 (winnings) should succeed");
+    let event1 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta1);
+    assert_eq!(event1.caller, user_a.pubkey());
+    assert_eq!(event1.user, user_a.pubkey());
+    assert_eq!(event1.redemption_type, anchor::state::RedemptionType::PrizeClaim);
 
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 95_000_000);
 
@@ -882,7 +891,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Claim redemption 2
-    send_e2e_claim_redemption_for_user(
+    let meta2 = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
@@ -891,6 +900,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
         huma_lender_state2,
     )
     .expect("Redemption 2 (remaining bonds) should succeed");
+    let event2 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta2);
+    assert_eq!(event2.caller, user_a.pubkey());
+    assert_eq!(event2.user, user_a.pubkey());
+    assert_eq!(event2.redemption_type, anchor::state::RedemptionType::BondSale);
 
     // Total claimed should be user's start balance (90 USDC) + 10 USDC (bonds principal) + 2 USDC (winnings) = 102 USDC
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 102_000_000);
@@ -949,7 +962,7 @@ fn test_claim_redemption_e2e_permissionless_crank() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Crank calls claim redemption on behalf of user_a
-    send_e2e_claim_redemption_full(
+    let meta = send_e2e_claim_redemption_full(
         &mut ctx,
         &crank,
         user_a.pubkey(),
@@ -959,6 +972,10 @@ fn test_claim_redemption_e2e_permissionless_crank() {
         huma_lender_state,
     )
     .expect("crank claim redemption should succeed");
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(event.caller, crank.pubkey());
+    assert_eq!(event.user, user_a.pubkey());
+    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
 
     // User A receives 3 USDC (93 USDC total)
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);

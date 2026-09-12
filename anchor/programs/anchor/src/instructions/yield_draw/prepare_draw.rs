@@ -25,12 +25,10 @@ use anchor_lang::prelude::*;
 #[derive(Accounts)]
 pub struct PrepareDraw<'info> {
     /// The permissionless signer running the draw preparation.
-    #[account(mut)]
     pub crank: Signer<'info>,
 
     /// The prize pool state account, validated to be frozen for draw.
     #[account(
-        mut,
         seeds = [PRIZE_POOL_SEED, pool.load()?.pool_id.to_le_bytes().as_ref()],
         bump = pool.load()?.vault_authority_bump,
         has_one = ticket_registry,
@@ -41,7 +39,6 @@ pub struct PrepareDraw<'info> {
 
     /// The current draw cycle account, validated to be awaiting randomness.
     #[account(
-        mut,
         seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
         constraint = draw_cycle.status == DrawStatus::AwaitingRandomness @ PremiumBondsError::InvalidDrawStatus
@@ -101,6 +98,7 @@ pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     emit!(DrawPreparationProgress {
         pool_id: ctx.accounts.pool.load()?.pool_id,
         cycle_id: ctx.accounts.draw_cycle.cycle_id,
+        crank: ctx.accounts.crank.key(),
         batch_start: start,
         batch_end: end,
         user_count: registry.user_count,

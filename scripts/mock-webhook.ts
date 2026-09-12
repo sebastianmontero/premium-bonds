@@ -98,8 +98,38 @@ export async function sendMockWebhookFixture(
         {
           poolId: 1,
           cycleId: 1,
+          crank: "Crank11111111111111111111111111111111111111",
           prizePot: 100000000n,
           winnersCount: 2,
+        },
+        options
+      );
+
+    case "draw-skipped":
+      return sendMockWebhookEvent(
+        "DrawSkipped",
+        {
+          poolId: 1,
+          cycleId: 1,
+          crank: "Crank11111111111111111111111111111111111111",
+          rawYield: 1000000n,
+          threshold: 5000000n,
+          lockedTicketCount: 100,
+          reason: 0,
+        },
+        options
+      );
+
+    case "redemption-claimed":
+      return sendMockWebhookEvent(
+        "RedemptionClaimed",
+        {
+          caller: "Crank11111111111111111111111111111111111111",
+          user: "Beneficiary111111111111111111111111111111111",
+          poolId: 1,
+          amount: 50000000n,
+          redemptionId: 1n,
+          redemptionType: 0,
         },
         options
       );
@@ -111,6 +141,7 @@ export async function sendMockWebhookFixture(
         {
           poolId: 1,
           cycleId: 1,
+          crank: "Crank11111111111111111111111111111111111111",
           rawYield: 10000000n,
           fee: 250000n,
           prizePot: 9750000n,
@@ -170,6 +201,9 @@ if (require.main === module) {
     if (event) {
       const user =
         getArg("--user") || "User111111111111111111111111111111111111111";
+      const crank =
+        getArg("--crank") || "Crank11111111111111111111111111111111111111";
+      const caller = getArg("--caller") || user;
       const poolId = Number(getArg("--pool", "1"));
       const cycleId = Number(getArg("--cycle", "1"));
       const bonds = Number(getArg("--bonds", "10"));
@@ -181,9 +215,13 @@ if (require.main === module) {
         getArg("--randomness") || "Rand111111111111111111111111111111111111111";
       const admin =
         getArg("--admin") || "Admin11111111111111111111111111111111111111";
+      const reason = Number(getArg("--reason", "0"));
+      const redemptionType = Number(getArg("--redemption-type", "0"));
 
       const eventData = {
         user,
+        caller,
+        crank,
         winner: user,
         admin,
         poolId,
@@ -203,6 +241,8 @@ if (require.main === module) {
         randomnessAccount,
         prizesReversed: prizePot,
         feesReversed: fee,
+        reason,
+        redemptionType,
       };
 
       console.log(`[Mock Webhook] Dispatching event: ${event}`);
@@ -220,21 +260,25 @@ Usage:
   npx tsx scripts/mock-webhook.ts --event <EventName> [options]
 
 Fixtures:
-  buy, draw-complete, harvest, draw-voided
+  buy, draw-complete, draw-skipped, harvest, draw-voided, redemption-claimed
 
 Events:
   BondsPurchased, BondsSold, YieldHarvested, DrawCompleted, WinningsClaimed,
   RedemptionClaimed, DrawForceUnlocked, DrawVoided, DrawSkipped
 
 Options:
-  --target <url>       Webhook URL (default: http://127.0.0.1:3000/api/webhooks/solana)
-  --secret <secret>   Webhook Secret
-  --user <pubkey>     User public key
-  --pool <number>     Pool ID (default: 1)
-  --cycle <number>    Cycle ID (default: 1)
-  --bonds <number>    Bond count (default: 10)
-  --amount <number>   Amount in micro-units (e.g. 50000000)
-  --pot <number>      Prize pot in micro-units
+  --target <url>             Webhook URL (default: http://127.0.0.1:3000/api/webhooks/solana)
+  --secret <secret>         Webhook Secret
+  --user <pubkey>           User public key
+  --caller <pubkey>         Caller public key
+  --crank <pubkey>          Crank public key
+  --pool <number>           Pool ID (default: 1)
+  --cycle <number>          Cycle ID (default: 1)
+  --bonds <number>          Bond count (default: 10)
+  --amount <number>         Amount in micro-units (e.g. 50000000)
+  --pot <number>            Prize pot in micro-units
+  --reason <number>         Skip reason (0: InsufficientYield, 1: ZeroActiveTickets)
+  --redemption-type <number> Redemption type (0: BondSale, 1: PrizeClaim, 2: FeeWithdrawal)
 `);
   }
 

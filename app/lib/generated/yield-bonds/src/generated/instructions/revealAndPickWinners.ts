@@ -84,7 +84,7 @@ export type RevealAndPickWinnersInstruction<
         ? WritableAccount<TAccountPool>
         : TAccountPool,
       TAccountTicketRegistry extends string
-        ? WritableAccount<TAccountTicketRegistry>
+        ? ReadonlyAccount<TAccountTicketRegistry>
         : TAccountTicketRegistry,
       TAccountRandomnessAccount extends string
         ? ReadonlyAccount<TAccountRandomnessAccount>
@@ -215,7 +215,7 @@ export async function getRevealAndPickWinnersInstructionAsync<
       isWritable: true,
     },
     pool: { value: input.pool ?? null, isWritable: true },
-    ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
+    ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: false },
     randomnessAccount: {
       value: input.randomnessAccount ?? null,
       isWritable: false,
@@ -348,7 +348,7 @@ export function getRevealAndPickWinnersInstruction<
       isWritable: true,
     },
     pool: { value: input.pool ?? null, isWritable: true },
-    ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: true },
+    ticketRegistry: { value: input.ticketRegistry ?? null, isWritable: false },
     randomnessAccount: {
       value: input.randomnessAccount ?? null,
       isWritable: false,

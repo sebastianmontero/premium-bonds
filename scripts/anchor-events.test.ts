@@ -296,8 +296,8 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
   });
 
   it("should decode DrawCompleted log event accurately without totalPrizesDistributed", async () => {
-    // Payload for DrawCompleted: u32 pool_id(4) + u32 cycle_id(4) + u64 prize_pot(8) + u32 winners_count(4) + u64 total_distributed(8) + i64 timestamp(8) = 36 bytes
-    const fields = new Uint8Array(36);
+    // Payload for DrawCompleted: u32 pool_id(4) + u32 cycle_id(4) + Pubkey crank(32) + u64 prize_pot(8) + u32 winners_count(4) + u64 total_distributed(8) + i64 timestamp(8) = 68 bytes
+    const fields = new Uint8Array(68);
     const view = new DataView(
       fields.buffer,
       fields.byteOffset,
@@ -305,10 +305,11 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     );
     view.setUint32(0, 1, true); // pool_id
     view.setUint32(4, 3, true); // cycle_id
-    view.setBigUint64(8, 20_000_000n, true); // prize_pot
-    view.setUint32(16, 5, true); // winners_count
-    view.setBigUint64(20, 15_000_000n, true); // total_distributed
-    view.setBigInt64(28, 1700000500n, true); // timestamp
+    fields.set(dummyPubkeyBytes, 8); // crank
+    view.setBigUint64(40, 20_000_000n, true); // prize_pot
+    view.setUint32(48, 5, true); // winners_count
+    view.setBigUint64(52, 15_000_000n, true); // total_distributed
+    view.setBigInt64(60, 1700000500n, true); // timestamp
 
     const logMessage = buildLogPayload("DrawCompleted", fields);
 
@@ -332,6 +333,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(res.events[0].type, "DrawCompleted");
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.cycleId, 3);
+    assert.strictEqual(res.events[0].data.crank, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.prizePot, 20_000_000n);
     assert.strictEqual(res.events[0].data.winnersCount, 5);
     assert.strictEqual(res.events[0].data.totalDistributed, 15_000_000n);
@@ -339,8 +341,8 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
   });
 
   it("should decode DrawPreparationProgress log event accurately", async () => {
-    // Payload: u32 pool_id(4) + u32 cycle_id(4) + u32 batch_start(4) + u32 batch_end(4) + u32 user_count(4) + bool is_complete(1) = 21 bytes
-    const fields = new Uint8Array(21);
+    // Payload: u32 pool_id(4) + u32 cycle_id(4) + Pubkey crank(32) + u32 batch_start(4) + u32 batch_end(4) + u32 user_count(4) + bool is_complete(1) + i64 timestamp(8) = 61 bytes
+    const fields = new Uint8Array(61);
     const view = new DataView(
       fields.buffer,
       fields.byteOffset,
@@ -348,10 +350,12 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     );
     view.setUint32(0, 1, true); // pool_id
     view.setUint32(4, 5, true); // cycle_id
-    view.setUint32(8, 0, true); // batch_start
-    view.setUint32(12, 10, true); // batch_end
-    view.setUint32(16, 10, true); // user_count
-    view.setUint8(20, 1); // is_complete = true
+    fields.set(dummyPubkeyBytes, 8); // crank
+    view.setUint32(40, 0, true); // batch_start
+    view.setUint32(44, 10, true); // batch_end
+    view.setUint32(48, 10, true); // user_count
+    view.setUint8(52, 1); // is_complete = true
+    view.setBigInt64(53, 1700000400n, true); // timestamp
 
     const logMessage = buildLogPayload("DrawPreparationProgress", fields);
 
@@ -375,6 +379,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(res.events[0].type, "DrawPreparationProgress");
     assert.strictEqual(res.events[0].data.poolId, 1);
     assert.strictEqual(res.events[0].data.cycleId, 5);
+    assert.strictEqual(res.events[0].data.crank, dummyPubkeyStr);
     assert.strictEqual(res.events[0].data.batchStart, 0);
     assert.strictEqual(res.events[0].data.batchEnd, 10);
     assert.strictEqual(res.events[0].data.userCount, 10);
@@ -523,13 +528,15 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(emptyResult.hasMore, false);
   });
 
-  it("should roundtrip 36-byte DrawSkipped event serialization and deserialization", () => {
+  it("should roundtrip DrawSkipped event serialization and deserialization", () => {
     const log = serializeAnchorEvent("DrawSkipped", {
       poolId: 1,
       cycleId: 4,
+      crank: dummyPubkeyStr,
       rawYield: 250_000n,
       threshold: 1_000_000n,
       lockedTicketCount: 42,
+      reason: 0,
       timestamp: 1700000000n,
     });
     const parsed = parseEventsFromTxMeta({ logMessages: [log] });
@@ -538,17 +545,20 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     if (parsed[0].type === "DrawSkipped") {
       assert.strictEqual(parsed[0].data.poolId, 1);
       assert.strictEqual(parsed[0].data.cycleId, 4);
+      assert.strictEqual(parsed[0].data.crank, dummyPubkeyStr);
       assert.strictEqual(parsed[0].data.rawYield, 250_000n);
       assert.strictEqual(parsed[0].data.threshold, 1_000_000n);
       assert.strictEqual(parsed[0].data.lockedTicketCount, 42);
+      assert.strictEqual(parsed[0].data.reason, 0);
       assert.strictEqual(parsed[0].data.timestamp, 1700000000n);
     }
   });
 
-  it("should roundtrip 88-byte RandomnessRebound event serialization and deserialization", () => {
+  it("should roundtrip RandomnessRebound event serialization and deserialization", () => {
     const log = serializeAnchorEvent("RandomnessRebound", {
       poolId: 1,
       cycleId: 7,
+      crank: dummyPubkeyStr,
       oldRandomnessAccount: dummyPubkeyStr,
       newRandomnessAccount: "22222222222222222222222222222222222222222222",
       harvestSlot: 5555n,
@@ -560,6 +570,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     if (parsed[0].type === "RandomnessRebound") {
       assert.strictEqual(parsed[0].data.poolId, 1);
       assert.strictEqual(parsed[0].data.cycleId, 7);
+      assert.strictEqual(parsed[0].data.crank, dummyPubkeyStr);
       assert.strictEqual(parsed[0].data.oldRandomnessAccount, dummyPubkeyStr);
       assert.strictEqual(
         parsed[0].data.newRandomnessAccount,
@@ -573,6 +584,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     const insolvLog = serializeAnchorEvent("EmergencyInsolvencyDetected", {
       poolId: 1,
       cycleId: 2,
+      crank: dummyPubkeyStr,
       currentValue: 8_000_000n,
       bookValue: 10_000_000n,
       deficit: 2_000_000n,
@@ -585,6 +597,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     if (parsedInsolv[0].type === "EmergencyInsolvencyDetected") {
       assert.strictEqual(parsedInsolv[0].data.poolId, 1);
       assert.strictEqual(parsedInsolv[0].data.cycleId, 2);
+      assert.strictEqual(parsedInsolv[0].data.crank, dummyPubkeyStr);
       assert.strictEqual(parsedInsolv[0].data.currentValue, 8_000_000n);
       assert.strictEqual(parsedInsolv[0].data.bookValue, 10_000_000n);
       assert.strictEqual(parsedInsolv[0].data.deficit, 2_000_000n);
@@ -594,6 +607,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     const spikeLog = serializeAnchorEvent("YieldVelocityBreached", {
       poolId: 1,
       cycleId: 3,
+      crank: dummyPubkeyStr,
       yieldGenerated: 5_000_000n,
       maxAllowedYield: 500_000n,
       lockedTicketCount: 20,
@@ -605,6 +619,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     if (parsedSpike[0].type === "YieldVelocityBreached") {
       assert.strictEqual(parsedSpike[0].data.poolId, 1);
       assert.strictEqual(parsedSpike[0].data.cycleId, 3);
+      assert.strictEqual(parsedSpike[0].data.crank, dummyPubkeyStr);
       assert.strictEqual(parsedSpike[0].data.yieldGenerated, 5_000_000n);
       assert.strictEqual(parsedSpike[0].data.maxAllowedYield, 500_000n);
       assert.strictEqual(parsedSpike[0].data.lockedTicketCount, 20);

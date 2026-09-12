@@ -40,17 +40,18 @@ pub struct PausePool<'info> {
 pub fn handle_pause_pool(ctx: Context<PausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
+    let previous_status = PoolStatus::try_from(pool.status)?;
     require!(
-        pool.status != (PoolStatus::Closed as u8),
+        previous_status != PoolStatus::Closed,
         PremiumBondsError::PoolClosed
     );
-    let previous_status = pool.status;
-    pool.status = PoolStatus::Paused as u8;
+    let new_status = PoolStatus::Paused;
+    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
-        new_status: pool.status,
+        new_status,
         authority: ctx.accounts.signer.key(),
         timestamp: Clock::get()?.unix_timestamp,
     });
@@ -93,17 +94,18 @@ pub struct UnpausePool<'info> {
 pub fn handle_unpause_pool(ctx: Context<UnpausePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
+    let previous_status = PoolStatus::try_from(pool.status)?;
     require!(
-        pool.status == (PoolStatus::Paused as u8),
+        previous_status == PoolStatus::Paused,
         PremiumBondsError::PoolNotActive
     );
-    let previous_status = pool.status;
-    pool.status = PoolStatus::Active as u8;
+    let new_status = PoolStatus::Active;
+    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
-        new_status: pool.status,
+        new_status,
         authority: ctx.accounts.admin.key(),
         timestamp: Clock::get()?.unix_timestamp,
     });
@@ -146,21 +148,22 @@ pub struct ClosePool<'info> {
 pub fn handle_close_pool(ctx: Context<ClosePool>) -> Result<()> {
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
+    let previous_status = PoolStatus::try_from(pool.status)?;
     require!(
-        pool.status != (PoolStatus::Closed as u8),
+        previous_status != PoolStatus::Closed,
         PremiumBondsError::PoolClosed
     );
     require!(
         pool.is_frozen_for_draw == 0,
         PremiumBondsError::AwaitingRandomnessFreeze
     );
-    let previous_status = pool.status;
-    pool.status = PoolStatus::Closed as u8;
+    let new_status = PoolStatus::Closed;
+    pool.set_status(new_status);
 
     emit_cpi!(PoolStatusChanged {
         pool_id: pool.pool_id,
         previous_status,
-        new_status: pool.status,
+        new_status,
         authority: ctx.accounts.admin.key(),
         timestamp: Clock::get()?.unix_timestamp,
     });

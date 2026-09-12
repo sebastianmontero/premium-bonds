@@ -172,10 +172,12 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       const redClaimEvent: ParsedProgramEvent = {
         type: "RedemptionClaimed",
         data: {
+          caller: userAddr,
           user: userAddr,
           poolId: 1,
           amount: 25000000n,
           redemptionId: 100n,
+          redemptionType: 0,
         },
       };
       const meta = resolveEventMetadata(redClaimEvent);
@@ -196,6 +198,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 2,
           cycleId: 5,
+          crank: userAddr,
           rawYield: 10000000n,
           fee: 250000n,
           prizePot: 9750000n,
@@ -215,6 +218,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 1,
           cycleId: 4,
+          crank: userAddr,
           prizePot: 250000000n,
           winnersCount: 3,
         },
@@ -266,9 +270,11 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 1,
           cycleId: 6,
+          crank: userAddr,
           rawYield: 100n,
           threshold: 1000000n,
           lockedTicketCount: 50,
+          reason: 0,
         },
       };
       const meta = resolveEventMetadata(skipEvent);
@@ -288,6 +294,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 1,
           cycleId: 7,
+          crank: userAddr,
           yieldGenerated: 500000000n,
           maxAllowedYield: 100000000n,
           lockedTicketCount: 1000,
@@ -305,6 +312,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 1,
           cycleId: 8,
+          crank: userAddr,
           currentValue: 500000000n,
           bookValue: 600000000n,
           deficit: 100000000n,
@@ -323,6 +331,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         data: {
           poolId: 1,
           cycleId: 7,
+          crank: userAddr,
           batchStart: 0,
           batchEnd: 50,
           userCount: 50,
@@ -1198,6 +1207,40 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         updates
       );
       assert.deepStrictEqual(result, { unhydratedDraws: [] });
+    });
+  });
+
+  describe("Keeper Decoupling & Provenance", () => {
+    it("should correctly decouple caller from beneficiary in RedemptionClaimed", () => {
+      const crankPubkey = address(
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+      );
+      const beneficiaryPubkey = address("11111111111111111111111111111111");
+
+      const event: ParsedProgramEvent = {
+        type: "RedemptionClaimed",
+        data: {
+          caller: crankPubkey,
+          user: beneficiaryPubkey,
+          poolId: 1,
+          amount: 50_000_000n,
+          redemptionId: 100n,
+          redemptionType: 0,
+          pstSharesLocked: 25_000_000n,
+          humaRequestId: 12345n,
+        },
+      };
+
+      const meta = resolveEventMetadata(event);
+      assert.strictEqual(
+        meta.userAddress,
+        beneficiaryPubkey.toString(),
+        "Primary userAddress must be the beneficiary, not the caller/crank"
+      );
+      assert.strictEqual(meta.poolId, 1);
+      assert.ok(meta.scopes.includes("user"));
+      assert.ok(meta.scopes.includes("redemptions"));
+      assert.ok(meta.scopes.includes("activity"));
     });
   });
 });

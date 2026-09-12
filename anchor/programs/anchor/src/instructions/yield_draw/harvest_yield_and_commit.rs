@@ -2,7 +2,9 @@ use crate::constants::DISCRIMINATOR;
 use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, POOL_PST_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::huma;
-use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry};
+use crate::state::{
+    DrawCycle, DrawSkipReason, DrawStatus, GlobalConfig, PoolStatus, PrizePool, TicketRegistry,
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -214,6 +216,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             emit_cpi!(crate::events::EmergencyInsolvencyDetected {
                 pool_id: pool.pool_id,
                 cycle_id: draw_cycle.cycle_id,
+                crank: ctx.accounts.crank.key(),
                 current_value,
                 book_value,
                 deficit,
@@ -248,6 +251,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             emit_cpi!(crate::events::YieldVelocityBreached {
                 pool_id: pool.pool_id,
                 cycle_id: draw_cycle.cycle_id,
+                crank: ctx.accounts.crank.key(),
                 yield_generated,
                 max_allowed_yield: max_allowed_yield as u64,
                 locked_ticket_count: eligible_locked_count,
@@ -289,6 +293,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         emit_cpi!(crate::events::YieldHarvested {
             pool_id: pool.pool_id,
             cycle_id: draw_cycle.cycle_id,
+            crank: ctx.accounts.crank.key(),
             raw_yield: yield_generated,
             fee,
             prize_pot: net_yield,
@@ -298,12 +303,19 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
         });
     } else {
         draw_cycle.skip(eligible_locked_count, current_time);
+        let reason = if eligible_locked_count == 0 {
+            DrawSkipReason::ZeroActiveTickets
+        } else {
+            DrawSkipReason::InsufficientYield
+        };
         emit_cpi!(crate::events::DrawSkipped {
             pool_id: pool.pool_id,
             cycle_id: draw_cycle.cycle_id,
+            crank: ctx.accounts.crank.key(),
             raw_yield: yield_generated,
             threshold: pool.min_yield_threshold,
             locked_ticket_count: eligible_locked_count,
+            reason,
             timestamp: current_time,
         });
     }

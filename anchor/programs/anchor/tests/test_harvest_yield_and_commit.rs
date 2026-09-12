@@ -402,10 +402,12 @@ fn test_harvest_happy_path_zero_yield() {
     let mut ctx = setup_happy(0, 3, 100, vec![], 0, 0, 0, 0);
     let meta = send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.raw_yield, 0);
     assert_eq!(event.locked_ticket_count, 0);
+    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -439,10 +441,12 @@ fn test_harvest_happy_path_yield_no_eligible() {
     );
     let meta = send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.raw_yield, 0);
     assert_eq!(event.locked_ticket_count, 0);
+    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -469,6 +473,7 @@ fn test_harvest_happy_path_yield_and_eligible() {
     let mut ctx = setup_happy(2, 1, 100, tiers, 2_000_000, 2_000_000, 2_500_000, 2_000_000);
     let meta = send_harvest(&mut ctx, 1, 0).expect("yield + eligible harvest");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.raw_yield, 500_000);
@@ -677,11 +682,13 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     // Execute harvest
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.raw_yield, 500_000);
     assert_eq!(event.threshold, 1_000_000);
     assert_eq!(event.locked_ticket_count, 5);
+    assert_eq!(event.reason, anchor::DrawSkipReason::InsufficientYield);
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
     assert_eq!(dc.status, anchor::DrawStatus::Skipped);
@@ -747,6 +754,7 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with rolled-over dust should succeed");
 
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     // Yield generated = current_value (10_005_000) - book_value (10_000_000) = 5_000
     // Fee = 5_000 * 100 / 10_000 = 50 lamports
     // Prize pot = 4_950 lamports
@@ -829,6 +837,7 @@ fn test_harvest_yield_fee_truncation_rounding() {
 
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with fee truncation should succeed");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.raw_yield, 9_999);
     assert_eq!(event.fee, 0);
     assert_eq!(event.prize_pot, 9_999);

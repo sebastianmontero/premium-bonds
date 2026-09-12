@@ -12,6 +12,18 @@ pub enum RedemptionType {
     FeeWithdrawal,
 }
 
+impl TryFrom<u8> for RedemptionType {
+    type Error = crate::error::PremiumBondsError;
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BondSale),
+            1 => Ok(Self::PrizeClaim),
+            2 => Ok(Self::FeeWithdrawal),
+            _ => Err(crate::error::PremiumBondsError::InvalidRedemptionType),
+        }
+    }
+}
+
 /// Tracks an in-flight Huma Finance redemption request.
 ///
 /// Created when a user sells bonds or claims a prize (or admin withdraws fees).
