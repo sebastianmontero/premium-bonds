@@ -374,7 +374,6 @@ function DrawHistoryContent() {
         pool={activePool}
         initialStatus={selectedDrawSummary?.status}
         initialWinnerIndex={initialWinnerIndex}
-        minYieldThreshold={activePool.minYieldThreshold}
         onCrankWinner={isConnected ? handleCrankWinner : undefined}
         crankingCycles={crankingCycles}
       />

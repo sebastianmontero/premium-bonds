@@ -1,42 +1,25 @@
 "use client";
 
-import React from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import {
   getSkippedDrawReason,
   getNoRandomnessExplanationKey,
 } from "@/app/lib/draw-helpers";
-import type { DetailedDrawCycle, DrawDisplayConfig } from "@/app/types";
+import type { DetailedDrawCycle } from "@/app/types";
 import { useTranslations } from "next-intl";
 
 interface DrawSkippedAuditViewProps {
   draw: DetailedDrawCycle;
-  config?: DrawDisplayConfig;
-  minYieldThreshold?: number | bigint;
 }
 
-export function DrawSkippedAuditView({
-  draw,
-  config,
-  minYieldThreshold,
-}: DrawSkippedAuditViewProps) {
+export function DrawSkippedAuditView({ draw }: DrawSkippedAuditViewProps) {
   const t = useTranslations("DrawInspector");
-  const tokenDecimals = config?.tokenDecimals ?? 6;
-  const tokenSymbol = config?.tokenSymbol ?? "USDC";
-
-  const formattedThreshold =
-    minYieldThreshold !== undefined && Number(minYieldThreshold) > 0
-      ? `${formatTokenAmount(Number(minYieldThreshold), tokenDecimals)} ${tokenSymbol}`
-      : undefined;
 
   const skippedReason = getSkippedDrawReason(draw);
   const heroExplanation =
     skippedReason === "zero-tickets"
       ? t("skippedExplanationNoTickets")
-      : formattedThreshold
-        ? t("skippedExplanation", { threshold: formattedThreshold })
-        : t("skippedExplanationNoThreshold");
+      : t("skippedExplanation");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pr-1">

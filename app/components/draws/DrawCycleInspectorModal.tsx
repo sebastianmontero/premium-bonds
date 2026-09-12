@@ -42,7 +42,6 @@ export interface DrawCycleInspectorModalProps {
   isFrozenForDraw?: boolean;
   initialStatus?: DrawStatusName;
   initialWinnerIndex?: number | null;
-  minYieldThreshold?: number | bigint;
   onCrankWinner?: (
     cycleId: number,
     winnerIndex: number,
@@ -68,7 +67,6 @@ export function DrawCycleInspectorModal({
   isFrozenForDraw,
   initialStatus,
   initialWinnerIndex,
-  minYieldThreshold,
   onCrankWinner,
   crankingCycles = {},
 }: DrawCycleInspectorModalProps) {
@@ -395,11 +393,7 @@ export function DrawCycleInspectorModal({
           ) : details ? (
             isSkipped ? (
               /* Archetype 2: Lossless Yield Rollover View */
-              <DrawSkippedAuditView
-                draw={details}
-                config={effectiveConfig}
-                minYieldThreshold={minYieldThreshold}
-              />
+              <DrawSkippedAuditView draw={details} />
             ) : isPayoutBearing ? (
               /* Archetype 1: Payout-Bearing (Complete or Voided) */
               selectedWinnerIndex !== null && activeWinner ? (
