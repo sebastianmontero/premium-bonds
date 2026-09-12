@@ -6,7 +6,6 @@ import { USDC_DECIMALS, USDC_MINT, usdc } from "./lib/formatters";
 // They will be populated from RPC later; for now they drive mock data.
 
 export type PoolStatusName = "Active" | "Paused" | "Closed";
-export type PoolStatus = PoolStatusName;
 
 export interface PrizeTier {
   basisPoints: number; // share of yield each winner in this tier receives
@@ -21,7 +20,7 @@ export interface PoolInfo {
   bondPrice: number; // lamports / base units
   stakeCycleDurationHrs: number;
   feeBasisPoints: number;
-  status: PoolStatus;
+  status: PoolStatusName;
   totalDepositedPrincipal: number;
   currentCycleEndAt: number; // unix timestamp (seconds)
   isFrozenForDraw: boolean;
@@ -279,7 +278,6 @@ export interface DrawCycleSummary {
   payoutsCompleted: number;
   hasPayoutRegistry: boolean;
   reason?: number | string;
-  skipReason?: number | string;
 }
 
 export interface DetailedDrawCycle extends DrawCycleSummary {

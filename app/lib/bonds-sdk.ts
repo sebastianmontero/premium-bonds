@@ -76,9 +76,12 @@ export {
   PoolStatus,
 } from "./generated/yield-bonds/src/generated";
 
-export type PoolStatusName = "Active" | "Paused" | "Closed";
-import type { DrawStatusName, DrawStatusArchetype } from "../types";
-export type { DrawStatusName, DrawStatusArchetype };
+import type {
+  PoolStatusName,
+  DrawStatusName,
+  DrawStatusArchetype,
+} from "../types";
+export type { PoolStatusName, DrawStatusName, DrawStatusArchetype };
 
 export {
   UNASSIGNED_REGISTRY_INDEX,

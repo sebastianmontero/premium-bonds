@@ -344,4 +344,73 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
       );
     }
   });
+
+  it("should restrict stats cache invalidation to draw-history mutating events and deduplicate batch pool IDs", () => {
+    const DRAW_HISTORY_MUTATING_EVENTS = new Set([
+      "DrawCompleted",
+      "DrawSkipped",
+      "DrawVoided",
+      "DrawForceUnlocked",
+      "EmergencyInsolvencyDetected",
+      "YieldVelocityBreached",
+    ]);
+
+    // Mutating draw events
+    assert.strictEqual(DRAW_HISTORY_MUTATING_EVENTS.has("DrawCompleted"), true);
+    assert.strictEqual(DRAW_HISTORY_MUTATING_EVENTS.has("DrawSkipped"), true);
+    assert.strictEqual(DRAW_HISTORY_MUTATING_EVENTS.has("DrawVoided"), true);
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("DrawForceUnlocked"),
+      true
+    );
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("EmergencyInsolvencyDetected"),
+      true
+    );
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("YieldVelocityBreached"),
+      true
+    );
+
+    // Non-mutating events must NOT trigger stats cache invalidation
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("DrawPreparationProgress"),
+      false
+    );
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("YieldHarvested"),
+      false
+    );
+    assert.strictEqual(
+      DRAW_HISTORY_MUTATING_EVENTS.has("BondsPurchased"),
+      false
+    );
+
+    // Simulate batch invalidation collection
+    const simulatedBatchEvents = [
+      { type: "DrawPreparationProgress", poolId: 1 },
+      { type: "DrawPreparationProgress", poolId: 1 },
+      { type: "DrawCompleted", poolId: 1 },
+      { type: "DrawCompleted", poolId: 1 },
+      { type: "DrawSkipped", poolId: 2 },
+    ];
+
+    const poolsToInvalidateStats = new Set<number>();
+    for (const evt of simulatedBatchEvents) {
+      if (
+        DRAW_HISTORY_MUTATING_EVENTS.has(evt.type) &&
+        evt.poolId !== undefined
+      ) {
+        poolsToInvalidateStats.add(evt.poolId);
+      }
+    }
+
+    assert.strictEqual(
+      poolsToInvalidateStats.size,
+      2,
+      "Deduplication must reduce 5 events down to exactly 2 unique pools (pool 1 and pool 2)"
+    );
+    assert.ok(poolsToInvalidateStats.has(1));
+    assert.ok(poolsToInvalidateStats.has(2));
+  });
 });

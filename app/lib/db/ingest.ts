@@ -16,6 +16,16 @@ import {
   TERMINAL_DRAW_STATUSES,
   isUnoverridableDrawStatus,
 } from "../draw-helpers";
+import { RedemptionType } from "../bonds-sdk";
+
+export const REDEMPTION_TYPE_TO_DB: Record<
+  RedemptionType,
+  "bond_sale" | "prize_claim" | "fee_withdrawal"
+> = {
+  [RedemptionType.BondSale]: "bond_sale",
+  [RedemptionType.PrizeClaim]: "prize_claim",
+  [RedemptionType.FeeWithdrawal]: "fee_withdrawal",
+};
 
 export { TERMINAL_DRAW_STATUSES };
 
@@ -159,7 +169,7 @@ export function buildHaltedDrawRow(
   };
 }
 
-export function buildPendingRedemptionRow(params: {
+export interface BuildPendingRedemptionRowParams {
   poolId: number;
   redemptionId: bigint | number;
   userAddress: string;
@@ -169,7 +179,16 @@ export function buildPendingRedemptionRow(params: {
   humaRequestId?: bigint | number | string | null;
   signature: string;
   blockTime: number;
-}): typeof pendingRedemptions.$inferInsert {
+  status?: "settling" | "ready" | "claimed";
+  claimSignature?: string | null;
+  requestedAt?: number | null;
+  claimedAt?: number | null;
+}
+
+export function buildPendingRedemptionRow(
+  params: BuildPendingRedemptionRowParams
+): typeof pendingRedemptions.$inferInsert {
+  const status = params.status ?? "settling";
   return {
     poolId: params.poolId,
     redemptionId: BigInt(params.redemptionId),
@@ -180,9 +199,21 @@ export function buildPendingRedemptionRow(params: {
       params.pstSharesLocked != null ? BigInt(params.pstSharesLocked) : null,
     humaRequestId:
       params.humaRequestId != null ? params.humaRequestId.toString() : null,
-    status: "settling",
+    status,
     requestSignature: params.signature,
-    requestedAt: params.blockTime,
+    claimSignature:
+      params.claimSignature !== undefined
+        ? params.claimSignature
+        : status === "claimed"
+          ? params.signature
+          : null,
+    requestedAt: params.requestedAt ?? params.blockTime,
+    claimedAt:
+      params.claimedAt !== undefined
+        ? params.claimedAt
+        : status === "claimed"
+          ? params.blockTime
+          : null,
   };
 }
 
@@ -825,36 +856,29 @@ export async function ingestTransactionBatch(
                 : null,
             blockTime: context.blockTime,
           });
-          {
-            const redemptionTypeMap: Record<number, string> = {
-              0: "bond_sale",
-              1: "prize_claim",
-              2: "fee_withdrawal",
-            };
-            redemptionRows.push({
+          redemptionRows.push(
+            buildPendingRedemptionRow({
               poolId: evt.data.poolId,
-              redemptionId: BigInt(evt.data.redemptionId),
+              redemptionId: evt.data.redemptionId,
               userAddress: evt.data.user,
               redemptionType:
-                (evt.data.redemptionType != null &&
-                  redemptionTypeMap[evt.data.redemptionType]) ||
-                "bond_sale",
-              amountUsdc: BigInt(evt.data.amount),
-              pstSharesLocked:
-                evt.data.pstSharesLocked != null
-                  ? BigInt(evt.data.pstSharesLocked)
-                  : null,
-              humaRequestId:
-                evt.data.humaRequestId != null
-                  ? evt.data.humaRequestId.toString()
-                  : null,
+                evt.data.redemptionType !== undefined &&
+                REDEMPTION_TYPE_TO_DB[evt.data.redemptionType as RedemptionType]
+                  ? REDEMPTION_TYPE_TO_DB[
+                      evt.data.redemptionType as RedemptionType
+                    ]
+                  : "bond_sale",
+              amountUsdc: evt.data.amount,
+              pstSharesLocked: evt.data.pstSharesLocked,
+              humaRequestId: evt.data.humaRequestId,
+              signature: context.signature,
+              blockTime: context.blockTime,
               status: "claimed",
-              requestSignature: context.signature,
               claimSignature: context.signature,
               requestedAt: Number(evt.data.requestedAt ?? context.blockTime),
               claimedAt: context.blockTime,
-            });
-          }
+            })
+          );
           userStatDeltas.push({
             poolId: evt.data.poolId,
             userAddress: evt.data.user,

@@ -161,6 +161,16 @@ export interface SkippedDrawReasonInput {
   skipReason?: DrawSkipReason | number | string;
 }
 
+const SKIP_REASON_LOOKUP: Readonly<Record<string | number, SkippedDrawReason>> =
+  {
+    [DrawSkipReason.ZeroActiveTickets]: "zero-tickets",
+    [DrawSkipReason.InsufficientYield]: "below-threshold",
+    "zero-tickets": "zero-tickets",
+    "below-threshold": "below-threshold",
+    ZeroActiveTickets: "zero-tickets",
+    InsufficientYield: "below-threshold",
+  };
+
 /**
  * Pure domain helper to normalize any raw reason representation into UI SkippedDrawReason.
  */
@@ -168,44 +178,32 @@ export function normalizeRawSkipReason(
   raw: unknown
 ): SkippedDrawReason | undefined {
   if (raw === undefined || raw === null) return undefined;
-  if (
-    raw === DrawSkipReason.ZeroActiveTickets ||
-    raw === 1 ||
-    raw === "zero-tickets" ||
-    raw === "ZeroActiveTickets"
-  ) {
-    return "zero-tickets";
-  }
-  if (
-    raw === DrawSkipReason.InsufficientYield ||
-    raw === 0 ||
-    raw === "below-threshold" ||
-    raw === "InsufficientYield"
-  ) {
-    return "below-threshold";
+  if (typeof raw === "number" || typeof raw === "string") {
+    return SKIP_REASON_LOOKUP[raw as keyof typeof SKIP_REASON_LOOKUP];
   }
   return undefined;
 }
 
 /**
  * Determines whether a draw was skipped due to zero active tickets or insufficient yield.
- * Returns undefined if the draw status is explicitly provided and is not "Skipped".
+ * Returns undefined if the draw status is explicitly provided and is not "Skipped", or if draw is undefined.
  */
 export function getSkippedDrawReason(
   draw?: SkippedDrawReasonInput
 ): SkippedDrawReason | undefined {
-  if (draw?.status !== undefined && draw.status !== "Skipped") {
+  if (!draw) return undefined;
+  if (draw.status !== undefined && draw.status !== "Skipped") {
     return undefined;
   }
 
-  const normalized = normalizeRawSkipReason(draw?.reason ?? draw?.skipReason);
+  const normalized = normalizeRawSkipReason(draw.reason ?? draw.skipReason);
   if (normalized !== undefined) {
     return normalized;
   }
 
   // Exact 1:1 on-chain invariant fallback:
   // DrawSkipReason::ZeroActiveTickets <=> eligible_locked_count == 0
-  const count = Number(draw?.lockedTicketCount);
+  const count = Number(draw.lockedTicketCount);
   if (!Number.isFinite(count) || count <= 0) {
     return "zero-tickets";
   }

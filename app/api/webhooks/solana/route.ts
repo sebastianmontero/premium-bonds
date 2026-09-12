@@ -30,6 +30,15 @@ import { invalidatePoolInfoCache } from "@/app/lib/services/pool-state-service";
 
 export const dynamic = "force-dynamic";
 
+const DRAW_HISTORY_MUTATING_EVENTS = new Set([
+  "DrawCompleted",
+  "DrawSkipped",
+  "DrawVoided",
+  "DrawForceUnlocked",
+  "EmergencyInsolvencyDetected",
+  "YieldVelocityBreached",
+]);
+
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const expectedSecret = process.env.HELIUS_WEBHOOK_SECRET;
@@ -86,21 +95,26 @@ export async function POST(req: NextRequest) {
 
     // Single-pass event handling: scope-driven cache invalidation and realtime broadcasts
     const broadcastEvents: RealtimeBroadcastItem[] = [];
+    const poolsToInvalidateInfo = new Set<number>();
+    const poolsToInvalidateStats = new Set<number>();
+    let invalidateAll = false;
 
     for (const item of batch) {
       for (const evt of item.events) {
         const meta = resolveEventMetadata(evt);
 
-        // Dynamic Scope-Driven Server Cache Invalidation
+        // Deduplicate Scope-Driven Server Cache Invalidation
         if (meta.scopes.includes("all")) {
-          invalidatePoolStats();
-          invalidatePoolInfoCache();
+          invalidateAll = true;
         } else {
-          if (meta.scopes.includes("pool")) {
-            invalidatePoolInfoCache(meta.poolId);
+          if (meta.scopes.includes("pool") && meta.poolId !== undefined) {
+            poolsToInvalidateInfo.add(meta.poolId);
           }
-          if (meta.scopes.includes("draws")) {
-            invalidatePoolStats(meta.poolId);
+          if (
+            DRAW_HISTORY_MUTATING_EVENTS.has(evt.type) &&
+            meta.poolId !== undefined
+          ) {
+            poolsToInvalidateStats.add(meta.poolId);
           }
         }
 
@@ -114,6 +128,15 @@ export async function POST(req: NextRequest) {
           reason: `webhook:${evt.type}`,
         });
       }
+    }
+
+    // Execute deduplicated cache invalidations
+    if (invalidateAll) {
+      invalidatePoolStats();
+      invalidatePoolInfoCache();
+    } else {
+      for (const pid of poolsToInvalidateInfo) invalidatePoolInfoCache(pid);
+      for (const pid of poolsToInvalidateStats) invalidatePoolStats(pid);
     }
 
     if (broadcastEvents.length > 0) {

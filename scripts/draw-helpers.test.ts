@@ -701,7 +701,7 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       getSkippedDrawReason({ lockedTicketCount: 50 }),
       "below-threshold"
     );
-    assert.strictEqual(getSkippedDrawReason(undefined), "zero-tickets");
+    assert.strictEqual(getSkippedDrawReason(undefined), undefined);
 
     // Status boundary checks
     assert.strictEqual(
@@ -766,9 +766,19 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
       "Numeric 1 -> zero-tickets"
     );
     assert.strictEqual(
+      normalizeRawSkipReason("1"),
+      "zero-tickets",
+      "String '1' -> zero-tickets"
+    );
+    assert.strictEqual(
       normalizeRawSkipReason(0),
       "below-threshold",
       "Numeric 0 -> below-threshold"
+    );
+    assert.strictEqual(
+      normalizeRawSkipReason("0"),
+      "below-threshold",
+      "String '0' -> below-threshold"
     );
     assert.strictEqual(
       normalizeRawSkipReason("ZeroActiveTickets"),

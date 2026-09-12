@@ -9,8 +9,11 @@ import {
   WinnerUpdateRow,
   toUnixTimestampSeconds,
   buildHaltedDrawRow,
+  buildPendingRedemptionRow,
+  REDEMPTION_TYPE_TO_DB,
   TERMINAL_DRAW_STATUSES,
 } from "../ingest";
+import { RedemptionType } from "../../bonds-sdk";
 import { drawHistory } from "../schema";
 import { resolveEventMetadata, ParsedProgramEvent } from "../../anchor-events";
 import {
@@ -1241,6 +1244,81 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.ok(meta.scopes.includes("user"));
       assert.ok(meta.scopes.includes("redemptions"));
       assert.ok(meta.scopes.includes("activity"));
+    });
+
+    it("should verify REDEMPTION_TYPE_TO_DB mappings for all enum variants", () => {
+      assert.strictEqual(
+        REDEMPTION_TYPE_TO_DB[RedemptionType.BondSale],
+        "bond_sale"
+      );
+      assert.strictEqual(
+        REDEMPTION_TYPE_TO_DB[RedemptionType.PrizeClaim],
+        "prize_claim"
+      );
+      assert.strictEqual(
+        REDEMPTION_TYPE_TO_DB[RedemptionType.FeeWithdrawal],
+        "fee_withdrawal"
+      );
+    });
+
+    it("should construct pending redemption rows with buildPendingRedemptionRow correctly", () => {
+      const beneficiaryPubkey = address("11111111111111111111111111111111");
+
+      // 1. Default status ('settling')
+      const settlingRow = buildPendingRedemptionRow({
+        poolId: 1,
+        redemptionId: 100n,
+        userAddress: beneficiaryPubkey.toString(),
+        redemptionType: "bond_sale",
+        amountUsdc: 50_000_000n,
+        pstSharesLocked: 25_000_000n,
+        humaRequestId: 12345n,
+        signature: "tx_req_sig",
+        blockTime: 1700000000,
+      });
+
+      assert.strictEqual(settlingRow.poolId, 1);
+      assert.strictEqual(settlingRow.redemptionId, 100n);
+      assert.strictEqual(
+        settlingRow.userAddress,
+        beneficiaryPubkey.toString(),
+        "Must use beneficiary address"
+      );
+      assert.strictEqual(settlingRow.status, "settling");
+      assert.strictEqual(settlingRow.requestSignature, "tx_req_sig");
+      assert.strictEqual(settlingRow.claimSignature, null);
+      assert.strictEqual(settlingRow.requestedAt, 1700000000);
+      assert.strictEqual(settlingRow.claimedAt, null);
+
+      // 2. Claimed status with caller decoupled
+      const claimedRow = buildPendingRedemptionRow({
+        poolId: 1,
+        redemptionId: 100n,
+        userAddress: beneficiaryPubkey.toString(),
+        redemptionType: REDEMPTION_TYPE_TO_DB[RedemptionType.BondSale],
+        amountUsdc: 50_000_000n,
+        pstSharesLocked: 25_000_000n,
+        humaRequestId: 12345n,
+        signature: "tx_claim_sig",
+        blockTime: 1700000500,
+        status: "claimed",
+        claimSignature: "tx_claim_sig",
+        requestedAt: 1700000000,
+        claimedAt: 1700000500,
+      });
+
+      assert.strictEqual(claimedRow.poolId, 1);
+      assert.strictEqual(claimedRow.redemptionId, 100n);
+      assert.strictEqual(
+        claimedRow.userAddress,
+        beneficiaryPubkey.toString(),
+        "Must use beneficiary address for claimed row"
+      );
+      assert.strictEqual(claimedRow.status, "claimed");
+      assert.strictEqual(claimedRow.requestSignature, "tx_claim_sig");
+      assert.strictEqual(claimedRow.claimSignature, "tx_claim_sig");
+      assert.strictEqual(claimedRow.requestedAt, 1700000000);
+      assert.strictEqual(claimedRow.claimedAt, 1700000500);
     });
   });
 });
