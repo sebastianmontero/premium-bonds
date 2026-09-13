@@ -13,6 +13,7 @@ pub struct PausePool<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = signer.key() == global_config.guardian || signer.key() == global_config.admin @ PremiumBondsError::Unauthorized
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -67,6 +68,7 @@ pub struct UnpausePool<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -121,6 +123,7 @@ pub struct ClosePool<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,

@@ -15,6 +15,7 @@ pub struct CrankClosePayoutRegistry<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = (crank.key() == global_config.jobs_account || crank.key() == global_config.admin)
             @ PremiumBondsError::UnauthorizedCrank
     )]

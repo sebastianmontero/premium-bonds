@@ -38,12 +38,19 @@ impl GlobalConfig {
         self._reserved = [0; 64];
     }
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
+    /// Checks that the account version is supported.
+    #[inline]
+    pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
             PremiumBondsError::UnsupportedAccountVersion
         );
+        Ok(())
+    }
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;

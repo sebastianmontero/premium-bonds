@@ -200,35 +200,20 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     inject_token_account(&mut svm, user_token_account, token_mint, user.pubkey(), 0);
 
     let (pending_redemption, bump) = pending_redemption_pda(pool_id, 0);
-    // Inject initialized pending redemption
-    let pr = anchor::state::PendingRedemption {
-        huma_request_id: 1,
-        redemption_id: 0,
-        amount: 1_000_000,
-        pst_shares_locked: 1_000_000,
-        requested_at: 0,
-        user: user.pubkey(),
-        pool_id,
-        bump,
-        version: 1,
-        redemption_type: anchor::state::RedemptionType::BondSale,
-    };
-    let mut pr_data = vec![];
-    use anchor_lang::Discriminator;
-    pr_data.extend_from_slice(&anchor::state::PendingRedemption::DISCRIMINATOR);
-    use anchor_lang::AnchorSerialize;
-    pr.serialize(&mut pr_data).unwrap();
-    svm.set_account(
-        pending_redemption,
-        Account {
-            lamports: 1_000_000_000,
-            data: pr_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
+    inject_pending_redemption_with_params(
+        &mut svm,
+        anchor::state::InitPendingRedemptionParams {
+            pool_id,
+            redemption_id: 0,
+            bump,
+            user: user.pubkey(),
+            amount: 1_000_000,
+            pst_shares_locked: 1_000_000,
+            huma_request_id: 1,
+            requested_at: 0,
+            redemption_type: anchor::state::RedemptionType::BondSale,
         },
-    )
-    .unwrap();
+    );
 
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state);

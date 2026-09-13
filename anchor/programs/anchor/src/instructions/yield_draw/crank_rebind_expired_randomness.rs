@@ -32,6 +32,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = global_config.jobs_account == crank.key() @ PremiumBondsError::UnauthorizedCrank
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -49,6 +50,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
+        constraint = current_draw_cycle.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
@@ -74,6 +76,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
 /// This instruction allows the crank bot to specify a new Switchboard randomness account and
 /// reset the harvest slot, enabling the draw cycle resolution flow to be retried.
 pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
+    ctx.accounts.pool.load()?.check_version()?;
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.ensure_current_version()?;
 

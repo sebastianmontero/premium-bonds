@@ -333,7 +333,7 @@ pub fn init_payout_registry_uninit_mut<'a>(
         PremiumBondsError::InvalidRegistryState
     );
     let (disc, rest) = data.split_at_mut(8);
-    disc.copy_from_slice(&crate::state::PayoutRegistry::DISCRIMINATOR);
+    disc.copy_from_slice(crate::state::PayoutRegistry::DISCRIMINATOR);
     let (header_slice, trailing_slice) =
         rest.split_at_mut(std::mem::size_of::<crate::state::PayoutRegistry>());
     let header = bytemuck::try_from_bytes_mut::<crate::state::PayoutRegistry>(header_slice)
@@ -630,8 +630,10 @@ mod tests {
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
-            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1
+            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1 + 1 + 64
         );
+        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 152);
+        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 160);
     }
 
     #[test]
@@ -642,6 +644,13 @@ mod tests {
         assert_eq!(std::mem::size_of::<crate::state::PrizeTier>() % 8, 0);
         assert_eq!(std::mem::size_of::<crate::state::Winner>() % 8, 0);
         assert_eq!(std::mem::size_of::<crate::state::PayoutRegistry>() % 8, 0);
+        assert_eq!(crate::state::PendingRedemption::INIT_SPACE, 152);
+        assert_eq!((8 + crate::state::PendingRedemption::INIT_SPACE) % 8, 0);
+        assert_eq!(8 + crate::state::PendingRedemption::INIT_SPACE, 160);
+        assert_eq!(
+            core::mem::offset_of!(crate::state::PendingRedemption, _reserved),
+            88
+        );
     }
 
     #[test]
@@ -846,9 +855,12 @@ mod tests {
 
     #[test]
     fn test_ensure_current_version_guards() {
-        use crate::state::{GlobalConfig, PrizePool, TicketRegistry, UserEntry, Winner};
+        use crate::state::{
+            DrawCycle, GlobalConfig, PayoutRegistry, PendingRedemption, PrizePool, TicketRegistry,
+            UserEntry, UserWinnings, Winner,
+        };
 
-        // Current version is Ok
+        // 1. GlobalConfig
         let mut config = GlobalConfig {
             admin: Pubkey::default(),
             guardian: Pubkey::default(),
@@ -857,22 +869,22 @@ mod tests {
             version: GlobalConfig::CURRENT_VERSION,
             _reserved: [0; 64],
         };
+        assert!(config.check_version().is_ok());
         assert!(config.ensure_current_version().is_ok());
-
-        // Zero / past version migrates to CURRENT_VERSION
         config.version = 0;
         assert!(config.ensure_current_version().is_ok());
         assert_eq!(config.version, GlobalConfig::CURRENT_VERSION);
-
-        // Future unsupported version fails with UnsupportedAccountVersion
         config.version = GlobalConfig::CURRENT_VERSION + 1;
-        let err = config.ensure_current_version().unwrap_err();
         assert_eq!(
-            err,
+            config.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            config.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
 
-        // Test PrizePool
+        // 2. PrizePool
         let mut pool = PrizePool {
             vault_authority_bump: 0,
             pool_id: 1,
@@ -906,14 +918,22 @@ mod tests {
             version: PrizePool::CURRENT_VERSION,
             _reserved: [0; 128],
         };
+        assert!(pool.check_version().is_ok());
         assert!(pool.ensure_current_version().is_ok());
+        pool.version = 0;
+        assert!(pool.ensure_current_version().is_ok());
+        assert_eq!(pool.version, PrizePool::CURRENT_VERSION);
         pool.version = PrizePool::CURRENT_VERSION + 1;
+        assert_eq!(
+            pool.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
         assert_eq!(
             pool.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
 
-        // Test TicketRegistry
+        // 3. TicketRegistry
         let mut reg = TicketRegistry {
             pool_id: 0,
             capacity: 0,
@@ -922,44 +942,189 @@ mod tests {
             total_pending_tickets: 0,
             draw_cycle_id: 0,
             draw_prepared_up_to: 0,
-            version: TicketRegistry::CURRENT_VERSION + 1,
+            version: TicketRegistry::CURRENT_VERSION,
             _padding: [0; 3],
             _reserved: [0; 64],
         };
+        assert!(reg.check_version().is_ok());
+        assert!(reg.ensure_current_version().is_ok());
+        reg.version = 0;
+        assert!(reg.ensure_current_version().is_ok());
+        assert_eq!(reg.version, TicketRegistry::CURRENT_VERSION);
+        reg.version = TicketRegistry::CURRENT_VERSION + 1;
+        assert_eq!(
+            reg.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
         assert_eq!(
             reg.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
 
-        // Test UserEntry
+        // 4. UserEntry
         let mut entry = UserEntry {
             owner: Pubkey::default(),
             active: 0,
             pending: 0,
             merged_through_cycle: 0,
             cumulative_active: 0,
-            version: UserEntry::CURRENT_VERSION + 1,
+            version: UserEntry::CURRENT_VERSION,
             _padding: [0; 3],
             _reserved: [0; 12],
         };
+        assert!(entry.check_version().is_ok());
+        assert!(entry.ensure_current_version().is_ok());
+        entry.version = 0;
+        assert!(entry.ensure_current_version().is_ok());
+        assert_eq!(entry.version, UserEntry::CURRENT_VERSION);
+        entry.version = UserEntry::CURRENT_VERSION + 1;
+        assert_eq!(
+            entry.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
         assert_eq!(
             entry.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
 
-        // Test Winner
+        // 5. Winner
         let mut winner = Winner {
             winner: Pubkey::default(),
             amount_owed: 0,
             bonds_bought: 0,
             processed: 0,
             tier_index: 0,
-            version: Winner::CURRENT_VERSION + 1,
+            version: Winner::CURRENT_VERSION,
             _padding: [0; 1],
             _reserved: [0; 8],
         };
+        assert!(winner.check_version().is_ok());
+        assert!(winner.ensure_current_version().is_ok());
+        winner.version = 0;
+        assert!(winner.ensure_current_version().is_ok());
+        assert_eq!(winner.version, Winner::CURRENT_VERSION);
+        winner.version = Winner::CURRENT_VERSION + 1;
+        assert_eq!(
+            winner.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
         assert_eq!(
             winner.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // 6. DrawCycle
+        let mut dc = DrawCycle {
+            prize_pot: 0,
+            cycle_fee_collected: 0,
+            harvest_slot: 0,
+            initiated_at: 0,
+            completed_at: 0,
+            randomness_account: Pubkey::default(),
+            pool_id: 1,
+            cycle_id: 1,
+            locked_ticket_count: 0,
+            status: crate::state::DrawStatus::AwaitingYield,
+            version: DrawCycle::CURRENT_VERSION,
+            randomness_seed: [0; 32],
+            _reserved: [0; 64],
+        };
+        assert!(dc.check_version().is_ok());
+        assert!(dc.ensure_current_version().is_ok());
+        dc.version = 0;
+        assert!(dc.ensure_current_version().is_ok());
+        assert_eq!(dc.version, DrawCycle::CURRENT_VERSION);
+        dc.version = DrawCycle::CURRENT_VERSION + 1;
+        assert_eq!(
+            dc.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            dc.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // 7. UserWinnings
+        let mut uw = UserWinnings {
+            unclaimed_non_reinvested_winnings: 0,
+            total_claimed: 0,
+            total_reinvested: 0,
+            pool_id: 1,
+            registry_entry_index: 0,
+            user: Pubkey::default(),
+            bump: 0,
+            version: UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        assert!(uw.check_version().is_ok());
+        assert!(uw.ensure_current_version().is_ok());
+        uw.version = 0;
+        assert!(uw.ensure_current_version().is_ok());
+        assert_eq!(uw.version, UserWinnings::CURRENT_VERSION);
+        uw.version = UserWinnings::CURRENT_VERSION + 1;
+        assert_eq!(
+            uw.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            uw.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // 8. PayoutRegistry
+        let mut pr = PayoutRegistry {
+            pool_id: 1,
+            cycle_id: 1,
+            winners_count: 0,
+            payouts_completed: 0,
+            revealed_at: 0,
+            status: 0,
+            version: PayoutRegistry::CURRENT_VERSION,
+            _padding: [0; 6],
+            _reserved: [0; 64],
+        };
+        assert!(pr.check_version().is_ok());
+        assert!(pr.ensure_current_version().is_ok());
+        pr.version = 0;
+        assert!(pr.ensure_current_version().is_ok());
+        assert_eq!(pr.version, PayoutRegistry::CURRENT_VERSION);
+        pr.version = PayoutRegistry::CURRENT_VERSION + 1;
+        assert_eq!(
+            pr.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            pr.ensure_current_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+
+        // 9. PendingRedemption
+        let mut pred = PendingRedemption {
+            huma_request_id: 0,
+            redemption_id: 1,
+            amount: 100,
+            pst_shares_locked: 100,
+            requested_at: 0,
+            user: Pubkey::default(),
+            pool_id: 1,
+            bump: 0,
+            version: PendingRedemption::CURRENT_VERSION,
+            redemption_type: crate::state::RedemptionType::BondSale,
+            _padding: [0; 1],
+            _reserved: [0; 64],
+        };
+        assert!(pred.check_version().is_ok());
+        assert!(pred.ensure_current_version().is_ok());
+        pred.version = 0;
+        assert!(pred.ensure_current_version().is_ok());
+        assert_eq!(pred.version, PendingRedemption::CURRENT_VERSION);
+        pred.version = PendingRedemption::CURRENT_VERSION + 1;
+        assert_eq!(
+            pred.check_version().unwrap_err(),
+            crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
+        );
+        assert_eq!(
+            pred.ensure_current_version().unwrap_err(),
             crate::error::PremiumBondsError::UnsupportedAccountVersion.into()
         );
     }

@@ -27,6 +27,7 @@ pub struct AdminForceUnlockDraw<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -48,6 +49,7 @@ pub struct AdminForceUnlockDraw<'info> {
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
+        constraint = current_draw_cycle.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 

@@ -39,6 +39,7 @@ pub struct RevealAndPickWinners<'info> {
         mut,
         seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), current_draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
+        constraint = current_draw_cycle.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = current_draw_cycle.randomness_account == randomness_account.key() @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
@@ -169,14 +170,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let mut payout_data = payout_ai.try_borrow_mut_data()?;
     let mut payout_view = crate::utils::init_payout_registry_uninit_mut(&mut payout_data)?;
 
-    payout_view.header.pool_id = draw_cycle.pool_id;
-    payout_view.header.cycle_id = draw_cycle.cycle_id;
-    payout_view.header.version = PayoutRegistry::CURRENT_VERSION;
-    payout_view.header.payouts_completed = 0;
-    payout_view.header.revealed_at = clock.unix_timestamp;
-    payout_view.header.status = crate::state::PayoutRegistryStatus::Active as u8;
-    payout_view.header._padding = [0; 6];
-    payout_view.header._reserved = [0; 64];
+    payout_view.header.init(draw_cycle.pool_id, draw_cycle.cycle_id, clock.unix_timestamp);
 
     // Upfront fail-fast validation: ensures configured winners do not exceed payout registry capacity
     let total_winners = pool.total_winners()? as usize;

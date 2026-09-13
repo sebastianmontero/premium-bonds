@@ -52,12 +52,14 @@ pub struct ResizeRegistry<'info> {
 /// # Parameters
 /// * `ctx` - The context of the resize registry instruction.
 pub fn handle(ctx: Context<ResizeRegistry>) -> Result<()> {
+    ctx.accounts.pool.load()?.check_version()?;
     // The `realloc` constraint has already grown the account and topped up rent.
     // All we need to do is sync the cached `capacity` field in the zero-copy header.
     let new_len = ctx.accounts.ticket_registry.to_account_info().data_len();
     let new_capacity = registry_capacity_from_len(new_len);
 
     let mut registry = ctx.accounts.ticket_registry.load_mut()?;
+    registry.ensure_current_version()?;
     let old_capacity = registry.capacity;
     registry.capacity = new_capacity;
 

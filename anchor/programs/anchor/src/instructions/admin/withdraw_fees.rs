@@ -5,7 +5,9 @@ use crate::constants::{
 use crate::error::PremiumBondsError;
 use crate::events::FeesWithdrawn;
 use crate::huma;
-use crate::state::{GlobalConfig, PendingRedemption, PrizePool, RedemptionType};
+use crate::state::{
+    GlobalConfig, InitPendingRedemptionParams, PendingRedemption, PrizePool, RedemptionType,
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -22,6 +24,7 @@ pub struct WithdrawFees<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -249,25 +252,25 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     )?;
 
     // Create PendingRedemption receipt — fee_wallet is the beneficiary
-    let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool_id;
-    pending.redemption_id = current_redemption_id;
-    pending.user = ctx.accounts.fee_wallet.owner; // Fee wallet owner receives the USDC on disburse
-    pending.amount = amount;
-    pending.pst_shares_locked = pst_shares;
-    pending.requested_at = Clock::get()?.unix_timestamp;
-    pending.huma_request_id = huma_request_id;
-    pending.bump = ctx.bumps.pending_redemption;
-    pending.version = PendingRedemption::CURRENT_VERSION;
-    pending.redemption_type = RedemptionType::FeeWithdrawal;
+    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
+        pool_id,
+        redemption_id: current_redemption_id,
+        bump: ctx.bumps.pending_redemption,
+        user: ctx.accounts.fee_wallet.owner, // Fee wallet owner receives the USDC on disburse
+        amount,
+        pst_shares_locked: pst_shares,
+        huma_request_id,
+        requested_at: Clock::get()?.unix_timestamp,
+        redemption_type: RedemptionType::FeeWithdrawal,
+    });
 
     #[cfg(feature = "debug-logs")]
     msg!(
         "WithdrawFees: amount={}, pst_shares={}, redemption_id={}, fee_wallet={}",
         amount,
         pst_shares,
-        pending.redemption_id,
-        fee_wallet,
+        current_redemption_id,
+        ctx.accounts.fee_wallet.key(),
     );
 
     emit_cpi!(FeesWithdrawn {

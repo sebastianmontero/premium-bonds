@@ -46,6 +46,7 @@ pub struct ClaimRedemption<'info> {
             pending_redemption.redemption_id.to_le_bytes().as_ref()
         ],
         bump = pending_redemption.bump,
+        constraint = pending_redemption.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = pending_redemption.pool_id == pool.load()?.pool_id,
         close = beneficiary
     )]

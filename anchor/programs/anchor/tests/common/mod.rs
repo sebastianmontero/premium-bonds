@@ -511,20 +511,33 @@ pub fn inject_pending_redemption(
     pst_shares_locked: u64,
 ) -> Pubkey {
     let (pda, bump) = pending_redemption_pda(pool_id, redemption_id);
-    let pending = anchor::state::PendingRedemption {
-        pool_id,
-        redemption_id,
-        user,
-        amount,
-        pst_shares_locked,
-        requested_at: 0,
-        huma_request_id: 0,
-        bump,
-        version: 1,
-        redemption_type: anchor::state::RedemptionType::BondSale,
-    };
+    inject_pending_redemption_with_params(
+        svm,
+        anchor::state::InitPendingRedemptionParams {
+            pool_id,
+            redemption_id,
+            bump,
+            user,
+            amount,
+            pst_shares_locked,
+            huma_request_id: 0,
+            requested_at: 0,
+            redemption_type: anchor::state::RedemptionType::BondSale,
+        },
+    )
+}
+
+pub fn inject_pending_redemption_with_params(
+    svm: &mut LiteSVM,
+    params: anchor::state::InitPendingRedemptionParams,
+) -> Pubkey {
+    let (pda, _) = pending_redemption_pda(params.pool_id, params.redemption_id);
+    let pending = anchor::state::PendingRedemption::new(params);
     let mut data = vec![];
-    pending.try_serialize(&mut data).unwrap();
+    use anchor_lang::Discriminator;
+    data.extend_from_slice(&anchor::state::PendingRedemption::DISCRIMINATOR);
+    use anchor_lang::AnchorSerialize;
+    pending.serialize(&mut data).unwrap();
     data.resize(8 + anchor::state::PendingRedemption::INIT_SPACE, 0);
     svm.set_account(
         pda,
@@ -1517,6 +1530,16 @@ pub fn send_e2e_sell_bonds_for_user(
         Keypair::new().pubkey()
     } else {
         huma_lender_state
+    };
+    let huma_pool_mode_token = if huma_pool_mode_token == Pubkey::default() {
+        create_spl_token_account(
+            &mut ctx.svm,
+            &ctx.admin,
+            &ctx.pst_mint,
+            &ctx.huma_pool_authority,
+        )
+    } else {
+        huma_pool_mode_token
     };
 
     let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());

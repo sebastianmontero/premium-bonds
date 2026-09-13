@@ -12,6 +12,7 @@ pub struct CancelAdminNomination<'info> {
         mut,
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin,
         constraint = global_config.pending_admin != Pubkey::default() @ PremiumBondsError::NoPendingAdmin
     )]

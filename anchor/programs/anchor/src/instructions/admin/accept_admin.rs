@@ -12,6 +12,7 @@ pub struct AcceptAdmin<'info> {
         mut,
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = global_config.pending_admin != Pubkey::default() @ PremiumBondsError::NoPendingAdmin,
         constraint = global_config.pending_admin == new_admin.key() @ PremiumBondsError::NotPendingAdmin
     )]

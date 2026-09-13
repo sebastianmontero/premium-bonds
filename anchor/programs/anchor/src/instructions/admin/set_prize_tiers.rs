@@ -13,6 +13,7 @@ pub struct SetPrizeTiers<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,

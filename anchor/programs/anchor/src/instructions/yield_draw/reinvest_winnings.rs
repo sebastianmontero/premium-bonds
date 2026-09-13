@@ -67,6 +67,7 @@ pub struct ReinvestWinnings<'info> {
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
         bump = user_winnings.bump,
+        constraint = user_winnings.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 

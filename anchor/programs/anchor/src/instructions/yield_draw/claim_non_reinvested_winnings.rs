@@ -2,7 +2,10 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::WinningsClaimed;
 use crate::huma;
-use crate::state::{PendingRedemption, PoolStatus, PrizePool, RedemptionType, UserWinnings};
+use crate::state::{
+    InitPendingRedemptionParams, PendingRedemption, PoolStatus, PrizePool, RedemptionType,
+    UserWinnings,
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -61,6 +64,7 @@ pub struct ClaimNonReinvestedWinnings<'info> {
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump = user_winnings.bump,
+        constraint = user_winnings.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 
@@ -145,8 +149,8 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// A `PendingRedemption` receipt is created on-chain to record this request and the Huma queue request ID,
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
-    // 1. Read-only validation of claimable winnings
-    ctx.accounts.user_winnings.check_version()?;
+    // 1. Validation & lazy migration of claimable winnings
+    ctx.accounts.user_winnings.ensure_current_version()?;
     let claimable = ctx.accounts.user_winnings.unclaimed_non_reinvested_winnings;
     require!(claimable > 0, PremiumBondsError::NoWinningsToClaim);
 
@@ -235,17 +239,17 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let clock = Clock::get()?;
 
     // Create PendingRedemption receipt
-    let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool_id;
-    pending.redemption_id = current_redemption_id;
-    pending.user = ctx.accounts.user.key();
-    pending.amount = claimable;
-    pending.pst_shares_locked = pst_shares;
-    pending.requested_at = clock.unix_timestamp;
-    pending.huma_request_id = huma_request_id;
-    pending.bump = ctx.bumps.pending_redemption;
-    pending.version = PendingRedemption::CURRENT_VERSION;
-    pending.redemption_type = RedemptionType::PrizeClaim;
+    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
+        pool_id,
+        redemption_id: current_redemption_id,
+        bump: ctx.bumps.pending_redemption,
+        user: ctx.accounts.user.key(),
+        amount: claimable,
+        pst_shares_locked: pst_shares,
+        huma_request_id,
+        requested_at: clock.unix_timestamp,
+        redemption_type: RedemptionType::PrizeClaim,
+    });
 
     #[cfg(feature = "debug-logs")]
     msg!(
@@ -253,14 +257,14 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
         ctx.accounts.user.key(),
         claimable,
         pst_shares,
-        pending.redemption_id,
+        current_redemption_id,
     );
 
     emit_cpi!(WinningsClaimed {
         user: ctx.accounts.user.key(),
         pool_id,
         amount: claimable,
-        redemption_id: pending.redemption_id,
+        redemption_id: current_redemption_id,
         pst_shares,
         huma_request_id,
         timestamp: clock.unix_timestamp,

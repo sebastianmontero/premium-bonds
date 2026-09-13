@@ -136,8 +136,10 @@ fn test_resize_registry_zero_initialization() {
     initial_data[8..12].copy_from_slice(&pool_id.to_le_bytes());
     let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
     initial_data[12..16].copy_from_slice(&initial_capacity.to_le_bytes());
-    initial_data[16..20].copy_from_slice(&0u32.to_le_bytes()); // active
-    initial_data[20..24].copy_from_slice(&0u32.to_le_bytes()); // pending
+    initial_data[16..20].copy_from_slice(&0u32.to_le_bytes()); // user_count
+    initial_data[20..24].copy_from_slice(&0u32.to_le_bytes()); // active
+    initial_data[24..28].copy_from_slice(&0u32.to_le_bytes()); // pending
+    initial_data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
 
     svm.set_account(
         ticket_registry,

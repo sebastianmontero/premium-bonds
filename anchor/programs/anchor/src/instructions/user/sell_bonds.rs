@@ -2,7 +2,10 @@ use crate::constants::{DISCRIMINATOR, PENDING_REDEMPTION_SEED, POOL_PST_SEED, PR
 use crate::error::PremiumBondsError;
 use crate::events::BondsSold;
 use crate::huma;
-use crate::state::{PendingRedemption, PrizePool, RedemptionType, TicketRegistry, UserWinnings};
+use crate::state::{
+    InitPendingRedemptionParams, PendingRedemption, PrizePool, RedemptionType, TicketRegistry,
+    UserWinnings,
+};
 use crate::utils::get_ticket_registry_mut;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -29,6 +32,7 @@ pub struct SellBonds<'info> {
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump,
+        constraint = user_winnings.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
 
@@ -174,7 +178,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
     let user_key = ctx.accounts.user.key();
-    ctx.accounts.user_winnings.check_version()?;
+    ctx.accounts.user_winnings.ensure_current_version()?;
     let user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
     require!(
         user_entry_idx != u32::MAX,
@@ -312,17 +316,17 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let clock = Clock::get()?;
 
     // Create PendingRedemption receipt
-    let pending = &mut ctx.accounts.pending_redemption;
-    pending.pool_id = pool_id;
-    pending.redemption_id = current_redemption_id;
-    pending.user = ctx.accounts.user.key();
-    pending.amount = expected_principal;
-    pending.pst_shares_locked = pst_shares;
-    pending.requested_at = clock.unix_timestamp;
-    pending.huma_request_id = huma_request_id;
-    pending.bump = ctx.bumps.pending_redemption;
-    pending.version = PendingRedemption::CURRENT_VERSION;
-    pending.redemption_type = RedemptionType::BondSale;
+    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
+        pool_id,
+        redemption_id: current_redemption_id,
+        bump: ctx.bumps.pending_redemption,
+        user: ctx.accounts.user.key(),
+        amount: expected_principal,
+        pst_shares_locked: pst_shares,
+        huma_request_id,
+        requested_at: clock.unix_timestamp,
+        redemption_type: RedemptionType::BondSale,
+    });
 
     #[cfg(feature = "debug-logs")]
     msg!(
@@ -331,7 +335,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         bonds_to_sell,
         expected_principal,
         pst_shares,
-        pending.redemption_id,
+        current_redemption_id,
     );
 
     emit_cpi!(BondsSold {
@@ -339,7 +343,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         pool_id,
         bonds: bonds_to_sell,
         principal: expected_principal,
-        redemption_id: pending.redemption_id,
+        redemption_id: current_redemption_id,
         pst_shares,
         huma_request_id,
         new_total_deposited_principal,

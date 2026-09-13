@@ -8,7 +8,7 @@
 
 use {
     anchor::error::PremiumBondsError,
-    anchor_lang::{Discriminator, InstructionData, ToAccountMetas},
+    anchor_lang::{Discriminator, InstructionData, Space, ToAccountMetas},
     anchor_spl::token_2022::spl_token_2022::extension::{
         BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
     },
@@ -2047,8 +2047,12 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
 
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     let pending_acc = ctx.svm.get_account(&pending_redemption_key).expect("PendingRedemption must exist");
-    // Verify exact 95 bytes layout (8-byte discriminator + 87-byte INIT_SPACE)
-    assert_eq!(pending_acc.data.len(), 95, "PendingRedemption must be exactly 95 bytes");
+    // Verify exact 160 bytes layout (8-byte discriminator + 152-byte INIT_SPACE)
+    assert_eq!(
+        pending_acc.data.len(),
+        8 + anchor::state::PendingRedemption::INIT_SPACE,
+        "PendingRedemption must be exactly 160 bytes"
+    );
     let rent_lamports = pending_acc.lamports;
 
     // Settle Huma redemption

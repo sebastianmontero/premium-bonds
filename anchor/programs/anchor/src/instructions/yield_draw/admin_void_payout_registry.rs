@@ -13,6 +13,7 @@ pub struct AdminVoidPayoutRegistry<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -37,6 +38,7 @@ pub struct AdminVoidPayoutRegistry<'info> {
             current_draw_cycle.cycle_id.to_le_bytes().as_ref()
         ],
         bump,
+        constraint = current_draw_cycle.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = current_draw_cycle.status == DrawStatus::Complete @ PremiumBondsError::InvalidDrawStatus
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,

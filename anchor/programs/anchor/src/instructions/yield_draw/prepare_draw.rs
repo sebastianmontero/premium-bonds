@@ -40,6 +40,7 @@ pub struct PrepareDraw<'info> {
     #[account(
         seeds = [DRAW_CYCLE_SEED, pool.load()?.pool_id.to_le_bytes().as_ref(), draw_cycle.cycle_id.to_le_bytes().as_ref()],
         bump,
+        constraint = draw_cycle.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         constraint = draw_cycle.status == DrawStatus::AwaitingRandomness @ PremiumBondsError::InvalidDrawStatus
     )]
     pub draw_cycle: Box<Account<'info, DrawCycle>>,
@@ -58,6 +59,7 @@ pub struct PrepareDraw<'info> {
 /// indicator `draw_prepared_up_to`.
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     require!(batch_size > 0, PremiumBondsError::InvalidBondQuantity);
+    ctx.accounts.pool.load()?.check_version()?;
 
     let progress = {
         let registry_ai = ctx.accounts.ticket_registry.to_account_info();

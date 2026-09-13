@@ -20,6 +20,7 @@ pub struct InitializeHumaLender<'info> {
     #[account(
         seeds = [GLOBAL_CONFIG_SEED],
         bump,
+        constraint = global_config.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
         has_one = admin @ PremiumBondsError::UnauthorizedAdmin
     )]
     pub global_config: Box<Account<'info, GlobalConfig>>,
@@ -109,6 +110,7 @@ pub struct InitializeHumaLender<'info> {
 /// * `ctx` - The context of the initialize Huma lender instruction.
 pub fn handle(ctx: Context<InitializeHumaLender>) -> Result<()> {
     let pool = ctx.accounts.pool.load()?;
+    pool.check_version()?;
 
     let pool_id_bytes = pool.pool_id.to_le_bytes();
     let authority_bump = pool.vault_authority_bump;

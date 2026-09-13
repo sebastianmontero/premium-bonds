@@ -90,12 +90,19 @@ impl DrawCycle {
     /// Current schema version of the DrawCycle account.
     pub const CURRENT_VERSION: u8 = 1;
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
+    /// Checks that the account version is supported.
+    #[inline]
+    pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
             PremiumBondsError::UnsupportedAccountVersion
         );
+        Ok(())
+    }
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;
@@ -225,10 +232,7 @@ impl Winner {
 
     /// Lazily migrates this winner entry to the current schema version and guards against invalid versions.
     pub fn ensure_current_version(&mut self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;
@@ -236,6 +240,7 @@ impl Winner {
         Ok(())
     }
 
+    #[inline]
     pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
@@ -250,14 +255,18 @@ impl Winner {
     }
 
     pub fn validate_eligibility(&self, expected_user: Pubkey) -> Result<()> {
+        self.check_version()?;
         require!(self.winner == expected_user, PremiumBondsError::WinnerMismatch);
         require!(!self.is_processed(), PremiumBondsError::AlreadyClaimed);
         Ok(())
     }
 
-    pub fn mark_processed(&mut self, bonds_bought: u32) {
+    pub fn mark_processed(&mut self, bonds_bought: u32) -> Result<()> {
+        self.ensure_current_version()?;
+        require!(!self.is_processed(), PremiumBondsError::AlreadyClaimed);
         self.processed = 1;
         self.bonds_bought = bonds_bought;
+        Ok(())
     }
 }
 
@@ -265,12 +274,44 @@ impl PayoutRegistry {
     /// Current schema version of the PayoutRegistry account.
     pub const CURRENT_VERSION: u8 = 1;
 
+    /// Initializes a new PayoutRegistry account header.
+    pub fn init(&mut self, pool_id: u32, cycle_id: u32, revealed_at: i64) {
+        self.pool_id = pool_id;
+        self.cycle_id = cycle_id;
+        self.winners_count = 0;
+        self.payouts_completed = 0;
+        self.revealed_at = revealed_at;
+        self.status = PayoutRegistryStatus::Active as u8;
+        self.version = Self::CURRENT_VERSION;
+        self._padding = [0; 6];
+        self._reserved = [0; 64];
+    }
+
+    /// Records that a payout has been completed, lazily migrating if needed.
+    pub fn record_payout_completed(&mut self) -> Result<()> {
+        self.ensure_current_version()?;
+        self.payouts_completed = self
+            .payouts_completed
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
+    /// Voids an active PayoutRegistry where no payouts have completed yet.
+    pub fn void(&mut self) -> Result<()> {
+        self.ensure_current_version()?;
+        require!(
+            self.payouts_completed == 0,
+            PremiumBondsError::PayoutsAlreadyStarted
+        );
+        require!(self.is_active(), PremiumBondsError::DrawAlreadyVoided);
+        self.status = PayoutRegistryStatus::Voided as u8;
+        Ok(())
+    }
+
     /// Lazily migrates this account to the current schema version and guards against invalid versions.
     pub fn ensure_current_version(&mut self) -> Result<()> {
-        require!(
-            self.version <= Self::CURRENT_VERSION,
-            PremiumBondsError::UnsupportedAccountVersion
-        );
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;
@@ -278,6 +319,7 @@ impl PayoutRegistry {
         Ok(())
     }
 
+    #[inline]
     pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
@@ -313,11 +355,11 @@ pub struct PayoutRegistryRef<'a> {
 
 impl<'a> PayoutRegistryRef<'a> {
     #[inline]
-    pub fn active_winners(&self) -> &[Winner] {
+    pub fn active_winners(&self) -> &'a [Winner] {
         &self.winners[..self.header.winners_count as usize]
     }
 
-    pub fn get_winner(&self, winner_index: u32) -> Result<&Winner> {
+    pub fn get_winner(&self, winner_index: u32) -> Result<&'a Winner> {
         let idx = winner_index as usize;
         require!(
             idx < self.header.winners_count as usize,
@@ -330,7 +372,7 @@ impl<'a> PayoutRegistryRef<'a> {
         Ok(&self.winners[idx])
     }
 
-    pub fn validate_winner(&self, winner_index: u32, expected_user: Pubkey) -> Result<&Winner> {
+    pub fn validate_winner(&self, winner_index: u32, expected_user: Pubkey) -> Result<&'a Winner> {
         let winner = self.get_winner(winner_index)?;
         winner.validate_eligibility(expected_user)?;
         Ok(winner)
@@ -359,18 +401,7 @@ impl<'a> PayoutRegistryMut<'a> {
     }
 
     pub fn validate_winner(&self, winner_index: u32, expected_user: Pubkey) -> Result<&Winner> {
-        let idx = winner_index as usize;
-        require!(
-            idx < self.header.winners_count as usize,
-            PremiumBondsError::InvalidWinnerIndex
-        );
-        require!(
-            idx < self.winners.len(),
-            PremiumBondsError::InvalidRegistryState
-        );
-        let winner = &self.winners[idx];
-        winner.validate_eligibility(expected_user)?;
-        Ok(winner)
+        self.as_ref().validate_winner(winner_index, expected_user)
     }
 
     pub fn total_amount_owed(&self) -> Result<u64> {
@@ -407,24 +438,14 @@ impl<'a> PayoutRegistryMut<'a> {
             PremiumBondsError::InvalidRegistryState
         );
         let winner = &mut self.winners[idx];
-        require!(!winner.is_processed(), PremiumBondsError::AlreadyClaimed);
-        winner.mark_processed(bonds_bought);
-        self.header.payouts_completed = self
-            .header
-            .payouts_completed
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
+        winner.mark_processed(bonds_bought)?;
+        self.header.record_payout_completed()?;
         Ok(winner.amount_owed)
     }
 
     pub fn void_draw(&mut self) -> Result<u64> {
-        require!(
-            self.header.payouts_completed == 0,
-            PremiumBondsError::PayoutsAlreadyStarted
-        );
-        require!(self.header.is_active(), PremiumBondsError::DrawAlreadyVoided);
         let total_distributed = self.total_amount_owed()?;
-        self.header.status = PayoutRegistryStatus::Voided as u8;
+        self.header.void()?;
         Ok(total_distributed)
     }
 }
