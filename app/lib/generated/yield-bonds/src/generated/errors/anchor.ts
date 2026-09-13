@@ -144,6 +144,8 @@ export const ANCHOR_ERROR__INVALID_HUMA_POOL_STATE = 0x17ae; // 6062
 export const ANCHOR_ERROR__PAYOUTS_PENDING = 0x17af; // 6063
 /** InvalidRedemptionType: Invalid redemption type value. */
 export const ANCHOR_ERROR__INVALID_REDEMPTION_TYPE = 0x17b0; // 6064
+/** InvalidBatchSize: Draw preparation batch size must be greater than 0. */
+export const ANCHOR_ERROR__INVALID_BATCH_SIZE = 0x17b1; // 6065
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -160,6 +162,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
   | typeof ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS
   | typeof ANCHOR_ERROR__INVALID_ADMIN_ADDRESS
+  | typeof ANCHOR_ERROR__INVALID_BATCH_SIZE
   | typeof ANCHOR_ERROR__INVALID_BOND_PRICE
   | typeof ANCHOR_ERROR__INVALID_BOND_QUANTITY
   | typeof ANCHOR_ERROR__INVALID_DRAW_STATE
@@ -229,6 +232,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
     [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: `Insufficient pending tickets for this transaction`,
     [ANCHOR_ERROR__INVALID_ADMIN_ADDRESS]: `Admin address cannot be the default zero address.`,
+    [ANCHOR_ERROR__INVALID_BATCH_SIZE]: `Draw preparation batch size must be greater than 0.`,
     [ANCHOR_ERROR__INVALID_BOND_PRICE]: `Bond price must be greater than 0.`,
     [ANCHOR_ERROR__INVALID_BOND_QUANTITY]: `Invalid bond quantity.`,
     [ANCHOR_ERROR__INVALID_DRAW_STATE]: `The draw cycle has an invalid locked count or prize pot.`,

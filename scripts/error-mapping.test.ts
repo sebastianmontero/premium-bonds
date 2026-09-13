@@ -5,13 +5,14 @@ import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
+  ANCHOR_ERROR__INVALID_BATCH_SIZE,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 65 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 65 errors defined from 6000 to 6064 inclusive
-    for (let code = 6000; code <= 6064; code++) {
+  it("should have complete 66 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 66 errors defined from 6000 to 6065 inclusive
+    for (let code = 6000; code <= 6065; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -177,5 +178,23 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       "Program Error: InvalidRedemptionType"
     );
     assert.ok(parsed6064.message.includes("Invalid redemption type value"));
+
+    // 6065: InvalidBatchSize
+    assert.strictEqual(
+      ANCHOR_ERROR__INVALID_BATCH_SIZE,
+      6065,
+      "ANCHOR_ERROR__INVALID_BATCH_SIZE must equal 6065"
+    );
+    const parsed6065 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: InvalidBatchSize. Error Number: 6065.",
+    });
+    assert.strictEqual(parsed6065.code, 6065);
+    assert.strictEqual(parsed6065.title, "Program Error: InvalidBatchSize");
+    assert.ok(
+      parsed6065.message.includes(
+        "Draw preparation batch size must be greater than 0"
+      )
+    );
   });
 });

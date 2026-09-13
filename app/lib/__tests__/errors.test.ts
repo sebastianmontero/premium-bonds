@@ -31,6 +31,23 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     assert.strictEqual(parsed.title, "Program Error: PoolNotActive");
   });
 
+  it("should parse Anchor custom error 6065 (InvalidBatchSize)", () => {
+    const rawErr = new Error("Simulation failed: custom program error: 0x17b1");
+    const parsed = parseTransactionError(rawErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6065);
+    assert.strictEqual(parsed.title, "Program Error: InvalidBatchSize");
+    assert.strictEqual(
+      parsed.message,
+      "Draw preparation batch size must be greater than 0."
+    );
+    assert.strictEqual(
+      parsed.actionableStep,
+      "Please specify a batch size greater than zero."
+    );
+  });
+
   it("should parse @solana/kit wrapped TransactionPlanError containing 0xbbd", () => {
     const kitErr = {
       message:

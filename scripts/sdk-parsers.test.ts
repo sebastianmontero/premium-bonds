@@ -117,7 +117,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode PendingRedemption account correctly", () => {
-    const buffer = new Uint8Array(95);
+    const buffer = new Uint8Array(160);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 123n, true);
@@ -128,6 +128,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     view.setBigInt64(48, 1700000000n, true);
     view.setUint32(88, 1, true);
     buffer[92] = 254;
+    buffer[93] = 1;
     buffer[94] = 1; // PrizeClaim
 
     const parsed = decodePendingRedemption(mockAccount(buffer)).data;
@@ -138,6 +139,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     assert.strictEqual(parsed.requestedAt, 1700000000n);
     assert.strictEqual(parsed.poolId, 1);
     assert.strictEqual(parsed.bump, 254);
+    assert.strictEqual(parsed.version, 1);
     assert.strictEqual(parsed.redemptionType, RedemptionType.PrizeClaim);
   });
 

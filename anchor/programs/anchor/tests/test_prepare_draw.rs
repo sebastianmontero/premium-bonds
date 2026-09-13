@@ -420,11 +420,11 @@ fn test_prepare_draw_batch_size_zero_rejected() {
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
-    // Call prepare_draw with batch_size = 0 should fail fast with InvalidBondQuantity
+    // Call prepare_draw with batch_size = 0 should fail fast with InvalidBatchSize
     let err = send_prepare(&mut ctx, 0).unwrap_err();
     assert!(
-        err.contains("InvalidBondQuantity"),
-        "expected InvalidBondQuantity when batch_size is 0, got: {err}"
+        err.contains("InvalidBatchSize"),
+        "expected InvalidBatchSize when batch_size is 0, got: {err}"
     );
 }
 

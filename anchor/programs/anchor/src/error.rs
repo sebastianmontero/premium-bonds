@@ -199,4 +199,7 @@ pub enum PremiumBondsError {
     /// Invalid redemption type discriminant value.
     #[msg("Invalid redemption type value.")]
     InvalidRedemptionType,
+    /// Draw preparation batch size must be greater than 0.
+    #[msg("Draw preparation batch size must be greater than 0.")]
+    InvalidBatchSize,
 }

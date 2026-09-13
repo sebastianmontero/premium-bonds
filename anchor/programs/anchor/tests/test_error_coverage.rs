@@ -613,6 +613,48 @@ fn test_err_payouts_already_started() {
     assert_custom_error(res, PremiumBondsError::PayoutsAlreadyStarted);
 }
 
+#[test]
+fn test_err_invalid_batch_size() {
+    let (mut svm, _admin, crank) = setup_global_with_crank();
+    let pool_id = 1;
+    let token_mint = Keypair::new().pubkey();
+    let registry = Keypair::new().pubkey();
+    let (pool_addr, _) = pool_pda(pool_id);
+    let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
+
+    inject_registry(&mut svm, registry, pool_id, 1000, 0, 0);
+    inject_pool_with_huma_state(
+        &mut svm,
+        pool_id,
+        token_mint,
+        registry,
+        anchor::PoolStatus::Active,
+        true,
+        Keypair::new().pubkey(),
+    );
+    let dc = default_draw_cycle(pool_id, 0, anchor::DrawStatus::AwaitingRandomness);
+    inject_draw_cycle(&mut svm, pool_id, 0, &dc);
+
+    let accounts = anchor::accounts::PrepareDraw {
+        crank: crank.pubkey(),
+        pool: pool_addr,
+        draw_cycle: draw_cycle_addr,
+        ticket_registry: registry,
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::PrepareDraw { batch_size: 0 }.data(),
+    };
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InvalidBatchSize);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Module 4: VRF & Switchboard Randomness Errors
 // ═══════════════════════════════════════════════════════════════════════════════

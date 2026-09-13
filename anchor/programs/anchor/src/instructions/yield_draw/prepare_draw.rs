@@ -58,7 +58,7 @@ pub struct PrepareDraw<'info> {
 /// and saves the updated entries back to the registry. Finally, it updates the progress
 /// indicator `draw_prepared_up_to`.
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
-    require!(batch_size > 0, PremiumBondsError::InvalidBondQuantity);
+    require!(batch_size > 0, PremiumBondsError::InvalidBatchSize);
     ctx.accounts.pool.load()?.check_version()?;
 
     let progress = {

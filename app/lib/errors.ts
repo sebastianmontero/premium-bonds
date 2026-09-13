@@ -64,6 +64,7 @@ import {
   ANCHOR_ERROR__INVALID_HUMA_POOL_STATE,
   ANCHOR_ERROR__PAYOUTS_PENDING,
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
+  ANCHOR_ERROR__INVALID_BATCH_SIZE,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -535,6 +536,11 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Invalid redemption type value.",
     actionable:
       "Ensure the redemption request originates from a valid bond sale, prize claim, or fee withdrawal.",
+  },
+  [ANCHOR_ERROR__INVALID_BATCH_SIZE]: {
+    name: "InvalidBatchSize",
+    message: "Draw preparation batch size must be greater than 0.",
+    actionable: "Please specify a batch size greater than zero.",
   },
 };
 
