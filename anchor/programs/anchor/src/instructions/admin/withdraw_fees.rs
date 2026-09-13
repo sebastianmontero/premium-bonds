@@ -160,16 +160,12 @@ pub struct WithdrawFees<'info> {
 /// * `ctx` - The context of the withdraw fees instruction.
 /// * `amount` - The amount of accrued USDC fees to withdraw.
 pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
-        &ctx.accounts.huma_pool_state.to_account_info(),
-        ctx.accounts.pool_pst_vault.amount,
-        pst_supply,
-    )?;
+    require!(amount > 0, PremiumBondsError::InsufficientFeeBalance);
 
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet) = {
-        let mut pool = ctx.accounts.pool.load_mut()?;
-        pool.ensure_current_version()?;
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet, huma_snapshot) = {
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
 
         require!(
             pool.status != (crate::state::PoolStatus::Paused as u8),
@@ -186,11 +182,30 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
             .total_fees_accrued
             .saturating_sub(pool.total_fees_withdrawn);
         require!(
-            amount > 0 && amount <= available_fees,
+            amount <= available_fees,
             PremiumBondsError::InsufficientFeeBalance
         );
 
-        let current_redemption_id = pool.next_redemption_id;
+        let snapshot = pool.assert_huma_solvency(
+            &ctx.accounts.huma_pool_state.to_account_info(),
+            ctx.accounts.pool_pst_vault.amount,
+            pst_supply,
+        )?;
+
+        (
+            pool.pool_id,
+            pool.pool_id.to_le_bytes(),
+            pool.vault_authority_bump,
+            pool.next_redemption_id,
+            pool.fee_wallet,
+            snapshot,
+        )
+    };
+
+    // Post-solvency state mutations
+    {
+        let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         pool.total_fees_withdrawn = pool
             .total_fees_withdrawn
             .checked_add(amount)
@@ -203,19 +218,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
             .total_pending_redemptions
             .checked_add(amount)
             .ok_or(PremiumBondsError::MathOverflow)?;
-
-        let pool_id = pool.pool_id;
-        let pool_id_bytes = pool_id.to_le_bytes();
-        let authority_bump = pool.vault_authority_bump;
-        let fee_wallet = pool.fee_wallet;
-        (
-            pool_id,
-            pool_id_bytes,
-            authority_bump,
-            current_redemption_id,
-            fee_wallet,
-        )
-    };
+    }
 
     // Calculate $PST shares for the fee amount
     let pst_shares = huma_snapshot.usdc_to_pst_shares(amount, pst_supply)?;

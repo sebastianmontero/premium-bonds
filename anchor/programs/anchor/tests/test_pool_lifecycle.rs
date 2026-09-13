@@ -212,7 +212,6 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
         bump,
         version: 1,
         redemption_type: anchor::state::RedemptionType::BondSale,
-        _reserved: [0; 64],
     };
     let mut pr_data = vec![];
     use anchor_lang::Discriminator;

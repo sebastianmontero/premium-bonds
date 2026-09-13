@@ -169,6 +169,60 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
     ((data_len.saturating_sub(USER_ENTRY_REGISTRY_HEADER_SIZE)) / USER_ENTRY_SIZE) as u32
 }
 
+/// Zero-copy mutable accessor for the entire TicketRegistry (header + entries slice).
+#[inline]
+pub fn get_ticket_registry_mut(
+    data: &mut [u8],
+) -> Result<crate::state::TicketRegistryMut<'_>> {
+    require!(
+        data.len() >= USER_ENTRY_REGISTRY_HEADER_SIZE,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (disc, rest) = data.split_at_mut(8);
+    require!(
+        disc == crate::state::TicketRegistry::DISCRIMINATOR,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (header_slice, entries_slice) =
+        rest.split_at_mut(std::mem::size_of::<crate::state::TicketRegistry>());
+    let header = bytemuck::try_from_bytes_mut::<crate::state::TicketRegistry>(header_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let entries = bytemuck::try_cast_slice_mut::<u8, crate::state::UserEntry>(entries_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    require!(
+        entries.len() as u32 >= header.capacity,
+        PremiumBondsError::InvalidRegistryState
+    );
+    Ok(crate::state::TicketRegistryMut { header, entries })
+}
+
+/// Zero-copy immutable accessor for the entire TicketRegistry (header + entries slice).
+#[inline]
+pub fn get_ticket_registry(
+    data: &[u8],
+) -> Result<(&crate::state::TicketRegistry, &[crate::state::UserEntry])> {
+    require!(
+        data.len() >= USER_ENTRY_REGISTRY_HEADER_SIZE,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (disc, rest) = data.split_at(8);
+    require!(
+        disc == crate::state::TicketRegistry::DISCRIMINATOR,
+        PremiumBondsError::InvalidRegistryState
+    );
+    let (header_slice, entries_slice) =
+        rest.split_at(std::mem::size_of::<crate::state::TicketRegistry>());
+    let header = bytemuck::try_from_bytes::<crate::state::TicketRegistry>(header_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let entries = bytemuck::try_cast_slice::<u8, crate::state::UserEntry>(entries_slice)
+        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    require!(
+        entries.len() as u32 >= header.capacity,
+        PremiumBondsError::InvalidRegistryState
+    );
+    Ok((header, entries))
+}
+
 /// Validates that a mint account does not configure Token-2022 transfer fee, transfer hook,
 /// permanent delegate, or close authority extensions.
 pub fn assert_supported_mint_extensions(mint_info: &AccountInfo) -> Result<()> {
@@ -576,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             crate::state::PendingRedemption::INIT_SPACE,
-            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1 + 64
+            16 + 8 + 8 + 8 + 8 + 32 + 4 + 1 + 1 + 1
         );
     }
 

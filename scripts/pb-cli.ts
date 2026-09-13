@@ -69,6 +69,8 @@ import {
   buildHarvestYieldAndCommitInstruction,
   buildRevealAndPickWinnersInstruction,
   buildReinvestWinningsInstruction,
+  buildPackedReinvestWinningsInstructions,
+  createSetComputeUnitLimitInstruction,
   findUserWinningsPda,
   findPendingRedemptionPda,
   parseUserWinnings,
@@ -1622,60 +1624,97 @@ export async function executeReinvest({
       .filter((w) => !w.processed)
       .map((w) => w.idx);
   }
+  const REINVEST_BATCH_SIZE = 4;
+  const REINVEST_BATCH_CU_LIMIT = 400_000;
+  const REINVEST_SINGLE_CU_LIMIT = 100_000;
 
-  if (targetWinnerIndices.length === 0) {
+  const unprocessedWinners = targetWinnerIndices
+    .map((idx) => ({ idx, winner: state.winners[idx] }))
+    .filter(({ winner }) => !winner.processed);
+
+  if (unprocessedWinners.length === 0) {
     console.log("No unprocessed winners found to reinvest.");
     return;
   }
 
   console.log(
-    `Starting reinvestment for ${targetWinnerIndices.length} winner(s)...`
+    `Starting reinvestment for ${unprocessedWinners.length} winner(s)...`
   );
 
-  for (const winnerIndex of targetWinnerIndices) {
-    const currentRegistryAcc = await rpc
-      .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
-      .send();
-    if (!currentRegistryAcc || !currentRegistryAcc.value) {
-      throw new Error("Payout Registry not found during execution.");
-    }
-    const currentBytes = new Uint8Array(
-      base64Encoder.encode(currentRegistryAcc.value.data[0])
-    );
-    const currentRegistry = parsePayoutRegistry(currentBytes);
-    const winnerEntry = currentRegistry.winners[winnerIndex];
-    const winnerOwner = winnerEntry.winner;
+  let failureCount = 0;
 
-    if (!winnerOwner) {
-      throw new Error(
-        `Winner address not found in PayoutRegistry for winner index ${winnerIndex}`
-      );
-    }
+  for (let i = 0; i < unprocessedWinners.length; i += REINVEST_BATCH_SIZE) {
+    const chunk = unprocessedWinners.slice(i, i + REINVEST_BATCH_SIZE);
 
-    if (winnerEntry.processed) {
+    const buildBatchIxs = async (
+      winnersList: typeof chunk,
+      cuLimit: number
+    ) => {
+      const cuLimitIx = createSetComputeUnitLimitInstruction(cuLimit);
+      const ixs = await buildPackedReinvestWinningsInstructions({
+        crank: signer.address,
+        poolId,
+        cycleId: targetCycleId,
+        winners: winnersList.map((c) => ({
+          winner: address(c.winner.winner),
+          winnerIndex: c.idx,
+        })),
+        ticketRegistry: address(poolState.ticketRegistry),
+      });
+      return [cuLimitIx, ...ixs];
+    };
+
+    try {
       console.log(
-        `Winner ${winnerOwner} (index ${winnerIndex}) is already processed (+${winnerEntry.bondsBought} bonds bought).`
+        `Submitting batched reinvestment for ${chunk.length} winner(s)...`
       );
-      continue;
+      const txIxs = await buildBatchIxs(chunk, REINVEST_BATCH_CU_LIMIT);
+      await sendTx(rpc, txIxs, signer);
+    } catch (batchErr) {
+      console.warn(
+        `Batched reinvestment failed (${(batchErr as Error).message}); refreshing registry state for fallback...`
+      );
+      const currentAcc = await rpc
+        .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
+        .send();
+      if (!currentAcc?.value)
+        throw new Error("Payout Registry not found during fallback.");
+      const currentBytes = new Uint8Array(
+        base64Encoder.encode(currentAcc.value.data[0])
+      );
+      const currentRegistry = parsePayoutRegistry(currentBytes);
+
+      for (const item of chunk) {
+        if (currentRegistry.winners[item.idx]?.processed) {
+          console.log(
+            `Skipping already processed winner ${item.winner.winner} (index ${item.idx})`
+          );
+          continue;
+        }
+        try {
+          console.log(
+            `Processing individual fallback for winner ${item.winner.winner} (index ${item.idx})...`
+          );
+          const singleIxs = await buildBatchIxs(
+            [item],
+            REINVEST_SINGLE_CU_LIMIT
+          );
+          await sendTx(rpc, singleIxs, signer);
+        } catch (singleErr) {
+          failureCount++;
+          console.error(
+            `Failed to process winner ${item.winner.winner} (index ${item.idx}):`,
+            singleErr
+          );
+        }
+      }
     }
+  }
 
-    console.log(
-      `Processing atomic reinvestment for Winner ${winnerOwner} (index ${winnerIndex}, Owed: ${formatAmount(
-        winnerEntry.amountOwed
-      )})...`
+  if (failureCount > 0) {
+    throw new Error(
+      `Reinvestment finished with ${failureCount} unrecovered failure(s).`
     );
-
-    const ix = await buildReinvestWinningsInstruction({
-      crank: signer.address,
-      winner: winnerOwner,
-      poolId,
-      cycleId: targetCycleId,
-      winnerIndex,
-      ticketRegistry: address(poolState.ticketRegistry),
-    });
-
-    console.log("Submitting reinvestment transaction...");
-    await sendTx(rpc, ix, signer);
   }
   console.log("Reinvestment process completed successfully!");
 }

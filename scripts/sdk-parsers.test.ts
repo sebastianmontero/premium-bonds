@@ -117,7 +117,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
   });
 
   it("should decode PendingRedemption account correctly", () => {
-    const buffer = new Uint8Array(159);
+    const buffer = new Uint8Array(95);
     const view = new DataView(buffer.buffer);
 
     view.setBigUint64(8, 123n, true);

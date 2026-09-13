@@ -54,8 +54,6 @@ pub struct PendingRedemption {
     pub version: u8,
     /// Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal).
     pub redemption_type: RedemptionType,
-    /// Reserved space for future upgrades.
-    pub _reserved: [u8; 64],
 }
 
 impl PendingRedemption {

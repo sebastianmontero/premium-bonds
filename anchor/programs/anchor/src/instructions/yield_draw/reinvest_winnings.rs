@@ -2,7 +2,7 @@ use crate::constants::{PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::WinningsReinvested;
 use crate::state::{PayoutRegistry, PoolStatus, PrizePool, TicketRegistry, UserWinnings};
-use crate::utils::{registry_get_entry, registry_set_entry};
+use crate::utils::get_ticket_registry_mut;
 
 use anchor_lang::prelude::*;
 
@@ -207,72 +207,20 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
             .checked_sub(cost)
             .ok_or(PremiumBondsError::MathOverflow)?;
 
-        // Register new tickets
-        let mut user_entry_idx = user_winnings.registry_entry_index;
-        let is_new = is_new_user;
-
-        let registry_loader = &ctx.accounts.ticket_registry;
-        let current_cycle = {
-            let registry = registry_loader.load()?;
-            registry.draw_cycle_id
+        let slot_hint = if is_new_user {
+            None
+        } else {
+            Some(user_winnings.registry_entry_index)
+        };
+        let (assigned_idx, _) = {
+            let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+            let mut data = registry_ai.try_borrow_mut_data()?;
+            let mut reg_view = get_ticket_registry_mut(&mut data)?;
+            reg_view.credit_tickets(slot_hint, ctx.accounts.winner.key(), bonds_to_buy, true)?
         };
 
-        if is_new {
-            let mut registry = registry_loader.load_mut()?;
-            registry.ensure_current_version()?;
-            require!(
-                registry.user_count < registry.capacity,
-                crate::error::PremiumBondsError::RegistryFull
-            );
-            user_entry_idx = registry.user_count;
-            user_winnings.registry_entry_index = user_entry_idx;
-            registry.user_count = registry
-                .user_count
-                .checked_add(1)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-            registry.total_active_tickets = registry
-                .total_active_tickets
-                .checked_add(bonds_to_buy)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-        } else {
-            let mut registry = registry_loader.load_mut()?;
-            registry.ensure_current_version()?;
-            registry.validate_user_entry_index(user_entry_idx)?;
-            registry.total_active_tickets = registry
-                .total_active_tickets
-                .checked_add(bonds_to_buy)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-        }
-
-        let registry_ai = registry_loader.to_account_info();
-        let mut data = registry_ai.try_borrow_mut_data()?;
-
-        if is_new {
-            let new_entry = crate::state::UserEntry {
-                owner: ctx.accounts.winner.key(),
-                active: bonds_to_buy,
-                pending: 0,
-                merged_through_cycle: current_cycle,
-                cumulative_active: 0,
-                version: crate::state::UserEntry::CURRENT_VERSION,
-                _padding: [0; 3],
-                _reserved: [0; 12],
-            };
-            registry_set_entry(&mut data, user_entry_idx as usize, &new_entry)?;
-        } else {
-            let mut entry = registry_get_entry(&data, user_entry_idx as usize)?;
-            require!(
-                entry.owner == ctx.accounts.winner.key(),
-                PremiumBondsError::InvalidUserEntryHint
-            );
-
-            entry.lazy_merge(current_cycle)?;
-            entry.active = entry
-                .active
-                .checked_add(bonds_to_buy)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-
-            registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
+        if is_new_user {
+            user_winnings.registry_entry_index = assigned_idx;
         }
     }
 

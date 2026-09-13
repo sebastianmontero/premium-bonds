@@ -522,7 +522,6 @@ pub fn inject_pending_redemption(
         bump,
         version: 1,
         redemption_type: anchor::state::RedemptionType::BondSale,
-        _reserved: [0; 64],
     };
     let mut data = vec![];
     pending.try_serialize(&mut data).unwrap();

@@ -86,8 +86,6 @@ export type PendingRedemption = {
   version: number;
   /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
   redemptionType: RedemptionType;
-  /** Reserved space for future upgrades. */
-  reserved: ReadonlyUint8Array;
 };
 
 export type PendingRedemptionArgs = {
@@ -111,8 +109,6 @@ export type PendingRedemptionArgs = {
   version: number;
   /** Origin/type of redemption (BondSale, PrizeClaim, FeeWithdrawal). */
   redemptionType: RedemptionTypeArgs;
-  /** Reserved space for future upgrades. */
-  reserved: ReadonlyUint8Array;
 };
 
 /** Gets the encoder for {@link PendingRedemptionArgs} account data. */
@@ -130,7 +126,6 @@ export function getPendingRedemptionEncoder(): FixedSizeEncoder<PendingRedemptio
       ["bump", getU8Encoder()],
       ["version", getU8Encoder()],
       ["redemptionType", getRedemptionTypeEncoder()],
-      ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
     (value) => ({ ...value, discriminator: PENDING_REDEMPTION_DISCRIMINATOR })
   );
@@ -150,7 +145,6 @@ export function getPendingRedemptionDecoder(): FixedSizeDecoder<PendingRedemptio
     ["bump", getU8Decoder()],
     ["version", getU8Decoder()],
     ["redemptionType", getRedemptionTypeDecoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);
 }
 
@@ -229,5 +223,5 @@ export async function fetchAllMaybePendingRedemption(
 }
 
 export function getPendingRedemptionSize(): number {
-  return 159;
+  return 95;
 }

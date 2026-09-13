@@ -171,11 +171,10 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     if !is_uninit {
         ctx.accounts.user_winnings.ensure_current_version()?;
     }
-    let current_cycle = {
+    {
         let registry = ctx.accounts.ticket_registry.load()?;
         registry.validate_buy_bonds(needs_slot, bonds_to_buy)?;
-        registry.draw_cycle_id
-    };
+    }
 
     // 1. Transfer USDC from user → pool vault
     let cpi_accounts = TransferChecked {
@@ -233,65 +232,22 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         user_winnings.version = crate::state::UserWinnings::CURRENT_VERSION;
     }
 
-    let registry_loader = &ctx.accounts.ticket_registry;
-    let mut user_entry_idx = user_winnings.registry_entry_index;
-
-    // Consolidated post-CPI registry header mutation
-    {
-        let mut registry = registry_loader.load_mut()?;
-        registry.ensure_current_version()?;
-        if needs_slot {
-            user_entry_idx = registry.user_count;
-            user_winnings.registry_entry_index = user_entry_idx;
-            registry.user_count = registry
-                .user_count
-                .checked_add(1)
-                .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-        } else {
-            registry.validate_user_entry_index(user_entry_idx)?;
-        }
-        registry.total_pending_tickets = registry
-            .total_pending_tickets
-            .checked_add(bonds_to_buy)
-            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-    }
-
-    // Borrow data mutably to write/update entry
-    let registry_ai = registry_loader.to_account_info();
-    let mut data = registry_ai.try_borrow_mut_data()?;
-
-    let user_total_bonds = if needs_slot {
-        let new_entry = crate::state::UserEntry {
-            owner: user_key,
-            active: 0,
-            pending: bonds_to_buy,
-            merged_through_cycle: current_cycle,
-            cumulative_active: 0,
-            version: crate::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        };
-        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &new_entry)?;
-        bonds_to_buy
+    let slot_hint = if needs_slot {
+        None
     } else {
-        let mut entry = crate::utils::registry_get_entry(&data, user_entry_idx as usize)?;
-        require!(
-            entry.owner == user_key,
-            crate::error::PremiumBondsError::InvalidUserEntryHint
-        );
-        entry.lazy_merge(current_cycle)?;
-        entry.pending = entry
-            .pending
-            .checked_add(bonds_to_buy)
-            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-        let total = entry
-            .active
-            .checked_add(entry.pending)
-            .ok_or(crate::error::PremiumBondsError::MathOverflow)?;
-        crate::utils::registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
-        total
+        Some(user_winnings.registry_entry_index)
     };
-    drop(data);
+
+    let (assigned_idx, user_total_bonds) = {
+        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        let mut reg_view = crate::utils::get_ticket_registry_mut(&mut data)?;
+        reg_view.credit_tickets(slot_hint, user_key, bonds_to_buy, false)?
+    };
+
+    if needs_slot {
+        user_winnings.registry_entry_index = assigned_idx;
+    }
 
     emit_cpi!(BondsPurchased {
         user: ctx.accounts.user.key(),

@@ -145,68 +145,66 @@ pub struct ClaimNonReinvestedWinnings<'info> {
 /// A `PendingRedemption` receipt is created on-chain to record this request and the Huma queue request ID,
 /// allowing the user to eventually call `claim_redemption` after the redemption is settled.
 pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
-        &ctx.accounts.huma_pool_state.to_account_info(),
-        ctx.accounts.pool_pst_vault.amount,
-        pst_supply,
-    )?;
-
-    let user_winnings = &mut ctx.accounts.user_winnings;
-    user_winnings.ensure_current_version()?;
-    let claimable = user_winnings.unclaimed_non_reinvested_winnings;
-
+    // 1. Read-only validation of claimable winnings
+    ctx.accounts.user_winnings.check_version()?;
+    let claimable = ctx.accounts.user_winnings.unclaimed_non_reinvested_winnings;
     require!(claimable > 0, PremiumBondsError::NoWinningsToClaim);
 
-    // Reset unclaimed winnings and increase total claimed
-    user_winnings.unclaimed_non_reinvested_winnings = 0;
-    user_winnings.total_claimed = user_winnings
-        .total_claimed
-        .checked_add(claimable)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id) = {
-        let mut pool = ctx.accounts.pool.load_mut()?;
-        pool.ensure_current_version()?;
-
+    // 2. Read-only validation of pool lifecycle state & solvency check in a single scope
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
+    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, huma_snapshot) = {
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
         require!(
             pool.status() != PoolStatus::Paused,
             PremiumBondsError::PoolPaused
         );
-
         require!(
             !pool.is_frozen(),
             PremiumBondsError::AwaitingRandomnessFreeze
         );
-
-        pool.total_prizes_allocated = pool
-            .total_prizes_allocated
-            .checked_sub(claimable)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        let current_redemption_id = pool.next_redemption_id;
-        pool.next_redemption_id = pool
-            .next_redemption_id
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        pool.total_pending_redemptions = pool
-            .total_pending_redemptions
-            .checked_add(claimable)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        let pool_id = pool.pool_id;
-        let pool_id_bytes = pool_id.to_le_bytes();
-        let authority_bump = pool.vault_authority_bump;
+        let snapshot = pool.assert_huma_solvency(
+            &ctx.accounts.huma_pool_state.to_account_info(),
+            ctx.accounts.pool_pst_vault.amount,
+            pst_supply,
+        )?;
         (
-            pool_id,
-            pool_id_bytes,
-            authority_bump,
-            current_redemption_id,
+            pool.pool_id,
+            pool.pool_id.to_le_bytes(),
+            pool.vault_authority_bump,
+            pool.next_redemption_id,
+            snapshot,
         )
     };
 
-    // Calculate $PST shares for the claimable USDC amount
+    // 3. Post-solvency state mutations
+    {
+        let user_winnings_mut = &mut ctx.accounts.user_winnings;
+        user_winnings_mut.unclaimed_non_reinvested_winnings = 0;
+        user_winnings_mut.total_claimed = user_winnings_mut
+            .total_claimed
+            .checked_add(claimable)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
+
+    {
+        let mut pool_mut = ctx.accounts.pool.load_mut()?;
+        pool_mut.ensure_current_version()?;
+        pool_mut.total_prizes_allocated = pool_mut
+            .total_prizes_allocated
+            .checked_sub(claimable)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        pool_mut.total_pending_redemptions = pool_mut
+            .total_pending_redemptions
+            .checked_add(claimable)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        pool_mut.next_redemption_id = pool_mut
+            .next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+    }
+
+    // 4. Calculate PST shares and execute Huma CPI
     let pst_shares = huma_snapshot.usdc_to_pst_shares(claimable, pst_supply)?;
     let huma_request_id = huma_snapshot.pending_request_id();
 

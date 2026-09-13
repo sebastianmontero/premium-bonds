@@ -173,12 +173,19 @@ impl PrizePool {
         sum_tier_winners(self.active_prize_tiers())
     }
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
+    /// Read-only version check to guard against unsupported account versions.
+    #[inline]
+    pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
             PremiumBondsError::UnsupportedAccountVersion
         );
+        Ok(())
+    }
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;
@@ -505,12 +512,19 @@ impl UserWinnings {
         self.is_uninitialized() || self.registry_entry_index == Self::UNASSIGNED_ENTRY_INDEX
     }
 
-    /// Lazily migrates this account to the current schema version and guards against invalid versions.
-    pub fn ensure_current_version(&mut self) -> Result<()> {
+    /// Read-only version check to guard against unsupported account versions.
+    #[inline]
+    pub fn check_version(&self) -> Result<()> {
         require!(
             self.version <= Self::CURRENT_VERSION,
             PremiumBondsError::UnsupportedAccountVersion
         );
+        Ok(())
+    }
+
+    /// Lazily migrates this account to the current schema version and guards against invalid versions.
+    pub fn ensure_current_version(&mut self) -> Result<()> {
+        self.check_version()?;
         if self.version < Self::CURRENT_VERSION {
             // Future schema migrations will be handled here.
             self.version = Self::CURRENT_VERSION;

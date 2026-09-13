@@ -3,7 +3,7 @@ use crate::error::PremiumBondsError;
 use crate::events::BondsSold;
 use crate::huma;
 use crate::state::{PendingRedemption, PrizePool, RedemptionType, TicketRegistry, UserWinnings};
-use crate::utils::{registry_get_entry, registry_set_entry};
+use crate::utils::get_ticket_registry_mut;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
@@ -168,16 +168,14 @@ pub struct SellBonds<'info> {
 /// * `active_to_sell` - The number of active tickets to sell.
 /// * `pending_to_sell` - The number of pending tickets to sell.
 pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32) -> Result<()> {
-    let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let huma_snapshot = ctx.accounts.pool.load()?.assert_huma_solvency(
-        &ctx.accounts.huma_pool_state.to_account_info(),
-        ctx.accounts.pool_pst_vault.amount,
-        pst_supply,
-    )?;
+    let bonds_to_sell = active_to_sell
+        .checked_add(pending_to_sell)
+        .ok_or(PremiumBondsError::MathOverflow)?;
+    require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
-    let (bond_price, pool_id_for_seeds) = {
-        let mut pool = ctx.accounts.pool.load_mut()?;
-        pool.ensure_current_version()?;
+    let (bond_price, pool_id_for_seeds, huma_snapshot) = {
+        let pool = ctx.accounts.pool.load()?;
+        pool.check_version()?;
         require!(
             pool.status != (crate::state::PoolStatus::Paused as u8),
             PremiumBondsError::PoolPaused
@@ -186,123 +184,61 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
             pool.is_frozen_for_draw == 0,
             PremiumBondsError::AwaitingRandomnessFreeze
         );
-        (pool.bond_price, pool.pool_id)
+        let pst_supply = ctx.accounts.huma_mode_mint.supply;
+        let snapshot = pool.assert_huma_solvency(
+            &ctx.accounts.huma_pool_state.to_account_info(),
+            ctx.accounts.pool_pst_vault.amount,
+            pst_supply,
+        )?;
+        (pool.bond_price, pool.pool_id, snapshot)
     };
-
-    let bonds_to_sell = active_to_sell
-        .checked_add(pending_to_sell)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-    require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
     let expected_principal = (bonds_to_sell as u64)
         .checked_mul(bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
     let user_key = ctx.accounts.user.key();
-    let user_winnings = &mut ctx.accounts.user_winnings;
-    user_winnings.ensure_current_version()?;
-    let registry_loader = &ctx.accounts.ticket_registry;
-    let user_entry_idx = user_winnings.registry_entry_index;
-
+    ctx.accounts.user_winnings.check_version()?;
+    let user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
     require!(
         user_entry_idx != u32::MAX,
         PremiumBondsError::InvalidUserEntryHint
     );
 
-    let (current_cycle, last_entry_idx) = {
-        let mut registry = registry_loader.load_mut()?;
-        registry.ensure_current_version()?;
-        registry.validate_user_entry_index(user_entry_idx)?;
-        let last_idx = registry.user_count - 1;
-        (registry.draw_cycle_id, last_idx)
-    };
-
-    let registry_ai = registry_loader.to_account_info();
-
-    let mut swapped_owner = Pubkey::default();
-    let will_exit;
-
-    // 1. First scope: read, validate, merge, check exit status, write entries.
-    let user_remaining_bonds = {
-        let mut data = registry_ai.try_borrow_mut_data()?;
-        let mut entry = registry_get_entry(&data, user_entry_idx as usize)?;
-        require!(
-            entry.owner == user_key,
-            PremiumBondsError::InvalidUserEntryHint
-        );
-
-        entry.lazy_merge(current_cycle)?;
-
-        require!(
-            entry.active >= active_to_sell,
-            PremiumBondsError::InsufficientActiveTickets
-        );
-        require!(
-            entry.pending >= pending_to_sell,
-            PremiumBondsError::InsufficientPendingTickets
-        );
-
-        entry.active = entry
-            .active
-            .checked_sub(active_to_sell)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        entry.pending = entry
-            .pending
-            .checked_sub(pending_to_sell)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        will_exit = entry.active == 0 && entry.pending == 0;
-
-        if will_exit {
-            user_winnings.registry_entry_index = u32::MAX;
-            if user_entry_idx != last_entry_idx {
-                let last_entry = registry_get_entry(&data, last_entry_idx as usize)?;
-                swapped_owner = last_entry.owner;
-                registry_set_entry(&mut data, user_entry_idx as usize, &last_entry)?;
-            }
-            registry_set_entry(
-                &mut data,
-                last_entry_idx as usize,
-                &crate::state::UserEntry::default(),
-            )?;
-            0u32
-        } else {
-            registry_set_entry(&mut data, user_entry_idx as usize, &entry)?;
-            entry
-                .active
-                .checked_add(entry.pending)
-                .ok_or(PremiumBondsError::MathOverflow)?
-        }
-    };
-
-    // 2. Second scope: update global counters, decrement user count, handle swapped winnings pda.
+    // Read-only pre-flight validation using check_version() (&self)
     {
-        let mut registry = registry_loader.load_mut()?;
-        registry.total_active_tickets = registry
-            .total_active_tickets
-            .checked_sub(active_to_sell)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        registry.total_pending_tickets = registry
-            .total_pending_tickets
-            .checked_sub(pending_to_sell)
-            .ok_or(PremiumBondsError::MathOverflow)?;
+        let registry = ctx.accounts.ticket_registry.load()?;
+        registry.check_version()?;
+        registry.validate_user_entry_index(user_entry_idx)?;
+    }
 
-        if will_exit {
-            if user_entry_idx != last_entry_idx {
-                UserWinnings::reindex_swapped(
-                    ctx.remaining_accounts.first(),
-                    ctx.program_id,
-                    pool_id_for_seeds,
-                    swapped_owner,
-                    last_entry_idx,
-                    user_entry_idx,
-                )?;
-            }
-            registry.user_count = registry
-                .user_count
-                .checked_sub(1)
-                .ok_or(PremiumBondsError::MathOverflow)?;
-        }
+    // Post-solvency single-borrow mutation scope via TicketRegistryMut
+    let debit_result = {
+        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        let mut reg_view = get_ticket_registry_mut(&mut data)?;
+        reg_view.debit_tickets(
+            user_entry_idx,
+            user_key,
+            active_to_sell,
+            pending_to_sell,
+        )?
+    };
+
+    if debit_result.remaining_bonds == 0 {
+        ctx.accounts.user_winnings.registry_entry_index =
+            crate::state::UserWinnings::UNASSIGNED_ENTRY_INDEX;
+    }
+
+    if let Some(swapped) = debit_result.swapped_entry {
+        crate::state::UserWinnings::reindex_swapped(
+            ctx.remaining_accounts.first(),
+            ctx.program_id,
+            pool_id_for_seeds,
+            swapped.owner,
+            swapped.old_index,
+            swapped.new_index,
+        )?;
     }
 
     // Update pool principal & redemption counter in a scoped borrow
@@ -314,6 +250,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         new_total_deposited_principal,
     ) = {
         let mut pool = ctx.accounts.pool.load_mut()?;
+        pool.ensure_current_version()?;
         pool.total_deposited_principal = pool
             .total_deposited_principal
             .checked_sub(expected_principal)
@@ -344,6 +281,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     };
 
     // Calculate $PST shares to redeem for the principal amount
+    let pst_supply = ctx.accounts.huma_mode_mint.supply;
     let pst_shares = huma_snapshot.usdc_to_pst_shares(expected_principal, pst_supply)?;
     let huma_request_id = huma_snapshot.pending_request_id();
 
@@ -405,7 +343,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         pst_shares,
         huma_request_id,
         new_total_deposited_principal,
-        user_remaining_bonds,
+        user_remaining_bonds: debit_result.remaining_bonds,
         timestamp: clock.unix_timestamp,
     });
 

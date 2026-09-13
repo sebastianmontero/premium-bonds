@@ -1835,3 +1835,33 @@ export async function buildAtomicRevealAndPickWinnersInstructions(params: {
   instructions.push(revealIx);
   return instructions;
 }
+
+export const COMPUTE_BUDGET_PROGRAM_ADDRESS = address(
+  "ComputeBudget111111111111111111111111111111"
+);
+
+export function createSetComputeUnitLimitInstruction(
+  units: number
+): Instruction {
+  const data = new Uint8Array(5);
+  data[0] = 2; // SetComputeUnitLimit opcode
+  new DataView(data.buffer).setUint32(1, units, true);
+  return {
+    programAddress: COMPUTE_BUDGET_PROGRAM_ADDRESS,
+    accounts: [],
+    data,
+  };
+}
+
+export function createSetComputeUnitPriceInstruction(
+  microLamports: bigint | number
+): Instruction {
+  const data = new Uint8Array(9);
+  data[0] = 3; // SetComputeUnitPrice opcode
+  new DataView(data.buffer).setBigUint64(1, BigInt(microLamports), true);
+  return {
+    programAddress: COMPUTE_BUDGET_PROGRAM_ADDRESS,
+    accounts: [],
+    data,
+  };
+}

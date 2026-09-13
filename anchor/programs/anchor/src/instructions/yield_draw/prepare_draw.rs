@@ -1,9 +1,8 @@
 use crate::constants::{DRAW_CYCLE_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::DrawPreparationProgress;
-use crate::state::registry::UserEntryBatchExt;
 use crate::state::{DrawCycle, DrawStatus, PrizePool, TicketRegistry};
-use crate::utils::{get_user_entries_mut, registry_get_entry};
+use crate::utils::get_ticket_registry_mut;
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `prepare_draw` instruction.
@@ -60,60 +59,31 @@ pub struct PrepareDraw<'info> {
 pub fn handle(ctx: Context<PrepareDraw>, batch_size: u32) -> Result<()> {
     require!(batch_size > 0, PremiumBondsError::InvalidBondQuantity);
 
-    let registry_loader = &ctx.accounts.ticket_registry;
-    let (merge_cycle_id, start, end) = {
-        let mut registry = registry_loader.load_mut()?;
-        registry.ensure_current_version()?;
-        let cycle_id = registry.draw_cycle_id.saturating_sub(1);
-        let start = registry.draw_prepared_up_to;
-        require!(
-            start < registry.user_count,
-            PremiumBondsError::InvalidDrawState
-        );
-        let end = start.saturating_add(batch_size).min(registry.user_count);
-        (cycle_id, start, end)
+    let progress = {
+        let registry_ai = ctx.accounts.ticket_registry.to_account_info();
+        let mut data = registry_ai.try_borrow_mut_data()?;
+        let mut view = get_ticket_registry_mut(&mut data)?;
+        view.prepare_draw_batch(batch_size)?
     };
-
-    let registry_ai = registry_loader.to_account_info();
-    let mut data = registry_ai.try_borrow_mut_data()?;
-
-    let cumulative = if start == 0 {
-        0
-    } else {
-        registry_get_entry(&data, (start - 1) as usize)?.cumulative_active
-    };
-
-    let count = (end - start) as usize;
-    let mut final_cumulative = cumulative;
-    if count > 0 {
-        let entries = get_user_entries_mut(&mut data, start as usize, count)?;
-        final_cumulative = entries.prepare_batch(merge_cycle_id, cumulative)?;
-    }
-
-    drop(data);
-
-    let mut registry = registry_loader.load_mut()?;
-    registry.draw_prepared_up_to = end;
 
     emit!(DrawPreparationProgress {
         pool_id: ctx.accounts.pool.load()?.pool_id,
         cycle_id: ctx.accounts.draw_cycle.cycle_id,
         crank: ctx.accounts.crank.key(),
-        batch_start: start,
-        batch_end: end,
-        user_count: registry.user_count,
-        is_complete: end >= registry.user_count,
+        batch_start: progress.start,
+        batch_end: progress.end,
+        user_count: progress.user_count,
+        is_complete: progress.is_complete,
         timestamp: Clock::get()?.unix_timestamp,
     });
 
     #[cfg(feature = "debug-logs")]
     msg!(
         "Prepared entries from index {} to {}. Cumulative active: {}",
-        start,
-        end,
-        final_cumulative
+        progress.start,
+        progress.end,
+        progress.final_cumulative
     );
-    let _ = final_cumulative;
 
     Ok(())
 }
