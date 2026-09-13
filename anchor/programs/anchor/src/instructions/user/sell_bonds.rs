@@ -173,6 +173,21 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         .ok_or(PremiumBondsError::MathOverflow)?;
     require!(bonds_to_sell > 0, PremiumBondsError::InvalidBondQuantity);
 
+    let user_key = ctx.accounts.user.key();
+    ctx.accounts.user_winnings.check_version()?;
+    let user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
+    require!(
+        user_entry_idx != u32::MAX,
+        PremiumBondsError::InvalidUserEntryHint
+    );
+
+    // Read-only pre-flight validation using check_version() (&self)
+    {
+        let registry = ctx.accounts.ticket_registry.load()?;
+        registry.check_version()?;
+        registry.validate_user_entry_index(user_entry_idx)?;
+    }
+
     let (bond_price, pool_id_for_seeds, huma_snapshot) = {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
@@ -196,21 +211,6 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let expected_principal = (bonds_to_sell as u64)
         .checked_mul(bond_price)
         .ok_or(PremiumBondsError::MathOverflow)?;
-
-    let user_key = ctx.accounts.user.key();
-    ctx.accounts.user_winnings.check_version()?;
-    let user_entry_idx = ctx.accounts.user_winnings.registry_entry_index;
-    require!(
-        user_entry_idx != u32::MAX,
-        PremiumBondsError::InvalidUserEntryHint
-    );
-
-    // Read-only pre-flight validation using check_version() (&self)
-    {
-        let registry = ctx.accounts.ticket_registry.load()?;
-        registry.check_version()?;
-        registry.validate_user_entry_index(user_entry_idx)?;
-    }
 
     // Post-solvency single-borrow mutation scope via TicketRegistryMut
     let debit_result = {

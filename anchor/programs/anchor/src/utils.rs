@@ -1172,4 +1172,65 @@ mod tests {
         }
         assert!(get_payout_registry(&data).is_err());
     }
+
+    fn make_valid_entry_data(capacity: usize) -> Vec<u8> {
+        let mut data = vec![0u8; USER_ENTRY_REGISTRY_HEADER_SIZE + capacity * USER_ENTRY_SIZE];
+        data[0..8].copy_from_slice(&crate::state::TicketRegistry::DISCRIMINATOR);
+        let header = bytemuck::from_bytes_mut::<crate::state::TicketRegistry>(
+            &mut data[8..USER_ENTRY_REGISTRY_HEADER_SIZE],
+        );
+        header.capacity = capacity as u32;
+        header.version = crate::state::TicketRegistry::CURRENT_VERSION;
+        data
+    }
+
+    #[test]
+    fn test_ticket_registry_split_helpers_safety() {
+        let mut data = make_valid_entry_data(3);
+
+        // Immutable accessor
+        let (header, entries) = get_ticket_registry(&data).unwrap();
+        assert_eq!(header.capacity, 3);
+        assert_eq!(entries.len(), 3);
+
+        // Mutable accessor
+        let mut view = get_ticket_registry_mut(&mut data).unwrap();
+        assert_eq!(view.header.capacity, 3);
+        assert_eq!(view.entries.len(), 3);
+        view.header.user_count = 1;
+        assert_eq!(view.header.user_count, 1);
+    }
+
+    #[test]
+    fn test_ticket_registry_split_helpers_corrupted_lengths_and_discriminator() {
+        let is_expected_err = |err: Option<anchor_lang::error::Error>| {
+            err == Some(crate::error::PremiumBondsError::InvalidRegistryState.into())
+        };
+
+        // Truncated buffer smaller than header
+        let mut data = vec![0u8; USER_ENTRY_REGISTRY_HEADER_SIZE - 1];
+        assert!(is_expected_err(get_ticket_registry(&data).err()));
+        assert!(is_expected_err(get_ticket_registry_mut(&mut data).err()));
+
+        // Corrupted discriminator
+        let mut data = make_valid_entry_data(2);
+        data[0] ^= 0xFF;
+        assert!(is_expected_err(get_ticket_registry(&data).err()));
+        assert!(is_expected_err(get_ticket_registry_mut(&mut data).err()));
+
+        // Non-divisible trailing bytes (bytemuck slice cast failure)
+        let mut data = make_valid_entry_data(2);
+        data.push(42); // 1 extra byte
+        assert!(is_expected_err(get_ticket_registry(&data).err()));
+        assert!(is_expected_err(get_ticket_registry_mut(&mut data).err()));
+
+        // Capacity declared larger than buffer length
+        let mut data = make_valid_entry_data(2);
+        let header = bytemuck::from_bytes_mut::<crate::state::TicketRegistry>(
+            &mut data[8..USER_ENTRY_REGISTRY_HEADER_SIZE],
+        );
+        header.capacity = 10; // Buffer only has 2 entries
+        assert!(is_expected_err(get_ticket_registry(&data).err()));
+        assert!(is_expected_err(get_ticket_registry_mut(&mut data).err()));
+    }
 }
