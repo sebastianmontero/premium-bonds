@@ -58,53 +58,6 @@ fn send_e2e_sell_bonds(
     )
 }
 
-fn build_claim_redemption_ix(
-    caller: Pubkey,
-    beneficiary: Pubkey,
-    pool_id: u32,
-    redemption_id: u64,
-    token_mint: Pubkey,
-    pool_vault_account: Pubkey,
-    beneficiary_token_account: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_authority: Pubkey,
-    huma_pool_underlying_token: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller,
-        beneficiary,
-        pool,
-        pending_redemption,
-        token_mint,
-        pool_vault_account,
-        beneficiary_token_account,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state,
-        huma_pool_authority,
-        huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    }
-}
-
 fn send_e2e_claim_redemption_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -532,7 +485,7 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
     let (pool_vault, _) = pool_vault_pda(1);
     let attacker_token =
         create_spl_token_account(&mut ctx.svm, &attacker, &ctx.usdc_mint, &attacker.pubkey());
-    let huma_lender_state = Keypair::new().pubkey();
+    let huma = TestHumaAccounts::from_e2e(&ctx);
 
     // Attacker attempts to claim ctx.user's redemption to attacker's token account
     let ix = build_claim_redemption_ix(
@@ -541,12 +494,9 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
         1,
         0,
         ctx.usdc_mint,
-        pool_vault,
         attacker_token,
-        ctx.huma_pool_state,
-        huma_lender_state,
-        ctx.huma_pool_authority,
-        ctx.huma_pool_underlying_token,
+        &huma,
+        Some(pool_vault),
     );
 
     let bh = ctx.svm.latest_blockhash();
@@ -720,7 +670,7 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
     let (pool_vault, _) = pool_vault_pda(1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
-    let huma_lender_state = Keypair::new().pubkey();
+    let huma = TestHumaAccounts::from_e2e(&ctx);
 
     let ix = build_claim_redemption_ix(
         ctx.user.pubkey(),
@@ -728,12 +678,9 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
         1,
         0,
         ctx.usdc_mint,
-        pool_vault,
         user_token,
-        ctx.huma_pool_state,
-        huma_lender_state,
-        ctx.huma_pool_authority,
-        ctx.huma_pool_underlying_token,
+        &huma,
+        Some(pool_vault),
     );
 
     let bh = ctx.svm.latest_blockhash();
@@ -846,7 +793,8 @@ fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
     let (pool_vault, _) = pool_vault_pda(1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
-    let huma_lender_state = Keypair::new().pubkey();
+    let mut huma = TestHumaAccounts::from_e2e(&ctx);
+    huma.huma_pool_state = spoofed_huma_state;
 
     let ix = build_claim_redemption_ix(
         ctx.user.pubkey(),
@@ -854,12 +802,9 @@ fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
         1,
         0,
         ctx.usdc_mint,
-        pool_vault,
         user_token,
-        spoofed_huma_state, // Spoofed state
-        huma_lender_state,
-        ctx.huma_pool_authority,
-        ctx.huma_pool_underlying_token,
+        &huma,
+        Some(pool_vault),
     );
 
     let bh = ctx.svm.latest_blockhash();

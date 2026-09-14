@@ -3051,14 +3051,29 @@ export async function executeRebindRandomness({
         ? poolState.currentDrawCycleId - 1
         : 1;
 
+  const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
+  const drawCycleAcc = await rpc
+    .getAccountInfo(drawCyclePda, { encoding: "base64" })
+    .send();
+  if (!drawCycleAcc || !drawCycleAcc.value) {
+    throw new Error(
+      `DrawCycle account for pool ${poolId} cycle ${targetCycleId} not found.`
+    );
+  }
+  const drawCycleBytes = new Uint8Array(
+    base64Encoder.encode(drawCycleAcc.value.data[0])
+  );
+  const drawCycleState = parseDrawCycle(drawCycleBytes);
+
   console.log(
-    `Rebinding Expired Randomness for Pool ${poolId}, Cycle ${targetCycleId} to ${newRandomnessAccount}...`
+    `Rebinding Expired Randomness for Pool ${poolId}, Cycle ${targetCycleId} (current: ${drawCycleState.randomnessAccount}) to ${newRandomnessAccount}...`
   );
 
   const ix = await buildCrankRebindExpiredRandomnessInstruction({
     crank: signer.address,
     poolId,
     cycleId: targetCycleId,
+    currentRandomnessAccount: drawCycleState.randomnessAccount,
     newRandomnessAccount: address(newRandomnessAccount),
   });
 

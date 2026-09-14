@@ -61,6 +61,8 @@ export type CrankRebindExpiredRandomnessInstruction<
   TAccountGlobalConfig extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountCurrentDrawCycle extends string | AccountMeta<string> = string,
+  TAccountCurrentRandomnessAccount extends string | AccountMeta<string> =
+    string,
   TAccountNewRandomnessAccount extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
@@ -83,6 +85,9 @@ export type CrankRebindExpiredRandomnessInstruction<
       TAccountCurrentDrawCycle extends string
         ? WritableAccount<TAccountCurrentDrawCycle>
         : TAccountCurrentDrawCycle,
+      TAccountCurrentRandomnessAccount extends string
+        ? ReadonlyAccount<TAccountCurrentRandomnessAccount>
+        : TAccountCurrentRandomnessAccount,
       TAccountNewRandomnessAccount extends string
         ? ReadonlyAccount<TAccountNewRandomnessAccount>
         : TAccountNewRandomnessAccount,
@@ -133,6 +138,7 @@ export type CrankRebindExpiredRandomnessAsyncInput<
   TAccountGlobalConfig extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountCurrentRandomnessAccount extends string = string,
   TAccountNewRandomnessAccount extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
@@ -145,6 +151,7 @@ export type CrankRebindExpiredRandomnessAsyncInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account whose randomness is being rebound. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  currentRandomnessAccount: Address<TAccountCurrentRandomnessAccount>;
   newRandomnessAccount: Address<TAccountNewRandomnessAccount>;
   eventAuthority?: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
@@ -156,6 +163,7 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
   TAccountGlobalConfig extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountCurrentRandomnessAccount extends string,
   TAccountNewRandomnessAccount extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -166,6 +174,7 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountNewRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
@@ -178,6 +187,7 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountNewRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
@@ -194,6 +204,10 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
+    },
+    currentRandomnessAccount: {
+      value: input.currentRandomnessAccount ?? null,
+      isWritable: false,
     },
     newRandomnessAccount: {
       value: input.newRandomnessAccount ?? null,
@@ -226,6 +240,10 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta(
+        "currentRandomnessAccount",
+        accounts.currentRandomnessAccount
+      ),
       getAccountMeta("newRandomnessAccount", accounts.newRandomnessAccount),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -238,6 +256,7 @@ export async function getCrankRebindExpiredRandomnessInstructionAsync<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountNewRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
@@ -249,6 +268,7 @@ export type CrankRebindExpiredRandomnessInput<
   TAccountGlobalConfig extends string = string,
   TAccountPool extends string = string,
   TAccountCurrentDrawCycle extends string = string,
+  TAccountCurrentRandomnessAccount extends string = string,
   TAccountNewRandomnessAccount extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
@@ -261,6 +281,7 @@ export type CrankRebindExpiredRandomnessInput<
   pool: Address<TAccountPool>;
   /** The current draw cycle account whose randomness is being rebound. */
   currentDrawCycle: Address<TAccountCurrentDrawCycle>;
+  currentRandomnessAccount: Address<TAccountCurrentRandomnessAccount>;
   newRandomnessAccount: Address<TAccountNewRandomnessAccount>;
   eventAuthority: Address<TAccountEventAuthority>;
   /** The YieldBonds program itself. */
@@ -272,6 +293,7 @@ export function getCrankRebindExpiredRandomnessInstruction<
   TAccountGlobalConfig extends string,
   TAccountPool extends string,
   TAccountCurrentDrawCycle extends string,
+  TAccountCurrentRandomnessAccount extends string,
   TAccountNewRandomnessAccount extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
@@ -282,6 +304,7 @@ export function getCrankRebindExpiredRandomnessInstruction<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountNewRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
@@ -293,6 +316,7 @@ export function getCrankRebindExpiredRandomnessInstruction<
   TAccountGlobalConfig,
   TAccountPool,
   TAccountCurrentDrawCycle,
+  TAccountCurrentRandomnessAccount,
   TAccountNewRandomnessAccount,
   TAccountEventAuthority,
   TAccountProgram
@@ -308,6 +332,10 @@ export function getCrankRebindExpiredRandomnessInstruction<
     currentDrawCycle: {
       value: input.currentDrawCycle ?? null,
       isWritable: true,
+    },
+    currentRandomnessAccount: {
+      value: input.currentRandomnessAccount ?? null,
+      isWritable: false,
     },
     newRandomnessAccount: {
       value: input.newRandomnessAccount ?? null,
@@ -334,6 +362,10 @@ export function getCrankRebindExpiredRandomnessInstruction<
       getAccountMeta("globalConfig", accounts.globalConfig),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("currentDrawCycle", accounts.currentDrawCycle),
+      getAccountMeta(
+        "currentRandomnessAccount",
+        accounts.currentRandomnessAccount
+      ),
       getAccountMeta("newRandomnessAccount", accounts.newRandomnessAccount),
       getAccountMeta("eventAuthority", accounts.eventAuthority),
       getAccountMeta("program", accounts.program),
@@ -346,6 +378,7 @@ export function getCrankRebindExpiredRandomnessInstruction<
     TAccountGlobalConfig,
     TAccountPool,
     TAccountCurrentDrawCycle,
+    TAccountCurrentRandomnessAccount,
     TAccountNewRandomnessAccount,
     TAccountEventAuthority,
     TAccountProgram
@@ -366,10 +399,11 @@ export type ParsedCrankRebindExpiredRandomnessInstruction<
     pool: TAccountMetas[2];
     /** The current draw cycle account whose randomness is being rebound. */
     currentDrawCycle: TAccountMetas[3];
-    newRandomnessAccount: TAccountMetas[4];
-    eventAuthority: TAccountMetas[5];
+    currentRandomnessAccount: TAccountMetas[4];
+    newRandomnessAccount: TAccountMetas[5];
+    eventAuthority: TAccountMetas[6];
     /** The YieldBonds program itself. */
-    program: TAccountMetas[6];
+    program: TAccountMetas[7];
   };
   data: CrankRebindExpiredRandomnessInstructionData;
 };
@@ -382,12 +416,12 @@ export function parseCrankRebindExpiredRandomnessInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>
 ): ParsedCrankRebindExpiredRandomnessInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+  if (instruction.accounts.length < 8) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 7,
+        expectedAccountMetas: 8,
       }
     );
   }
@@ -404,6 +438,7 @@ export function parseCrankRebindExpiredRandomnessInstruction<
       globalConfig: getNextAccount(),
       pool: getNextAccount(),
       currentDrawCycle: getNextAccount(),
+      currentRandomnessAccount: getNextAccount(),
       newRandomnessAccount: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),

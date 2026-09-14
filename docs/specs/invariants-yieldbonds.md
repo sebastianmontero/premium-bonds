@@ -753,7 +753,7 @@ stateDiagram-v2
 - **Expected Errors:**
   - If payouts already started (`payouts_completed > 0`): `ErrorCode::PayoutsAlreadyStarted` (6044)
   - If draw already voided: `ErrorCode::DrawAlreadyVoided` (6043)
-  - If protocol fees already withdrawn: `ErrorCode::FeesAlreadyWithdrawn` (6046)
+  - If protocol fees already withdrawn: `ErrorCode::FeesAlreadyWithdrawn` (6045)
   - If pool is closed: `ErrorCode::PoolClosed` (6041)
   - If pool is frozen for draw: `ErrorCode::AwaitingRandomnessFreeze` (6007)
   - If draw status $\neq$ `Complete`: `ErrorCode::InvalidDrawStatus` (6016)
@@ -838,7 +838,7 @@ stateDiagram-v2
 | `6043` | `PayoutsAlreadyStarted`                   | "Winner payouts have already begun processing."                                                                | `admin_void_payout_registry`                                                                                                                   | `Lifecycle` |
 | `6044` | `PayoutTimelockActive`                    | "Payout settlement timelock is active."                                                                        | `reinvest_winnings`                                                                                                                            |   `Time`    |
 | `6045` | `FeesAlreadyWithdrawn`                    | "Protocol fees from this cycle were already withdrawn."                                                        | `admin_void_payout_registry`                                                                                                                   | `Lifecycle` |
-| `6046` | `YieldVelocityExceeded`                   | "Yield velocity limit exceeded."                                                                               | Safety Circuit Breaker                                                                                                                         |   `Math`    |
+| `6046` | `ZeroSharesMinted`                        | "Huma deposit produced zero PST shares."                                                                       | Huma Deposit / Venue                                                                                                                           | `Boundary`  |
 | `6047` | `YieldVenueInsolvent`                     | "Yield venue is insolvent."                                                                                    | Solvency Circuit Breaker                                                                                                                       | `Boundary`  |
 | `6048` | `Unauthorized`                            | "Unauthorized signer."                                                                                         | `pause_pool`                                                                                                                                   |  `Access`   |
 | `6049` | `WinnerMismatch`                          | "Winner account does not match the payout registry entry."                                                     | `reinvest_winnings`, `validate_winner`                                                                                                         |  `Access`   |

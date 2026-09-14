@@ -4,6 +4,7 @@ import { parseTransactionError, ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
 import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
+  ANCHOR_ERROR__ZERO_SHARES_MINTED,
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   getAnchorErrorMessage,
@@ -139,6 +140,23 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
     assert.strictEqual(
       parsed6055.title,
       "Program Error: TransferFeeNotSupported"
+    );
+
+    // 6046: ZeroSharesMinted
+    assert.strictEqual(
+      ANCHOR_ERROR__ZERO_SHARES_MINTED,
+      6046,
+      "ANCHOR_ERROR__ZERO_SHARES_MINTED must equal 6046"
+    );
+    const parsed6046 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: ZeroSharesMinted. Error Number: 6046.",
+    });
+    assert.strictEqual(parsed6046.code, 6046);
+    assert.strictEqual(parsed6046.title, "Program Error: ZeroSharesMinted");
+    assert.ok(parsed6046.message.includes("zero PST shares"));
+    assert.ok(
+      parsed6046.actionableStep?.includes("Increase your bond purchase amount")
     );
 
     // 6062: InvalidHumaPoolState

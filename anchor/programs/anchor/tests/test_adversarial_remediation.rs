@@ -2475,7 +2475,7 @@ fn test_v4_buy_bonds_zero_share_inflation_guard() {
     // ZeroSharesMinted error definition and code verification
     let err = PremiumBondsError::ZeroSharesMinted;
     assert_eq!(format!("{err:?}"), "ZeroSharesMinted");
-    assert_eq!((err as u32) + anchor_lang::error::ERROR_CODE_OFFSET, 6066);
+    assert_eq!((err as u32) + anchor_lang::error::ERROR_CODE_OFFSET, 6046);
 }
 
 #[test]

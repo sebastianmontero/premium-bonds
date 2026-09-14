@@ -45,7 +45,7 @@ import {
   ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED,
   ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE,
   ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN,
-  ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED,
+  ANCHOR_ERROR__ZERO_SHARES_MINTED,
   ANCHOR_ERROR__YIELD_VENUE_INSOLVENT,
   ANCHOR_ERROR__UNAUTHORIZED,
   ANCHOR_ERROR__WINNER_MISMATCH,
@@ -418,12 +418,11 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message:
       "Protocol fees from this cycle were already withdrawn; draw cannot be voided.",
   },
-  [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: {
-    name: "YieldVelocityExceeded",
-    message:
-      "Yield generated in a single cycle exceeded the configured velocity ceiling.",
+  [ANCHOR_ERROR__ZERO_SHARES_MINTED]: {
+    name: "ZeroSharesMinted",
+    message: "Huma deposit produced zero PST shares.",
     actionable:
-      "The pool has been paused by the automated circuit breaker for security verification.",
+      "Increase your bond purchase amount to exceed the minimum share conversion threshold on Huma Finance.",
   },
   [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: {
     name: "YieldVenueInsolvent",

@@ -253,9 +253,9 @@ fn test_cannot_close_pool_while_frozen_for_draw() {
     );
 
     let res = send_close_pool(&mut svm, &admin, 1);
-    assert!(
-        res.is_err(),
-        "Cannot close pool while a draw is in flight and frozen"
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
     );
     assert_eq!(
         read_pool_status(&svm, &pool_pda),

@@ -1700,6 +1700,7 @@ export async function buildCrankRebindExpiredRandomnessInstruction(params: {
   crank: Address | TransactionSigner;
   poolId: number;
   cycleId: number;
+  currentRandomnessAccount: Address;
   newRandomnessAccount: Address;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
@@ -1711,6 +1712,7 @@ export async function buildCrankRebindExpiredRandomnessInstruction(params: {
     crank: params.crank as TransactionSigner,
     pool,
     currentDrawCycle,
+    currentRandomnessAccount: params.currentRandomnessAccount,
     newRandomnessAccount: params.newRandomnessAccount,
   });
 }

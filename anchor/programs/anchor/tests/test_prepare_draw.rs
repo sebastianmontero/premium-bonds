@@ -1,4 +1,6 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
+use anchor_lang::{
+    AccountDeserialize, AccountSerialize, AnchorDeserialize, InstructionData, Space, ToAccountMetas,
+};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -603,4 +605,46 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
     assert_eq!(entry7.cumulative_active, 60); // 0 active tickets added
     assert_eq!(entry8.cumulative_active, 60); // 0 active tickets added
     assert_eq!(entry9.cumulative_active, 70); // 10 active tickets added
+}
+
+#[test]
+fn test_prepare_draw_saturating_u32_max_batch_size() {
+    let mut entries = Vec::new();
+    for _ in 0..10 {
+        entries.push(anchor::state::UserEntry {
+            owner: Keypair::new().pubkey(),
+            active: 5,
+            pending: 2,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        });
+    }
+
+    let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+
+    let meta = send_prepare(&mut ctx, u32::MAX)
+        .expect("batch_size = u32::MAX must succeed via saturating_add");
+    let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.batch_start, 0);
+    assert_eq!(event.batch_end, 10);
+    assert_eq!(event.user_count, 10);
+    assert_eq!(event.is_complete, true);
+
+    let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+    let (header, _) = anchor::utils::get_ticket_registry(&reg_acct.data).unwrap();
+    assert_eq!(header.draw_prepared_up_to, 10);
+    assert_eq!(header.user_count, 10);
+    assert_eq!(header.total_active_tickets, 50); // 5 * 10 (pending does not mature in genesis cycle 0)
+
+    let dc_acct = ctx.svm.get_account(&ctx.draw_cycle).unwrap();
+    let mut dc_slice = &dc_acct.data[8..];
+    let dc = anchor::DrawCycle::deserialize(&mut dc_slice).unwrap();
+    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
+    assert_eq!(dc.locked_ticket_count, 10);
 }

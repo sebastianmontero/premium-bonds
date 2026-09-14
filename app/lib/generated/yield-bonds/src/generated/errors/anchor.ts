@@ -106,8 +106,8 @@ export const ANCHOR_ERROR__PAYOUTS_ALREADY_STARTED = 0x179b; // 6043
 export const ANCHOR_ERROR__PAYOUT_TIMELOCK_ACTIVE = 0x179c; // 6044
 /** FeesAlreadyWithdrawn: Protocol fees from this cycle were already withdrawn. */
 export const ANCHOR_ERROR__FEES_ALREADY_WITHDRAWN = 0x179d; // 6045
-/** YieldVelocityExceeded: Yield velocity limit exceeded. */
-export const ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED = 0x179e; // 6046
+/** ZeroSharesMinted: Huma deposit produced zero PST shares. */
+export const ANCHOR_ERROR__ZERO_SHARES_MINTED = 0x179e; // 6046
 /** YieldVenueInsolvent: Yield venue is insolvent. */
 export const ANCHOR_ERROR__YIELD_VENUE_INSOLVENT = 0x179f; // 6047
 /** Unauthorized: Unauthorized signer. */
@@ -212,8 +212,8 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__UNAUTHORIZED_CRANK
   | typeof ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION
   | typeof ANCHOR_ERROR__WINNER_MISMATCH
-  | typeof ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED
-  | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT;
+  | typeof ANCHOR_ERROR__YIELD_VENUE_INSOLVENT
+  | typeof ANCHOR_ERROR__ZERO_SHARES_MINTED;
 
 let anchorErrorMessages: Record<AnchorError, string> | undefined;
 if (process.env["NODE_ENV"] !== "production") {
@@ -282,8 +282,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__UNAUTHORIZED_CRANK]: `Only the designated Switchboard Jobs Account can execute this crank.`,
     [ANCHOR_ERROR__UNSUPPORTED_ACCOUNT_VERSION]: `Account schema version is invalid or unsupported.`,
     [ANCHOR_ERROR__WINNER_MISMATCH]: `Winner account does not match the payout registry entry.`,
-    [ANCHOR_ERROR__YIELD_VELOCITY_EXCEEDED]: `Yield velocity limit exceeded.`,
     [ANCHOR_ERROR__YIELD_VENUE_INSOLVENT]: `Yield venue is insolvent.`,
+    [ANCHOR_ERROR__ZERO_SHARES_MINTED]: `Huma deposit produced zero PST shares.`,
   };
 }
 

@@ -425,3 +425,78 @@ fn test_create_pool_fails_on_exceeding_total_winners() {
     let res = ctx.svm.send_transaction(tx);
     assert_custom_error(res, PremiumBondsError::TooManyWinners);
 }
+
+#[test]
+fn test_create_pool_fails_duplicate_initialization() {
+    let mut ctx = setup_create_pool_context();
+    let ix1 = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300);
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
+    let res1 = ctx.svm.send_transaction(tx1);
+    assert!(
+        res1.is_ok(),
+        "First create_pool must succeed: {:?}",
+        res1.err()
+    );
+
+    // Second create_pool with same pool_id = 1 and new registry account on the same svm
+    ctx.svm.expire_blockhash();
+    let new_reg = Keypair::new().pubkey();
+    inject_zero_account(
+        &mut ctx.svm,
+        new_reg,
+        anchor::constants::REGISTRY_INITIAL_SIZE,
+    );
+
+    let ix2 = build_create_pool_instruction(
+        &ctx.admin,
+        1,
+        1_000_000,
+        24,
+        100,
+        0,
+        0,
+        300,
+        default_prize_tiers(),
+        ctx.token_mint,
+        ctx.pst_mint,
+        new_reg,
+        ctx.fee_wallet,
+        ctx.huma_pool_state,
+    );
+    let blockhash2 = ctx.svm.latest_blockhash();
+    let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &blockhash2);
+    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
+    let res2 = ctx.svm.send_transaction(tx2);
+    assert!(
+        res2.is_err(),
+        "Duplicate create_pool with same pool_id must fail"
+    );
+}
+
+#[test]
+fn test_create_pool_fails_reusing_initialized_registry() {
+    let mut ctx = setup_create_pool_context();
+
+    // Create pool 1 with registry
+    let ix1 = build_create_pool_ix(&ctx, 1, 1_000_000, 24, 100, 0, 0, 300);
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &blockhash);
+    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
+    let res1 = ctx.svm.send_transaction(tx1);
+    assert!(
+        res1.is_ok(),
+        "First create_pool must succeed: {:?}",
+        res1.err()
+    );
+
+    // Attempt to create pool 2 reusing the already initialized (non-zero) registry
+    ctx.svm.expire_blockhash();
+    let ix2 = build_create_pool_ix(&ctx, 2, 1_000_000, 24, 100, 0, 0, 300);
+    let blockhash2 = ctx.svm.latest_blockhash();
+    let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &blockhash2);
+    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
+    let res2 = ctx.svm.send_transaction(tx2);
+    assert_anchor_error(res2, anchor_lang::error::ErrorCode::ConstraintZero);
+}

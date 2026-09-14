@@ -842,8 +842,8 @@ To safeguard depositor principal, YieldBonds features built-in autonomous circui
 
 1. **Protocol Solvency Parity (\`YieldVenueInsolvent\`)**:
    If Huma credit reserve balance drops below the total deposited principal book value, the pool is immediately halted to prevent deficit extractions.
-2. **Yield Velocity Ceiling (\`YieldVelocityExceeded\`)**:
-   If reported single-cycle yield exceeds the configured velocity ceiling (e.g. $> 500$ bps / 5.0% per week), the pool automatically pauses to guard against oracle manipulation or accounting anomalies.
+2. **Yield Velocity Ceiling (\`YieldVelocityBreached\` / \`HaltedYieldSpike\`)**:
+   If reported single-cycle yield exceeds the configured velocity ceiling (e.g. $> 500$ bps / 5.0% per week), the contract autonomously transitions to \`HaltedYieldSpike\`, emits \`YieldVelocityBreached\`, and pauses the pool. Protocol administrators must audit the venue APY and adjust \`max_yield_basis_points\` before unpausing to prevent an immediate re-halt loop.
 3. **Settlement Timelocks (\`PayoutTimelockActive\`)**:
    Every completed draw enforces a mandatory 5-minute pause prior to payout execution, allowing automated monitoring bots to detect anomalies.
 
@@ -868,8 +868,8 @@ Para salvaguardar el capital de los depositantes, YieldBonds incluye interruptor
 
 1. **Paridad de Solvencia del Protocolo (\`YieldVenueInsolvent\`)**:
    Si el saldo de la reserva de Huma cae por debajo del valor contable del principal depositado, el fondo se detiene de inmediato para evitar extracciones deficitarias.
-2. **Límite de Velocidad de Rendimiento (\`YieldVelocityExceeded\`)**:
-   Si el rendimiento reportado en un solo ciclo supera el límite de seguridad (ej. $> 500$ bps / 5.0% semanal), el fondo se pausa automáticamente para protegerse contra anomalías contables o manipulación de oráculos.
+2. **Límite de Velocidad de Rendimiento (\`YieldVelocityBreached\` / \`HaltedYieldSpike\`)**:
+   Si el rendimiento reportado en un solo ciclo supera el límite de seguridad (ej. $> 500$ bps / 5.0% semanal), el contrato transiciona autónomamente a \`HaltedYieldSpike\`, emite el evento \`YieldVelocityBreached\` y pausa el fondo. Los administradores deben evaluar el APY y ajustar \`max_yield_basis_points\` antes de despausar para evitar un ciclo de bloqueo inmediato.
 3. **Bloqueo Temporal de Liquidación (\`PayoutTimelockActive\`)**:
    Cada sorteo completado impone una pausa obligatoria de 5 minutos antes del desembolso de premios para permitir la auditoría por bots de monitoreo.
 
@@ -2139,14 +2139,18 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     code: "6046",
     numericCode: 6046,
     hexCode: "0x179e",
-    name: "YieldVelocityExceeded",
+    name: "ZeroSharesMinted",
+    summary: {
+      en: "Huma liquidity deposit produced zero PST shares.",
+      es: "El depósito de liquidez en Huma produjo cero participaciones PST.",
+    },
     diagnosis: {
-      en: "Automated Circuit Breaker: Single-cycle yield exceeded the configured safety velocity ceiling.",
-      es: "Interruptor de Circuito: El rendimiento de un solo ciclo superó el límite de velocidad de seguridad.",
+      en: "Huma liquidity deposit produced zero PST shares due to deposit rounding or minimum conversion threshold.",
+      es: "El depósito de liquidez en Huma produjo cero participaciones PST debido al redondeo o al umbral mínimo de conversión.",
     },
     solution: {
-      en: "Pool is automatically paused to protect principal from yield spikes. Awaiting admin multisig audit.",
-      es: "El fondo se pausa automáticamente para proteger el principal. Requiere auditoría del multisig.",
+      en: "Ensure deposit amount exceeds the minimum share conversion threshold on the yield venue.",
+      es: "Asegúrate de que el monto de depósito supere el umbral mínimo de conversión en el fondo de rendimiento.",
     },
     category: "anchor",
   },
@@ -2479,6 +2483,25 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
       es: "Asegúrate de que la solicitud de redención se haya creado con un tipo válido (0: BondSale, 1: PrizeClaim, 2: FeeWithdrawal).",
     },
     category: "anchor",
+  },
+  {
+    code: "6065",
+    numericCode: 6065,
+    hexCode: "0x17b1",
+    name: "InvalidBatchSize",
+    summary: {
+      en: "Draw preparation batch size must be greater than zero.",
+      es: "El tamaño del lote de preparación del sorteo debe ser mayor a cero.",
+    },
+    diagnosis: {
+      en: "The draw preparation crank was called with a batch size of 0.",
+      es: "El crank de preparación del sorteo se invocó con un tamaño de lote de 0.",
+    },
+    solution: {
+      en: "Specify a batch size greater than zero when invoking prepare-draw.",
+      es: "Especifica un tamaño de lote mayor a cero al invocar prepare-draw.",
+    },
+    category: "crank",
   },
 ];
 

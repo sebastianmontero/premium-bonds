@@ -31,6 +31,23 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     assert.strictEqual(parsed.title, "Program Error: PoolNotActive");
   });
 
+  it("should parse Anchor custom error 6046 (ZeroSharesMinted)", () => {
+    const rawErr = new Error("Simulation failed: custom program error: 0x179e");
+    const parsed = parseTransactionError(rawErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6046);
+    assert.strictEqual(parsed.title, "Program Error: ZeroSharesMinted");
+    assert.strictEqual(
+      parsed.message,
+      "Huma deposit produced zero PST shares."
+    );
+    assert.strictEqual(
+      parsed.actionableStep,
+      "Increase your bond purchase amount to exceed the minimum share conversion threshold on Huma Finance."
+    );
+  });
+
   it("should parse Anchor custom error 6065 (InvalidBatchSize)", () => {
     const rawErr = new Error("Simulation failed: custom program error: 0x17b1");
     const parsed = parseTransactionError(rawErr);

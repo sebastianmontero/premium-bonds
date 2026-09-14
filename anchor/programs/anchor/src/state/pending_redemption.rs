@@ -143,3 +143,52 @@ impl PendingRedemption {
         self.amount = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::PremiumBondsError;
+    use anchor_lang::{AnchorDeserialize, AnchorSerialize};
+
+    #[test]
+    fn test_redemption_type_try_from_all_variants() {
+        assert_eq!(
+            RedemptionType::try_from(0).unwrap(),
+            RedemptionType::BondSale
+        );
+        assert_eq!(
+            RedemptionType::try_from(1).unwrap(),
+            RedemptionType::PrizeClaim
+        );
+        assert_eq!(
+            RedemptionType::try_from(2).unwrap(),
+            RedemptionType::FeeWithdrawal
+        );
+        assert!(matches!(
+            RedemptionType::try_from(3).unwrap_err(),
+            PremiumBondsError::InvalidRedemptionType
+        ));
+        assert!(matches!(
+            RedemptionType::try_from(255).unwrap_err(),
+            PremiumBondsError::InvalidRedemptionType
+        ));
+    }
+
+    #[test]
+    fn test_redemption_type_serialization_roundtrip() {
+        for variant in [
+            RedemptionType::BondSale,
+            RedemptionType::PrizeClaim,
+            RedemptionType::FeeWithdrawal,
+        ] {
+            let mut encoded = Vec::new();
+            variant
+                .serialize(&mut encoded)
+                .expect("serialization must succeed");
+            let mut slice = encoded.as_slice();
+            let decoded =
+                RedemptionType::deserialize(&mut slice).expect("deserialization must succeed");
+            assert_eq!(variant, decoded);
+        }
+    }
+}

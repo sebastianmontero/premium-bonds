@@ -2534,3 +2534,157 @@ pub fn set_huma_solvency_state(
     mint_acc.data[36..44].copy_from_slice(&pst_supply.to_le_bytes());
     svm.set_account(pst_mint, mint_acc).unwrap();
 }
+
+pub fn assert_signer_required(
+    svm: &mut LiteSVM,
+    mut ix: Instruction,
+    signer_index: usize,
+    expected_signer: &Pubkey,
+    other_signers: &[&Keypair],
+    instruction_name: &str,
+    account_name: &str,
+) {
+    assert!(
+        signer_index < ix.accounts.len(),
+        "[{instruction_name}] signer_index {signer_index} out of bounds (len: {})",
+        ix.accounts.len()
+    );
+    assert_eq!(
+        &ix.accounts[signer_index].pubkey, expected_signer,
+        "[{instruction_name}::{account_name}] Account at index {signer_index} did not match expected signer pubkey"
+    );
+    assert!(
+        ix.accounts[signer_index].is_signer,
+        "[{instruction_name}::{account_name}] Target account at index {signer_index} was not configured as a signer"
+    );
+
+    let fee_payer = Keypair::new();
+    svm.airdrop(&fee_payer.pubkey(), 1_000_000_000).unwrap();
+    assert_ne!(
+        ix.accounts[signer_index].pubkey,
+        fee_payer.pubkey(),
+        "[{instruction_name}::{account_name}] fee_payer cannot be identical to target signer"
+    );
+
+    ix.accounts[signer_index].is_signer = false;
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&fee_payer.pubkey()), &bh);
+    let mut signers = vec![&fee_payer];
+    signers.extend_from_slice(other_signers);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &signers)
+        .expect("Failed to build test transaction");
+    let res = svm.send_transaction(tx);
+    match res {
+        Ok(_) => panic!(
+            "\n❌ Signer Verification Failure!\n[{instruction_name}::{account_name}] Expected transaction to fail with AccountNotSigner (3010), but transaction succeeded!\n"
+        ),
+        Err(e) => assert_anchor_error(Err(e), anchor_lang::error::ErrorCode::AccountNotSigner),
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TestHumaAccounts {
+    pub huma_program: Pubkey,
+    pub huma_config: Pubkey,
+    pub huma_pool_config: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub huma_mode_config: Pubkey,
+    pub huma_lender_state: Pubkey,
+    pub huma_pool_authority: Pubkey,
+    pub huma_pool_underlying_token: Pubkey,
+}
+
+impl Default for TestHumaAccounts {
+    fn default() -> Self {
+        let dummy = Keypair::new().pubkey();
+        Self {
+            huma_program: huma_program_id(),
+            huma_config: dummy,
+            huma_pool_config: dummy,
+            huma_pool_state: dummy,
+            huma_mode_config: dummy,
+            huma_lender_state: dummy,
+            huma_pool_authority: dummy,
+            huma_pool_underlying_token: dummy,
+        }
+    }
+}
+
+impl TestHumaAccounts {
+    pub fn from_e2e(ctx: &E2eContext) -> Self {
+        let dummy = Keypair::new().pubkey();
+        Self {
+            huma_program: huma_program_id(),
+            huma_config: dummy,
+            huma_pool_config: dummy,
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: dummy,
+            huma_lender_state: dummy,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        }
+    }
+}
+
+pub fn build_claim_redemption_ix(
+    caller: Pubkey,
+    beneficiary: Pubkey,
+    pool_id: u32,
+    redemption_id: u64,
+    token_mint: Pubkey,
+    beneficiary_token_account: Pubkey,
+    huma: &TestHumaAccounts,
+    override_pool_vault: Option<Pubkey>,
+) -> Instruction {
+    let (pool, _) = pool_pda(pool_id);
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
+    let pool_vault_account = override_pool_vault.unwrap_or_else(|| pool_vault_pda(pool_id).0);
+
+    let accounts = anchor::accounts::ClaimRedemption {
+        caller,
+        beneficiary,
+        pool,
+        pending_redemption,
+        token_mint,
+        pool_vault_account,
+        beneficiary_token_account,
+        huma_program: huma.huma_program,
+        huma_config: huma.huma_config,
+        huma_pool_config: huma.huma_pool_config,
+        huma_pool_state: huma.huma_pool_state,
+        huma_mode_config: huma.huma_mode_config,
+        huma_lender_state: huma.huma_lender_state,
+        huma_pool_authority: huma.huma_pool_authority,
+        huma_pool_underlying_token: huma.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
+    }
+}
+
+pub fn find_off_canonical_bump(seeds: &[&[u8]], program_id: &Pubkey) -> (Pubkey, u8) {
+    let (_canonical_pda, canonical_bump) = Pubkey::find_program_address(seeds, program_id);
+    assert!(
+        canonical_bump > 0,
+        "Canonical bump must be > 0 to find off-canonical PDA"
+    );
+    (0..canonical_bump)
+        .rev()
+        .find_map(|bump| {
+            let mut full_seeds = seeds.to_vec();
+            let bump_arr = [bump];
+            full_seeds.push(&bump_arr);
+            Pubkey::create_program_address(&full_seeds, program_id)
+                .ok()
+                .map(|pda| (pda, bump))
+        })
+        .expect("Failed to find valid off-canonical bump")
+}

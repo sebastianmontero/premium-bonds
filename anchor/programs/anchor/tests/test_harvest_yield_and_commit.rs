@@ -846,3 +846,89 @@ fn test_harvest_yield_fee_truncation_rounding() {
     assert_eq!(updated_pool.total_prizes_allocated, 9_999);
     assert_eq!(updated_pool.total_fees_accrued, 0);
 }
+
+#[test]
+fn test_harvest_yield_exact_temporal_boundaries() {
+    let cycle_end_at = 2_000_000_000;
+
+    // Boundary 1: cycle_end_at - 1 must fail with CycleNotEnded
+    {
+        let mut ctx = setup_happy(
+            10,
+            0,
+            100,
+            default_prize_tiers(),
+            11_000_000,
+            10_000_000,
+            10_000_000,
+            10_000_000,
+        );
+        let (pda, _) = pool_pda(1);
+        let mut acct = ctx.svm.get_account(&pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
+        pool.current_cycle_end_at = cycle_end_at;
+        ctx.svm.set_account(pda, acct).unwrap();
+
+        warp_clock(&mut ctx.svm, cycle_end_at - 1);
+        let res = send_harvest(&mut ctx, 1, 0);
+        let err = res.unwrap_err();
+        assert!(
+            err.contains("CycleNotEnded"),
+            "Expected CycleNotEnded, got: {err}"
+        );
+    }
+
+    // Boundary 2: cycle_end_at must succeed
+    {
+        let mut ctx = setup_happy(
+            10,
+            0,
+            100,
+            default_prize_tiers(),
+            11_000_000,
+            10_000_000,
+            10_000_000,
+            10_000_000,
+        );
+        let (pda, _) = pool_pda(1);
+        let mut acct = ctx.svm.get_account(&pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
+        pool.current_cycle_end_at = cycle_end_at;
+        ctx.svm.set_account(pda, acct).unwrap();
+
+        warp_clock(&mut ctx.svm, cycle_end_at);
+        let res = send_harvest(&mut ctx, 1, 0);
+        assert!(
+            res.is_ok(),
+            "Harvest at exact cycle_end_at must succeed: {:?}",
+            res.err()
+        );
+    }
+
+    // Boundary 3: cycle_end_at + 1 must succeed
+    {
+        let mut ctx = setup_happy(
+            10,
+            0,
+            100,
+            default_prize_tiers(),
+            11_000_000,
+            10_000_000,
+            10_000_000,
+            10_000_000,
+        );
+        let (pda, _) = pool_pda(1);
+        let mut acct = ctx.svm.get_account(&pda).unwrap();
+        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
+        pool.current_cycle_end_at = cycle_end_at;
+        ctx.svm.set_account(pda, acct).unwrap();
+
+        warp_clock(&mut ctx.svm, cycle_end_at + 1);
+        let res = send_harvest(&mut ctx, 1, 0);
+        assert!(
+            res.is_ok(),
+            "Harvest at cycle_end_at + 1 must succeed: {:?}",
+            res.err()
+        );
+    }
+}

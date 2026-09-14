@@ -18,55 +18,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn build_claim_redemption_ix(
-    user: Pubkey,
-    pool_id: u32,
-    redemption_id: u64,
-    token_mint: Pubkey,
-    pool_vault_account: Pubkey,
-    user_token_account: Pubkey,
-    huma_program: Pubkey,
-    huma_config: Pubkey,
-    huma_pool_config: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_mode_config: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_authority: Pubkey,
-    huma_pool_underlying_token: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user,
-        beneficiary: user,
-        pool,
-        pending_redemption,
-        token_mint,
-        pool_vault_account,
-        beneficiary_token_account: user_token_account,
-        huma_program,
-        huma_config,
-        huma_pool_config,
-        huma_pool_state,
-        huma_mode_config,
-        huma_lender_state,
-        huma_pool_authority,
-        huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    }
-}
-
 fn send_e2e_claim_redemption_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -612,22 +563,19 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let dummy = Keypair::new().pubkey();
+    let huma = TestHumaAccounts {
+        huma_pool_state: fake_pool_state, // counterfeit
+        ..Default::default()
+    };
     let ix = build_claim_redemption_ix(
+        user.pubkey(),
         user.pubkey(),
         pool_id,
         redemption_id,
         token_mint,
-        pool_vault,
         user_token_account,
-        huma_program_id(),
-        dummy,
-        dummy,
-        fake_pool_state, // counterfeit
-        dummy,
-        dummy,
-        dummy,
-        dummy,
+        &huma,
+        Some(pool_vault),
     );
 
     let bh = svm.latest_blockhash();

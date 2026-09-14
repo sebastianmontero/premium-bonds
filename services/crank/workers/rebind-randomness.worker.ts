@@ -40,6 +40,7 @@ export class RebindRandomnessWorker implements ICrankWorker<
       crank: context.signer,
       poolId: snapshot.poolId,
       cycleId: snapshot.cycleId,
+      currentRandomnessAccount: snapshot.staleRandomness,
       newRandomnessAccount,
     });
 

@@ -91,7 +91,8 @@ pub mod mock_huma {
                 &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
                 ctx.program_id,
             );
-            let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+            let signer_seeds: &[&[&[u8]]] =
+                &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
 
             token_interface::mint_to(
                 CpiContext::new_with_signer(
@@ -111,7 +112,10 @@ pub mod mock_huma {
         update_pool_total_assets(&ctx.accounts.pool_state.to_account_info(), assets as i128)?;
 
         if is_zero_shares_sim {
-            msg!("MockHuma: deposited {} USDC, minted 0 PST (zero shares simulation)", assets);
+            msg!(
+                "MockHuma: deposited {} USDC, minted 0 PST (zero shares simulation)",
+                assets
+            );
         } else {
             msg!("MockHuma: deposited {} USDC, minted {} PST", assets, assets);
         }

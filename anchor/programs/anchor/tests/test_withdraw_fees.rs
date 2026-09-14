@@ -939,6 +939,12 @@ fn test_withdraw_fees_and_claim_e2e() {
         &ctx.admin.pubkey(),
     );
 
+    let huma = TestHumaAccounts {
+        huma_pool_state: ctx.huma_pool_state,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        ..Default::default()
+    };
     // Build and send claim_redemption signed by admin (or crank on behalf of fee wallet owner)
     let ix_claim = build_claim_redemption_ix(
         ctx.admin.pubkey(),
@@ -946,16 +952,9 @@ fn test_withdraw_fees_and_claim_e2e() {
         1,
         0, // redemption_id = 0
         ctx.usdc_mint,
-        pool_vault,
         admin_usdc,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        dummy,
-        ctx.huma_pool_authority,
-        ctx.huma_pool_underlying_token,
+        &huma,
+        Some(pool_vault),
     );
 
     // Admin signs the claim transaction!
@@ -980,56 +979,6 @@ fn test_withdraw_fees_and_claim_e2e() {
 
     // Assert that the PendingRedemption account was closed (does not exist anymore)
     assert!(ctx.svm.get_account(&pending_pda).is_none());
-}
-
-fn build_claim_redemption_ix(
-    caller: Pubkey,
-    beneficiary: Pubkey,
-    pool_id: u32,
-    redemption_id: u64,
-    token_mint: Pubkey,
-    pool_vault_account: Pubkey,
-    beneficiary_token_account: Pubkey,
-    huma_program: Pubkey,
-    huma_config: Pubkey,
-    huma_pool_config: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_mode_config: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_authority: Pubkey,
-    huma_pool_underlying_token: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller,
-        beneficiary,
-        pool,
-        pending_redemption,
-        token_mint,
-        pool_vault_account,
-        beneficiary_token_account,
-        huma_program,
-        huma_config,
-        huma_pool_config,
-        huma_pool_state,
-        huma_mode_config,
-        huma_lender_state,
-        huma_pool_authority,
-        huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    }
 }
 
 #[test]

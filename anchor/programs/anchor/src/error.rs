@@ -142,9 +142,9 @@ pub enum PremiumBondsError {
     /// Protocol fees from this cycle were already withdrawn; draw cannot be voided.
     #[msg("Protocol fees from this cycle were already withdrawn.")]
     FeesAlreadyWithdrawn,
-    /// Yield generated in a single cycle exceeded the configured velocity ceiling.
-    #[msg("Yield velocity limit exceeded.")]
-    YieldVelocityExceeded,
+    /// Huma deposit produced zero PST shares.
+    #[msg("Huma deposit produced zero PST shares.")]
+    ZeroSharesMinted,
     /// Yield venue balance dropped below deposited book value.
     #[msg("Yield venue is insolvent.")]
     YieldVenueInsolvent,
@@ -202,7 +202,4 @@ pub enum PremiumBondsError {
     /// Draw preparation batch size must be greater than 0.
     #[msg("Draw preparation batch size must be greater than 0.")]
     InvalidBatchSize,
-    /// Huma deposit produced zero PST shares.
-    #[msg("Huma deposit produced zero PST shares.")]
-    ZeroSharesMinted,
 }

@@ -1387,3 +1387,103 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     assert_eq!(winners[2].processed, 1);
     assert_eq!(winners[2].bonds_bought, 4);
 }
+
+#[test]
+fn test_reinvest_exact_timelock_boundaries() {
+    fn setup_timelock_test(clock_ts: i64) -> (Ctx, u32) {
+        let (mut svm, _admin) = common::setup_global_config();
+        let crank = Keypair::new();
+        svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+
+        let winner = Keypair::new().pubkey();
+        let mint = Keypair::new().pubkey();
+        let reg = Keypair::new().pubkey();
+
+        let entries = vec![anchor::state::UserEntry {
+            owner: winner,
+            active: 10,
+            pending: 0,
+            merged_through_cycle: 0,
+            cumulative_active: 0,
+            version: anchor::state::UserEntry::CURRENT_VERSION,
+            _padding: [0; 3],
+            _reserved: [0; 12],
+        }];
+        common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
+
+        let pool_pda = inject_pool(
+            &mut svm,
+            1,
+            mint,
+            reg,
+            anchor::PoolStatus::Active,
+            false,
+            1_000_000,
+        );
+        {
+            let mut acc = svm.get_account(&pool_pda).unwrap();
+            let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+            pool.payout_timelock_seconds = 300;
+            svm.set_account(pool_pda, acc).unwrap();
+        }
+
+        let (payout_pda, _) = payout_pda(1, 0);
+        inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
+        {
+            let mut acc = svm.get_account(&payout_pda).unwrap();
+            let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
+                &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+            );
+            pr.revealed_at = 1_000;
+            svm.set_account(payout_pda, acc).unwrap();
+        }
+
+        common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
+
+        let mut clock = solana_sdk::clock::Clock::default();
+        clock.unix_timestamp = clock_ts;
+        svm.set_sysvar(&clock);
+
+        (
+            Ctx {
+                svm,
+                crank,
+                winner,
+                registry: reg,
+            },
+            1,
+        )
+    }
+
+    // Boundary 1: revealed_at (1000) + timelock (300) - 1 = 1299 -> fails with PayoutTimelockActive
+    {
+        let (mut ctx, _) = setup_timelock_test(1299);
+        let err = send(&mut ctx, 0, 0).unwrap_err();
+        assert!(
+            err.contains("PayoutTimelockActive"),
+            "Expected PayoutTimelockActive at 1299, got: {err}"
+        );
+    }
+
+    // Boundary 2: revealed_at (1000) + timelock (300) = 1300 -> succeeds
+    {
+        let (mut ctx, _) = setup_timelock_test(1300);
+        let res = send(&mut ctx, 0, 0);
+        assert!(
+            res.is_ok(),
+            "Reinvest at exact timelock boundary (1300) must succeed: {:?}",
+            res.err()
+        );
+    }
+
+    // Boundary 3: revealed_at (1000) + timelock (300) + 1 = 1301 -> succeeds
+    {
+        let (mut ctx, _) = setup_timelock_test(1301);
+        let res = send(&mut ctx, 0, 0);
+        assert!(
+            res.is_ok(),
+            "Reinvest at timelock + 1 (1301) must succeed: {:?}",
+            res.err()
+        );
+    }
+}

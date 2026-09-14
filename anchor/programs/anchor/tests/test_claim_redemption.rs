@@ -21,56 +21,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn build_claim_redemption_ix(
-    caller: Pubkey,
-    beneficiary: Pubkey,
-    pool_id: u32,
-    redemption_id: u64,
-    token_mint: Pubkey,
-    pool_vault_account: Pubkey,
-    beneficiary_token_account: Pubkey,
-    huma_program: Pubkey,
-    huma_config: Pubkey,
-    huma_pool_config: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_mode_config: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_authority: Pubkey,
-    huma_pool_underlying_token: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller,
-        beneficiary,
-        pool,
-        pending_redemption,
-        token_mint,
-        pool_vault_account,
-        beneficiary_token_account,
-        huma_program,
-        huma_config,
-        huma_pool_config,
-        huma_pool_state,
-        huma_mode_config,
-        huma_lender_state,
-        huma_pool_authority,
-        huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    }
-}
-
 // ─── E2E CPI Helpers ─────────────────────────────────────────────────────────
 
 fn send_e2e_claim_redemption_for_user(
@@ -243,22 +193,25 @@ fn send_claim_redemption_guard(
     override_huma_program: Option<Pubkey>,
 ) -> Result<(), String> {
     let beneficiary = beneficiary.unwrap_or_else(|| ctx.user.pubkey());
+    let huma = TestHumaAccounts {
+        huma_program: override_huma_program.unwrap_or(huma_program_id()),
+        huma_config: ctx.huma_config,
+        huma_pool_config: ctx.huma_pool_config,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: ctx.huma_mode_config,
+        huma_lender_state: ctx.huma_lender_state,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+    };
     let ix = build_claim_redemption_ix(
         caller_kp.pubkey(),
         beneficiary,
         pool_id,
         redemption_id,
         override_token_mint.unwrap_or(ctx.token_mint),
-        override_pool_vault.unwrap_or(ctx.pool_vault),
         override_user_token_account.unwrap_or(ctx.user_token_account),
-        override_huma_program.unwrap_or(huma_program_id()),
-        ctx.huma_config,
-        ctx.huma_pool_config,
-        ctx.huma_pool_state,
-        ctx.huma_mode_config,
-        ctx.huma_lender_state,
-        ctx.huma_pool_authority,
-        ctx.huma_pool_underlying_token,
+        &huma,
+        override_pool_vault,
     );
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&caller_kp.pubkey()), &bh);
@@ -1263,5 +1216,77 @@ fn test_claim_redemption_succeeds_while_pool_frozen() {
         res.is_ok(),
         "Claiming settled redemption must succeed even while pool is frozen for draw: {:?}",
         res
+    );
+}
+
+#[test]
+fn test_claim_redemption_fails_when_pool_paused() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+
+    let user_a_usdc =
+        create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Pause the pool
+    send_pause_pool(&mut ctx.svm, &ctx.admin, 1).expect("pause_pool should succeed");
+
+    // Attempt claim_redemption while paused -> MUST FAIL with PoolPaused
+    let huma = TestHumaAccounts::from_e2e(&ctx);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let ix = build_claim_redemption_ix(
+        user_a.pubkey(),
+        user_a.pubkey(),
+        1,
+        0,
+        ctx.usdc_mint,
+        user_a_usdc,
+        &huma,
+        Some(pool_vault),
+    );
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolPaused);
+
+    // Unpause pool -> claim_redemption succeeds
+    ctx.svm.expire_blockhash();
+    send_unpause_pool(&mut ctx.svm, &ctx.admin, 1).expect("unpause_pool should succeed");
+
+    let res_ok = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert!(
+        res_ok.is_ok(),
+        "Claiming after unpause must succeed: {:?}",
+        res_ok
     );
 }
