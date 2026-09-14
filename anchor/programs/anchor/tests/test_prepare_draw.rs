@@ -14,16 +14,7 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"draw_cycle",
-            pool_id.to_le_bytes().as_ref(),
-            cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
+
 
 struct Ctx {
     svm: LiteSVM,

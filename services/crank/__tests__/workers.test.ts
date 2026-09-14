@@ -23,6 +23,91 @@ import {
 
 const mockAddress = address("11111111111111111111111111111111");
 
+const PRIZE_POOL_DISCRIMINATOR = new Uint8Array([
+  51, 88, 38, 85, 206, 166, 162, 156,
+]);
+const TICKET_REGISTRY_DISCRIMINATOR = new Uint8Array([
+  58, 169, 167, 230, 107, 202, 126, 54,
+]);
+const PAYOUT_REGISTRY_DISCRIMINATOR = new Uint8Array([
+  54, 200, 184, 56, 100, 227, 130, 95,
+]);
+
+function createTestPrizePool(overrides: Partial<PrizePool> = {}): PrizePool {
+  return {
+    discriminator: PRIZE_POOL_DISCRIMINATOR,
+    vaultAuthorityBump: 255,
+    poolId: 1,
+    tokenMint: mockAddress,
+    ticketRegistry: mockAddress,
+    feeWallet: mockAddress,
+    humaPoolState: mockAddress,
+    bondPrice: 1_000_000n,
+    stakeCycleDurationHrs: 24n,
+    minYieldThreshold: 0n,
+    totalDepositedPrincipal: 0n,
+    currentCycleEndAt: 0n,
+    nextRedemptionId: 1n,
+    totalFeesAccrued: 0n,
+    totalFeesWithdrawn: 0n,
+    totalPrizesAllocated: 0n,
+    totalPendingRedemptions: 0n,
+    currentDrawCycleId: 1,
+    feeBasisPoints: 500,
+    maxYieldBasisPoints: 1000,
+    payoutTimelockSeconds: 300,
+    status: 1,
+    isFrozenForDraw: 0,
+    version: 1,
+    prizeTiersCount: 1,
+    padding: new Uint8Array(3),
+    prizeTiers: Array.from({ length: 10 }, () => ({
+      basisPoints: 0,
+      numWinners: 0,
+      padding: new Uint8Array(2),
+    })),
+    reserved: new Uint8Array(128),
+    ...overrides,
+  };
+}
+
+function createTestTicketRegistry(
+  overrides: Partial<TicketRegistry> = {}
+): TicketRegistry {
+  return {
+    discriminator: TICKET_REGISTRY_DISCRIMINATOR,
+    poolId: 1,
+    capacity: 1000,
+    userCount: 0,
+    totalActiveTickets: 0,
+    totalPendingTickets: 0,
+    drawCycleId: 1,
+    drawPreparedUpTo: 0,
+    version: 1,
+    padding: new Uint8Array(3),
+    reserved: new Uint8Array(64),
+    ...overrides,
+  };
+}
+
+function createTestPayoutRegistry(
+  overrides: Partial<PayoutRegistry> = {}
+): PayoutRegistry {
+  return {
+    discriminator: PAYOUT_REGISTRY_DISCRIMINATOR,
+    poolId: 1,
+    cycleId: 1,
+    winnersCount: 0,
+    payoutsCompleted: 0,
+    revealedAt: 0n,
+    status: 0,
+    version: 1,
+    padding: new Uint8Array(3),
+    reserved: new Uint8Array(32),
+    ...overrides,
+  };
+}
+
 function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
   return {
     signer,
@@ -42,9 +127,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: {} as PrizePool,
+      pool: createTestPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "YIELD_HARVEST_READY" as const,
@@ -66,9 +151,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: {} as PrizePool,
+      pool: createTestPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "PREPARE_BATCHING" as const,
@@ -90,9 +175,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: {} as PrizePool,
+      pool: createTestPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 1500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "VRF_EXPIRED" as const,
@@ -114,9 +199,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: {} as PrizePool,
+      pool: createTestPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "READY_TO_DRAW" as const,
@@ -138,15 +223,15 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: {} as PrizePool,
+      pool: createTestPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "REINVESTMENT_PENDING" as const,
       cycleId: toDrawCycleId(1),
       payoutRegistryAddress: mockAddress,
-      payoutRegistry: {} as PayoutRegistry,
+      payoutRegistry: createTestPayoutRegistry(),
       unprocessedWinners: [
         { winner: mockAddress, winnerIndex: 0 },
         { winner: mockAddress, winnerIndex: 1 },
@@ -180,8 +265,11 @@ describe("Strategy Workers Unit Tests", () => {
     // 80% utilization -> should NOT trigger
     const snapshot80 = {
       ...baseSnapshot,
-      pool: { isFrozenForDraw: 0 } as PrizePool,
-      ticketRegistry: { userCount: 80, capacity: 100 } as TicketRegistry,
+      pool: createTestPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: createTestTicketRegistry({
+        userCount: 80,
+        capacity: 100,
+      }),
     };
     const decision80 = sentinel.evaluate(snapshot80);
     assert.strictEqual(decision80.shouldExecute, false);
@@ -189,8 +277,11 @@ describe("Strategy Workers Unit Tests", () => {
     // 90% utilization -> should trigger
     const snapshot90 = {
       ...baseSnapshot,
-      pool: { isFrozenForDraw: 0 } as PrizePool,
-      ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
+      pool: createTestPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: createTestTicketRegistry({
+        userCount: 90,
+        capacity: 100,
+      }),
     };
     const decision90 = sentinel.evaluate(snapshot90);
     assert.strictEqual(decision90.shouldExecute, true);
@@ -199,8 +290,11 @@ describe("Strategy Workers Unit Tests", () => {
     // 90% utilization but pool is frozen -> should NOT trigger
     const snapshotFrozen = {
       ...baseSnapshot,
-      pool: { isFrozenForDraw: 1 } as PrizePool,
-      ticketRegistry: { userCount: 90, capacity: 100 } as TicketRegistry,
+      pool: createTestPrizePool({ isFrozenForDraw: 1 }),
+      ticketRegistry: createTestTicketRegistry({
+        userCount: 90,
+        capacity: 100,
+      }),
     };
     const decisionFrozen = sentinel.evaluate(snapshotFrozen);
     assert.strictEqual(decisionFrozen.shouldExecute, false);
@@ -214,9 +308,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: { tokenMint: mockAddress } as PrizePool,
+      pool: createTestPrizePool({ tokenMint: mockAddress }),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: {} as TicketRegistry,
+      ticketRegistry: createTestTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "IDLE" as const,

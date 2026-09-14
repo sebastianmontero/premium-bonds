@@ -2174,8 +2174,7 @@ fn test_v5_ticket_registry_trailing_bytes_rejected() {
         Pubkey::default(),
         huma_pool_mode_token,
     );
-    assert!(res.is_err(), "Corrupted registry buffer must fail");
-    assert!(res.unwrap_err().contains("InvalidRegistryState"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRegistryState);
 }
 
 // ─── Vector 6: Time & Sysvar Boundaries ────────────────────────────────────
@@ -2297,9 +2296,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     };
 
     // 1. Clock timestamp = 1_700_002_000 (< 1_700_000_000 + 3600 = 1_700_003_600) -> fails with PayoutTimelockActive
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_700_002_000;
-    svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut svm, 1_700_002_000);
 
     let ix = build_reinvest_ix(payout_reg, user_winnings);
     let bh = svm.latest_blockhash();
@@ -2311,9 +2308,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     // 2. Advance clock timestamp to 1_700_003_601 (>= 1_700_003_600) -> succeeds!
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
-    let mut clock2 = solana_sdk::clock::Clock::default();
-    clock2.unix_timestamp = 1_700_003_601;
-    svm.set_sysvar(&clock2);
+    set_clock_timestamp(&mut svm, 1_700_003_601);
 
     let accounts2 = anchor::accounts::ReinvestWinnings {
         crank: crank2.pubkey(),
@@ -2378,8 +2373,7 @@ fn test_v7_sell_bonds_huma_cpi_failure_atomic_rollback() {
         Pubkey::default(),
         huma_pool_mode_token,
     );
-    assert!(res.is_err(), "CPI failure must fail transaction");
-    assert!(res.unwrap_err().contains("SimulatedRedemptionFailure"));
+    assert_error_contains(res, &["SimulatedRedemptionFailure"]);
 
     // Verify all on-chain states were atomically rolled back by the runtime
     let post_pool = read_pool_state(&ctx.svm, 1);

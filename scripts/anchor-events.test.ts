@@ -9,8 +9,20 @@ import {
   fetchClusterGenesisHash,
   resolveEventMetadata,
   parseEventsFromTxMeta,
+  type ParsedProgramEvent,
 } from "../app/lib/anchor-events";
 import { serializeAnchorEvent } from "../app/lib/anchor-event-serializer";
+
+function assertParsedEventType<T extends ParsedProgramEvent["type"]>(
+  event: ParsedProgramEvent,
+  expectedType: T
+): asserts event is Extract<ParsedProgramEvent, { type: T }> {
+  assert.strictEqual(
+    event.type,
+    expectedType,
+    `Event type mismatch: expected ${expectedType}, got ${event.type}`
+  );
+}
 
 // Discriminators: SHA-256("event:<EventName>")[..8]
 const DISCRIMINATORS = {
@@ -541,17 +553,16 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsed = parseEventsFromTxMeta({ logMessages: [log] });
     assert.strictEqual(parsed.length, 1);
-    assert.strictEqual(parsed[0].type, "DrawSkipped");
-    if (parsed[0].type === "DrawSkipped") {
-      assert.strictEqual(parsed[0].data.poolId, 1);
-      assert.strictEqual(parsed[0].data.cycleId, 4);
-      assert.strictEqual(parsed[0].data.crank, dummyPubkeyStr);
-      assert.strictEqual(parsed[0].data.rawYield, 250_000n);
-      assert.strictEqual(parsed[0].data.threshold, 1_000_000n);
-      assert.strictEqual(parsed[0].data.lockedTicketCount, 42);
-      assert.strictEqual(parsed[0].data.reason, 0);
-      assert.strictEqual(parsed[0].data.timestamp, 1700000000n);
-    }
+    const event = parsed[0];
+    assertParsedEventType(event, "DrawSkipped");
+    assert.strictEqual(event.data.poolId, 1);
+    assert.strictEqual(event.data.cycleId, 4);
+    assert.strictEqual(event.data.crank, dummyPubkeyStr);
+    assert.strictEqual(event.data.rawYield, 250_000n);
+    assert.strictEqual(event.data.threshold, 1_000_000n);
+    assert.strictEqual(event.data.lockedTicketCount, 42);
+    assert.strictEqual(event.data.reason, 0);
+    assert.strictEqual(event.data.timestamp, 1700000000n);
   });
 
   it("should roundtrip RandomnessRebound event serialization and deserialization", () => {
@@ -566,18 +577,17 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsed = parseEventsFromTxMeta({ logMessages: [log] });
     assert.strictEqual(parsed.length, 1);
-    assert.strictEqual(parsed[0].type, "RandomnessRebound");
-    if (parsed[0].type === "RandomnessRebound") {
-      assert.strictEqual(parsed[0].data.poolId, 1);
-      assert.strictEqual(parsed[0].data.cycleId, 7);
-      assert.strictEqual(parsed[0].data.crank, dummyPubkeyStr);
-      assert.strictEqual(parsed[0].data.oldRandomnessAccount, dummyPubkeyStr);
-      assert.strictEqual(
-        parsed[0].data.newRandomnessAccount,
-        "22222222222222222222222222222222222222222222"
-      );
-      assert.strictEqual(parsed[0].data.harvestSlot, 5555n);
-    }
+    const event = parsed[0];
+    assertParsedEventType(event, "RandomnessRebound");
+    assert.strictEqual(event.data.poolId, 1);
+    assert.strictEqual(event.data.cycleId, 7);
+    assert.strictEqual(event.data.crank, dummyPubkeyStr);
+    assert.strictEqual(event.data.oldRandomnessAccount, dummyPubkeyStr);
+    assert.strictEqual(
+      event.data.newRandomnessAccount,
+      "22222222222222222222222222222222222222222222"
+    );
+    assert.strictEqual(event.data.harvestSlot, 5555n);
   });
 
   it("should roundtrip EmergencyInsolvencyDetected and YieldVelocityBreached events", () => {
@@ -593,16 +603,15 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedInsolv = parseEventsFromTxMeta({ logMessages: [insolvLog] });
     assert.strictEqual(parsedInsolv.length, 1);
-    assert.strictEqual(parsedInsolv[0].type, "EmergencyInsolvencyDetected");
-    if (parsedInsolv[0].type === "EmergencyInsolvencyDetected") {
-      assert.strictEqual(parsedInsolv[0].data.poolId, 1);
-      assert.strictEqual(parsedInsolv[0].data.cycleId, 2);
-      assert.strictEqual(parsedInsolv[0].data.crank, dummyPubkeyStr);
-      assert.strictEqual(parsedInsolv[0].data.currentValue, 8_000_000n);
-      assert.strictEqual(parsedInsolv[0].data.bookValue, 10_000_000n);
-      assert.strictEqual(parsedInsolv[0].data.deficit, 2_000_000n);
-      assert.strictEqual(parsedInsolv[0].data.lockedTicketCount, 15);
-    }
+    const eventInsolv = parsedInsolv[0];
+    assertParsedEventType(eventInsolv, "EmergencyInsolvencyDetected");
+    assert.strictEqual(eventInsolv.data.poolId, 1);
+    assert.strictEqual(eventInsolv.data.cycleId, 2);
+    assert.strictEqual(eventInsolv.data.crank, dummyPubkeyStr);
+    assert.strictEqual(eventInsolv.data.currentValue, 8_000_000n);
+    assert.strictEqual(eventInsolv.data.bookValue, 10_000_000n);
+    assert.strictEqual(eventInsolv.data.deficit, 2_000_000n);
+    assert.strictEqual(eventInsolv.data.lockedTicketCount, 15);
 
     const spikeLog = serializeAnchorEvent("YieldVelocityBreached", {
       poolId: 1,
@@ -615,15 +624,14 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedSpike = parseEventsFromTxMeta({ logMessages: [spikeLog] });
     assert.strictEqual(parsedSpike.length, 1);
-    assert.strictEqual(parsedSpike[0].type, "YieldVelocityBreached");
-    if (parsedSpike[0].type === "YieldVelocityBreached") {
-      assert.strictEqual(parsedSpike[0].data.poolId, 1);
-      assert.strictEqual(parsedSpike[0].data.cycleId, 3);
-      assert.strictEqual(parsedSpike[0].data.crank, dummyPubkeyStr);
-      assert.strictEqual(parsedSpike[0].data.yieldGenerated, 5_000_000n);
-      assert.strictEqual(parsedSpike[0].data.maxAllowedYield, 500_000n);
-      assert.strictEqual(parsedSpike[0].data.lockedTicketCount, 20);
-    }
+    const eventSpike = parsedSpike[0];
+    assertParsedEventType(eventSpike, "YieldVelocityBreached");
+    assert.strictEqual(eventSpike.data.poolId, 1);
+    assert.strictEqual(eventSpike.data.cycleId, 3);
+    assert.strictEqual(eventSpike.data.crank, dummyPubkeyStr);
+    assert.strictEqual(eventSpike.data.yieldGenerated, 5_000_000n);
+    assert.strictEqual(eventSpike.data.maxAllowedYield, 500_000n);
+    assert.strictEqual(eventSpike.data.lockedTicketCount, 20);
   });
 
   it("should resolve proper metadata scopes for DrawVoided, EmergencyInsolvencyDetected, and YieldVelocityBreached", () => {
@@ -678,14 +686,13 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedNom = parseEventsFromTxMeta({ logMessages: [nomLog] });
     assert.strictEqual(parsedNom.length, 1);
-    assert.strictEqual(parsedNom[0].type, "AdminNominated");
-    if (parsedNom[0].type === "AdminNominated") {
-      assert.strictEqual(parsedNom[0].data.currentAdmin, dummyPubkeyStr);
-      assert.strictEqual(
-        parsedNom[0].data.pendingAdmin,
-        "22222222222222222222222222222222222222222222"
-      );
-    }
+    const eventNom = parsedNom[0];
+    assertParsedEventType(eventNom, "AdminNominated");
+    assert.strictEqual(eventNom.data.currentAdmin, dummyPubkeyStr);
+    assert.strictEqual(
+      eventNom.data.pendingAdmin,
+      "22222222222222222222222222222222222222222222"
+    );
 
     // AdminNominationCancelled
     const cancelLog = serializeAnchorEvent("AdminNominationCancelled", {
@@ -694,14 +701,13 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedCancel = parseEventsFromTxMeta({ logMessages: [cancelLog] });
     assert.strictEqual(parsedCancel.length, 1);
-    assert.strictEqual(parsedCancel[0].type, "AdminNominationCancelled");
-    if (parsedCancel[0].type === "AdminNominationCancelled") {
-      assert.strictEqual(parsedCancel[0].data.currentAdmin, dummyPubkeyStr);
-      assert.strictEqual(
-        parsedCancel[0].data.cancelledPendingAdmin,
-        "22222222222222222222222222222222222222222222"
-      );
-    }
+    const eventCancel = parsedCancel[0];
+    assertParsedEventType(eventCancel, "AdminNominationCancelled");
+    assert.strictEqual(eventCancel.data.currentAdmin, dummyPubkeyStr);
+    assert.strictEqual(
+      eventCancel.data.cancelledPendingAdmin,
+      "22222222222222222222222222222222222222222222"
+    );
 
     // AdminTransferred
     const transLog = serializeAnchorEvent("AdminTransferred", {
@@ -710,14 +716,13 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedTrans = parseEventsFromTxMeta({ logMessages: [transLog] });
     assert.strictEqual(parsedTrans.length, 1);
-    assert.strictEqual(parsedTrans[0].type, "AdminTransferred");
-    if (parsedTrans[0].type === "AdminTransferred") {
-      assert.strictEqual(parsedTrans[0].data.oldAdmin, dummyPubkeyStr);
-      assert.strictEqual(
-        parsedTrans[0].data.newAdmin,
-        "22222222222222222222222222222222222222222222"
-      );
-    }
+    const eventTrans = parsedTrans[0];
+    assertParsedEventType(eventTrans, "AdminTransferred");
+    assert.strictEqual(eventTrans.data.oldAdmin, dummyPubkeyStr);
+    assert.strictEqual(
+      eventTrans.data.newAdmin,
+      "22222222222222222222222222222222222222222222"
+    );
   });
 
   it("should roundtrip PoolCreated with humaPoolState and GlobalConfigUpdated with 5 pubkeys", () => {
@@ -741,16 +746,15 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedPool = parseEventsFromTxMeta({ logMessages: [poolLog] });
     assert.strictEqual(parsedPool.length, 1);
-    assert.strictEqual(parsedPool[0].type, "PoolCreated");
-    if (parsedPool[0].type === "PoolCreated") {
-      assert.strictEqual(parsedPool[0].data.poolId, 1);
-      assert.strictEqual(
-        parsedPool[0].data.humaPoolState,
-        "33333333333333333333333333333333333333333333"
-      );
-      assert.strictEqual(parsedPool[0].data.feeBasisPoints, 500);
-      assert.strictEqual(parsedPool[0].data.tiersCount, 1);
-    }
+    const eventPool = parsedPool[0];
+    assertParsedEventType(eventPool, "PoolCreated");
+    assert.strictEqual(eventPool.data.poolId, 1);
+    assert.strictEqual(
+      eventPool.data.humaPoolState,
+      "33333333333333333333333333333333333333333333"
+    );
+    assert.strictEqual(eventPool.data.feeBasisPoints, 500);
+    assert.strictEqual(eventPool.data.tiersCount, 1);
 
     // GlobalConfigUpdated
     const gcLog = serializeAnchorEvent("GlobalConfigUpdated", {
@@ -762,17 +766,16 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     });
     const parsedGc = parseEventsFromTxMeta({ logMessages: [gcLog] });
     assert.strictEqual(parsedGc.length, 1);
-    assert.strictEqual(parsedGc[0].type, "GlobalConfigUpdated");
-    if (parsedGc[0].type === "GlobalConfigUpdated") {
-      assert.strictEqual(parsedGc[0].data.authority, dummyPubkeyStr);
-      assert.strictEqual(
-        parsedGc[0].data.newGuardian,
-        "44444444444444444444444444444444444444444444"
-      );
-      assert.strictEqual(
-        parsedGc[0].data.newJobsAccount,
-        "55555555555555555555555555555555555555555555"
-      );
-    }
+    const eventGc = parsedGc[0];
+    assertParsedEventType(eventGc, "GlobalConfigUpdated");
+    assert.strictEqual(eventGc.data.authority, dummyPubkeyStr);
+    assert.strictEqual(
+      eventGc.data.newGuardian,
+      "44444444444444444444444444444444444444444444"
+    );
+    assert.strictEqual(
+      eventGc.data.newJobsAccount,
+      "55555555555555555555555555555555555555555555"
+    );
   });
 });

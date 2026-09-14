@@ -18,56 +18,7 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn send_e2e_claim_redemption_for_user(
-    ctx: &mut E2eContext,
-    user: &Keypair,
-    user_token_account: Pubkey,
-    redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
-) -> Result<(), String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let dummy = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_pda_key,
-        pending_redemption,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
-        huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
-}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Security Verification Tests
@@ -1205,19 +1156,15 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // User B tries to claim redemption 1 -> MUST FAIL with NotSettled
-    let err_b = send_e2e_claim_redemption_for_user(
+    let res_b = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_b,
         user_b_usdc,
         1,
         Pubkey::default(),
         huma_lender_state,
-    )
-    .unwrap_err();
-    assert!(
-        err_b.contains("HumaRedemptionNotSettled") || err_b.contains("6034"),
-        "got: {err_b}"
     );
+    assert_custom_error(res_b, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
 
     // User A claims redemption 0 -> SUCCEEDS
     let res_a = send_e2e_claim_redemption_for_user(

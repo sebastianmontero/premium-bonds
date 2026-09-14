@@ -796,9 +796,7 @@ fn test_reveal_fails_stale_randomness_request_expired() {
 
     update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1006;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1006);
 
     let ix = build_reveal_ix(&ctx, 1, 0);
     let bh = ctx.svm.latest_blockhash();
@@ -815,9 +813,7 @@ fn test_reveal_fails_randomness_not_resolved() {
 
     update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 0, [0u8; 32]);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 5;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(5);
 
     let ix = build_reveal_ix(&ctx, 1, 0);
     let bh = ctx.svm.latest_blockhash();
@@ -1354,9 +1350,7 @@ fn test_reveal_freshness_slot_difference_1000_succeeds() {
     update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 1005, [1u8; 32]);
 
     // Set clock to slot 1005 -> 1005 - 5 = 1000 (exact boundary)
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1005;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1005);
 
     let ix = build_reveal_ix(&ctx, 1, 0);
     let bh = ctx.svm.latest_blockhash();

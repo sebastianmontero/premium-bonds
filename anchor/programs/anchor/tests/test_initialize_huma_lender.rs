@@ -72,32 +72,11 @@ fn send_initialize_huma_lender(
     svm: &mut LiteSVM,
     admin: &Keypair,
     ix: Instruction,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
-}
-
-/// Send an `InitializeHumaLender` instruction unsigned by the admin (marked as non-signer).
-fn send_initialize_huma_lender_unsigned(
-    svm: &mut LiteSVM,
-    admin_pubkey: Pubkey,
-    ix: Instruction,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let payer = Keypair::new();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-
-    let mut ix = ix;
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == admin_pubkey {
-            meta.is_signer = false;
-        }
-    }
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    svm.send_transaction(tx)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -153,8 +132,15 @@ fn test_initialize_huma_lender_fails_unsigned_admin() {
         dummy,
     );
 
-    let res = send_initialize_huma_lender_unsigned(&mut ctx.svm, ctx.admin.pubkey(), ix);
-    assert!(res.is_err(), "Must fail when admin is not a signer");
+    assert_signer_required(
+        &mut ctx.svm,
+        ix,
+        0,
+        &ctx.admin.pubkey(),
+        &[],
+        "initialize_huma_lender",
+        "admin",
+    );
 }
 
 #[test]
@@ -180,13 +166,7 @@ fn test_initialize_huma_lender_fails_unauthorized_admin() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &hacker, ix);
-    assert!(res.is_err(), "Must fail with unauthorized admin error");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"),
-        "Expected UnauthorizedAdmin or ConstraintHasOne, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -221,10 +201,7 @@ fn test_initialize_huma_lender_fails_wrong_global_config_pda() {
     }
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when wrong global config PDA is supplied"
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
 #[test]
@@ -256,7 +233,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
     }
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail when wrong pool PDA is supplied");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -302,10 +279,7 @@ fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when vault_authority_bump does not match derivation bump"
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -337,10 +311,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
     }
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when wrong pool PST vault PDA is supplied"
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -368,16 +339,7 @@ fn test_initialize_huma_lender_fails_invalid_huma_program() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when wrong huma_program address is supplied"
-    );
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("ConstraintAddress") || err_str.contains("Raw"),
-        "Expected ConstraintAddress error, got: {}",
-        err_str
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -405,10 +367,7 @@ fn test_initialize_huma_lender_fails_invalid_pst_token_program() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when wrong pst_token_program is supplied"
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::InvalidProgramId);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -436,15 +395,7 @@ fn test_initialize_huma_lender_fails_huma_cpi_error() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with simulated Huma CPI error");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("SimulatedCreateLenderFailure")
-            || err_str.contains("6003")
-            || err_str.contains("0x1773"),
-        "Expected SimulatedCreateLenderFailure error (6003 or 0x1773), got: {}",
-        err_str
-    );
+    assert_error_contains(res, &["SimulatedCreateLenderFailure"]);
 }
 
 /// INV-INIT-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.
@@ -469,13 +420,5 @@ fn test_initialize_huma_lender_fails_invalid_mode_mint() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with invalid mode mint");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("InvalidModeMint")
-            || err_str.contains("ConstraintAddress")
-            || err_str.contains("6056"),
-        "Expected InvalidModeMint (6056) or ConstraintAddress, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }

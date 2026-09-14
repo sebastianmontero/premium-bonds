@@ -519,9 +519,7 @@ fn test_update_pool_config_duration_advances_on_next_harvest() {
     }
 
     // Set clock to 50_000 (mid-cycle) and update duration to 168 hours
-    let mut clock = Clock::default();
-    clock.unix_timestamp = 50_000;
-    svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut svm, 50_000);
 
     let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(168));
 

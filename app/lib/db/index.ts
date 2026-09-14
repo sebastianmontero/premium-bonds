@@ -62,6 +62,10 @@ export function getPoolConfig(connStr: string): PoolConfig {
   };
 }
 
+export function createUnconfiguredPool(): Pool {
+  return createUnconfiguredPoolProxy();
+}
+
 function createUnconfiguredPoolProxy(): Pool {
   const target = {} as Pool;
   const proxy = new Proxy(target, {

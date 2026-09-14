@@ -21,80 +21,7 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-// ─── E2E CPI Helpers ─────────────────────────────────────────────────────────
 
-fn send_e2e_claim_redemption_for_user(
-    ctx: &mut E2eContext,
-    user: &Keypair,
-    user_token_account: Pubkey,
-    redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    send_e2e_claim_redemption_full(
-        ctx,
-        user,
-        user.pubkey(),
-        user_token_account,
-        redemption_id,
-        huma_config,
-        huma_lender_state,
-    )
-}
-
-fn send_e2e_claim_redemption_full(
-    ctx: &mut E2eContext,
-    caller: &Keypair,
-    beneficiary: Pubkey,
-    beneficiary_token_account: Pubkey,
-    redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let dummy = Keypair::new().pubkey();
-    let huma_lender_state = if huma_lender_state == Pubkey::default() {
-        Keypair::new().pubkey()
-    } else {
-        huma_lender_state
-    };
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: caller.pubkey(),
-        beneficiary,
-        pool: pool_pda_key,
-        pending_redemption,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account,
-        huma_program: huma_program_id(),
-        huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&caller.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
-}
 
 // ─── Guard Test Setup ────────────────────────────────────────────────────────
 
@@ -424,8 +351,7 @@ fn test_claim_redemption_fails_insufficient_settled_amount() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("HumaRedemptionNotSettled"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
 
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -480,8 +406,7 @@ fn test_claim_redemption_fails_simulated_disburse_failure() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("SimulatedDisburseFailure"));
+    assert_error_contains(res, &["SimulatedDisburseFailure"]);
 
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -1003,7 +928,7 @@ fn test_claim_redemption_fails_diverted_token_account() {
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
-    let err = send_e2e_claim_redemption_full(
+    let res = send_e2e_claim_redemption_full(
         &mut ctx,
         &crank,
         user_a.pubkey(),
@@ -1011,13 +936,9 @@ fn test_claim_redemption_fails_diverted_token_account() {
         0,
         Pubkey::default(),
         huma_lender_state,
-    )
-    .unwrap_err();
-
-    assert!(
-        err.contains("ConstraintTokenOwner") || err.contains("ConstraintRaw"),
-        "Expected token owner constraint failure when diverting USDC, got: {err}"
     );
+
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenOwner);
 }
 
 #[test]
@@ -1081,22 +1002,23 @@ fn test_claim_redemption_fails_on_double_claim() {
 
     // Second claim fails because the account is already closed and cannot be re-executed
     ctx.svm.expire_blockhash();
-    let err = send_e2e_claim_redemption_for_user(
+    let res = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
         0,
         Pubkey::default(),
         huma_lender_state,
-    )
-    .unwrap_err();
-    assert!(
-        err.contains("AccountNotInitialized")
-            || err.contains("AccountNotFound")
-            || err.contains("ConstraintOwner")
-            || err.contains("3012")
-            || err.contains("2003"),
-        "Expected account closed/not initialized failure on second claim, got: {err}"
+    );
+    assert_error_contains(
+        res,
+        &[
+            "AccountNotInitialized",
+            "AccountNotFound",
+            "ConstraintOwner",
+            "3012",
+            "2003",
+        ],
     );
 }
 
@@ -1145,17 +1067,16 @@ fn test_claim_redemption_fails_pending_redemptions_underflow() {
         p.total_pending_redemptions = 1_000_000;
     });
 
-    let err = send_e2e_claim_redemption_for_user(
+    let res = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
         user_a_usdc,
         0,
         Pubkey::default(),
         huma_lender_state,
-    )
-    .unwrap_err();
+    );
 
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]

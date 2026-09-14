@@ -15,33 +15,7 @@ use solana_sdk::{
 use solana_transaction::versioned::VersionedTransaction;
 
 mod common;
-
-const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
-const PAYOUT_SEED: &[u8] = b"payout";
-
-fn pool_pda(id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[PRIZE_POOL_SEED, id.to_le_bytes().as_ref()], &anchor::id())
-}
-fn payout_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PAYOUT_SEED,
-            pool_id.to_le_bytes().as_ref(),
-            cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"user_winnings",
-            pool_id.to_le_bytes().as_ref(),
-            user.as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
+use common::*;
 
 // ─── Account injection helpers ───────────────────────────────────────────────
 
@@ -145,7 +119,7 @@ fn send(
     ctx: &mut Ctx,
     cycle_id: u32,
     winner_index: u32,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let (pool, _) = pool_pda(1);
     let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
     let (payout_registry, _) = payout_pda(1, cycle_id);
@@ -176,7 +150,7 @@ fn send(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
@@ -281,11 +255,8 @@ fn test_reinvest_fails_wrong_winner() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidWinnerIndex") || err.contains("WinnerMismatch"),
-        "got: {err}"
-    );
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::WinnerMismatch);
 }
 
 #[test]
@@ -298,15 +269,15 @@ fn test_reinvest_fails_already_paid() {
         0,
         vec![w(ctx.winner, 3_000_000, 0, 0, true)],
     );
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("AlreadyClaimed"), "got: {err}");
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AlreadyClaimed);
 }
 
 #[test]
 fn test_reinvest_fails_winner_index_out_of_bounds() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
-    let err = send(&mut ctx, 0, 1).unwrap_err();
-    assert!(err.contains("InvalidWinnerIndex"), "got: {err}");
+    let res = send(&mut ctx, 0, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidWinnerIndex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -318,28 +289,40 @@ fn test_reinvest_single_batch_full() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
     let meta = send(&mut ctx, 0, 0).expect("reinvest");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 3);
-    assert_eq!(event.amount_reinvested, 3_000_000);
-    assert_eq!(event.new_total_deposited_principal, 3_000_000);
-    assert_eq!(event.remaining_unclaimed_winnings, 0);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "Event winner mismatch");
+    assert_eq!(event.pool_id, 1, "Event pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "Event cycle_id mismatch");
+    assert_eq!(event.winner_index, 0, "Event winner_index mismatch");
+    assert_eq!(
+        event.bonds_bought, 3,
+        "Event bonds_bought must reflect floor(amount_owed / bond_price)"
+    );
+    assert_eq!(
+        event.amount_reinvested, 3_000_000,
+        "Event amount_reinvested must match bonds_bought * bond_price"
+    );
+    assert_eq!(
+        event.new_total_deposited_principal, 3_000_000,
+        "Event new_total_deposited_principal mismatch"
+    );
+    assert_eq!(
+        event.remaining_unclaimed_winnings, 0,
+        "Event remaining_unclaimed_winnings must be 0 for exact bond multiple"
+    );
+    assert_eq!(event.crank, ctx.crank.pubkey(), "Event crank pubkey mismatch");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners = read_winners(&ctx.svm, 0);
-    assert_eq!(winners[0].processed, 1);
-    assert_eq!(winners[0].bonds_bought, 3);
-    assert_eq!(pr.payouts_completed, 1);
+    assert_eq!(winners[0].processed, 1, "Winner processed flag must be set to 1");
+    assert_eq!(winners[0].bonds_bought, 3, "Winner bonds_bought in payout registry must be 3");
+    assert_eq!(pr.payouts_completed, 1, "Payouts completed count must increment to 1");
 
     let pool = read_pool(&ctx.svm);
-    assert_eq!(pool.total_deposited_principal, 3_000_000);
+    assert_eq!(pool.total_deposited_principal, 3_000_000, "Pool principal must increase by reinvested amount");
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
-    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
-    assert_eq!(uw.total_reinvested, 3_000_000);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0, "User unclaimed dust must remain 0");
+    assert_eq!(uw.total_reinvested, 3_000_000, "User total_reinvested must record 3 USDC");
 }
 
 #[test]
@@ -432,15 +415,15 @@ fn test_reinvest_dust_only_no_bonds() {
 #[test]
 fn test_reinvest_fails_pool_paused() {
     let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000, 0);
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("PoolPaused"), "got: {err}");
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolPaused);
 }
 
 #[test]
 fn test_reinvest_fails_pool_frozen() {
     let mut ctx = setup(anchor::PoolStatus::Active, true, 1_000_000, 3_000_000, 0);
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("AwaitingRandomnessFreeze"), "got: {err}");
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 /// Test that a user can reinvest using both their current draw winnings and their accumulated dust.
@@ -478,8 +461,8 @@ fn test_reinvest_fails_total_reinvested_overflow() {
 
     // Reinvest: total available = 1M (current winnings).
     // This allows buying 1 bond costing 1M, but updating total_reinvested will overflow (u64::MAX + 1M)
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -518,8 +501,8 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
         vec![w(ctx.winner, 3_000_000, 0, 0, false)],
     );
 
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("InvalidUserEntryHint"), "got: {err}");
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
@@ -808,9 +791,7 @@ fn test_reinvest_fails_payout_timelock_active() {
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
     // Current clock is 1_200 (timelock active until 1_000 + 300 = 1_300)
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_200;
-    svm.set_sysvar(&clock);
+    common::set_clock_timestamp(&mut svm, 1_200);
 
     let mut ctx = Ctx {
         svm,
@@ -818,12 +799,10 @@ fn test_reinvest_fails_payout_timelock_active() {
         winner,
         registry: reg,
     };
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("PayoutTimelockActive"), "got: {err}");
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
 
     // Advance clock to 1_300 (timelock elapsed)
-    clock.unix_timestamp = 1_300;
-    ctx.svm.set_sysvar(&clock);
+    common::set_clock_timestamp(&mut ctx.svm, 1_300);
     let crank2 = Keypair::new();
     ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
     ctx.crank = crank2;
@@ -850,8 +829,7 @@ fn test_reinvest_fails_draw_voided() {
         ctx.svm.set_account(pda, acc).unwrap();
     }
 
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("DrawVoided"), "got: {err}");
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::DrawVoided);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -954,8 +932,7 @@ fn test_reinvest_closed_pool_exited_user() {
 #[test]
 fn test_reinvest_closed_pool_fails_when_frozen() {
     let mut ctx = setup(anchor::PoolStatus::Closed, true, 1_000_000, 3_000_000, 0);
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("AwaitingRandomnessFreeze"), "got: {err}");
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -1009,9 +986,7 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
 
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_200; // within 300s timelock (1_000 + 300 = 1_300)
-    svm.set_sysvar(&clock);
+    common::set_clock_timestamp(&mut svm, 1_200); // within 300s timelock (1_000 + 300 = 1_300)
 
     let mut ctx = Ctx {
         svm,
@@ -1019,12 +994,10 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
         winner,
         registry: reg,
     };
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("PayoutTimelockActive"), "got: {err}");
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
 
     // Advance clock past timelock
-    clock.unix_timestamp = 1_300;
-    ctx.svm.set_sysvar(&clock);
+    common::set_clock_timestamp(&mut ctx.svm, 1_300);
     let crank2 = Keypair::new();
     ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
     ctx.crank = crank2;
@@ -1248,11 +1221,7 @@ fn test_reinvest_fails_if_already_processed_zero_prize() {
 
     ctx.svm.expire_blockhash();
 
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(
-        err.contains("AlreadyClaimed") || err.contains("6012"),
-        "got: {err}"
-    );
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::AlreadyClaimed);
 }
 
 #[test]
@@ -1266,8 +1235,7 @@ fn test_reinvest_fails_pool_principal_overflow() {
         pool.bond_price = 1;
     });
 
-    let err = send(&mut ctx, 0, 0).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -1440,9 +1408,7 @@ fn test_reinvest_exact_timelock_boundaries() {
 
         common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-        let mut clock = solana_sdk::clock::Clock::default();
-        clock.unix_timestamp = clock_ts;
-        svm.set_sysvar(&clock);
+        common::set_clock_timestamp(&mut svm, clock_ts);
 
         (
             Ctx {
@@ -1458,11 +1424,7 @@ fn test_reinvest_exact_timelock_boundaries() {
     // Boundary 1: revealed_at (1000) + timelock (300) - 1 = 1299 -> fails with PayoutTimelockActive
     {
         let (mut ctx, _) = setup_timelock_test(1299);
-        let err = send(&mut ctx, 0, 0).unwrap_err();
-        assert!(
-            err.contains("PayoutTimelockActive"),
-            "Expected PayoutTimelockActive at 1299, got: {err}"
-        );
+        assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
     }
 
     // Boundary 2: revealed_at (1000) + timelock (300) = 1300 -> succeeds

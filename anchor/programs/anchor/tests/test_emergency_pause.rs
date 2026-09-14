@@ -105,7 +105,7 @@ fn test_unauthorized_signer_cannot_pause_pool() {
     svm.airdrop(&attacker.pubkey(), 10_000_000_000).unwrap();
 
     let res = send_pause_pool(&mut svm, &attacker, 1);
-    assert!(res.is_err(), "Attacker must not be able to pause pool");
+    assert_custom_error(res, anchor::error::PremiumBondsError::Unauthorized);
     assert_eq!(
         read_pool_status(&svm, &pool_pda),
         anchor::PoolStatus::Active as u8
@@ -138,10 +138,7 @@ fn test_guardian_cannot_unpause_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Paused);
 
     let res = send_unpause_pool(&mut svm, &guardian, 1);
-    assert!(
-        res.is_err(),
-        "Guardian must not be authorized to unpause pool"
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
     assert_eq!(
         read_pool_status(&svm, &pool_pda),
         anchor::PoolStatus::Paused as u8
@@ -173,10 +170,7 @@ fn test_guardian_cannot_close_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let res = send_close_pool(&mut svm, &guardian, 1);
-    assert!(
-        res.is_err(),
-        "Guardian must not be authorized to permanently close pool"
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
     assert_eq!(
         read_pool_status(&svm, &pool_pda),
         anchor::PoolStatus::Active as u8
@@ -188,10 +182,10 @@ fn test_cannot_pause_closed_pool() {
     let (mut svm, admin, guardian, pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
-    assert!(res_guardian.is_err(), "Cannot pause a closed pool");
+    assert_custom_error(res_guardian, anchor::error::PremiumBondsError::PoolClosed);
 
     let res_admin = send_pause_pool(&mut svm, &admin, 1);
-    assert!(res_admin.is_err(), "Admin cannot pause a closed pool");
+    assert_custom_error(res_admin, anchor::error::PremiumBondsError::PoolClosed);
 
     assert_eq!(
         read_pool_status(&svm, &pool_pda),
@@ -205,7 +199,7 @@ fn test_cannot_unpause_active_or_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let res_active = send_unpause_pool(&mut svm, &admin, 1);
-    assert!(res_active.is_err(), "Cannot unpause an already active pool");
+    assert_custom_error(res_active, anchor::error::PremiumBondsError::PoolNotActive);
 
     let pool_closed_pda = inject_pool(
         &mut svm,
@@ -217,10 +211,7 @@ fn test_cannot_unpause_active_or_closed_pool() {
     );
 
     let res_closed = send_unpause_pool(&mut svm, &admin, 2);
-    assert!(
-        res_closed.is_err(),
-        "Cannot unpause a permanently closed pool"
-    );
+    assert_custom_error(res_closed, anchor::error::PremiumBondsError::PoolNotActive);
     assert_eq!(
         read_pool_status(&svm, &pool_closed_pda),
         anchor::PoolStatus::Closed as u8
@@ -269,7 +260,7 @@ fn test_cannot_close_already_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res = send_close_pool(&mut svm, &admin, 1);
-    assert!(res.is_err(), "Cannot close an already closed pool");
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolClosed);
     assert_eq!(
         read_pool_status(&svm, &pool_pda),
         anchor::PoolStatus::Closed as u8

@@ -1,12 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { address } from "@solana/kit";
+import { address, AccountRole } from "@solana/kit";
 import {
   buildBuyBondsInstruction,
   buildClaimRedemptionInstruction,
   buildReinvestWinningsInstruction,
   buildClaimNonReinvestedWinningsInstruction,
 } from "../bonds-instruction-factory";
+
+const BUY_BONDS_HUMA_POOL_STATE_INDEX = 11;
+const BUY_BONDS_HUMA_POOL_AUTHORITY_INDEX = 14;
 
 test("bonds-instruction-factory: builds buy bonds instruction with all derived accounts", async () => {
   const dummyUser = address("11111111111111111111111111111111");
@@ -25,7 +28,7 @@ test("bonds-instruction-factory: builds buy bonds instruction with all derived a
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 21);
   assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
   assert.ok(ix.data && ix.data.length > 8);
 });
 
@@ -50,8 +53,14 @@ test("bonds-instruction-factory: derives humaPoolAuthority dynamically from cust
 
   assert.ok(ix);
   assert.ok(ix.accounts);
-  assert.equal(ix.accounts[11].address, customHumaPoolState);
-  assert.equal(ix.accounts[14].address, expectedHumaAuthority);
+  assert.equal(
+    ix.accounts[BUY_BONDS_HUMA_POOL_STATE_INDEX].address,
+    customHumaPoolState
+  );
+  assert.equal(
+    ix.accounts[BUY_BONDS_HUMA_POOL_AUTHORITY_INDEX].address,
+    expectedHumaAuthority
+  );
 });
 
 test("bonds-instruction-factory: builds claim redemption instruction", async () => {
@@ -69,7 +78,7 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 19);
   assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for self", async () => {
@@ -88,7 +97,7 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for self",
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 9);
   assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for third-party crank", async () => {
@@ -109,7 +118,7 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for third-
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 9);
   assert.equal(ix.accounts[0].address, dummyCrank);
-  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
 });
 
 test("bonds-instruction-factory: builds claim non-reinvested winnings instruction", async () => {
@@ -126,7 +135,7 @@ test("bonds-instruction-factory: builds claim non-reinvested winnings instructio
   assert.ok(ix.accounts);
   assert.equal(ix.accounts.length, 20);
   assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, 3); // AccountRole.WRITABLE_SIGNER
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
 });
 
 test("bonds-instruction-factory: builds sell bonds instruction with positional remaining accounts on full exit", async () => {

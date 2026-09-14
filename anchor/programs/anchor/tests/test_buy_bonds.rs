@@ -572,12 +572,8 @@ fn test_buy_bonds_fails_registry_full() {
         &ctx.usdc_mint_authority,
         100_000_000,
     );
-    let err = send_e2e_buy_bonds_for_user(&mut ctx, &user3, user3_usdc, 1, Pubkey::default())
-        .unwrap_err();
-    assert!(
-        err.contains("RegistryFull"),
-        "Expected RegistryFull, got: {err}"
-    );
+    let res = send_e2e_buy_bonds_for_user(&mut ctx, &user3, user3_usdc, 1, Pubkey::default());
+    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
 }
 
 /// Passing a ticket registry account that doesn't match pool.ticket_registry must fail.
@@ -745,21 +741,16 @@ fn test_buy_bonds_fails_insufficient_user_balance() {
         &poor_user.pubkey(),
     );
 
-    // Try to buy 1 bond (costs 1 USDC = 1_000_000 lamports)
-    let err = send_e2e_buy_bonds_for_user(
+    let res = send_e2e_buy_bonds_for_user(
         &mut ctx,
         &poor_user,
         poor_user_token_account,
         1,
         Pubkey::default(),
-    )
-    .unwrap_err();
-
-    assert!(
-        err.contains("InsufficientFunds")
-            || err.contains("0x1")
-            || err.contains("InstructionError"),
-        "Expected token transfer failure due to insufficient funds, got: {err}"
+    );
+    assert_token_error(
+        res,
+        anchor_spl::token::spl_token::error::TokenError::InsufficientFunds,
     );
 }
 
@@ -775,13 +766,8 @@ fn test_buy_bonds_fails_huma_deposit_error() {
 
     // Try to buy 1 bond using the FAIL_DEPOSIT_PUBKEY as huma_config.
     let user_usdc = ctx.user_usdc_account;
-    let err = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, FAIL_DEPOSIT_PUBKEY)
-        .unwrap_err();
-
-    assert!(
-        err.contains("SimulatedDepositFailure") || err.contains("6000") || err.contains("0x1770"),
-        "Expected SimulatedDepositFailure (6000 or 0x1770), got: {err}"
-    );
+    let res = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, FAIL_DEPOSIT_PUBKEY);
+    assert_error_contains(res, &["SimulatedDepositFailure", "6000", "0x1770"]);
 }
 
 /// E2E test verifying that buying bonds initializes the `UserWinnings` account correctly.
@@ -836,12 +822,8 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, user.pubkey(), 0, 0, 0, 0);
 
     let user_usdc = ctx.user_usdc_account;
-    let err =
-        send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, Pubkey::default()).unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, Pubkey::default());
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
@@ -850,11 +832,8 @@ fn test_buy_bonds_fails_math_overflow() {
     // Inject registry with u32::MAX pending tickets to trigger overflow on addition
     common::inject_registry(&mut ctx.svm, ctx.ticket_registry, 1, 1000, 0, u32::MAX);
 
-    let err = send_e2e_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("MathOverflow") || err.contains("0x177c"),
-        "Expected MathOverflow, got: {err}"
-    );
+    let res = send_e2e_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 /// An existing user with an assigned registry entry can buy more bonds even when user_count == capacity.

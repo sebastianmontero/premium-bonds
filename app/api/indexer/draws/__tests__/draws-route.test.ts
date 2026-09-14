@@ -26,15 +26,11 @@ describe("GET /api/indexer/draws Route Handler", () => {
     assert.strictEqual(json.success, true);
     assert.strictEqual(json.fallbackRequired, false);
 
-    if (json.aggregates !== null) {
-      assert.strictEqual(
-        typeof json.aggregates.totalYieldDistributed,
-        "number"
-      );
-      assert.strictEqual(typeof json.aggregates.totalDrawsCompleted, "number");
-      assert.strictEqual(typeof json.aggregates.totalWinningBonds, "number");
-      assert.strictEqual(typeof json.aggregates.averagePrizePot, "number");
-    }
+    assert.ok(json.aggregates !== null, "aggregates should not be null");
+    assert.strictEqual(typeof json.aggregates.totalYieldDistributed, "number");
+    assert.strictEqual(typeof json.aggregates.totalDrawsCompleted, "number");
+    assert.strictEqual(typeof json.aggregates.totalWinningBonds, "number");
+    assert.strictEqual(typeof json.aggregates.averagePrizePot, "number");
   });
 
   it("should reject limit parameter exceeding max allowed bounds of 100 with 400 Bad Request", async () => {

@@ -62,10 +62,10 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       "Formatted string output must be 100% identical"
     );
 
-    // Theoretical check: 1M USDC * DEFAULT_APY * 60s / 31557600s
-    const expectedYield = (1_000_000 * DEFAULT_APY * 60) / SECONDS_PER_YEAR;
+    // Theoretical check: 1M USDC * 8.5% APY * 60s / 31,557,600s = ~0.161609 USDC
+    const EXPECTED_YIELD_60S = 0.16160924785154766;
     assert.ok(
-      Math.abs(poolCardVal - (10_000 + expectedYield)) < 1e-9,
+      Math.abs(poolCardVal - (10_000 + EXPECTED_YIELD_60S)) < 1e-9,
       "Calculated yield must match financial formula"
     );
   });
@@ -94,9 +94,9 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       nowInSeconds: syncTime + 120,
     });
 
-    const expected120s = 5_000 + (500_000 * 0.08 * 120) / SECONDS_PER_YEAR;
+    const EXPECTED_120S = 5000.152102821507;
     assert.ok(
-      Math.abs(valAtModalOpen - expected120s) < 1e-9,
+      Math.abs(valAtModalOpen - EXPECTED_120S) < 1e-9,
       "Modal mounted at T+120s must calculate full 120s elapsed yield without resetting"
     );
   });
@@ -234,9 +234,9 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       "Pot must continue accruing smoothly while tab was backgrounded"
     );
 
-    const expected310s = 1_000 + (100_000 * 0.08 * 310) / SECONDS_PER_YEAR;
+    const EXPECTED_310S = 1000.0785864577788;
     assert.ok(
-      Math.abs(valAfterReturn - expected310s) < 1e-9,
+      Math.abs(valAfterReturn - EXPECTED_310S) < 1e-9,
       "Elapsed yield after tab focus must match true elapsed wall-clock time"
     );
   });
@@ -258,9 +258,9 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       nowInSeconds: newSyncTime + 10,
     });
 
-    const expectedNew = 1_200 + (200_000 * 0.08 * 10) / SECONDS_PER_YEAR;
+    const EXPECTED_NEW = 1200.0050700940502;
     assert.ok(
-      Math.abs(valAfterRefetch - expectedNew) < 1e-9,
+      Math.abs(valAfterRefetch - EXPECTED_NEW) < 1e-9,
       "Refetch must atomically reset baseline to newBaseUi and accumulate strictly from newSyncTime"
     );
   });
@@ -297,11 +297,10 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       nowInSeconds: syncTime + 100,
     });
 
-    const netApy = apy * (1 - 0.025);
-    const expectedYield = (1_000_000 * netApy * 100) / SECONDS_PER_YEAR;
+    const EXPECTED_WITH_FEE = 1000.2626150277587;
 
     assert.ok(
-      Math.abs(valWithFee - (1_000 + expectedYield)) < 1e-9,
+      Math.abs(valWithFee - EXPECTED_WITH_FEE) < 1e-9,
       "Live yield calculation must accurately deduct protocol reserve fee"
     );
   });
@@ -460,10 +459,9 @@ describe("Live Yield Ticker Synchronization Suite", () => {
       100,
       (live.netYieldUi / breakdown.net.targetUi) * 100
     );
-    const expectedNetYield =
-      4_875 + (1_000_000 * (0.085 * (1 - 0.025)) * 3600) / SECONDS_PER_YEAR;
+    const EXPECTED_NET_YIELD = 4884.454140999316;
     assert.ok(
-      Math.abs(live.netYieldUi - expectedNetYield) < 1e-6,
+      Math.abs(live.netYieldUi - EXPECTED_NET_YIELD) < 1e-6,
       "Live net yield must match 1-hour accrual formula"
     );
     assert.ok(

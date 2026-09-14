@@ -758,6 +758,604 @@ pub fn assert_error_contains(
     );
 }
 
+pub fn set_clock_timestamp(svm: &mut LiteSVM, unix_timestamp: i64) {
+    let mut clock: solana_sdk::clock::Clock = svm.get_sysvar();
+    clock.unix_timestamp = unix_timestamp;
+    svm.set_sysvar(&clock);
+}
+
+// ─── Fluent Account Test Data Builders ──────────────────────────────────────
+
+pub struct WinnerTestBuilder {
+    winner: anchor::Winner,
+}
+
+impl WinnerTestBuilder {
+    pub fn new() -> Self {
+        Self {
+            winner: anchor::Winner {
+                winner: Pubkey::default(),
+                amount_owed: 0,
+                bonds_bought: 0,
+                processed: 0,
+                tier_index: 0,
+                version: anchor::Winner::CURRENT_VERSION,
+                _padding: [0; 1],
+                _reserved: [0; 8],
+            },
+        }
+    }
+
+    pub fn with_winner(mut self, winner: Pubkey) -> Self {
+        self.winner.winner = winner;
+        self
+    }
+
+    pub fn with_amount_owed(mut self, amount_owed: u64) -> Self {
+        self.winner.amount_owed = amount_owed;
+        self
+    }
+
+    pub fn with_bonds_bought(mut self, bonds_bought: u32) -> Self {
+        self.winner.bonds_bought = bonds_bought;
+        self
+    }
+
+    pub fn with_processed(mut self, processed: bool) -> Self {
+        self.winner.processed = if processed { 1 } else { 0 };
+        self
+    }
+
+    pub fn with_tier_index(mut self, tier_index: u8) -> Self {
+        self.winner.tier_index = tier_index;
+        self
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.winner.version = version;
+        self
+    }
+
+    pub fn build(self) -> anchor::Winner {
+        self.winner
+    }
+}
+
+pub struct UserEntryTestBuilder {
+    entry: anchor::state::UserEntry,
+}
+
+impl UserEntryTestBuilder {
+    pub fn new() -> Self {
+        Self {
+            entry: anchor::state::UserEntry {
+                owner: Pubkey::default(),
+                active: 0,
+                pending: 0,
+                merged_through_cycle: 0,
+                cumulative_active: 0,
+                version: anchor::state::UserEntry::CURRENT_VERSION,
+                _padding: [0; 3],
+                _reserved: [0; 12],
+            },
+        }
+    }
+
+    pub fn with_owner(mut self, owner: Pubkey) -> Self {
+        self.entry.owner = owner;
+        self
+    }
+
+    pub fn with_active(mut self, active: u32) -> Self {
+        self.entry.active = active;
+        self
+    }
+
+    pub fn with_pending(mut self, pending: u32) -> Self {
+        self.entry.pending = pending;
+        self
+    }
+
+    pub fn with_cumulative_active(mut self, cumulative_active: u32) -> Self {
+        self.entry.cumulative_active = cumulative_active;
+        self
+    }
+
+    pub fn with_merged_through_cycle(mut self, merged_through_cycle: u32) -> Self {
+        self.entry.merged_through_cycle = merged_through_cycle;
+        self
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.entry.version = version;
+        self
+    }
+
+    pub fn build(self) -> anchor::state::UserEntry {
+        self.entry
+    }
+}
+
+pub struct PrizePoolTestBuilder {
+    pool: anchor::PrizePool,
+}
+
+impl PrizePoolTestBuilder {
+    pub fn new(pool_id: u32) -> Self {
+        let (_, bump) = pool_pda(pool_id);
+        Self {
+            pool: anchor::PrizePool {
+                bond_price: 1_000_000,
+                stake_cycle_duration_hrs: 24,
+                min_yield_threshold: 0,
+                total_deposited_principal: 0,
+                current_cycle_end_at: 0,
+                next_redemption_id: 0,
+                total_fees_accrued: 0,
+                total_fees_withdrawn: 0,
+                total_prizes_allocated: 0,
+                total_pending_redemptions: 0,
+                pool_id,
+                current_draw_cycle_id: 1,
+                fee_basis_points: 100,
+                max_yield_basis_points: 0,
+                payout_timelock_seconds: 0,
+                vault_authority_bump: bump,
+                status: anchor::PoolStatus::Active as u8,
+                is_frozen_for_draw: 0,
+                version: anchor::PrizePool::CURRENT_VERSION,
+                prize_tiers_count: 0,
+                _padding: [0; 3],
+                token_mint: Pubkey::default(),
+                ticket_registry: Pubkey::default(),
+                fee_wallet: Pubkey::default(),
+                huma_pool_state: Pubkey::default(),
+                prize_tiers: [anchor::PrizeTier {
+                    num_winners: 0,
+                    basis_points: 0,
+                    _padding: [0, 0],
+                }; 10],
+                _reserved: [0; 128],
+            },
+        }
+    }
+
+    pub fn with_pool_id(mut self, pool_id: u32) -> Self {
+        self.pool.pool_id = pool_id;
+        let (_, bump) = pool_pda(pool_id);
+        self.pool.vault_authority_bump = bump;
+        self
+    }
+
+    pub fn with_status(mut self, status: anchor::PoolStatus) -> Self {
+        self.pool.status = status as u8;
+        self
+    }
+
+    pub fn with_principal(mut self, principal: u64) -> Self {
+        self.pool.total_deposited_principal = principal;
+        self
+    }
+
+    pub fn with_ticket_registry(mut self, ticket_registry: Pubkey) -> Self {
+        self.pool.ticket_registry = ticket_registry;
+        self
+    }
+
+    pub fn with_token_mint(mut self, token_mint: Pubkey) -> Self {
+        self.pool.token_mint = token_mint;
+        self
+    }
+
+    pub fn with_prizes_allocated(mut self, total_prizes_allocated: u64) -> Self {
+        self.pool.total_prizes_allocated = total_prizes_allocated;
+        self
+    }
+
+    pub fn with_current_draw_cycle_id(mut self, cycle_id: u32) -> Self {
+        self.pool.current_draw_cycle_id = cycle_id;
+        self
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.pool.version = version;
+        self
+    }
+
+    pub fn build(self) -> anchor::PrizePool {
+        self.pool
+    }
+}
+
+// ─── Instruction Account Builders ───────────────────────────────────────────
+
+pub struct BuyBondsAccountsBuilder {
+    pub user: Pubkey,
+    pub user_winnings: Pubkey,
+    pub pool: Pubkey,
+    pub ticket_registry: Pubkey,
+    pub user_token_account: Pubkey,
+    pub token_mint: Pubkey,
+    pub pool_vault_account: Pubkey,
+    pub pool_pst_vault: Pubkey,
+    pub huma_program: Pubkey,
+    pub huma_config: Pubkey,
+    pub huma_pool_config: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub huma_mode_config: Pubkey,
+    pub huma_mode_mint: Pubkey,
+    pub huma_pool_authority: Pubkey,
+    pub huma_pool_underlying_token: Pubkey,
+    pub token_program: Pubkey,
+    pub pst_token_program: Pubkey,
+    pub system_program: Pubkey,
+    pub event_authority: Pubkey,
+    pub program: Pubkey,
+}
+
+impl BuyBondsAccountsBuilder {
+    pub fn new(ctx: &E2eContext, user: &Pubkey, user_token_account: Pubkey) -> Self {
+        let (pool, _) = pool_pda(1);
+        let (pool_vault, _) = pool_vault_pda(1);
+        let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+        let (user_winnings, _) = user_winnings_pda(1, user);
+
+        Self {
+            user: *user,
+            user_winnings,
+            pool,
+            ticket_registry: ctx.ticket_registry,
+            user_token_account,
+            token_mint: ctx.usdc_mint,
+            pool_vault_account: pool_vault,
+            pool_pst_vault,
+            huma_program: huma_program_id(),
+            huma_config: Pubkey::default(),
+            huma_pool_config: Pubkey::default(),
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: Pubkey::default(),
+            huma_mode_mint: ctx.pst_mint,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+    }
+
+    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
+        self.huma_config = huma_config;
+        self
+    }
+
+    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
+        self.huma_pool_state = huma_pool_state;
+        self
+    }
+
+    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
+        self.huma_mode_mint = huma_mode_mint;
+        self
+    }
+
+    pub fn to_account_metas(self) -> Vec<AccountMeta> {
+        anchor::accounts::BuyBonds {
+            user: self.user,
+            user_winnings: self.user_winnings,
+            pool: self.pool,
+            ticket_registry: self.ticket_registry,
+            user_token_account: self.user_token_account,
+            token_mint: self.token_mint,
+            pool_vault_account: self.pool_vault_account,
+            pool_pst_vault: self.pool_pst_vault,
+            huma_program: self.huma_program,
+            huma_config: self.huma_config,
+            huma_pool_config: self.huma_pool_config,
+            huma_pool_state: self.huma_pool_state,
+            huma_mode_config: self.huma_mode_config,
+            huma_mode_mint: self.huma_mode_mint,
+            huma_pool_authority: self.huma_pool_authority,
+            huma_pool_underlying_token: self.huma_pool_underlying_token,
+            token_program: self.token_program,
+            pst_token_program: self.pst_token_program,
+            system_program: self.system_program,
+            event_authority: self.event_authority,
+            program: self.program,
+        }
+        .to_account_metas(None)
+    }
+}
+
+pub struct SellBondsAccountsBuilder {
+    pub user: Pubkey,
+    pub user_winnings: Pubkey,
+    pub pool: Pubkey,
+    pub ticket_registry: Pubkey,
+    pub token_mint: Pubkey,
+    pub pool_pst_vault: Pubkey,
+    pub pending_redemption: Pubkey,
+    pub huma_program: Pubkey,
+    pub huma_config: Pubkey,
+    pub huma_pool_config: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub huma_mode_config: Pubkey,
+    pub huma_mode_mint: Pubkey,
+    pub huma_redemption_request: Pubkey,
+    pub huma_lender_state: Pubkey,
+    pub huma_pool_authority: Pubkey,
+    pub huma_pool_mode_token: Pubkey,
+    pub token_program: Pubkey,
+    pub pst_token_program: Pubkey,
+    pub system_program: Pubkey,
+    pub event_authority: Pubkey,
+    pub program: Pubkey,
+    pub swapped_user_winnings: Option<Pubkey>,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl SellBondsAccountsBuilder {
+    pub fn new(
+        ctx: &mut E2eContext,
+        user: &Pubkey,
+        active_to_sell: u32,
+        pending_to_sell: u32,
+        huma_config: Pubkey,
+        huma_lender_state: Pubkey,
+        huma_pool_mode_token: Pubkey,
+    ) -> Self {
+        let (pool_pda_key, _) = pool_pda(1);
+        let pool = read_pool_state(&ctx.svm, 1);
+        let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+        let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
+        let dummy = Keypair::new().pubkey();
+        let huma_lender_state = if huma_lender_state == Pubkey::default() {
+            Keypair::new().pubkey()
+        } else {
+            huma_lender_state
+        };
+        let huma_pool_mode_token = if huma_pool_mode_token == Pubkey::default() {
+            create_spl_token_account(
+                &mut ctx.svm,
+                &ctx.admin,
+                &ctx.pst_mint,
+                &ctx.huma_pool_authority,
+            )
+        } else {
+            huma_pool_mode_token
+        };
+
+        let (user_winnings, _) = user_winnings_pda(1, user);
+
+        // Auto-detect swap-and-pop
+        let user_winnings_acct = ctx.svm.get_account(&user_winnings);
+        let mut swapped_user_winnings = None;
+        if let Some(acct) = user_winnings_acct {
+            let mut data_slice = &acct.data[8..];
+            let unwrapped_winnings = anchor::state::UserWinnings::deserialize(&mut data_slice).unwrap();
+            let user_entry_idx = unwrapped_winnings.registry_entry_index;
+
+            if user_entry_idx != u32::MAX {
+                let registry_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
+                let user_count = u32::from_le_bytes(registry_acct.data[16..20].try_into().unwrap());
+                let entry =
+                    anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize)
+                        .unwrap();
+                let will_exit = (entry.active <= active_to_sell) && (entry.pending <= pending_to_sell);
+
+                if will_exit && user_count > 0 && user_entry_idx != user_count - 1 {
+                    let last_entry = anchor::utils::registry_get_entry(
+                        &registry_acct.data,
+                        (user_count - 1) as usize,
+                    )
+                    .unwrap();
+                    let (last_winnings, _) = user_winnings_pda(1, &last_entry.owner);
+                    swapped_user_winnings = Some(last_winnings);
+                }
+            }
+        }
+
+        Self {
+            user: *user,
+            user_winnings,
+            pool: pool_pda_key,
+            ticket_registry: ctx.ticket_registry,
+            token_mint: ctx.usdc_mint,
+            pool_pst_vault,
+            pending_redemption,
+            huma_program: huma_program_id(),
+            huma_config,
+            huma_pool_config: dummy,
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: dummy,
+            huma_mode_mint: ctx.pst_mint,
+            huma_redemption_request: dummy,
+            huma_lender_state,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_mode_token,
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+            swapped_user_winnings,
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
+        self.huma_config = huma_config;
+        self
+    }
+
+    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
+        self.huma_pool_state = huma_pool_state;
+        self
+    }
+
+    pub fn with_huma_mode_mint(mut self, huma_mode_mint: Pubkey) -> Self {
+        self.huma_mode_mint = huma_mode_mint;
+        self
+    }
+
+    pub fn with_swapped_user_winnings(mut self, swapped_user_winnings: Option<Pubkey>) -> Self {
+        self.swapped_user_winnings = swapped_user_winnings;
+        self
+    }
+
+    pub fn with_remaining_account(mut self, meta: AccountMeta) -> Self {
+        self.remaining_accounts.push(meta);
+        self
+    }
+
+    pub fn to_account_metas(self) -> Vec<AccountMeta> {
+        let mut accounts = anchor::accounts::SellBonds {
+            user: self.user,
+            user_winnings: self.user_winnings,
+            pool: self.pool,
+            ticket_registry: self.ticket_registry,
+            token_mint: self.token_mint,
+            pool_pst_vault: self.pool_pst_vault,
+            pending_redemption: self.pending_redemption,
+            huma_program: self.huma_program,
+            huma_config: self.huma_config,
+            huma_pool_config: self.huma_pool_config,
+            huma_pool_state: self.huma_pool_state,
+            huma_mode_config: self.huma_mode_config,
+            huma_mode_mint: self.huma_mode_mint,
+            huma_redemption_request: self.huma_redemption_request,
+            huma_lender_state: self.huma_lender_state,
+            huma_pool_authority: self.huma_pool_authority,
+            huma_pool_mode_token: self.huma_pool_mode_token,
+            token_program: self.token_program,
+            pst_token_program: self.pst_token_program,
+            system_program: self.system_program,
+            event_authority: self.event_authority,
+            program: self.program,
+        }
+        .to_account_metas(None);
+
+        if let Some(swapped) = self.swapped_user_winnings {
+            accounts.push(AccountMeta::new(swapped, false));
+        }
+
+        accounts.extend(self.remaining_accounts);
+        accounts
+    }
+}
+
+pub struct ClaimRedemptionAccountsBuilder {
+    pub caller: Pubkey,
+    pub beneficiary: Pubkey,
+    pub pool: Pubkey,
+    pub pending_redemption: Pubkey,
+    pub token_mint: Pubkey,
+    pub pool_vault_account: Pubkey,
+    pub beneficiary_token_account: Pubkey,
+    pub huma_program: Pubkey,
+    pub huma_config: Pubkey,
+    pub huma_pool_config: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub huma_mode_config: Pubkey,
+    pub huma_lender_state: Pubkey,
+    pub huma_pool_authority: Pubkey,
+    pub huma_pool_underlying_token: Pubkey,
+    pub token_program: Pubkey,
+    pub system_program: Pubkey,
+    pub event_authority: Pubkey,
+    pub program: Pubkey,
+}
+
+impl ClaimRedemptionAccountsBuilder {
+    pub fn new(
+        ctx: &E2eContext,
+        caller: Pubkey,
+        beneficiary: Pubkey,
+        beneficiary_token_account: Pubkey,
+        redemption_id: u64,
+        huma_config: Pubkey,
+        huma_lender_state: Pubkey,
+    ) -> Self {
+        let (pool_pda_key, _) = pool_pda(1);
+        let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
+        let (pool_vault, _) = pool_vault_pda(1);
+        let dummy = Keypair::new().pubkey();
+        let huma_lender_state = if huma_lender_state == Pubkey::default() {
+            Keypair::new().pubkey()
+        } else {
+            huma_lender_state
+        };
+
+        Self {
+            caller,
+            beneficiary,
+            pool: pool_pda_key,
+            pending_redemption,
+            token_mint: ctx.usdc_mint,
+            pool_vault_account: pool_vault,
+            beneficiary_token_account,
+            huma_program: huma_program_id(),
+            huma_config,
+            huma_pool_config: dummy,
+            huma_pool_state: ctx.huma_pool_state,
+            huma_mode_config: dummy,
+            huma_lender_state,
+            huma_pool_authority: ctx.huma_pool_authority,
+            huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+            token_program: anchor_spl::token::ID,
+            system_program: anchor_lang::system_program::ID,
+            event_authority: event_authority_pda(),
+            program: anchor::id(),
+        }
+    }
+
+    pub fn with_caller(mut self, caller: Pubkey) -> Self {
+        self.caller = caller;
+        self
+    }
+
+    pub fn with_beneficiary(mut self, beneficiary: Pubkey) -> Self {
+        self.beneficiary = beneficiary;
+        self
+    }
+
+    pub fn with_huma_config(mut self, huma_config: Pubkey) -> Self {
+        self.huma_config = huma_config;
+        self
+    }
+
+    pub fn with_huma_lender_state(mut self, huma_lender_state: Pubkey) -> Self {
+        self.huma_lender_state = huma_lender_state;
+        self
+    }
+
+    pub fn to_account_metas(self) -> Vec<AccountMeta> {
+        anchor::accounts::ClaimRedemption {
+            caller: self.caller,
+            beneficiary: self.beneficiary,
+            pool: self.pool,
+            pending_redemption: self.pending_redemption,
+            token_mint: self.token_mint,
+            pool_vault_account: self.pool_vault_account,
+            beneficiary_token_account: self.beneficiary_token_account,
+            huma_program: self.huma_program,
+            huma_config: self.huma_config,
+            huma_pool_config: self.huma_pool_config,
+            huma_pool_state: self.huma_pool_state,
+            huma_mode_config: self.huma_mode_config,
+            huma_lender_state: self.huma_lender_state,
+            huma_pool_authority: self.huma_pool_authority,
+            huma_pool_underlying_token: self.huma_pool_underlying_token,
+            token_program: self.token_program,
+            system_program: self.system_program,
+            event_authority: self.event_authority,
+            program: self.program,
+        }
+        .to_account_metas(None)
+    }
+}
+
 pub fn inject_registry(
     svm: &mut LiteSVM,
     address: Pubkey,
@@ -932,9 +1530,7 @@ pub fn setup_svm_with_authority(authority: &Keypair) -> LiteSVM {
         anchor::id(),
         include_bytes!("../../../../target/deploy/anchor.so"),
     );
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_700_000_000;
-    svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut svm, 1_700_000_000);
     svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
     setup_program_data(&mut svm, Some(&authority.pubkey()));
     svm
@@ -1442,9 +2038,7 @@ pub fn setup_e2e() -> E2eContext {
         include_bytes!("../../../../target/deploy/mock_huma.so"),
     );
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_700_000_000;
-    svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut svm, 1_700_000_000);
 
     let admin = Keypair::new();
     let user = Keypair::new();
@@ -1594,37 +2188,12 @@ pub fn send_e2e_buy_bonds_for_user(
     user_token_account: Pubkey,
     bonds: u32,
     huma_config: Pubkey,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
-
-    let accounts = anchor::accounts::BuyBonds {
-        user: user.pubkey(),
-        user_winnings,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        user_token_account,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config,
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let mut builder = BuyBondsAccountsBuilder::new(ctx, &user.pubkey(), user_token_account);
+    if huma_config != Pubkey::default() {
+        builder = builder.with_huma_config(huma_config);
     }
-    .to_account_metas(None);
+    let accounts = builder.to_account_metas();
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -1638,13 +2207,13 @@ pub fn send_e2e_buy_bonds_for_user(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 pub fn send_e2e_buy_bonds(
     ctx: &mut E2eContext,
     bonds: u32,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let bytes = ctx.user.to_bytes();
     let mut secret = [0u8; 32];
     secret.copy_from_slice(&bytes[0..32]);
@@ -1661,87 +2230,17 @@ pub fn send_e2e_sell_bonds_for_user(
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
-    let dummy = Keypair::new().pubkey();
-    let huma_lender_state = if huma_lender_state == Pubkey::default() {
-        Keypair::new().pubkey()
-    } else {
-        huma_lender_state
-    };
-    let huma_pool_mode_token = if huma_pool_mode_token == Pubkey::default() {
-        create_spl_token_account(
-            &mut ctx.svm,
-            &ctx.admin,
-            &ctx.pst_mint,
-            &ctx.huma_pool_authority,
-        )
-    } else {
-        huma_pool_mode_token
-    };
-
-    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
-
-    // Auto-detect if a swap-and-pop is going to occur
-    let user_winnings_acct = ctx.svm.get_account(&user_winnings);
-    let mut swapped_user_winnings = None;
-    if let Some(acct) = user_winnings_acct {
-        let mut data_slice = &acct.data[8..];
-        let unwrapped_winnings = anchor::state::UserWinnings::deserialize(&mut data_slice).unwrap();
-        let user_entry_idx = unwrapped_winnings.registry_entry_index;
-
-        if user_entry_idx != u32::MAX {
-            let registry_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-            let user_count = u32::from_le_bytes(registry_acct.data[16..20].try_into().unwrap());
-            let entry =
-                anchor::utils::registry_get_entry(&registry_acct.data, user_entry_idx as usize)
-                    .unwrap();
-            let will_exit = (entry.active <= active_to_sell) && (entry.pending <= pending_to_sell);
-
-            if will_exit && user_count > 0 && user_entry_idx != user_count - 1 {
-                let last_entry = anchor::utils::registry_get_entry(
-                    &registry_acct.data,
-                    (user_count - 1) as usize,
-                )
-                .unwrap();
-                let (last_winnings, _) = user_winnings_pda(1, &last_entry.owner);
-                swapped_user_winnings = Some(last_winnings);
-            }
-        }
-    }
-
-    let mut accounts = anchor::accounts::SellBonds {
-        user: user.pubkey(),
-        user_winnings,
-        pool: pool_pda_key,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let builder = SellBondsAccountsBuilder::new(
+        ctx,
+        &user.pubkey(),
+        active_to_sell,
+        pending_to_sell,
         huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: dummy,
         huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
         huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    if let Some(swapped) = swapped_user_winnings {
-        accounts.push(AccountMeta::new(swapped, false));
-    }
+    );
+    let accounts = builder.to_account_metas();
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -1756,7 +2255,39 @@ pub fn send_e2e_sell_bonds_for_user(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_claim_redemption_full(
+    ctx: &mut E2eContext,
+    caller: &Keypair,
+    beneficiary: Pubkey,
+    beneficiary_token_account: Pubkey,
+    redemption_id: u64,
+    huma_config: Pubkey,
+    huma_lender_state: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let builder = ClaimRedemptionAccountsBuilder::new(
+        ctx,
+        caller.pubkey(),
+        beneficiary,
+        beneficiary_token_account,
+        redemption_id,
+        huma_config,
+        huma_lender_state,
+    );
+    let accounts = builder.to_account_metas();
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&caller.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller]).unwrap();
+    ctx.svm.send_transaction(tx)
 }
 
 pub fn send_e2e_claim_redemption_for_user(
@@ -1766,45 +2297,16 @@ pub fn send_e2e_claim_redemption_for_user(
     redemption_id: u64,
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_pda_key,
-        pending_redemption,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    send_e2e_claim_redemption_full(
+        ctx,
+        user,
+        user.pubkey(),
+        user_token_account,
+        redemption_id,
         huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
         huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    )
 }
 
 pub fn settle_huma_redemption(svm: &mut LiteSVM, huma_pool_state: Pubkey, count: u64) {
@@ -2259,17 +2761,15 @@ pub fn inject_huma_yield_ratio(
     svm.set_account(pst_mint, mint_acc).unwrap();
 }
 
-pub fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), String> {
+pub fn send_e2e_harvest_yield_and_commit(
+    ctx: &mut E2eContext,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let (global_config, _) = global_config_pda();
     let (pool_key, _) = pool_pda(1);
     let pool = read_pool_state(&ctx.svm, 1);
 
-    // Warp clock to current_cycle_end_at to satisfy time check
-    let clock = solana_sdk::clock::Clock {
-        unix_timestamp: pool.current_cycle_end_at,
-        ..Default::default()
-    };
-    ctx.svm.set_sysvar(&clock);
+    // Warp clock to current_cycle_end_at to satisfy time check without clobbering other fields
+    set_clock_timestamp(&mut ctx.svm, pool.current_cycle_end_at);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (current_draw_cycle, _) = Pubkey::find_program_address(
@@ -2323,10 +2823,7 @@ pub fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> Result<(), Str
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ─── Math & Invariant Assertion Helpers ─────────────────────────────────────

@@ -46,7 +46,7 @@ fn send_e2e_sell_bonds(
     user: &Keypair,
     active_to_sell: u32,
     pending_to_sell: u32,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     send_e2e_sell_bonds_for_user(
         ctx,
         user,
@@ -58,52 +58,7 @@ fn send_e2e_sell_bonds(
     )
 }
 
-fn send_e2e_claim_redemption_for_user(
-    ctx: &mut E2eContext,
-    user: &Keypair,
-    user_token_account: Pubkey,
-    redemption_id: u64,
-) -> Result<litesvm::types::TransactionMetadata, String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let dummy = Keypair::new().pubkey();
-    let huma_lender_state = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_pda_key,
-        pending_redemption,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
-}
 
 // ─── Vector 1: Value & Boundary Extremes ────────────────────────────────────
 
@@ -237,14 +192,9 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
 
     let user_kp = clone_keypair(&ctx.user);
     let sell_res = send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5);
-    let sell_err =
-        sell_res.expect_err("Expected SellBonds to fail on unsupported UserWinnings version");
-    let expected_code = (anchor::error::PremiumBondsError::UnsupportedAccountVersion as u32)
-        + anchor_lang::error::ERROR_CODE_OFFSET;
-    assert!(
-        sell_err.contains("UnsupportedAccountVersion")
-            || sell_err.contains(&format!("Custom({expected_code})")),
-        "Expected UnsupportedAccountVersion error, got: {sell_err}"
+    assert_custom_error(
+        sell_res,
+        anchor::error::PremiumBondsError::UnsupportedAccountVersion,
     );
 }
 
@@ -503,7 +453,7 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
     let msg = Message::new_with_blockhash(&[ix], Some(&attacker.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err());
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
 }
 
 #[test]
@@ -561,7 +511,15 @@ fn test_v4_protocol_pending_redemptions_conservation() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
-    send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_kp,
+        user_token,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .unwrap();
 
     let pool_after = read_pool_state(&ctx.svm, 1);
     assert_eq!(
@@ -591,7 +549,15 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
         create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     let user_bal_pre_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
 
-    send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_kp,
+        user_token,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .unwrap();
 
     // Pending account must now be closed / deleted
     let pending_acc_post = ctx.svm.get_account(&pending_pda);

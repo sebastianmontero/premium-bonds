@@ -237,9 +237,7 @@ fn test_admin_void_fails_if_payouts_already_started() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert!(res.is_err(), "Voiding must fail when payouts_completed > 0");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PayoutsAlreadyStarted"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsAlreadyStarted);
 }
 
 #[test]
@@ -300,12 +298,7 @@ fn test_admin_void_fails_if_fees_already_withdrawn() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert!(
-        res.is_err(),
-        "Voiding must fail when fees were already withdrawn"
-    );
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("FeesAlreadyWithdrawn"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::FeesAlreadyWithdrawn);
 }
 
 #[test]
@@ -358,7 +351,7 @@ fn test_unauthorized_user_cannot_void_draw() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &attacker, pool_id, cycle_id);
-    assert!(res.is_err(), "Attacker must not be able to void draw");
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -420,9 +413,7 @@ fn test_admin_void_fails_if_pool_is_closed() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert!(res.is_err(), "Voiding must fail when pool is closed");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(err_str.contains("PoolClosed"), "got: {err_str}");
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolClosed);
 }
 
 #[test]
@@ -614,12 +605,8 @@ fn test_admin_void_payout_registry_fails_invalid_event_authority() {
         &[&admin],
     )
     .unwrap();
-    let err = svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
-        "expected ConstraintSeeds error on invalid event authority, got: {err_str}"
-    );
+    let res = svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]

@@ -12,17 +12,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn draw_cycle_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"draw_cycle",
-            pool_id.to_le_bytes().as_ref(),
-            cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-
 struct Ctx {
     svm: LiteSVM,
     crank: Keypair,
@@ -112,7 +101,7 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> Ctx {
 fn send_rebind(
     ctx: &mut Ctx,
     signer: &Keypair,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let (global_config, _) = global_config_pda();
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
@@ -138,16 +127,14 @@ fn send_rebind(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 #[test]
 fn test_rebind_fails_mismatched_current_randomness_account() {
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1001;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1001);
 
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::CrankRebindExpiredRandomness {
@@ -171,12 +158,8 @@ fn test_rebind_fails_mismatched_current_randomness_account() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("InvalidRandomnessAccount") || err_str.contains("6024"),
-        "got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
 }
 
 #[test]
@@ -184,9 +167,7 @@ fn test_rebind_happy_path() {
     // 1001 slots passed since harvest (slot 0 -> 1001)
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1001;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1001);
 
     let crank = clone_keypair(&ctx.crank);
     let meta = send_rebind(&mut ctx, &crank).unwrap();
@@ -214,20 +195,18 @@ fn test_rebind_fails_unauthorized_crank() {
         .airdrop(&fake_crank.pubkey(), 10_000_000_000)
         .unwrap();
 
-    let err = send_rebind(&mut ctx, &fake_crank).unwrap_err();
-    assert!(err.contains("UnauthorizedCrank"), "got: {err}");
+    let res = send_rebind(&mut ctx, &fake_crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedCrank);
 }
 
 #[test]
 fn test_rebind_fails_invalid_draw_status() {
     let mut ctx = setup(anchor::DrawStatus::Complete, 0);
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1001;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1001);
 
     let crank = clone_keypair(&ctx.crank);
-    let err = send_rebind(&mut ctx, &crank).unwrap_err();
-    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -235,22 +214,18 @@ fn test_rebind_fails_randomness_not_expired() {
     // Only 1000 slots passed (0 -> 1000)
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1000;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1000);
 
     let crank = clone_keypair(&ctx.crank);
-    let err = send_rebind(&mut ctx, &crank).unwrap_err();
-    assert!(err.contains("RandomnessNotExpired"), "got: {err}");
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
 }
 
 #[test]
 fn test_rebind_fails_invalid_randomness_account() {
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1001;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1001);
 
     // Set new_randomness_account owner to system program
     ctx.svm
@@ -267,8 +242,8 @@ fn test_rebind_fails_invalid_randomness_account() {
         .unwrap();
 
     let crank = clone_keypair(&ctx.crank);
-    let err = send_rebind(&mut ctx, &crank).unwrap_err();
-    assert!(err.contains("InvalidRandomnessAccount"), "got: {err}");
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
 }
 
 #[test]
@@ -276,17 +251,14 @@ fn test_crank_rebind_exact_slot_boundary() {
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 100);
 
     // Boundary 1: Exactly 1000 slots passed (100 -> 1100). 1100 - 100 = 1000 (not > 1000).
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1100;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1100);
 
     let crank = clone_keypair(&ctx.crank);
-    let err = send_rebind(&mut ctx, &crank).unwrap_err();
-    assert!(err.contains("RandomnessNotExpired"), "got: {err}");
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
 
     // Boundary 2: 1001 slots passed (100 -> 1101). 1101 - 100 = 1001 (> 1000). Should succeed!
-    clock.slot = 1101;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1101);
     ctx.svm.expire_blockhash();
 
     let meta = send_rebind(&mut ctx, &crank)
@@ -317,16 +289,11 @@ fn test_rebind_fails_same_randomness_account() {
     acct.data = new_data;
     ctx.svm.set_account(ctx.current_draw_cycle, acct).unwrap();
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.slot = 1001;
-    ctx.svm.set_sysvar(&clock);
+    ctx.svm.warp_to_slot(1001);
 
     let crank = clone_keypair(&ctx.crank);
-    let err = send_rebind(&mut ctx, &crank).unwrap_err();
-    assert!(
-        err.contains("SameRandomnessAccount") || err.contains("6051") || err.contains("0x17a3"),
-        "got: {err}"
-    );
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::SameRandomnessAccount);
 }
 
 #[test]
@@ -339,15 +306,10 @@ fn test_rebind_fails_unoverridable_statuses() {
         anchor::DrawStatus::Voided,
     ] {
         let mut ctx = setup(status, 0);
-        let mut clock = solana_sdk::clock::Clock::default();
-        clock.slot = 1001;
-        ctx.svm.set_sysvar(&clock);
+        ctx.svm.warp_to_slot(1001);
 
         let crank = clone_keypair(&ctx.crank);
-        let err = send_rebind(&mut ctx, &crank).unwrap_err();
-        assert!(
-            err.contains("InvalidDrawStatus") || err.contains("6011"),
-            "status {status:?} expected InvalidDrawStatus, got: {err}"
-        );
+        let res = send_rebind(&mut ctx, &crank);
+        assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
     }
 }

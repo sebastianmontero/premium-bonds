@@ -1,6 +1,6 @@
 //! Integration tests for winner index swap resilience and full registry fallbacks.
 
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
+use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
@@ -13,33 +13,6 @@ use solana_transaction::versioned::VersionedTransaction;
 
 mod common;
 use common::*;
-
-const PRIZE_POOL_SEED: &[u8] = b"prize_pool";
-const PAYOUT_SEED: &[u8] = b"payout";
-
-fn pool_pda(id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[PRIZE_POOL_SEED, id.to_le_bytes().as_ref()], &anchor::id())
-}
-fn payout_pda(pool_id: u32, cycle_id: u32) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PAYOUT_SEED,
-            pool_id.to_le_bytes().as_ref(),
-            cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
-fn user_winnings_pda(pool_id: u32, user: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            b"user_winnings",
-            pool_id.to_le_bytes().as_ref(),
-            user.as_ref(),
-        ],
-        &anchor::id(),
-    )
-}
 
 fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
     inject_payout_registry(
@@ -71,26 +44,16 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
 
     // 1. Initial registry entries: User A at index 0, User B at index 1
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: user_a,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 5,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_b,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 10,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::new()
+            .with_owner(user_a)
+            .with_active(5)
+            .with_cumulative_active(5)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user_b)
+            .with_active(5)
+            .with_cumulative_active(10)
+            .build(),
     ];
 
     let reg = Keypair::new().pubkey();
@@ -99,40 +62,14 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     // Inject pool and UserWinnings PDAs
     let mint = Keypair::new().pubkey();
     use anchor_lang::Discriminator;
-    let (pool_pda_addr, bump) = pool_pda(1);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id: 1,
-        token_mint: mint,
-        ticket_registry: reg,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 0,
-        status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: 10_000_000,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 5_000_000,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw: 0,
-        current_draw_cycle_id: 1,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: anchor::PrizePool::CURRENT_VERSION,
-        _reserved: [0; 128],
-    };
+    let (pool_pda_addr, _) = pool_pda(1);
+    let pool = PrizePoolTestBuilder::new(1)
+        .with_token_mint(mint)
+        .with_ticket_registry(reg)
+        .with_principal(10_000_000)
+        .with_prizes_allocated(5_000_000)
+        .with_current_draw_cycle_id(1)
+        .build();
     let mut d = vec![];
     d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
     d.extend_from_slice(bytemuck::bytes_of(&pool));
@@ -153,29 +90,18 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     inject_user_winnings_with_index(&mut svm, 1, user_b, 0, 0, 0, 1);
 
     // Draw Cycle 0 completes: User B wins a prize!
-    let winner_b = anchor::Winner {
-        winner: user_b,
-        amount_owed: 5_000_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner_b = WinnerTestBuilder::new()
+        .with_winner(user_b)
+        .with_amount_owed(5_000_000)
+        .build();
     inject_payout(&mut svm, 1, 0, vec![winner_b]);
 
     // Simulated index swap: User A sells all bonds. User B is moved from index 1 to index 0!
-    let swapped_entries = vec![anchor::state::UserEntry {
-        owner: user_b,
-        active: 5,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 5,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let swapped_entries = vec![UserEntryTestBuilder::new()
+        .with_owner(user_b)
+        .with_active(5)
+        .with_cumulative_active(5)
+        .build()];
     inject_registry_with_entries(&mut svm, reg, 1, 100, &swapped_entries);
 
     // User B's UserWinnings PDA index is updated to 0.

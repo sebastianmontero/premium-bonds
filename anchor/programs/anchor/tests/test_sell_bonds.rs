@@ -22,58 +22,7 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-// ─── E2E Helpers ─────────────────────────────────────────────────────────────
 
-fn send_e2e_claim_redemption_for_user(
-    ctx: &mut E2eContext,
-    user: &Keypair,
-    user_token_account: Pubkey,
-    redemption_id: u64,
-    huma_config: Pubkey,
-    huma_lender_state: Pubkey,
-) -> Result<(), String> {
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_pda_key,
-        pending_redemption,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
-        huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
-}
 
 // ─── Instruction builder (for guard tests) ───────────────────────────────────
 
@@ -651,8 +600,7 @@ fn test_sell_bonds_fails_huma_redemption_error() {
         huma_pool_mode_token,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("SimulatedRedemptionFailure"));
+    assert_error_contains(res, &["SimulatedRedemptionFailure"]);
 }
 
 #[test]
@@ -703,8 +651,7 @@ fn test_claim_redemption_fails_huma_disburse_error() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("SimulatedDisburseFailure"));
+    assert_error_contains(res, &["SimulatedDisburseFailure"]);
 }
 
 #[test]
@@ -754,8 +701,7 @@ fn test_claim_redemption_fails_not_settled() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("HumaRedemptionNotSettled"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
 }
 
 #[test]
@@ -810,8 +756,7 @@ fn test_claim_redemption_fails_wrong_owner() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("InvalidRedemptionOwner"));
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
 }
 
 #[test]
@@ -850,12 +795,7 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
         huma_pool_mode_token,
     );
 
-    assert!(res.is_err());
-    assert!(
-        res.as_ref().unwrap_err().contains("InvalidModeMint"),
-        "got: {:?}",
-        res
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
 
 #[test]

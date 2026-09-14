@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   db,
-  pool,
   isDatabaseConfigured,
   DatabaseNotConfiguredError,
   closeDatabase,
+  createUnconfiguredPool,
 } from "../index";
 
 describe("Database Driver & Pool Configuration Suite", () => {
@@ -18,12 +18,13 @@ describe("Database Driver & Pool Configuration Suite", () => {
   });
 
   it("should allow safe introspection of pool in unconfigured environments", async () => {
+    const unconfiguredPool = createUnconfiguredPool();
     assert.doesNotThrow(() => {
-      String(pool);
-      JSON.stringify(pool);
+      String(unconfiguredPool);
+      JSON.stringify(unconfiguredPool);
     });
-    const resolved = await Promise.resolve(pool);
-    assert.strictEqual(resolved, pool);
+    const resolved = await Promise.resolve(unconfiguredPool);
+    assert.strictEqual(resolved, unconfiguredPool);
   });
 
   it("should resolve pool.end() and closeDatabase() cleanly without throwing", async () => {
@@ -32,19 +33,18 @@ describe("Database Driver & Pool Configuration Suite", () => {
     });
   });
 
-  it("should throw DatabaseNotConfiguredError when query execution is attempted without DB config", async () => {
+  it("should throw DatabaseNotConfiguredError when query execution is attempted on unconfigured pool", async () => {
     assert.strictEqual(typeof DatabaseNotConfiguredError, "function");
-    if (!isDatabaseConfigured) {
-      await assert.rejects(
-        async () => {
-          await pool.query("SELECT 1");
-        },
-        (err: unknown) => {
-          assert(err instanceof DatabaseNotConfiguredError);
-          assert.strictEqual((err as Error).name, "DatabaseNotConfiguredError");
-          return true;
-        }
-      );
-    }
+    const unconfiguredPool = createUnconfiguredPool();
+    await assert.rejects(
+      async () => {
+        await unconfiguredPool.query("SELECT 1");
+      },
+      (err: unknown) => {
+        assert(err instanceof DatabaseNotConfiguredError);
+        assert.strictEqual((err as Error).name, "DatabaseNotConfiguredError");
+        return true;
+      }
+    );
   });
 });

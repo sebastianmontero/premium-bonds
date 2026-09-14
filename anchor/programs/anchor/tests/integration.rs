@@ -38,9 +38,7 @@ fn test_full_protocol_lifecycle_e2e() {
         include_bytes!("../../../target/deploy/mock_huma.so"),
     );
 
-    let mut clock = solana_sdk::clock::Clock::default();
-    clock.unix_timestamp = 1_700_000_000;
-    svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut svm, 1_700_000_000);
 
     let admin = Keypair::new();
     let guardian = Keypair::new();
@@ -215,8 +213,7 @@ fn test_full_protocol_lifecycle_e2e() {
     // Phase 4: Cycle 0 Rollover & Cycle 1 Yield Harvest
     // ═══════════════════════════════════════════════════════════════════════════
     // 1. Advance to end of Cycle 0 -> Harvest merges pending tickets to active tickets
-    clock.unix_timestamp = 1_700_000_000 + 25 * 3600;
-    ctx.svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut ctx.svm, 1_700_000_000 + 25 * 3600);
 
     let (gc, _) = global_config_pda();
     let (pool_pda_addr, _) = pool_pda(pool_id);
@@ -273,8 +270,7 @@ fn test_full_protocol_lifecycle_e2e() {
     assert_eq!(reg_cycle_1.total_pending_tickets, 0);
 
     // 2. Advance to end of Cycle 1 -> 15 USDC yield accrued
-    clock.unix_timestamp = 1_700_000_000 + 50 * 3600;
-    ctx.svm.set_sysvar(&clock);
+    set_clock_timestamp(&mut ctx.svm, 1_700_000_000 + 50 * 3600);
 
     // Set Huma pool assets = 165_000_000 (15 USDC yield accrued)
     {
@@ -402,26 +398,16 @@ fn test_full_protocol_lifecycle_e2e() {
     );
 
     let winners = vec![
-        anchor::state::Winner {
-            winner: alice.pubkey(),
-            amount_owed: 9_450_000,
-            bonds_bought: 0,
-            processed: 0,
-            tier_index: 0,
-            version: 1,
-            _padding: [0; 1],
-            _reserved: [0; 8],
-        },
-        anchor::state::Winner {
-            winner: bob.pubkey(),
-            amount_owed: 4_050_000,
-            bonds_bought: 0,
-            processed: 0,
-            tier_index: 1,
-            version: 1,
-            _padding: [0; 1],
-            _reserved: [0; 8],
-        },
+        WinnerTestBuilder::new()
+            .with_winner(alice.pubkey())
+            .with_amount_owed(9_450_000)
+            .with_tier_index(0)
+            .build(),
+        WinnerTestBuilder::new()
+            .with_winner(bob.pubkey())
+            .with_amount_owed(4_050_000)
+            .with_tier_index(1)
+            .build(),
     ];
     inject_payout_registry(
         &mut ctx.svm,
@@ -561,44 +547,15 @@ fn test_full_protocol_lifecycle_e2e() {
     // ═══════════════════════════════════════════════════════════════════════════
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 2);
 
-    let (pool_vault_usdc, _) = pool_vault_pda(pool_id);
-    let (alice_redemption_pda, _) = pending_redemption_pda(pool_id, 1);
-    let accounts_claim_redemption = anchor::accounts::ClaimRedemption {
-        caller: alice.pubkey(),
-        beneficiary: alice.pubkey(),
-        pool: pool_pda_addr,
-        pending_redemption: alice_redemption_pda,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault_usdc,
-        beneficiary_token_account: alice_usdc,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_claim_redemption = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_claim_redemption,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-    let bh_claim = ctx.svm.latest_blockhash();
-    let msg_claim =
-        Message::new_with_blockhash(&[ix_claim_redemption], Some(&alice.pubkey()), &bh_claim);
-    let tx_claim =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_claim), &[&alice]).unwrap();
-    ctx.svm
-        .send_transaction(tx_claim)
-        .expect("Phase 10: ClaimRedemption failed");
+    send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &alice,
+        alice_usdc,
+        1,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .expect("Phase 10: ClaimRedemption failed");
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Phase 11: Emergency Governance Controls
@@ -619,7 +576,10 @@ fn test_full_protocol_lifecycle_e2e() {
 
     // Verify invariants:
     // INV-PB-02: Total principal consistency (150M original + 9M reinvested - 50M sold = 109M)
-    assert_eq!(final_pool.total_deposited_principal, 109_000_000);
+    assert_eq!(
+        final_pool.total_deposited_principal, 109_000_000,
+        "INV-PB-02: Total principal consistency check failed"
+    );
 
     // INV-PB-04: Registry active + pending matches pool active principal
     let active_tickets_principal = (final_reg.total_active_tickets as u64) * final_pool.bond_price;
@@ -627,11 +587,15 @@ fn test_full_protocol_lifecycle_e2e() {
         (final_reg.total_pending_tickets as u64) * final_pool.bond_price;
     assert_eq!(
         active_tickets_principal + pending_tickets_principal,
-        final_pool.total_deposited_principal
+        final_pool.total_deposited_principal,
+        "INV-PB-04: Registry active + pending must equal total deposited principal"
     );
 
     // INV-PB-07: Protocol fees accounting
-    assert_eq!(final_pool.total_fees_withdrawn, 1_500_000);
+    assert_eq!(
+        final_pool.total_fees_withdrawn, 1_500_000,
+        "INV-PB-07: Protocol fees withdrawn mismatch"
+    );
 
     println!("✅ Full 12-Phase E2E Multi-User Integration Lifecycle Passed Successfully!");
 }
