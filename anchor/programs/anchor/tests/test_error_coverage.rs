@@ -724,6 +724,7 @@ fn test_err_randomness_not_expired_and_unauthorized_crank() {
         global_config: gc,
         pool: pool_addr,
         current_draw_cycle: draw_cycle_key,
+        current_randomness_account: Pubkey::default(),
         new_randomness_account,
         event_authority: event_authority_pda(),
         program: anchor::id(),
@@ -740,6 +741,28 @@ fn test_err_randomness_not_expired_and_unauthorized_crank() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
     let res = svm.send_transaction(tx);
     assert_custom_error(res, PremiumBondsError::RandomnessNotExpired);
+}
+
+#[test]
+fn test_err_fees_already_withdrawn() {
+    let mut pool = anchor::PrizePool {
+        total_fees_accrued: 100_000,
+        total_fees_withdrawn: 80_000,
+        total_prizes_allocated: 500_000,
+        ..unsafe { std::mem::zeroed() }
+    };
+    // Available unwithdrawn fees = 20_000. Trying to reverse 30_000 fees must fail with FeesAlreadyWithdrawn
+    let res = pool.rollback_draw_liabilities(100_000, 30_000);
+    assert_eq!(
+        res.unwrap_err(),
+        PremiumBondsError::FeesAlreadyWithdrawn.into()
+    );
+}
+
+#[test]
+fn test_err_zero_shares_minted_definition() {
+    let err = PremiumBondsError::ZeroSharesMinted;
+    assert_eq!(format!("{:?}", err), "ZeroSharesMinted");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

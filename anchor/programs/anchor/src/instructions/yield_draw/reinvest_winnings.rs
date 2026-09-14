@@ -106,7 +106,10 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
     let mut payout_data = payout_ai.try_borrow_mut_data()?;
     let mut payout_view = crate::utils::get_payout_registry_mut(&mut payout_data)?;
     payout_view.header.ensure_current_version()?;
-    require!(payout_view.header.is_active(), PremiumBondsError::DrawVoided);
+    require!(
+        payout_view.header.is_active(),
+        PremiumBondsError::DrawVoided
+    );
 
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;

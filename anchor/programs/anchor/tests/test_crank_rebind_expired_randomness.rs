@@ -114,11 +114,15 @@ fn send_rebind(
     signer: &Keypair,
 ) -> Result<litesvm::types::TransactionMetadata, String> {
     let (global_config, _) = global_config_pda();
+    let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
+    let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
+
     let accounts = anchor::accounts::CrankRebindExpiredRandomness {
         global_config,
         crank: signer.pubkey(),
         pool: ctx.pool_key,
         current_draw_cycle: ctx.current_draw_cycle,
+        current_randomness_account: dc.randomness_account,
         new_randomness_account: ctx.new_randomness_account,
         event_authority: event_authority_pda(),
         program: anchor::id(),
@@ -135,6 +139,44 @@ fn send_rebind(
     let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
     ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn test_rebind_fails_mismatched_current_randomness_account() {
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, 0);
+
+    let mut clock = solana_sdk::clock::Clock::default();
+    clock.slot = 1001;
+    ctx.svm.set_sysvar(&clock);
+
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
+        global_config,
+        crank: ctx.crank.pubkey(),
+        pool: ctx.pool_key,
+        current_draw_cycle: ctx.current_draw_cycle,
+        current_randomness_account: Keypair::new().pubkey(), // Mismatched!
+        new_randomness_account: ctx.new_randomness_account,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
+    let err = ctx.svm.send_transaction(tx).unwrap_err();
+    let err_str = format!("{err:?}");
+    assert!(
+        err_str.contains("InvalidRandomnessAccount") || err_str.contains("6024"),
+        "got: {err_str}"
+    );
 }
 
 #[test]

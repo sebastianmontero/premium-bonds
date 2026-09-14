@@ -10,8 +10,8 @@
 //! - Vector 7: CPI & Security Boundaries (Spoofed Huma state, invalid mode mint)
 
 use anchor_lang::{
-    AccountDeserialize, AccountSerialize, AnchorDeserialize, AnchorSerialize,
-    Discriminator, InstructionData, Space, ToAccountMetas,
+    AccountDeserialize, AccountSerialize, AnchorDeserialize, AnchorSerialize, Discriminator,
+    InstructionData, Space, ToAccountMetas,
 };
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
@@ -159,8 +159,8 @@ fn test_v1_canary_buffer_deserialization() {
     let mut ctx = setup_e2e();
     let (pending_pda, bump) = pending_redemption_pda(1, 42);
 
-    let mut pending = anchor::state::PendingRedemption::new(
-        anchor::state::InitPendingRedemptionParams {
+    let mut pending =
+        anchor::state::PendingRedemption::new(anchor::state::InitPendingRedemptionParams {
             pool_id: 1,
             redemption_id: 42,
             bump,
@@ -170,8 +170,7 @@ fn test_v1_canary_buffer_deserialization() {
             huma_request_id: 10,
             requested_at: 1234567,
             redemption_type: anchor::state::RedemptionType::BondSale,
-        },
-    );
+        });
 
     // Inject non-zero canary bytes into reserved upgrade buffer
     let canary = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22];
@@ -181,21 +180,24 @@ fn test_v1_canary_buffer_deserialization() {
     pending.try_serialize(&mut data).unwrap();
     data.resize(8 + anchor::state::PendingRedemption::INIT_SPACE, 0);
 
-    ctx.svm.set_account(
-        pending_pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            pending_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     // Verify deserialization succeeds cleanly and preserves canary data
     let read_acc = ctx.svm.get_account(&pending_pda).unwrap();
     assert_eq!(read_acc.data.len(), 160);
-    let deserialized = anchor::state::PendingRedemption::try_deserialize(&mut &read_acc.data[..]).unwrap();
+    let deserialized =
+        anchor::state::PendingRedemption::try_deserialize(&mut &read_acc.data[..]).unwrap();
     assert_eq!(deserialized.pool_id, 1);
     assert_eq!(deserialized.redemption_id, 42);
     assert_eq!(deserialized.amount, 5_000_000);
@@ -207,7 +209,10 @@ fn test_v1_rent_exemption_exact_160_bytes() {
     assert_eq!(anchor::state::PendingRedemption::INIT_SPACE, 152);
     assert_eq!(8 + anchor::state::PendingRedemption::INIT_SPACE, 160);
     assert_eq!((8 + anchor::state::PendingRedemption::INIT_SPACE) % 8, 0);
-    assert_eq!(core::mem::offset_of!(anchor::state::PendingRedemption, _reserved), 88);
+    assert_eq!(
+        core::mem::offset_of!(anchor::state::PendingRedemption, _reserved),
+        88
+    );
 }
 
 #[test]
@@ -247,7 +252,10 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnsupportedAccountVersion);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::UnsupportedAccountVersion,
+    );
 
     // Restore GlobalConfig version
     let mut gc_acc = ctx.svm.get_account(&global_config).unwrap();
@@ -276,10 +284,13 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
 
     let user_kp = clone_keypair(&ctx.user);
     let sell_res = send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5);
-    let sell_err = sell_res.expect_err("Expected SellBonds to fail on unsupported UserWinnings version");
-    let expected_code = (anchor::error::PremiumBondsError::UnsupportedAccountVersion as u32) + anchor_lang::error::ERROR_CODE_OFFSET;
+    let sell_err =
+        sell_res.expect_err("Expected SellBonds to fail on unsupported UserWinnings version");
+    let expected_code = (anchor::error::PremiumBondsError::UnsupportedAccountVersion as u32)
+        + anchor_lang::error::ERROR_CODE_OFFSET;
     assert!(
-        sell_err.contains("UnsupportedAccountVersion") || sell_err.contains(&format!("Custom({expected_code})")),
+        sell_err.contains("UnsupportedAccountVersion")
+            || sell_err.contains(&format!("Custom({expected_code})")),
         "Expected UnsupportedAccountVersion error, got: {sell_err}"
     );
 }
@@ -294,13 +305,17 @@ fn test_v2_lazy_state_migration_mutated_accounts() {
 
     // 1. Force pool version to 0
     let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(
+        &mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     pool_struct.version = 0;
     ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
 
     // Verify pool is version 0
     let pool_acc_before = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_before = bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc_before.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool_before = bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acc_before.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     assert_eq!(pool_before.version, 0);
 
     // 2. Buy bonds on this pool — handler executes ensure_current_version()
@@ -308,8 +323,13 @@ fn test_v2_lazy_state_migration_mutated_accounts() {
 
     // 3. Verify pool version was migrated to CURRENT_VERSION (1) in-place
     let pool_acc_after = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc_after.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
-    assert_eq!(pool_after.version, anchor::state::PrizePool::CURRENT_VERSION);
+    let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acc_after.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
+    assert_eq!(
+        pool_after.version,
+        anchor::state::PrizePool::CURRENT_VERSION
+    );
 }
 
 #[test]
@@ -341,7 +361,10 @@ fn test_v2_user_winnings_lazy_migration_on_sell_bonds() {
 
     // Verify user_winnings migrated to version 1
     let read_uw_after = read_user_winnings(&ctx.svm, 1, &ctx.user.pubkey());
-    assert_eq!(read_uw_after.version, anchor::state::UserWinnings::CURRENT_VERSION);
+    assert_eq!(
+        read_uw_after.version,
+        anchor::state::UserWinnings::CURRENT_VERSION
+    );
 }
 
 #[test]
@@ -354,13 +377,37 @@ fn test_v2_batch_boundary_slice_version_migration() {
     ctx.svm.airdrop(&user_b.pubkey(), 10_000_000_000).unwrap();
     ctx.svm.airdrop(&user_c.pubkey(), 10_000_000_000).unwrap();
 
-    let user_a_token = create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
-    let user_b_token = create_spl_token_account(&mut ctx.svm, &user_b, &ctx.usdc_mint, &user_b.pubkey());
-    let user_c_token = create_spl_token_account(&mut ctx.svm, &user_c, &ctx.usdc_mint, &user_c.pubkey());
+    let user_a_token =
+        create_spl_token_account(&mut ctx.svm, &user_a, &ctx.usdc_mint, &user_a.pubkey());
+    let user_b_token =
+        create_spl_token_account(&mut ctx.svm, &user_b, &ctx.usdc_mint, &user_b.pubkey());
+    let user_c_token =
+        create_spl_token_account(&mut ctx.svm, &user_c, &ctx.usdc_mint, &user_c.pubkey());
 
-    mint_tokens(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_a_token, &ctx.usdc_mint_authority, 50_000_000);
-    mint_tokens(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_b_token, &ctx.usdc_mint_authority, 50_000_000);
-    mint_tokens(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user_c_token, &ctx.usdc_mint_authority, 50_000_000);
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_a_token,
+        &ctx.usdc_mint_authority,
+        50_000_000,
+    );
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_b_token,
+        &ctx.usdc_mint_authority,
+        50_000_000,
+    );
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &user_c_token,
+        &ctx.usdc_mint_authority,
+        50_000_000,
+    );
 
     send_e2e_buy_bonds_for_user(&mut ctx, &user_a, user_a_token, 5, Pubkey::default()).unwrap();
     send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_token, 5, Pubkey::default()).unwrap();
@@ -371,7 +418,8 @@ fn test_v2_batch_boundary_slice_version_migration() {
     let mut reg_acc = ctx.svm.get_account(&ticket_registry_key).unwrap();
     {
         let entries_slice = &mut reg_acc.data[104..];
-        let entries = bytemuck::try_cast_slice_mut::<u8, anchor::state::UserEntry>(entries_slice).unwrap();
+        let entries =
+            bytemuck::try_cast_slice_mut::<u8, anchor::state::UserEntry>(entries_slice).unwrap();
         for entry in entries.iter_mut().take(3) {
             entry.version = 0;
         }
@@ -381,7 +429,9 @@ fn test_v2_batch_boundary_slice_version_migration() {
     // Freeze pool and advance to AwaitingRandomness
     let (pool_pda_addr, _) = pool_pda(1);
     let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(
+        &mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     pool_struct.is_frozen_for_draw = 1;
     ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
 
@@ -404,16 +454,18 @@ fn test_v2_batch_boundary_slice_version_migration() {
     let mut dc_data = vec![];
     draw_cycle.try_serialize(&mut dc_data).unwrap();
     dc_data.resize(8 + anchor::state::DrawCycle::INIT_SPACE, 0);
-    ctx.svm.set_account(
-        draw_cycle_pda,
-        Account {
-            lamports: 1_000_000_000,
-            data: dc_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            draw_cycle_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data: dc_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     // Prepare a batch of size 2 (processes indices 0..2, leaving index 2 unprocessed)
     let crank = Keypair::new();
@@ -443,15 +495,27 @@ fn test_v2_batch_boundary_slice_version_migration() {
     let reg_acc_after = ctx.svm.get_account(&ticket_registry_key).unwrap();
     let entries_slice = &reg_acc_after.data[104..];
     let entries = bytemuck::try_cast_slice::<u8, anchor::state::UserEntry>(entries_slice).unwrap();
-    assert_eq!(entries[0].version, anchor::state::UserEntry::CURRENT_VERSION);
-    assert_eq!(entries[1].version, anchor::state::UserEntry::CURRENT_VERSION);
-    assert_eq!(entries[2].version, 0, "Entry 2 outside batch must remain at version 0");
+    assert_eq!(
+        entries[0].version,
+        anchor::state::UserEntry::CURRENT_VERSION
+    );
+    assert_eq!(
+        entries[1].version,
+        anchor::state::UserEntry::CURRENT_VERSION
+    );
+    assert_eq!(
+        entries[2].version, 0,
+        "Entry 2 outside batch must remain at version 0"
+    );
 
     // Read-only draw_cycle non-mutation check:
     let dc_acc = ctx.svm.get_account(&draw_cycle_pda).unwrap();
     let mut dc_slice = &dc_acc.data[8..];
     let read_dc = anchor::state::DrawCycle::deserialize(&mut dc_slice).unwrap();
-    assert_eq!(read_dc.version, 0, "Read-only draw_cycle must not be mutated");
+    assert_eq!(
+        read_dc.version, 0,
+        "Read-only draw_cycle must not be mutated"
+    );
 }
 
 // ─── Vector 3: Access Control & Impersonation ───────────────────────────────
@@ -466,7 +530,8 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     let (pool_vault, _) = pool_vault_pda(1);
-    let attacker_token = create_spl_token_account(&mut ctx.svm, &attacker, &ctx.usdc_mint, &attacker.pubkey());
+    let attacker_token =
+        create_spl_token_account(&mut ctx.svm, &attacker, &ctx.usdc_mint, &attacker.pubkey());
     let huma_lender_state = Keypair::new().pubkey();
 
     // Attacker attempts to claim ctx.user's redemption to attacker's token account
@@ -495,7 +560,9 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
 fn test_v3_admin_instructions_reject_non_admin() {
     let mut ctx = setup_e2e();
     let fake_admin = Keypair::new();
-    ctx.svm.airdrop(&fake_admin.pubkey(), 1_000_000_000).unwrap();
+    ctx.svm
+        .airdrop(&fake_admin.pubkey(), 1_000_000_000)
+        .unwrap();
 
     let (global_config, _) = global_config_pda();
     let (pool_pda_addr, _) = pool_pda(1);
@@ -542,11 +609,15 @@ fn test_v4_protocol_pending_redemptions_conservation() {
 
     // Settle and claim redemption
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    let user_token = create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
+    let user_token =
+        create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
 
     let pool_after = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_after.total_pending_redemptions, 0, "Conservation: pending redemptions must return to 0");
+    assert_eq!(
+        pool_after.total_pending_redemptions, 0,
+        "Conservation: pending redemptions must return to 0"
+    );
 }
 
 // ─── Vector 5: Account Closure & Reallocation Invariants ────────────────────
@@ -566,7 +637,8 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
 
     // Claim redemption
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
-    let user_token = create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
+    let user_token =
+        create_spl_token_account(&mut ctx.svm, &user_kp, &ctx.usdc_mint, &user_kp.pubkey());
     let user_bal_pre_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
 
     send_e2e_claim_redemption_for_user(&mut ctx, &user_kp, user_token, 0).unwrap();
@@ -576,7 +648,10 @@ fn test_v5_pending_redemption_closure_100_percent_refund() {
     assert!(pending_acc_post.is_none() || pending_acc_post.unwrap().lamports == 0);
 
     let user_bal_post_claim = ctx.svm.get_account(&user_kp.pubkey()).unwrap().lamports;
-    assert!(user_bal_post_claim >= user_bal_pre_claim + pending_rent - 100_000, "100% rent must be refunded");
+    assert!(
+        user_bal_post_claim >= user_bal_pre_claim + pending_rent - 100_000,
+        "100% rent must be refunded"
+    );
 }
 
 #[test]
@@ -585,7 +660,12 @@ fn test_v5_resize_registry_preserves_header() {
     let ticket_registry_key = ctx.ticket_registry;
     let (pool_pda_addr, _) = pool_pda(1);
 
-    let initial_len = ctx.svm.get_account(&ticket_registry_key).unwrap().data.len();
+    let initial_len = ctx
+        .svm
+        .get_account(&ticket_registry_key)
+        .unwrap()
+        .data
+        .len();
     assert_eq!(initial_len, 262_248);
 
     let payer = Keypair::new();
@@ -610,14 +690,22 @@ fn test_v5_resize_registry_preserves_header() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     ctx.svm.send_transaction(tx).unwrap();
 
-    let resized_len = ctx.svm.get_account(&ticket_registry_key).unwrap().data.len();
+    let resized_len = ctx
+        .svm
+        .get_account(&ticket_registry_key)
+        .unwrap()
+        .data
+        .len();
     assert_eq!(resized_len, initial_len + 10_240);
 
     // Verify 96-byte TicketRegistry header fields preserved
     let reg_acc = ctx.svm.get_account(&ticket_registry_key).unwrap();
     let header = bytemuck::from_bytes::<anchor::state::TicketRegistry>(&reg_acc.data[8..104]);
     assert_eq!(header.pool_id, 1);
-    assert_eq!(header.version, anchor::state::TicketRegistry::CURRENT_VERSION);
+    assert_eq!(
+        header.version,
+        anchor::state::TicketRegistry::CURRENT_VERSION
+    );
     assert_eq!(header.capacity, ((resized_len - 104) / 64) as u32);
 }
 
@@ -630,7 +718,8 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
 
     // Huma queue NOT settled (next_request_id remains 0)
     let (pool_vault, _) = pool_vault_pda(1);
-    let user_token = create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
+    let user_token =
+        create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
     let huma_lender_state = Keypair::new().pubkey();
 
     let ix = build_claim_redemption_ix(
@@ -651,7 +740,10 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+    );
 }
 
 #[test]
@@ -680,19 +772,22 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     let mut dc_data = vec![];
     draw_cycle.try_serialize(&mut dc_data).unwrap();
     dc_data.resize(8 + anchor::state::DrawCycle::INIT_SPACE, 0);
-    ctx.svm.set_account(
-        draw_cycle_pda,
-        Account {
-            lamports: 1_000_000_000,
-            data: dc_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    ).unwrap();
+    ctx.svm
+        .set_account(
+            draw_cycle_pda,
+            Account {
+                lamports: 1_000_000_000,
+                data: dc_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
 
     let new_randomness = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut ctx.svm, new_randomness);
+    inject_randomness_account_data(&mut ctx.svm, old_randomness, 500, 0, [0u8; 32]);
 
     // Boundary Test 1: at slot 1500 (1500 - 500 = 1000, NOT > 1000) -> MUST FAIL
     ctx.svm.warp_to_slot(1500);
@@ -702,6 +797,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
         global_config: global_config_pda_addr,
         pool: pool_pda_addr,
         current_draw_cycle: draw_cycle_pda,
+        current_randomness_account: old_randomness,
         new_randomness_account: new_randomness,
         event_authority: event_authority_pda(),
         program: anchor::id(),
@@ -715,7 +811,8 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     };
 
     let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(std::slice::from_ref(&ix), Some(&ctx.admin.pubkey()), &bh);
+    let msg =
+        Message::new_with_blockhash(std::slice::from_ref(&ix), Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
     let res = ctx.svm.send_transaction(tx);
     assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
@@ -747,7 +844,8 @@ fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
     inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
 
     let (pool_vault, _) = pool_vault_pda(1);
-    let user_token = create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
+    let user_token =
+        create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
     let huma_lender_state = Keypair::new().pubkey();
 
     let ix = build_claim_redemption_ix(
@@ -790,8 +888,14 @@ fn test_unsupported_account_version_all_9_structs() {
         version: GlobalConfig::CURRENT_VERSION + 1,
         _reserved: [0; 64],
     };
-    assert_eq!(gc.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(gc.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        gc.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        gc.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 2. PrizePool
     let mut pp = PrizePool {
@@ -814,7 +918,11 @@ fn test_unsupported_account_version_all_9_structs() {
         current_draw_cycle_id: 0,
         prize_tiers_count: 0,
         _padding: [0; 3],
-        prize_tiers: [anchor::state::PrizeTier { num_winners: 0, basis_points: 0, _padding: [0; 2] }; 10],
+        prize_tiers: [anchor::state::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0; 2],
+        }; 10],
         next_redemption_id: 0,
         total_fees_accrued: 0,
         total_fees_withdrawn: 0,
@@ -823,8 +931,14 @@ fn test_unsupported_account_version_all_9_structs() {
         version: PrizePool::CURRENT_VERSION + 1,
         _reserved: [0; 128],
     };
-    assert_eq!(pp.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(pp.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        pp.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        pp.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 3. TicketRegistry
     let mut tr = TicketRegistry {
@@ -839,8 +953,14 @@ fn test_unsupported_account_version_all_9_structs() {
         _padding: [0; 3],
         _reserved: [0; 64],
     };
-    assert_eq!(tr.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(tr.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        tr.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        tr.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 4. UserEntry
     let mut ue = UserEntry {
@@ -853,8 +973,14 @@ fn test_unsupported_account_version_all_9_structs() {
         _padding: [0; 3],
         _reserved: [0; 12],
     };
-    assert_eq!(ue.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(ue.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        ue.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        ue.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 5. Winner
     let mut w = Winner {
@@ -867,8 +993,14 @@ fn test_unsupported_account_version_all_9_structs() {
         _padding: [0; 1],
         _reserved: [0; 8],
     };
-    assert_eq!(w.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(w.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        w.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        w.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 6. DrawCycle
     let mut dc = DrawCycle {
@@ -886,8 +1018,14 @@ fn test_unsupported_account_version_all_9_structs() {
         randomness_seed: [0; 32],
         _reserved: [0; 64],
     };
-    assert_eq!(dc.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(dc.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        dc.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        dc.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 7. UserWinnings
     let mut uw = UserWinnings {
@@ -901,8 +1039,14 @@ fn test_unsupported_account_version_all_9_structs() {
         version: UserWinnings::CURRENT_VERSION + 1,
         _reserved: [0; 64],
     };
-    assert_eq!(uw.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(uw.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        uw.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        uw.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 8. PayoutRegistry
     let mut pr = PayoutRegistry {
@@ -916,8 +1060,14 @@ fn test_unsupported_account_version_all_9_structs() {
         _padding: [0; 6],
         _reserved: [0; 64],
     };
-    assert_eq!(pr.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(pr.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        pr.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        pr.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 
     // 9. PendingRedemption
     let mut pred = PendingRedemption {
@@ -934,6 +1084,12 @@ fn test_unsupported_account_version_all_9_structs() {
         _padding: [0; 1],
         _reserved: [0; 64],
     };
-    assert_eq!(pred.check_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
-    assert_eq!(pred.ensure_current_version().unwrap_err(), PremiumBondsError::UnsupportedAccountVersion.into());
+    assert_eq!(
+        pred.check_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
+    assert_eq!(
+        pred.ensure_current_version().unwrap_err(),
+        PremiumBondsError::UnsupportedAccountVersion.into()
+    );
 }

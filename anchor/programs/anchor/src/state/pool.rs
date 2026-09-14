@@ -254,6 +254,63 @@ impl PrizePool {
         Ok(())
     }
 
+    /// Records a new pending redemption liability, incrementing next_redemption_id.
+    pub fn queue_pending_redemption(&mut self, amount: u64) -> Result<u64> {
+        let redemption_id = self.next_redemption_id;
+        self.next_redemption_id = self
+            .next_redemption_id
+            .checked_add(1)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.total_pending_redemptions = self
+            .total_pending_redemptions
+            .checked_add(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(redemption_id)
+    }
+
+    /// Atomically rolls back allocated prizes and accrued protocol fees from a voided or force-unlocked draw.
+    /// Enforces that unwithdrawn fees cover the rolled back fee to prevent underflow in unwithdrawn_fees().
+    pub fn rollback_draw_liabilities(
+        &mut self,
+        prizes_to_reverse: u64,
+        fees_to_reverse: u64,
+    ) -> Result<()> {
+        if prizes_to_reverse == 0 && fees_to_reverse == 0 {
+            return Ok(());
+        }
+
+        // 1. Validate unwithdrawn fees cover the rolled-back fee
+        // Critical solvency guard: rolling back fees when already withdrawn would cause
+        // total_fees_accrued < total_fees_withdrawn, causing underflow in unwithdrawn_fees()
+        if fees_to_reverse > 0 {
+            let unwithdrawn = self.unwithdrawn_fees()?;
+            require!(
+                unwithdrawn >= fees_to_reverse,
+                PremiumBondsError::FeesAlreadyWithdrawn
+            );
+        }
+
+        // 2. Validate allocated prize liabilities cover the rolled-back prizes
+        if prizes_to_reverse > 0 {
+            require!(
+                self.total_prizes_allocated >= prizes_to_reverse,
+                PremiumBondsError::MathOverflow
+            );
+        }
+
+        // 3. Atomically mutate liabilities
+        self.total_prizes_allocated = self
+            .total_prizes_allocated
+            .checked_sub(prizes_to_reverse)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        self.total_fees_accrued = self
+            .total_fees_accrued
+            .checked_sub(fees_to_reverse)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+
+        Ok(())
+    }
+
     /// Computes accrued protocol fees that have not yet been withdrawn.
     #[inline]
     pub fn unwithdrawn_fees(&self) -> Result<u64> {

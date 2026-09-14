@@ -208,7 +208,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     );
 
     // Prevent re-entrancy: zero out the redemption amount and update pool state before token transfer CPI
-    ctx.accounts.pending_redemption.amount = 0;
+    ctx.accounts.pending_redemption.clear_amount();
 
     {
         let mut pool_mut = ctx.accounts.pool.load_mut()?;
@@ -218,7 +218,9 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    // Transfer owed USDC to beneficiary
+    // Transfer owed USDC to beneficiary (clamped to available vault amount to protect against floor rounding deficits)
+    ctx.accounts.pool_vault_account.reload()?;
+    let transfer_amount = redemption_amount.min(ctx.accounts.pool_vault_account.amount);
     let cpi_accounts = TransferChecked {
         from: ctx.accounts.pool_vault_account.to_account_info(),
         mint: ctx.accounts.token_mint.to_account_info(),
@@ -227,7 +229,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
     };
     transfer_checked(
         CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-        redemption_amount,
+        transfer_amount,
         ctx.accounts.token_mint.decimals,
     )?;
 

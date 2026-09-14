@@ -152,9 +152,7 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         .get_value(clock.slot)
         .map_err(|_| PremiumBondsError::RandomnessNotResolved)?;
 
-    draw_cycle.randomness_seed = random_seed;
-    draw_cycle.status = DrawStatus::Complete;
-    draw_cycle.completed_at = clock.unix_timestamp;
+    draw_cycle.complete(random_seed, clock.unix_timestamp)?;
     pool.is_frozen_for_draw = 0;
 
     // Step 2: access ticket bytes directly — no RefMut held, no borrow conflict.
@@ -170,7 +168,11 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
     let mut payout_data = payout_ai.try_borrow_mut_data()?;
     let mut payout_view = crate::utils::init_payout_registry_uninit_mut(&mut payout_data)?;
 
-    payout_view.header.init(draw_cycle.pool_id, draw_cycle.cycle_id, clock.unix_timestamp);
+    payout_view.header.init(
+        draw_cycle.pool_id,
+        draw_cycle.cycle_id,
+        clock.unix_timestamp,
+    );
 
     // Upfront fail-fast validation: ensures configured winners do not exceed payout registry capacity
     let total_winners = pool.total_winners()? as usize;

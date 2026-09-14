@@ -171,9 +171,7 @@ pub fn registry_capacity_from_len(data_len: usize) -> u32 {
 
 /// Zero-copy mutable accessor for the entire TicketRegistry (header + entries slice).
 #[inline]
-pub fn get_ticket_registry_mut(
-    data: &mut [u8],
-) -> Result<crate::state::TicketRegistryMut<'_>> {
+pub fn get_ticket_registry_mut(data: &mut [u8]) -> Result<crate::state::TicketRegistryMut<'_>> {
     require!(
         data.len() >= USER_ENTRY_REGISTRY_HEADER_SIZE,
         PremiumBondsError::InvalidRegistryState
@@ -286,9 +284,7 @@ pub fn payout_registry_space(total_winners: usize) -> Result<usize> {
 }
 
 #[inline]
-pub fn split_raw_payout_registry(
-    data: &[u8],
-) -> Result<(&crate::state::PayoutRegistry, &[u8])> {
+pub fn split_raw_payout_registry(data: &[u8]) -> Result<(&crate::state::PayoutRegistry, &[u8])> {
     require!(
         data.len() >= PAYOUT_REGISTRY_HEADER_SIZE,
         PremiumBondsError::InvalidRegistryState
@@ -340,8 +336,10 @@ pub fn init_payout_registry_uninit_mut<'a>(
         .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
     let capacity = trailing_slice.len() / WINNER_SIZE;
     let valid_bytes = capacity * WINNER_SIZE;
-    let winners = bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(&mut trailing_slice[..valid_bytes])
-        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let winners = bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(
+        &mut trailing_slice[..valid_bytes],
+    )
+    .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
     Ok(crate::state::PayoutRegistryMut { header, winners })
 }
 
@@ -361,14 +359,13 @@ pub fn get_payout_registry_mut<'a>(
         trailing.len() == expected_bytes,
         PremiumBondsError::InvalidRegistryState
     );
-    let winners = bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(&mut trailing[..expected_bytes])
-        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let winners =
+        bytemuck::try_cast_slice_mut::<u8, crate::state::Winner>(&mut trailing[..expected_bytes])
+            .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
     Ok(crate::state::PayoutRegistryMut { header, winners })
 }
 
-pub fn get_payout_registry<'a>(
-    data: &'a [u8],
-) -> Result<crate::state::PayoutRegistryRef<'a>> {
+pub fn get_payout_registry<'a>(data: &'a [u8]) -> Result<crate::state::PayoutRegistryRef<'a>> {
     let (header, trailing_slice) = split_raw_payout_registry(data)?;
     let count = header.winners_count as usize;
     require!(
@@ -382,8 +379,9 @@ pub fn get_payout_registry<'a>(
         trailing_slice.len() == expected_bytes,
         PremiumBondsError::InvalidRegistryState
     );
-    let winners = bytemuck::try_cast_slice::<u8, crate::state::Winner>(&trailing_slice[..expected_bytes])
-        .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
+    let winners =
+        bytemuck::try_cast_slice::<u8, crate::state::Winner>(&trailing_slice[..expected_bytes])
+            .map_err(|_| error!(PremiumBondsError::InvalidRegistryState))?;
     Ok(crate::state::PayoutRegistryRef { header, winners })
 }
 

@@ -137,4 +137,9 @@ impl PendingRedemption {
     pub fn init(&mut self, params: InitPendingRedemptionParams) {
         *self = params.into();
     }
+
+    /// Zeroes out the owed amount to guard against CPI re-entrancy before token transfer.
+    pub fn clear_amount(&mut self) {
+        self.amount = 0;
+    }
 }

@@ -721,7 +721,10 @@ fn test_withdraw_fees_fails_when_insolvent() {
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::WithdrawFees { amount: 1_000_000_000 }.data(),
+        data: anchor::instruction::WithdrawFees {
+            amount: 1_000_000_000,
+        }
+        .data(),
     };
 
     let bh = ctx.svm.latest_blockhash();
@@ -1301,10 +1304,14 @@ fn test_v1_registry_full_rejects_new_buyer_allows_existing_topup() {
 
     // Inject small registry with capacity = 2 for pool 1
     let small_registry = Keypair::new().pubkey();
-    let reg_space = 8 + std::mem::size_of::<anchor::state::TicketRegistry>() + 2 * std::mem::size_of::<anchor::state::UserEntry>();
+    let reg_space = 8
+        + std::mem::size_of::<anchor::state::TicketRegistry>()
+        + 2 * std::mem::size_of::<anchor::state::UserEntry>();
     let mut reg_data = vec![0u8; reg_space];
     reg_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
-    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(&mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()]);
+    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(
+        &mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()],
+    );
     header.pool_id = 1;
     header.capacity = 2;
     header.user_count = 0;
@@ -1346,12 +1353,8 @@ fn test_v1_registry_full_rejects_new_buyer_allows_existing_topup() {
     // Helper to buy bonds for a user
     let buy_for_user = |ctx: &mut E2eContext, user: &Keypair, tickets: u32| {
         ctx.svm.expire_blockhash();
-        let user_token = create_spl_token_account(
-            &mut ctx.svm,
-            &ctx.admin,
-            &ctx.usdc_mint,
-            &user.pubkey(),
-        );
+        let user_token =
+            create_spl_token_account(&mut ctx.svm, &ctx.admin, &ctx.usdc_mint, &user.pubkey());
         mint_tokens(
             &mut ctx.svm,
             &ctx.admin,
@@ -1427,7 +1430,10 @@ fn test_v1_registry_full_rejects_new_buyer_allows_existing_topup() {
 
     // Existing User 1 (already assigned slot 0) must succeed on top-up
     let res_user_1_topup = buy_for_user(&mut ctx, &user_1, 2);
-    assert!(res_user_1_topup.is_ok(), "Existing user top-up should succeed even at full capacity");
+    assert!(
+        res_user_1_topup.is_ok(),
+        "Existing user top-up should succeed even at full capacity"
+    );
     let entry_1 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
     assert_eq!(entry_1.pending, 7); // 5 + 2
     assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 2);
@@ -1785,7 +1791,13 @@ fn test_v4_sell_bonds_solvency_failure_preserves_liabilities() {
     let initial_entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
 
     // Impair Huma solvency
-    set_huma_solvency_state(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 5_000_000, 10_000_000);
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        5_000_000,
+        10_000_000,
+    );
 
     let (pool_pda_addr, _) = pool_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -1837,8 +1849,14 @@ fn test_v4_sell_bonds_solvency_failure_preserves_liabilities() {
     // Assert 100% untouched state
     let post_pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(post_pool.total_deposited_principal, initial_principal);
-    assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), initial_active);
-    assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), initial_pending);
+    assert_eq!(
+        read_registry_active(&ctx.svm, ctx.ticket_registry),
+        initial_active
+    );
+    assert_eq!(
+        read_registry_pending(&ctx.svm, ctx.ticket_registry),
+        initial_pending
+    );
     let post_entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
     assert_eq!(post_entry.active, initial_entry.active);
     assert_eq!(post_entry.pending, initial_entry.pending);
@@ -1873,7 +1891,13 @@ fn test_v4_claim_winnings_solvency_failure_preserves_liabilities() {
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000, 0, 0);
 
     // Impair Huma assets (sub-par)
-    set_huma_solvency_state(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 8_000_000, 10_000_000);
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        8_000_000,
+        10_000_000,
+    );
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
@@ -1958,7 +1982,13 @@ fn test_v4_withdraw_fees_solvency_failure_preserves_liabilities() {
         .unwrap();
 
     // Impair Huma solvency
-    set_huma_solvency_state(&mut ctx.svm, ctx.huma_pool_state, ctx.pst_mint, 1_000_000, 10_000_000);
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        1_000_000,
+        10_000_000,
+    );
 
     let (global_config, _) = global_config_pda();
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -2046,7 +2076,10 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
     .unwrap();
 
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    let pending_acc = ctx.svm.get_account(&pending_redemption_key).expect("PendingRedemption must exist");
+    let pending_acc = ctx
+        .svm
+        .get_account(&pending_redemption_key)
+        .expect("PendingRedemption must exist");
     // Verify exact 160 bytes layout (8-byte discriminator + 152-byte INIT_SPACE)
     assert_eq!(
         pending_acc.data.len(),
@@ -2099,14 +2132,19 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    ctx.svm.send_transaction(tx).expect("claim redemption should succeed");
+    ctx.svm
+        .send_transaction(tx)
+        .expect("claim redemption should succeed");
 
     // PendingRedemption must be closed (account is None)
     assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
 
     // User's SOL balance must increase by rent refunded minus tx fee (5000 lamports)
     let user_balance_after = ctx.svm.get_account(&user_a.pubkey()).unwrap().lamports;
-    assert_eq!(user_balance_after + 5000 - user_balance_before, rent_lamports);
+    assert_eq!(
+        user_balance_after + 5000 - user_balance_before,
+        rent_lamports
+    );
 }
 
 #[test]
@@ -2158,7 +2196,9 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     let ticket_registry = Keypair::new().pubkey();
     let mut reg_data = vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE];
     reg_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
-    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(&mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()]);
+    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(
+        &mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()],
+    );
     header.pool_id = pool_id;
     header.capacity = 100;
     header.user_count = 1;
@@ -2166,7 +2206,9 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     header.version = anchor::state::TicketRegistry::CURRENT_VERSION;
 
     let entry_offset = 8 + std::mem::size_of::<anchor::state::TicketRegistry>();
-    let entry = bytemuck::from_bytes_mut::<anchor::state::UserEntry>(&mut reg_data[entry_offset..entry_offset + std::mem::size_of::<anchor::state::UserEntry>()]);
+    let entry = bytemuck::from_bytes_mut::<anchor::state::UserEntry>(
+        &mut reg_data[entry_offset..entry_offset + std::mem::size_of::<anchor::state::UserEntry>()],
+    );
     entry.owner = winner.pubkey();
     entry.active = 10;
     entry.pending = 0;
@@ -2299,7 +2341,10 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
     let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
     let res2 = svm.send_transaction(tx2);
-    assert!(res2.is_ok(), "Reinvesting after timelock expiration must succeed: {res2:?}");
+    assert!(
+        res2.is_ok(),
+        "Reinvesting after timelock expiration must succeed: {res2:?}"
+    );
 }
 
 // ─── Vector 7: CPI & Reentrancy Rollback Atomicity ─────────────────────────
@@ -2338,11 +2383,494 @@ fn test_v7_sell_bonds_huma_cpi_failure_atomic_rollback() {
 
     // Verify all on-chain states were atomically rolled back by the runtime
     let post_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(post_pool.total_deposited_principal, initial_principal, "Principal must not be decremented on CPI failure");
-    assert_eq!(post_pool.next_redemption_id, initial_redemption_id, "next_redemption_id must not be incremented on CPI failure");
-    assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), initial_pending, "Tickets must not be debited on CPI failure");
+    assert_eq!(
+        post_pool.total_deposited_principal, initial_principal,
+        "Principal must not be decremented on CPI failure"
+    );
+    assert_eq!(
+        post_pool.next_redemption_id, initial_redemption_id,
+        "next_redemption_id must not be incremented on CPI failure"
+    );
+    assert_eq!(
+        read_registry_pending(&ctx.svm, ctx.ticket_registry),
+        initial_pending,
+        "Tickets must not be debited on CPI failure"
+    );
 
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    assert!(ctx.svm.get_account(&pending_redemption_key).is_none(), "PendingRedemption account must not exist on CPI failure");
+    assert!(
+        ctx.svm.get_account(&pending_redemption_key).is_none(),
+        "PendingRedemption account must not exist on CPI failure"
+    );
 }
 
+#[test]
+fn test_v4_buy_bonds_zero_share_inflation_guard() {
+    let mut ctx = setup_e2e();
+    let initial_vault_amount = read_token_balance(&ctx.svm, pool_pst_vault_pda(1).0);
+    assert_eq!(initial_vault_amount, 0);
+
+    let user_a = clone_keypair(&ctx.user);
+    let user_token_account = ctx.user_usdc_account;
+
+    let (pool_pda_addr, _) = pool_pda(1);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (user_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::BuyBonds {
+        user: user_a.pubkey(),
+        user_winnings,
+        pool: pool_pda_addr,
+        ticket_registry: ctx.ticket_registry,
+        user_token_account,
+        token_mint: ctx.usdc_mint,
+        pool_vault_account: pool_vault,
+        pool_pst_vault,
+        huma_program: huma_program_id(),
+        huma_config: FAIL_ZERO_SHARES_PUBKEY,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::BuyBonds { tickets_to_buy: 10 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::ZeroSharesMinted);
+
+    let post_vault_amount = read_token_balance(&ctx.svm, pool_pst_vault_pda(1).0);
+    assert_eq!(
+        post_vault_amount, 0,
+        "Vault PST balance must remain 0 when zero shares minted error is thrown"
+    );
+
+    // Normal deposit succeeds
+    let ok_res = send_e2e_buy_bonds(&mut ctx, 10);
+    assert!(ok_res.is_ok(), "Normal buy_bonds must succeed: {ok_res:?}");
+
+    let final_vault_amount = read_token_balance(&ctx.svm, pool_pst_vault_pda(1).0);
+    assert_eq!(
+        final_vault_amount, 10_000_000,
+        "10 bonds = 10,000,000 PST shares"
+    );
+
+    // ZeroSharesMinted error definition and code verification
+    let err = PremiumBondsError::ZeroSharesMinted;
+    assert_eq!(format!("{err:?}"), "ZeroSharesMinted");
+    assert_eq!((err as u32) + anchor_lang::error::ERROR_CODE_OFFSET, 6066);
+}
+
+#[test]
+fn test_v4_terminal_share_clamping_all_exits() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // Buy 10 bonds = 10 USDC = 10_000_000 base units
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+
+    // Terminal sell: sell all 10 bonds -> pool.calculate_book_value() becomes 0
+    let res = send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        10,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    );
+    assert!(
+        res.is_ok(),
+        "Terminal bond sale with book value 0 must clamp shares and succeed: {res:?}"
+    );
+
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_deposited_principal, 0);
+    assert_eq!(pool.calculate_book_value().unwrap(), 0);
+}
+
+#[test]
+fn test_v4_terminal_share_clamping_withdraw_fees() {
+    let mut ctx = setup_e2e();
+    let dummy = Keypair::new().pubkey();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let fee_wallet = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.admin.pubkey(),
+    );
+
+    let (pool_pda_addr, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, 0);
+
+    // Set pool state to 0 principal, 0 prizes allocated, 5 USDC accrued fees
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_deposited_principal = 0;
+    pool.total_prizes_allocated = 0;
+    pool.total_fees_accrued = 5_000_000;
+    pool.total_fees_withdrawn = 0;
+    pool.fee_wallet = fee_wallet;
+    let mut pool_data = vec![];
+    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
+    ctx.svm
+        .set_account(
+            pool_pda_addr,
+            Account {
+                lamports: 10_000_000,
+                data: pool_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Inject pool_pst_vault with 5_000_000 PST tokens
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda_addr,
+        5_000_000,
+    );
+
+    // Set 1:1 Huma solvency
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        5_000_000,
+        5_000_000,
+    );
+
+    let (global_config, _) = global_config_pda();
+    let accounts = anchor::accounts::WithdrawFees {
+        admin: ctx.admin.pubkey(),
+        global_config,
+        pool: pool_pda_addr,
+        fee_wallet,
+        token_mint: ctx.usdc_mint,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: Keypair::new().pubkey(),
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::WithdrawFees { amount: 5_000_000 }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert!(
+        res.is_ok(),
+        "Terminal fee withdrawal with book value 0 must clamp shares and succeed: {res:?}"
+    );
+
+    let updated_pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(updated_pool.total_fees_withdrawn, 5_000_000);
+    assert_eq!(updated_pool.calculate_book_value().unwrap(), 0);
+}
+
+#[test]
+fn test_v4_terminal_share_clamping_claim_non_reinvested_winnings() {
+    let mut ctx = setup_e2e();
+    let dummy = Keypair::new().pubkey();
+
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    let (pool_pda_addr, _) = pool_pda(1);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, 0);
+    let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
+
+    // Pool has 0 principal, 0 fees, 3 USDC prizes allocated (unawarded remainder/winnings)
+    let mut pool = read_pool_state(&ctx.svm, 1);
+    pool.total_deposited_principal = 0;
+    pool.total_fees_accrued = 0;
+    pool.total_fees_withdrawn = 0;
+    pool.total_prizes_allocated = 3_000_000;
+    let mut pool_data = vec![];
+    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
+    ctx.svm
+        .set_account(
+            pool_pda_addr,
+            Account {
+                lamports: 10_000_000,
+                data: pool_data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    // Set user winnings to 3 USDC unclaimed
+    inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 3_000_000, 0, 0);
+
+    // Inject pool_pst_vault with 3_000_000 PST tokens
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda_addr,
+        3_000_000,
+    );
+
+    // Set 1:1 Huma solvency
+    set_huma_solvency_state(
+        &mut ctx.svm,
+        ctx.huma_pool_state,
+        ctx.pst_mint,
+        3_000_000,
+        3_000_000,
+    );
+
+    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
+        user: ctx.user.pubkey(),
+        pool: pool_pda_addr,
+        user_winnings: user_winnings_addr,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_mode_mint: ctx.pst_mint,
+        huma_redemption_request: Keypair::new().pubkey(),
+        huma_lender_state: dummy,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert!(
+        res.is_ok(),
+        "Terminal prize winnings claim with book value 0 must clamp shares and succeed: {res:?}"
+    );
+
+    let updated_pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(updated_pool.total_prizes_allocated, 0);
+    assert_eq!(updated_pool.calculate_book_value().unwrap(), 0);
+}
+
+#[test]
+fn test_v4_terminal_dust_clamping_claim_redemption() {
+    let mut ctx = setup_e2e();
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+
+    // 1. Buy 10 bonds
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+
+    // 2. Sell 10 bonds to create PendingRedemption for 10_000_000 USDC
+    let res = send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        10,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    );
+    assert!(res.is_ok(), "Sell bonds should succeed: {res:?}");
+
+    // 3. Settle Huma redemption
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // 4. Inject huma_pool_underlying_token with 1 unit LESS (9_999_999 instead of 10_000_000)
+    // so disburse delivers 9_999_999 to pool_vault_account
+    inject_token_account(
+        &mut ctx.svm,
+        ctx.huma_pool_underlying_token,
+        ctx.usdc_mint,
+        ctx.huma_pool_authority,
+        9_999_999,
+    );
+
+    let user_a_usdc = ctx.user_usdc_account;
+    let initial_user_balance = read_token_balance(&ctx.svm, user_a_usdc);
+
+    let claim_res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert!(
+        claim_res.is_ok(),
+        "Claim redemption with 1 base unit deficit must clamp to available vault amount and succeed: {claim_res:?}"
+    );
+
+    let final_user_balance = read_token_balance(&ctx.svm, user_a_usdc);
+    assert_eq!(
+        final_user_balance,
+        initial_user_balance + 9_999_999,
+        "User should have received 9_999_999 USDC (clamped vault amount)"
+    );
+
+    let (pool_vault, _) = pool_vault_pda(1);
+    let final_vault_balance = read_token_balance(&ctx.svm, pool_vault);
+    assert_eq!(
+        final_vault_balance, 0,
+        "Pool vault should be completely drained"
+    );
+}
+
+#[test]
+fn test_v6_rebind_two_layer_anti_reroll_guard() {
+    let mut ctx = setup_e2e();
+    let pool_id = 1;
+    let cycle_id = 0;
+    let harvest_slot = 100;
+
+    // Inject draw cycle awaiting randomness committed at harvest_slot 100
+    let current_randomness = Keypair::new().pubkey();
+    let mut dc = default_draw_cycle(pool_id, cycle_id, anchor::DrawStatus::AwaitingRandomness);
+    dc.harvest_slot = harvest_slot;
+    dc.randomness_account = current_randomness;
+    inject_draw_cycle(&mut ctx.svm, pool_id, cycle_id, &dc);
+
+    // Inject Switchboard randomness account with seed_slot = 1050 (requested after harvest)
+    inject_randomness_account_data(&mut ctx.svm, current_randomness, 1050, 0, [0u8; 32]);
+
+    let new_randomness = Keypair::new().pubkey();
+    inject_mock_randomness_account(&mut ctx.svm, new_randomness);
+
+    // Scenario 1: Clock slot = 1000.
+    // clock.slot (1000) - harvest_slot (100) = 900 <= 1000 -> Fails Layer 1 (Macro window)
+    ctx.svm.warp_to_slot(1000);
+    let ix1 = build_crank_rebind_instruction(
+        &ctx.admin,
+        pool_id,
+        cycle_id,
+        current_randomness,
+        new_randomness,
+    );
+    let bh1 = ctx.svm.latest_blockhash();
+    let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &bh1);
+    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
+    let res1 = ctx.svm.send_transaction(tx1);
+    assert_custom_error(res1, PremiumBondsError::RandomnessNotExpired);
+
+    // Scenario 2: Clock slot = 1200.
+    // clock.slot (1200) - harvest_slot (100) = 1100 > 1000 (Passes Layer 1), BUT
+    // clock.slot (1200) - seed_slot (1050) = 150 <= 1000 -> Fails Layer 2 (Micro anti-re-roll window!)
+    ctx.svm.warp_to_slot(1200);
+    ctx.svm.expire_blockhash();
+    let ix2 = build_crank_rebind_instruction(
+        &ctx.admin,
+        pool_id,
+        cycle_id,
+        current_randomness,
+        new_randomness,
+    );
+    let bh2 = ctx.svm.latest_blockhash();
+    let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &bh2);
+    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
+    let res2 = ctx.svm.send_transaction(tx2);
+    assert_custom_error(res2, PremiumBondsError::RandomnessNotExpired);
+
+    // Scenario 3: Clock slot = 2051.
+    // clock.slot (2051) - harvest_slot (100) = 1951 > 1000 (Passes Layer 1) AND
+    // clock.slot (2051) - seed_slot (1050) = 1001 > 1000 (Passes Layer 2) -> SUCCEEDS!
+    ctx.svm.warp_to_slot(2051);
+    ctx.svm.expire_blockhash();
+    let ix3 = build_crank_rebind_instruction(
+        &ctx.admin,
+        pool_id,
+        cycle_id,
+        current_randomness,
+        new_randomness,
+    );
+    let bh3 = ctx.svm.latest_blockhash();
+    let msg3 = Message::new_with_blockhash(&[ix3], Some(&ctx.admin.pubkey()), &bh3);
+    let tx3 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg3), &[&ctx.admin]).unwrap();
+    let res3 = ctx.svm.send_transaction(tx3);
+    assert!(
+        res3.is_ok(),
+        "Two-layer expired randomness rebind must succeed: {res3:?}"
+    );
+}

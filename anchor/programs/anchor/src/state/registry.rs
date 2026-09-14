@@ -278,7 +278,10 @@ impl<'a> TicketRegistryMut<'a> {
                     PremiumBondsError::InvalidRegistryState
                 );
                 let entry = &mut self.entries[idx];
-                require!(entry.owner == owner, PremiumBondsError::InvalidUserEntryHint);
+                require!(
+                    entry.owner == owner,
+                    PremiumBondsError::InvalidUserEntryHint
+                );
                 entry.lazy_merge(current_cycle)?;
 
                 if as_active {
@@ -710,7 +713,9 @@ mod tests {
         assert_eq!(reg_view.entries[1].pending, 0);
 
         // 3. Top-up existing user A with more pending
-        let (idx_a_topup, total_a_topup) = reg_view.credit_tickets(Some(0), owner_a, 15, false).unwrap();
+        let (idx_a_topup, total_a_topup) = reg_view
+            .credit_tickets(Some(0), owner_a, 15, false)
+            .unwrap();
         assert_eq!(idx_a_topup, 0);
         assert_eq!(total_a_topup, 25);
         assert_eq!(reg_view.header.user_count, 2);

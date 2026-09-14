@@ -43,6 +43,9 @@ pub const MAX_PAYOUT_TIMELOCK_SECONDS: u32 = 86_400;
 /// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
 pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
 
+/// Maximum allowable slot freshness window before a Switchboard VRF randomness request is considered expired.
+pub const VRF_FRESHNESS_WINDOW_SLOTS: u64 = 1_000;
+
 /// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` call.
 pub const REGISTRY_REALLOC_STEP: usize = 10_240;
 /// Solana's hard account size cap.

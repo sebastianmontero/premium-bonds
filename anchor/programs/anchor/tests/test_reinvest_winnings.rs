@@ -798,7 +798,9 @@ fn test_reinvest_fails_payout_timelock_active() {
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
     {
         let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
+            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+        );
         pr.revealed_at = 1_000;
         svm.set_account(payout_pda, acc).unwrap();
     }
@@ -841,7 +843,9 @@ fn test_reinvest_fails_draw_voided() {
     let (pda, _) = payout_pda(1, 0);
     {
         let mut acc = ctx.svm.get_account(&pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
+            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+        );
         pr.status = anchor::PayoutRegistryStatus::Voided as u8;
         ctx.svm.set_account(pda, acc).unwrap();
     }
@@ -996,7 +1000,9 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
     {
         let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(&mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()]);
+        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
+            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
+        );
         pr.revealed_at = 1_000;
         svm.set_account(payout_pda, acc).unwrap();
     }

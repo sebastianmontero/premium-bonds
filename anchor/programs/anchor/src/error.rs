@@ -202,4 +202,7 @@ pub enum PremiumBondsError {
     /// Draw preparation batch size must be greater than 0.
     #[msg("Draw preparation batch size must be greater than 0.")]
     InvalidBatchSize,
+    /// Huma deposit produced zero PST shares.
+    #[msg("Huma deposit produced zero PST shares.")]
+    ZeroSharesMinted,
 }

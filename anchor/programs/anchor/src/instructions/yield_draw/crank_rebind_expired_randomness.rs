@@ -1,7 +1,9 @@
-use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
+use crate::constants::{
+    DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED, VRF_FRESHNESS_WINDOW_SLOTS,
+};
 use crate::error::PremiumBondsError;
 use crate::events::RandomnessRebound;
-use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PrizePool};
+use crate::state::{DrawCycle, GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `crank_rebind_expired_randomness` instruction.
@@ -16,6 +18,7 @@ use anchor_lang::prelude::*;
 /// * `global_config`: The global configuration account for checking authorization.
 /// * `pool`: The prize pool account.
 /// * `current_draw_cycle`: The current draw cycle account to modify.
+/// * `current_randomness_account`: The current Switchboard randomness account pinned to `current_draw_cycle.randomness_account`.
 /// * `new_randomness_account`: The new Switchboard On-Demand randomness account.
 ///
 /// # PDA Derivations
@@ -54,6 +57,12 @@ pub struct CrankRebindExpiredRandomness<'info> {
     )]
     pub current_draw_cycle: Box<Account<'info, DrawCycle>>,
 
+    /// CHECK: The current randomness account recorded on the draw cycle, validated to match current_draw_cycle.randomness_account.
+    #[account(
+        constraint = current_randomness_account.key() == current_draw_cycle.randomness_account @ PremiumBondsError::InvalidRandomnessAccount
+    )]
+    pub current_randomness_account: UncheckedAccount<'info>,
+
     /// CHECK: This is the raw new randomness account to be bound to the draw cycle. It is unchecked because it is a Switchboard On-Demand account. We enforce safety by validating that its owner matches the Switchboard On-Demand program ID.
     #[account(
         constraint = new_randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount,
@@ -81,11 +90,27 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     draw_cycle.ensure_current_version()?;
 
     let clock = Clock::get()?;
-    // Require that at least 1000 slots (~6.6 mins) have passed since harvest
+
+    // Layer 1: Macro harvest cooldown (Unconditional)
     require!(
-        clock.slot.saturating_sub(draw_cycle.harvest_slot) > 1000,
+        clock.slot.saturating_sub(draw_cycle.harvest_slot) > VRF_FRESHNESS_WINDOW_SLOTS,
         PremiumBondsError::RandomnessNotExpired
     );
+
+    // Layer 2: Additive anti-re-roll check if valid randomness was committed
+    if ctx.accounts.current_randomness_account.key() != Pubkey::default() {
+        if let Ok(data) = ctx.accounts.current_randomness_account.try_borrow_data() {
+            if let Ok(randomness_data) = switchboard_on_demand::RandomnessAccountData::parse(data) {
+                if randomness_data.seed_slot >= draw_cycle.harvest_slot {
+                    require!(
+                        clock.slot.saturating_sub(randomness_data.seed_slot)
+                            > VRF_FRESHNESS_WINDOW_SLOTS,
+                        PremiumBondsError::RandomnessNotExpired
+                    );
+                }
+            }
+        }
+    }
 
     let old_randomness = draw_cycle.randomness_account;
 

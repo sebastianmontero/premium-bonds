@@ -156,7 +156,7 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
 
     // 2. Read-only validation of pool lifecycle state & solvency check in a single scope
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, huma_snapshot) = {
+    let (pool_id, pool_id_bytes, authority_bump, huma_snapshot) = {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
         require!(
@@ -176,7 +176,6 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
             pool.pool_id,
             pool.pool_id.to_le_bytes(),
             pool.vault_authority_bump,
-            pool.next_redemption_id,
             snapshot,
         )
     };
@@ -191,25 +190,17 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
             .ok_or(PremiumBondsError::MathOverflow)?;
     }
 
-    {
+    let current_redemption_id = {
         let mut pool_mut = ctx.accounts.pool.load_mut()?;
         pool_mut.ensure_current_version()?;
-        pool_mut.total_prizes_allocated = pool_mut
-            .total_prizes_allocated
-            .checked_sub(claimable)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        pool_mut.total_pending_redemptions = pool_mut
-            .total_pending_redemptions
-            .checked_add(claimable)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        pool_mut.next_redemption_id = pool_mut
-            .next_redemption_id
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
+        pool_mut.deduct_allocated_prizes(claimable)?;
+        pool_mut.queue_pending_redemption(claimable)?
+    };
 
     // 4. Calculate PST shares and execute Huma CPI
-    let pst_shares = huma_snapshot.usdc_to_pst_shares(claimable, pst_supply)?;
+    let pst_shares = huma_snapshot
+        .usdc_to_pst_shares(claimable, pst_supply)?
+        .min(ctx.accounts.pool_pst_vault.amount);
     let huma_request_id = huma_snapshot.pending_request_id();
 
     // CPI: request async redemption from Huma
@@ -239,17 +230,19 @@ pub fn handle(ctx: Context<ClaimNonReinvestedWinnings>) -> Result<()> {
     let clock = Clock::get()?;
 
     // Create PendingRedemption receipt
-    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
-        pool_id,
-        redemption_id: current_redemption_id,
-        bump: ctx.bumps.pending_redemption,
-        user: ctx.accounts.user.key(),
-        amount: claimable,
-        pst_shares_locked: pst_shares,
-        huma_request_id,
-        requested_at: clock.unix_timestamp,
-        redemption_type: RedemptionType::PrizeClaim,
-    });
+    ctx.accounts
+        .pending_redemption
+        .init(InitPendingRedemptionParams {
+            pool_id,
+            redemption_id: current_redemption_id,
+            bump: ctx.bumps.pending_redemption,
+            user: ctx.accounts.user.key(),
+            amount: claimable,
+            pst_shares_locked: pst_shares,
+            huma_request_id,
+            requested_at: clock.unix_timestamp,
+            redemption_type: RedemptionType::PrizeClaim,
+        });
 
     #[cfg(feature = "debug-logs")]
     msg!(

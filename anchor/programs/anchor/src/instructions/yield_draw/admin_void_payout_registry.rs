@@ -1,9 +1,7 @@
 use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PAYOUT_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::DrawVoided;
-use crate::state::{
-    DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PayoutRegistryStatus, PrizePool,
-};
+use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PayoutRegistry, PrizePool};
 use anchor_lang::prelude::*;
 
 /// Accounts required for an admin to void a completed draw and roll back prize allocations.
@@ -86,31 +84,14 @@ pub fn handle(ctx: Context<AdminVoidPayoutRegistry>) -> Result<()> {
     payout_view.header.ensure_current_version()?;
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
-    draw_cycle.ensure_current_version()?;
 
     // 1. Mark voided and get total distributed prize sum
     let total_distributed = payout_view.void_draw()?;
 
-    // 2. Decrement pool.total_prizes_allocated exactly by total_distributed
-    pool.deduct_allocated_prizes(total_distributed)?;
-
-    // 3. Verify unwithdrawn fees and decrement pool.total_fees_accrued
-    let unwithdrawn_fees = pool
-        .total_fees_accrued
-        .checked_sub(pool.total_fees_withdrawn)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-    require!(
-        unwithdrawn_fees >= draw_cycle.cycle_fee_collected,
-        PremiumBondsError::FeesAlreadyWithdrawn
-    );
-    pool.total_fees_accrued = pool
-        .total_fees_accrued
-        .checked_sub(draw_cycle.cycle_fee_collected)
-        .ok_or(PremiumBondsError::MathOverflow)?;
-
-    // 4. Update statuses
-    draw_cycle.status = DrawStatus::Voided;
-    draw_cycle.completed_at = Clock::get()?.unix_timestamp;
+    // 2. Rollback liabilities atomically and update draw cycle status
+    let current_time = Clock::get()?.unix_timestamp;
+    draw_cycle.void(current_time)?;
+    pool.rollback_draw_liabilities(total_distributed, draw_cycle.cycle_fee_collected)?;
 
     emit_cpi!(DrawVoided {
         pool_id: pool.pool_id,

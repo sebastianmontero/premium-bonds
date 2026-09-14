@@ -411,7 +411,10 @@ fn test_claim_redemption_e2e_happy_path() {
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
     assert_eq!(event.caller, user_a.pubkey());
     assert_eq!(event.user, user_a.pubkey());
-    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
+    assert_eq!(
+        event.redemption_type,
+        anchor::state::RedemptionType::BondSale
+    );
 
     // User A should have received 3 USDC back (93 USDC total)
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
@@ -663,8 +666,8 @@ fn test_claim_redemption_rounding_error_failure() {
     inject_lender_state(&mut ctx.svm, huma_lender_state, 2_999_999);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
-    // Claim redemption - MUST FAIL because Huma only disbursed 2,999,999 but program tries to pay 3,000,000.
-    // The pool vault has 0 USDC start balance (all was deposited to Huma during buy_bonds).
+    // Claim redemption - MUST SUCCEED because transfer amount is defensively clamped
+    // to available pool_vault_account balance (2,999,999 USDC), preventing bricked funds.
     let res = send_e2e_claim_redemption_for_user(
         &mut ctx,
         &user_a,
@@ -674,15 +677,12 @@ fn test_claim_redemption_rounding_error_failure() {
         huma_lender_state,
     );
 
-    assert!(res.is_err());
-    // Since vault only has 2,999,999 USDC but attempts to transfer 3,000,000,
-    // the SPL transfer will fail with InsufficientFunds.
-    let err_msg = res.unwrap_err();
     assert!(
-        err_msg.contains("custom program error: 0x1") || err_msg.contains("InsufficientFunds"),
-        "got: {}",
-        err_msg
+        res.is_ok(),
+        "claim redemption with 1-unit rounding deficit should succeed due to vault clamping"
     );
+    // User started with 90_000_000 USDC and received the clamped 2_999_999 USDC
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 92_999_999);
 }
 
 #[test]
@@ -813,7 +813,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.amount, 3_000_000);
     assert_eq!(event.redemption_id, 0);
-    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
+    assert_eq!(
+        event.redemption_type,
+        anchor::state::RedemptionType::BondSale
+    );
     assert!(event.pst_shares_locked > 0);
     assert_eq!(event.huma_request_id, 0);
     assert!(event.requested_at > 0);
@@ -860,7 +863,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
     let event1 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta1);
     assert_eq!(event1.caller, user_a.pubkey());
     assert_eq!(event1.user, user_a.pubkey());
-    assert_eq!(event1.redemption_type, anchor::state::RedemptionType::PrizeClaim);
+    assert_eq!(
+        event1.redemption_type,
+        anchor::state::RedemptionType::PrizeClaim
+    );
 
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 95_000_000);
 
@@ -903,7 +909,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
     let event2 = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta2);
     assert_eq!(event2.caller, user_a.pubkey());
     assert_eq!(event2.user, user_a.pubkey());
-    assert_eq!(event2.redemption_type, anchor::state::RedemptionType::BondSale);
+    assert_eq!(
+        event2.redemption_type,
+        anchor::state::RedemptionType::BondSale
+    );
 
     // Total claimed should be user's start balance (90 USDC) + 10 USDC (bonds principal) + 2 USDC (winnings) = 102 USDC
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 102_000_000);
@@ -975,7 +984,10 @@ fn test_claim_redemption_e2e_permissionless_crank() {
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
     assert_eq!(event.caller, crank.pubkey());
     assert_eq!(event.user, user_a.pubkey());
-    assert_eq!(event.redemption_type, anchor::state::RedemptionType::BondSale);
+    assert_eq!(
+        event.redemption_type,
+        anchor::state::RedemptionType::BondSale
+    );
 
     // User A receives 3 USDC (93 USDC total)
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);

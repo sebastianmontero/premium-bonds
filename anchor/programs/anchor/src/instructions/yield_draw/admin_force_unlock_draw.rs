@@ -1,7 +1,7 @@
 use crate::constants::{DRAW_CYCLE_SEED, GLOBAL_CONFIG_SEED, PRIZE_POOL_SEED};
 use crate::error::PremiumBondsError;
 use crate::events::DrawForceUnlocked;
-use crate::state::{DrawCycle, DrawStatus, GlobalConfig, PrizePool};
+use crate::state::{DrawCycle, GlobalConfig, PrizePool};
 use anchor_lang::prelude::*;
 
 /// Accounts required for the `admin_force_unlock_draw` instruction.
@@ -70,30 +70,12 @@ pub struct AdminForceUnlockDraw<'info> {
 pub fn handle(ctx: Context<AdminForceUnlockDraw>) -> Result<()> {
     let pool = &mut ctx.accounts.pool.load_mut()?;
     pool.ensure_current_version()?;
-    pool.is_frozen_for_draw = 0;
+    pool.set_frozen(false);
 
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
-    draw_cycle.ensure_current_version()?;
-    require!(
-        draw_cycle.status == DrawStatus::AwaitingRandomness,
-        PremiumBondsError::InvalidDrawStatus
-    );
-    draw_cycle.status = DrawStatus::ForceUnlocked;
-    draw_cycle.completed_at = Clock::get()?.unix_timestamp;
-
-    if draw_cycle.prize_pot > 0 {
-        pool.total_prizes_allocated = pool
-            .total_prizes_allocated
-            .checked_sub(draw_cycle.prize_pot)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
-
-    if draw_cycle.cycle_fee_collected > 0 {
-        pool.total_fees_accrued = pool
-            .total_fees_accrued
-            .checked_sub(draw_cycle.cycle_fee_collected)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
+    let current_time = Clock::get()?.unix_timestamp;
+    draw_cycle.force_unlock(current_time)?;
+    pool.rollback_draw_liabilities(draw_cycle.prize_pot, draw_cycle.cycle_fee_collected)?;
 
     emit_cpi!(DrawForceUnlocked {
         pool_id: pool.pool_id,

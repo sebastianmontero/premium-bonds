@@ -193,6 +193,8 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
     let signer_seeds: &[&[&[u8]]] =
         &[&[PRIZE_POOL_SEED, pool_id_bytes.as_ref(), &[authority_bump]]];
 
+    let initial_pst_vault_amount = ctx.accounts.pool_pst_vault.amount;
+
     huma::deposit(
         ctx.accounts.huma_program.to_account_info(),
         ctx.accounts.pool.to_account_info(), // depositor (pool PDA)
@@ -211,6 +213,12 @@ pub fn handle(ctx: Context<BuyBonds>, bonds_to_buy: u32) -> Result<()> {
         amount,
         signer_seeds,
     )?;
+
+    ctx.accounts.pool_pst_vault.reload()?;
+    require!(
+        ctx.accounts.pool_pst_vault.amount > initial_pst_vault_amount,
+        PremiumBondsError::ZeroSharesMinted
+    );
 
     // 3. Update State
     let new_total_deposited_principal = {

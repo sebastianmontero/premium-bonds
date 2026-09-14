@@ -221,12 +221,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
         let registry_ai = ctx.accounts.ticket_registry.to_account_info();
         let mut data = registry_ai.try_borrow_mut_data()?;
         let mut reg_view = get_ticket_registry_mut(&mut data)?;
-        reg_view.debit_tickets(
-            user_entry_idx,
-            user_key,
-            active_to_sell,
-            pending_to_sell,
-        )?
+        reg_view.debit_tickets(user_entry_idx, user_key, active_to_sell, pending_to_sell)?
     };
 
     if debit_result.remaining_bonds == 0 {
@@ -260,16 +255,7 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
             .checked_sub(expected_principal)
             .ok_or(PremiumBondsError::MathOverflow)?;
 
-        let current_redemption_id = pool.next_redemption_id;
-        pool.next_redemption_id = pool
-            .next_redemption_id
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-
-        pool.total_pending_redemptions = pool
-            .total_pending_redemptions
-            .checked_add(expected_principal)
-            .ok_or(PremiumBondsError::MathOverflow)?;
+        let current_redemption_id = pool.queue_pending_redemption(expected_principal)?;
 
         let pool_id = pool.pool_id;
         let pool_id_bytes = pool_id.to_le_bytes();
@@ -286,7 +272,9 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
 
     // Calculate $PST shares to redeem for the principal amount
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let pst_shares = huma_snapshot.usdc_to_pst_shares(expected_principal, pst_supply)?;
+    let pst_shares = huma_snapshot
+        .usdc_to_pst_shares(expected_principal, pst_supply)?
+        .min(ctx.accounts.pool_pst_vault.amount);
     let huma_request_id = huma_snapshot.pending_request_id();
 
     // CPI: request async redemption from Huma
@@ -316,17 +304,19 @@ pub fn handle(ctx: Context<SellBonds>, active_to_sell: u32, pending_to_sell: u32
     let clock = Clock::get()?;
 
     // Create PendingRedemption receipt
-    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
-        pool_id,
-        redemption_id: current_redemption_id,
-        bump: ctx.bumps.pending_redemption,
-        user: ctx.accounts.user.key(),
-        amount: expected_principal,
-        pst_shares_locked: pst_shares,
-        huma_request_id,
-        requested_at: clock.unix_timestamp,
-        redemption_type: RedemptionType::BondSale,
-    });
+    ctx.accounts
+        .pending_redemption
+        .init(InitPendingRedemptionParams {
+            pool_id,
+            redemption_id: current_redemption_id,
+            bump: ctx.bumps.pending_redemption,
+            user: ctx.accounts.user.key(),
+            amount: expected_principal,
+            pst_shares_locked: pst_shares,
+            huma_request_id,
+            requested_at: clock.unix_timestamp,
+            redemption_type: RedemptionType::BondSale,
+        });
 
     #[cfg(feature = "debug-logs")]
     msg!(

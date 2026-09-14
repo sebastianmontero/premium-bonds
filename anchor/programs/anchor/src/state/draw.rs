@@ -152,6 +152,7 @@ impl DrawCycle {
         new_randomness_account: Pubkey,
         current_slot: u64,
     ) -> Result<()> {
+        self.ensure_current_version()?;
         require!(
             self.status == DrawStatus::AwaitingRandomness,
             PremiumBondsError::InvalidDrawStatus
@@ -162,6 +163,44 @@ impl DrawCycle {
         );
         self.randomness_account = new_randomness_account;
         self.harvest_slot = current_slot;
+        Ok(())
+    }
+
+    pub fn complete(&mut self, seed: [u8; 32], timestamp: i64) -> Result<()> {
+        self.ensure_current_version()?;
+        require!(
+            self.status == DrawStatus::AwaitingRandomness,
+            PremiumBondsError::InvalidDrawStatus
+        );
+        self.status = DrawStatus::Complete;
+        self.randomness_seed = seed;
+        self.completed_at = timestamp;
+        Ok(())
+    }
+
+    pub fn force_unlock(&mut self, timestamp: i64) -> Result<()> {
+        self.ensure_current_version()?;
+        require!(
+            self.status == DrawStatus::AwaitingRandomness,
+            PremiumBondsError::InvalidDrawStatus
+        );
+        self.status = DrawStatus::ForceUnlocked;
+        self.completed_at = timestamp;
+        Ok(())
+    }
+
+    pub fn void(&mut self, timestamp: i64) -> Result<()> {
+        self.ensure_current_version()?;
+        require!(
+            self.status != DrawStatus::Voided,
+            PremiumBondsError::DrawAlreadyVoided
+        );
+        require!(
+            self.status == DrawStatus::Complete,
+            PremiumBondsError::InvalidDrawStatus
+        );
+        self.status = DrawStatus::Voided;
+        self.completed_at = timestamp;
         Ok(())
     }
 }
@@ -256,7 +295,10 @@ impl Winner {
 
     pub fn validate_eligibility(&self, expected_user: Pubkey) -> Result<()> {
         self.check_version()?;
-        require!(self.winner == expected_user, PremiumBondsError::WinnerMismatch);
+        require!(
+            self.winner == expected_user,
+            PremiumBondsError::WinnerMismatch
+        );
         require!(!self.is_processed(), PremiumBondsError::AlreadyClaimed);
         Ok(())
     }

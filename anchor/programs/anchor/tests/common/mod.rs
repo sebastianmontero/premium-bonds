@@ -31,6 +31,7 @@ pub const PAYOUT_SEED: &[u8] = b"payout";
 pub const FAIL_DEPOSIT_PUBKEY: Pubkey = Pubkey::new_from_array([1; 32]);
 pub const FAIL_REDEMPTION_PUBKEY: Pubkey = Pubkey::new_from_array([2; 32]);
 pub const FAIL_DISBURSE_PUBKEY: Pubkey = Pubkey::new_from_array([3; 32]);
+pub const FAIL_ZERO_SHARES_PUBKEY: Pubkey = Pubkey::new_from_array([5; 32]);
 
 // ─── PDA helpers ─────────────────────────────────────────────────────────────
 
@@ -436,6 +437,48 @@ pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
         Account {
             lamports: 1_000_000_000,
             data: vec![],
+            owner: owner_pubkey,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
+pub fn inject_randomness_account_data(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    seed_slot: u64,
+    reveal_slot: u64,
+    value: [u8; 32],
+) {
+    let mut data =
+        vec![
+            0u8;
+            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
+        ];
+    data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
+    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
+    randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.seed_slothash = [0u8; 32];
+    randomness_data.seed_slot = seed_slot;
+    randomness_data.oracle = solana_program_v2::pubkey::Pubkey::default();
+    randomness_data.reveal_slot = reveal_slot;
+    randomness_data.value = value;
+
+    let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
+    data[8..8 + bytes.len()].copy_from_slice(bytes);
+
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data,
             owner: owner_pubkey,
             executable: false,
             rent_epoch: 0,
@@ -1273,6 +1316,104 @@ pub fn build_create_pool_instruction_with_programs(
     }
 }
 
+/// Parameter object for pool creation configuration.
+#[derive(Clone, Debug)]
+pub struct TestPoolConfig {
+    pub pool_id: u32,
+    pub bond_price: u64,
+    pub stake_cycle_duration_hrs: i64,
+    pub fee_basis_points: u16,
+    pub min_yield_threshold: u64,
+    pub max_yield_basis_points: u16,
+    pub payout_timelock_seconds: u32,
+    pub prize_tiers: Vec<anchor::PrizeTier>,
+    pub token_mint: Pubkey,
+    pub pst_mint: Pubkey,
+    pub ticket_registry: Pubkey,
+    pub fee_wallet: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub token_program: Pubkey,
+    pub pst_token_program: Pubkey,
+}
+
+impl Default for TestPoolConfig {
+    fn default() -> Self {
+        Self {
+            pool_id: 1,
+            bond_price: 1_000_000,
+            stake_cycle_duration_hrs: 24,
+            fee_basis_points: 100,
+            min_yield_threshold: 0,
+            max_yield_basis_points: 0,
+            payout_timelock_seconds: 300,
+            prize_tiers: default_prize_tiers(),
+            token_mint: Pubkey::default(),
+            pst_mint: Pubkey::default(),
+            ticket_registry: Pubkey::default(),
+            fee_wallet: Pubkey::default(),
+            huma_pool_state: Pubkey::default(),
+            token_program: anchor_spl::token::ID,
+            pst_token_program: anchor_spl::token::ID,
+        }
+    }
+}
+
+/// Builds a `CreatePool` instruction from a `TestPoolConfig` parameter object.
+pub fn build_create_pool_instruction_from_config(
+    admin: &Keypair,
+    config: &TestPoolConfig,
+) -> Instruction {
+    build_create_pool_instruction_with_programs(
+        admin,
+        config.pool_id,
+        config.bond_price,
+        config.stake_cycle_duration_hrs,
+        config.fee_basis_points,
+        config.min_yield_threshold,
+        config.max_yield_basis_points,
+        config.payout_timelock_seconds,
+        config.prize_tiers.clone(),
+        config.token_mint,
+        config.pst_mint,
+        config.ticket_registry,
+        config.fee_wallet,
+        config.huma_pool_state,
+        config.token_program,
+        config.pst_token_program,
+    )
+}
+
+/// Helper to build a `CrankRebindExpiredRandomness` instruction.
+pub fn build_crank_rebind_instruction(
+    crank: &Keypair,
+    pool_id: u32,
+    cycle_id: u32,
+    current_randomness_account: Pubkey,
+    new_randomness_account: Pubkey,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+
+    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
+        crank: crank.pubkey(),
+        global_config,
+        pool,
+        current_draw_cycle,
+        current_randomness_account,
+        new_randomness_account,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
+    }
+}
+
 // ─── E2E Context ─────────────────────────────────────────────────────────────
 
 pub struct E2eContext {
@@ -1610,6 +1751,54 @@ pub fn send_e2e_sell_bonds_for_user(
             pending_to_sell,
         }
         .data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
+    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+}
+
+pub fn send_e2e_claim_redemption_for_user(
+    ctx: &mut E2eContext,
+    user: &Keypair,
+    user_token_account: Pubkey,
+    redemption_id: u64,
+    huma_config: Pubkey,
+    huma_lender_state: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, String> {
+    let (pool_pda_key, _) = pool_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, redemption_id);
+    let (pool_vault, _) = pool_vault_pda(1);
+    let dummy = Keypair::new().pubkey();
+
+    let accounts = anchor::accounts::ClaimRedemption {
+        caller: user.pubkey(),
+        beneficiary: user.pubkey(),
+        pool: pool_pda_key,
+        pending_redemption,
+        token_mint: ctx.usdc_mint,
+        pool_vault_account: pool_vault,
+        beneficiary_token_account: user_token_account,
+        huma_program: huma_program_id(),
+        huma_config,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
+        huma_lender_state,
+        huma_pool_authority: ctx.huma_pool_authority,
+        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
     };
 
     let bh = ctx.svm.latest_blockhash();
@@ -2341,11 +2530,7 @@ pub fn set_huma_solvency_state(
     pool_acc.data[30..46].copy_from_slice(&total_assets.to_le_bytes());
     svm.set_account(huma_pool_state, pool_acc).unwrap();
 
-    let mut mint_acc = svm
-        .get_account(&pst_mint)
-        .expect("pst mint exists");
+    let mut mint_acc = svm.get_account(&pst_mint).expect("pst mint exists");
     mint_acc.data[36..44].copy_from_slice(&pst_supply.to_le_bytes());
     svm.set_account(pst_mint, mint_acc).unwrap();
 }
-
-

@@ -49,6 +49,7 @@ pub const FAIL_DEPOSIT_PUBKEY: Pubkey = Pubkey::new_from_array([1; 32]);
 pub const FAIL_REDEMPTION_PUBKEY: Pubkey = Pubkey::new_from_array([2; 32]);
 pub const FAIL_DISBURSE_PUBKEY: Pubkey = Pubkey::new_from_array([3; 32]);
 pub const FAIL_CREATE_LENDER_PUBKEY: Pubkey = Pubkey::new_from_array([4; 32]);
+pub const FAIL_ZERO_SHARES_PUBKEY: Pubkey = Pubkey::new_from_array([5; 32]);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Instruction Handlers
@@ -66,6 +67,8 @@ pub mod mock_huma {
             return err!(MockHumaError::SimulatedDepositFailure);
         }
 
+        let is_zero_shares_sim = ctx.accounts.huma_config.key() == FAIL_ZERO_SHARES_PUBKEY;
+
         // 1. Transfer USDC: depositor_underlying_token → pool_underlying_token
         token_interface::transfer_checked(
             CpiContext::new(
@@ -81,31 +84,37 @@ pub mod mock_huma {
             ctx.accounts.underlying_mint.decimals,
         )?;
 
-        // 2. Mint $PST 1:1 to depositor's mode token account
-        let pool_state_key = ctx.accounts.pool_state.key();
-        let (_, bump) = Pubkey::find_program_address(
-            &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
-            ctx.program_id,
-        );
-        let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
+        // 2. Mint $PST 1:1 to depositor's mode token account (skipped if simulating zero shares minted)
+        if !is_zero_shares_sim {
+            let pool_state_key = ctx.accounts.pool_state.key();
+            let (_, bump) = Pubkey::find_program_address(
+                &[POOL_AUTHORITY_SEED, pool_state_key.as_ref()],
+                ctx.program_id,
+            );
+            let signer_seeds: &[&[&[u8]]] = &[&[POOL_AUTHORITY_SEED, pool_state_key.as_ref(), &[bump]]];
 
-        token_interface::mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.mode_token_program.key(),
-                MintTo {
-                    mint: ctx.accounts.mode_mint.to_account_info(),
-                    to: ctx.accounts.depositor_mode_token.to_account_info(),
-                    authority: ctx.accounts.pool_authority.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            assets, // 1:1 for test simplicity
-        )?;
+            token_interface::mint_to(
+                CpiContext::new_with_signer(
+                    ctx.accounts.mode_token_program.key(),
+                    MintTo {
+                        mint: ctx.accounts.mode_mint.to_account_info(),
+                        to: ctx.accounts.depositor_mode_token.to_account_info(),
+                        authority: ctx.accounts.pool_authority.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                assets, // 1:1 for test simplicity
+            )?;
+        }
 
         // 3. Update total_assets in PoolState to reflect the new capital
         update_pool_total_assets(&ctx.accounts.pool_state.to_account_info(), assets as i128)?;
 
-        msg!("MockHuma: deposited {} USDC, minted {} PST", assets, assets);
+        if is_zero_shares_sim {
+            msg!("MockHuma: deposited {} USDC, minted 0 PST (zero shares simulation)", assets);
+        } else {
+            msg!("MockHuma: deposited {} USDC, minted {} PST", assets, assets);
+        }
         Ok(())
     }
 

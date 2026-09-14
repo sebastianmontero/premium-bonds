@@ -30,7 +30,8 @@ fn setup_dynamic_ctx(
     let admin = Keypair::new();
     let crank = Keypair::new();
     let jobs = crank.insecure_clone();
-    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), Some(&crank.pubkey()));
+    let mut svm =
+        setup_global_config_with_admin(&authority, &admin.pubkey(), Some(&crank.pubkey()));
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
     svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
 
@@ -94,7 +95,8 @@ fn setup_dynamic_ctx(
             executable: false,
             rent_epoch: 0,
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
@@ -128,15 +130,16 @@ fn setup_dynamic_ctx(
     }
 }
 
-fn inject_mock_randomness_value(
-    svm: &mut LiteSVM,
-    address: Pubkey,
-    value: [u8; 32],
-) {
+fn inject_mock_randomness_value(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {
     let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    let mut data = vec![0u8; 8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()];
+    let mut data =
+        vec![
+            0u8;
+            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
+        ];
     data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
-    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData = bytemuck::Zeroable::zeroed();
+    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
+        bytemuck::Zeroable::zeroed();
     randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
     randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
     randomness_data.seed_slothash = [0u8; 32];
@@ -164,7 +167,12 @@ fn inject_mock_randomness_value(
     .unwrap();
 }
 
-fn send_reveal(ctx: &mut DynamicRevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+fn send_reveal(
+    ctx: &mut DynamicRevealCtx,
+    pool_id: u32,
+    cycle_id: u32,
+    seed: [u8; 32],
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     inject_mock_randomness_value(&mut ctx.svm, ctx.randomness_account, seed);
     let (pool, _) = pool_pda(pool_id);
     let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
@@ -180,7 +188,8 @@ fn send_reveal(ctx: &mut DynamicRevealCtx, pool_id: u32, cycle_id: u32, seed: [u
         system_program: anchor_lang::system_program::ID,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -209,7 +218,8 @@ fn send_crank_close(
         payout_registry,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -251,12 +261,17 @@ fn send_reinvest(
         system_program: anchor_lang::system_program::ID,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
         accounts,
-        data: anchor::instruction::ReinvestWinnings { cycle_id, winner_index }.data(),
+        data: anchor::instruction::ReinvestWinnings {
+            cycle_id,
+            winner_index,
+        }
+        .data(),
     };
 
     let bh = svm.latest_blockhash();
@@ -294,12 +309,24 @@ fn test_vector_1_minimal_allocation_1_winner() {
 fn test_vector_2_maximum_sizing_boundary_180_winners() {
     // 100 winners @ 60 bps + 80 winners @ 50 bps = 180 winners total, exactly 10,000 bps
     let tiers = vec![
-        anchor::PrizeTier { num_winners: 100, basis_points: 60, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 80, basis_points: 50, _padding: [0, 0] },
+        anchor::PrizeTier {
+            num_winners: 100,
+            basis_points: 60,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 80,
+            basis_points: 50,
+            _padding: [0, 0],
+        },
     ];
     let mut ctx = setup_dynamic_ctx(tiers, 200, 10_000_000);
     let res = send_reveal(&mut ctx, 1, 0, [2u8; 32]);
-    assert!(res.is_ok(), "Reveal with 180 winners must succeed: {:?}", res);
+    assert!(
+        res.is_ok(),
+        "Reveal with 180 winners must succeed: {:?}",
+        res
+    );
 
     let (pda, _) = payout_pda(1, 0);
     let acc = ctx.svm.get_account(&pda).expect("payout registry exists");
@@ -330,12 +357,27 @@ fn test_vector_4_tier_sum_consistency() {
     let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
     svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
     let (pool_pda, _) = pool_pda(1);
-    inject_pool(&mut svm, 1, Pubkey::new_unique(), Pubkey::new_unique(), anchor::PoolStatus::Active, false);
+    inject_pool(
+        &mut svm,
+        1,
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        anchor::PoolStatus::Active,
+        false,
+    );
 
     // 1. Setting tiers totalling 180 winners succeeds
     let valid_tiers = vec![
-        anchor::PrizeTier { num_winners: 100, basis_points: 60, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 80, basis_points: 50, _padding: [0, 0] },
+        anchor::PrizeTier {
+            num_winners: 100,
+            basis_points: 60,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 80,
+            basis_points: 50,
+            _padding: [0, 0],
+        },
     ];
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::SetPrizeTiers {
@@ -344,14 +386,13 @@ fn test_vector_4_tier_sum_consistency() {
         pool: pool_pda,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: accounts.clone(),
-        data: anchor::instruction::SetPrizeTiers {
-            tiers: valid_tiers,
-        }.data(),
+        data: anchor::instruction::SetPrizeTiers { tiers: valid_tiers }.data(),
     };
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
@@ -361,21 +402,34 @@ fn test_vector_4_tier_sum_consistency() {
 
     // 2. Setting tiers totalling 181 winners fails
     let invalid_tiers = vec![
-        anchor::PrizeTier { num_winners: 101, basis_points: 60, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 80, basis_points: 50, _padding: [0, 0] },
+        anchor::PrizeTier {
+            num_winners: 101,
+            basis_points: 60,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 80,
+            basis_points: 50,
+            _padding: [0, 0],
+        },
     ];
     let ix_invalid = Instruction {
         program_id: anchor::id(),
         accounts,
         data: anchor::instruction::SetPrizeTiers {
             tiers: invalid_tiers,
-        }.data(),
+        }
+        .data(),
     };
     let bh = svm.latest_blockhash();
     let msg_invalid = Message::new_with_blockhash(&[ix_invalid], Some(&admin.pubkey()), &bh);
-    let tx_invalid = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_invalid), &[&admin]).unwrap();
+    let tx_invalid =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_invalid), &[&admin]).unwrap();
     let res_invalid = svm.send_transaction(tx_invalid);
-    assert_custom_error(res_invalid, anchor::error::PremiumBondsError::TooManyWinners);
+    assert_custom_error(
+        res_invalid,
+        anchor::error::PremiumBondsError::TooManyWinners,
+    );
 }
 
 #[test]
@@ -389,7 +443,16 @@ fn test_vector_5_clean_crank_close_reimbursement() {
     send_reveal(&mut ctx, 1, 0, [5u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     let (pda, _) = payout_pda(1, 0);
     let acc_before = ctx.svm.get_account(&pda).expect("exists before close");
@@ -400,10 +463,17 @@ fn test_vector_5_clean_crank_close_reimbursement() {
 
     // Verify account is closed
     let acc_after = ctx.svm.get_account(&pda);
-    assert!(acc_after.is_none() || acc_after.unwrap().lamports == 0, "Account must be zeroed");
+    assert!(
+        acc_after.is_none() || acc_after.unwrap().lamports == 0,
+        "Account must be zeroed"
+    );
 
     let crank_after = ctx.svm.get_account(&ctx.crank.pubkey()).unwrap().lamports;
-    assert_eq!(crank_after + meta.fee, crank_before + rent_before, "Crank receives 100% rent reimbursement");
+    assert_eq!(
+        crank_after + meta.fee,
+        crank_before + rent_before,
+        "Crank receives 100% rent reimbursement"
+    );
 }
 
 #[test]
@@ -417,7 +487,16 @@ fn test_vector_6_jobs_account_authorized_close() {
     send_reveal(&mut ctx, 1, 0, [6u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     let res = send_crank_close(&mut ctx.svm, &ctx.jobs_account, 1, 0);
     assert!(res.is_ok(), "Jobs account close must succeed: {:?}", res);
@@ -434,7 +513,16 @@ fn test_vector_7_admin_fallback_close() {
     send_reveal(&mut ctx, 1, 0, [7u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     let res = send_crank_close(&mut ctx.svm, &ctx.admin, 1, 0);
     assert!(res.is_ok(), "Admin fallback close must succeed: {:?}", res);
@@ -451,7 +539,16 @@ fn test_vector_8_unauthorized_crank_rejected() {
     send_reveal(&mut ctx, 1, 0, [8u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     let stranger = Keypair::new();
     ctx.svm.airdrop(&stranger.pubkey(), 10_000_000_000).unwrap();
@@ -472,7 +569,16 @@ fn test_vector_9_premature_close_rejected() {
 
     // Process only 1 of 2 winners
     let winner0 = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner0, ctx.ticket_registry, 1, 0, 0).expect("reinvest 0");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner0,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest 0");
 
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsPending);
@@ -502,7 +608,8 @@ fn test_vector_10_voided_draw_close_permitted() {
         payout_registry: payout_pda,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -512,11 +619,17 @@ fn test_vector_10_voided_draw_close_permitted() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm.send_transaction(tx).expect("Admin void must succeed");
+    ctx.svm
+        .send_transaction(tx)
+        .expect("Admin void must succeed");
 
     // Close must succeed immediately even with 0 payouts completed
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
-    assert!(res.is_ok(), "Closing voided payout registry must succeed: {:?}", res);
+    assert!(
+        res.is_ok(),
+        "Closing voided payout registry must succeed: {:?}",
+        res
+    );
 }
 
 #[test]
@@ -530,7 +643,16 @@ fn test_vector_11_double_close_rejected() {
     send_reveal(&mut ctx, 1, 0, [11u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("first close");
 
@@ -550,11 +672,28 @@ fn test_vector_12_reinvest_on_closed_account_rejected() {
     send_reveal(&mut ctx, 1, 0, [12u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("close");
 
     // Reinvest attempt on closed registry fails
-    let res = send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0);
+    let res = send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    );
     assert!(res.is_err(), "Reinvest on closed account must fail");
 }
 
@@ -569,7 +708,16 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
     send_reveal(&mut ctx, 1, 0, [13u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("close");
 
     let (global_config, _) = global_config_pda();
@@ -585,7 +733,8 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
         payout_registry: payout_pda,
         event_authority: event_authority_pda(),
         program: anchor::id(),
-    }.to_account_metas(None);
+    }
+    .to_account_metas(None);
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -616,15 +765,31 @@ fn test_vector_14_corrupted_trailing_slice_safety() {
     ctx.svm.set_account(pda, acc).unwrap();
 
     let winner = ctx.tickets[0];
-    let res = send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0);
+    let res = send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    );
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRegistryState);
 }
 
 #[test]
 fn test_vector_15_winner_slice_in_place_mutation_parity() {
     let tiers = vec![
-        anchor::PrizeTier { num_winners: 1, basis_points: 5000, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 1, basis_points: 5000, _padding: [0, 0] },
+        anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 5000,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 5000,
+            _padding: [0, 0],
+        },
     ];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 2_000_000);
     send_reveal(&mut ctx, 1, 0, [15u8; 32]).expect("reveal");
@@ -635,12 +800,21 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
     assert_eq!(winners_before[1].processed, 0);
 
     // Process winner 0
-    send_reinvest(&mut ctx.svm, &ctx.crank, winners_before[0].winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest 0");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winners_before[0].winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest 0");
 
     let winners_after = read_payout_winners(&ctx.svm, 1, 0);
     assert_eq!(winners_after[0].processed, 1);
     assert_eq!(winners_after[0].bonds_bought, 1); // 1M owed -> 1 bond
-    // Winner 1 must remain untouched
+                                                  // Winner 1 must remain untouched
     assert_eq!(winners_after[1].processed, 0);
     assert_eq!(winners_after[1].bonds_bought, 0);
     assert_eq!(winners_after[1].amount_owed, winners_before[1].amount_owed);
@@ -651,9 +825,21 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
 fn test_vector_16_dust_conservation_under_dynamic_sizing() {
     // 3 tiers: 3333 bps (1 winner), 3333 bps (1 winner), 3333 bps (1 winner) = 9999 bps distributed, 1 bps remainder dust
     let tiers = vec![
-        anchor::PrizeTier { num_winners: 1, basis_points: 3333, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 1, basis_points: 3333, _padding: [0, 0] },
-        anchor::PrizeTier { num_winners: 1, basis_points: 3333, _padding: [0, 0] },
+        anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 3333,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 3333,
+            _padding: [0, 0],
+        },
+        anchor::PrizeTier {
+            num_winners: 1,
+            basis_points: 3333,
+            _padding: [0, 0],
+        },
     ];
     let prize_pot = 10_000_000u64;
     let mut ctx = setup_dynamic_ctx(tiers, 10, prize_pot);
@@ -665,19 +851,29 @@ fn test_vector_16_dust_conservation_under_dynamic_sizing() {
 
     let (pool_pda, _) = pool_pda(1);
     let pool_acc = ctx.svm.get_account(&pool_pda).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(&pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()]);
+    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
+        &pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
+    );
     assert_eq!(pool.total_prizes_allocated, 9_999_000);
 }
 
 #[test]
 fn test_vector_17_rent_exemption_dynamic_verification() {
-    let tiers_1 = vec![anchor::PrizeTier { num_winners: 1, basis_points: 10_000, _padding: [0, 0] }];
+    let tiers_1 = vec![anchor::PrizeTier {
+        num_winners: 1,
+        basis_points: 10_000,
+        _padding: [0, 0],
+    }];
     let mut ctx1 = setup_dynamic_ctx(tiers_1, 10, 1_000_000);
     send_reveal(&mut ctx1, 1, 0, [17u8; 32]).expect("reveal 1 winner");
     let (pda1, _) = payout_pda(1, 0);
     let acc1 = ctx1.svm.get_account(&pda1).unwrap();
 
-    let tiers_10 = vec![anchor::PrizeTier { num_winners: 10, basis_points: 1000, _padding: [0, 0] }];
+    let tiers_10 = vec![anchor::PrizeTier {
+        num_winners: 10,
+        basis_points: 1000,
+        _padding: [0, 0],
+    }];
     let mut ctx10 = setup_dynamic_ctx(tiers_10, 20, 10_000_000);
     send_reveal(&mut ctx10, 1, 0, [17u8; 32]).expect("reveal 10 winners");
     let (pda10, _) = payout_pda(1, 0);
@@ -693,12 +889,25 @@ fn test_vector_17_rent_exemption_dynamic_verification() {
 
 #[test]
 fn test_vector_18_crank_close_event_payload_parity() {
-    let tiers = vec![anchor::PrizeTier { num_winners: 1, basis_points: 10_000, _padding: [0, 0] }];
+    let tiers = vec![anchor::PrizeTier {
+        num_winners: 1,
+        basis_points: 10_000,
+        _padding: [0, 0],
+    }];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [18u8; 32]).expect("reveal");
 
     let winner = read_payout_winners(&ctx.svm, 1, 0)[0].winner;
-    send_reinvest(&mut ctx.svm, &ctx.crank, winner, ctx.ticket_registry, 1, 0, 0).expect("reinvest");
+    send_reinvest(
+        &mut ctx.svm,
+        &ctx.crank,
+        winner,
+        ctx.ticket_registry,
+        1,
+        0,
+        0,
+    )
+    .expect("reinvest");
 
     let (pda, _) = payout_pda(1, 0);
     let rent_expected = ctx.svm.get_account(&pda).unwrap().lamports;

@@ -244,7 +244,7 @@ fn test_admin_force_unlock_math_overflow_prizes() {
 }
 
 #[test]
-fn test_admin_force_unlock_math_overflow_fees() {
+fn test_admin_force_unlock_fees_already_withdrawn() {
     let admin = Keypair::new();
     let mut ctx = setup_with_amounts(
         &admin,
@@ -256,7 +256,7 @@ fn test_admin_force_unlock_math_overflow_fees() {
     );
 
     let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    assert!(err.contains("FeesAlreadyWithdrawn"), "got: {err}");
 }
 
 #[test]

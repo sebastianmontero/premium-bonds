@@ -166,7 +166,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     require!(amount > 0, PremiumBondsError::InsufficientFeeBalance);
 
     let pst_supply = ctx.accounts.huma_mode_mint.supply;
-    let (pool_id, pool_id_bytes, authority_bump, current_redemption_id, fee_wallet, huma_snapshot) = {
+    let (pool_id, pool_id_bytes, authority_bump, fee_wallet, huma_snapshot) = {
         let pool = ctx.accounts.pool.load()?;
         pool.check_version()?;
 
@@ -181,9 +181,7 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         );
 
         // Validate there are enough accrued fees to withdraw
-        let available_fees = pool
-            .total_fees_accrued
-            .saturating_sub(pool.total_fees_withdrawn);
+        let available_fees = pool.unwithdrawn_fees()?;
         require!(
             amount <= available_fees,
             PremiumBondsError::InsufficientFeeBalance
@@ -199,32 +197,26 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
             pool.pool_id,
             pool.pool_id.to_le_bytes(),
             pool.vault_authority_bump,
-            pool.next_redemption_id,
             pool.fee_wallet,
             snapshot,
         )
     };
 
     // Post-solvency state mutations
-    {
+    let current_redemption_id = {
         let mut pool = ctx.accounts.pool.load_mut()?;
         pool.ensure_current_version()?;
         pool.total_fees_withdrawn = pool
             .total_fees_withdrawn
             .checked_add(amount)
             .ok_or(PremiumBondsError::MathOverflow)?;
-        pool.next_redemption_id = pool
-            .next_redemption_id
-            .checked_add(1)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-        pool.total_pending_redemptions = pool
-            .total_pending_redemptions
-            .checked_add(amount)
-            .ok_or(PremiumBondsError::MathOverflow)?;
-    }
+        pool.queue_pending_redemption(amount)?
+    };
 
     // Calculate $PST shares for the fee amount
-    let pst_shares = huma_snapshot.usdc_to_pst_shares(amount, pst_supply)?;
+    let pst_shares = huma_snapshot
+        .usdc_to_pst_shares(amount, pst_supply)?
+        .min(ctx.accounts.pool_pst_vault.amount);
     let huma_request_id = huma_snapshot.pending_request_id();
 
     // CPI: request async redemption from Huma
@@ -252,17 +244,19 @@ pub fn handle(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
     )?;
 
     // Create PendingRedemption receipt — fee_wallet is the beneficiary
-    ctx.accounts.pending_redemption.init(InitPendingRedemptionParams {
-        pool_id,
-        redemption_id: current_redemption_id,
-        bump: ctx.bumps.pending_redemption,
-        user: ctx.accounts.fee_wallet.owner, // Fee wallet owner receives the USDC on disburse
-        amount,
-        pst_shares_locked: pst_shares,
-        huma_request_id,
-        requested_at: Clock::get()?.unix_timestamp,
-        redemption_type: RedemptionType::FeeWithdrawal,
-    });
+    ctx.accounts
+        .pending_redemption
+        .init(InitPendingRedemptionParams {
+            pool_id,
+            redemption_id: current_redemption_id,
+            bump: ctx.bumps.pending_redemption,
+            user: ctx.accounts.fee_wallet.owner, // Fee wallet owner receives the USDC on disburse
+            amount,
+            pst_shares_locked: pst_shares,
+            huma_request_id,
+            requested_at: Clock::get()?.unix_timestamp,
+            redemption_type: RedemptionType::FeeWithdrawal,
+        });
 
     #[cfg(feature = "debug-logs")]
     msg!(
