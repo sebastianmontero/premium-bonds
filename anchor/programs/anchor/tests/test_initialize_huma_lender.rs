@@ -194,11 +194,7 @@ fn test_initialize_huma_lender_fails_wrong_global_config_pda() {
     );
 
     // Mismatched global_config address
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == global_config_pda().0 {
-            meta.pubkey = wrong_global_config;
-        }
-    }
+    substitute_account_meta(&mut ix, global_config_pda().0, wrong_global_config);
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
@@ -226,11 +222,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
     );
 
     // Mismatched pool PDA address
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == pool_pda_addr {
-            meta.pubkey = wrong_pool;
-        }
-    }
+    substitute_account_meta(&mut ix, pool_pda_addr, wrong_pool);
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
@@ -240,29 +232,11 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
 fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
-    let (pool_pda_addr, _) = pool_pda(1);
 
     // Corrupt the pool state bump
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.vault_authority_bump ^= 1; // Mismatch bump
-
-    use anchor_lang::Discriminator;
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.vault_authority_bump ^= 1;
+    });
 
     let ix = build_initialize_huma_lender_ix(
         ctx.admin.pubkey(),
@@ -304,11 +278,7 @@ fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
     );
 
     // Mismatched pool_pst_vault PDA address
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == pool_pst_vault_addr {
-            meta.pubkey = wrong_pst_vault;
-        }
-    }
+    substitute_account_meta(&mut ix, pool_pst_vault_addr, wrong_pst_vault);
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
@@ -395,7 +365,7 @@ fn test_initialize_huma_lender_fails_huma_cpi_error() {
     );
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert_error_contains(res, &["SimulatedCreateLenderFailure"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedCreateLenderFailure);
 }
 
 /// INV-INIT-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.

@@ -429,6 +429,20 @@ pub fn inject_huma_pool_state_with_assets(svm: &mut LiteSVM, address: Pubkey, to
     .unwrap();
 }
 
+pub fn inject_dummy_huma_account(svm: &mut LiteSVM, address: Pubkey) {
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data: vec![0u8; 100],
+            owner: huma_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
 pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
     let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
     let owner_pubkey = Pubkey::new_from_array(owner_bytes);
@@ -632,39 +646,86 @@ pub fn read_pending_redemption(
     anchor::PendingRedemption::try_deserialize(&mut &acct.data[..]).unwrap()
 }
 
-pub fn extract_instruction_error(
+pub type TxResult = Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>;
+
+pub struct DecodedInstructionError {
+    pub instruction_index: u8,
+    pub error: solana_program::instruction::InstructionError,
+    pub custom_code: Option<u32>,
+}
+
+pub fn extract_detailed_error(
     err: &litesvm::types::FailedTransactionMetadata,
-) -> Option<&solana_program::instruction::InstructionError> {
+) -> Option<DecodedInstructionError> {
     match &err.err {
-        solana_sdk::transaction::TransactionError::InstructionError(_, ix_err) => Some(ix_err),
+        solana_sdk::transaction::TransactionError::InstructionError(index, ix_err) => {
+            let custom_code = match ix_err {
+                solana_program::instruction::InstructionError::Custom(code) => Some(*code),
+                _ => None,
+            };
+            Some(DecodedInstructionError {
+                instruction_index: *index,
+                error: ix_err.clone(),
+                custom_code,
+            })
+        }
         _ => None,
     }
+}
+
+pub fn extract_instruction_error(
+    err: &litesvm::types::FailedTransactionMetadata,
+) -> Option<solana_program::instruction::InstructionError> {
+    match &err.err {
+        solana_sdk::transaction::TransactionError::InstructionError(_, ix_err) => Some(ix_err.clone()),
+        _ => None,
+    }
+}
+
+pub fn assert_custom_code_at(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_ix_index: u8,
+    expected_code: u32,
+    error_label: &str,
+) {
+    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let decoded = extract_detailed_error(&err).unwrap_or_else(|| {
+        panic!(
+            "Expected InstructionError, got: {:?}\nTransaction Logs:\n{:#?}",
+            err.err, err.meta.logs
+        )
+    });
+
+    assert_eq!(
+        decoded.instruction_index, expected_ix_index,
+        "Instruction index mismatch! Expected error on ix {}, occurred on {}",
+        expected_ix_index, decoded.instruction_index
+    );
+    assert_eq!(
+        decoded.custom_code, Some(expected_code),
+        "\n❌ Error Code mismatch!\nExpected: {} (Code: {})\nActual Code: {:?}\nTransaction Logs:\n{:#?}\n",
+        error_label, expected_code, decoded.custom_code, err.meta.logs
+    );
 }
 
 pub fn assert_custom_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor::error::PremiumBondsError,
 ) {
-    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    assert_custom_error_at(res, 0, expected_error);
+}
+
+pub fn assert_custom_error_at(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_ix_index: u8,
+    expected_error: anchor::error::PremiumBondsError,
+) {
     let expected_code = (expected_error as u32) + anchor_lang::error::ERROR_CODE_OFFSET;
-    let expected_name = format!("{:?}", expected_error);
-    let err_str = format!("{err:?}");
-
-    let matches_custom = match extract_instruction_error(&err) {
-        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
-        _ => false,
-    };
-
-    assert!(
-        matches_custom
-            || err_str.contains(&format!("Custom({expected_code})"))
-            || err_str.contains(&expected_name)
-            || err_str.contains(&expected_code.to_string()),
-        "\n❌ Custom Error mismatch!\nExpected: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
-        expected_error,
+    assert_custom_code_at(
+        res,
+        expected_ix_index,
         expected_code,
-        err.err,
-        err.meta.logs
+        &format!("{:?}", expected_error),
     );
 }
 
@@ -672,26 +733,19 @@ pub fn assert_anchor_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor_lang::error::ErrorCode,
 ) {
-    let err = res.expect_err("Expected transaction to fail, but it succeeded");
-    let expected_code = expected_error as u32;
-    let expected_name = format!("{:?}", expected_error);
-    let err_str = format!("{err:?}");
+    assert_anchor_error_at(res, 0, expected_error);
+}
 
-    let matches_custom = match extract_instruction_error(&err) {
-        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
-        _ => false,
-    };
-
-    assert!(
-        matches_custom
-            || err_str.contains(&format!("Custom({expected_code})"))
-            || err_str.contains(&expected_name)
-            || err_str.contains(&expected_code.to_string()),
-        "\n❌ Anchor Framework Error mismatch!\nExpected ErrorCode: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
-        expected_error,
-        expected_code,
-        err.err,
-        err.meta.logs
+pub fn assert_anchor_error_at(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_ix_index: u8,
+    expected_error: anchor_lang::error::ErrorCode,
+) {
+    assert_custom_code_at(
+        res,
+        expected_ix_index,
+        expected_error as u32,
+        &format!("{:?}", expected_error),
     );
 }
 
@@ -699,26 +753,33 @@ pub fn assert_token_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor_spl::token::spl_token::error::TokenError,
 ) {
-    let err = res.expect_err("Expected transaction to fail, but it succeeded");
-    let expected_code = expected_error.clone() as u32;
-    let expected_name = format!("{:?}", expected_error);
-    let err_str = format!("{err:?}");
+    assert_token_error_at(res, 0, expected_error);
+}
 
-    let matches_custom = match extract_instruction_error(&err) {
-        Some(solana_program::instruction::InstructionError::Custom(code)) => *code == expected_code,
-        _ => false,
-    };
+pub fn assert_token_error_at(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_ix_index: u8,
+    expected_error: anchor_spl::token::spl_token::error::TokenError,
+) {
+    let error_label = format!("{:?}", expected_error);
+    assert_custom_code_at(
+        res,
+        expected_ix_index,
+        expected_error as u32,
+        &error_label,
+    );
+}
 
-    assert!(
-        matches_custom
-            || err_str.contains(&format!("Custom({expected_code})"))
-            || err_str.contains(&expected_name)
-            || err_str.contains(&expected_code.to_string()),
-        "\n❌ SPL Token Error mismatch!\nExpected TokenError: {:?} (Code: {})\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
-        expected_error,
+pub fn assert_mock_huma_error(
+    res: TxResult,
+    expected_error: mock_huma::MockHumaError,
+) {
+    let expected_code = (expected_error as u32) + anchor_lang::error::ERROR_CODE_OFFSET;
+    assert_custom_code_at(
+        res,
+        0,
         expected_code,
-        err.err,
-        err.meta.logs
+        &format!("{:?}", expected_error),
     );
 }
 
@@ -726,19 +787,31 @@ pub fn assert_instruction_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: solana_program::instruction::InstructionError,
 ) {
+    assert_instruction_error_at(res, 0, expected_error);
+}
+
+pub fn assert_instruction_error_at(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_ix_index: u8,
+    expected_error: solana_program::instruction::InstructionError,
+) {
     let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let decoded = extract_detailed_error(&err).unwrap_or_else(|| {
+        panic!(
+            "Expected InstructionError, got: {:?}\nTransaction Logs:\n{:#?}",
+            err.err, err.meta.logs
+        )
+    });
 
-    let matches = match extract_instruction_error(&err) {
-        Some(actual) => *actual == expected_error,
-        _ => false,
-    };
-
-    assert!(
-        matches,
-        "\n❌ Native Instruction Error mismatch!\nExpected: {:?}\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
-        expected_error,
-        err.err,
-        err.meta.logs
+    assert_eq!(
+        decoded.instruction_index, expected_ix_index,
+        "Instruction index mismatch! Expected error on ix {}, occurred on {}",
+        expected_ix_index, decoded.instruction_index
+    );
+    assert_eq!(
+        decoded.error, expected_error,
+        "\n❌ InstructionError mismatch!\nExpected: {:?}\nActual: {:?}\nTransaction Logs:\n{:#?}\n",
+        expected_error, decoded.error, err.meta.logs
     );
 }
 
@@ -758,10 +831,71 @@ pub fn assert_error_contains(
     );
 }
 
+pub fn warp_to_timestamp(svm: &mut LiteSVM, target_unix_timestamp: i64) {
+    let clock: solana_sdk::clock::Clock = svm.get_sysvar();
+    assert!(
+        target_unix_timestamp >= clock.unix_timestamp,
+        "Cannot warp backwards in time: current {}, target {}",
+        clock.unix_timestamp,
+        target_unix_timestamp
+    );
+
+    let delta_seconds = target_unix_timestamp - clock.unix_timestamp;
+    // Advance slots at Solana nominal rate: 400ms per slot (2.5 slots/second)
+    let delta_slots = (delta_seconds as u64 * 5) / 2;
+    if delta_slots > 0 {
+        svm.warp_to_slot(clock.slot + delta_slots);
+    }
+
+    // Synchronize unix_timestamp explicitly on the new slot
+    let mut updated_clock: solana_sdk::clock::Clock = svm.get_sysvar();
+    updated_clock.unix_timestamp = target_unix_timestamp;
+    svm.set_sysvar(&updated_clock);
+}
+
+pub fn warp_forward_seconds(svm: &mut LiteSVM, seconds: i64) {
+    let clock: solana_sdk::clock::Clock = svm.get_sysvar();
+    warp_to_timestamp(svm, clock.unix_timestamp + seconds);
+}
+
 pub fn set_clock_timestamp(svm: &mut LiteSVM, unix_timestamp: i64) {
     let mut clock: solana_sdk::clock::Clock = svm.get_sysvar();
     clock.unix_timestamp = unix_timestamp;
     svm.set_sysvar(&clock);
+}
+
+pub fn substitute_account_meta(
+    ix: &mut solana_program::instruction::Instruction,
+    target: Pubkey,
+    replacement: Pubkey,
+) {
+    let mut found = false;
+    for meta in ix.accounts.iter_mut() {
+        if meta.pubkey == target {
+            meta.pubkey = replacement;
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "Target account {target} not found in instruction accounts");
+}
+
+pub fn set_signer_flag(
+    accounts: &mut [solana_program::instruction::AccountMeta],
+    pubkey: &Pubkey,
+    is_signer: bool,
+) {
+    let meta = accounts
+        .iter_mut()
+        .find(|m| m.pubkey == *pubkey)
+        .unwrap_or_else(|| panic!("Account {pubkey} not found in instruction accounts"));
+    meta.is_signer = is_signer;
+}
+
+pub fn set_mock_huma_pool_assets(svm: &mut LiteSVM, huma_pool_state: Pubkey, assets: u128) {
+    let mut acc = svm.get_account(&huma_pool_state).expect("Huma pool state must exist");
+    acc.data[30..46].copy_from_slice(&assets.to_le_bytes());
+    svm.set_account(huma_pool_state, acc).expect("Updating Huma pool assets must succeed");
 }
 
 // ─── Fluent Account Test Data Builders ──────────────────────────────────────
@@ -881,6 +1015,16 @@ pub struct PrizePoolTestBuilder {
 }
 
 impl PrizePoolTestBuilder {
+    /// Initialize builder populated with existing on-chain pool state
+    pub fn from_state(svm: &LiteSVM, pool_id: u32) -> Self {
+        let pool = read_pool_state(svm, pool_id);
+        Self { pool }
+    }
+
+    pub fn from_pool(pool: anchor::PrizePool) -> Self {
+        Self { pool }
+    }
+
     pub fn new(pool_id: u32) -> Self {
         let (_, bump) = pool_pda(pool_id);
         Self {
@@ -896,7 +1040,7 @@ impl PrizePoolTestBuilder {
                 total_prizes_allocated: 0,
                 total_pending_redemptions: 0,
                 pool_id,
-                current_draw_cycle_id: 1,
+                current_draw_cycle_id: 0,
                 fee_basis_points: 100,
                 max_yield_basis_points: 0,
                 payout_timelock_seconds: 0,
@@ -920,6 +1064,26 @@ impl PrizePoolTestBuilder {
         }
     }
 
+    pub fn with_payout_timelock_seconds(mut self, secs: u32) -> Self {
+        self.pool.payout_timelock_seconds = secs;
+        self
+    }
+
+    pub fn with_min_yield_threshold(mut self, min: u64) -> Self {
+        self.pool.min_yield_threshold = min;
+        self
+    }
+
+    pub fn with_stake_cycle_duration_hrs(mut self, hrs: i64) -> Self {
+        self.pool.stake_cycle_duration_hrs = hrs;
+        self
+    }
+
+    pub fn with_max_yield_basis_points(mut self, max: u16) -> Self {
+        self.pool.max_yield_basis_points = max;
+        self
+    }
+
     pub fn with_pool_id(mut self, pool_id: u32) -> Self {
         self.pool.pool_id = pool_id;
         let (_, bump) = pool_pda(pool_id);
@@ -937,6 +1101,11 @@ impl PrizePoolTestBuilder {
         self
     }
 
+    pub fn with_bond_price(mut self, bond_price: u64) -> Self {
+        self.pool.bond_price = bond_price;
+        self
+    }
+
     pub fn with_ticket_registry(mut self, ticket_registry: Pubkey) -> Self {
         self.pool.ticket_registry = ticket_registry;
         self
@@ -944,6 +1113,23 @@ impl PrizePoolTestBuilder {
 
     pub fn with_token_mint(mut self, token_mint: Pubkey) -> Self {
         self.pool.token_mint = token_mint;
+        self
+    }
+
+    pub fn with_fee_basis_points(mut self, fee_basis_points: u16) -> Self {
+        self.pool.fee_basis_points = fee_basis_points;
+        self
+    }
+
+    pub fn with_prize_tiers(mut self, prize_tiers: Vec<anchor::PrizeTier>) -> Self {
+        let count = prize_tiers.len().min(10);
+        self.pool.prize_tiers = [anchor::PrizeTier {
+            num_winners: 0,
+            basis_points: 0,
+            _padding: [0, 0],
+        }; 10];
+        self.pool.prize_tiers[..count].copy_from_slice(&prize_tiers[..count]);
+        self.pool.prize_tiers_count = count as u8;
         self
     }
 
@@ -962,8 +1148,382 @@ impl PrizePoolTestBuilder {
         self
     }
 
+    pub fn with_frozen(mut self, frozen: bool) -> Self {
+        self.pool.is_frozen_for_draw = if frozen { 1 } else { 0 };
+        self
+    }
+
+    pub fn with_fees_accrued(mut self, fees: u64) -> Self {
+        self.pool.total_fees_accrued = fees;
+        self
+    }
+
+    pub fn with_fees_withdrawn(mut self, fees: u64) -> Self {
+        self.pool.total_fees_withdrawn = fees;
+        self
+    }
+
+    pub fn with_next_redemption_id(mut self, next_id: u64) -> Self {
+        self.pool.next_redemption_id = next_id;
+        self
+    }
+
+    pub fn with_pending_redemptions(mut self, pending: u64) -> Self {
+        self.pool.total_pending_redemptions = pending;
+        self
+    }
+
+    pub fn with_fee_wallet(mut self, fee_wallet: Pubkey) -> Self {
+        self.pool.fee_wallet = fee_wallet;
+        self
+    }
+
+    pub fn with_huma_pool_state(mut self, huma_pool_state: Pubkey) -> Self {
+        self.pool.huma_pool_state = huma_pool_state;
+        self
+    }
+
+    pub fn with_cycle_end_at(mut self, current_cycle_end_at: i64) -> Self {
+        self.pool.current_cycle_end_at = current_cycle_end_at;
+        self
+    }
+
+    pub fn with_solvency_state(
+        mut self,
+        principal: u64,
+        allocated_prizes: u64,
+        accrued_fees: u64,
+    ) -> Self {
+        self.pool.total_deposited_principal = principal;
+        self.pool.total_prizes_allocated = allocated_prizes;
+        self.pool.total_fees_accrued = accrued_fees;
+        self
+    }
+
     pub fn build(self) -> anchor::PrizePool {
         self.pool
+    }
+
+    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::PrizePool) {
+        let pool = self.pool;
+        let (pda, _) = pool_pda(pool.pool_id);
+        let mut data = Vec::with_capacity(8 + std::mem::size_of::<anchor::PrizePool>());
+        data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
+        data.extend_from_slice(bytemuck::bytes_of(&pool));
+
+        let lamports = svm.minimum_balance_for_rent_exemption(data.len());
+        svm.set_account(
+            pda,
+            Account {
+                lamports,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("Injecting PrizePool account into LiteSVM must succeed");
+
+        (pda, pool)
+    }
+}
+
+// ─── DrawCycleTestBuilder (Borsh Serialized) ────────────────────────────────
+
+pub struct DrawCycleTestBuilder {
+    cycle: anchor::DrawCycle,
+}
+
+impl DrawCycleTestBuilder {
+    pub fn new(pool_id: u32, cycle_id: u32) -> Self {
+        Self {
+            cycle: anchor::DrawCycle {
+                prize_pot: 0,
+                cycle_fee_collected: 0,
+                harvest_slot: 0,
+                initiated_at: 1_700_000_000,
+                completed_at: 0,
+                randomness_account: Pubkey::default(),
+                pool_id,
+                cycle_id,
+                locked_ticket_count: 0,
+                status: anchor::DrawStatus::AwaitingYield,
+                version: anchor::DrawCycle::CURRENT_VERSION,
+                randomness_seed: [0u8; 32],
+                _reserved: [0; 64],
+            },
+        }
+    }
+
+    pub fn with_status(mut self, status: anchor::DrawStatus) -> Self {
+        self.cycle.status = status;
+        self
+    }
+
+    pub fn with_prize_pot(mut self, prize_pot: u64) -> Self {
+        self.cycle.prize_pot = prize_pot;
+        self
+    }
+
+    pub fn with_cycle_fee(mut self, fee: u64) -> Self {
+        self.cycle.cycle_fee_collected = fee;
+        self
+    }
+
+    pub fn with_locked_tickets(mut self, count: u32) -> Self {
+        self.cycle.locked_ticket_count = count;
+        self
+    }
+
+    pub fn with_randomness_seed(mut self, seed: [u8; 32]) -> Self {
+        self.cycle.randomness_seed = seed;
+        self
+    }
+
+    pub fn with_randomness_account(mut self, randomness_account: Pubkey) -> Self {
+        self.cycle.randomness_account = randomness_account;
+        self
+    }
+
+    pub fn with_initiated_at(mut self, initiated_at: i64) -> Self {
+        self.cycle.initiated_at = initiated_at;
+        self
+    }
+
+    pub fn with_harvest_slot(mut self, slot: u64) -> Self {
+        self.cycle.harvest_slot = slot;
+        self
+    }
+
+    pub fn build(self) -> anchor::DrawCycle {
+        self.cycle
+    }
+
+    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::DrawCycle) {
+        use anchor_lang::AccountSerialize;
+        let cycle = self.cycle;
+        let (pda, _) = draw_cycle_pda(cycle.pool_id, cycle.cycle_id);
+        let mut data = Vec::new();
+        cycle
+            .try_serialize(&mut data)
+            .expect("DrawCycle serialization must succeed");
+        data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
+
+        let lamports = svm.minimum_balance_for_rent_exemption(data.len());
+        svm.set_account(
+            pda,
+            Account {
+                lamports,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("Injecting DrawCycle account into LiteSVM must succeed");
+
+        (pda, cycle)
+    }
+}
+
+// ─── PayoutRegistryTestBuilder (Zero-Copy) ──────────────────────────────────
+
+pub struct PayoutRegistryTestBuilder {
+    pool_id: u32,
+    cycle_id: u32,
+    winners: Vec<anchor::Winner>,
+    payouts_completed: u32,
+    revealed_at: i64,
+    status: anchor::state::PayoutRegistryStatus,
+    version: u8,
+}
+
+impl PayoutRegistryTestBuilder {
+    pub fn from_state(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> Self {
+        let header = read_payout_registry(svm, pool_id, cycle_id);
+        let winners = read_payout_winners(svm, pool_id, cycle_id);
+        Self {
+            pool_id,
+            cycle_id,
+            winners,
+            payouts_completed: header.payouts_completed,
+            revealed_at: header.revealed_at,
+            status: match header.status {
+                1 => anchor::state::PayoutRegistryStatus::Voided,
+                _ => anchor::state::PayoutRegistryStatus::Active,
+            },
+            version: header.version,
+        }
+    }
+
+    pub fn new(pool_id: u32, cycle_id: u32) -> Self {
+        Self {
+            pool_id,
+            cycle_id,
+            winners: Vec::new(),
+            payouts_completed: 0,
+            revealed_at: 1_700_000_000,
+            status: anchor::state::PayoutRegistryStatus::Active,
+            version: anchor::PayoutRegistry::CURRENT_VERSION,
+        }
+    }
+
+    pub fn with_version(mut self, version: u8) -> Self {
+        self.version = version;
+        self
+    }
+
+    pub fn with_winners(mut self, winners: Vec<anchor::Winner>) -> Self {
+        self.winners = winners;
+        self
+    }
+
+    pub fn with_payouts_completed(mut self, completed: u32) -> Self {
+        self.payouts_completed = completed;
+        self
+    }
+
+    pub fn with_status(mut self, status: anchor::state::PayoutRegistryStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn with_revealed_at(mut self, revealed_at: i64) -> Self {
+        self.revealed_at = revealed_at;
+        self
+    }
+
+    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::PayoutRegistry) {
+        let (pda, _) = payout_pda(self.pool_id, self.cycle_id);
+        let header = anchor::PayoutRegistry {
+            pool_id: self.pool_id,
+            cycle_id: self.cycle_id,
+            winners_count: self.winners.len() as u32,
+            payouts_completed: self.payouts_completed,
+            revealed_at: self.revealed_at,
+            status: self.status as u8,
+            version: self.version,
+            _padding: [0; 6],
+            _reserved: [0; 64],
+        };
+
+        let mut data = Vec::with_capacity(
+            8 + std::mem::size_of::<anchor::PayoutRegistry>()
+                + (self.winners.len() * std::mem::size_of::<anchor::Winner>()),
+        );
+        data.extend_from_slice(&anchor::PayoutRegistry::DISCRIMINATOR);
+        data.extend_from_slice(bytemuck::bytes_of(&header));
+        data.extend_from_slice(bytemuck::cast_slice(&self.winners));
+
+        let lamports = svm.minimum_balance_for_rent_exemption(data.len());
+        svm.set_account(
+            pda,
+            Account {
+                lamports,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("Injecting PayoutRegistry into LiteSVM must succeed");
+
+        (pda, header)
+    }
+}
+
+// ─── UserWinningsTestBuilder (Borsh Serialized) ─────────────────────────────
+
+pub struct UserWinningsTestBuilder {
+    pool_id: u32,
+    user: Pubkey,
+    unclaimed: u64,
+    claimed: u64,
+    reinvested: u64,
+    registry_entry_index: u32,
+}
+
+impl UserWinningsTestBuilder {
+    pub fn new(pool_id: u32, user: Pubkey) -> Self {
+        Self {
+            pool_id,
+            user,
+            unclaimed: 0,
+            claimed: 0,
+            reinvested: 0,
+            registry_entry_index: anchor::UserWinnings::UNASSIGNED_ENTRY_INDEX,
+        }
+    }
+
+    pub fn with_unclaimed(mut self, unclaimed: u64) -> Self {
+        self.unclaimed = unclaimed;
+        self
+    }
+
+    pub fn with_claimed(mut self, claimed: u64) -> Self {
+        self.claimed = claimed;
+        self
+    }
+
+    pub fn with_reinvested(mut self, reinvested: u64) -> Self {
+        self.reinvested = reinvested;
+        self
+    }
+
+    pub fn with_registry_entry_index(mut self, index: u32) -> Self {
+        self.registry_entry_index = index;
+        self
+    }
+
+    pub fn build(self) -> anchor::UserWinnings {
+        let (_, bump) = user_winnings_pda(self.pool_id, &self.user);
+        anchor::UserWinnings {
+            unclaimed_non_reinvested_winnings: self.unclaimed,
+            total_claimed: self.claimed,
+            total_reinvested: self.reinvested,
+            pool_id: self.pool_id,
+            registry_entry_index: self.registry_entry_index,
+            user: self.user,
+            bump,
+            version: anchor::UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        }
+    }
+
+    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::UserWinnings) {
+        use anchor_lang::AccountSerialize;
+        let (pda, bump) = user_winnings_pda(self.pool_id, &self.user);
+        let winnings = anchor::UserWinnings {
+            unclaimed_non_reinvested_winnings: self.unclaimed,
+            total_claimed: self.claimed,
+            total_reinvested: self.reinvested,
+            pool_id: self.pool_id,
+            registry_entry_index: self.registry_entry_index,
+            user: self.user,
+            bump,
+            version: anchor::UserWinnings::CURRENT_VERSION,
+            _reserved: [0; 64],
+        };
+        let mut data = Vec::new();
+        winnings
+            .try_serialize(&mut data)
+            .expect("UserWinnings serialization must succeed");
+        data.resize(8 + anchor::UserWinnings::INIT_SPACE, 0);
+
+        let lamports = svm.minimum_balance_for_rent_exemption(data.len());
+        svm.set_account(
+            pda,
+            Account {
+                lamports,
+                data,
+                owner: anchor::id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("Injecting UserWinnings account into LiteSVM must succeed");
+
+        (pda, winnings)
     }
 }
 
@@ -1695,6 +2255,19 @@ pub fn read_ticket_registry(svm: &LiteSVM, address: Pubkey) -> anchor::state::Ti
     )
 }
 
+pub fn read_ticket_registry_entries(
+    svm: &LiteSVM,
+    address: Pubkey,
+) -> Vec<anchor::state::UserEntry> {
+    let acc = svm
+        .get_account(&address)
+        .expect("ticket registry account exists");
+    let header = read_ticket_registry(svm, address);
+    let entries_bytes = &acc.data[8 + std::mem::size_of::<anchor::state::TicketRegistry>()..];
+    let entries = bytemuck::cast_slice::<u8, anchor::state::UserEntry>(entries_bytes);
+    entries[..header.user_count as usize].to_vec()
+}
+
 pub fn assert_ticket_registry_integrity(
     svm: &LiteSVM,
     registry_pda: Pubkey,
@@ -1722,6 +2295,24 @@ pub fn assert_ticket_registry_integrity(
         reg.user_count,
         reg.capacity
     );
+}
+
+pub fn force_user_entries_version(
+    svm: &mut LiteSVM,
+    registry_pda: Pubkey,
+    version: u8,
+    entry_count: usize,
+) {
+    let mut acc = svm.get_account(&registry_pda).expect("Registry must exist");
+    let entries_offset = 8 + std::mem::size_of::<anchor::state::TicketRegistry>();
+    for i in 0..entry_count {
+        let offset = entries_offset + i * std::mem::size_of::<anchor::state::UserEntry>();
+        let entry = bytemuck::from_bytes_mut::<anchor::state::UserEntry>(
+            &mut acc.data[offset..offset + std::mem::size_of::<anchor::state::UserEntry>()],
+        );
+        entry.version = version;
+    }
+    svm.set_account(registry_pda, acc).expect("Updating registry must succeed");
 }
 
 pub fn read_user_winnings_state(
@@ -2738,6 +3329,26 @@ where
     mutator(pool);
     svm.set_account(pda, account)
         .expect("Set pool account failed");
+}
+
+pub fn mutate_draw_cycle<F>(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, mutator: F)
+where
+    F: FnOnce(&mut anchor::DrawCycle),
+{
+    use anchor_lang::{AccountDeserialize, AccountSerialize};
+    let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
+    let mut account = svm.get_account(&pda).expect("DrawCycle account must exist");
+    let mut cycle = anchor::DrawCycle::try_deserialize(&mut account.data.as_slice())
+        .expect("Deserialize DrawCycle failed");
+    mutator(&mut cycle);
+    let mut new_data = Vec::new();
+    cycle
+        .try_serialize(&mut new_data)
+        .expect("Serialize DrawCycle failed");
+    new_data.resize(account.data.len(), 0);
+    account.data = new_data;
+    svm.set_account(pda, account)
+        .expect("Set DrawCycle account failed");
 }
 
 /// Set mock Huma pool total_assets and pst_mint total supply to model yield accrual.

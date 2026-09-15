@@ -17,78 +17,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn inject_pool(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    token_mint: Pubkey,
-    status: anchor::PoolStatus,
-    huma_pool_state: Pubkey,
-) -> Pubkey {
-    inject_pool_with_next_redemption_id(svm, pool_id, token_mint, status, 0, huma_pool_state)
-}
-
-fn inject_pool_with_next_redemption_id(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    token_mint: Pubkey,
-    status: anchor::PoolStatus,
-    next_redemption_id: u64,
-    huma_pool_state: Pubkey,
-) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint,
-        ticket_registry: Pubkey::default(),
-        fee_wallet: Pubkey::default(),
-        huma_pool_state,
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 1_000_000_000,
-        next_redemption_id,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw: 0,
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
-}
-
-use common::*;
-
 // ─── Instruction builder ─────────────────────────────────────────────────────
 
 fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
@@ -182,7 +110,12 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 1_000_000_000);
 
     let pool_key = pool_pda(1).0;
-    inject_pool(&mut svm, 1, token_mint, status, huma_pool_state);
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(token_mint)
+        .with_status(status)
+        .with_huma_pool_state(huma_pool_state)
+        .with_solvency_state(0, 1_000_000_000, 0)
+        .inject(&mut svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 1_000_000_000); // Fund vault with PST to pass Huma transfer
@@ -209,7 +142,7 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
     }
 }
 
-fn send_claim(ctx: &mut ClaimCtx, pool_id: u32) -> Result<(), String> {
+fn send_claim(ctx: &mut ClaimCtx, pool_id: u32) -> TxResult {
     send_claim_with_redemption_id(ctx, pool_id, 0)
 }
 
@@ -217,7 +150,7 @@ fn send_claim_with_redemption_id(
     ctx: &mut ClaimCtx,
     pool_id: u32,
     redemption_id: u64,
-) -> Result<(), String> {
+) -> TxResult {
     let ix = build_claim_ix_with_redemption_id(
         ctx.user.pubkey(),
         pool_id,
@@ -229,10 +162,7 @@ fn send_claim_with_redemption_id(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -242,15 +172,15 @@ fn send_claim_with_redemption_id(
 #[test]
 fn test_claim_fails_no_winnings() {
     let mut ctx = setup_claim_guard(0, anchor::PoolStatus::Active);
-    let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("NoWinningsToClaim"), "got: {err}");
+    let res = send_claim(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::NoWinningsToClaim);
 }
 
 #[test]
 fn test_claim_fails_pool_paused() {
     let mut ctx = setup_claim_guard(500_000, anchor::PoolStatus::Paused);
-    let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("PoolPaused"), "got: {err}");
+    let res = send_claim(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolPaused);
 }
 
 #[test]
@@ -258,24 +188,23 @@ fn test_claim_fails_total_claimed_overflow() {
     let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
     // Reinject user winnings with total_claimed = u64::MAX
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 100, u64::MAX, 0);
-    let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send_claim(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
 fn test_claim_fails_next_redemption_id_overflow() {
     let mut ctx = setup_claim_guard(100, anchor::PoolStatus::Active);
     // Reinject pool with next_redemption_id = u64::MAX
-    inject_pool_with_next_redemption_id(
-        &mut ctx.svm,
-        1,
-        ctx.token_mint,
-        anchor::PoolStatus::Active,
-        u64::MAX,
-        ctx.huma_pool_state,
-    );
-    let err = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(ctx.token_mint)
+        .with_status(anchor::PoolStatus::Active)
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_solvency_state(0, 1_000_000_000, 0)
+        .with_next_redemption_id(u64::MAX)
+        .inject(&mut ctx.svm);
+    let res = send_claim_with_redemption_id(&mut ctx, 1, u64::MAX);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -286,24 +215,14 @@ fn test_claim_fails_invalid_mode_mint() {
 
     ctx.pst_mint = fake_mint;
 
-    let err = send_claim(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("InvalidModeMint"),
-        "Expected InvalidModeMint, got: {err}"
-    );
+    let res = send_claim(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
 
 fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
-    let (pda, _) = pool_pda(pool_id);
-    let mut pool = common::read_pool_state(svm, pool_id);
-    pool.total_prizes_allocated = amount;
-    use anchor_lang::Discriminator;
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    let mut account = svm.get_account(&pda).unwrap();
-    account.data = data;
-    svm.set_account(pda, account).unwrap();
+    PrizePoolTestBuilder::from_state(svm, pool_id)
+        .with_prizes_allocated(amount)
+        .inject(svm);
 }
 
 #[test]
@@ -353,115 +272,55 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
         .send_transaction(tx)
         .expect("claim non-reinvested winnings");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
-    assert_eq!(event.user, ctx.user.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.amount, 500_000);
-    assert_eq!(event.redemption_id, 0);
-    assert!(event.pst_shares > 0);
-    assert_eq!(event.huma_request_id, 0);
+    assert_eq!(event.user, ctx.user.pubkey(), "event user must match claimant");
+    assert_eq!(event.pool_id, 1, "event pool_id must match pool");
+    assert_eq!(event.amount, 500_000, "event amount must match claimed winnings");
+    assert_eq!(event.redemption_id, 0, "event redemption_id must be 0");
+    assert!(event.pst_shares > 0, "event pst_shares must be non-zero");
+    assert_eq!(event.huma_request_id, 0, "event huma_request_id must be 0");
 
     // Assert UserWinnings state updates
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
-    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
-    assert_eq!(uw.total_claimed, 500_000);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0, "unclaimed winnings must be cleared");
+    assert_eq!(uw.total_claimed, 500_000, "total_claimed must equal 500_000");
 
     // Assert PrizePool state updates
     let pool_account = ctx.svm.get_account(&pool_pda(1).0).unwrap();
     let pool = anchor::PrizePool::try_deserialize(&mut pool_account.data.as_slice()).unwrap();
-    assert_eq!(pool.total_prizes_allocated, 500_000); // 1_000_000 - 500_000
-    assert_eq!(pool.next_redemption_id, 1);
-    assert_eq!(pool.total_pending_redemptions, 500_000);
+    assert_eq!(pool.total_prizes_allocated, 500_000, "pool prizes allocated updated"); // 1_000_000 - 500_000
+    assert_eq!(pool.next_redemption_id, 1, "pool next_redemption_id incremented");
+    assert_eq!(pool.total_pending_redemptions, 500_000, "total_pending_redemptions updated");
 
     // Assert PendingRedemption PDA creation and all fields
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     let pr_account = ctx.svm.get_account(&pending_redemption_key).unwrap();
     let pr = anchor::PendingRedemption::try_deserialize(&mut pr_account.data.as_slice()).unwrap();
-    assert_eq!(pr.pool_id, 1);
-    assert_eq!(pr.redemption_id, 0);
-    assert_eq!(pr.user, ctx.user.pubkey());
-    assert_eq!(pr.amount, 500_000);
-    assert!(pr.pst_shares_locked > 0);
-    assert_eq!(pr.huma_request_id, 0);
-    assert_eq!(pr.version, anchor::PendingRedemption::CURRENT_VERSION);
+    assert_eq!(pr.pool_id, 1, "pr pool_id matches");
+    assert_eq!(pr.redemption_id, 0, "pr redemption_id matches");
+    assert_eq!(pr.user, ctx.user.pubkey(), "pr user matches");
+    assert_eq!(pr.amount, 500_000, "pr amount matches");
+    assert!(pr.pst_shares_locked > 0, "pr pst_shares_locked non-zero");
+    assert_eq!(pr.huma_request_id, 0, "pr huma_request_id matches");
+    assert_eq!(pr.version, anchor::PendingRedemption::CURRENT_VERSION, "pr version is current");
     assert_eq!(
         pr.redemption_type,
-        anchor::state::RedemptionType::PrizeClaim
+        anchor::state::RedemptionType::PrizeClaim,
+        "pr redemption_type is PrizeClaim"
     );
-}
-
-fn inject_pool_with_frozen(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    token_mint: Pubkey,
-    status: anchor::PoolStatus,
-    is_frozen_for_draw: u8,
-    huma_pool_state: Pubkey,
-) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint,
-        ticket_registry: Pubkey::default(),
-        fee_wallet: Pubkey::default(),
-        huma_pool_state,
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 1_000_000_000,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw,
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: anchor::PrizePool::CURRENT_VERSION,
-        _reserved: [0; 128],
-    };
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
 }
 
 #[test]
 fn test_claim_non_reinvested_winnings_fails_when_frozen() {
     let mut ctx = setup_claim_guard(100_000, anchor::PoolStatus::Active);
     // Freeze pool for draw
-    inject_pool_with_frozen(
-        &mut ctx.svm,
-        1,
-        ctx.token_mint,
-        anchor::PoolStatus::Active,
-        1,
-        ctx.huma_pool_state,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(ctx.token_mint)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_solvency_state(0, 1_000_000_000, 0)
+        .inject(&mut ctx.svm);
 
     let ix = build_claim_ix_with_redemption_id(
         ctx.user.pubkey(),
@@ -474,12 +333,8 @@ fn test_claim_non_reinvested_winnings_fails_when_frozen() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("AwaitingRandomnessFreeze") || err_str.contains("Custom(6008)"),
-        "Expected AwaitingRandomnessFreeze error, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -495,14 +350,12 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     );
 
     // Setup pool in Closed state
-    inject_pool_with_frozen(
-        &mut ctx.svm,
-        1,
-        ctx.usdc_mint,
-        anchor::PoolStatus::Closed,
-        0,
-        ctx.huma_pool_state,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(ctx.usdc_mint)
+        .with_status(anchor::PoolStatus::Closed)
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_solvency_state(0, 1_000_000_000, 0)
+        .inject(&mut ctx.svm);
 
     // Setup user winnings with 500_000 unclaimed winnings
     let (user_winnings_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
@@ -539,17 +392,17 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
         .send_transaction(tx)
         .expect("claim non-reinvested winnings on closed pool should succeed");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
-    assert_eq!(event.user, ctx.user.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.amount, 500_000);
-    assert_eq!(event.redemption_id, 0);
-    assert!(event.pst_shares > 0);
-    assert_eq!(event.huma_request_id, 0);
+    assert_eq!(event.user, ctx.user.pubkey(), "event user matches claimant");
+    assert_eq!(event.pool_id, 1, "event pool_id matches");
+    assert_eq!(event.amount, 500_000, "event amount matches");
+    assert_eq!(event.redemption_id, 0, "event redemption_id is 0");
+    assert!(event.pst_shares > 0, "event pst_shares is positive");
+    assert_eq!(event.huma_request_id, 0, "event huma_request_id is 0");
 
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
-    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0);
-    assert_eq!(uw.total_claimed, 500_000);
+    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0, "unclaimed winnings cleared");
+    assert_eq!(uw.total_claimed, 500_000, "total claimed matches");
 }
 
 #[test]

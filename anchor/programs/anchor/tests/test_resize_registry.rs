@@ -60,67 +60,7 @@ fn inject_ticket_registry_account(
     .unwrap();
 }
 
-/// Helper to inject a `PrizePool` account directly into the SVM.
-fn inject_prize_pool_account(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    ticket_registry: Pubkey,
-    is_frozen_for_draw: bool,
-) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint: Pubkey::default(),
-        ticket_registry,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 0,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw: if is_frozen_for_draw { 1 } else { 0 },
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-
-    pda
-}
+// (inject_prize_pool_account removed in favor of common::PrizePoolTestBuilder)
 
 /// Helper to send `resize_registry` instruction.
 fn send_resize_registry_simple(
@@ -204,7 +144,10 @@ fn test_resize_registry_succeeds() {
     };
     write_entry_at_idx(&mut svm, ticket_registry, 0, &entry);
 
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let rent_before = svm.get_account(&ticket_registry).unwrap().lamports;
 
@@ -263,11 +206,14 @@ fn test_resize_registry_sequential_growth() {
         initial_size,
     );
 
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // Step 1: Resize once
     let res1 = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
-    assert!(res1.is_ok());
+    assert!(res1.is_ok(), "First resize should succeed: {:?}", res1);
 
     let size_1 = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
     let cap_1 = anchor::utils::registry_capacity_from_len(size_1);
@@ -304,7 +250,7 @@ fn test_resize_registry_sequential_growth() {
     let msg = Message::new_with_blockhash(&[resize_ix, transfer_ix], Some(&payer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res2 = svm.send_transaction(tx);
-    assert!(res2.is_ok());
+    assert!(res2.is_ok(), "Second resize should succeed: {:?}", res2);
 
     let size_2 = size_1 + anchor::constants::REGISTRY_REALLOC_STEP;
     let cap_2 = anchor::utils::registry_capacity_from_len(size_2);
@@ -333,7 +279,10 @@ fn test_resize_registry_permissionless_any_caller() {
         0,
         initial_size,
     );
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // Any arbitrary user / third-party keypair can initiate and fund the resize
     let random_caller = Keypair::new();
@@ -375,7 +324,10 @@ fn test_resize_registry_fails_unsigned_payer() {
         0,
         initial_size,
     );
-    let pool = inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    let (pool, _) = PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // Build ix but mark payer as non-signer
     let mut accounts = anchor::accounts::ResizeRegistry {
@@ -427,7 +379,10 @@ fn test_resize_registry_fails_wrong_pool_pda() {
         0,
         initial_size,
     );
-    let _pool = inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    let _pool = PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // Use incorrect pool PDA
     let wrong_pool = Keypair::new().pubkey();
@@ -474,7 +429,11 @@ fn test_resize_registry_fails_pool_frozen() {
         initial_size,
     );
     // Inject frozen pool
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, true);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_frozen(true)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert_custom_error(
@@ -502,7 +461,10 @@ fn test_resize_registry_fails_unauthorized_ticket() {
 
     // Inject pool pointing to a completely different registry address
     let other_registry = Keypair::new().pubkey();
-    inject_prize_pool_account(&mut svm, pool_id, other_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(other_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintHasOne);
@@ -525,7 +487,10 @@ fn test_resize_registry_fails_registry_at_max_size() {
         0,
         max_size,
     );
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let res = send_resize_registry_simple(&mut svm, &payer, pool_id, ticket_registry);
     // Since Anchor evaluates realloc before user constraints, growing beyond 10MB
@@ -549,7 +514,10 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
         0,
         initial_size,
     );
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // Create a payer with insufficient funds (0 lamports)
     let poor_payer = Keypair::new();
@@ -576,7 +544,10 @@ fn test_resize_registry_to_exact_max_capacity() {
         0,
         initial_size,
     );
-    inject_prize_pool_account(&mut svm, pool_id, ticket_registry, false);
+    PrizePoolTestBuilder::new(pool_id)
+        .with_ticket_registry(ticket_registry)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     // This resize should grow by REGISTRY_REALLOC_STEP successfully
     let expected_new_size = initial_size + anchor::constants::REGISTRY_REALLOC_STEP;
@@ -593,3 +564,4 @@ fn test_resize_registry_to_exact_max_capacity() {
         anchor::utils::registry_capacity_from_len(expected_new_size)
     );
 }
+

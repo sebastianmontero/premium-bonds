@@ -28,70 +28,22 @@ fn inject_pool(
     frozen: bool,
     bond_price: u64,
 ) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(id);
-    let p = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id: id,
-        token_mint: mint,
-        ticket_registry: reg,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 0,
-        status: status as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 1_000_000_000,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw: if frozen { 1 } else { 0 },
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&p));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
+    PrizePoolTestBuilder::new(id)
+        .with_token_mint(mint)
+        .with_ticket_registry(reg)
+        .with_status(status)
+        .with_frozen(frozen)
+        .with_bond_price(bond_price)
+        .with_solvency_state(0, 1_000_000_000, 0)
+        .inject(svm)
+        .0
 }
 
 fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
-    common::inject_payout_registry(
-        svm,
-        pool_id,
-        cycle_id,
-        winners,
-        0,
-        anchor::PayoutRegistryStatus::Active,
-    );
+    PayoutRegistryTestBuilder::new(pool_id, cycle_id)
+        .with_winners(winners)
+        .inject(svm);
 }
-
-use common::*;
 
 fn w(winner: Pubkey, owed: u64, tier: u8, bonds_bought: u32, processed: bool) -> anchor::Winner {
     anchor::Winner {
@@ -108,7 +60,7 @@ fn w(winner: Pubkey, owed: u64, tier: u8, bonds_bought: u32, processed: bool) ->
 
 // ─── Context + instruction ──────────────────────────────────────────────────
 
-struct Ctx {
+struct ReinvestCtx {
     svm: LiteSVM,
     crank: Keypair,
     winner: Pubkey,
@@ -116,7 +68,7 @@ struct Ctx {
 }
 
 fn send(
-    ctx: &mut Ctx,
+    ctx: &mut ReinvestCtx,
     cycle_id: u32,
     winner_index: u32,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
@@ -156,19 +108,11 @@ fn send(
 // ─── Readers ─────────────────────────────────────────────────────────────────
 
 fn read_pool(svm: &LiteSVM) -> anchor::PrizePool {
-    let (p, _) = pool_pda(1);
-    let data = svm.get_account(&p).unwrap().data;
-    *bytemuck::from_bytes::<anchor::PrizePool>(
-        &data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    )
+    common::read_pool_state(svm, 1)
 }
 
 fn read_payout(svm: &LiteSVM, cid: u32) -> anchor::PayoutRegistry {
-    let (p, _) = payout_pda(1, cid);
-    let data = svm.get_account(&p).unwrap().data;
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
-        &data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-    )
+    common::read_payout_registry(svm, 1, cid)
 }
 
 fn read_winners(svm: &LiteSVM, cid: u32) -> Vec<anchor::Winner> {
@@ -207,7 +151,7 @@ fn setup(
     bond_price: u64,
     amount_owed: u64,
     bonds_bought: u32,
-) -> Ctx {
+) -> ReinvestCtx {
     let (mut svm, _admin) = common::setup_global_config();
 
     let crank = Keypair::new();
@@ -238,7 +182,7 @@ fn setup(
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    Ctx {
+    ReinvestCtx {
         svm,
         crank,
         winner,
@@ -533,13 +477,13 @@ fn test_reinvest_exited_user_full_registry_fallback() {
     // reinvest_winnings must NOT fail with RegistryFull, but instead route 100% of prize to dust and mark processed.
     let meta = send(&mut ctx, 0, 0).expect("full registry fallback");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "event winner matches");
+    assert_eq!(event.winner_index, 0, "event winner_index is 0");
+    assert_eq!(event.bonds_bought, 0, "bonds_bought is 0 due to full registry");
+    assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000, "remaining_unclaimed_winnings is full prize");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "event crank matches caller");
 
     let winners = read_winners(&ctx.svm, 0);
     assert_eq!(winners[0].processed, 1);
@@ -610,7 +554,7 @@ fn test_reinvest_preserves_existing_pending_tickets() {
     inject_payout(&mut svm, 1, 1, vec![w(winner, 3_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner,
@@ -656,7 +600,7 @@ fn test_reinvest_exited_user_creates_active_entry() {
     inject_payout(&mut svm, 1, 0, vec![w(winner, 4_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, u32::MAX);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner,
@@ -717,7 +661,7 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
     inject_payout(&mut svm, 1, 1, vec![w(winner, 2_000_000, 0, 0, false)]);
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner,
@@ -769,31 +713,22 @@ fn test_reinvest_fails_payout_timelock_active() {
         1_000_000,
     );
     // Set payout_timelock_seconds = 300
-    {
-        let mut acc = svm.get_account(&pool_pda).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.payout_timelock_seconds = 300;
-        svm.set_account(pool_pda, acc).unwrap();
-    }
+    PrizePoolTestBuilder::from_state(&svm, 1)
+        .with_payout_timelock_seconds(300)
+        .inject(&mut svm);
 
-    // Payout revealed at timestamp 1_000
-    let (payout_pda, _) = payout_pda(1, 0);
+    // Payout revealed at timestamp 1_700_000_000
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
-    {
-        let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
-            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-        );
-        pr.revealed_at = 1_000;
-        svm.set_account(payout_pda, acc).unwrap();
-    }
+    PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
+        .with_revealed_at(1_700_000_000)
+        .inject(&mut svm);
 
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    // Current clock is 1_200 (timelock active until 1_000 + 300 = 1_300)
-    common::set_clock_timestamp(&mut svm, 1_200);
+    // Current clock is 1_700_000_200 (timelock active until 1_700_000_000 + 300 = 1_700_000_300)
+    warp_to_timestamp(&mut svm, 1_700_000_200);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner,
@@ -801,8 +736,8 @@ fn test_reinvest_fails_payout_timelock_active() {
     };
     assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
 
-    // Advance clock to 1_300 (timelock elapsed)
-    common::set_clock_timestamp(&mut ctx.svm, 1_300);
+    // Advance clock to 1_700_000_300 (timelock elapsed)
+    warp_to_timestamp(&mut ctx.svm, 1_700_000_300);
     let crank2 = Keypair::new();
     ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
     ctx.crank = crank2;
@@ -819,15 +754,9 @@ fn test_reinvest_fails_payout_timelock_active() {
 #[test]
 fn test_reinvest_fails_draw_voided() {
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
-    let (pda, _) = payout_pda(1, 0);
-    {
-        let mut acc = ctx.svm.get_account(&pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
-            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-        );
-        pr.status = anchor::PayoutRegistryStatus::Voided as u8;
-        ctx.svm.set_account(pda, acc).unwrap();
-    }
+    PayoutRegistryTestBuilder::from_state(&ctx.svm, 1, 0)
+        .with_status(anchor::state::PayoutRegistryStatus::Voided)
+        .inject(&mut ctx.svm);
 
     assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::DrawVoided);
 }
@@ -843,15 +772,15 @@ fn test_reinvest_closed_pool_graceful_cash_fallback() {
 
     let meta = send(&mut ctx, 0, 0).expect("closed pool reinvest");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "event winner matches");
+    assert_eq!(event.pool_id, 1, "event pool_id is 1");
+    assert_eq!(event.cycle_id, 0, "event cycle_id is 0");
+    assert_eq!(event.winner_index, 0, "event winner_index is 0");
+    assert_eq!(event.bonds_bought, 0, "closed pool bonds_bought is 0");
+    assert_eq!(event.amount_reinvested, 0, "closed pool amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000, "all winnings routed to unclaimed");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "event crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners = read_winners(&ctx.svm, 0);
@@ -909,12 +838,12 @@ fn test_reinvest_closed_pool_exited_user() {
 
     let meta = send(&mut ctx, 0, 0).expect("reinvest closed pool exited user");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 4_000_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner_index, 0, "event winner_index is 0");
+    assert_eq!(event.bonds_bought, 0, "exited user on closed pool cannot buy bonds");
+    assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 4_000_000, "all 4 USDC routed to unclaimed");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "event crank matches caller");
 
     let winners = read_winners(&ctx.svm, 0);
     assert_eq!(winners[0].processed, 1);
@@ -966,29 +895,22 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
         false,
         1_000_000,
     );
-    {
-        let mut acc = svm.get_account(&pool_pda).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.payout_timelock_seconds = 300;
-        svm.set_account(pool_pda, acc).unwrap();
-    }
+    // Set payout_timelock_seconds = 300
+    PrizePoolTestBuilder::from_state(&svm, 1)
+        .with_payout_timelock_seconds(300)
+        .inject(&mut svm);
 
     let (payout_pda, _) = payout_pda(1, 0);
     inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
-    {
-        let mut acc = svm.get_account(&payout_pda).unwrap();
-        let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
-            &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-        );
-        pr.revealed_at = 1_000;
-        svm.set_account(payout_pda, acc).unwrap();
-    }
+    PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
+        .with_revealed_at(1_700_000_000)
+        .inject(&mut svm);
 
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-    common::set_clock_timestamp(&mut svm, 1_200); // within 300s timelock (1_000 + 300 = 1_300)
+    warp_to_timestamp(&mut svm, 1_700_000_200); // within 300s timelock (1_700_000_000 + 300 = 1_700_000_300)
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner,
@@ -997,19 +919,19 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
 
     // Advance clock past timelock
-    common::set_clock_timestamp(&mut ctx.svm, 1_300);
+    warp_to_timestamp(&mut ctx.svm, 1_700_000_300);
     let crank2 = Keypair::new();
     ctx.svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
     ctx.crank = crank2;
 
     let meta = send(&mut ctx, 0, 0).expect("reinvest should succeed after timelock");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner_index, 0, "event winner_index matches");
+    assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 3_000_000, "remaining_unclaimed_winnings is 3 USDC");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "crank matches caller");
 
     let uw = read_user_winnings(&ctx.svm, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
@@ -1024,13 +946,13 @@ fn test_reinvest_zero_prize_owed_without_prior_dust() {
     let meta = send(&mut ctx, 0, 0).expect("reinvest of 0 prize should succeed");
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 0);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "event winner matches");
+    assert_eq!(event.winner_index, 0, "winner_index is 0");
+    assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 0, "remaining_unclaimed_winnings is 0");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "crank matches caller");
 
     // Verify PayoutRegistry is marked processed
     let pr = read_payout(&ctx.svm, 0);
@@ -1062,13 +984,13 @@ fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
     let meta = send(&mut ctx, 0, 0).expect("reinvest of 0 prize with sub-bond dust should succeed");
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 0);
-    assert_eq!(event.amount_reinvested, 0);
-    assert_eq!(event.new_total_deposited_principal, 0);
-    assert_eq!(event.remaining_unclaimed_winnings, 400_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "event winner matches");
+    assert_eq!(event.winner_index, 0, "winner_index is 0");
+    assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
+    assert_eq!(event.new_total_deposited_principal, 0, "new_total_deposited_principal is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 400_000, "remaining_unclaimed_winnings is 400k");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners = read_winners(&ctx.svm, 0);
@@ -1095,13 +1017,13 @@ fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
     let meta = send(&mut ctx, 0, 0).expect("reinvest should auto-compound prior dust");
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, ctx.winner);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 1);
-    assert_eq!(event.amount_reinvested, 1_000_000);
-    assert_eq!(event.new_total_deposited_principal, 1_000_000);
-    assert_eq!(event.remaining_unclaimed_winnings, 500_000);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, ctx.winner, "event winner matches");
+    assert_eq!(event.winner_index, 0, "winner_index is 0");
+    assert_eq!(event.bonds_bought, 1, "bonds_bought is 1");
+    assert_eq!(event.amount_reinvested, 1_000_000, "amount_reinvested is 1 USDC");
+    assert_eq!(event.new_total_deposited_principal, 1_000_000, "new_total_deposited_principal is 1 USDC");
+    assert_eq!(event.remaining_unclaimed_winnings, 500_000, "remaining_unclaimed_winnings is 500k");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners = read_winners(&ctx.svm, 0);
@@ -1172,7 +1094,7 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
     common::inject_user_winnings_with_index(&mut svm, 1, winner1, 0, 0, 0, 0);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner: winner0,
@@ -1182,13 +1104,13 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     // Crank winner 0
     let meta0 = send(&mut ctx, 0, 0).expect("crank winner 0 should succeed");
     let event0 = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta0);
-    assert_eq!(event0.winner, winner0);
-    assert_eq!(event0.winner_index, 0);
-    assert_eq!(event0.bonds_bought, 0);
-    assert_eq!(event0.amount_reinvested, 0);
-    assert_eq!(event0.new_total_deposited_principal, 0);
-    assert_eq!(event0.remaining_unclaimed_winnings, 0);
-    assert_eq!(event0.crank, ctx.crank.pubkey());
+    assert_eq!(event0.winner, winner0, "event0 winner matches winner0");
+    assert_eq!(event0.winner_index, 0, "event0 winner_index is 0");
+    assert_eq!(event0.bonds_bought, 0, "event0 bonds_bought is 0");
+    assert_eq!(event0.amount_reinvested, 0, "event0 amount_reinvested is 0");
+    assert_eq!(event0.new_total_deposited_principal, 0, "event0 new_total_deposited_principal is 0");
+    assert_eq!(event0.remaining_unclaimed_winnings, 0, "event0 remaining_unclaimed_winnings is 0");
+    assert_eq!(event0.crank, ctx.crank.pubkey(), "event0 crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners0 = read_winners(&ctx.svm, 0);
@@ -1200,13 +1122,13 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     ctx.winner = winner1;
     let meta1 = send(&mut ctx, 0, 1).expect("crank winner 1 should succeed");
     let event1 = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta1);
-    assert_eq!(event1.winner, winner1);
-    assert_eq!(event1.winner_index, 1);
-    assert_eq!(event1.bonds_bought, 0);
-    assert_eq!(event1.amount_reinvested, 0);
-    assert_eq!(event1.new_total_deposited_principal, 0);
-    assert_eq!(event1.remaining_unclaimed_winnings, 0);
-    assert_eq!(event1.crank, ctx.crank.pubkey());
+    assert_eq!(event1.winner, winner1, "event1 winner matches winner1");
+    assert_eq!(event1.winner_index, 1, "event1 winner_index is 1");
+    assert_eq!(event1.bonds_bought, 0, "event1 bonds_bought is 0");
+    assert_eq!(event1.amount_reinvested, 0, "event1 amount_reinvested is 0");
+    assert_eq!(event1.new_total_deposited_principal, 0, "event1 new_total_deposited_principal is 0");
+    assert_eq!(event1.remaining_unclaimed_winnings, 0, "event1 remaining_unclaimed_winnings is 0");
+    assert_eq!(event1.crank, ctx.crank.pubkey(), "event1 crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners1 = read_winners(&ctx.svm, 0);
@@ -1328,7 +1250,7 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     common::inject_user_winnings_with_index(&mut svm, 1, winner1, 0, 0, 0, 1);
     common::inject_user_winnings_with_index(&mut svm, 1, winner2, 0, 0, 0, 2);
 
-    let mut ctx = Ctx {
+    let mut ctx = ReinvestCtx {
         svm,
         crank,
         winner: winner2,
@@ -1337,28 +1259,28 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
 
     let meta = send(&mut ctx, 0, 2).expect("crank winner 2 should succeed");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, winner2);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.winner_index, 2);
-    assert_eq!(event.bonds_bought, 4);
-    assert_eq!(event.amount_reinvested, 4_000_000);
-    assert_eq!(event.new_total_deposited_principal, 4_000_000);
-    assert_eq!(event.remaining_unclaimed_winnings, 0);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.winner, winner2, "event winner matches winner2");
+    assert_eq!(event.pool_id, 1, "event pool_id is 1");
+    assert_eq!(event.cycle_id, 0, "event cycle_id is 0");
+    assert_eq!(event.winner_index, 2, "event winner_index is 2");
+    assert_eq!(event.bonds_bought, 4, "event bonds_bought is 4");
+    assert_eq!(event.amount_reinvested, 4_000_000, "event amount_reinvested is 4 USDC");
+    assert_eq!(event.new_total_deposited_principal, 4_000_000, "new_total_deposited_principal is 4 USDC");
+    assert_eq!(event.remaining_unclaimed_winnings, 0, "remaining_unclaimed_winnings is 0");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "event crank matches caller");
 
     let pr = read_payout(&ctx.svm, 0);
     let winners = read_winners(&ctx.svm, 0);
-    assert_eq!(pr.payouts_completed, 1);
-    assert_eq!(winners[0].processed, 0);
-    assert_eq!(winners[1].processed, 0);
-    assert_eq!(winners[2].processed, 1);
-    assert_eq!(winners[2].bonds_bought, 4);
+    assert_eq!(pr.payouts_completed, 1, "payouts_completed is 1");
+    assert_eq!(winners[0].processed, 0, "winner 0 not processed yet");
+    assert_eq!(winners[1].processed, 0, "winner 1 not processed yet");
+    assert_eq!(winners[2].processed, 1, "winner 2 marked processed");
+    assert_eq!(winners[2].bonds_bought, 4, "winner 2 bought 4 bonds");
 }
 
 #[test]
 fn test_reinvest_exact_timelock_boundaries() {
-    fn setup_timelock_test(clock_ts: i64) -> (Ctx, u32) {
+    fn setup_timelock_test(clock_ts: i64) -> (ReinvestCtx, u32) {
         let (mut svm, _admin) = common::setup_global_config();
         let crank = Keypair::new();
         svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
@@ -1379,7 +1301,7 @@ fn test_reinvest_exact_timelock_boundaries() {
         }];
         common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-        let pool_pda = inject_pool(
+        inject_pool(
             &mut svm,
             1,
             mint,
@@ -1388,30 +1310,21 @@ fn test_reinvest_exact_timelock_boundaries() {
             false,
             1_000_000,
         );
-        {
-            let mut acc = svm.get_account(&pool_pda).unwrap();
-            let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-            pool.payout_timelock_seconds = 300;
-            svm.set_account(pool_pda, acc).unwrap();
-        }
+        PrizePoolTestBuilder::from_state(&svm, 1)
+            .with_payout_timelock_seconds(300)
+            .inject(&mut svm);
 
-        let (payout_pda, _) = payout_pda(1, 0);
         inject_payout(&mut svm, 1, 0, vec![w(winner, 3_000_000, 0, 0, false)]);
-        {
-            let mut acc = svm.get_account(&payout_pda).unwrap();
-            let pr = bytemuck::from_bytes_mut::<anchor::PayoutRegistry>(
-                &mut acc.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-            );
-            pr.revealed_at = 1_000;
-            svm.set_account(payout_pda, acc).unwrap();
-        }
+        PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
+            .with_revealed_at(1_700_000_000)
+            .inject(&mut svm);
 
         common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
-        common::set_clock_timestamp(&mut svm, clock_ts);
+        warp_to_timestamp(&mut svm, clock_ts);
 
         (
-            Ctx {
+            ReinvestCtx {
                 svm,
                 crank,
                 winner,
@@ -1421,30 +1334,30 @@ fn test_reinvest_exact_timelock_boundaries() {
         )
     }
 
-    // Boundary 1: revealed_at (1000) + timelock (300) - 1 = 1299 -> fails with PayoutTimelockActive
+    // Boundary 1: revealed_at (1_700_000_000) + timelock (300) - 1 = 1_700_000_299 -> fails with PayoutTimelockActive
     {
-        let (mut ctx, _) = setup_timelock_test(1299);
+        let (mut ctx, _) = setup_timelock_test(1_700_000_299);
         assert_custom_error(send(&mut ctx, 0, 0), anchor::error::PremiumBondsError::PayoutTimelockActive);
     }
 
-    // Boundary 2: revealed_at (1000) + timelock (300) = 1300 -> succeeds
+    // Boundary 2: revealed_at (1_700_000_000) + timelock (300) = 1_700_000_300 -> succeeds
     {
-        let (mut ctx, _) = setup_timelock_test(1300);
+        let (mut ctx, _) = setup_timelock_test(1_700_000_300);
         let res = send(&mut ctx, 0, 0);
         assert!(
             res.is_ok(),
-            "Reinvest at exact timelock boundary (1300) must succeed: {:?}",
+            "Reinvest at exact timelock boundary (1_700_000_300) must succeed: {:?}",
             res.err()
         );
     }
 
-    // Boundary 3: revealed_at (1000) + timelock (300) + 1 = 1301 -> succeeds
+    // Boundary 3: revealed_at (1_700_000_000) + timelock (300) + 1 = 1_700_000_301 -> succeeds
     {
-        let (mut ctx, _) = setup_timelock_test(1301);
+        let (mut ctx, _) = setup_timelock_test(1_700_000_301);
         let res = send(&mut ctx, 0, 0);
         assert!(
             res.is_ok(),
-            "Reinvest at timelock + 1 (1301) must succeed: {:?}",
+            "Reinvest at timelock + 1 (1_700_000_301) must succeed: {:?}",
             res.err()
         );
     }

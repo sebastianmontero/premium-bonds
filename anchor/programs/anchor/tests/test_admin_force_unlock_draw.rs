@@ -1,8 +1,7 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
+use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
-    account::Account,
     message::{Message, VersionedMessage},
     signature::Keypair,
     signer::Signer,
@@ -12,16 +11,14 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-
-struct Ctx {
+struct ForceUnlockCtx {
     svm: LiteSVM,
     admin: Keypair,
     pool_key: Pubkey,
     current_draw_cycle: Pubkey,
 }
 
-fn setup(admin: &Keypair, draw_status: anchor::DrawStatus) -> Ctx {
+fn setup(admin: &Keypair, draw_status: anchor::DrawStatus) -> ForceUnlockCtx {
     setup_with_amounts(admin, draw_status, 1_000_000, 100_000, 1_000_000, 100_000)
 }
 
@@ -32,97 +29,27 @@ fn setup_with_amounts(
     cycle_fee_collected: u64,
     total_prizes_allocated: u64,
     total_fees_accrued: u64,
-) -> Ctx {
+) -> ForceUnlockCtx {
     let mut svm = setup_global_config_with_admin(admin, &admin.pubkey(), None);
 
-    // Inject pool
-    let (pool_key, bump) = pool_pda(1);
     let ticket_registry = Keypair::new().pubkey();
-    use anchor_lang::Discriminator;
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id: 1,
-        token_mint: Keypair::new().pubkey(),
-        ticket_registry,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: 1,
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
+    let (pool_key, _) = PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_solvency_state(0, total_prizes_allocated, total_fees_accrued)
+        .with_current_draw_cycle_id(0)
+        .with_cycle_end_at(i64::MAX)
+        .inject(&mut svm);
 
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_key,
-        Account {
-            lamports: 1_000_000_000,
-            data: pool_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    let (current_draw_cycle, _) = DrawCycleTestBuilder::new(1, 0)
+        .with_status(draw_status)
+        .with_locked_tickets(10)
+        .with_prize_pot(prize_pot)
+        .with_cycle_fee(cycle_fee_collected)
+        .inject(&mut svm);
 
-    // Inject draw cycle
-    let (current_draw_cycle, _) = draw_cycle_pda(1, 0);
-    let dc = anchor::DrawCycle {
-        pool_id: 1,
-        cycle_id: 0,
-        status: draw_status,
-        locked_ticket_count: 10,
-        randomness_seed: [0u8; 32],
-        prize_pot,
-        cycle_fee_collected,
-        randomness_account: Pubkey::default(),
-        harvest_slot: 0,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        version: 1,
-        _reserved: [0; 64],
-    };
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::DrawCycle::DISCRIMINATOR);
-    use anchor_lang::AnchorSerialize;
-    dc.serialize(&mut data).unwrap();
-    data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
-    svm.set_account(
-        current_draw_cycle,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-
-    Ctx {
+    ForceUnlockCtx {
         svm,
         admin: clone_keypair(admin),
         pool_key,
@@ -131,9 +58,9 @@ fn setup_with_amounts(
 }
 
 fn send_force_unlock(
-    ctx: &mut Ctx,
+    ctx: &mut ForceUnlockCtx,
     signer: &Keypair,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> TxResult {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::AdminForceUnlockDraw {
         global_config,
@@ -154,7 +81,7 @@ fn send_force_unlock(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 #[test]
@@ -171,25 +98,22 @@ fn test_admin_force_unlock_happy_path() {
 
     let meta = send_force_unlock(&mut ctx, &admin).unwrap();
     let event = assert_cpi_event::<anchor::events::DrawForceUnlocked>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.admin, admin.pubkey());
-    assert_eq!(event.prize_pot, 1_000_000);
-    assert_eq!(event.cycle_fee_collected, 100_000);
+    assert_eq!(event.pool_id, 1, "DrawForceUnlocked pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "DrawForceUnlocked cycle_id mismatch");
+    assert_eq!(event.admin, admin.pubkey(), "DrawForceUnlocked admin mismatch");
+    assert_eq!(event.prize_pot, 1_000_000, "DrawForceUnlocked prize_pot mismatch");
+    assert_eq!(event.cycle_fee_collected, 100_000, "DrawForceUnlocked cycle_fee_collected mismatch");
 
     // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
-    let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    assert_eq!(pool.is_frozen_for_draw, 0);
-    assert_eq!(pool.total_prizes_allocated, 1_500_000); // 2_500_000 - 1_000_000
-    assert_eq!(pool.total_fees_accrued, 200_000); // 300_000 - 100_000
+    let pool = common::read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.is_frozen_for_draw, 0, "Pool must be unfrozen after force unlock");
+    assert_eq!(pool.total_prizes_allocated, 1_500_000, "total_prizes_allocated must decrement by prize_pot (2.5M - 1M)");
+    assert_eq!(pool.total_fees_accrued, 200_000, "total_fees_accrued must decrement by cycle fee (300k - 100k)");
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked);
-    assert!(dc.completed_at > 0);
+    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked, "Draw cycle status must be ForceUnlocked");
+    assert!(dc.completed_at > 0, "Draw cycle completed_at must be positive");
 }
 
 #[test]
@@ -206,16 +130,13 @@ fn test_admin_force_unlock_with_zero_fee() {
 
     send_force_unlock(&mut ctx, &admin).unwrap();
 
-    let pool_acct = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    assert_eq!(pool.total_prizes_allocated, 0);
-    assert_eq!(pool.total_fees_accrued, 50_000);
+    let pool = common::read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_allocated, 0, "total_prizes_allocated must be 0 after deducting full pot");
+    assert_eq!(pool.total_fees_accrued, 50_000, "total_fees_accrued must remain unchanged when cycle fee is 0");
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked);
+    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked, "Draw cycle status must be ForceUnlocked");
 }
 
 #[test]
@@ -230,8 +151,8 @@ fn test_admin_force_unlock_math_overflow_prizes() {
         0,
     );
 
-    let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send_force_unlock(&mut ctx, &admin);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -246,8 +167,8 @@ fn test_admin_force_unlock_fees_already_withdrawn() {
         50_000, // total_fees_accrued = 50k (less than cycle_fee_collected)
     );
 
-    let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
-    assert!(err.contains("FeesAlreadyWithdrawn"), "got: {err}");
+    let res = send_force_unlock(&mut ctx, &admin);
+    assert_custom_error(res, anchor::error::PremiumBondsError::FeesAlreadyWithdrawn);
 }
 
 #[test]
@@ -260,8 +181,8 @@ fn test_admin_force_unlock_fails_unauthorized_admin() {
         .airdrop(&fake_admin.pubkey(), 10_000_000_000)
         .unwrap();
 
-    let err = send_force_unlock(&mut ctx, &fake_admin).unwrap_err();
-    assert!(err.contains("UnauthorizedAdmin"), "got: {err}");
+    let res = send_force_unlock(&mut ctx, &fake_admin);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -269,8 +190,8 @@ fn test_admin_force_unlock_fails_invalid_draw_status() {
     let admin = Keypair::new();
     let mut ctx = setup(&admin, anchor::DrawStatus::Complete);
 
-    let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
-    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+    let res = send_force_unlock(&mut ctx, &admin);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -289,10 +210,9 @@ fn test_admin_force_unlock_preserves_principal_and_unwithdrawn_fees() {
 
     // Pool accounting: total_prizes_allocated decremented by prize_pot (2.5M - 1M = 1.5M),
     // and total_fees_accrued decremented by cycle_fee_collected (300K - 100K = 200K)
-    let acc = ctx.svm.get_account(&ctx.pool_key).unwrap();
-    let pool = bytemuck::from_bytes::<anchor::PrizePool>(&acc.data[8..]);
-    assert_eq!(pool.total_prizes_allocated, 1_500_000);
-    assert_eq!(pool.total_fees_accrued, 200_000);
+    let pool = common::read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool.total_prizes_allocated, 1_500_000, "total_prizes_allocated must decrement by prize_pot");
+    assert_eq!(pool.total_fees_accrued, 200_000, "total_fees_accrued must decrement by cycle_fee_collected");
 }
 
 #[test]
@@ -322,12 +242,8 @@ fn test_admin_force_unlock_fails_invalid_event_authority() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("ConstraintSeeds") || err_str.contains("Custom(2006)"),
-        "expected ConstraintSeeds error on invalid event authority, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -344,10 +260,7 @@ fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
     for status in invalid_statuses {
         let admin = Keypair::new();
         let mut ctx = setup(&admin, status);
-        let err = send_force_unlock(&mut ctx, &admin).unwrap_err();
-        assert!(
-            err.contains("InvalidDrawStatus") || err.contains("6019"),
-            "Status {status:?} expected InvalidDrawStatus, got: {err}"
-        );
+        let res = send_force_unlock(&mut ctx, &admin);
+        assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
     }
 }

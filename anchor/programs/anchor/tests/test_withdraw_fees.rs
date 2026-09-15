@@ -81,11 +81,11 @@ fn send_withdraw_fees(
     svm: &mut LiteSVM,
     admin: &Keypair,
     ix: Instruction,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    svm.send_transaction(tx)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -276,13 +276,7 @@ fn test_withdraw_fees_fails_unauthorized_admin() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &hacker, ix);
-    assert!(res.is_err(), "Must fail with unauthorized admin");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("UnauthorizedAdmin") || err_str.contains("ConstraintHasOne"),
-        "Expected UnauthorizedAdmin or ConstraintHasOne, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -305,11 +299,7 @@ fn test_withdraw_fees_fails_unsigned_admin() {
     );
 
     // Override is_signer to false
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == ctx.admin.pubkey() {
-            meta.is_signer = false;
-        }
-    }
+    set_signer_flag(&mut ix.accounts, &ctx.admin.pubkey(), false);
 
     let payer = Keypair::new();
     ctx.svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
@@ -319,7 +309,7 @@ fn test_withdraw_fees_fails_unsigned_admin() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
     let res = ctx.svm.send_transaction(tx);
 
-    assert!(res.is_err(), "Must fail when admin is not signer");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -346,15 +336,7 @@ fn test_withdraw_fees_fails_zero_amount() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with zero amount");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("InsufficientFeeBalance")
-            || err_str.contains("6004")
-            || err_str.contains("0x1774"),
-        "Expected InsufficientFeeBalance error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientFeeBalance);
 }
 
 #[test]
@@ -402,15 +384,7 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail when amount exceeds available fees");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("InsufficientFeeBalance")
-            || err_str.contains("6004")
-            || err_str.contains("0x1774"),
-        "Expected InsufficientFeeBalance error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientFeeBalance);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -436,16 +410,14 @@ fn test_withdraw_fees_fails_wrong_global_config_pda() {
         1_000_000,
     );
 
-    // Swap global_config for a random PDA
-    let wrong_config = Keypair::new().pubkey();
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == global_config_pda().0 {
-            meta.pubkey = wrong_config;
-        }
-    }
+    // Swap global_config for an initialized GlobalConfig at a non-canonical PDA
+    let (wrong_config, _) = Pubkey::find_program_address(&[b"wrong_global_config"], &anchor::id());
+    let config_acc = ctx.svm.get_account(&global_config_pda().0).unwrap();
+    ctx.svm.set_account(wrong_config, config_acc).unwrap();
+    substitute_account_meta(&mut ix, global_config_pda().0, wrong_config);
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with incorrect global config PDA");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -493,12 +465,7 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail when pool is frozen for draw");
-    let err = res.unwrap_err();
-    assert!(
-        err.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze, got: {err}"
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -520,16 +487,13 @@ fn test_withdraw_fees_fails_wrong_pool_pda() {
         1_000_000,
     );
 
-    // Swap pool for a random PDA
-    let wrong_pool = Keypair::new().pubkey();
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == pool_pda(1).0 {
-            meta.pubkey = wrong_pool;
-        }
-    }
+    // Swap pool for an initialized valid imposter pool (Pool #2)
+    let (wrong_pool, _) = pool_pda(2);
+    PrizePoolTestBuilder::new(2).inject(&mut ctx.svm);
+    substitute_account_meta(&mut ix, pool_pda(1).0, wrong_pool);
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with incorrect pool PDA");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -538,26 +502,9 @@ fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
     let dummy = Keypair::new().pubkey();
 
     // Corrupt vault_authority_bump inside pool state
-    let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
+    let mut pool = PrizePoolTestBuilder::from_state(&ctx.svm, 1).build();
     pool.vault_authority_bump ^= 1; // Corrupt bump
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_pool(pool).inject(&mut ctx.svm);
 
     let ix = build_withdraw_fees_ix(
         &ctx.svm,
@@ -574,7 +521,7 @@ fn test_withdraw_fees_fails_pool_vault_authority_bump_mismatch() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with vault_authority_bump mismatch");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -597,15 +544,12 @@ fn test_withdraw_fees_fails_wrong_pst_vault_pda() {
     );
 
     // Swap pool_pst_vault for a random token account PDA
-    let wrong_vault = Keypair::new().pubkey();
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == pool_pst_vault_pda(1).0 {
-            meta.pubkey = wrong_vault;
-        }
-    }
+    let (wrong_vault, _) = pool_pst_vault_pda(2);
+    inject_token_account(&mut ctx.svm, wrong_vault, ctx.pst_mint, pool_pda(2).0, 0);
+    substitute_account_meta(&mut ix, pool_pst_vault_pda(1).0, wrong_vault);
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with incorrect pool PST vault PDA");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -629,17 +573,10 @@ fn test_withdraw_fees_fails_wrong_huma_program() {
 
     // Swap huma_program for a random key
     let wrong_huma_prog = Keypair::new().pubkey();
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == huma_program_id() {
-            meta.pubkey = wrong_huma_prog;
-        }
-    }
+    substitute_account_meta(&mut ix, huma_program_id(), wrong_huma_prog);
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail with incorrect huma program address"
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -650,6 +587,20 @@ fn test_withdraw_fees_fails_wrong_huma_program() {
 fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
     let mut ctx = setup_e2e();
     let dummy = Keypair::new().pubkey();
+
+    let (pool_pda_key, _) = pool_pda(1);
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_fees_accrued = 5_000_000;
+    });
+
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    inject_token_account(
+        &mut ctx.svm,
+        pool_pst_vault,
+        ctx.pst_mint,
+        pool_pda_key,
+        5_000_000,
+    );
 
     // 1. Corrupt huma_pool_state by writing an empty vector length prefix
     let mut huma_pool_state_data = vec![0u8; 512];
@@ -682,16 +633,7 @@ fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail when huma_pool_state has empty mode_states vector"
-    );
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("MathOverflow") || err_str.contains("custom program error"),
-        "Expected MathOverflow error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolData);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -754,18 +696,7 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(
-        res.is_err(),
-        "Must fail with simulated Huma CPI redemption failure"
-    );
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("SimulatedRedemptionFailure")
-            || err_str.contains("6001")
-            || err_str.contains("0x1771"),
-        "Expected SimulatedRedemptionFailure error, got: {}",
-        err_str
-    );
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedRedemptionFailure);
 }
 
 #[test]
@@ -773,28 +704,11 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
     let mut ctx = setup_e2e();
 
     // Set up pool state
-    let (pool_pda, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.next_redemption_id = 0;
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_next_redemption_id(0)
+        .inject(&mut ctx.svm);
 
     let huma_pool_mode_token = Keypair::new().pubkey();
     inject_token_account(
@@ -823,13 +737,7 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with InvalidModeMint");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("InvalidModeMint"),
-        "Expected InvalidModeMint error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
 
 #[test]
@@ -894,12 +802,12 @@ fn test_withdraw_fees_and_claim_e2e() {
     let meta = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix_withdraw)
         .expect("withdraw_fees should succeed");
     let event = assert_cpi_event::<anchor::events::FeesWithdrawn>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.admin, ctx.admin.pubkey());
-    assert_eq!(event.amount, 2_000_000);
-    assert!(event.pst_shares > 0);
-    assert_eq!(event.redemption_id, 0);
-    assert_eq!(event.huma_request_id, 0);
+    assert_eq!(event.pool_id, 1, "event pool_id matches");
+    assert_eq!(event.admin, ctx.admin.pubkey(), "event admin matches");
+    assert_eq!(event.amount, 2_000_000, "event amount is 2 USDC");
+    assert!(event.pst_shares > 0, "event pst_shares is positive");
+    assert_eq!(event.redemption_id, 0, "event redemption_id is 0");
+    assert_eq!(event.huma_request_id, 0, "event huma_request_id is 0");
 
     // Verify PendingRedemption was created with admin (fee wallet owner) as the user
     let pending_pda = pending_redemption_pda(1, 0).0;
@@ -1007,20 +915,10 @@ fn test_withdraw_fees_fails_invalid_fee_wallet() {
         1_000_000,
     );
 
-    for meta in ix.accounts.iter_mut() {
-        if meta.pubkey == read_pool_state(&ctx.svm, 1).fee_wallet {
-            meta.pubkey = wrong_wallet;
-        }
-    }
+    substitute_account_meta(&mut ix, read_pool_state(&ctx.svm, 1).fee_wallet, wrong_wallet);
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail with incorrect fee wallet");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("InvalidFeeWallet") || err_str.contains("Constraint"),
-        "Expected InvalidFeeWallet error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidFeeWallet);
 }
 
 #[test]
@@ -1146,13 +1044,5 @@ fn test_withdraw_fees_fails_when_yield_venue_insolvent() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert!(res.is_err(), "Must fail when yield venue is insolvent");
-    let err_str = format!("{:?}", res.unwrap_err());
-    assert!(
-        err_str.contains("YieldVenueInsolvent")
-            || err_str.contains("6047")
-            || err_str.contains("0x179f"),
-        "Expected YieldVenueInsolvent error, got: {}",
-        err_str
-    );
+    assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
 }

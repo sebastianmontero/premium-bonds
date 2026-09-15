@@ -17,6 +17,7 @@ use solana_transaction::versioned::VersionedTransaction;
 
 mod common;
 use common::*;
+use anchor::error::PremiumBondsError;
 
 
 
@@ -120,23 +121,9 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     );
 
     // Set total_deposited_principal to avoid subtraction overflow in handler
-    let mut pool = read_pool_state(&svm, pool_id);
-    pool.total_deposited_principal = 10_000_000;
-    use anchor_lang::Discriminator;
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_key,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    PrizePoolTestBuilder::from_state(&svm, pool_id)
+        .with_principal(10_000_000)
+        .inject(&mut svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
@@ -216,16 +203,8 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw")
-            || err.contains("InvalidHumaPoolState")
-            || err.contains("6062"),
-        "expected owner constraint check failure, got: {}",
-        err
-    );
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -260,54 +239,14 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     // Setup PrizePool with accrued fees
-    use anchor_lang::Discriminator;
-    let mut pool = anchor::PrizePool {
-        vault_authority_bump: bump, // Use correct bump
-        pool_id,
-        token_mint,
-        ticket_registry: Keypair::new().pubkey(),
-        fee_wallet,
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 5_000_000, // 5 USDC accrued fees
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 0,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: 0,
-        current_draw_cycle_id: 0,
-        prize_tiers: [anchor::PrizeTier {
-            num_winners: 0,
-            basis_points: 0,
-            _padding: [0, 0],
-        }; 10],
-        prize_tiers_count: 0,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_key,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(Keypair::new().pubkey())
+        .with_fee_wallet(fee_wallet)
+        .with_payout_timelock_seconds(300)
+        .with_fees_accrued(5_000_000)
+        .with_cycle_end_at(i64::MAX)
+        .inject(&mut svm);
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
     let (gc_pda, _) = global_config_pda();
@@ -346,16 +285,8 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw")
-            || err.contains("InvalidHumaPoolState")
-            || err.contains("6062"),
-        "expected owner constraint check failure, got: {}",
-        err
-    );
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -369,11 +300,27 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
 
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+
+    let ticket_registry = Keypair::new().pubkey();
+    inject_pool(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+    );
+
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
-    inject_user_winnings(&mut svm, pool_id, user.pubkey(), 5_000_000, 0, 0);
 
-    // counterfeit pool state owned by System Program
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
+    common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
+    let dummy = Keypair::new().pubkey();
+
     let fake_pool_state = Keypair::new().pubkey();
     svm.set_account(
         fake_pool_state,
@@ -387,39 +334,6 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    inject_pool(
-        &mut svm,
-        pool_id,
-        Keypair::new().pubkey(),
-        Keypair::new().pubkey(),
-        anchor::PoolStatus::Active,
-        false,
-    );
-
-    // Set total_prizes_allocated on injected pool to avoid MathOverflow subtraction underflow
-    let mut pool = read_pool_state(&svm, pool_id);
-    pool.total_prizes_allocated = 5_000_000;
-    use anchor_lang::Discriminator;
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_key,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let dummy = Keypair::new().pubkey();
-
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::ClaimNonReinvestedWinnings {
@@ -431,7 +345,7 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
             huma_program: huma_program_id(),
             huma_config: dummy,
             huma_pool_config: dummy,
-            huma_pool_state: fake_pool_state, // counterfeit
+            huma_pool_state: fake_pool_state,
             huma_mode_config: dummy,
             huma_mode_mint: pst_mint,
             huma_redemption_request: dummy,
@@ -451,16 +365,8 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw")
-            || err.contains("InvalidHumaPoolState")
-            || err.contains("6062"),
-        "expected owner constraint check failure, got: {}",
-        err
-    );
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -532,24 +438,20 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw")
-            || err.contains("InvalidHumaPoolState")
-            || err.contains("6062"),
-        "expected owner constraint check failure, got: {}",
-        err
-    );
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
 fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config();
+    let admin = Keypair::new();
+    let crank = Keypair::new();
+    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
+    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let ticket_registry = Keypair::new().pubkey();
+    inject_registry(&mut svm, ticket_registry, pool_id, 100, 0, 0);
     inject_pool(
         &mut svm,
         pool_id,
@@ -558,14 +460,15 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
         anchor::PoolStatus::Active,
         false,
     );
-    inject_registry(&mut svm, ticket_registry, pool_id, 100, 0, 0);
 
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+    let (gc, _) = global_config_pda();
+    let (draw_cycle_pda, _) = draw_cycle_pda(pool_id, 0);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
+    let dummy = Keypair::new().pubkey();
 
-    // counterfeit pool state owned by System Program
     let fake_pool_state = Keypair::new().pubkey();
     svm.set_account(
         fake_pool_state,
@@ -579,54 +482,18 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let (current_draw_cycle, _) = Pubkey::find_program_address(
-        &[
-            b"draw_cycle",
-            pool_id.to_le_bytes().as_ref(),
-            0u32.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    );
-
-    // Retrieve jobs keypair to sign as crank, and fund it
-    let jobs_kp = Keypair::new();
-    svm.airdrop(&jobs_kp.pubkey(), 10_000_000_000).unwrap();
-    let (gc_pda, _) = global_config_pda();
-    let mut gc_acct = svm.get_account(&gc_pda).unwrap();
-    let mut gc_data = anchor::state::GlobalConfig::try_deserialize(&mut &gc_acct.data[..]).unwrap();
-    gc_data.jobs_account = jobs_kp.pubkey();
-    let mut new_data = vec![];
-    gc_data.try_serialize(&mut new_data).unwrap();
-    gc_acct.data = new_data;
-    svm.set_account(gc_pda, gc_acct).unwrap();
-
-    let randomness_account = Keypair::new().pubkey();
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    svm.set_account(
-        randomness_account,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-
     let ix = Instruction {
         program_id: anchor::id(),
         accounts: anchor::accounts::HarvestYieldAndCommit {
-            crank: jobs_kp.pubkey(),
-            global_config: gc_pda,
+            crank: crank.pubkey(),
+            global_config: gc,
             pool: pool_key,
             ticket_registry,
-            current_draw_cycle,
+            current_draw_cycle: draw_cycle_pda,
             pool_pst_vault,
             pst_mint,
-            huma_pool_state: fake_pool_state, // counterfeit
-            randomness_account,
+            huma_pool_state: fake_pool_state,
+            randomness_account: dummy,
             pst_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
             event_authority: event_authority_pda(),
@@ -637,18 +504,10 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     };
 
     let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&jobs_kp.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&jobs_kp]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintRaw")
-            || err.contains("InvalidHumaPoolState")
-            || err.contains("6062"),
-        "expected owner constraint check failure, got: {}",
-        err
-    );
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -671,23 +530,9 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     );
 
     // Set total_deposited_principal to avoid subtraction overflow
-    let mut pool = read_pool_state(&svm, pool_id);
-    pool.total_deposited_principal = 10_000_000;
-    use anchor_lang::Discriminator;
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_key,
-        Account {
-            lamports: 10_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    PrizePoolTestBuilder::from_state(&svm, pool_id)
+        .with_principal(10_000_000)
+        .inject(&mut svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
@@ -783,15 +628,8 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let err = format!("{:?}", svm.send_transaction(tx).unwrap_err());
-    assert!(
-        err.contains("ConstraintOwner")
-            || err.contains("AccountOwnedByWrongProgram")
-            || err.contains("ConstraintMint")
-            || err.contains("ConstraintRaw"),
-        "expected owner constraint check failure for Huma mode mint, got: {}",
-        err
-    );
+    let res = svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -926,14 +764,8 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("ConstraintRaw")
-            || err_str.contains("ConstraintOwner")
-            || err_str.contains("Custom"),
-        "Expected owner constraint error, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -993,14 +825,8 @@ fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("ConstraintRaw")
-            || err_str.contains("ConstraintOwner")
-            || err_str.contains("Custom"),
-        "Expected owner constraint error, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
@@ -1260,10 +1086,10 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
 
     let reg_acc_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry_after = anchor::utils::registry_get_entry(&reg_acc_after.data, 0).unwrap();
-    assert_eq!(entry_after.active, 10);
-    assert_eq!(entry_after.pending, 0);
-    assert_eq!(entry_after.cumulative_active, 10);
-    assert_eq!(entry_after.merged_through_cycle, 2);
+    assert_eq!(entry_after.active, 10, "entry active is 10");
+    assert_eq!(entry_after.pending, 0, "entry pending is 0");
+    assert_eq!(entry_after.cumulative_active, 10, "entry cumulative_active is 10");
+    assert_eq!(entry_after.merged_through_cycle, 2, "entry merged_through_cycle is 2");
 }
 
 #[test]
@@ -1319,13 +1145,13 @@ fn test_event_emission_payload_verification_e2e() {
         .expect("Buy bonds should succeed");
 
     let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.user, user_a.pubkey());
-    assert_eq!(event.bonds, 5);
-    assert_eq!(event.amount, 5_000_000);
-    assert_eq!(event.new_total_deposited_principal, 5_000_000);
-    assert_eq!(event.user_total_bonds, 5);
-    assert!(event.timestamp > 0);
+    assert_eq!(event.pool_id, 1, "event pool_id is 1");
+    assert_eq!(event.user, user_a.pubkey(), "event user matches user_a");
+    assert_eq!(event.bonds, 5, "event bonds is 5");
+    assert_eq!(event.amount, 5_000_000, "event amount is 5 USDC");
+    assert_eq!(event.new_total_deposited_principal, 5_000_000, "event new_total_deposited_principal is 5 USDC");
+    assert_eq!(event.user_total_bonds, 5, "event user_total_bonds is 5");
+    assert!(event.timestamp > 0, "event timestamp is valid");
 }
 
 #[test]

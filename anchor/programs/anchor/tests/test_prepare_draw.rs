@@ -1,10 +1,9 @@
 use anchor_lang::{
-    AccountDeserialize, AccountSerialize, AnchorDeserialize, InstructionData, Space, ToAccountMetas,
+    AccountDeserialize, AnchorDeserialize, InstructionData, ToAccountMetas,
 };
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
-    account::Account,
     message::{Message, VersionedMessage},
     signature::Keypair,
     signer::Signer,
@@ -14,9 +13,7 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-
-struct Ctx {
+struct PrepareDrawCtx {
     svm: LiteSVM,
     crank: Keypair,
     pool_key: Pubkey,
@@ -28,7 +25,7 @@ fn setup(
     is_pool_frozen: bool,
     dc_status: anchor::DrawStatus,
     entries: &[anchor::state::UserEntry],
-) -> Ctx {
+) -> PrepareDrawCtx {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
@@ -42,53 +39,22 @@ fn setup(
     inject_registry_with_entries(&mut svm, ticket_registry, 1, 1000, entries);
 
     // Inject pool
-    let pool_key = pool_pda(1).0;
-    inject_pool_custom(
-        &mut svm,
-        1,
-        ticket_registry,
-        anchor::PoolStatus::Active,
-        is_pool_frozen,
-        vec![],
-        0,
-    );
+    let (pool_key, _) = PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(is_pool_frozen)
+        .with_current_draw_cycle_id(0)
+        .with_cycle_end_at(i64::MAX)
+        .inject(&mut svm);
 
     // Inject draw cycle
-    let (draw_cycle, _) = draw_cycle_pda(1, 0);
-    let dc = anchor::DrawCycle {
-        pool_id: 1,
-        cycle_id: 0,
-        status: dc_status,
-        locked_ticket_count: 10,
-        randomness_seed: [0u8; 32],
-        prize_pot: 1_000_000,
-        cycle_fee_collected: 0,
-        randomness_account: Pubkey::default(),
-        harvest_slot: 0,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        version: anchor::DrawCycle::CURRENT_VERSION,
-        _reserved: [0; 64],
-    };
-    let mut data = vec![];
-    use anchor_lang::Discriminator;
-    data.extend_from_slice(&anchor::DrawCycle::DISCRIMINATOR);
-    use anchor_lang::AnchorSerialize;
-    dc.serialize(&mut data).unwrap();
-    data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
-    svm.set_account(
-        draw_cycle,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    let (draw_cycle, _) = DrawCycleTestBuilder::new(1, 0)
+        .with_status(dc_status)
+        .with_locked_tickets(10)
+        .with_prize_pot(1_000_000)
+        .inject(&mut svm);
 
-    Ctx {
+    PrepareDrawCtx {
         svm,
         crank,
         pool_key,
@@ -97,74 +63,10 @@ fn setup(
     }
 }
 
-fn inject_pool_custom(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    ticket_registry: Pubkey,
-    status: anchor::PoolStatus,
-    is_frozen: bool,
-    prize_tiers: Vec<anchor::PrizeTier>,
-    total_deposited_principal: u64,
-) {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier {
-        num_winners: 0,
-        basis_points: 0,
-        _padding: [0, 0],
-    }; 10];
-    let count = prize_tiers.len().min(10);
-    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint: Pubkey::default(),
-        ticket_registry,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
-        total_deposited_principal,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 0,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: i64::MAX,
-        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
-        current_draw_cycle_id: 0,
-        prize_tiers: fixed_tiers,
-        prize_tiers_count: count as u8,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 fn send_prepare(
-    ctx: &mut Ctx,
+    ctx: &mut PrepareDrawCtx,
     batch_size: u32,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> TxResult {
     let accounts = anchor::accounts::PrepareDraw {
         crank: ctx.crank.pubkey(),
         pool: ctx.pool_key,
@@ -182,7 +84,7 @@ fn send_prepare(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 #[test]
@@ -216,39 +118,39 @@ fn test_prepare_draw_happy_path() {
 
     let meta = send_prepare(&mut ctx, 2).unwrap();
     let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.batch_start, 0);
-    assert_eq!(event.batch_end, 2);
-    assert_eq!(event.user_count, 2);
-    assert_eq!(event.is_complete, true);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawPreparationProgress crank must match caller");
+    assert_eq!(event.pool_id, 1, "DrawPreparationProgress pool_id must be 1");
+    assert_eq!(event.cycle_id, 0, "DrawPreparationProgress cycle_id must be 0");
+    assert_eq!(event.batch_start, 0, "DrawPreparationProgress batch_start must be 0");
+    assert_eq!(event.batch_end, 2, "DrawPreparationProgress batch_end must be 2");
+    assert_eq!(event.user_count, 2, "DrawPreparationProgress user_count must be 2");
+    assert_eq!(event.is_complete, true, "DrawPreparationProgress is_complete must be true");
 
     let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let draw_prepared_up_to = u32::from_le_bytes(reg_acct.data[32..36].try_into().unwrap());
-    assert_eq!(draw_prepared_up_to, 2);
+    assert_eq!(draw_prepared_up_to, 2, "Registry draw_prepared_up_to must be 2");
 
     let entry_a = anchor::utils::registry_get_entry(&reg_acct.data, 0).unwrap();
-    assert_eq!(entry_a.cumulative_active, 5);
+    assert_eq!(entry_a.cumulative_active, 5, "Entry A cumulative active must be 5");
 
     let entry_b = anchor::utils::registry_get_entry(&reg_acct.data, 1).unwrap();
-    assert_eq!(entry_b.cumulative_active, 8);
+    assert_eq!(entry_b.cumulative_active, 8, "Entry B cumulative active must be 8 (5 + 3)");
 }
 
 #[test]
 fn test_prepare_draw_fails_pool_not_frozen() {
     let mut ctx = setup(false, anchor::DrawStatus::AwaitingRandomness, &[]);
 
-    let err = send_prepare(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("PoolNotFrozen"), "got: {err}");
+    let res = send_prepare(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotFrozen);
 }
 
 #[test]
 fn test_prepare_draw_fails_invalid_draw_status() {
     let mut ctx = setup(true, anchor::DrawStatus::Complete, &[]);
 
-    let err = send_prepare(&mut ctx, 1).unwrap_err();
-    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+    let res = send_prepare(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -279,8 +181,8 @@ fn test_prepare_draw_fails_math_overflow() {
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
-    let err = send_prepare(&mut ctx, 2).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send_prepare(&mut ctx, 2);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -309,18 +211,18 @@ fn test_prepare_draw_excludes_pending_tickets() {
     ctx.svm.set_account(ctx.ticket_registry, reg_acct).unwrap();
 
     let res = send_prepare(&mut ctx, 1);
-    assert!(res.is_ok(), "prepare should succeed: {:?}", res);
+    assert!(res.is_ok(), "prepare should succeed: {:?}", res.err());
 
     let reg_acct_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let draw_prepared_up_to = u32::from_le_bytes(reg_acct_after.data[32..36].try_into().unwrap());
-    assert_eq!(draw_prepared_up_to, 1);
+    assert_eq!(draw_prepared_up_to, 1, "draw_prepared_up_to must be 1");
 
     let entry_after = anchor::utils::registry_get_entry(&reg_acct_after.data, 0).unwrap();
 
-    assert_eq!(entry_after.active, 10);
-    assert_eq!(entry_after.pending, 5);
-    assert_eq!(entry_after.cumulative_active, 10);
-    assert_eq!(entry_after.merged_through_cycle, 0);
+    assert_eq!(entry_after.active, 10, "Entry active must be 10");
+    assert_eq!(entry_after.pending, 5, "Entry pending must be 5");
+    assert_eq!(entry_after.cumulative_active, 10, "Entry cumulative_active must exclude pending (10)");
+    assert_eq!(entry_after.merged_through_cycle, 0, "Entry merged_through_cycle must be 0");
 }
 
 #[test]
@@ -341,19 +243,16 @@ fn test_prepare_draw_already_complete_rejected() {
 
     // First prepare_draw call: prepares user 0 up to 1
     let res1 = send_prepare(&mut ctx, 1);
-    assert!(res1.is_ok(), "first prepare should succeed: {:?}", res1);
+    assert!(res1.is_ok(), "first prepare should succeed: {:?}", res1.err());
 
     let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let draw_prepared_up_to1 = u32::from_le_bytes(reg_acct1.data[32..36].try_into().unwrap());
-    assert_eq!(draw_prepared_up_to1, 1);
+    assert_eq!(draw_prepared_up_to1, 1, "draw_prepared_up_to must be 1 after first call");
 
     // Second prepare_draw call when draw_prepared_up_to == user_count (1 == 1) fails fast with InvalidDrawState
     ctx.svm.expire_blockhash();
-    let err = send_prepare(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("InvalidDrawState"),
-        "expected InvalidDrawState when already complete, got: {err}"
-    );
+    let res2 = send_prepare(&mut ctx, 1);
+    assert_custom_error(res2, anchor::error::PremiumBondsError::InvalidDrawState);
 }
 
 #[test]
@@ -376,25 +275,25 @@ fn test_prepare_draw_multi_batch_events() {
     // Batch 1: Process 2 of 4 entries (partial)
     let meta1 = send_prepare(&mut ctx, 2).expect("Batch 1 should succeed");
     let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
-    assert_eq!(event1.crank, ctx.crank.pubkey());
-    assert_eq!(event1.pool_id, 1);
-    assert_eq!(event1.cycle_id, 0);
-    assert_eq!(event1.batch_start, 0);
-    assert_eq!(event1.batch_end, 2);
-    assert_eq!(event1.user_count, 4);
-    assert_eq!(event1.is_complete, false);
+    assert_eq!(event1.crank, ctx.crank.pubkey(), "Batch 1 event crank mismatch");
+    assert_eq!(event1.pool_id, 1, "Batch 1 event pool_id mismatch");
+    assert_eq!(event1.cycle_id, 0, "Batch 1 event cycle_id mismatch");
+    assert_eq!(event1.batch_start, 0, "Batch 1 event batch_start mismatch");
+    assert_eq!(event1.batch_end, 2, "Batch 1 event batch_end mismatch");
+    assert_eq!(event1.user_count, 4, "Batch 1 event user_count mismatch");
+    assert_eq!(event1.is_complete, false, "Batch 1 event is_complete must be false");
 
     // Batch 2: Process remaining 2 entries (complete)
     ctx.svm.expire_blockhash();
     let meta2 = send_prepare(&mut ctx, 2).expect("Batch 2 should succeed");
     let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
-    assert_eq!(event2.crank, ctx.crank.pubkey());
-    assert_eq!(event2.pool_id, 1);
-    assert_eq!(event2.cycle_id, 0);
-    assert_eq!(event2.batch_start, 2);
-    assert_eq!(event2.batch_end, 4);
-    assert_eq!(event2.user_count, 4);
-    assert_eq!(event2.is_complete, true);
+    assert_eq!(event2.crank, ctx.crank.pubkey(), "Batch 2 event crank mismatch");
+    assert_eq!(event2.pool_id, 1, "Batch 2 event pool_id mismatch");
+    assert_eq!(event2.cycle_id, 0, "Batch 2 event cycle_id mismatch");
+    assert_eq!(event2.batch_start, 2, "Batch 2 event batch_start mismatch");
+    assert_eq!(event2.batch_end, 4, "Batch 2 event batch_end mismatch");
+    assert_eq!(event2.user_count, 4, "Batch 2 event user_count mismatch");
+    assert_eq!(event2.is_complete, true, "Batch 2 event is_complete must be true");
 }
 
 #[test]
@@ -414,11 +313,8 @@ fn test_prepare_draw_batch_size_zero_rejected() {
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
     // Call prepare_draw with batch_size = 0 should fail fast with InvalidBatchSize
-    let err = send_prepare(&mut ctx, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidBatchSize"),
-        "expected InvalidBatchSize when batch_size is 0, got: {err}"
-    );
+    let res = send_prepare(&mut ctx, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidBatchSize);
 }
 
 #[test]
@@ -449,15 +345,15 @@ fn test_prepare_draw_first_cycle_genesis() {
     assert!(
         res.is_ok(),
         "prepare genesis cycle should succeed: {:?}",
-        res
+        res.err()
     );
 
     let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry1 = anchor::utils::registry_get_entry(&reg_acct1.data, 0).unwrap();
-    assert_eq!(entry1.active, 0);
-    assert_eq!(entry1.pending, 10);
-    assert_eq!(entry1.cumulative_active, 0);
-    assert_eq!(entry1.merged_through_cycle, 0);
+    assert_eq!(entry1.active, 0, "Genesis cycle entry active must be 0");
+    assert_eq!(entry1.pending, 10, "Genesis cycle entry pending must be 10");
+    assert_eq!(entry1.cumulative_active, 0, "Genesis cycle entry cumulative_active must be 0");
+    assert_eq!(entry1.merged_through_cycle, 0, "Genesis cycle entry merged_through_cycle must be 0");
 
     // Now advance to cycle 2: draw_cycle_id = 2, merge_cycle_id = 2 - 1 = 1
     let mut reg_acct2 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
@@ -468,14 +364,14 @@ fn test_prepare_draw_first_cycle_genesis() {
 
     // Prepare draw for cycle 2: 0 < 1 is true, so pending tickets mature into active
     let res2 = send_prepare(&mut ctx, 1);
-    assert!(res2.is_ok(), "prepare cycle 2 should succeed: {:?}", res2);
+    assert!(res2.is_ok(), "prepare cycle 2 should succeed: {:?}", res2.err());
 
     let reg_acct3 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry2 = anchor::utils::registry_get_entry(&reg_acct3.data, 0).unwrap();
-    assert_eq!(entry2.active, 10);
-    assert_eq!(entry2.pending, 0);
-    assert_eq!(entry2.cumulative_active, 10);
-    assert_eq!(entry2.merged_through_cycle, 1);
+    assert_eq!(entry2.active, 10, "Cycle 2 entry active must be matured to 10");
+    assert_eq!(entry2.pending, 0, "Cycle 2 entry pending must be 0 after maturation");
+    assert_eq!(entry2.cumulative_active, 10, "Cycle 2 entry cumulative_active must be 10");
+    assert_eq!(entry2.merged_through_cycle, 1, "Cycle 2 entry merged_through_cycle must be 1");
 }
 
 #[test]
@@ -504,42 +400,42 @@ fn test_prepare_draw_non_aligned_batches() {
     // Batch 1: 0..7
     let meta1 = send_prepare(&mut ctx, 7).expect("Batch 1 should succeed");
     let event1 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta1);
-    assert_eq!(event1.crank, ctx.crank.pubkey());
-    assert_eq!(event1.batch_start, 0);
-    assert_eq!(event1.batch_end, 7);
-    assert_eq!(event1.is_complete, false);
+    assert_eq!(event1.crank, ctx.crank.pubkey(), "Batch 1 crank mismatch");
+    assert_eq!(event1.batch_start, 0, "Batch 1 batch_start mismatch");
+    assert_eq!(event1.batch_end, 7, "Batch 1 batch_end mismatch");
+    assert_eq!(event1.is_complete, false, "Batch 1 is_complete must be false");
 
     // Batch 2: 7..14
     ctx.svm.expire_blockhash();
     let meta2 = send_prepare(&mut ctx, 7).expect("Batch 2 should succeed");
     let event2 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta2);
-    assert_eq!(event2.crank, ctx.crank.pubkey());
-    assert_eq!(event2.batch_start, 7);
-    assert_eq!(event2.batch_end, 14);
-    assert_eq!(event2.is_complete, false);
+    assert_eq!(event2.crank, ctx.crank.pubkey(), "Batch 2 crank mismatch");
+    assert_eq!(event2.batch_start, 7, "Batch 2 batch_start mismatch");
+    assert_eq!(event2.batch_end, 14, "Batch 2 batch_end mismatch");
+    assert_eq!(event2.is_complete, false, "Batch 2 is_complete must be false");
 
     // Batch 3: 14..21
     ctx.svm.expire_blockhash();
     let meta3 = send_prepare(&mut ctx, 7).expect("Batch 3 should succeed");
     let event3 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta3);
-    assert_eq!(event3.crank, ctx.crank.pubkey());
-    assert_eq!(event3.batch_start, 14);
-    assert_eq!(event3.batch_end, 21);
-    assert_eq!(event3.is_complete, false);
+    assert_eq!(event3.crank, ctx.crank.pubkey(), "Batch 3 crank mismatch");
+    assert_eq!(event3.batch_start, 14, "Batch 3 batch_start mismatch");
+    assert_eq!(event3.batch_end, 21, "Batch 3 batch_end mismatch");
+    assert_eq!(event3.is_complete, false, "Batch 3 is_complete must be false");
 
     // Batch 4: 21..25 (clamped from 21 + 7 = 28 to 25)
     ctx.svm.expire_blockhash();
     let meta4 = send_prepare(&mut ctx, 7).expect("Batch 4 should succeed");
     let event4 = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta4);
-    assert_eq!(event4.crank, ctx.crank.pubkey());
-    assert_eq!(event4.batch_start, 21);
-    assert_eq!(event4.batch_end, 25);
-    assert_eq!(event4.is_complete, true);
+    assert_eq!(event4.crank, ctx.crank.pubkey(), "Batch 4 crank mismatch");
+    assert_eq!(event4.batch_start, 21, "Batch 4 batch_start mismatch");
+    assert_eq!(event4.batch_end, 25, "Batch 4 batch_end mismatch");
+    assert_eq!(event4.is_complete, true, "Batch 4 is_complete must be true");
 
     // Batch 5: Already complete -> must fail fast with InvalidDrawState
     ctx.svm.expire_blockhash();
-    let err = send_prepare(&mut ctx, 7).unwrap_err();
-    assert!(err.contains("InvalidDrawState"), "got: {err}");
+    let res = send_prepare(&mut ctx, 7);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
 
     // Verify all cumulative active prefix sums on disk
     let reg_final = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
@@ -582,8 +478,8 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
     let reg_acct1 = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let entry5 = anchor::utils::registry_get_entry(&reg_acct1.data, 5).unwrap();
     let entry6 = anchor::utils::registry_get_entry(&reg_acct1.data, 6).unwrap();
-    assert_eq!(entry5.cumulative_active, 60);
-    assert_eq!(entry6.cumulative_active, 60); // 0 active tickets added
+    assert_eq!(entry5.cumulative_active, 60, "Entry 5 cumulative active must be 60");
+    assert_eq!(entry6.cumulative_active, 60, "Entry 6 cumulative active must be 60 (0 active tickets added)");
 
     // Batch 2: 7..10 (starts on user 7, who has 0 active tickets)
     ctx.svm.expire_blockhash();
@@ -593,9 +489,9 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
     let entry7 = anchor::utils::registry_get_entry(&reg_acct2.data, 7).unwrap();
     let entry8 = anchor::utils::registry_get_entry(&reg_acct2.data, 8).unwrap();
     let entry9 = anchor::utils::registry_get_entry(&reg_acct2.data, 9).unwrap();
-    assert_eq!(entry7.cumulative_active, 60); // 0 active tickets added
-    assert_eq!(entry8.cumulative_active, 60); // 0 active tickets added
-    assert_eq!(entry9.cumulative_active, 70); // 10 active tickets added
+    assert_eq!(entry7.cumulative_active, 60, "Entry 7 cumulative active must be 60");
+    assert_eq!(entry8.cumulative_active, 60, "Entry 8 cumulative active must be 60");
+    assert_eq!(entry9.cumulative_active, 70, "Entry 9 cumulative active must be 70 (10 active tickets added)");
 }
 
 #[test]
@@ -619,23 +515,23 @@ fn test_prepare_draw_saturating_u32_max_batch_size() {
     let meta = send_prepare(&mut ctx, u32::MAX)
         .expect("batch_size = u32::MAX must succeed via saturating_add");
     let event = assert_log_event::<anchor::events::DrawPreparationProgress>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.batch_start, 0);
-    assert_eq!(event.batch_end, 10);
-    assert_eq!(event.user_count, 10);
-    assert_eq!(event.is_complete, true);
+    assert_eq!(event.pool_id, 1, "DrawPreparationProgress pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "DrawPreparationProgress cycle_id mismatch");
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawPreparationProgress crank mismatch");
+    assert_eq!(event.batch_start, 0, "DrawPreparationProgress batch_start mismatch");
+    assert_eq!(event.batch_end, 10, "DrawPreparationProgress batch_end mismatch");
+    assert_eq!(event.user_count, 10, "DrawPreparationProgress user_count mismatch");
+    assert_eq!(event.is_complete, true, "DrawPreparationProgress is_complete must be true");
 
     let reg_acct = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
     let (header, _) = anchor::utils::get_ticket_registry(&reg_acct.data).unwrap();
-    assert_eq!(header.draw_prepared_up_to, 10);
-    assert_eq!(header.user_count, 10);
-    assert_eq!(header.total_active_tickets, 50); // 5 * 10 (pending does not mature in genesis cycle 0)
+    assert_eq!(header.draw_prepared_up_to, 10, "Registry draw_prepared_up_to must be 10");
+    assert_eq!(header.user_count, 10, "Registry user_count must be 10");
+    assert_eq!(header.total_active_tickets, 50, "Registry total_active_tickets must be 50 (5 * 10)");
 
     let dc_acct = ctx.svm.get_account(&ctx.draw_cycle).unwrap();
     let mut dc_slice = &dc_acct.data[8..];
     let dc = anchor::DrawCycle::deserialize(&mut dc_slice).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
-    assert_eq!(dc.locked_ticket_count, 10);
+    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness, "Draw cycle status must be AwaitingRandomness");
+    assert_eq!(dc.locked_ticket_count, 10, "Draw cycle locked_ticket_count must be 10");
 }

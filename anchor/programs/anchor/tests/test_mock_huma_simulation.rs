@@ -47,7 +47,8 @@ fn test_huma_simulation_yield_and_settle() {
     let pool_acc = svm.get_account(&pool_state_kp.pubkey()).unwrap();
     assert_eq!(
         u32::from_le_bytes(pool_acc.data[26..30].try_into().unwrap()),
-        1
+        1,
+        "Mock pool state must initialize with 1 mode entry"
     );
 
     // 2. Test simulate_yield Delta Addition
@@ -71,6 +72,7 @@ fn test_huma_simulation_yield_and_settle() {
     let pool_acc = svm.get_account(&pool_state_kp.pubkey()).unwrap();
     assert_eq!(
         u128::from_le_bytes(pool_acc.data[30..46].try_into().unwrap()),
-        5_000_000
+        5_000_000,
+        "Mock pool state assets must increase by simulated yield"
     );
 }

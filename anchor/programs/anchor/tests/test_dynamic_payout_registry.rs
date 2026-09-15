@@ -42,82 +42,25 @@ fn setup_dynamic_ctx(
     }
     inject_registry_with_tickets(&mut svm, registry, 1, 10_000, ticket_count, 0, &tickets);
 
-    let (pool_pda, bump) = pool_pda(1);
-    let mut prize_tiers_arr = [anchor::PrizeTier {
-        num_winners: 0,
-        basis_points: 0,
-        _padding: [0, 0],
-    }; 10];
-    for (i, t) in tiers.iter().enumerate() {
-        prize_tiers_arr[i] = *t;
-    }
-
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id: 1,
-        token_mint: Keypair::new().pubkey(),
-        ticket_registry: registry,
-        fee_wallet: Keypair::new().pubkey(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 0,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 0,
-        status: anchor::PoolStatus::Active as u8,
-        total_deposited_principal: (ticket_count as u64) * 1_000_000,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: prize_pot,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 1_700_000_000,
-        is_frozen_for_draw: 1,
-        current_draw_cycle_id: 0,
-        prize_tiers: prize_tiers_arr,
-        prize_tiers_count: tiers.len() as u8,
-        _padding: [0; 3],
-        version: anchor::PrizePool::CURRENT_VERSION,
-        _reserved: [0; 128],
-    };
-
-    use anchor_lang::Discriminator;
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_pda,
-        solana_sdk::account::Account {
-            lamports: 10_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_prize_tiers(tiers)
+        .with_solvency_state((ticket_count as u64) * 1_000_000, prize_pot, 0)
+        .with_current_draw_cycle_id(0)
+        .with_cycle_end_at(1_700_000_000)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
 
-    let (dc_pda, _) = draw_cycle_pda(1, 0);
-    let dc = anchor::DrawCycle {
-        prize_pot,
-        cycle_fee_collected: 0,
-        harvest_slot: 0,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        randomness_account,
-        pool_id: 1,
-        cycle_id: 0,
-        locked_ticket_count: ticket_count,
-        status: anchor::DrawStatus::AwaitingRandomness,
-        version: anchor::DrawCycle::CURRENT_VERSION,
-        randomness_seed: [0; 32],
-        _reserved: [0; 64],
-    };
-    inject_draw_cycle(&mut svm, 1, 0, &dc);
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_locked_tickets(ticket_count)
+        .with_prize_pot(prize_pot)
+        .with_randomness_account(randomness_account)
+        .inject(&mut svm);
 
     DynamicRevealCtx {
         svm,
@@ -132,39 +75,7 @@ fn setup_dynamic_ctx(
 
 fn inject_mock_randomness_value(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {
     let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    let mut data =
-        vec![
-            0u8;
-            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
-        ];
-    data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
-    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
-        bytemuck::Zeroable::zeroed();
-    randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.seed_slothash = [0u8; 32];
-    randomness_data.seed_slot = clock.slot;
-    randomness_data.oracle = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.reveal_slot = clock.slot;
-    randomness_data.value = value;
-
-    let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
-    data[8..8 + bytes.len()].copy_from_slice(bytes);
-
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-
-    svm.set_account(
-        address,
-        solana_sdk::account::Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    common::inject_randomness_account_data(svm, address, clock.slot, clock.slot, value);
 }
 
 fn send_reveal(
@@ -656,9 +567,10 @@ fn test_vector_11_double_close_rejected() {
 
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("first close");
 
+    ctx.svm.expire_blockhash();
     // Second close must fail
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
-    assert!(res.is_err(), "Second close must fail");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -684,6 +596,7 @@ fn test_vector_12_reinvest_on_closed_account_rejected() {
     .expect("reinvest");
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("close");
 
+    ctx.svm.expire_blockhash();
     // Reinvest attempt on closed registry fails
     let res = send_reinvest(
         &mut ctx.svm,
@@ -694,7 +607,7 @@ fn test_vector_12_reinvest_on_closed_account_rejected() {
         0,
         0,
     );
-    assert!(res.is_err(), "Reinvest on closed account must fail");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -745,7 +658,7 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err(), "Voiding on closed account must fail");
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -795,9 +708,9 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
     send_reveal(&mut ctx, 1, 0, [15u8; 32]).expect("reveal");
 
     let winners_before = read_payout_winners(&ctx.svm, 1, 0);
-    assert_eq!(winners_before.len(), 2);
-    assert_eq!(winners_before[0].processed, 0);
-    assert_eq!(winners_before[1].processed, 0);
+    assert_eq!(winners_before.len(), 2, "Must have 2 winners before reinvest");
+    assert_eq!(winners_before[0].processed, 0, "Winner 0 processed must be 0");
+    assert_eq!(winners_before[1].processed, 0, "Winner 1 processed must be 0");
 
     // Process winner 0
     send_reinvest(
@@ -812,13 +725,13 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
     .expect("reinvest 0");
 
     let winners_after = read_payout_winners(&ctx.svm, 1, 0);
-    assert_eq!(winners_after[0].processed, 1);
-    assert_eq!(winners_after[0].bonds_bought, 1); // 1M owed -> 1 bond
-                                                  // Winner 1 must remain untouched
-    assert_eq!(winners_after[1].processed, 0);
-    assert_eq!(winners_after[1].bonds_bought, 0);
-    assert_eq!(winners_after[1].amount_owed, winners_before[1].amount_owed);
-    assert_eq!(winners_after[1].winner, winners_before[1].winner);
+    assert_eq!(winners_after[0].processed, 1, "Winner 0 processed must be 1");
+    assert_eq!(winners_after[0].bonds_bought, 1, "Winner 0 bonds_bought must be 1"); // 1M owed -> 1 bond
+    // Winner 1 must remain untouched
+    assert_eq!(winners_after[1].processed, 0, "Winner 1 processed must remain 0");
+    assert_eq!(winners_after[1].bonds_bought, 0, "Winner 1 bonds_bought must remain 0");
+    assert_eq!(winners_after[1].amount_owed, winners_before[1].amount_owed, "Winner 1 amount_owed must remain untouched");
+    assert_eq!(winners_after[1].winner, winners_before[1].winner, "Winner 1 winner pubkey must remain untouched");
 }
 
 #[test]
@@ -849,11 +762,7 @@ fn test_vector_16_dust_conservation_under_dynamic_sizing() {
     // 3 * 3_333_000 = 9_999_000 distributed, 1_000 dust refunded from liabilities
     assert_eq!(event.total_distributed, 9_999_000);
 
-    let (pool_pda, _) = pool_pda(1);
-    let pool_acc = ctx.svm.get_account(&pool_pda).unwrap();
-    let pool = *bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
+    let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.total_prizes_allocated, 9_999_000);
 }
 

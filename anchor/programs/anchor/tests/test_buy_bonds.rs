@@ -149,7 +149,10 @@ fn setup_buy_bonds(
     }
 }
 
-fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String> {
+fn send_buy_bonds(
+    ctx: &mut BuyBondsCtx,
+    bonds_to_buy: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let ix = build_buy_bonds_ix(
         ctx.user.pubkey(),
         1,
@@ -163,13 +166,7 @@ fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    match ctx.svm.send_transaction(tx) {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            println!("Transaction failed metadata: {:#?}", err);
-            Err(format!("{err:?}"))
-        }
-    }
+    ctx.svm.send_transaction(tx)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -180,61 +177,40 @@ fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> Result<(), String
 #[test]
 fn test_buy_bonds_fails_pool_paused() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Paused, false, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("PoolNotActive"),
-        "Expected PoolNotActive, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
 }
 
 /// Pool in Closed state must be rejected with `PoolNotActive`.
 #[test]
 fn test_buy_bonds_fails_pool_closed() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Closed, false, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("PoolNotActive"),
-        "Expected PoolNotActive, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
 }
 
 /// Pool frozen for draw must be rejected with `AwaitingRandomnessFreeze`.
 #[test]
 fn test_buy_bonds_fails_pool_frozen() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, true, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 /// `bonds_to_buy = 0` must be rejected with `InvalidBondQuantity`.
 #[test]
 fn test_buy_bonds_fails_zero_quantity() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidBondQuantity"),
-        "Expected InvalidBondQuantity, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidBondQuantity);
 }
 
-/// Valid ticket quantity passes all pre-CPI guards and reaches
-/// the token transfer / Huma CPI boundary (which fails in LiteSVM, but NOT
-/// with a business-logic error).
+/// Valid ticket quantity passes all pre-CPI guards and succeeds in E2E setup.
 #[test]
 fn test_buy_bonds_passes_guards() {
-    let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
-    let err = send_buy_bonds(&mut ctx, 5).unwrap_err();
-    // Must NOT be a guard error — it should fail at the CPI/transfer boundary.
-    assert!(
-        !err.contains("PoolNotActive")
-            && !err.contains("AwaitingRandomnessFreeze")
-            && !err.contains("InvalidBondQuantity")
-            && !err.contains("RegistryFull"),
-        "Should have passed all guards and failed only at CPI boundary. Got: {err}"
-    );
+    let mut ctx = setup_e2e();
+    let res = send_e2e_buy_bonds(&mut ctx, 5);
+    assert!(res.is_ok(), "Valid buy_bonds passes guards and succeeds under e2e");
 }
 
 /// Buying bonds when registry is full for a new user must fail with `RegistryFull` pre-CPI.
@@ -252,22 +228,16 @@ fn test_buy_bonds_fails_registry_full_pre_cpi() {
         &dummy_users,
     );
 
-    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("RegistryFull"),
-        "Expected RegistryFull pre-CPI, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
 }
 
 /// Total pending tickets overflow must fail with `MathOverflow` pre-CPI.
 #[test]
 fn test_buy_bonds_fails_total_pending_overflow_pre_cpi() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, u32::MAX - 2);
-    let err = send_buy_bonds(&mut ctx, 5).unwrap_err();
-    assert!(
-        err.contains("MathOverflow"),
-        "Expected MathOverflow pre-CPI on pending overflow, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 5);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 /// A re-entering user (has user_winnings with UNASSIGNED_ENTRY_INDEX) fails with RegistryFull when capacity is full.
@@ -295,11 +265,8 @@ fn test_buy_bonds_reentering_user_fails_registry_full() {
         anchor::state::UserWinnings::UNASSIGNED_ENTRY_INDEX,
     );
 
-    let err = send_buy_bonds(&mut ctx, 1).unwrap_err();
-    assert!(
-        err.contains("RegistryFull"),
-        "Expected RegistryFull for re-entering user when registry is full, got: {err}"
-    );
+    let res = send_buy_bonds(&mut ctx, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -490,53 +457,12 @@ fn test_buy_bonds_fails_registry_full() {
     // The default setup_e2e creates a pool with REGISTRY_INITIAL_SIZE capacity.
     // To trigger RegistryFull efficiently, we manually inject a small registry of capacity 2.
     let small_registry = Keypair::new().pubkey();
-    {
-        let mut data = vec![0u8; 104 + 2 * 64]; // Header size (104) + 2 UserEntry (64)
-        data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // Discriminator
-        data[8..12].copy_from_slice(&1u32.to_le_bytes()); // pool_id
-        data[12..16].copy_from_slice(&2u32.to_le_bytes()); // capacity = 2
-        data[16..20].copy_from_slice(&0u32.to_le_bytes()); // user_count = 0
-        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // total_active_tickets = 0
-        data[24..28].copy_from_slice(&0u32.to_le_bytes()); // total_pending_tickets = 0
-        data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
-        data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
-        data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
-
-        ctx.svm
-            .set_account(
-                small_registry,
-                Account {
-                    lamports: 10_000_000_000,
-                    data,
-                    owner: anchor::id(),
-                    executable: false,
-                    rent_epoch: 0,
-                },
-            )
-            .unwrap();
-    }
+    inject_registry_with_entries(&mut ctx.svm, small_registry, 1, 2, &[]);
 
     // Point the prize pool state to our new small registry
-    let (pool_pda, _bump) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.ticket_registry = small_registry;
-
-    use anchor_lang::Discriminator;
-    let mut serialized_pool = vec![];
-    serialized_pool.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    serialized_pool.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda,
-            Account {
-                lamports: 1_000_000_000,
-                data: serialized_pool,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_ticket_registry(small_registry)
+        .inject(&mut ctx.svm);
 
     ctx.ticket_registry = small_registry;
 
@@ -597,13 +523,8 @@ fn test_buy_bonds_fails_invalid_registry_has_one() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-
-    assert!(
-        err_str.contains("ConstraintHasOne") || err_str.contains("Raw"),
-        "Expected ConstraintHasOne error, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintHasOne);
 }
 
 /// Passing an invalid token mint must fail.
@@ -627,16 +548,8 @@ fn test_buy_bonds_fails_invalid_token_mint() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-
-    assert!(
-        err_str.contains("ConstraintRaw")
-            || err_str.contains("ConstraintAddress")
-            || err_str.contains("ConstraintTokenMint")
-            || err_str.contains("Raw"),
-        "Expected address constraint violation, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenMint);
 }
 
 /// Attempting to use an incorrect program address for the Huma program constraint must fail.
@@ -684,13 +597,8 @@ fn test_buy_bonds_fails_invalid_huma_program() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-
-    assert!(
-        err_str.contains("ConstraintAddress") || err_str.contains("Raw"),
-        "Expected ConstraintAddress for huma_program, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
 /// INV-BOND-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.
@@ -713,15 +621,8 @@ fn test_buy_bonds_fails_invalid_mode_mint() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-
-    assert!(
-        err_str.contains("InvalidModeMint")
-            || err_str.contains("ConstraintAddress")
-            || err_str.contains("6056"),
-        "Expected InvalidModeMint (6056) or ConstraintAddress, got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
 
 /// Buying bonds when the user does not have enough token balance must fail.
@@ -781,21 +682,21 @@ fn test_buy_bonds_initializes_user_winnings() {
 
     let meta = send_e2e_buy_bonds(&mut ctx, 1).expect("buy 1 bond should succeed");
     let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
-    assert_eq!(event.user, ctx.user.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.bonds, 1);
-    assert_eq!(event.amount, 1_000_000);
-    assert_eq!(event.new_total_deposited_principal, 1_000_000);
-    assert_eq!(event.user_total_bonds, 1);
-    assert!(event.timestamp > 0);
+    assert_eq!(event.user, ctx.user.pubkey(), "User mismatch in event");
+    assert_eq!(event.pool_id, 1, "Pool ID mismatch in event");
+    assert_eq!(event.bonds, 1, "Bonds mismatch in event");
+    assert_eq!(event.amount, 1_000_000, "Amount mismatch in event");
+    assert_eq!(event.new_total_deposited_principal, 1_000_000, "Principal mismatch in event");
+    assert_eq!(event.user_total_bonds, 1, "User total bonds mismatch in event");
+    assert!(event.timestamp > 0, "Event timestamp must be positive");
 
     // After: user_winnings account should exist and be initialized
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
-    assert_eq!(winnings.pool_id, 1);
-    assert_eq!(winnings.user, ctx.user.pubkey());
-    assert_eq!(winnings.unclaimed_non_reinvested_winnings, 0);
-    assert_eq!(winnings.total_claimed, 0);
-    assert_eq!(winnings.total_reinvested, 0);
+    assert_eq!(winnings.pool_id, 1, "Pool ID mismatch in winnings");
+    assert_eq!(winnings.user, ctx.user.pubkey(), "User mismatch in winnings");
+    assert_eq!(winnings.unclaimed_non_reinvested_winnings, 0, "Unclaimed winnings should be 0");
+    assert_eq!(winnings.total_claimed, 0, "Claimed winnings should be 0");
+    assert_eq!(winnings.total_reinvested, 0, "Reinvested winnings should be 0");
 }
 
 #[test]
@@ -1004,14 +905,14 @@ fn test_mtr003_deposit_order_commutativity() {
         result_a.total_principal, result_b.total_principal,
         "MTR-003 broken: total_principal differs"
     );
-    assert_eq!(result_a.user_count, 2);
-    assert_eq!(result_b.user_count, 2);
+    assert_eq!(result_a.user_count, 2, "Path A user count must be 2");
+    assert_eq!(result_b.user_count, 2, "Path B user count must be 2");
     assert_eq!(
         result_a.pst_vault_balance, result_b.pst_vault_balance,
         "MTR-003 broken: PST balance differs"
     );
-    assert_eq!(result_a.alice_pending, 5);
-    assert_eq!(result_b.alice_pending, 5);
-    assert_eq!(result_a.bob_pending, 3);
-    assert_eq!(result_b.bob_pending, 3);
+    assert_eq!(result_a.alice_pending, 5, "Path A Alice pending tickets must be 5");
+    assert_eq!(result_b.alice_pending, 5, "Path B Alice pending tickets must be 5");
+    assert_eq!(result_a.bob_pending, 3, "Path A Bob pending tickets must be 3");
+    assert_eq!(result_b.bob_pending, 3, "Path B Bob pending tickets must be 3");
 }

@@ -168,7 +168,7 @@ fn send_sell_guard(
     ctx: &mut GuardCtx,
     active_to_sell: u32,
     pending_to_sell: u32,
-) -> Result<(), String> {
+) -> TxResult {
     let ix = build_sell_bonds_ix(
         ctx.user.pubkey(),
         1,
@@ -182,10 +182,7 @@ fn send_sell_guard(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -195,52 +192,37 @@ fn send_sell_guard(
 #[test]
 fn test_sell_bonds_fails_pool_frozen() {
     let mut ctx = setup_guard(true, 1, 0, &[]);
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
 fn test_sell_bonds_fails_zero_quantity() {
     let mut ctx = setup_guard(false, 0, 0, &[]);
-    let err = send_sell_guard(&mut ctx, 0, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidBondQuantity"),
-        "Expected InvalidBondQuantity, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidBondQuantity);
 }
 
 #[test]
 fn test_sell_bonds_fails_insufficient_active_tickets() {
     let mut ctx = setup_guard(false, 2, 0, &[]);
-    let err = send_sell_guard(&mut ctx, 3, 0).unwrap_err();
-    assert!(
-        err.contains("InsufficientActiveTickets"),
-        "Expected InsufficientActiveTickets, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 3, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientActiveTickets);
 }
 
 #[test]
 fn test_sell_bonds_fails_insufficient_pending_tickets() {
     let mut ctx = setup_guard(false, 0, 2, &[]);
-    let err = send_sell_guard(&mut ctx, 0, 3).unwrap_err();
-    assert!(
-        err.contains("InsufficientPendingTickets"),
-        "Expected InsufficientPendingTickets, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 0, 3);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientPendingTickets);
 }
 
 #[test]
 fn test_sell_bonds_fails_missing_swapped_user_winnings() {
     let other = Pubkey::new_unique();
     let mut ctx = setup_guard(false, 1, 0, &[other]);
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("MissingSwappedUserWinnings"),
-        "Expected MissingSwappedUserWinnings, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
 }
 
 // ─── E2E happy-path and integration tests (with mock-huma program) ───────────
@@ -294,19 +276,20 @@ fn test_sell_bonds_e2e_happy_path() {
         anchor::PendingRedemption::try_deserialize(&mut pending_redemption_account.data.as_slice())
             .unwrap();
 
-    assert_eq!(pending_redemption.user, ctx.user.pubkey());
-    assert_eq!(pending_redemption.pool_id, 1);
-    assert_eq!(pending_redemption.redemption_id, 0);
-    assert_eq!(pending_redemption.amount, 3_000_000);
-    assert_eq!(pending_redemption.pst_shares_locked, 3_000_000);
+    assert_eq!(pending_redemption.user, ctx.user.pubkey(), "Redemption user mismatch");
+    assert_eq!(pending_redemption.pool_id, 1, "Redemption pool ID mismatch");
+    assert_eq!(pending_redemption.redemption_id, 0, "Redemption ID mismatch");
+    assert_eq!(pending_redemption.amount, 3_000_000, "Redemption amount mismatch");
+    assert_eq!(pending_redemption.pst_shares_locked, 3_000_000, "Locked PST shares mismatch");
     assert_eq!(
         pending_redemption.redemption_type,
-        anchor::state::RedemptionType::BondSale
+        anchor::state::RedemptionType::BondSale,
+        "Redemption type mismatch"
     );
 
     let pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.next_redemption_id, 1);
-    assert_eq!(pool.total_pending_redemptions, 3_000_000);
+    assert_eq!(pool.next_redemption_id, 1, "Next redemption ID mismatch");
+    assert_eq!(pool.total_pending_redemptions, 3_000_000, "Total pending redemptions mismatch");
 }
 
 #[test]
@@ -447,15 +430,15 @@ fn test_sell_bonds_multiple_users_and_sales() {
     )
     .unwrap();
     let event_a = assert_cpi_event::<anchor::events::BondsSold>(&meta_a);
-    assert_eq!(event_a.user, user_a.pubkey());
-    assert_eq!(event_a.pool_id, 1);
-    assert_eq!(event_a.bonds, 1);
-    assert_eq!(event_a.principal, 1_000_000);
-    assert_eq!(event_a.redemption_id, 0);
-    assert!(event_a.pst_shares > 0);
-    assert_eq!(event_a.huma_request_id, 0);
-    assert_eq!(event_a.user_remaining_bonds, 2);
-    assert!(event_a.timestamp > 0);
+    assert_eq!(event_a.user, user_a.pubkey(), "event_a user matches user_a");
+    assert_eq!(event_a.pool_id, 1, "event_a pool_id is 1");
+    assert_eq!(event_a.bonds, 1, "event_a bonds sold is 1");
+    assert_eq!(event_a.principal, 1_000_000, "event_a principal is 1 USDC");
+    assert_eq!(event_a.redemption_id, 0, "event_a redemption_id is 0");
+    assert!(event_a.pst_shares > 0, "event_a pst_shares is positive");
+    assert_eq!(event_a.huma_request_id, 0, "event_a huma_request_id is 0");
+    assert_eq!(event_a.user_remaining_bonds, 2, "event_a user_remaining_bonds is 2");
+    assert!(event_a.timestamp > 0, "event_a timestamp is valid");
 
     // Verify active count and entry updates
     assert_eq!(read_registry_active(&ctx.svm, ctx.ticket_registry), 4);
@@ -802,11 +785,8 @@ fn test_sell_bonds_fails_invalid_mode_mint() {
 fn test_sell_bonds_fails_invalid_user_entry_hint_max() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, u32::MAX);
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
@@ -814,11 +794,8 @@ fn test_sell_bonds_fails_invalid_user_entry_hint_owner_mismatch() {
     let other_user = Pubkey::new_unique();
     let mut ctx = setup_guard(false, 1, 0, &[other_user]);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 1);
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 /// INV-SELL-001: Adversarial test for PB-SEC-03.
@@ -849,11 +826,8 @@ fn test_sell_bonds_fails_user_entry_idx_ge_user_count() {
     // Set user winnings registry_entry_index = 5
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 5);
 
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 /// INV-SELL-001: Boundary test for PB-SEC-03.
@@ -864,32 +838,23 @@ fn test_sell_bonds_fails_user_entry_idx_exact_boundary() {
     // user_count is 1, so idx = 1 is exactly at the boundary idx == user_count
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 1);
 
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
 fn test_sell_bonds_fails_math_overflow() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("MathOverflow"),
-        "Expected MathOverflow, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
 fn test_sell_bonds_fails_u32_overflow() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
     // active_to_sell = u32::MAX, pending_to_sell = 1 -> should fail with MathOverflow
-    let err = send_sell_guard(&mut ctx, u32::MAX, 1).unwrap_err();
-    assert!(
-        err.contains("MathOverflow") || err.contains("InvalidBondQuantity"),
-        "Expected MathOverflow on u32 overflow, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, u32::MAX, 1);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -910,11 +875,9 @@ fn test_sell_bonds_fails_yield_venue_insolvent() {
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
 
     // Update pool total_deposited_principal so sell_bonds doesn't underflow on checked_sub
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut pool_acc.data[8..]);
-    pool.total_deposited_principal = 10_000_000;
-    ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_principal(10_000_000)
+        .inject(&mut ctx.svm);
 
     // Set pst_mint supply > 0 (e.g. 1_000_000)
     inject_mint_with_supply(&mut ctx.svm, ctx.huma_mode_mint, 6, 1_000_000);
@@ -922,11 +885,8 @@ fn test_sell_bonds_fails_yield_venue_insolvent() {
     // Set insolvent Huma pool state: total_assets = 0
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
 
-    let err = send_sell_guard(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("YieldVenueInsolvent") || err.contains("Custom(6049)"),
-        "Expected YieldVenueInsolvent, got: {err}"
-    );
+    let res = send_sell_guard(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
 }
 
 #[test]
@@ -1148,12 +1108,8 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let err = ctx
-        .svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
-        .unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -1456,15 +1412,8 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let err = ctx
-        .svm
-        .send_transaction(tx)
-        .map_err(|e| format!("{e:?}"))
-        .unwrap_err();
-    assert!(
-        err.contains("InvalidUserEntryHint"),
-        "Expected InvalidUserEntryHint, got: {err}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
@@ -1552,15 +1501,8 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| format!("{e:?}"))
-            .unwrap_err();
-        assert!(
-            err.contains("MissingSwappedUserWinnings"),
-            "Expected MissingSwappedUserWinnings for read-only account, got: {err}"
-        );
+        let res = ctx.svm.send_transaction(tx);
+        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
     }
 
     // Subcase 2: Wrong program owner (System Program owned)
@@ -1595,15 +1537,8 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| format!("{e:?}"))
-            .unwrap_err();
-        assert!(
-            err.contains("MissingSwappedUserWinnings"),
-            "Expected MissingSwappedUserWinnings for wrong owner, got: {err}"
-        );
+        let res = ctx.svm.send_transaction(tx);
+        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
     }
 
     // Subcase 3: Wrong data length
@@ -1638,15 +1573,8 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| format!("{e:?}"))
-            .unwrap_err();
-        assert!(
-            err.contains("MissingSwappedUserWinnings"),
-            "Expected MissingSwappedUserWinnings for wrong data length, got: {err}"
-        );
+        let res = ctx.svm.send_transaction(tx);
+        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
     }
 
     // Subcase 4: Mismatched user in UserWinnings
@@ -1696,14 +1624,7 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let bh = ctx.svm.latest_blockhash();
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let err = ctx
-            .svm
-            .send_transaction(tx)
-            .map_err(|e| format!("{e:?}"))
-            .unwrap_err();
-        assert!(
-            err.contains("MissingSwappedUserWinnings"),
-            "Expected MissingSwappedUserWinnings for mismatched user, got: {err}"
-        );
+        let res = ctx.svm.send_transaction(tx);
+        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
     }
 }

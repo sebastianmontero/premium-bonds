@@ -117,17 +117,17 @@ fn test_update_global_config_guardian_only() {
     )
     .expect("Updating guardian should succeed");
     let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.authority, admin.pubkey());
-    assert_eq!(event.old_guardian, initial_config.guardian);
-    assert_eq!(event.new_guardian, new_guardian);
-    assert_eq!(event.old_jobs_account, jobs);
-    assert_eq!(event.new_jobs_account, jobs);
-    assert!(event.timestamp > 0);
+    assert_eq!(event.authority, admin.pubkey(), "event authority matches admin");
+    assert_eq!(event.old_guardian, initial_config.guardian, "old_guardian matches initial");
+    assert_eq!(event.new_guardian, new_guardian, "new_guardian matches updated");
+    assert_eq!(event.old_jobs_account, jobs, "old_jobs_account matches initial");
+    assert_eq!(event.new_jobs_account, jobs, "new_jobs_account matches unchanged");
+    assert!(event.timestamp > 0, "event timestamp is valid");
 
     let config = read_global_config(&svm);
-    assert_eq!(config.admin, admin.pubkey());
-    assert_eq!(config.guardian, new_guardian);
-    assert_eq!(config.jobs_account, jobs);
+    assert_eq!(config.admin, admin.pubkey(), "config admin unchanged");
+    assert_eq!(config.guardian, new_guardian, "config guardian updated");
+    assert_eq!(config.jobs_account, jobs, "config jobs_account unchanged");
 }
 
 #[test]
@@ -220,16 +220,18 @@ fn test_update_global_config_requires_admin_signature() {
         None,
     );
 
-    assert!(
-        result.is_err(),
-        "Update must fail if the admin account is not a signer"
-    );
+    assert_anchor_error(result, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
 #[test]
 fn test_update_global_config_wrong_pda() {
     let (mut svm, admin, _) = setup_and_initialize();
     let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
+    let (global_config_pda, _) = global_config_pda();
+
+    // Inject initialized global_config account data to wrong_pda so seed constraint is evaluated
+    let global_config_acc = svm.get_account(&global_config_pda).unwrap();
+    svm.set_account(wrong_pda, global_config_acc).unwrap();
 
     let result = send_update_global_config_test(
         &mut svm,
@@ -241,10 +243,7 @@ fn test_update_global_config_wrong_pda() {
         None,
     );
 
-    assert!(
-        result.is_err(),
-        "Update must fail when passing the wrong PDA"
-    );
+    assert_anchor_error(result, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

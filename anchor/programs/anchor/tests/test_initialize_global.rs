@@ -81,16 +81,16 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
         .expect("initialize_global should succeed with separate admin");
 
     let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
-    assert_eq!(event.authority, authority.pubkey());
-    assert_eq!(event.admin, designated_admin);
-    assert_eq!(event.guardian, guardian);
-    assert_eq!(event.jobs_account, jobs);
-    assert!(event.timestamp > 0);
+    assert_eq!(event.authority, authority.pubkey(), "event authority matches deployer");
+    assert_eq!(event.admin, designated_admin, "event admin matches designated admin");
+    assert_eq!(event.guardian, guardian, "event guardian matches designated guardian");
+    assert_eq!(event.jobs_account, jobs, "event jobs_account matches designated jobs");
+    assert!(event.timestamp > 0, "event timestamp is valid");
 
     let config = read_global_config(&svm);
-    assert_eq!(config.admin, designated_admin);
-    assert_eq!(config.guardian, guardian);
-    assert_eq!(config.jobs_account, jobs);
+    assert_eq!(config.admin, designated_admin, "config admin matches designated admin");
+    assert_eq!(config.guardian, guardian, "config guardian matches designated guardian");
+    assert_eq!(config.jobs_account, jobs, "config jobs_account matches designated jobs");
 }
 
 /// The `jobs_account` field is stored verbatim — even for an arbitrary key or default pubkey.
@@ -174,10 +174,7 @@ fn test_initialize_global_fails_when_signer_is_not_upgrade_authority() {
         &guardian,
         &jobs,
     );
-    assert!(
-        result.is_err(),
-        "Must fail when signer is not the program's upgrade authority"
-    );
+    assert_custom_error(result, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
 /// A transaction that omits the authority signature must be rejected.
@@ -207,11 +204,7 @@ fn test_initialize_global_requires_authority_signature() {
     .to_account_metas(None);
 
     // Manually remove signer flag
-    for meta in accounts.iter_mut() {
-        if meta.pubkey == unsigned_authority.pubkey() {
-            meta.is_signer = false;
-        }
-    }
+    set_signer_flag(&mut accounts, &unsigned_authority.pubkey(), false);
 
     let ix = Instruction {
         program_id: anchor::id(),
@@ -224,10 +217,8 @@ fn test_initialize_global_requires_authority_signature() {
     let tx =
         VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&real_authority]).unwrap();
 
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "Must fail when authority does not sign"
-    );
+    let res = svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -266,10 +257,8 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
     let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "Wrong global_config PDA must be rejected"
-    );
+    let res = svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 /// Supplying an invalid `program_data` account must fail.
@@ -305,10 +294,8 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
     let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
 
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "Wrong program_data PDA must be rejected"
-    );
+    let res = svm.send_transaction(tx);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
 /// Calling `initialize_global` a second time must fail due to `init` constraint.
@@ -323,8 +310,9 @@ fn test_initialize_global_fails_on_double_init() {
     send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs)
         .expect("first init should succeed");
 
-    // Second call must fail
+    // Second call must fail due to AccountAlreadyInUse / init constraint on the existing PDA
+    let jobs2 = Keypair::new().pubkey();
     let result =
-        send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs);
-    assert!(result.is_err(), "Second init on the same PDA must fail");
+        send_initialize_global(&mut svm, &authority, &authority.pubkey(), &guardian, &jobs2);
+    assert_custom_code_at(result, 0, 0, "SystemError::AccountAlreadyInUse");
 }

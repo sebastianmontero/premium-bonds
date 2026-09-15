@@ -14,16 +14,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<anchor::Winner>) {
-    inject_payout_registry(
-        svm,
-        pool_id,
-        cycle_id,
-        winners,
-        0,
-        anchor::PayoutRegistryStatus::Active,
-    );
-}
 
 fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
     let (pda, _) = user_winnings_pda(pool_id, user);
@@ -61,29 +51,14 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
 
     // Inject pool and UserWinnings PDAs
     let mint = Keypair::new().pubkey();
-    use anchor_lang::Discriminator;
     let (pool_pda_addr, _) = pool_pda(1);
-    let pool = PrizePoolTestBuilder::new(1)
+    PrizePoolTestBuilder::new(1)
         .with_token_mint(mint)
         .with_ticket_registry(reg)
         .with_principal(10_000_000)
         .with_prizes_allocated(5_000_000)
         .with_current_draw_cycle_id(1)
-        .build();
-    let mut d = vec![];
-    d.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    d.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pool_pda_addr,
-        Account {
-            lamports: 1_000_000_000,
-            data: d,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+        .inject(&mut svm);
 
     // User A index=0, User B index=1
     inject_user_winnings_with_index(&mut svm, 1, user_a, 0, 0, 0, 0);
@@ -94,7 +69,10 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
         .with_winner(user_b)
         .with_amount_owed(5_000_000)
         .build();
-    inject_payout(&mut svm, 1, 0, vec![winner_b]);
+    PayoutRegistryTestBuilder::new(1, 0)
+        .with_winners(vec![winner_b])
+        .with_status(anchor::PayoutRegistryStatus::Active)
+        .inject(&mut svm);
 
     // Simulated index swap: User A sells all bonds. User B is moved from index 1 to index 0!
     let swapped_entries = vec![UserEntryTestBuilder::new()
@@ -144,17 +122,17 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
         .expect("reinvest after index swap must succeed");
 
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, user_b);
-    assert_eq!(event.winner_index, 0);
-    assert_eq!(event.bonds_bought, 5);
-    assert_eq!(event.amount_reinvested, 5_000_000);
-    assert_eq!(event.new_total_deposited_principal, 15_000_000);
-    assert_eq!(event.remaining_unclaimed_winnings, 0);
-    assert_eq!(event.crank, crank.pubkey());
+    assert_eq!(event.winner, user_b, "event winner matches swapped user_b");
+    assert_eq!(event.winner_index, 0, "event winner_index is 0");
+    assert_eq!(event.bonds_bought, 5, "event bonds_bought is 5");
+    assert_eq!(event.amount_reinvested, 5_000_000, "event amount_reinvested is 5 USDC");
+    assert_eq!(event.new_total_deposited_principal, 15_000_000, "event new_total_deposited_principal is 15 USDC");
+    assert_eq!(event.remaining_unclaimed_winnings, 0, "event remaining_unclaimed_winnings is 0");
+    assert_eq!(event.crank, crank.pubkey(), "event crank matches caller");
 
     let winners = read_payout_winners(&svm, 1, 0);
-    assert_eq!(winners[0].processed, 1);
+    assert_eq!(winners[0].processed, 1, "winner 0 marked processed");
 
     let uw_b = read_user_winnings(&svm, 1, &user_b);
-    assert_eq!(uw_b.total_reinvested, 5_000_000);
+    assert_eq!(uw_b.total_reinvested, 5_000_000, "user_b total_reinvested matches 5 USDC");
 }

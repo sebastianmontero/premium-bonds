@@ -32,33 +32,20 @@ use {
 mod common;
 use common::*;
 
-fn inject_dummy_huma_account(svm: &mut LiteSVM, address: Pubkey) {
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![0u8; 100],
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. buy_bonds: Active ✅, Paused ❌, Closed ❌
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_lifecycle_buy_bonds() {
-    let mut pool_active = anchor::PrizePool {
-        status: anchor::PoolStatus::Active as u8,
-        is_frozen_for_draw: 0,
-        bond_price: 1_000_000,
-        ..unsafe { std::mem::zeroed() }
-    };
-    assert!(pool_active.validate_buy_bonds(1).is_ok());
+    let mut pool_active = PrizePoolTestBuilder::new(1)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(false)
+        .with_bond_price(1_000_000)
+        .build();
+    pool_active
+        .validate_buy_bonds(1)
+        .expect("validate_buy_bonds must succeed for active pool");
 
     let mut pool_paused = pool_active;
     pool_paused.status = anchor::PoolStatus::Paused as u8;
@@ -300,22 +287,14 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 10_000_000);
 
-    inject_pool_with_huma_state(
-        &mut svm,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        anchor::PoolStatus::Paused,
-        false,
-        huma_pool_state,
-    );
-    {
-        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.fee_wallet = fee_wallet;
-        pool.total_fees_accrued = 10_000_000;
-        svm.set_account(pool_pda_addr, acc).unwrap();
-    }
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Paused)
+        .with_huma_pool_state(huma_pool_state)
+        .with_fee_wallet(fee_wallet)
+        .with_fees_accrued(10_000_000)
+        .inject(&mut svm);
 
     let (gc, _) = global_config_pda();
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
@@ -655,21 +634,13 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
     // 1. Paused -> Blocked with PoolPaused
-    inject_pool(
-        &mut svm,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        anchor::PoolStatus::Paused,
-        false,
-    );
-    {
-        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.total_prizes_allocated = 1_000_000_000;
-        pool.payout_timelock_seconds = 0;
-        svm.set_account(pool_pda_addr, acc).unwrap();
-    }
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Paused)
+        .with_prizes_allocated(1_000_000_000)
+        .with_payout_timelock_seconds(0)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,
@@ -710,21 +681,13 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 
     // 2. Active -> Allowed
-    inject_pool(
-        &mut svm,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        anchor::PoolStatus::Active,
-        false,
-    );
-    {
-        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.total_prizes_allocated = 1_000_000_000;
-        pool.payout_timelock_seconds = 0;
-        svm.set_account(pool_pda_addr, acc).unwrap();
-    }
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_prizes_allocated(1_000_000_000)
+        .with_payout_timelock_seconds(0)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,
@@ -754,21 +717,13 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     assert!(svm.send_transaction(tx2).is_ok());
 
     // 3. Closed -> Allowed (graceful cash fallback)
-    inject_pool(
-        &mut svm,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        anchor::PoolStatus::Closed,
-        false,
-    );
-    {
-        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.total_prizes_allocated = 1_000_000_000;
-        pool.payout_timelock_seconds = 0;
-        svm.set_account(pool_pda_addr, acc).unwrap();
-    }
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Closed)
+        .with_prizes_allocated(1_000_000_000)
+        .with_payout_timelock_seconds(0)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,

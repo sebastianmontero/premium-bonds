@@ -14,10 +14,11 @@ mod common;
 use common::*;
 
 fn inject_zero_account(svm: &mut LiteSVM, address: Pubkey, size: usize) {
+    let lamports = svm.minimum_balance_for_rent_exemption(size);
     svm.set_account(
         address,
         Account {
-            lamports: 10_000_000_000,
+            lamports,
             data: vec![0; size],
             owner: anchor::id(),
             executable: false,
@@ -135,22 +136,23 @@ fn test_create_pool_succeeds() {
         .send_transaction(tx)
         .expect("create_pool should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.admin, ctx.admin.pubkey());
-    assert_eq!(event.token_mint, ctx.token_mint);
-    assert_eq!(event.pst_mint, ctx.pst_mint);
-    assert_eq!(event.max_yield_basis_points, 0);
-    assert_eq!(event.payout_timelock_seconds, 300);
-    assert_eq!(event.tiers_count, 1);
-    assert_eq!(event.total_winners, 1);
+    assert_eq!(event.pool_id, 1, "Pool ID mismatch in event");
+    assert_eq!(event.admin, ctx.admin.pubkey(), "Admin mismatch in event");
+    assert_eq!(event.token_mint, ctx.token_mint, "Token mint mismatch in event");
+    assert_eq!(event.pst_mint, ctx.pst_mint, "PST mint mismatch in event");
+    assert_eq!(event.max_yield_basis_points, 0, "Max yield bips mismatch in event");
+    assert_eq!(event.payout_timelock_seconds, 300, "Payout timelock mismatch in event");
+    assert_eq!(event.tiers_count, 1, "Tiers count mismatch in event");
+    assert_eq!(event.total_winners, 1, "Total winners mismatch in event");
 
     let pool_state = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_state.max_yield_basis_points, 0);
-    assert_eq!(pool_state.payout_timelock_seconds, 300);
-    assert_eq!(pool_state.prize_tiers_count, 1);
+    assert_eq!(pool_state.max_yield_basis_points, 0, "Max yield bips mismatch in state");
+    assert_eq!(pool_state.payout_timelock_seconds, 300, "Payout timelock mismatch in state");
+    assert_eq!(pool_state.prize_tiers_count, 1, "Tiers count mismatch in state");
     assert_eq!(
         pool_state.prize_tiers[0],
-        anchor::PrizeTier::default_single_winner()
+        anchor::PrizeTier::default_single_winner(),
+        "Prize tier 0 mismatch in state"
     );
 }
 
@@ -469,10 +471,7 @@ fn test_create_pool_fails_duplicate_initialization() {
     let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &blockhash2);
     let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
     let res2 = ctx.svm.send_transaction(tx2);
-    assert!(
-        res2.is_err(),
-        "Duplicate create_pool with same pool_id must fail"
-    );
+    assert_custom_code_at(res2, 0, 0, "SystemError::AccountAlreadyInUse");
 }
 
 #[test]

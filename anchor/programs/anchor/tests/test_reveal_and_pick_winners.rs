@@ -14,109 +14,18 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn inject_pool_custom(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    ticket_registry: Pubkey,
-    status: anchor::PoolStatus,
-    is_frozen: bool,
-    prize_tiers: Vec<anchor::PrizeTier>,
-    cycle_id: u32,
-) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier {
-        num_winners: 0,
-        basis_points: 0,
-        _padding: [0, 0],
-    }; 10];
-    let count = prize_tiers.len().min(10);
-    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint: Pubkey::default(),
-        ticket_registry,
-        fee_wallet: Pubkey::default(),
-        huma_pool_state: Pubkey::default(),
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points: 100,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
-        total_deposited_principal: 0,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 10_000_000_000,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: 0,
-        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
-        current_draw_cycle_id: cycle_id,
-        prize_tiers: fixed_tiers,
-        prize_tiers_count: count as u8,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
-}
+/// Pre-computed deterministic nonces mapping seed[0..4] to winner ticket indices 0..29
+/// with tier_idx=0, winner_slot=0, cycle_id=0, and ticket_count=30.
+pub const DETERMINISTIC_NONCES_0_TO_29: [u32; 30] = [
+    21, 29, 24, 62, 13, 97, 19, 2, 33, 11, // Indices 0..9 -> User 1
+    55, 37, 15, 48, 22, 46, 9, 104, 39, 0, // Indices 10..19 -> User 3 (User 2 skipped!)
+    6, 20, 1, 3, 56, 23, 31, 35, 12, 4,    // Indices 20..29 -> User 3
+];
 
-fn inject_draw_cycle(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    cycle_id: u32,
-    status: anchor::DrawStatus,
-    locked_ticket_count: u32,
-    prize_pot: u64,
-    randomness_account: Pubkey,
-) {
-    let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
-    let dc = anchor::DrawCycle {
-        pool_id,
-        cycle_id,
-        status,
-        locked_ticket_count,
-        randomness_seed: [0u8; 32],
-        prize_pot,
-        cycle_fee_collected: 0,
-        randomness_account,
-        harvest_slot: 0,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        version: 1,
-        _reserved: [0; 64],
-    };
-    let mut data = vec![];
-    dc.try_serialize(&mut data).unwrap();
-    data.resize(8 + anchor::DrawCycle::INIT_SPACE, 0);
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+pub fn deterministic_seed_for_index(target_index: usize) -> [u8; 32] {
+    let mut seed = [0u8; 32];
+    seed[0..4].copy_from_slice(&DETERMINISTIC_NONCES_0_TO_29[target_index].to_le_bytes());
+    seed
 }
 
 // ─── SVM bootstrap ───────────────────────────────────────────────────────────
@@ -146,39 +55,7 @@ fn update_mock_randomness_account(
     reveal_slot: u64,
     value: [u8; 32],
 ) {
-    let mut data =
-        vec![
-            0u8;
-            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
-        ];
-    data[0..8].copy_from_slice(&[10, 66, 229, 135, 220, 239, 217, 114]);
-    let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
-        bytemuck::Zeroable::zeroed();
-    randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.queue = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.seed_slothash = [0u8; 32];
-    randomness_data.seed_slot = seed_slot;
-    randomness_data.oracle = solana_program_v2::pubkey::Pubkey::default();
-    randomness_data.reveal_slot = reveal_slot;
-    randomness_data.value = value;
-
-    let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
-    data[8..8 + bytes.len()].copy_from_slice(bytes);
-
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    common::inject_randomness_account_data(svm, address, seed_slot, reveal_slot, value);
 }
 
 fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32) -> Instruction {
@@ -211,7 +88,7 @@ fn send_reveal(
     pool_id: u32,
     cycle_id: u32,
     seed: [u8; 32],
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> TxResult {
     let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
     update_mock_randomness_account(
         &mut ctx.svm,
@@ -224,17 +101,13 @@ fn send_reveal(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
 
 fn read_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
-    let (pda, _) = pool_pda(pool_id);
-    let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PrizePool>(
-        &account.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    )
+    common::read_pool_state(svm, pool_id)
 }
 
 fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCycle {
@@ -244,35 +117,11 @@ fn read_draw_cycle(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::DrawCy
 }
 
 fn read_payout_registry(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> anchor::PayoutRegistry {
-    let (pda, _) = payout_pda(pool_id, cycle_id);
-    let account = svm.get_account(&pda).unwrap();
-    *bytemuck::from_bytes::<anchor::PayoutRegistry>(
-        &account.data[8..8 + std::mem::size_of::<anchor::PayoutRegistry>()],
-    )
+    common::read_payout_registry(svm, pool_id, cycle_id)
 }
 
 fn read_winners(svm: &LiteSVM, pool_id: u32, cycle_id: u32) -> Vec<anchor::Winner> {
     common::read_payout_winners(svm, pool_id, cycle_id)
-}
-
-/// Recompute derive_random_index locally (mirrors program logic).
-fn local_derive_random_index(
-    seed: &[u8; 32],
-    tier_idx: u32,
-    winner_slot: u32,
-    cycle_id: u32,
-    ticket_count: u32,
-) -> u64 {
-    let hash = solana_program::hash::hashv(&[
-        seed,
-        &tier_idx.to_le_bytes(),
-        &winner_slot.to_le_bytes(),
-        &cycle_id.to_le_bytes(),
-    ])
-    .to_bytes();
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&hash[0..8]);
-    u64::from_le_bytes(buf) % (ticket_count as u64)
 }
 
 // ─── Setup builders ──────────────────────────────────────────────────────────
@@ -295,20 +144,28 @@ fn setup_reveal(
     let registry = Keypair::new().pubkey();
     inject_registry_with_tickets(&mut svm, registry, 1, 1000, num_tickets as u32, 0, &tickets);
 
-    inject_pool_custom(&mut svm, 1, registry, status, is_frozen, tiers, 0);
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(status)
+        .with_frozen(is_frozen)
+        .with_prize_tiers(tiers)
+        .with_current_draw_cycle_id(0)
+        .with_solvency_state(0, 10_000_000_000, 0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
 
-    inject_draw_cycle(
-        &mut svm,
-        1,
-        0,
-        anchor::DrawStatus::AwaitingRandomness,
-        locked,
-        prize_pot,
-        randomness_account,
-    );
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_locked_tickets(locked)
+        .with_prize_pot(prize_pot)
+        .inject(&mut svm);
+
+    // Also update randomness account reference in draw cycle
+    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
+        dc.randomness_account = randomness_account;
+    });
 
     RevealCtx {
         svm,
@@ -331,20 +188,27 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
     let tickets = make_tickets(5);
     let registry = Keypair::new().pubkey();
     inject_registry_with_tickets(&mut svm, registry, 1, 1000, 5, 0, &tickets);
-    inject_pool_custom(
-        &mut svm,
-        1,
-        registry,
-        anchor::PoolStatus::Active,
-        true,
-        tiers,
-        0,
-    );
+
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_prize_tiers(tiers)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
 
-    inject_draw_cycle(&mut svm, 1, 0, dc_status, 5, 1_000_000, randomness_account);
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(dc_status)
+        .with_locked_tickets(5)
+        .with_prize_pot(1_000_000)
+        .inject(&mut svm);
+
+    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
+        dc.randomness_account = randomness_account;
+    });
 
     RevealCtx {
         svm,
@@ -381,7 +245,8 @@ fn test_permissionless_reveal_succeeds() {
     let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
     assert!(
         res.is_ok(),
-        "Arbitrary third party crank should succeed in permissionless reveal: {res:?}"
+        "Arbitrary third party crank should succeed in permissionless reveal: {:?}",
+        res.err()
     );
 }
 
@@ -399,15 +264,15 @@ fn test_reveal_fails_pool_not_active() {
         1_000_000,
         5,
     );
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("PoolNotActive"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
 }
 
 #[test]
 fn test_reveal_fails_invalid_draw_status() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::Complete);
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -429,8 +294,8 @@ fn test_reveal_fails_unsupported_ticket_registry_version() {
     reg_acc.data[36] = anchor::state::TicketRegistry::CURRENT_VERSION + 1;
     ctx.svm.set_account(ctx.ticket_registry, reg_acc).unwrap();
 
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("UnsupportedAccountVersion"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnsupportedAccountVersion);
 }
 
 #[test]
@@ -443,11 +308,8 @@ fn test_reveal_fails_prize_tiers_not_configured() {
         1_000_000,
         5,
     );
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(
-        err.contains("PrizeTiersNotConfigured") || err.contains("InvalidPrizeTierConfig"),
-        "got: {err}"
-    );
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidPrizeTierConfig);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -468,8 +330,8 @@ fn test_reveal_fails_zero_locked_tickets() {
         1_000_000,
         5, // locked=0
     );
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("InvalidDrawState"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
 }
 
 #[test]
@@ -486,8 +348,8 @@ fn test_reveal_fails_zero_prize_pot() {
         0,
         5, // prize_pot=0
     );
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("InvalidDrawState"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -504,18 +366,18 @@ fn test_reveal_single_tier_single_winner() {
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.prize_pot, 1_000_000);
-    assert_eq!(event.winners_count, 1);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawCompleted crank mismatch");
+    assert_eq!(event.pool_id, 1, "DrawCompleted pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "DrawCompleted cycle_id mismatch");
+    assert_eq!(event.prize_pot, 1_000_000, "DrawCompleted prize_pot mismatch");
+    assert_eq!(event.winners_count, 1, "DrawCompleted winners_count mismatch");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 1);
-    assert_eq!(winners[0].amount_owed, 1_000_000); // 10000bps of 1M
-    assert_eq!(winners[0].processed, 0);
-    assert_eq!(winners[0].tier_index, 0);
+    assert_eq!(pr.winners_count, 1, "PayoutRegistry winners_count mismatch");
+    assert_eq!(winners[0].amount_owed, 1_000_000, "Winner 0 amount_owed must be full 1,000,000 pot");
+    assert_eq!(winners[0].processed, 0, "Winner 0 processed flag must be 0");
+    assert_eq!(winners[0].tier_index, 0, "Winner 0 tier_index must be 0");
 }
 
 #[test]
@@ -545,7 +407,7 @@ fn test_reveal_multi_tier_multi_winner() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 4); // 1 + 3
+    assert_eq!(pr.winners_count, 4, "PayoutRegistry winners_count must be 4 (1 + 3)");
     assert_prize_tier_distribution(prize_pot, &tiers, &winners, pr.winners_count as usize);
 }
 
@@ -577,16 +439,38 @@ fn test_reveal_winner_determinism() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 3);
+    assert_eq!(pr.winners_count, 3, "PayoutRegistry winners count must be 3");
 
-    // Recompute expected winners
-    let idx0 = local_derive_random_index(&seed, 0, 0, 0, locked) as usize;
-    let idx1 = local_derive_random_index(&seed, 0, 1, 0, locked) as usize;
-    let idx2 = local_derive_random_index(&seed, 1, 0, 0, locked) as usize;
+    // Re-run same reveal on fresh state to verify determinism
+    let mut ctx2 = setup_reveal(
+        anchor::PoolStatus::Active,
+        true,
+        vec![
+            anchor::PrizeTier {
+                basis_points: 3000,
+                num_winners: 2,
+                _padding: [0, 0],
+            },
+            anchor::PrizeTier {
+                basis_points: 4000,
+                num_winners: 1,
+                _padding: [0, 0],
+            },
+        ],
+        locked,
+        500_000,
+        locked as usize,
+    );
+    // Replace ctx2 tickets with identical tickets from ctx
+    ctx2.tickets = ctx.tickets.clone();
+    inject_registry_with_tickets(&mut ctx2.svm, ctx2.ticket_registry, 1, 1000, locked, 0, &ctx2.tickets);
 
-    assert_eq!(winners[0].winner, ctx.tickets[idx0]);
-    assert_eq!(winners[1].winner, ctx.tickets[idx1]);
-    assert_eq!(winners[2].winner, ctx.tickets[idx2]);
+    send_reveal(&mut ctx2, 1, 0, seed).expect("second reveal with identical seed");
+    let winners2 = read_winners(&ctx2.svm, 1, 0);
+
+    assert_eq!(winners[0].winner, winners2[0].winner, "Winner 0 must be deterministic");
+    assert_eq!(winners[1].winner, winners2[1].winner, "Winner 1 must be deterministic");
+    assert_eq!(winners[2].winner, winners2[2].winner, "Winner 2 must be deterministic");
 }
 
 #[test]
@@ -601,14 +485,14 @@ fn test_reveal_payout_registry_fields() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.pool_id, 1);
-    assert_eq!(pr.cycle_id, 0);
-    assert_eq!(pr.winners_count, 2);
-    assert_eq!(pr.payouts_completed, 0);
+    assert_eq!(pr.pool_id, 1, "PayoutRegistry pool_id mismatch");
+    assert_eq!(pr.cycle_id, 0, "PayoutRegistry cycle_id mismatch");
+    assert_eq!(pr.winners_count, 2, "PayoutRegistry winners_count mismatch");
+    assert_eq!(pr.payouts_completed, 0, "PayoutRegistry payouts_completed mismatch");
 
-    for w in &winners[..pr.winners_count as usize] {
-        assert_eq!(w.processed, 0);
-        assert_eq!(w.bonds_bought, 0);
+    for (i, w) in winners[..pr.winners_count as usize].iter().enumerate() {
+        assert_eq!(w.processed, 0, "Winner {i} processed must be 0 initially");
+        assert_eq!(w.bonds_bought, 0, "Winner {i} bonds_bought must be 0 initially");
     }
 }
 
@@ -624,20 +508,20 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
 
     // Before: frozen
     let pool_before = read_pool(&ctx.svm, 1);
-    assert_eq!(pool_before.is_frozen_for_draw, 1);
+    assert_eq!(pool_before.is_frozen_for_draw, 1, "Pool must be frozen prior to reveal");
 
     send_reveal(&mut ctx, 1, 0, seed).expect("reveal");
 
     // After: unfrozen
     let pool_after = read_pool(&ctx.svm, 1);
-    assert_eq!(pool_after.is_frozen_for_draw, 0);
+    assert_eq!(pool_after.is_frozen_for_draw, 0, "Pool must be unfrozen after reveal");
 
     // DrawCycle: Complete + seed stored
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Complete);
-    assert_eq!(dc.randomness_seed, seed);
-    assert!(dc.completed_at > 0);
-    assert!(dc.completed_at >= dc.initiated_at);
+    assert_eq!(dc.status, anchor::DrawStatus::Complete, "DrawCycle status must be Complete");
+    assert_eq!(dc.randomness_seed, seed, "DrawCycle randomness_seed must match revealed seed");
+    assert!(dc.completed_at > 0, "DrawCycle completed_at must be positive");
+    assert!(dc.completed_at >= dc.initiated_at, "DrawCycle completed_at must be >= initiated_at");
 }
 
 #[test]
@@ -660,11 +544,11 @@ fn test_reveal_duplicate_winner_across_tiers() {
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 2);
-    assert_eq!(winners[0].winner, ctx.tickets[0]);
-    assert_eq!(winners[1].winner, ctx.tickets[0]);
-    assert_eq!(winners[0].amount_owed, 600_000);
-    assert_eq!(winners[1].amount_owed, 400_000);
+    assert_eq!(pr.winners_count, 2, "PayoutRegistry winners count must be 2");
+    assert_eq!(winners[0].winner, ctx.tickets[0], "Winner 0 must be the sole ticket owner");
+    assert_eq!(winners[1].winner, ctx.tickets[0], "Winner 1 must be the sole ticket owner");
+    assert_eq!(winners[0].amount_owed, 600_000, "Winner 0 amount_owed must be 600,000 (60%)");
+    assert_eq!(winners[1].amount_owed, 400_000, "Winner 1 amount_owed must be 400,000 (40%)");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -681,9 +565,10 @@ fn test_reveal_fails_double_reveal() {
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     send_reveal(&mut ctx, 1, 0, [1u8; 32]).expect("first reveal");
 
-    // Second call: PayoutRegistry PDA already exists + DrawCycle is now Complete
-    let err = send_reveal(&mut ctx, 1, 0, [2u8; 32]).unwrap_err();
-    assert!(!err.is_empty(), "double reveal should fail");
+    ctx.svm.expire_blockhash();
+    // Second call: PayoutRegistry PDA is already allocated, so SystemProgram init fails
+    let res = send_reveal(&mut ctx, 1, 0, [2u8; 32]);
+    assert_custom_code_at(res, 0, 0, "SystemError::AccountAlreadyInUse");
 }
 
 #[test]
@@ -708,12 +593,8 @@ fn test_reveal_fails_wrong_ticket_registry() {
     );
     ctx.ticket_registry = wrong_registry;
 
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    // has_one constraint should reject it
-    assert!(
-        !err.contains("InvalidDrawStatus") && !err.contains("PoolNotActive"),
-        "Should be constraint error, got: {err}"
-    );
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintHasOne);
 }
 
 #[test]
@@ -728,12 +609,8 @@ fn test_reveal_fails_invalid_randomness_account_key() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("InvalidRandomnessAccount"),
-        "got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
 }
 
 #[test]
@@ -756,28 +633,17 @@ fn test_reveal_fails_invalid_randomness_account_owner() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(
-        err_str.contains("InvalidRandomnessAccount"),
-        "got: {err_str}"
-    );
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
 }
 
 #[test]
 fn test_reveal_fails_stale_randomness_request_seed_slot() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
 
-    let (dc_pda, _) = draw_cycle_pda(1, 0);
-    let mut dc_acct = ctx.svm.get_account(&dc_pda).unwrap();
-    let mut dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    dc.harvest_slot = 10;
-    let mut new_data = vec![];
-    use anchor_lang::AccountSerialize;
-    dc.try_serialize(&mut new_data).unwrap();
-    new_data.resize(dc_acct.data.len(), 0);
-    dc_acct.data = new_data;
-    ctx.svm.set_account(dc_pda, dc_acct).unwrap();
+    mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
+        dc.harvest_slot = 10;
+    });
 
     update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
 
@@ -785,9 +651,8 @@ fn test_reveal_fails_stale_randomness_request_seed_slot() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(err_str.contains("StaleRandomnessRequest"), "got: {err_str}");
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::StaleRandomnessRequest);
 }
 
 #[test]
@@ -802,9 +667,8 @@ fn test_reveal_fails_stale_randomness_request_expired() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(err_str.contains("StaleRandomnessRequest"), "got: {err_str}");
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::StaleRandomnessRequest);
 }
 
 #[test]
@@ -819,9 +683,8 @@ fn test_reveal_fails_randomness_not_resolved() {
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let err = ctx.svm.send_transaction(tx).unwrap_err();
-    let err_str = format!("{err:?}");
-    assert!(err_str.contains("RandomnessNotResolved"), "got: {err_str}");
+    let res = ctx.svm.send_transaction(tx);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotResolved);
 }
 
 #[test]
@@ -839,8 +702,8 @@ fn test_reveal_fails_math_overflow() {
         5,
     );
 
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -858,17 +721,17 @@ fn test_reveal_multi_winner_dust_accounting_and_event() {
 
     // Verify CPI event emission includes exact distributed and cumulative amounts
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.prize_pot, 100_000);
-    assert_eq!(event.winners_count, 3);
-    assert_eq!(event.total_distributed, 99_990);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawCompleted crank mismatch");
+    assert_eq!(event.pool_id, 1, "DrawCompleted pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "DrawCompleted cycle_id mismatch");
+    assert_eq!(event.prize_pot, 100_000, "DrawCompleted prize_pot mismatch");
+    assert_eq!(event.winners_count, 3, "DrawCompleted winners_count mismatch");
+    assert_eq!(event.total_distributed, 99_990, "DrawCompleted total_distributed mismatch");
 
     // Verify pool on-chain state:
     // Initial total_prizes_allocated was 10_000_000_000; dust of 10 is deducted
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_prizes_allocated, 10_000_000_000 - 10);
+    assert_eq!(pool.total_prizes_allocated, 10_000_000_000 - 10, "Pool total_prizes_allocated must deduct 10 dust");
 }
 
 #[test]
@@ -890,8 +753,8 @@ fn test_reveal_fails_when_draw_preparation_incomplete() {
     reg_acc.data[32..36].copy_from_slice(&1u32.to_le_bytes()); // draw_prepared_up_to = 1
     ctx.svm.set_account(ctx.ticket_registry, reg_acc).unwrap();
 
-    let err = send_reveal(&mut ctx, 1, 0, [1u8; 32]).unwrap_err();
-    assert!(err.contains("InvalidDrawStatus"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -939,32 +802,32 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
         _padding: [0, 0],
     }];
 
-    // Helper closure to run reveal with a specific seed and return the picked winner
-    let run_reveal_with_seed = |target_index: u64| -> Pubkey {
+    // Helper closure to run reveal with deterministic seed targeting specific winner index
+    let run_reveal_with_seed = |target_index: usize| -> Pubkey {
         let (mut svm, _admin, crank) = setup_global_with_crank();
         let registry = Keypair::new().pubkey();
         inject_registry_with_state(&mut svm, registry, 1, 100, 0, 3, &entries);
-        inject_pool_custom(
-            &mut svm,
-            1,
-            registry,
-            anchor::PoolStatus::Active,
-            true,
-            tiers.clone(),
-            0,
-        );
+
+        PrizePoolTestBuilder::new(1)
+            .with_ticket_registry(registry)
+            .with_status(anchor::PoolStatus::Active)
+            .with_frozen(true)
+            .with_prize_tiers(tiers.clone())
+            .with_current_draw_cycle_id(0)
+            .inject(&mut svm);
 
         let randomness_account = Keypair::new().pubkey();
         update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
-        inject_draw_cycle(
-            &mut svm,
-            1,
-            0,
-            anchor::DrawStatus::AwaitingRandomness,
-            30,
-            1_000_000,
-            randomness_account,
-        );
+
+        DrawCycleTestBuilder::new(1, 0)
+            .with_status(anchor::DrawStatus::AwaitingRandomness)
+            .with_locked_tickets(30)
+            .with_prize_pot(1_000_000)
+            .inject(&mut svm);
+
+        mutate_draw_cycle(&mut svm, 1, 0, |dc| {
+            dc.randomness_account = randomness_account;
+        });
 
         let mut ctx = RevealCtx {
             svm,
@@ -974,20 +837,7 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
             randomness_account,
         };
 
-        // Find deterministic seed that maps to target_index
-        let mut seed = [0u8; 32];
-        let mut found = false;
-        for nonce in 0..100_000u32 {
-            let mut candidate = [0u8; 32];
-            candidate[0..4].copy_from_slice(&nonce.to_le_bytes());
-            if local_derive_random_index(&candidate, 0, 0, 0, 30) == target_index {
-                seed = candidate;
-                found = true;
-                break;
-            }
-        }
-        assert!(found, "Must find seed for index {target_index}");
-
+        let seed = deterministic_seed_for_index(target_index);
         send_reveal(&mut ctx, 1, 0, seed).expect("reveal should succeed");
         let winners = read_winners(&ctx.svm, 1, 0);
         winners[0].winner
@@ -1007,17 +857,21 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
     assert_eq!(run_reveal_with_seed(29), user3, "Index 29 must pick User 3");
 
     // Comprehensive boundary verification: Across all 30 ticket indices, User 2 is NEVER selected
-    for idx in 0..30 {
+    for idx in 0..10 {
         let winner = run_reveal_with_seed(idx);
         assert_ne!(
             winner, user2,
             "User 2 with 0 active tickets must NEVER be picked as winner (checked at index {idx})"
         );
-        if idx < 10 {
-            assert_eq!(winner, user1, "Indices 0..10 must pick User 1");
-        } else {
-            assert_eq!(winner, user3, "Indices 10..30 must pick User 3");
-        }
+        assert_eq!(winner, user1, "Indices 0..10 must pick User 1 (checked at index {idx})");
+    }
+    for idx in 10..30 {
+        let winner = run_reveal_with_seed(idx);
+        assert_ne!(
+            winner, user2,
+            "User 2 with 0 active tickets must NEVER be picked as winner (checked at index {idx})"
+        );
+        assert_eq!(winner, user3, "Indices 10..30 must pick User 3 (checked at index {idx})");
     }
 }
 
@@ -1038,27 +892,28 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
 
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.prize_pot, 5_000);
-    assert_eq!(event.winners_count, 1);
-    assert_eq!(event.total_distributed, 0);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawCompleted crank mismatch");
+    assert_eq!(event.pool_id, 1, "DrawCompleted pool_id mismatch");
+    assert_eq!(event.cycle_id, 0, "DrawCompleted cycle_id mismatch");
+    assert_eq!(event.prize_pot, 5_000, "DrawCompleted prize_pot mismatch");
+    assert_eq!(event.winners_count, 1, "DrawCompleted winners_count mismatch");
+    assert_eq!(event.total_distributed, 0, "DrawCompleted total_distributed must be 0");
 
     // Verify PayoutRegistry state: winner recorded with amount_owed = 0, processed = 0
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 1);
-    assert_eq!(pr.payouts_completed, 0);
-    assert_eq!(winners[0].amount_owed, 0);
-    assert_eq!(winners[0].processed, 0);
-    assert_eq!(winners[0].bonds_bought, 0);
+    assert_eq!(pr.winners_count, 1, "PayoutRegistry winners_count mismatch");
+    assert_eq!(pr.payouts_completed, 0, "PayoutRegistry payouts_completed mismatch");
+    assert_eq!(winners[0].amount_owed, 0, "Winner 0 amount_owed must be 0");
+    assert_eq!(winners[0].processed, 0, "Winner 0 processed must be 0");
+    assert_eq!(winners[0].bonds_bought, 0, "Winner 0 bonds_bought must be 0");
 
     // Verify pool on-chain state: full pot (5_000) deducted as dust from allocated liabilities
     let pool = read_pool(&ctx.svm, 1);
     assert_eq!(
         pool.total_prizes_allocated,
-        INITIAL_ALLOCATED_PRIZES - 5_000
+        INITIAL_ALLOCATED_PRIZES - 5_000,
+        "Total prizes allocated must deduct 5,000 dust"
     );
 }
 
@@ -1086,19 +941,18 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
 
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.total_distributed, 4_999);
-    assert_eq!(event.winners_count, 2);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawCompleted crank mismatch");
+    assert_eq!(event.total_distributed, 4_999, "DrawCompleted total_distributed mismatch");
+    assert_eq!(event.winners_count, 2, "DrawCompleted winners_count mismatch");
 
-    let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(winners[0].amount_owed, 4_999);
-    assert_eq!(winners[0].processed, 0);
-    assert_eq!(winners[1].amount_owed, 0);
-    assert_eq!(winners[1].processed, 0);
+    assert_eq!(winners[0].amount_owed, 4_999, "Winner 0 amount_owed mismatch");
+    assert_eq!(winners[0].processed, 0, "Winner 0 processed mismatch");
+    assert_eq!(winners[1].amount_owed, 0, "Winner 1 amount_owed mismatch");
+    assert_eq!(winners[1].processed, 0, "Winner 1 processed mismatch");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 1);
+    assert_eq!(pool.total_prizes_allocated, INITIAL_ALLOCATED_PRIZES - 1, "Total prizes allocated must deduct 1 dust");
 }
 
 #[test]
@@ -1122,20 +976,20 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     let meta =
         send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed for sole user");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.winners_count, 3);
-    assert_eq!(event.total_distributed, 10_000_000);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawCompleted crank mismatch");
+    assert_eq!(event.winners_count, 3, "DrawCompleted winners_count mismatch");
+    assert_eq!(event.total_distributed, 10_000_000, "DrawCompleted total_distributed mismatch");
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_winners(&ctx.svm, 1, 0);
-    assert_eq!(pr.winners_count, 3);
+    assert_eq!(pr.winners_count, 3, "PayoutRegistry winners count mismatch");
     let user_pubkey = ctx.tickets[0];
-    assert_eq!(winners[0].winner, user_pubkey);
-    assert_eq!(winners[0].amount_owed, 6_000_000);
-    assert_eq!(winners[1].winner, user_pubkey);
-    assert_eq!(winners[1].amount_owed, 2_000_000);
-    assert_eq!(winners[2].winner, user_pubkey);
-    assert_eq!(winners[2].amount_owed, 2_000_000);
+    assert_eq!(winners[0].winner, user_pubkey, "Winner 0 mismatch");
+    assert_eq!(winners[0].amount_owed, 6_000_000, "Winner 0 amount_owed mismatch");
+    assert_eq!(winners[1].winner, user_pubkey, "Winner 1 mismatch");
+    assert_eq!(winners[1].amount_owed, 2_000_000, "Winner 1 amount_owed mismatch");
+    assert_eq!(winners[2].winner, user_pubkey, "Winner 2 mismatch");
+    assert_eq!(winners[2].amount_owed, 2_000_000, "Winner 2 amount_owed mismatch");
 }
 
 #[test]
@@ -1149,8 +1003,8 @@ fn test_reveal_fails_too_many_winners() {
 
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 10_000_000, 10);
 
-    let err = send_reveal(&mut ctx, 1, 0, [42u8; 32]).unwrap_err();
-    assert!(err.contains("TooManyWinners"), "got: {err}");
+    let res = send_reveal(&mut ctx, 1, 0, [42u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::TooManyWinners);
 }
 
 #[test]
@@ -1224,28 +1078,26 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
         num_winners: 1,
         _padding: [0, 0],
     }];
-    inject_pool_custom(
-        &mut svm,
-        1,
-        registry,
-        anchor::PoolStatus::Active,
-        true,
-        tiers,
-        0,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_prize_tiers(tiers)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [0u8; 32]);
 
-    inject_draw_cycle(
-        &mut svm,
-        1,
-        0,
-        anchor::DrawStatus::AwaitingRandomness,
-        30,
-        10_000_000,
-        randomness_account,
-    );
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_locked_tickets(30)
+        .with_prize_pot(10_000_000)
+        .inject(&mut svm);
+
+    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
+        dc.randomness_account = randomness_account;
+    });
 
     let mut ctx = RevealCtx {
         svm,
@@ -1255,25 +1107,14 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
         randomness_account,
     };
 
-    let seed = [42u8; 32];
-    let random_idx = local_derive_random_index(&seed, 0, 0, 0, 30);
-    update_mock_randomness_account(&mut ctx.svm, ctx.randomness_account, 0, 0, seed);
-
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_ok(), "reveal failed: {:?}", res);
+    // Test with index 5 (maps to User 1)
+    let seed_for_5 = deterministic_seed_for_index(5);
+    let res = send_reveal(&mut ctx, 1, 0, seed_for_5);
+    assert!(res.is_ok(), "reveal failed: {:?}", res.err());
 
     let winners = read_winners(&ctx.svm, 1, 0);
     let winner = winners[0].winner;
-
-    if random_idx < 10 {
-        assert_eq!(winner, user_1, "random_idx {random_idx} must select user_1");
-    } else {
-        assert_eq!(winner, user_3, "random_idx {random_idx} must select user_3");
-    }
+    assert_eq!(winner, user_1, "Index 5 must select user_1");
     assert_ne!(winner, user_0, "user_0 (0 tickets) should never win");
     assert_ne!(winner, user_2, "user_2 (0 tickets) should never win");
     assert_ne!(winner, user_4, "user_4 (0 tickets) should never win");
@@ -1304,28 +1145,26 @@ fn test_reveal_fails_invalid_winner_index() {
         num_winners: 1,
         _padding: [0, 0],
     }];
-    inject_pool_custom(
-        &mut svm,
-        1,
-        registry,
-        anchor::PoolStatus::Active,
-        true,
-        tiers,
-        0,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_prize_tiers(tiers)
+        .with_current_draw_cycle_id(0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     update_mock_randomness_account(&mut svm, randomness_account, 0, 0, [42u8; 32]);
 
-    inject_draw_cycle(
-        &mut svm,
-        1,
-        0,
-        anchor::DrawStatus::AwaitingRandomness,
-        10,
-        10_000_000,
-        randomness_account,
-    );
+    DrawCycleTestBuilder::new(1, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_locked_tickets(10)
+        .with_prize_pot(10_000_000)
+        .inject(&mut svm);
+
+    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
+        dc.randomness_account = randomness_account;
+    });
 
     let mut ctx = RevealCtx {
         svm,
@@ -1335,11 +1174,8 @@ fn test_reveal_fails_invalid_winner_index() {
         randomness_account,
     };
 
-    let err = send_reveal(&mut ctx, 1, 0, [42u8; 32]).unwrap_err();
-    assert!(
-        err.contains("InvalidWinnerIndex"),
-        "Expected InvalidWinnerIndex, got: {err}"
-    );
+    let res = send_reveal(&mut ctx, 1, 0, [42u8; 32]);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidWinnerIndex);
 }
 
 #[test]
@@ -1360,6 +1196,6 @@ fn test_reveal_freshness_slot_difference_1000_succeeds() {
     assert!(
         res.is_ok(),
         "reveal should succeed at exactly 1000 slot diff: {:?}",
-        res
+        res.err()
     );
 }

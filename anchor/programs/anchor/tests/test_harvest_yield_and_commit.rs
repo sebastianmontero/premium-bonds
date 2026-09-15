@@ -18,76 +18,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-fn inject_pool_custom(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    token_mint: Pubkey,
-    ticket_registry: Pubkey,
-    fee_wallet: Pubkey,
-    huma_pool_state: Pubkey,
-    status: anchor::PoolStatus,
-    is_frozen: bool,
-    fee_basis_points: u16,
-    cycle_end_at: i64,
-    cycle_id: u32,
-    prize_tiers: Vec<anchor::PrizeTier>,
-    principal: u64,
-) -> Pubkey {
-    use anchor_lang::Discriminator;
-    let (pda, bump) = pool_pda(pool_id);
-    let mut fixed_tiers = [anchor::PrizeTier {
-        num_winners: 0,
-        basis_points: 0,
-        _padding: [0, 0],
-    }; 10];
-    let count = prize_tiers.len().min(10);
-    fixed_tiers[..count].copy_from_slice(&prize_tiers[..count]);
-    let pool = anchor::PrizePool {
-        vault_authority_bump: bump,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        fee_wallet,
-        huma_pool_state,
-        bond_price: 1_000_000,
-        stake_cycle_duration_hrs: 24,
-        min_yield_threshold: 0,
-        fee_basis_points,
-        max_yield_basis_points: 0,
-        payout_timelock_seconds: 300,
-        status: status as u8,
-        total_deposited_principal: principal,
-        total_fees_accrued: 0,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 0,
-        next_redemption_id: 0,
-        total_pending_redemptions: 0,
-        current_cycle_end_at: cycle_end_at,
-        is_frozen_for_draw: if is_frozen { 1 } else { 0 },
-        current_draw_cycle_id: cycle_id,
-        prize_tiers: fixed_tiers,
-        prize_tiers_count: count as u8,
-        _padding: [0; 3],
-        version: 1,
-        _reserved: [0; 128],
-    };
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    svm.set_account(
-        pda,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-    pda
-}
-
 /// Inject a mock Huma PoolState account with the correct byte layout.
 ///
 /// Layout: [discriminator:8][bump:1][status:1][disbursement_reserve:16][mode_states_len:4][mode_state_0.assets:16]...
@@ -112,14 +42,6 @@ fn inject_huma_pool_state(svm: &mut LiteSVM, address: Pubkey, total_assets: u128
         },
     )
     .unwrap();
-}
-
-fn warp_clock(svm: &mut LiteSVM, unix_ts: i64) {
-    let clock = solana_sdk::clock::Clock {
-        unix_timestamp: unix_ts,
-        ..Default::default()
-    };
-    svm.set_sysvar(&clock);
 }
 
 // ─── SVM bootstrap ───────────────────────────────────────────────────────────
@@ -196,12 +118,12 @@ fn send_harvest(
     ctx: &mut HarvestCtx,
     pool_id: u32,
     cycle_id: u32,
-) -> Result<litesvm::types::TransactionMetadata, String> {
+) -> TxResult {
     let ix = build_harvest_ix(ctx, pool_id, cycle_id);
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx).map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ─── Readers ─────────────────────────────────────────────────────────────────
@@ -247,26 +169,23 @@ fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state, 0);
 
-    inject_pool_custom(
-        &mut svm,
-        1,
-        token_mint,
-        registry,
-        fee_wallet,
-        huma_pool_state,
-        status,
-        is_frozen,
-        100,
-        cycle_end_at,
-        0,
-        vec![],
-        0,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(registry)
+        .with_fee_wallet(fee_wallet)
+        .with_huma_pool_state(huma_pool_state)
+        .with_status(status)
+        .with_frozen(is_frozen)
+        .with_fee_basis_points(100)
+        .with_cycle_end_at(cycle_end_at)
+        .with_current_draw_cycle_id(0)
+        .with_solvency_state(0, 0, 0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
 
-    warp_clock(&mut svm, 1000);
+    warp_to_timestamp(&mut svm, 1_700_001_000);
 
     HarvestCtx {
         svm,
@@ -294,6 +213,30 @@ fn setup_happy(
     total_assets: u128,
     principal: u64,
 ) -> HarvestCtx {
+    setup_happy_with_cycle_end(
+        active,
+        pending,
+        fee_bps,
+        prize_tiers,
+        pst_balance,
+        pst_supply,
+        total_assets,
+        principal,
+        0,
+    )
+}
+
+fn setup_happy_with_cycle_end(
+    active: u32,
+    pending: u32,
+    fee_bps: u16,
+    prize_tiers: Vec<anchor::PrizeTier>,
+    pst_balance: u64,
+    pst_supply: u64,
+    total_assets: u128,
+    principal: u64,
+    cycle_end_at: i64,
+) -> HarvestCtx {
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let token_mint = Keypair::new().pubkey();
@@ -312,26 +255,24 @@ fn setup_happy(
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state, total_assets);
 
-    inject_pool_custom(
-        &mut svm,
-        1,
-        token_mint,
-        registry,
-        fee_wallet,
-        huma_pool_state,
-        anchor::PoolStatus::Active,
-        false,
-        fee_bps,
-        0,
-        0,
-        prize_tiers,
-        principal,
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(registry)
+        .with_fee_wallet(fee_wallet)
+        .with_huma_pool_state(huma_pool_state)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(false)
+        .with_fee_basis_points(fee_bps)
+        .with_cycle_end_at(cycle_end_at)
+        .with_current_draw_cycle_id(0)
+        .with_prize_tiers(prize_tiers)
+        .with_solvency_state(principal, 0, 0)
+        .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
 
-    warp_clock(&mut svm, 1000);
+    warp_to_timestamp(&mut svm, 1_700_001_000);
 
     HarvestCtx {
         svm,
@@ -355,41 +296,29 @@ fn test_harvest_fails_unauthorized_crank() {
         .airdrop(&fake_crank.pubkey(), 10_000_000_000)
         .unwrap();
     ctx.crank = fake_crank;
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("UnauthorizedCrank"),
-        "Expected UnauthorizedCrank, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedCrank);
 }
 
 #[test]
 fn test_harvest_fails_pool_not_active() {
     let mut ctx = setup_guard(anchor::PoolStatus::Paused, false, 0);
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("PoolNotActive"),
-        "Expected PoolNotActive, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
 }
 
 #[test]
 fn test_harvest_fails_pool_frozen() {
     let mut ctx = setup_guard(anchor::PoolStatus::Active, true, 0);
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("AwaitingRandomnessFreeze"),
-        "Expected AwaitingRandomnessFreeze, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
 fn test_harvest_fails_cycle_not_ended() {
     let mut ctx = setup_guard(anchor::PoolStatus::Active, false, i64::MAX);
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("CycleNotEnded"),
-        "Expected CycleNotEnded, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::CycleNotEnded);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -402,24 +331,24 @@ fn test_harvest_happy_path_zero_yield() {
     let mut ctx = setup_happy(0, 3, 100, vec![], 0, 0, 0, 0);
     let meta = send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.raw_yield, 0);
-    assert_eq!(event.locked_ticket_count, 0);
-    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawSkipped crank must match caller");
+    assert_eq!(event.pool_id, 1, "DrawSkipped pool_id must be 1");
+    assert_eq!(event.cycle_id, 0, "DrawSkipped cycle_id must be 0");
+    assert_eq!(event.raw_yield, 0, "DrawSkipped raw_yield must be 0");
+    assert_eq!(event.locked_ticket_count, 0, "DrawSkipped locked_ticket_count must be 0");
+    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets, "DrawSkipReason must be ZeroActiveTickets");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
-    assert!(dc.initiated_at > 0);
-    assert_eq!(dc.completed_at, dc.initiated_at);
-    assert_eq!(dc.prize_pot, 0);
-    assert_eq!(dc.cycle_fee_collected, 0);
-    assert_eq!(dc.locked_ticket_count, 0); // no active before merge
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped, "DrawCycle status must be Skipped");
+    assert!(dc.initiated_at > 0, "DrawCycle initiated_at must be positive");
+    assert_eq!(dc.completed_at, dc.initiated_at, "DrawCycle completed_at must match initiated_at for Skipped");
+    assert_eq!(dc.prize_pot, 0, "DrawCycle prize_pot must be 0");
+    assert_eq!(dc.cycle_fee_collected, 0, "DrawCycle cycle_fee_collected must be 0");
+    assert_eq!(dc.locked_ticket_count, 0, "DrawCycle locked_ticket_count must be 0");
 
     let (active, pending) = read_registry_counts(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(active, 3); // pending merged
-    assert_eq!(pending, 0);
+    assert_eq!(active, 3, "Pending tickets must be merged into active tickets");
+    assert_eq!(pending, 0, "Pending tickets count must be 0 after merge");
 }
 
 #[test]
@@ -441,23 +370,23 @@ fn test_harvest_happy_path_yield_no_eligible() {
     );
     let meta = send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.raw_yield, 0);
-    assert_eq!(event.locked_ticket_count, 0);
-    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawSkipped crank must match caller");
+    assert_eq!(event.pool_id, 1, "DrawSkipped pool_id must be 1");
+    assert_eq!(event.cycle_id, 0, "DrawSkipped cycle_id must be 0");
+    assert_eq!(event.raw_yield, 0, "DrawSkipped raw_yield must be 0");
+    assert_eq!(event.locked_ticket_count, 0, "DrawSkipped locked_ticket_count must be 0");
+    assert_eq!(event.reason, anchor::DrawSkipReason::ZeroActiveTickets, "DrawSkipReason must be ZeroActiveTickets");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
-    assert!(dc.initiated_at > 0);
-    assert_eq!(dc.completed_at, dc.initiated_at);
-    assert_eq!(dc.cycle_fee_collected, 0);
-    assert_eq!(dc.prize_pot, 0);
-    assert_eq!(dc.locked_ticket_count, 0);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped, "DrawCycle status must be Skipped");
+    assert!(dc.initiated_at > 0, "DrawCycle initiated_at must be positive");
+    assert_eq!(dc.completed_at, dc.initiated_at, "DrawCycle completed_at must match initiated_at");
+    assert_eq!(dc.cycle_fee_collected, 0, "DrawCycle cycle_fee_collected must be 0");
+    assert_eq!(dc.prize_pot, 0, "DrawCycle prize_pot must be 0");
+    assert_eq!(dc.locked_ticket_count, 0, "DrawCycle locked_ticket_count must be 0");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_fees_accrued, 0);
+    assert_eq!(pool.total_fees_accrued, 0, "Pool fees accrued must remain 0 when zero active tickets");
 }
 
 #[test]
@@ -473,22 +402,22 @@ fn test_harvest_happy_path_yield_and_eligible() {
     let mut ctx = setup_happy(2, 1, 100, tiers, 2_000_000, 2_000_000, 2_500_000, 2_000_000);
     let meta = send_harvest(&mut ctx, 1, 0).expect("yield + eligible harvest");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.raw_yield, 500_000);
-    assert_eq!(event.fee, 5_000);
-    assert_eq!(event.prize_pot, 495_000);
-    assert_eq!(event.locked_ticket_count, 2);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "YieldHarvested crank must match caller");
+    assert_eq!(event.pool_id, 1, "YieldHarvested pool_id must be 1");
+    assert_eq!(event.cycle_id, 0, "YieldHarvested cycle_id must be 0");
+    assert_eq!(event.raw_yield, 500_000, "YieldHarvested raw_yield must be 500,000");
+    assert_eq!(event.fee, 5_000, "YieldHarvested fee must be 5,000");
+    assert_eq!(event.prize_pot, 495_000, "YieldHarvested prize_pot must be 495,000");
+    assert_eq!(event.locked_ticket_count, 2, "YieldHarvested locked_ticket_count must be 2");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
-    assert!(dc.initiated_at > 0);
-    assert_eq!(dc.completed_at, 0);
-    assert_eq!(dc.locked_ticket_count, 2); // only active, not pending
+    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness, "DrawCycle status must be AwaitingRandomness");
+    assert!(dc.initiated_at > 0, "DrawCycle initiated_at must be positive");
+    assert_eq!(dc.completed_at, 0, "DrawCycle completed_at must be 0 while awaiting randomness");
+    assert_eq!(dc.locked_ticket_count, 2, "DrawCycle locked_ticket_count must match active tickets count");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.is_frozen_for_draw, 1);
+    assert_eq!(pool.is_frozen_for_draw, 1, "Pool must be frozen for draw");
 }
 
 #[test]
@@ -506,7 +435,7 @@ fn test_harvest_happy_path_fee_exact() {
     assert_fee_partition_conserved(1_000_000, 250, dc.cycle_fee_collected, dc.prize_pot);
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_fees_accrued, dc.cycle_fee_collected);
+    assert_eq!(pool.total_fees_accrued, dc.cycle_fee_collected, "Pool total_fees_accrued must match cycle fee");
 }
 
 #[test]
@@ -521,11 +450,11 @@ fn test_harvest_happy_path_zero_fee_bps() {
     send_harvest(&mut ctx, 1, 0).expect("zero fee harvest");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.cycle_fee_collected, 0);
-    assert_eq!(dc.prize_pot, 500_000);
+    assert_eq!(dc.cycle_fee_collected, 0, "DrawCycle cycle_fee_collected must be 0 with 0 bps fee");
+    assert_eq!(dc.prize_pot, 500_000, "DrawCycle prize_pot must be full 500,000 yield");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.total_fees_accrued, 0);
+    assert_eq!(pool.total_fees_accrued, 0, "Pool total_fees_accrued must be 0");
 }
 
 #[test]
@@ -535,22 +464,23 @@ fn test_harvest_happy_path_pending_merge() {
     send_harvest(&mut ctx, 1, 0).expect("merge harvest");
 
     let (active, pending) = read_registry_counts(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(active, 5);
-    assert_eq!(pending, 0);
+    assert_eq!(active, 5, "Registry active tickets must include merged pending tickets");
+    assert_eq!(pending, 0, "Registry pending tickets must be 0 after merge");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.locked_ticket_count, 2); // only pre-merge active count
-    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+    assert_eq!(dc.locked_ticket_count, 2, "DrawCycle locked tickets must reflect only pre-merge active tickets");
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped, "DrawCycle status must be Skipped when zero yield");
 }
 
 #[test]
 fn test_harvest_happy_path_cycle_advances() {
     let mut ctx = setup_happy(0, 0, 100, vec![], 0, 0, 0, 0);
+    let current_ts = 1_700_001_000i64;
     send_harvest(&mut ctx, 1, 0).expect("cycle advance harvest");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.current_draw_cycle_id, 1);
-    assert_eq!(pool.current_cycle_end_at, 1000 + 24 * 3600);
+    assert_eq!(pool.current_draw_cycle_id, 1, "Draw cycle id must increment to 1");
+    assert_eq!(pool.current_cycle_end_at, current_ts + 24 * 3600, "Current cycle end at must advance by duration");
 }
 
 #[test]
@@ -566,11 +496,8 @@ fn test_harvest_fails_prize_tiers_not_configured() {
         2_000_000,
         1_000_000,
     );
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("PrizeTiersNotConfigured"),
-        "Expected PrizeTiersNotConfigured, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PrizeTiersNotConfigured);
 }
 
 #[test]
@@ -579,17 +506,17 @@ fn test_harvest_happy_path_consecutive_cycles() {
     send_harvest(&mut ctx, 1, 0).expect("first harvest");
 
     let pool = read_pool(&ctx.svm, 1);
-    warp_clock(&mut ctx.svm, pool.current_cycle_end_at + 1);
+    warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at + 1);
 
     send_harvest(&mut ctx, 1, 1).expect("second harvest");
 
     let pool2 = read_pool(&ctx.svm, 1);
-    assert_eq!(pool2.current_draw_cycle_id, 2);
+    assert_eq!(pool2.current_draw_cycle_id, 2, "Draw cycle id must increment to 2");
 
     let dc0 = read_draw_cycle(&ctx.svm, 1, 0);
     let dc1 = read_draw_cycle(&ctx.svm, 1, 1);
-    assert_eq!(dc0.cycle_id, 0);
-    assert_eq!(dc1.cycle_id, 1);
+    assert_eq!(dc0.cycle_id, 0, "First draw cycle id must be 0");
+    assert_eq!(dc1.cycle_id, 1, "Second draw cycle id must be 1");
 }
 
 #[test]
@@ -601,22 +528,16 @@ fn test_harvest_fails_invalid_mint() {
     // Inject the fake mint into the SVM
     inject_mint_with_supply(&mut ctx.svm, fake_mint, 6, 0);
 
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("ConstraintMint") || err.contains("ConstraintRaw") || err.contains("0x7de"),
-        "Expected constraint error, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenMint);
 }
 
 #[test]
 fn test_harvest_fails_invalid_randomness_account() {
     let mut ctx = setup_guard(anchor::PoolStatus::Active, false, 0);
     ctx.randomness_account = Keypair::new().pubkey();
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("InvalidRandomnessAccount"),
-        "Expected InvalidRandomnessAccount, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
 }
 
 #[test]
@@ -636,24 +557,12 @@ fn test_harvest_fails_math_overflow() {
         1_000_000, // principal
     );
 
-    let (pool_pda_key, _) = pool_pda(1);
-    let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
-    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    pool.total_prizes_allocated = u64::MAX;
-    use anchor_lang::Discriminator;
-    let mut new_data = vec![];
-    new_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    new_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    pool_acct.data = new_data;
-    ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.total_prizes_allocated = u64::MAX;
+    });
 
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("MathOverflow"),
-        "Expected MathOverflow error, got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -667,39 +576,31 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     let mut ctx = setup_happy(5, 0, 100, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
 
     // Set min_yield_threshold to 1M (1,000,000 > 500,000 raw yield)
-    let (pool_pda_key, _) = pool_pda(1);
-    let mut pool_acct = ctx.svm.get_account(&pool_pda_key).unwrap();
-    let mut pool = *bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acct.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    pool.min_yield_threshold = 1_000_000;
-    let mut new_data = vec![];
-    new_data.extend_from_slice(&<anchor::PrizePool as anchor_lang::Discriminator>::DISCRIMINATOR);
-    new_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    pool_acct.data = new_data;
-    ctx.svm.set_account(pool_pda_key, pool_acct).unwrap();
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.min_yield_threshold = 1_000_000;
+    });
 
     // Execute harvest
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.cycle_id, 0);
-    assert_eq!(event.raw_yield, 500_000);
-    assert_eq!(event.threshold, 1_000_000);
-    assert_eq!(event.locked_ticket_count, 5);
-    assert_eq!(event.reason, anchor::DrawSkipReason::InsufficientYield);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "DrawSkipped crank must match caller");
+    assert_eq!(event.pool_id, 1, "DrawSkipped pool_id must be 1");
+    assert_eq!(event.cycle_id, 0, "DrawSkipped cycle_id must be 0");
+    assert_eq!(event.raw_yield, 500_000, "DrawSkipped raw_yield must be 500,000");
+    assert_eq!(event.threshold, 1_000_000, "DrawSkipped threshold must be 1,000,000");
+    assert_eq!(event.locked_ticket_count, 5, "DrawSkipped locked_ticket_count must be 5");
+    assert_eq!(event.reason, anchor::DrawSkipReason::InsufficientYield, "DrawSkipReason must be InsufficientYield");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
-    assert_eq!(dc.locked_ticket_count, 5);
-    assert_eq!(dc.prize_pot, 0);
-    assert_eq!(dc.cycle_fee_collected, 0);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped, "DrawCycle status must be Skipped");
+    assert_eq!(dc.locked_ticket_count, 5, "DrawCycle locked_ticket_count must be 5");
+    assert_eq!(dc.prize_pot, 0, "DrawCycle prize_pot must be 0");
+    assert_eq!(dc.cycle_fee_collected, 0, "DrawCycle cycle_fee_collected must be 0");
 
     let pool_state = read_pool(&ctx.svm, 1);
-    assert_eq!(pool_state.is_frozen_for_draw, 0);
-    assert_eq!(pool_state.total_fees_accrued, 0);
-    assert_eq!(pool_state.total_prizes_allocated, 0);
+    assert_eq!(pool_state.is_frozen_for_draw, 0, "Pool is_frozen_for_draw must be 0 when skipped");
+    assert_eq!(pool_state.total_fees_accrued, 0, "Pool total_fees_accrued must be 0 when skipped");
+    assert_eq!(pool_state.total_prizes_allocated, 0, "Pool total_prizes_allocated must be 0 when skipped");
 }
 
 #[test]
@@ -721,14 +622,15 @@ fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_depo
         .expect("harvest should succeed immediately with atomic prize tiers");
 
     let dc = read_draw_cycle(&ctx.svm, 1, 0);
-    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness);
+    assert_eq!(dc.status, anchor::DrawStatus::AwaitingRandomness, "DrawCycle status must be AwaitingRandomness");
 
     let pool = read_pool(&ctx.svm, 1);
-    assert_eq!(pool.is_frozen_for_draw, 1);
-    assert_eq!(pool.prize_tiers_count, 1);
+    assert_eq!(pool.is_frozen_for_draw, 1, "Pool must be frozen for draw");
+    assert_eq!(pool.prize_tiers_count, 1, "Pool prize_tiers_count must be 1");
     assert_eq!(
         pool.prize_tiers[0],
-        anchor::PrizeTier::default_single_winner()
+        anchor::PrizeTier::default_single_winner(),
+        "Prize tier must match default single winner"
     );
 }
 
@@ -754,13 +656,13 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with rolled-over dust should succeed");
 
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
+    assert_eq!(event.crank, ctx.crank.pubkey(), "YieldHarvested crank must match caller");
     // Yield generated = current_value (10_005_000) - book_value (10_000_000) = 5_000
     // Fee = 5_000 * 100 / 10_000 = 50 lamports
     // Prize pot = 4_950 lamports
-    assert_eq!(event.raw_yield, 5_000);
-    assert_eq!(event.fee, 50);
-    assert_eq!(event.prize_pot, 4_950);
+    assert_eq!(event.raw_yield, 5_000, "YieldHarvested raw_yield must be 5,000");
+    assert_eq!(event.fee, 50, "YieldHarvested fee must be 50");
+    assert_eq!(event.prize_pot, 4_950, "YieldHarvested prize_pot must be 4,950");
     assert_eq!(
         event.fee + event.prize_pot,
         event.raw_yield,
@@ -771,8 +673,8 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     );
 
     let updated_pool = read_pool(&ctx.svm, 1);
-    assert_eq!(updated_pool.total_prizes_allocated, 4_950);
-    assert_eq!(updated_pool.total_fees_accrued, 50);
+    assert_eq!(updated_pool.total_prizes_allocated, 4_950, "Pool total_prizes_allocated must match prize pot");
+    assert_eq!(updated_pool.total_fees_accrued, 50, "Pool total_fees_accrued must match fee");
 }
 
 #[test]
@@ -791,11 +693,8 @@ fn test_harvest_fails_double_harvest_same_cycle() {
     send_harvest(&mut ctx, 1, 0).expect("first harvest should succeed");
 
     // Second harvest in same cycle should fail
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(
-        err.contains("AwaitingRandomnessFreeze") || err.contains("CycleNotEnded"),
-        "got: {err}"
-    );
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -815,8 +714,8 @@ fn test_harvest_fails_current_draw_cycle_id_overflow() {
         p.current_draw_cycle_id = u32::MAX;
     });
 
-    let err = send_harvest(&mut ctx, 1, 0).unwrap_err();
-    assert!(err.contains("MathOverflow"), "got: {err}");
+    let res = send_harvest(&mut ctx, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -837,23 +736,23 @@ fn test_harvest_yield_fee_truncation_rounding() {
 
     let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with fee truncation should succeed");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
-    assert_eq!(event.crank, ctx.crank.pubkey());
-    assert_eq!(event.raw_yield, 9_999);
-    assert_eq!(event.fee, 0);
-    assert_eq!(event.prize_pot, 9_999);
+    assert_eq!(event.crank, ctx.crank.pubkey(), "YieldHarvested crank must match caller");
+    assert_eq!(event.raw_yield, 9_999, "YieldHarvested raw_yield must be 9,999");
+    assert_eq!(event.fee, 0, "YieldHarvested fee must be 0 due to truncation");
+    assert_eq!(event.prize_pot, 9_999, "YieldHarvested prize_pot must be 9,999");
 
     let updated_pool = read_pool(&ctx.svm, 1);
-    assert_eq!(updated_pool.total_prizes_allocated, 9_999);
-    assert_eq!(updated_pool.total_fees_accrued, 0);
+    assert_eq!(updated_pool.total_prizes_allocated, 9_999, "Pool total_prizes_allocated must match 9,999");
+    assert_eq!(updated_pool.total_fees_accrued, 0, "Pool total_fees_accrued must be 0");
 }
 
 #[test]
 fn test_harvest_yield_exact_temporal_boundaries() {
-    let cycle_end_at = 2_000_000_000;
+    let cycle_end_at = 1_700_050_000i64;
 
     // Boundary 1: cycle_end_at - 1 must fail with CycleNotEnded
     {
-        let mut ctx = setup_happy(
+        let mut ctx = setup_happy_with_cycle_end(
             10,
             0,
             100,
@@ -862,25 +761,17 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             10_000_000,
             10_000_000,
             10_000_000,
+            cycle_end_at,
         );
-        let (pda, _) = pool_pda(1);
-        let mut acct = ctx.svm.get_account(&pda).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
-        pool.current_cycle_end_at = cycle_end_at;
-        ctx.svm.set_account(pda, acct).unwrap();
 
-        warp_clock(&mut ctx.svm, cycle_end_at - 1);
+        warp_to_timestamp(&mut ctx.svm, cycle_end_at - 1);
         let res = send_harvest(&mut ctx, 1, 0);
-        let err = res.unwrap_err();
-        assert!(
-            err.contains("CycleNotEnded"),
-            "Expected CycleNotEnded, got: {err}"
-        );
+        assert_custom_error(res, anchor::error::PremiumBondsError::CycleNotEnded);
     }
 
     // Boundary 2: cycle_end_at must succeed
     {
-        let mut ctx = setup_happy(
+        let mut ctx = setup_happy_with_cycle_end(
             10,
             0,
             100,
@@ -889,14 +780,10 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             10_000_000,
             10_000_000,
             10_000_000,
+            cycle_end_at,
         );
-        let (pda, _) = pool_pda(1);
-        let mut acct = ctx.svm.get_account(&pda).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
-        pool.current_cycle_end_at = cycle_end_at;
-        ctx.svm.set_account(pda, acct).unwrap();
 
-        warp_clock(&mut ctx.svm, cycle_end_at);
+        warp_to_timestamp(&mut ctx.svm, cycle_end_at);
         let res = send_harvest(&mut ctx, 1, 0);
         assert!(
             res.is_ok(),
@@ -907,7 +794,7 @@ fn test_harvest_yield_exact_temporal_boundaries() {
 
     // Boundary 3: cycle_end_at + 1 must succeed
     {
-        let mut ctx = setup_happy(
+        let mut ctx = setup_happy_with_cycle_end(
             10,
             0,
             100,
@@ -916,14 +803,10 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             10_000_000,
             10_000_000,
             10_000_000,
+            cycle_end_at,
         );
-        let (pda, _) = pool_pda(1);
-        let mut acct = ctx.svm.get_account(&pda).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acct.data[8..]);
-        pool.current_cycle_end_at = cycle_end_at;
-        ctx.svm.set_account(pda, acct).unwrap();
 
-        warp_clock(&mut ctx.svm, cycle_end_at + 1);
+        warp_to_timestamp(&mut ctx.svm, cycle_end_at + 1);
         let res = send_harvest(&mut ctx, 1, 0);
         assert!(
             res.is_ok(),

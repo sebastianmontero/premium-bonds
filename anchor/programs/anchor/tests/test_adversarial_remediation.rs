@@ -473,25 +473,9 @@ fn test_sell_bonds_fails_when_committed_yield_exceeds_vault() {
 
     // Increase total_prizes_allocated on pool to 50,000,000 (total book liabilities = 10M principal + 50M prizes = 60M)
     // While pool vault only has 10M PST
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_prizes_allocated = 50_000_000;
-
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_prizes_allocated(50_000_000)
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
@@ -559,26 +543,10 @@ fn test_claim_winnings_fails_when_insolvent() {
     send_e2e_buy_bonds(&mut ctx, 10_000).unwrap();
 
     // Set up user_winnings with 5_000_000_000 unclaimed winnings and pool with 5_000_000_000 total_prizes_allocated
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_prizes_allocated = 5_000_000_000;
     // Total liabilities = 10_000_000_000 principal + 5_000_000_000 allocated = 15_000_000_000
-
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_prizes_allocated(5_000_000_000)
+        .inject(&mut ctx.svm);
 
     let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000_000, 0, 0);
@@ -658,26 +626,10 @@ fn test_withdraw_fees_fails_when_insolvent() {
     send_e2e_buy_bonds(&mut ctx, 50_000).unwrap();
 
     // Set accrued fees = 2,000_000_000 on pool (total book liabilities = 50B principal + 2B fees = 52B)
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 2_000_000_000;
-    pool.total_fees_withdrawn = 0;
-
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, pool) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(2_000_000_000)
+        .with_fees_withdrawn(0)
+        .inject(&mut ctx.svm);
 
     // Impair Huma assets to 40,000_000_000 (below 52,000_000_000 book liabilities) with 50_000_000_000 PST supply
     set_huma_solvency_state(
@@ -740,17 +692,17 @@ fn test_withdraw_fees_fails_when_insolvent() {
 
 #[test]
 fn test_solvency_dust_tolerance_boundary() {
-    let pool = anchor::PrizePool {
-        total_deposited_principal: 10_000_000,
-        total_fees_accrued: 1_000_000,
-        total_fees_withdrawn: 0,
-        total_prizes_allocated: 5_000_000,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let mut pool = PrizePoolTestBuilder::new(1)
+        .with_principal(10_000_000)
+        .build();
+    pool.total_fees_accrued = 1_000_000;
+    pool.total_fees_withdrawn = 0;
+    pool.total_prizes_allocated = 5_000_000;
     // Book value = 10M + 1M + 5M = 16,000,000
 
     // Deficit of 1,000 lamports (current_value = 15,999,000) -> within SOLVENCY_DUST_TOLERANCE -> OK
-    assert!(pool.assert_solvent(16_000_000 - 1_000).is_ok());
+    pool.assert_solvent(16_000_000 - 1_000)
+        .expect("Deficit within dust tolerance must be accepted");
 
     // Deficit of 1,001 lamports (current_value = 15,998,999) -> exceeds tolerance -> error
     assert_eq!(
@@ -1304,50 +1256,12 @@ fn test_v1_registry_full_rejects_new_buyer_allows_existing_topup() {
 
     // Inject small registry with capacity = 2 for pool 1
     let small_registry = Keypair::new().pubkey();
-    let reg_space = 8
-        + std::mem::size_of::<anchor::state::TicketRegistry>()
-        + 2 * std::mem::size_of::<anchor::state::UserEntry>();
-    let mut reg_data = vec![0u8; reg_space];
-    reg_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
-    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(
-        &mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()],
-    );
-    header.pool_id = 1;
-    header.capacity = 2;
-    header.user_count = 0;
-    header.version = anchor::state::TicketRegistry::CURRENT_VERSION;
-    ctx.svm
-        .set_account(
-            small_registry,
-            Account {
-                lamports: 10_000_000_000,
-                data: reg_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_registry_with_entries(&mut ctx.svm, small_registry, 1, 2, &[]);
 
     // Update pool.ticket_registry = small_registry
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.ticket_registry = small_registry;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_ticket_registry(small_registry)
+        .inject(&mut ctx.svm);
     ctx.ticket_registry = small_registry;
 
     // Helper to buy bonds for a user
@@ -1447,24 +1361,9 @@ fn test_v2_sell_bonds_fail_fast_on_paused_pool_with_spoofed_huma() {
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
     // Pause the pool
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.status = anchor::PoolStatus::Paused as u8;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_status(anchor::PoolStatus::Paused)
+        .inject(&mut ctx.svm);
 
     // Pass valid huma_pool_state matching pool.huma_pool_state, but pool is paused so must fail fast with PoolPaused
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -1524,25 +1423,10 @@ fn test_v2_claim_winnings_fail_fast_on_frozen_pool() {
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 1_000_000, 0, 0);
 
     // Freeze pool for draw
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.is_frozen_for_draw = 1;
-    pool.total_prizes_allocated = 1_000_000;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_frozen(true)
+        .with_prizes_allocated(1_000_000)
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
@@ -1598,26 +1482,11 @@ fn test_v2_withdraw_fees_fail_fast_on_paused_pool() {
     );
 
     // Pause pool and set accrued fees
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.status = anchor::PoolStatus::Paused as u8;
-    pool.total_fees_accrued = 1_000_000;
-    pool.fee_wallet = fee_wallet;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_status(anchor::PoolStatus::Paused)
+        .with_fees_accrued(1_000_000)
+        .with_fee_wallet(fee_wallet)
+        .inject(&mut ctx.svm);
 
     let (global_config, _) = global_config_pda();
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -1736,12 +1605,13 @@ fn test_v3_withdraw_fees_rejects_unauthorized_signer() {
     let (pool_pda_addr, _) = pool_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
+    let fee_wallet = read_pool_state(&ctx.svm, 1).fee_wallet;
 
     let accounts = anchor::accounts::WithdrawFees {
         admin: attacker.pubkey(), // Attacker tries to act as admin
         global_config,
         pool: pool_pda_addr,
-        fee_wallet: attacker.pubkey(),
+        fee_wallet,
         token_mint: ctx.usdc_mint,
         pool_pst_vault,
         pending_redemption,
@@ -1773,7 +1643,7 @@ fn test_v3_withdraw_fees_rejects_unauthorized_signer() {
     let msg = Message::new_with_blockhash(&[ix], Some(&attacker.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert!(res.is_err(), "Non-admin signer must be rejected");
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
 // ─── Vector 4: Financial Math & Zero-Mutation Invariance ───────────────────
@@ -1869,24 +1739,9 @@ fn test_v4_claim_winnings_solvency_failure_preserves_liabilities() {
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
     // Set up 5,000,000 allocated prizes
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_prizes_allocated = 5_000_000;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_prizes_allocated(5_000_000)
+        .inject(&mut ctx.svm);
 
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000, 0, 0);
 
@@ -1961,25 +1816,10 @@ fn test_v4_withdraw_fees_solvency_failure_preserves_liabilities() {
     );
 
     // Accrue 2,000,000 fees in pool
-    let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_fees_accrued = 2_000_000;
-    pool.fee_wallet = fee_wallet;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(2_000_000)
+        .with_fee_wallet(fee_wallet)
+        .inject(&mut ctx.svm);
 
     // Impair Huma solvency
     set_huma_solvency_state(
@@ -2193,57 +2033,21 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     inject_token_2022_mint(&mut svm, pst_mint, 6, None);
 
     let ticket_registry = Keypair::new().pubkey();
-    let mut reg_data = vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE];
-    reg_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
-    let header = bytemuck::from_bytes_mut::<anchor::state::TicketRegistry>(
-        &mut reg_data[8..8 + std::mem::size_of::<anchor::state::TicketRegistry>()],
-    );
-    header.pool_id = pool_id;
-    header.capacity = 100;
-    header.user_count = 1;
-    header.total_active_tickets = 10;
-    header.version = anchor::state::TicketRegistry::CURRENT_VERSION;
-
-    let entry_offset = 8 + std::mem::size_of::<anchor::state::TicketRegistry>();
-    let entry = bytemuck::from_bytes_mut::<anchor::state::UserEntry>(
-        &mut reg_data[entry_offset..entry_offset + std::mem::size_of::<anchor::state::UserEntry>()],
-    );
-    entry.owner = winner.pubkey();
-    entry.active = 10;
-    entry.pending = 0;
-
-    svm.set_account(
-        ticket_registry,
-        Account {
-            lamports: 10_000_000_000,
-            data: reg_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    let entries = [UserEntryTestBuilder::new().with_owner(winner.pubkey()).with_active(10).build()];
+    inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 100, &entries);
 
     let (pool_pda_addr, _) = pool_pda(pool_id);
     let (user_winnings, _) = user_winnings_pda(pool_id, &winner.pubkey());
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
     // Initialize pool with 3600 seconds payout timelock
-    inject_pool(
-        &mut svm,
-        pool_id,
-        token_mint,
-        ticket_registry,
-        anchor::PoolStatus::Active,
-        false,
-    );
-    {
-        let mut acc = svm.get_account(&pool_pda_addr).unwrap();
-        let pool = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        pool.total_prizes_allocated = 10_000_000;
-        pool.payout_timelock_seconds = 3600;
-        svm.set_account(pool_pda_addr, acc).unwrap();
-    }
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_prizes_allocated(10_000_000)
+        .with_payout_timelock_seconds(3600)
+        .inject(&mut svm);
 
     // Initialize completed draw cycle completed at timestamp 1000
     let mut dc = default_draw_cycle(pool_id, 0, anchor::DrawStatus::Complete);
@@ -2296,7 +2100,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     };
 
     // 1. Clock timestamp = 1_700_002_000 (< 1_700_000_000 + 3600 = 1_700_003_600) -> fails with PayoutTimelockActive
-    set_clock_timestamp(&mut svm, 1_700_002_000);
+    warp_to_timestamp(&mut svm, 1_700_002_000);
 
     let ix = build_reinvest_ix(payout_reg, user_winnings);
     let bh = svm.latest_blockhash();
@@ -2308,7 +2112,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     // 2. Advance clock timestamp to 1_700_003_601 (>= 1_700_003_600) -> succeeds!
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
-    set_clock_timestamp(&mut svm, 1_700_003_601);
+    warp_to_timestamp(&mut svm, 1_700_003_601);
 
     let accounts2 = anchor::accounts::ReinvestWinnings {
         crank: crank2.pubkey(),
@@ -2530,27 +2334,11 @@ fn test_v4_terminal_share_clamping_withdraw_fees() {
     let (pending_redemption, _) = pending_redemption_pda(1, 0);
 
     // Set pool state to 0 principal, 0 prizes allocated, 5 USDC accrued fees
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_deposited_principal = 0;
-    pool.total_prizes_allocated = 0;
-    pool.total_fees_accrued = 5_000_000;
-    pool.total_fees_withdrawn = 0;
-    pool.fee_wallet = fee_wallet;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_solvency_state(0, 0, 5_000_000)
+        .with_fees_withdrawn(0)
+        .with_fee_wallet(fee_wallet)
+        .inject(&mut ctx.svm);
 
     // Inject pool_pst_vault with 5_000_000 PST tokens
     inject_token_account(
@@ -2635,26 +2423,10 @@ fn test_v4_terminal_share_clamping_claim_non_reinvested_winnings() {
     let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
 
     // Pool has 0 principal, 0 fees, 3 USDC prizes allocated (unawarded remainder/winnings)
-    let mut pool = read_pool_state(&ctx.svm, 1);
-    pool.total_deposited_principal = 0;
-    pool.total_fees_accrued = 0;
-    pool.total_fees_withdrawn = 0;
-    pool.total_prizes_allocated = 3_000_000;
-    let mut pool_data = vec![];
-    pool_data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    pool_data.extend_from_slice(bytemuck::bytes_of(&pool));
-    ctx.svm
-        .set_account(
-            pool_pda_addr,
-            Account {
-                lamports: 10_000_000,
-                data: pool_data,
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_solvency_state(0, 3_000_000, 0)
+        .with_fees_withdrawn(0)
+        .inject(&mut ctx.svm);
 
     // Set user winnings to 3 USDC unclaimed
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 3_000_000, 0, 0);

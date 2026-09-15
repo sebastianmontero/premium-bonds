@@ -103,23 +103,24 @@ fn test_v1_canary_buffer_deserialization() {
 
     // Verify deserialization succeeds cleanly and preserves canary data
     let read_acc = ctx.svm.get_account(&pending_pda).unwrap();
-    assert_eq!(read_acc.data.len(), 160);
+    assert_eq!(read_acc.data.len(), 160, "pending_pda data length must be 160 bytes");
     let deserialized =
         anchor::state::PendingRedemption::try_deserialize(&mut &read_acc.data[..]).unwrap();
-    assert_eq!(deserialized.pool_id, 1);
-    assert_eq!(deserialized.redemption_id, 42);
-    assert_eq!(deserialized.amount, 5_000_000);
-    assert_eq!(&deserialized._reserved[0..8], &canary);
+    assert_eq!(deserialized.pool_id, 1, "pool_id must be 1");
+    assert_eq!(deserialized.redemption_id, 42, "redemption_id must be 42");
+    assert_eq!(deserialized.amount, 5_000_000, "amount must be 5 USDC");
+    assert_eq!(&deserialized._reserved[0..8], &canary, "canary bytes must be preserved");
 }
 
 #[test]
 fn test_v1_rent_exemption_exact_160_bytes() {
-    assert_eq!(anchor::state::PendingRedemption::INIT_SPACE, 152);
-    assert_eq!(8 + anchor::state::PendingRedemption::INIT_SPACE, 160);
-    assert_eq!((8 + anchor::state::PendingRedemption::INIT_SPACE) % 8, 0);
+    assert_eq!(anchor::state::PendingRedemption::INIT_SPACE, 152, "PendingRedemption INIT_SPACE must be 152");
+    assert_eq!(8 + anchor::state::PendingRedemption::INIT_SPACE, 160, "PendingRedemption total account size must be 160 bytes");
+    assert_eq!((8 + anchor::state::PendingRedemption::INIT_SPACE) % 8, 0, "Account size must be 8-byte aligned");
     assert_eq!(
         core::mem::offset_of!(anchor::state::PendingRedemption, _reserved),
-        88
+        88,
+        "Reserved offset must start at 88"
     );
 }
 
@@ -204,33 +205,21 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
 fn test_v2_lazy_state_migration_mutated_accounts() {
     let mut ctx = setup_e2e();
     let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
 
     // 1. Force pool version to 0
-    let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(
-        &mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    pool_struct.version = 0;
-    ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, pool_id)
+        .with_version(0)
+        .inject(&mut ctx.svm);
 
     // Verify pool is version 0
-    let pool_acc_before = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_before = bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acc_before.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    assert_eq!(pool_before.version, 0);
+    assert_eq!(read_pool_state(&ctx.svm, pool_id).version, 0);
 
     // 2. Buy bonds on this pool — handler executes ensure_current_version()
     send_e2e_buy_bonds(&mut ctx, 5).unwrap();
 
     // 3. Verify pool version was migrated to CURRENT_VERSION (1) in-place
-    let pool_acc_after = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_after = bytemuck::from_bytes::<anchor::PrizePool>(
-        &pool_acc_after.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
     assert_eq!(
-        pool_after.version,
+        read_pool_state(&ctx.svm, pool_id).version,
         anchor::state::PrizePool::CURRENT_VERSION
     );
 }
@@ -318,25 +307,13 @@ fn test_v2_batch_boundary_slice_version_migration() {
 
     let ticket_registry_key = ctx.ticket_registry;
     // Forge all 3 user entries to version: 0 in the TicketRegistry
-    let mut reg_acc = ctx.svm.get_account(&ticket_registry_key).unwrap();
-    {
-        let entries_slice = &mut reg_acc.data[104..];
-        let entries =
-            bytemuck::try_cast_slice_mut::<u8, anchor::state::UserEntry>(entries_slice).unwrap();
-        for entry in entries.iter_mut().take(3) {
-            entry.version = 0;
-        }
-    }
-    ctx.svm.set_account(ticket_registry_key, reg_acc).unwrap();
+    force_user_entries_version(&mut ctx.svm, ticket_registry_key, 0, 3);
 
     // Freeze pool and advance to AwaitingRandomness
     let (pool_pda_addr, _) = pool_pda(1);
-    let mut pool_acc = ctx.svm.get_account(&pool_pda_addr).unwrap();
-    let pool_struct = bytemuck::from_bytes_mut::<anchor::PrizePool>(
-        &mut pool_acc.data[8..8 + std::mem::size_of::<anchor::PrizePool>()],
-    );
-    pool_struct.is_frozen_for_draw = 1;
-    ctx.svm.set_account(pool_pda_addr, pool_acc).unwrap();
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_frozen(true)
+        .inject(&mut ctx.svm);
 
     let (draw_cycle_pda, _) = draw_cycle_pda(1, 0);
     let draw_cycle = anchor::state::DrawCycle {
@@ -395,9 +372,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
 
     // Verify Batch Boundary Slice:
     // Entries 0..2 should have version = 1, while entry 2 must remain version = 0!
-    let reg_acc_after = ctx.svm.get_account(&ticket_registry_key).unwrap();
-    let entries_slice = &reg_acc_after.data[104..];
-    let entries = bytemuck::try_cast_slice::<u8, anchor::state::UserEntry>(entries_slice).unwrap();
+    let entries = read_ticket_registry_entries(&ctx.svm, ticket_registry_key);
     assert_eq!(
         entries[0].version,
         anchor::state::UserEntry::CURRENT_VERSION
@@ -615,8 +590,7 @@ fn test_v5_resize_registry_preserves_header() {
     assert_eq!(resized_len, initial_len + 10_240);
 
     // Verify 96-byte TicketRegistry header fields preserved
-    let reg_acc = ctx.svm.get_account(&ticket_registry_key).unwrap();
-    let header = bytemuck::from_bytes::<anchor::state::TicketRegistry>(&reg_acc.data[8..104]);
+    let header = read_ticket_registry(&ctx.svm, ticket_registry_key);
     assert_eq!(header.pool_id, 1);
     assert_eq!(
         header.version,

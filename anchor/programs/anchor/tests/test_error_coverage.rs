@@ -53,11 +53,9 @@ fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
 
 #[test]
 fn test_err_pool_not_active_and_invalid_status() {
-    let pool = anchor::PrizePool {
-        status: anchor::PoolStatus::Paused as u8,
-        bond_price: 1_000_000,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let mut pool = PrizePoolTestBuilder::new(1).build();
+    pool.status = anchor::PoolStatus::Paused as u8;
+    pool.bond_price = 1_000_000;
     assert_eq!(
         pool.validate_buy_bonds(1).unwrap_err(),
         PremiumBondsError::PoolNotActive.into()
@@ -136,12 +134,9 @@ fn test_err_bond_price_locked_and_pool_states() {
         anchor::PoolStatus::Active,
         false,
     );
-    {
-        let mut acc = svm.get_account(&pool_addr).unwrap();
-        let p = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
+    mutate_pool_state(&mut svm, pool_id, |p| {
         p.total_deposited_principal = 10_000_000;
-        svm.set_account(pool_addr, acc).unwrap();
-    }
+    });
     let (gc, _) = global_config_pda();
     let accounts = anchor::accounts::UpdatePoolConfig {
         admin: admin.pubkey(),
@@ -157,7 +152,7 @@ fn test_err_bond_price_locked_and_pool_states() {
         accounts,
         data: anchor::instruction::UpdatePoolConfig {
             new_stake_cycle_duration_hrs: None,
-            new_bond_price: Some(2_000_000), // Modify bond price while principal exists
+            new_bond_price: Some(2_000_000), // Cannot update price with principal
             new_fee_basis_points: None,
             new_min_yield_threshold: None,
             new_max_yield_basis_points: None,
@@ -174,15 +169,9 @@ fn test_err_bond_price_locked_and_pool_states() {
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
     );
-}
 
-#[test]
-fn test_err_pool_paused_and_closed_guards() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    let token_mint = Keypair::new().pubkey();
-    let registry = Keypair::new().pubkey();
-
+    // PoolClosed & DrawAlreadyVoided
+    let pool_id = 2;
     let pool_addr = inject_pool(
         &mut svm,
         pool_id,
@@ -193,17 +182,11 @@ fn test_err_pool_paused_and_closed_guards() {
     );
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
-    inject_draw_cycle(
-        &mut svm,
-        pool_id,
-        0,
-        &anchor::state::DrawCycle {
-            prize_pot: 1_000_000,
-            cycle_fee_collected: 10_000,
-            status: anchor::DrawStatus::Complete,
-            ..unsafe { std::mem::zeroed() }
-        },
-    );
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::Complete)
+        .with_prize_pot(1_000_000)
+        .with_cycle_fee(10_000)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,
@@ -242,20 +225,25 @@ fn test_err_pool_paused_and_closed_guards() {
 
 #[test]
 fn test_err_invalid_bond_quantity_and_registry_full() {
-    let pool = anchor::PrizePool {
-        status: anchor::PoolStatus::Active as u8,
-        bond_price: 1_000_000,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let pool = PrizePoolTestBuilder::new(1)
+        .with_bond_price(1_000_000)
+        .build();
     assert_eq!(
         pool.validate_buy_bonds(0).unwrap_err(),
         PremiumBondsError::InvalidBondQuantity.into()
     );
 
     let reg = anchor::TicketRegistry {
+        pool_id: 1,
         capacity: 100,
         user_count: 100,
-        ..unsafe { std::mem::zeroed() }
+        total_active_tickets: 0,
+        total_pending_tickets: 0,
+        draw_cycle_id: 0,
+        draw_prepared_up_to: 0,
+        version: anchor::state::TicketRegistry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 64],
     };
     assert_eq!(
         reg.validate_can_add_user().unwrap_err(),
@@ -440,25 +428,13 @@ fn test_err_cycle_not_ended_and_freeze_guards() {
 
     let huma_pool_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut svm, huma_pool_state);
-    inject_pool_with_huma_state(
-        &mut svm,
-        pool_id,
-        token_mint,
-        registry,
-        anchor::PoolStatus::Active,
-        false,
-        huma_pool_state,
-    );
-    {
-        let mut acc = svm.get_account(&pool_addr).unwrap();
-        let p = bytemuck::from_bytes_mut::<anchor::PrizePool>(&mut acc.data[8..]);
-        p.current_cycle_end_at = 2_000_000_000;
-        svm.set_account(pool_addr, acc).unwrap();
-    }
-    svm.set_sysvar::<solana_sdk::sysvar::clock::Clock>(&solana_sdk::sysvar::clock::Clock {
-        unix_timestamp: 1_000_000_000, // before cycle end
-        ..Default::default()
-    });
+    PrizePoolTestBuilder::new(pool_id)
+        .with_token_mint(token_mint)
+        .with_ticket_registry(registry)
+        .with_status(anchor::PoolStatus::Active)
+        .with_huma_pool_state(huma_pool_state)
+        .with_cycle_end_at(2_000_000_000)
+        .inject(&mut svm);
 
     let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
     let randomness_account = Keypair::new().pubkey();
@@ -510,17 +486,11 @@ fn test_err_draw_already_voided() {
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
-    inject_draw_cycle(
-        &mut svm,
-        pool_id,
-        0,
-        &anchor::state::DrawCycle {
-            prize_pot: 1_000_000,
-            cycle_fee_collected: 10_000,
-            status: anchor::DrawStatus::Complete,
-            ..unsafe { std::mem::zeroed() }
-        },
-    );
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::Complete)
+        .with_prize_pot(1_000_000)
+        .with_cycle_fee(10_000)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,
@@ -570,17 +540,11 @@ fn test_err_payouts_already_started() {
     let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
     let (payout_reg, _) = payout_pda(pool_id, 0);
 
-    inject_draw_cycle(
-        &mut svm,
-        pool_id,
-        0,
-        &anchor::state::DrawCycle {
-            prize_pot: 1_000_000,
-            cycle_fee_collected: 10_000,
-            status: anchor::DrawStatus::Complete,
-            ..unsafe { std::mem::zeroed() }
-        },
-    );
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::Complete)
+        .with_prize_pot(1_000_000)
+        .with_cycle_fee(10_000)
+        .inject(&mut svm);
     inject_payout_registry(
         &mut svm,
         pool_id,
@@ -745,12 +709,10 @@ fn test_err_randomness_not_expired_and_unauthorized_crank() {
 
 #[test]
 fn test_err_fees_already_withdrawn() {
-    let mut pool = anchor::PrizePool {
-        total_fees_accrued: 100_000,
-        total_fees_withdrawn: 80_000,
-        total_prizes_allocated: 500_000,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let mut pool = PrizePoolTestBuilder::new(1).build();
+    pool.total_fees_accrued = 100_000;
+    pool.total_fees_withdrawn = 80_000;
+    pool.total_prizes_allocated = 500_000;
     // Available unwithdrawn fees = 20_000. Trying to reverse 30_000 fees must fail with FeesAlreadyWithdrawn
     let res = pool.rollback_draw_liabilities(100_000, 30_000);
     assert_eq!(
@@ -869,14 +831,8 @@ fn test_err_winner_mismatch_and_invalid_index() {
         winners: &winners,
     };
 
-    let uw_user1 = anchor::state::UserWinnings {
-        user: user1,
-        ..unsafe { std::mem::zeroed() }
-    };
-    let uw_user2 = anchor::state::UserWinnings {
-        user: user2,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let uw_user1 = UserWinningsTestBuilder::new(1, user1).build();
+    let uw_user2 = UserWinningsTestBuilder::new(1, user2).build();
 
     // 1. InvalidWinnerIndex
     assert_eq!(
@@ -1015,10 +971,9 @@ fn test_err_adversarial_governance_and_extensions() {
     assert_custom_error(res_bob, PremiumBondsError::NotPendingAdmin);
 
     // 3. Solvency helper assert_solvent error code
-    let pool = anchor::PrizePool {
-        total_deposited_principal: 10_000_000,
-        ..unsafe { std::mem::zeroed() }
-    };
+    let pool = PrizePoolTestBuilder::new(1)
+        .with_principal(10_000_000)
+        .build();
     assert_eq!(
         pool.assert_solvent(0).unwrap_err(),
         PremiumBondsError::YieldVenueInsolvent.into()

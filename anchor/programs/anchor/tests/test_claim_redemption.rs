@@ -118,7 +118,7 @@ fn send_claim_redemption_guard(
     override_pool_vault: Option<Pubkey>,
     override_user_token_account: Option<Pubkey>,
     override_huma_program: Option<Pubkey>,
-) -> Result<(), String> {
+) -> TxResult {
     let beneficiary = beneficiary.unwrap_or_else(|| ctx.user.pubkey());
     let huma = TestHumaAccounts {
         huma_program: override_huma_program.unwrap_or(huma_program_id()),
@@ -143,10 +143,7 @@ fn send_claim_redemption_guard(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&caller_kp.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller_kp]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -159,9 +156,8 @@ fn test_claim_redemption_fails_wrong_user() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, Some(wrong_user));
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
-    let err = send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None)
-        .unwrap_err();
-    assert!(err.contains("InvalidRedemptionOwner"), "got: {err}");
+    let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None);
+    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
 }
 
 #[test]
@@ -170,7 +166,7 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
-    let err = send_claim_redemption_guard(
+    let res = send_claim_redemption_guard(
         &mut ctx,
         &user_kp,
         None,
@@ -180,29 +176,17 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
         None,
         None,
         None,
-    )
-    .unwrap_err();
-    assert!(
-        err.contains("ConstraintAddress") || err.contains("ConstraintRaw"),
-        "Expected address constraint failure, got: {err}"
     );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
 #[test]
 fn test_claim_redemption_fails_pool_id_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
-    // Use pool_id = 2 instead of 1. It will fail to resolve pool account or pending redemption constraint checks.
-    let err = send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None)
-        .unwrap_err();
-    assert!(
-        err.contains("AccountNotFound")
-            || err.contains("ConstraintSeeds")
-            || err.contains("ConstraintRaw")
-            || err.contains("AccountNotInitialized")
-            || err.contains("AccountOwnedByWrongProgram"),
-        "Expected constraint mismatch error, got: {err}"
-    );
+    // Use pool_id = 2 instead of 1. Pool 2 account is not initialized (owned by system program).
+    let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
 }
 
 #[test]
@@ -210,7 +194,7 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
     let wrong_huma_program = Pubkey::new_unique();
-    let err = send_claim_redemption_guard(
+    let res = send_claim_redemption_guard(
         &mut ctx,
         &user_kp,
         None,
@@ -220,12 +204,8 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
         None,
         None,
         Some(wrong_huma_program),
-    )
-    .unwrap_err();
-    assert!(
-        err.contains("ConstraintAddress"),
-        "Expected address check failure for Huma Program, got: {err}"
     );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -406,7 +386,7 @@ fn test_claim_redemption_fails_simulated_disburse_failure() {
         huma_lender_state,
     );
 
-    assert_error_contains(res, &["SimulatedDisburseFailure"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedDisburseFailure);
 
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -420,16 +400,9 @@ fn set_huma_total_assets(svm: &mut LiteSVM, huma_pool_state: Pubkey, assets: u12
 }
 
 fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
-    let (pda, _) = pool_pda(pool_id);
-    let mut pool = read_pool_state(svm, pool_id);
-    pool.total_prizes_allocated = amount;
-    use anchor_lang::Discriminator;
-    let mut data = vec![];
-    data.extend_from_slice(&anchor::PrizePool::DISCRIMINATOR);
-    data.extend_from_slice(bytemuck::bytes_of(&pool));
-    let mut account = svm.get_account(&pda).unwrap();
-    account.data = data;
-    svm.set_account(pda, account).unwrap();
+    PrizePoolTestBuilder::from_state(svm, pool_id)
+        .with_prizes_allocated(amount)
+        .inject(svm);
 }
 
 fn send_e2e_claim_winnings_for_user(
@@ -438,7 +411,7 @@ fn send_e2e_claim_winnings_for_user(
     huma_config: Pubkey,
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
-) -> Result<(), String> {
+) -> TxResult {
     let (pool_pda_key, _) = pool_pda(1);
     let pool = read_pool_state(&ctx.svm, 1);
     let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
@@ -484,10 +457,7 @@ fn send_e2e_claim_winnings_for_user(
     let bh = ctx.svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+    ctx.svm.send_transaction(tx)
 }
 
 #[test]
@@ -686,21 +656,22 @@ fn test_claim_redemption_case_b_accrued_yield() {
     )
     .expect("Redemption 0 should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
-    assert_eq!(event.caller, user_a.pubkey());
-    assert_eq!(event.user, user_a.pubkey());
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.amount, 3_000_000);
-    assert_eq!(event.redemption_id, 0);
+    assert_eq!(event.caller, user_a.pubkey(), "event caller matches user_a");
+    assert_eq!(event.user, user_a.pubkey(), "event user matches user_a");
+    assert_eq!(event.pool_id, 1, "event pool_id matches");
+    assert_eq!(event.amount, 3_000_000, "event amount matches sold principal");
+    assert_eq!(event.redemption_id, 0, "event redemption_id is 0");
     assert_eq!(
         event.redemption_type,
-        anchor::state::RedemptionType::BondSale
+        anchor::state::RedemptionType::BondSale,
+        "event redemption_type is BondSale"
     );
-    assert!(event.pst_shares_locked > 0);
-    assert_eq!(event.huma_request_id, 0);
-    assert!(event.requested_at > 0);
-    assert!(event.timestamp > 0);
+    assert!(event.pst_shares_locked > 0, "pst_shares_locked is positive");
+    assert_eq!(event.huma_request_id, 0, "huma_request_id is 0");
+    assert!(event.requested_at > 0, "requested_at timestamp is valid");
+    assert!(event.timestamp > 0, "event timestamp is valid");
 
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000, "user_a USDC balance matches 93 USDC");
 
     // ── Operation 2: Claim 2,000,000 USDC winnings ──
     set_pool_prizes_allocated(&mut ctx.svm, 1, 2_000_000);
@@ -1010,16 +981,7 @@ fn test_claim_redemption_fails_on_double_claim() {
         Pubkey::default(),
         huma_lender_state,
     );
-    assert_error_contains(
-        res,
-        &[
-            "AccountNotInitialized",
-            "AccountNotFound",
-            "ConstraintOwner",
-            "3012",
-            "2003",
-        ],
-    );
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
 #[test]
