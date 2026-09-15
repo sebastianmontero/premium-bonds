@@ -108,6 +108,19 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
   });
 
   it("should handle dynamic modal selector derivation across lifecycle transitions", () => {
+    function selectPrizeEntry(
+      entries: PrizeHistoryEntry[],
+      target: { drawCycleId: number; winnerIndex: number }
+    ): PrizeHistoryEntry | null {
+      return (
+        entries.find(
+          (p) =>
+            p.drawCycleId === target.drawCycleId &&
+            p.winnerIndex === target.winnerIndex
+        ) ?? null
+      );
+    }
+
     const initialEntries: PrizeHistoryEntry[] = [
       {
         drawCycleId: 8,
@@ -132,12 +145,7 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
     const selectedPrizeKey = { drawCycleId: 8, winnerIndex: 0 };
 
     // Initial derived modal entry
-    let derivedModalEntry =
-      initialEntries.find(
-        (p) =>
-          p.drawCycleId === selectedPrizeKey.drawCycleId &&
-          p.winnerIndex === selectedPrizeKey.winnerIndex
-      ) ?? null;
+    let derivedModalEntry = selectPrizeEntry(initialEntries, selectedPrizeKey);
 
     assert.notStrictEqual(derivedModalEntry, null, "Modal entry must be found");
     assert.strictEqual(
@@ -160,12 +168,7 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
     });
 
     // Re-derive modal entry dynamically
-    derivedModalEntry =
-      updatedEntries.find(
-        (p) =>
-          p.drawCycleId === selectedPrizeKey.drawCycleId &&
-          p.winnerIndex === selectedPrizeKey.winnerIndex
-      ) ?? null;
+    derivedModalEntry = selectPrizeEntry(updatedEntries, selectedPrizeKey);
 
     assert.notStrictEqual(derivedModalEntry, null, "Modal entry must be found");
     assert.strictEqual(

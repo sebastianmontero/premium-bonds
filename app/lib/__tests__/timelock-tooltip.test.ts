@@ -24,11 +24,30 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
 
     const state = getPayoutTimelockState(revealedAt, timelockDuration, now);
 
-    assert.strictEqual(state.isTimelocked, true);
-    assert.strictEqual(state.remainingSeconds, 180);
-    assert.strictEqual(state.formattedRemaining, "03:00");
-    assert.strictEqual(state.progressPercent, 40);
-    assert.ok(state.formattedUnlockTime.length > 0);
+    assert.strictEqual(
+      state.isTimelocked,
+      true,
+      "Timelock must be active when now < revealedAt + timelockDuration"
+    );
+    assert.strictEqual(
+      state.remainingSeconds,
+      180,
+      "Remaining seconds must equal timelock duration minus elapsed time"
+    );
+    assert.strictEqual(
+      state.formattedRemaining,
+      "03:00",
+      "Formatted remaining time should be MM:SS"
+    );
+    assert.strictEqual(
+      state.progressPercent,
+      40,
+      "Progress percent should represent elapsed fraction (120/300 = 40%)"
+    );
+    assert.ok(
+      state.formattedUnlockTime.length > 0,
+      "Formatted unlock time must be non-empty"
+    );
   });
 
   it("should mark timelock as inactive once window has elapsed", () => {
@@ -38,20 +57,54 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
 
     const state = getPayoutTimelockState(revealedAt, timelockDuration, now);
 
-    assert.strictEqual(state.isTimelocked, false);
-    assert.strictEqual(state.remainingSeconds, 0);
-    assert.strictEqual(state.formattedRemaining, "00:00");
-    assert.strictEqual(state.progressPercent, 100);
+    assert.strictEqual(
+      state.isTimelocked,
+      false,
+      "Timelock must be inactive when elapsed time exceeds duration"
+    );
+    assert.strictEqual(
+      state.remainingSeconds,
+      0,
+      "Remaining seconds must clamp to 0"
+    );
+    assert.strictEqual(
+      state.formattedRemaining,
+      "00:00",
+      "Formatted remaining time must clamp to 00:00"
+    );
+    assert.strictEqual(
+      state.progressPercent,
+      100,
+      "Progress percent must reach 100% when elapsed"
+    );
   });
 
   it("should verify en and es localization files contain timelock keys", () => {
-    assert.ok(enMessages.Ledger.timelockTooltip);
-    assert.ok(enMessages.Ledger.timelockUnlocksAt);
-    assert.ok(esMessages.Ledger.timelockTooltip);
-    assert.ok(esMessages.Ledger.timelockUnlocksAt);
+    assert.ok(
+      enMessages.Ledger?.timelockTooltip,
+      "en.json Ledger must contain timelockTooltip key"
+    );
+    assert.ok(
+      enMessages.Ledger?.timelockUnlocksAt,
+      "en.json Ledger must contain timelockUnlocksAt key"
+    );
+    assert.ok(
+      esMessages.Ledger?.timelockTooltip,
+      "es.json Ledger must contain timelockTooltip key"
+    );
+    assert.ok(
+      esMessages.Ledger?.timelockUnlocksAt,
+      "es.json Ledger must contain timelockUnlocksAt key"
+    );
 
-    assert.ok(enMessages.Ledger.timelockUnlocksAt.includes("{time}"));
-    assert.ok(esMessages.Ledger.timelockUnlocksAt.includes("{time}"));
+    assert.ok(
+      enMessages.Ledger.timelockUnlocksAt.includes("{time}"),
+      "en.json timelockUnlocksAt must contain {time} parameter placeholder"
+    );
+    assert.ok(
+      esMessages.Ledger.timelockUnlocksAt.includes("{time}"),
+      "es.json timelockUnlocksAt must contain {time} parameter placeholder"
+    );
   });
 
   const Provider = NextIntlClientProvider as unknown as React.ComponentType<{
@@ -73,9 +126,15 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
     );
 
     // Verify it renders the badge text
-    assert.ok(html.includes("Timelocked"));
+    assert.ok(
+      html.includes("Timelocked"),
+      "StatusBadge HTML must contain badge text 'Timelocked'"
+    );
     // Verify it does NOT contain a title attribute that triggers browser flicker
-    assert.ok(!html.includes("title="));
+    assert.ok(
+      !html.includes("title="),
+      "StatusBadge HTML must not contain browser native title attribute"
+    );
   });
 
   it("should render TimelockTooltipContent with localized unlock time in en and es", () => {
@@ -95,8 +154,14 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
         React.createElement(TimelockTooltipContent, { timelock: mockTimelock })
       )
     );
-    assert.ok(htmlEn.includes("2m 00s"));
-    assert.ok(htmlEn.includes("Unlocks at 12:00:00 PM"));
+    assert.ok(
+      htmlEn.includes("2m 00s"),
+      "EN tooltip HTML must contain formatted remaining time"
+    );
+    assert.ok(
+      htmlEn.includes("Unlocks at 12:00:00 PM"),
+      "EN tooltip HTML must contain formatted unlock message"
+    );
 
     const htmlEs = renderToStaticMarkup(
       React.createElement(
@@ -105,9 +170,21 @@ describe("Settlement Timelock & Tooltip Verification Suite", () => {
         React.createElement(TimelockTooltipContent, { timelock: mockTimelock })
       )
     );
-    assert.ok(htmlEs.includes("2m 00s"));
-    assert.ok(htmlEs.includes("Se desbloquea a las 12:00:00 PM"));
-    assert.ok(htmlEs.includes("whitespace-normal"));
-    assert.ok(htmlEs.includes("break-words"));
+    assert.ok(
+      htmlEs.includes("2m 00s"),
+      "ES tooltip HTML must contain formatted remaining time"
+    );
+    assert.ok(
+      htmlEs.includes("Se desbloquea a las 12:00:00 PM"),
+      "ES tooltip HTML must contain formatted unlock message"
+    );
+    assert.ok(
+      htmlEs.includes("whitespace-normal"),
+      "ES tooltip HTML must contain responsive text wrap classes"
+    );
+    assert.ok(
+      htmlEs.includes("break-words"),
+      "ES tooltip HTML must contain word break classes"
+    );
   });
 });

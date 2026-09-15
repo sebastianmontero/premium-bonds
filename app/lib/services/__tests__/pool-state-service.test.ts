@@ -8,7 +8,8 @@ import {
   fetchTicketRegistryHeader,
   serializeTicketRegistry,
 } from "@/app/lib/bonds-sdk";
-import { address, getBase64Decoder } from "@solana/kit";
+import { address, Address, createSolanaRpc, getBase64Decoder } from "@solana/kit";
+import { MockRpcBuilder, MOCK_PUBKEY } from "@/app/lib/test-harness";
 
 describe("pool-state-service Unit Tests", () => {
   it("should export getPoolInfo and invalidatePoolInfoCache functions", () => {
@@ -28,13 +29,29 @@ describe("pool-state-service Unit Tests", () => {
     });
   });
 
-  it("should accept PoolFetchOptions with bypassCache: true", async () => {
-    // Calling getPoolInfo with bypassCache: true should not throw on options handling
-    try {
-      await getPoolInfo(1, { bypassCache: true });
-    } catch {
-      // In unit test environment without localnet RPC running, network error is expected and caught
-    }
+  it("should dispatch fresh RPC account fetch when bypassCache: true is requested", async () => {
+    let rpcFetchDispatched = false;
+    const baseRpc = new MockRpcBuilder().withAccount(MOCK_PUBKEY, null).build();
+
+    // Wrap to detect dispatch
+    const trackingRpc = {
+      ...baseRpc,
+      getMultipleAccounts: (pubkeys: (Address | string)[]) => {
+        rpcFetchDispatched = true;
+        return baseRpc.getMultipleAccounts(pubkeys);
+      },
+    };
+
+    const res = await getPoolInfo(1, {
+      bypassCache: true,
+      rpc: trackingRpc as unknown as ReturnType<typeof createSolanaRpc>,
+    });
+    assert.strictEqual(res, null, "Non-existent pool returns null");
+    assert.strictEqual(
+      rpcFetchDispatched,
+      true,
+      "bypassCache: true must dispatch RPC read"
+    );
   });
 
   describe("fetchTicketRegistryHeader", () => {

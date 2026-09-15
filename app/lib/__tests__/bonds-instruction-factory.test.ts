@@ -6,7 +6,13 @@ import {
   buildClaimRedemptionInstruction,
   buildReinvestWinningsInstruction,
   buildClaimNonReinvestedWinningsInstruction,
+  buildSellBondsInstruction,
 } from "../bonds-instruction-factory";
+import {
+  buildMockPrizePoolEncoded,
+  buildMockTicketRegistryEncoded,
+  MockRpcBuilder,
+} from "../test-harness";
 
 const BUY_BONDS_HUMA_POOL_STATE_INDEX = 11;
 const BUY_BONDS_HUMA_POOL_AUTHORITY_INDEX = 14;
@@ -24,12 +30,27 @@ test("bonds-instruction-factory: builds buy bonds instruction with all derived a
     userTokenAccount: dummyUserToken,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
-  assert.equal(ix.accounts.length, 21);
-  assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
-  assert.ok(ix.data && ix.data.length > 8);
+  assert.ok(ix, "Instruction must be successfully created");
+  assert.ok(ix.accounts, "Instruction must contain accounts array");
+  assert.equal(
+    ix.accounts.length,
+    21,
+    "Buy bonds instruction must contain exactly 21 accounts"
+  );
+  assert.equal(
+    ix.accounts[0].address,
+    dummyUser,
+    "Payer must be the first account in instruction"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "Payer account must be a writable signer"
+  );
+  assert.ok(
+    ix.data && ix.data.length > 8,
+    "Instruction data must contain 8-byte discriminator plus encoded parameters"
+  );
 });
 
 test("bonds-instruction-factory: derives humaPoolAuthority dynamically from custom humaPoolState", async () => {
@@ -51,15 +72,17 @@ test("bonds-instruction-factory: derives humaPoolAuthority dynamically from cust
     humaPoolState: customHumaPoolState,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
+  assert.ok(ix, "Instruction must be created");
+  assert.ok(ix.accounts, "Instruction accounts must be defined");
   assert.equal(
     ix.accounts[BUY_BONDS_HUMA_POOL_STATE_INDEX].address,
-    customHumaPoolState
+    customHumaPoolState,
+    "Huma pool state account must match custom override"
   );
   assert.equal(
     ix.accounts[BUY_BONDS_HUMA_POOL_AUTHORITY_INDEX].address,
-    expectedHumaAuthority
+    expectedHumaAuthority,
+    "Huma pool authority account must be derived from custom huma pool state"
   );
 });
 
@@ -74,11 +97,23 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
     userTokenAccount: dummyUserToken,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
-  assert.equal(ix.accounts.length, 19);
-  assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.ok(ix, "Claim redemption instruction must be created");
+  assert.ok(ix.accounts, "Claim redemption accounts must be defined");
+  assert.equal(
+    ix.accounts.length,
+    19,
+    "Claim redemption instruction must contain 19 accounts"
+  );
+  assert.equal(
+    ix.accounts[0].address,
+    dummyUser,
+    "User must be first account in claim redemption instruction"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "User must be writable signer for claim redemption"
+  );
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for self", async () => {
@@ -93,11 +128,23 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for self",
     ticketRegistry: dummyRegistry,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
-  assert.equal(ix.accounts.length, 9);
-  assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.ok(ix, "Reinvest winnings instruction must be created");
+  assert.ok(ix.accounts, "Instruction accounts must be defined");
+  assert.equal(
+    ix.accounts.length,
+    9,
+    "Reinvest winnings instruction must contain 9 accounts"
+  );
+  assert.equal(
+    ix.accounts[0].address,
+    dummyUser,
+    "User address must be payer signer"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "User account must be a writable signer"
+  );
 });
 
 test("bonds-instruction-factory: builds reinvest winnings instruction for third-party crank", async () => {
@@ -114,11 +161,19 @@ test("bonds-instruction-factory: builds reinvest winnings instruction for third-
     ticketRegistry: dummyRegistry,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
-  assert.equal(ix.accounts.length, 9);
-  assert.equal(ix.accounts[0].address, dummyCrank);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.ok(ix, "Reinvest winnings instruction for crank must be created");
+  assert.ok(ix.accounts, "Accounts array must be defined");
+  assert.equal(ix.accounts.length, 9, "Instruction must contain 9 accounts");
+  assert.equal(
+    ix.accounts[0].address,
+    dummyCrank,
+    "Crank address must be payer signer"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "Crank account must be a writable signer"
+  );
 });
 
 test("bonds-instruction-factory: builds claim non-reinvested winnings instruction", async () => {
@@ -131,65 +186,42 @@ test("bonds-instruction-factory: builds claim non-reinvested winnings instructio
     nextRedemptionId: 5,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
-  assert.equal(ix.accounts.length, 20);
-  assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.ok(ix, "Claim non-reinvested winnings instruction must be created");
+  assert.ok(ix.accounts, "Accounts array must be defined");
+  assert.equal(
+    ix.accounts.length,
+    20,
+    "Claim non-reinvested winnings instruction must contain 20 accounts"
+  );
+  assert.equal(ix.accounts[0].address, dummyUser, "User must be first account");
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "User must be writable signer"
+  );
 });
 
 test("bonds-instruction-factory: builds sell bonds instruction with positional remaining accounts on full exit", async () => {
   const dummyUser = address("11111111111111111111111111111111");
-  const { AccountRole, getBase64Decoder } = await import("@solana/kit");
-  const { getPrizePoolEncoder } =
-    await import("../generated/yield-bonds/src/generated/accounts");
-  const { serializeTicketRegistry } =
-    await import("../ticket-registry-helpers");
-  const base64Decoder = getBase64Decoder();
-
   const mockRegistryAddress = address(
     "SysvarRent111111111111111111111111111111111"
   );
   const lastUserOwner = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const { findPrizePoolPda } = await import("../bonds-sdk");
+  const poolPda = await findPrizePoolPda(1);
 
-  const mockPoolBytes = getPrizePoolEncoder().encode({
+  const mockPoolBytes = buildMockPrizePoolEncoded({
     poolId: 1,
     bondPrice: 5_000_000n,
     stakeCycleDurationHrs: 168n,
-    minYieldThreshold: 0n,
     totalDepositedPrincipal: 100_000_000n,
-    currentCycleEndAt: 0n,
-    nextRedemptionId: 1n,
-    totalFeesAccrued: 0n,
-    totalFeesWithdrawn: 0n,
-    totalPrizesAllocated: 0n,
-    totalPendingRedemptions: 0n,
-    currentDrawCycleId: 1,
-    feeBasisPoints: 500,
-    maxYieldBasisPoints: 1000,
-    payoutTimelockSeconds: 300,
-    vaultAuthorityBump: 255,
-    status: 1, // Active
-    isFrozenForDraw: 0,
-    version: 1,
-    prizeTiersCount: 1,
-    padding: new Uint8Array(3),
     tokenMint: dummyUser,
     ticketRegistry: mockRegistryAddress,
     feeWallet: dummyUser,
     humaPoolState: dummyUser,
-    prizeTiers: [
-      { basisPoints: 10000, numWinners: 1, padding: new Uint8Array(2) },
-      ...Array.from({ length: 9 }, () => ({
-        basisPoints: 0,
-        numWinners: 0,
-        padding: new Uint8Array(2),
-      })),
-    ],
-    reserved: new Uint8Array(128),
   });
 
-  const mockRegistryBytes = serializeTicketRegistry({
+  const mockRegistryBytes = buildMockTicketRegistryEncoded({
     poolId: 1,
     userCount: 2,
     entries: [
@@ -210,32 +242,15 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
     ],
   });
 
-  const mockRpc = {
-    getAccountInfo: (
-      _address: unknown,
-      config?: { dataSlice?: { offset: number; length: number } }
-    ) => ({
-      send: async () => {
-        if (config?.dataSlice) {
-          const slice = mockRegistryBytes.subarray(
-            config.dataSlice.offset,
-            config.dataSlice.offset + config.dataSlice.length
-          );
-          return {
-            value: { data: [base64Decoder.decode(slice), "base64"] },
-          };
-        }
-        return {
-          value: { data: [base64Decoder.decode(mockPoolBytes), "base64"] },
-        };
-      },
-    }),
-  } as unknown as Parameters<typeof buildSellBondsInstruction>[0]["rpc"];
+  const mockRpc = new MockRpcBuilder()
+    .withAccount(mockRegistryAddress, mockRegistryBytes)
+    .withAccount(poolPda, mockPoolBytes)
+    .build();
 
-  const { buildSellBondsInstruction } =
-    await import("../bonds-instruction-factory");
   const ix = await buildSellBondsInstruction({
-    rpc: mockRpc,
+    rpc: mockRpc as unknown as Parameters<
+      typeof buildSellBondsInstruction
+    >[0]["rpc"],
     poolId: 1,
     userAddress: dummyUser,
     activeToSell: 10,
@@ -244,12 +259,28 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
     currentUserTotalTickets: 10,
   });
 
-  assert.ok(ix);
-  assert.ok(ix.accounts);
+  assert.ok(ix, "Sell bonds instruction must be created");
+  assert.ok(ix.accounts, "Accounts array must be defined");
   // Base accounts (22) + 1 remaining account = 23
-  assert.equal(ix.accounts.length, 23);
-  assert.equal(ix.accounts[0].address, dummyUser);
-  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.equal(
+    ix.accounts.length,
+    23,
+    "Full exit sell bonds instruction must include the last registry user as remaining account"
+  );
+  assert.equal(
+    ix.accounts[0].address,
+    dummyUser,
+    "Seller user must be the first account in sell instruction"
+  );
+  assert.equal(
+    ix.accounts[0].role,
+    AccountRole.WRITABLE_SIGNER,
+    "Seller user must be a writable signer"
+  );
   const remainingAccount = ix.accounts[ix.accounts.length - 1];
-  assert.equal(remainingAccount.role, AccountRole.WRITABLE);
+  assert.equal(
+    remainingAccount.role,
+    AccountRole.WRITABLE,
+    "Remaining account for last registry user swap must be writable"
+  );
 });

@@ -20,8 +20,11 @@ export const POOL_STATS_TTL_MS = 5_000;
 export const STALE_ERROR_RETRY_MS = 10_000;
 export const DB_QUERY_TIMEOUT_MS = 500;
 
+import type { createSolanaRpc } from "@solana/kit";
+
 export interface PoolFetchOptions {
   bypassCache?: boolean;
+  rpc?: ReturnType<typeof createSolanaRpc>;
 }
 
 function withTimeout<T>(

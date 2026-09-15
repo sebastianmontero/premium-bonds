@@ -47,7 +47,8 @@ export async function getPoolInfo(
 
   const fetchPromise = (async () => {
     try {
-      const batched = await fetchBatchedBondsState({ rpc, poolId });
+      const activeRpc = options?.rpc ?? rpc;
+      const batched = await fetchBatchedBondsState({ rpc: activeRpc, poolId });
       if (!batched.poolAccountData) {
         cache.set(poolId, { data: null, expiresAt: now + 5000 });
         return null;
@@ -56,7 +57,7 @@ export async function getPoolInfo(
       const parsedPool = parsePrizePool(batched.poolAccountData);
 
       const registryPromise = parsedPool.ticketRegistry
-        ? fetchTicketRegistryHeader(rpc, parsedPool.ticketRegistry)
+        ? fetchTicketRegistryHeader(activeRpc, parsedPool.ticketRegistry)
         : Promise.resolve(null);
 
       const humaTotalAssets = batched.humaPoolStateData

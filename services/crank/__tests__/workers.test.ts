@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { address, generateKeyPairSigner, KeyPairSigner } from "@solana/kit";
+import { generateKeyPairSigner, KeyPairSigner } from "@solana/kit";
 import { HarvestYieldWorker } from "../workers/harvest-yield.worker";
 import { PrepareDrawWorker } from "../workers/prepare-draw.worker";
 import { RebindRandomnessWorker } from "../workers/rebind-randomness.worker";
@@ -20,55 +20,17 @@ import {
   TicketRegistry,
   PayoutRegistry,
 } from "../../../app/lib/bonds-sdk";
+import {
+  buildMockPrizePool,
+  MOCK_PUBKEY,
+  TICKET_REGISTRY_DISCRIMINATOR,
+  PAYOUT_REGISTRY_DISCRIMINATOR,
+} from "@/app/lib/test-harness";
 
-const mockAddress = address("11111111111111111111111111111111");
-
-const PRIZE_POOL_DISCRIMINATOR = new Uint8Array([
-  51, 88, 38, 85, 206, 166, 162, 156,
-]);
-const TICKET_REGISTRY_DISCRIMINATOR = new Uint8Array([
-  58, 169, 167, 230, 107, 202, 126, 54,
-]);
-const PAYOUT_REGISTRY_DISCRIMINATOR = new Uint8Array([
-  54, 200, 184, 56, 100, 227, 130, 95,
-]);
+const mockAddress = MOCK_PUBKEY;
 
 function createTestPrizePool(overrides: Partial<PrizePool> = {}): PrizePool {
-  return {
-    discriminator: PRIZE_POOL_DISCRIMINATOR,
-    vaultAuthorityBump: 255,
-    poolId: 1,
-    tokenMint: mockAddress,
-    ticketRegistry: mockAddress,
-    feeWallet: mockAddress,
-    humaPoolState: mockAddress,
-    bondPrice: 1_000_000n,
-    stakeCycleDurationHrs: 24n,
-    minYieldThreshold: 0n,
-    totalDepositedPrincipal: 0n,
-    currentCycleEndAt: 0n,
-    nextRedemptionId: 1n,
-    totalFeesAccrued: 0n,
-    totalFeesWithdrawn: 0n,
-    totalPrizesAllocated: 0n,
-    totalPendingRedemptions: 0n,
-    currentDrawCycleId: 1,
-    feeBasisPoints: 500,
-    maxYieldBasisPoints: 1000,
-    payoutTimelockSeconds: 300,
-    status: 1,
-    isFrozenForDraw: 0,
-    version: 1,
-    prizeTiersCount: 1,
-    padding: new Uint8Array(3),
-    prizeTiers: Array.from({ length: 10 }, () => ({
-      basisPoints: 0,
-      numWinners: 0,
-      padding: new Uint8Array(2),
-    })),
-    reserved: new Uint8Array(128),
-    ...overrides,
-  };
+  return buildMockPrizePool(overrides);
 }
 
 function createTestTicketRegistry(
@@ -102,8 +64,8 @@ function createTestPayoutRegistry(
     revealedAt: 0n,
     status: 0,
     version: 1,
-    padding: new Uint8Array(3),
-    reserved: new Uint8Array(32),
+    padding: new Uint8Array(6),
+    reserved: new Uint8Array(64),
     ...overrides,
   };
 }

@@ -9,10 +9,14 @@ import {
   DrawCycle,
   PayoutRegistry,
   DrawStatus,
-  PoolStatus,
 } from "../../../app/lib/bonds-sdk";
+import {
+  buildMockPrizePool,
+  MOCK_PUBKEY,
+  TICKET_REGISTRY_DISCRIMINATOR,
+} from "@/app/lib/test-harness";
 
-const mockPoolAddress = address("11111111111111111111111111111111");
+const mockPoolAddress = MOCK_PUBKEY;
 const mockRegistryAddress = address(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
@@ -31,44 +35,23 @@ function assertSnapshotState<TState extends PoolStateSnapshot["state"]>(
 }
 
 function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
-  return {
-    discriminator: new Uint8Array(8),
-    bondPrice: 1_000_000n,
-    stakeCycleDurationHrs: 24n,
+  return buildMockPrizePool({
     minYieldThreshold: 5_000_000n,
     totalDepositedPrincipal: 100_000_000n,
     currentCycleEndAt: 1000n,
-    nextRedemptionId: 1n,
-    totalFeesAccrued: 0n,
-    totalFeesWithdrawn: 0n,
-    totalPrizesAllocated: 0n,
-    totalPendingRedemptions: 0n,
-    poolId: 1,
-    currentDrawCycleId: 1,
     feeBasisPoints: 250,
     maxYieldBasisPoints: 500,
-    payoutTimelockSeconds: 300,
     vaultAuthorityBump: 254,
-    status: PoolStatus.Active,
-    isFrozenForDraw: 0,
-    version: 1,
-    prizeTiersCount: 1,
-    padding: new Uint8Array(6),
-    feeWallet: mockPoolAddress,
-    tokenMint: mockPoolAddress,
     ticketRegistry: mockRegistryAddress,
-    humaPoolState: mockPoolAddress,
-    prizeTiers: [],
-    reserved: new Uint8Array(64),
     ...overrides,
-  };
+  });
 }
 
 function createMockRegistry(
   overrides: Partial<TicketRegistry> = {}
 ): TicketRegistry {
   return {
-    discriminator: new Uint8Array(8),
+    discriminator: TICKET_REGISTRY_DISCRIMINATOR,
     poolId: 1,
     drawCycleId: 1,
     version: 1,
@@ -77,7 +60,7 @@ function createMockRegistry(
     totalActiveTickets: 500,
     totalPendingTickets: 0,
     drawPreparedUpTo: 10,
-    padding: new Uint8Array(4),
+    padding: new Uint8Array(3),
     reserved: new Uint8Array(64),
     ...overrides,
   };

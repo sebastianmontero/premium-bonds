@@ -6,6 +6,7 @@ import {
   type PoolFetchOptions,
 } from "@/app/lib/services/pool-stats-aggregator";
 import type { PoolInfo } from "@/app/types";
+import { withVirtualClock } from "@/app/lib/test-harness";
 
 function createMockPoolInfo(poolId: number = 1): PoolInfo {
   return {
@@ -299,73 +300,75 @@ describe("PoolStatsAggregator Unit Tests", () => {
   });
 
   it("should fallback to stale cache and extend cooldown when query fails", async () => {
-    let shouldFail = false;
-    let queryCount = 0;
+    await withVirtualClock(async (clock) => {
+      let shouldFail = false;
+      let queryCount = 0;
 
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              queryCount++;
-              if (shouldFail) {
-                throw new Error("PostgreSQL connection lost");
-              }
-              return [
-                {
-                  status: "Complete",
-                  count: 1,
-                  totalDistributed: "10000000",
-                  totalWinningBonds: 5,
-                },
-              ];
-            },
+      const mockDb: DbAggregationClient = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              groupBy: async () => {
+                queryCount++;
+                if (shouldFail) {
+                  throw new Error("PostgreSQL connection lost");
+                }
+                return [
+                  {
+                    status: "Complete",
+                    count: 1,
+                    totalDistributed: "10000000",
+                    totalWinningBonds: 5,
+                  },
+                ];
+              },
+            }),
           }),
         }),
-      }),
-    };
+      };
 
-    // Use short TTL (10ms) and short retry backoff (100ms) for testing
-    const aggregator = new PoolStatsAggregator(
-      mockDb,
-      true,
-      undefined,
-      10, // ttlMs
-      100 // errorRetryMs
-    );
+      // Use short TTL (10ms) and short retry backoff (100ms) for testing
+      const aggregator = new PoolStatsAggregator(
+        mockDb,
+        true,
+        undefined,
+        10, // ttlMs
+        100 // errorRetryMs
+      );
 
-    // 1. Initial success
-    const res1 = await aggregator.getPoolDrawStats(1);
-    assert.strictEqual(res1?.totalYieldDistributed, 10_000_000);
-    assert.deepStrictEqual(res1?.statusCounts, { Complete: 1 });
-    assert.strictEqual(queryCount, 1);
+      // 1. Initial success
+      const res1 = await aggregator.getPoolDrawStats(1);
+      assert.strictEqual(res1?.totalYieldDistributed, 10_000_000);
+      assert.deepStrictEqual(res1?.statusCounts, { Complete: 1 });
+      assert.strictEqual(queryCount, 1);
 
-    // Wait for TTL to expire
-    await new Promise((r) => setTimeout(r, 15));
+      // Advance clock past TTL expiration
+      clock.tick(15);
 
-    // 2. Make query fail
-    shouldFail = true;
-    const res2 = await aggregator.getPoolDrawStats(1);
-    assert.strictEqual(
-      res2?.totalYieldDistributed,
-      10_000_000,
-      "Should return stale cached value on failure"
-    );
-    assert.deepStrictEqual(res2?.statusCounts, { Complete: 1 });
-    assert.strictEqual(queryCount, 2);
+      // 2. Make query fail
+      shouldFail = true;
+      const res2 = await aggregator.getPoolDrawStats(1);
+      assert.strictEqual(
+        res2?.totalYieldDistributed,
+        10_000_000,
+        "Should return stale cached value on failure"
+      );
+      assert.deepStrictEqual(res2?.statusCounts, { Complete: 1 });
+      assert.strictEqual(queryCount, 2);
 
-    // 3. Subsequent request during error cooldown should NOT hit DB again
-    const res3 = await aggregator.getPoolDrawStats(1);
-    assert.strictEqual(
-      res3?.totalYieldDistributed,
-      10_000_000,
-      "Should serve stale cache during error cooldown"
-    );
-    assert.strictEqual(
-      queryCount,
-      2,
-      "DB should not be queried during cooldown"
-    );
+      // 3. Subsequent request during error cooldown should NOT hit DB again
+      const res3 = await aggregator.getPoolDrawStats(1);
+      assert.strictEqual(
+        res3?.totalYieldDistributed,
+        10_000_000,
+        "Should serve stale cache during error cooldown"
+      );
+      assert.strictEqual(
+        queryCount,
+        2,
+        "DB should not be queried during cooldown"
+      );
+    });
   });
 
   it("should return undefined when query fails and no prior cache exists", async () => {

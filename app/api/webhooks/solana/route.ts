@@ -30,7 +30,7 @@ import { invalidatePoolInfoCache } from "@/app/lib/services/pool-state-service";
 
 export const dynamic = "force-dynamic";
 
-const DRAW_HISTORY_MUTATING_EVENTS = new Set([
+export const DRAW_HISTORY_MUTATING_EVENTS = new Set<string>([
   "DrawCompleted",
   "DrawSkipped",
   "DrawVoided",

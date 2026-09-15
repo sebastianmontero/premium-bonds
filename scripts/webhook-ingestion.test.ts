@@ -345,15 +345,9 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
     }
   });
 
-  it("should restrict stats cache invalidation to draw-history mutating events and deduplicate batch pool IDs", () => {
-    const DRAW_HISTORY_MUTATING_EVENTS = new Set([
-      "DrawCompleted",
-      "DrawSkipped",
-      "DrawVoided",
-      "DrawForceUnlocked",
-      "EmergencyInsolvencyDetected",
-      "YieldVelocityBreached",
-    ]);
+  it("should restrict stats cache invalidation to draw-history mutating events and deduplicate batch pool IDs", async () => {
+    const { DRAW_HISTORY_MUTATING_EVENTS } =
+      await import("../app/api/webhooks/solana/route");
 
     // Mutating draw events
     assert.strictEqual(DRAW_HISTORY_MUTATING_EVENTS.has("DrawCompleted"), true);

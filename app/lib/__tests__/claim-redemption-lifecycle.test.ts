@@ -49,30 +49,38 @@ describe("Claim Redemption Lifecycle & Cache Invariant Suite", () => {
     );
   });
 
-  it("should preserve cache without modifications when wallet rejects transaction", () => {
+  it("should retain cache snapshot and verify optimistic mutation rollback on transaction rejection", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData<PendingRedemption[]>(queryKey, initialRedemptions);
 
-    // Simulate wallet rejection error (e.g. user clicks Cancel/Reject in Phantom)
-    const simulatedError = new Error("User rejected the request.");
-    let claimingRedemptionId: string | null = "100";
+    // Capture snapshot before optimistic mutation
+    const previousSnapshot =
+      queryClient.getQueryData<PendingRedemption[]>(queryKey);
 
-    try {
-      throw simulatedError;
-    } catch {
-      // Rejection handling in dashboard controller: resets claimingRedemptionId without touching cache
-      claimingRedemptionId = null;
-    }
+    // Apply optimistic filter
+    queryClient.setQueryData<PendingRedemption[]>(queryKey, (old = []) =>
+      old.filter((r) => r.redemptionId !== "100")
+    );
+    assert.strictEqual(
+      queryClient.getQueryData<PendingRedemption[]>(queryKey)?.length,
+      1,
+      "Optimistic update should temporarily reduce cache length"
+    );
 
-    assert.strictEqual(claimingRedemptionId, null);
-    const cachedAfterRejection =
+    // Rollback to previous snapshot upon simulated rejection
+    queryClient.setQueryData<PendingRedemption[]>(queryKey, previousSnapshot);
+    const restoredCache =
       queryClient.getQueryData<PendingRedemption[]>(queryKey);
     assert.deepStrictEqual(
-      cachedAfterRejection,
+      restoredCache,
       initialRedemptions,
-      "Cache must remain identical to initial state upon rejection"
+      "Cache snapshot must be restored to initial state upon mutation rollback"
     );
-    assert.strictEqual(cachedAfterRejection?.length, 2);
+    assert.strictEqual(
+      restoredCache?.length,
+      2,
+      "Both redemptions must remain in cache after rollback"
+    );
   });
 
   it("should optimistically filter out only claimed redemption on confirmation success", () => {
@@ -105,40 +113,54 @@ describe("Claim Redemption Lifecycle & Cache Invariant Suite", () => {
     );
   });
 
-  it("should correctly evaluate concurrency lock and in-flight states", () => {
-    const claimingRedemptionId: string | null = "100";
+  it("should derive correct button interaction and lock states given active in-flight operation", () => {
+    function getClaimActionState(
+      currentRedemptionId: string,
+      activeClaimingId: string | null
+    ) {
+      return {
+        isClaimingThis: activeClaimingId === currentRedemptionId,
+        isDisabled: activeClaimingId !== null,
+      };
+    }
 
-    // For redemption #100 (in-flight target)
-    const isTargetClaiming = claimingRedemptionId === "100";
-    const isTargetDisabled = Boolean(claimingRedemptionId);
+    // When redemption #100 is being claimed
+    const inFlightState100 = getClaimActionState("100", "100");
     assert.strictEqual(
-      isTargetClaiming,
+      inFlightState100.isClaimingThis,
       true,
       "Target redemption #100 should show active claiming spinner"
     );
     assert.strictEqual(
-      isTargetDisabled,
+      inFlightState100.isDisabled,
       true,
-      "Target redemption #100 button must be disabled"
+      "Target redemption #100 button must be disabled during in-flight operation"
     );
 
-    // For redemption #101 (other concurrent item)
-    const isOtherClaiming = claimingRedemptionId === "101";
-    const isOtherDisabled = Boolean(claimingRedemptionId);
+    // Another redemption (#101) while #100 is in flight
+    const concurrentState101 = getClaimActionState("101", "100");
     assert.strictEqual(
-      isOtherClaiming,
+      concurrentState101.isClaimingThis,
       false,
-      "Other redemption #101 should not show claiming spinner"
+      "Non-target redemption #101 must not show claiming spinner"
     );
     assert.strictEqual(
-      isOtherDisabled,
+      concurrentState101.isDisabled,
       true,
-      "Other redemption #101 button must be disabled to prevent concurrent race conditions"
+      "Non-target redemption #101 must be disabled to prevent concurrent race conditions"
     );
 
-    // After reset (null)
-    const resetId: string | null = null;
-    assert.strictEqual(Boolean(resetId), false);
-    assert.strictEqual(resetId === "100", false);
+    // Idle state (no operation in flight)
+    const idleState = getClaimActionState("100", null);
+    assert.strictEqual(
+      idleState.isClaimingThis,
+      false,
+      "Idle redemption should not show claiming spinner"
+    );
+    assert.strictEqual(
+      idleState.isDisabled,
+      false,
+      "Idle redemption button must be enabled and clickable"
+    );
   });
 });

@@ -36,6 +36,7 @@ import {
   DrawSkipReason,
 } from "../app/lib/bonds-sdk";
 import { address } from "@solana/kit";
+import { withVirtualClock } from "../app/lib/test-harness";
 
 const mockAddress1 = address("11111111111111111111111111111111");
 const mockAddress2 = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -850,51 +851,55 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
   });
 
   it("should invalidate both draws and poolState queries immediately and after trailing debounce", async () => {
-    const invalidatedKeys: unknown[] = [];
-    const mockQueryClient = {
-      invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
-        invalidatedKeys.push(options.queryKey);
-      },
-    } as unknown as QueryClient;
+    await withVirtualClock(async (clock) => {
+      const invalidatedKeys: unknown[] = [];
+      const mockQueryClient = {
+        invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
+          invalidatedKeys.push(options.queryKey);
+        },
+      } as unknown as QueryClient;
 
-    invalidateDrawQueries(mockQueryClient, 1, { trailingGracePeriodMs: 25 });
+      invalidateDrawQueries(mockQueryClient, 1, { trailingGracePeriodMs: 25 });
 
-    // Immediate check
-    assert.strictEqual(invalidatedKeys.length, 2);
-    assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.draws(1));
-    assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.poolState(1));
+      // Immediate check
+      assert.strictEqual(invalidatedKeys.length, 2);
+      assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.draws(1));
+      assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.poolState(1));
 
-    // Wait for trailing debounce timer
-    await new Promise((r) => setTimeout(r, 40));
+      // Advance virtual clock past trailing debounce window
+      clock.tick(30);
 
-    assert.strictEqual(invalidatedKeys.length, 4);
-    assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.draws(1));
-    assert.deepStrictEqual(invalidatedKeys[3], bondsKeys.poolState(1));
+      assert.strictEqual(invalidatedKeys.length, 4);
+      assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.draws(1));
+      assert.deepStrictEqual(invalidatedKeys[3], bondsKeys.poolState(1));
+    });
   });
 
   it("should defer draws query invalidation when deferIndexerQueries is true", async () => {
-    const invalidatedKeys: unknown[] = [];
-    const mockQueryClient = {
-      invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
-        invalidatedKeys.push(options.queryKey);
-      },
-    } as unknown as QueryClient;
+    await withVirtualClock(async (clock) => {
+      const invalidatedKeys: unknown[] = [];
+      const mockQueryClient = {
+        invalidateQueries: (options: { queryKey: readonly unknown[] }) => {
+          invalidatedKeys.push(options.queryKey);
+        },
+      } as unknown as QueryClient;
 
-    invalidateDrawQueries(mockQueryClient, 1, {
-      deferIndexerQueries: true,
-      trailingGracePeriodMs: 25,
+      invalidateDrawQueries(mockQueryClient, 1, {
+        deferIndexerQueries: true,
+        trailingGracePeriodMs: 25,
+      });
+
+      // 1. Immediately: ONLY on-chain poolState is invalidated (draws is NOT invalidated)
+      assert.strictEqual(invalidatedKeys.length, 1);
+      assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.poolState(1));
+
+      // 2. Trailing: after advancing virtual clock, BOTH draws and poolState are invalidated
+      clock.tick(30);
+
+      assert.strictEqual(invalidatedKeys.length, 3);
+      assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.draws(1));
+      assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.poolState(1));
     });
-
-    // 1. Immediately: ONLY on-chain poolState is invalidated (draws is NOT invalidated)
-    assert.strictEqual(invalidatedKeys.length, 1);
-    assert.deepStrictEqual(invalidatedKeys[0], bondsKeys.poolState(1));
-
-    // 2. Trailing: after grace period, BOTH draws and poolState are invalidated
-    await new Promise((r) => setTimeout(r, 40));
-
-    assert.strictEqual(invalidatedKeys.length, 3);
-    assert.deepStrictEqual(invalidatedKeys[1], bondsKeys.draws(1));
-    assert.deepStrictEqual(invalidatedKeys[2], bondsKeys.poolState(1));
   });
 
   it("should build draw winner permalink with fallback or origin", () => {
