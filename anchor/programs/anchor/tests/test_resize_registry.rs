@@ -132,16 +132,11 @@ fn test_resize_registry_succeeds() {
 
     // Write a dummy entry to verify data preservation
     let entry_owner = Keypair::new().pubkey();
-    let entry = anchor::state::UserEntry {
-        owner: entry_owner,
-        active: 2,
-        pending: 3,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    };
+    let entry = UserEntryTestBuilder::new()
+        .with_owner(entry_owner)
+        .with_active(2)
+        .with_pending(3)
+        .build();
     write_entry_at_idx(&mut svm, ticket_registry, 0, &entry);
 
     PrizePoolTestBuilder::new(pool_id)

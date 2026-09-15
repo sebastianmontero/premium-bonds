@@ -392,11 +392,7 @@ fn test_harvest_happy_path_yield_no_eligible() {
 #[test]
 fn test_harvest_happy_path_yield_and_eligible() {
     // Yield > 0, active > 0, tiers set → AwaitingRandomness + pool frozen
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 2M PST, 2M supply, 2.5M total_assets, 2M principal
     // yield = 2M * 2.5M / 2M - 2M = 500K
     let mut ctx = setup_happy(2, 1, 100, tiers, 2_000_000, 2_000_000, 2_500_000, 2_000_000);
@@ -422,11 +418,7 @@ fn test_harvest_happy_path_yield_and_eligible() {
 
 #[test]
 fn test_harvest_happy_path_fee_exact() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 2M total_assets, 1M principal → yield=1M, fee_bps=250 (2.5%)
     let mut ctx = setup_happy(1, 0, 250, tiers, 1_000_000, 1_000_000, 2_000_000, 1_000_000);
     send_harvest(&mut ctx, 1, 0).expect("fee exact harvest");
@@ -440,11 +432,7 @@ fn test_harvest_happy_path_fee_exact() {
 
 #[test]
 fn test_harvest_happy_path_zero_fee_bps() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 1.5M total_assets, 1M principal → yield=500K, fee=0
     let mut ctx = setup_happy(1, 0, 0, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
     send_harvest(&mut ctx, 1, 0).expect("zero fee harvest");
@@ -546,11 +534,7 @@ fn test_harvest_fails_math_overflow() {
         10, // active count > 0 to have yield_generated > 0
         0,
         100, // fee bps
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }], // prize tiers not empty
+        vec![anchor::PrizeTier::default_single_winner()], // prize tiers not empty
         1_000_000, // pst_balance
         1_000_000, // pst_supply
         2_000_000, // total_assets
@@ -567,11 +551,7 @@ fn test_harvest_fails_math_overflow() {
 
 #[test]
 fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 1.5M total_assets, 1M principal → raw yield = 500k
     let mut ctx = setup_happy(5, 0, 100, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
 

@@ -105,11 +105,7 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
         .with_principal(params.deposited_principal)
         .with_max_yield_basis_points(params.max_yield_basis_points)
         .with_payout_timelock_seconds(300)
-        .with_prize_tiers(vec![anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 10000,
-            _padding: [0, 0],
-        }])
+        .with_prize_tiers(vec![anchor::PrizeTier::default_single_winner()])
         .inject(&mut svm);
 
     CircuitBreakerCtx {

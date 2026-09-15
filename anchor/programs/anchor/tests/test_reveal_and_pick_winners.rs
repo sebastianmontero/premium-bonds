@@ -178,11 +178,7 @@ fn setup_reveal(
 
 /// Setup with overridden draw status (for guard tests).
 fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let tickets = make_tickets(5);
@@ -228,11 +224,7 @@ fn test_permissionless_reveal_succeeds() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         5,
         1_000_000,
         5,
@@ -255,11 +247,7 @@ fn test_reveal_fails_pool_not_active() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Paused,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         5,
         1_000_000,
         5,
@@ -280,11 +268,7 @@ fn test_reveal_fails_unsupported_ticket_registry_version() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         5,
         1_000_000,
         5,
@@ -321,11 +305,7 @@ fn test_reveal_fails_zero_locked_tickets() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         0,
         1_000_000,
         5, // locked=0
@@ -339,11 +319,7 @@ fn test_reveal_fails_zero_prize_pot() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         5,
         0,
         5, // prize_pot=0
@@ -358,11 +334,7 @@ fn test_reveal_fails_zero_prize_pot() {
 
 #[test]
 fn test_reveal_single_tier_single_winner() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal");
     let event = assert_cpi_event::<anchor::events::DrawCompleted>(&meta);
@@ -383,16 +355,8 @@ fn test_reveal_single_tier_single_winner() {
 #[test]
 fn test_reveal_multi_tier_multi_winner() {
     let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 7000,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            basis_points: 1000,
-            num_winners: 3,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 7000),
+        anchor::PrizeTier::new(3, 1000),
     ];
     let prize_pot = 1_000_000u64;
     let mut ctx = setup_reveal(
@@ -414,16 +378,8 @@ fn test_reveal_multi_tier_multi_winner() {
 #[test]
 fn test_reveal_winner_determinism() {
     let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 3000,
-            num_winners: 2,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            basis_points: 4000,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(2, 3000),
+        anchor::PrizeTier::new(1, 4000),
     ];
     let locked = 8u32;
     let seed = [99u8; 32];
@@ -446,16 +402,8 @@ fn test_reveal_winner_determinism() {
         anchor::PoolStatus::Active,
         true,
         vec![
-            anchor::PrizeTier {
-                basis_points: 3000,
-                num_winners: 2,
-                _padding: [0, 0],
-            },
-            anchor::PrizeTier {
-                basis_points: 4000,
-                num_winners: 1,
-                _padding: [0, 0],
-            },
+            anchor::PrizeTier::new(2, 3000),
+            anchor::PrizeTier::new(1, 4000),
         ],
         locked,
         500_000,
@@ -475,11 +423,7 @@ fn test_reveal_winner_determinism() {
 
 #[test]
 fn test_reveal_payout_registry_fields() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 5000,
-        num_winners: 2,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(2, 5000)];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 800_000, 5);
     send_reveal(&mut ctx, 1, 0, [3u8; 32]).expect("reveal");
 
@@ -498,11 +442,7 @@ fn test_reveal_payout_registry_fields() {
 
 #[test]
 fn test_reveal_pool_unfreezes_and_seed_stored() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let seed = [55u8; 32];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 3, 100_000, 3);
 
@@ -528,16 +468,8 @@ fn test_reveal_pool_unfreezes_and_seed_stored() {
 fn test_reveal_duplicate_winner_across_tiers() {
     // 1 ticket, 2 tiers → same pubkey must win both
     let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 6000,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            basis_points: 4000,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 6000),
+        anchor::PrizeTier::new(1, 4000),
     ];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 1, 1_000_000, 1);
     send_reveal(&mut ctx, 1, 0, [10u8; 32]).expect("reveal");
@@ -557,11 +489,7 @@ fn test_reveal_duplicate_winner_across_tiers() {
 
 #[test]
 fn test_reveal_fails_double_reveal() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     send_reveal(&mut ctx, 1, 0, [1u8; 32]).expect("first reveal");
 
@@ -573,11 +501,7 @@ fn test_reveal_fails_double_reveal() {
 
 #[test]
 fn test_reveal_fails_wrong_ticket_registry() {
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
 
     // Create a different registry and swap it in
@@ -692,11 +616,7 @@ fn test_reveal_fails_math_overflow() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 20000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::new(1, 20000)],
         5,
         1_000_000,
         5,
@@ -710,11 +630,7 @@ fn test_reveal_fails_math_overflow() {
 fn test_reveal_multi_winner_dust_accounting_and_event() {
     // Pot of 100_000 USDC with 1 tier of 3 winners (3,333 bps per winner = 9,999 bps total)
     // 100_000 * 3,333 / 10,000 = 33,330 per winner -> total distributed = 99,990, dust = 10
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 3_333,
-        num_winners: 3,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(3, 3_333)];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 100_000, 10);
 
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
@@ -739,11 +655,7 @@ fn test_reveal_fails_when_draw_preparation_incomplete() {
     let mut ctx = setup_reveal(
         anchor::PoolStatus::Active,
         true,
-        vec![anchor::PrizeTier {
-            basis_points: 10000,
-            num_winners: 1,
-            _padding: [0, 0],
-        }],
+        vec![anchor::PrizeTier::default_single_winner()],
         10,
         1_000_000,
         2,
@@ -764,43 +676,25 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
     let user3 = Keypair::new().pubkey();
 
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: user1,
-            active: 10,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 10,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user2,
-            active: 0,
-            pending: 5,
-            merged_through_cycle: 0,
-            cumulative_active: 10,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user3,
-            active: 20,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 30,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::new()
+            .with_owner(user1)
+            .with_active(10)
+            .with_cumulative_active(10)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user2)
+            .with_active(0)
+            .with_pending(5)
+            .with_cumulative_active(10)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user3)
+            .with_active(20)
+            .with_cumulative_active(30)
+            .build(),
     ];
 
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
 
     // Helper closure to run reveal with deterministic seed targeting specific winner index
     let run_reveal_with_seed = |target_index: usize| -> Pubkey {
@@ -882,11 +776,7 @@ fn test_reveal_all_tiers_truncate_to_zero_dust_deduction() {
     const INITIAL_ALLOCATED_PRIZES: u64 = 10_000_000_000;
     // Pot of 5_000 lamports (0.005 USDC) with 1 tier of 1 winner at 1 bps (0.01%)
     // calculate_prize: (5_000 * 1) / 10_000 = 0
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 1,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(1, 1)];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 5_000, 10);
 
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]).expect("reveal should succeed");
@@ -925,16 +815,8 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
     // Tier 2: 1 bps, 1 winner -> (5_000 * 1) / 10_000 = 0 lamports
     // total_distributed = 4_999, dust = 1
     let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 9_999,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            basis_points: 1,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 9_999),
+        anchor::PrizeTier::new(1, 1),
     ];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 5_000, 10);
 
@@ -958,16 +840,8 @@ fn test_reveal_multi_tier_partial_truncation_to_zero() {
 #[test]
 fn test_reveal_single_user_all_tickets_wins_all_tiers() {
     let tiers = vec![
-        anchor::PrizeTier {
-            basis_points: 6_000,
-            num_winners: 1,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            basis_points: 2_000,
-            num_winners: 2,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 6_000),
+        anchor::PrizeTier::new(2, 2_000),
     ];
 
     // Single user with 1 ticket (user_count = 1, locked_ticket_count = 1)
@@ -995,11 +869,7 @@ fn test_reveal_single_user_all_tickets_wins_all_tiers() {
 #[test]
 fn test_reveal_fails_too_many_winners() {
     // 181 winners exceeds the payout registry capacity of 180
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 100,
-        num_winners: 181,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(181, 100)];
 
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 10, 10_000_000, 10);
 
@@ -1018,66 +888,37 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
     let user_4 = Keypair::new().pubkey(); // 0 active tickets (cumulative: 30, trailing duplicate)
 
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: user_0,
-            active: 0,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_1,
-            active: 10,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 10,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_2,
-            active: 0,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 10,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_3,
-            active: 20,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 30,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_4,
-            active: 0,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 30,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::new()
+            .with_owner(user_0)
+            .with_active(0)
+            .with_cumulative_active(0)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user_1)
+            .with_active(10)
+            .with_cumulative_active(10)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user_2)
+            .with_active(0)
+            .with_cumulative_active(10)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user_3)
+            .with_active(20)
+            .with_cumulative_active(30)
+            .build(),
+        UserEntryTestBuilder::new()
+            .with_owner(user_4)
+            .with_active(0)
+            .with_cumulative_active(30)
+            .build(),
     ];
 
     let registry = Keypair::new().pubkey();
     inject_registry_with_state(&mut svm, registry, 1, 100, 0, 5, &entries);
 
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10_000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     PrizePoolTestBuilder::new(1)
         .with_ticket_registry(registry)
         .with_status(anchor::PoolStatus::Active)
@@ -1126,25 +967,17 @@ fn test_reveal_fails_invalid_winner_index() {
 
     // Registry entries where cumulative_active is 0 for all users
     let user_0 = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user_0,
-        active: 0,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(user_0)
+            .with_active(0)
+            .build(),
+    ];
 
     let registry = Keypair::new().pubkey();
     inject_registry_with_state(&mut svm, registry, 1, 100, 0, 1, &entries);
 
-    let tiers = vec![anchor::PrizeTier {
-        basis_points: 10_000,
-        num_winners: 1,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     PrizePoolTestBuilder::new(1)
         .with_ticket_registry(registry)
         .with_status(anchor::PoolStatus::Active)

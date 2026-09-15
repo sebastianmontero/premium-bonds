@@ -583,7 +583,7 @@ fn test_sell_bonds_fails_huma_redemption_error() {
         huma_pool_mode_token,
     );
 
-    assert_error_contains(res, &["SimulatedRedemptionFailure"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedRedemptionFailure);
 }
 
 #[test]
@@ -634,7 +634,7 @@ fn test_claim_redemption_fails_huma_disburse_error() {
         huma_lender_state,
     );
 
-    assert_error_contains(res, &["SimulatedDisburseFailure"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedDisburseFailure);
 }
 
 #[test]

@@ -270,6 +270,10 @@ fn test_rebind_fails_unoverridable_statuses() {
 
         let crank = clone_keypair(&ctx.crank);
         let res = send_rebind(&mut ctx, &crank);
-        assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
+        assert_custom_error_msg(
+            res,
+            anchor::error::PremiumBondsError::InvalidDrawStatus,
+            &format!("Failed for draw status {status:?}"),
+        );
     }
 }

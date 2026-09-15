@@ -133,16 +133,8 @@ fn test_e2e_golden_journey_full_lifecycle() {
 
     let pool_id = 1;
     let tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 7000,
-            _padding: [0; 2],
-        },
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 3000,
-            _padding: [0; 2],
-        },
+        anchor::PrizeTier::new(1, 7000),
+        anchor::PrizeTier::new(1, 3000),
     ];
 
     let ix_create_pool = build_create_pool_instruction(

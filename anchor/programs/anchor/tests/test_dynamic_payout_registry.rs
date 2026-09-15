@@ -195,18 +195,14 @@ fn send_reinvest(
 
 #[test]
 fn test_vector_1_minimal_allocation_1_winner() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     let res = send_reveal(&mut ctx, 1, 0, [1u8; 32]);
     assert!(res.is_ok(), "Reveal with 1 winner must succeed: {:?}", res);
 
     let (pda, _) = payout_pda(1, 0);
     let acc = ctx.svm.get_account(&pda).expect("payout registry exists");
-    assert_eq!(acc.data.len(), 104 + 1 * 56); // 160 bytes exact
+    assert_eq!(acc.data.len(), anchor::utils::payout_registry_space(1).unwrap()); // 160 bytes exact
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -220,16 +216,8 @@ fn test_vector_1_minimal_allocation_1_winner() {
 fn test_vector_2_maximum_sizing_boundary_180_winners() {
     // 100 winners @ 60 bps + 80 winners @ 50 bps = 180 winners total, exactly 10,000 bps
     let tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 100,
-            basis_points: 60,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 80,
-            basis_points: 50,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(100, 60),
+        anchor::PrizeTier::new(80, 50),
     ];
     let mut ctx = setup_dynamic_ctx(tiers, 200, 10_000_000);
     let res = send_reveal(&mut ctx, 1, 0, [2u8; 32]);
@@ -241,7 +229,7 @@ fn test_vector_2_maximum_sizing_boundary_180_winners() {
 
     let (pda, _) = payout_pda(1, 0);
     let acc = ctx.svm.get_account(&pda).expect("payout registry exists");
-    assert_eq!(acc.data.len(), 104 + 180 * 56); // 10,184 bytes exact
+    assert_eq!(acc.data.len(), anchor::utils::payout_registry_space(180).unwrap()); // 10,184 bytes exact
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -251,11 +239,7 @@ fn test_vector_2_maximum_sizing_boundary_180_winners() {
 
 #[test]
 fn test_vector_3_oversized_rejection_181_winners() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 181,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(181, 10_000)];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     let res = send_reveal(&mut ctx, 1, 0, [3u8; 32]);
     assert_custom_error(res, anchor::error::PremiumBondsError::TooManyWinners);
@@ -279,16 +263,8 @@ fn test_vector_4_tier_sum_consistency() {
 
     // 1. Setting tiers totalling 180 winners succeeds
     let valid_tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 100,
-            basis_points: 60,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 80,
-            basis_points: 50,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(100, 60),
+        anchor::PrizeTier::new(80, 50),
     ];
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::SetPrizeTiers {
@@ -313,16 +289,8 @@ fn test_vector_4_tier_sum_consistency() {
 
     // 2. Setting tiers totalling 181 winners fails
     let invalid_tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 101,
-            basis_points: 60,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 80,
-            basis_points: 50,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(101, 60),
+        anchor::PrizeTier::new(80, 50),
     ];
     let ix_invalid = Instruction {
         program_id: anchor::id(),
@@ -345,11 +313,7 @@ fn test_vector_4_tier_sum_consistency() {
 
 #[test]
 fn test_vector_5_clean_crank_close_reimbursement() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [5u8; 32]).expect("reveal");
 
@@ -389,11 +353,7 @@ fn test_vector_5_clean_crank_close_reimbursement() {
 
 #[test]
 fn test_vector_6_jobs_account_authorized_close() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [6u8; 32]).expect("reveal");
 
@@ -415,11 +375,7 @@ fn test_vector_6_jobs_account_authorized_close() {
 
 #[test]
 fn test_vector_7_admin_fallback_close() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [7u8; 32]).expect("reveal");
 
@@ -441,11 +397,7 @@ fn test_vector_7_admin_fallback_close() {
 
 #[test]
 fn test_vector_8_unauthorized_crank_rejected() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [8u8; 32]).expect("reveal");
 
@@ -470,11 +422,7 @@ fn test_vector_8_unauthorized_crank_rejected() {
 
 #[test]
 fn test_vector_9_premature_close_rejected() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 2,
-        basis_points: 5000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(2, 5000)];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [9u8; 32]).expect("reveal");
 
@@ -497,11 +445,7 @@ fn test_vector_9_premature_close_rejected() {
 
 #[test]
 fn test_vector_10_voided_draw_close_permitted() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 2,
-        basis_points: 5000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::new(2, 5000)];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [10u8; 32]).expect("reveal");
 
@@ -545,11 +489,7 @@ fn test_vector_10_voided_draw_close_permitted() {
 
 #[test]
 fn test_vector_11_double_close_rejected() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [11u8; 32]).expect("reveal");
 
@@ -575,11 +515,7 @@ fn test_vector_11_double_close_rejected() {
 
 #[test]
 fn test_vector_12_reinvest_on_closed_account_rejected() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [12u8; 32]).expect("reveal");
 
@@ -612,11 +548,7 @@ fn test_vector_12_reinvest_on_closed_account_rejected() {
 
 #[test]
 fn test_vector_13_voiding_on_closed_account_rejected() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [13u8; 32]).expect("reveal");
 
@@ -663,11 +595,7 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
 
 #[test]
 fn test_vector_14_corrupted_trailing_slice_safety() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [14u8; 32]).expect("reveal");
 
@@ -693,16 +621,8 @@ fn test_vector_14_corrupted_trailing_slice_safety() {
 #[test]
 fn test_vector_15_winner_slice_in_place_mutation_parity() {
     let tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 5000,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 5000,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 5000),
+        anchor::PrizeTier::new(1, 5000),
     ];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 2_000_000);
     send_reveal(&mut ctx, 1, 0, [15u8; 32]).expect("reveal");
@@ -738,21 +658,9 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
 fn test_vector_16_dust_conservation_under_dynamic_sizing() {
     // 3 tiers: 3333 bps (1 winner), 3333 bps (1 winner), 3333 bps (1 winner) = 9999 bps distributed, 1 bps remainder dust
     let tiers = vec![
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 3333,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 3333,
-            _padding: [0, 0],
-        },
-        anchor::PrizeTier {
-            num_winners: 1,
-            basis_points: 3333,
-            _padding: [0, 0],
-        },
+        anchor::PrizeTier::new(1, 3333),
+        anchor::PrizeTier::new(1, 3333),
+        anchor::PrizeTier::new(1, 3333),
     ];
     let prize_pot = 10_000_000u64;
     let mut ctx = setup_dynamic_ctx(tiers, 10, prize_pot);
@@ -768,21 +676,13 @@ fn test_vector_16_dust_conservation_under_dynamic_sizing() {
 
 #[test]
 fn test_vector_17_rent_exemption_dynamic_verification() {
-    let tiers_1 = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers_1 = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx1 = setup_dynamic_ctx(tiers_1, 10, 1_000_000);
     send_reveal(&mut ctx1, 1, 0, [17u8; 32]).expect("reveal 1 winner");
     let (pda1, _) = payout_pda(1, 0);
     let acc1 = ctx1.svm.get_account(&pda1).unwrap();
 
-    let tiers_10 = vec![anchor::PrizeTier {
-        num_winners: 10,
-        basis_points: 1000,
-        _padding: [0, 0],
-    }];
+    let tiers_10 = vec![anchor::PrizeTier::new(10, 1000)];
     let mut ctx10 = setup_dynamic_ctx(tiers_10, 20, 10_000_000);
     send_reveal(&mut ctx10, 1, 0, [17u8; 32]).expect("reveal 10 winners");
     let (pda10, _) = payout_pda(1, 0);
@@ -790,19 +690,15 @@ fn test_vector_17_rent_exemption_dynamic_verification() {
 
     // 10 winners account size > 1 winner account size
     assert!(acc10.data.len() > acc1.data.len());
-    assert_eq!(acc1.data.len(), 104 + 1 * 56);
-    assert_eq!(acc10.data.len(), 104 + 10 * 56);
+    assert_eq!(acc1.data.len(), anchor::utils::payout_registry_space(1).unwrap());
+    assert_eq!(acc10.data.len(), anchor::utils::payout_registry_space(10).unwrap());
     // Dynamic rent required is proportional to space
     assert!(acc10.lamports > acc1.lamports);
 }
 
 #[test]
 fn test_vector_18_crank_close_event_payload_parity() {
-    let tiers = vec![anchor::PrizeTier {
-        num_winners: 1,
-        basis_points: 10_000,
-        _padding: [0, 0],
-    }];
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
     send_reveal(&mut ctx, 1, 0, [18u8; 32]).expect("reveal");
 

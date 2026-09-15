@@ -668,7 +668,7 @@ fn test_buy_bonds_fails_huma_deposit_error() {
     // Try to buy 1 bond using the FAIL_DEPOSIT_PUBKEY as huma_config.
     let user_usdc = ctx.user_usdc_account;
     let res = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, FAIL_DEPOSIT_PUBKEY);
-    assert_error_contains(res, &["SimulatedDepositFailure", "6000", "0x1770"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedDepositFailure);
 }
 
 /// E2E test verifying that buying bonds initializes the `UserWinnings` account correctly.
@@ -704,16 +704,12 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
     let mut ctx = setup_e2e();
 
     let other_user = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: other_user,
-        active: 1,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(other_user)
+            .with_active(1)
+            .build(),
+    ];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
 
     let mut seed = [0u8; 32];

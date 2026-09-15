@@ -52,7 +52,7 @@ fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_err_pool_not_active_and_invalid_status() {
+fn test_err_pool_not_active() {
     let mut pool = PrizePoolTestBuilder::new(1).build();
     pool.status = anchor::PoolStatus::Paused as u8;
     pool.bond_price = 1_000_000;
@@ -60,7 +60,10 @@ fn test_err_pool_not_active_and_invalid_status() {
         pool.validate_buy_bonds(1).unwrap_err(),
         PremiumBondsError::PoolNotActive.into()
     );
+}
 
+#[test]
+fn test_err_invalid_pool_status() {
     assert!(matches!(
         anchor::PoolStatus::try_from(99).unwrap_err(),
         PremiumBondsError::InvalidPoolStatus
@@ -68,12 +71,15 @@ fn test_err_pool_not_active_and_invalid_status() {
 }
 
 #[test]
-fn test_err_invalid_bond_price_and_duration() {
+fn test_err_invalid_bond_price() {
     assert_eq!(
         anchor::PrizePool::validate_bond_price(0).unwrap_err(),
         PremiumBondsError::InvalidBondPrice.into()
     );
+}
 
+#[test]
+fn test_err_invalid_stake_cycle_duration() {
     assert_eq!(
         anchor::PrizePool::validate_stake_cycle_duration(0).unwrap_err(),
         PremiumBondsError::InvalidStakeCycleDuration.into()
@@ -85,15 +91,23 @@ fn test_err_invalid_bond_price_and_duration() {
 }
 
 #[test]
-fn test_err_invalid_fee_and_timelock_configs() {
+fn test_err_invalid_fee_config() {
     assert_eq!(
         anchor::PrizePool::validate_fee_basis_points(10_001).unwrap_err(),
         PremiumBondsError::InvalidFeeConfig.into()
     );
+}
+
+#[test]
+fn test_err_invalid_max_yield_basis_points() {
     assert_eq!(
         anchor::PrizePool::validate_max_yield_basis_points(10_001).unwrap_err(),
         PremiumBondsError::InvalidMaxYieldBasisPoints.into()
     );
+}
+
+#[test]
+fn test_err_invalid_payout_timelock() {
     assert_eq!(
         anchor::PrizePool::validate_payout_timelock_seconds(86_401).unwrap_err(),
         PremiumBondsError::InvalidPayoutTimelock.into()
@@ -101,18 +115,17 @@ fn test_err_invalid_fee_and_timelock_configs() {
 }
 
 #[test]
-fn test_err_prize_tier_config_and_basis_points() {
+fn test_err_invalid_prize_tier_config() {
     let empty_tiers = vec![];
     assert_eq!(
         anchor::PrizePool::validate_prize_tiers(&empty_tiers).unwrap_err(),
         PremiumBondsError::InvalidPrizeTierConfig.into()
     );
+}
 
-    let bad_sum_tiers = vec![anchor::PrizeTier {
-        basis_points: 9_999,
-        num_winners: 1,
-        _padding: [0; 2],
-    }];
+#[test]
+fn test_err_basis_points_must_equal_10000() {
+    let bad_sum_tiers = vec![anchor::PrizeTier::new(1, 9_999)];
     assert_eq!(
         anchor::PrizePool::validate_prize_tiers(&bad_sum_tiers).unwrap_err(),
         PremiumBondsError::BasisPointsMustEqual10000.into()
@@ -120,7 +133,7 @@ fn test_err_prize_tier_config_and_basis_points() {
 }
 
 #[test]
-fn test_err_bond_price_locked_and_pool_states() {
+fn test_err_cannot_modify_bond_price_with_active_deposits() {
     let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
@@ -169,9 +182,14 @@ fn test_err_bond_price_locked_and_pool_states() {
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
     );
+}
 
-    // PoolClosed & DrawAlreadyVoided
+#[test]
+fn test_err_pool_closed() {
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 2;
+    let token_mint = Keypair::new().pubkey();
+    let registry = Keypair::new().pubkey();
     let pool_addr = inject_pool(
         &mut svm,
         pool_id,
@@ -224,7 +242,7 @@ fn test_err_bond_price_locked_and_pool_states() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_err_invalid_bond_quantity_and_registry_full() {
+fn test_err_invalid_bond_quantity() {
     let pool = PrizePoolTestBuilder::new(1)
         .with_bond_price(1_000_000)
         .build();
@@ -232,7 +250,10 @@ fn test_err_invalid_bond_quantity_and_registry_full() {
         pool.validate_buy_bonds(0).unwrap_err(),
         PremiumBondsError::InvalidBondQuantity.into()
     );
+}
 
+#[test]
+fn test_err_registry_full() {
     let reg = anchor::TicketRegistry {
         pool_id: 1,
         capacity: 100,
@@ -252,7 +273,7 @@ fn test_err_invalid_bond_quantity_and_registry_full() {
 }
 
 #[test]
-fn test_err_registry_too_small_and_at_max_size() {
+fn test_err_registry_too_small() {
     let authority = Keypair::new();
     let admin = Keypair::new();
     let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
@@ -305,7 +326,7 @@ fn test_err_registry_too_small_and_at_max_size() {
 }
 
 #[test]
-fn test_err_insufficient_tickets_and_unsupported_version() {
+fn test_err_insufficient_active_tickets() {
     let (mut svm, _admin) = setup_global_config();
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -321,16 +342,13 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user.pubkey(),
-        active: 5,
-        pending: 2,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(user.pubkey())
+            .with_active(5)
+            .with_pending(2)
+            .build(),
+    ];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 
@@ -375,10 +393,9 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
     }
     .to_account_metas(None);
 
-    // 1. InsufficientActiveTickets
     let ix_active = Instruction {
         program_id: anchor::id(),
-        accounts: accounts.clone(),
+        accounts,
         data: anchor::instruction::SellBonds {
             active_to_sell: 10,
             pending_to_sell: 0,
@@ -390,8 +407,76 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let res = svm.send_transaction(tx);
     assert_custom_error(res, PremiumBondsError::InsufficientActiveTickets);
+}
 
-    // 2. InsufficientPendingTickets
+#[test]
+fn test_err_insufficient_pending_tickets() {
+    let (mut svm, _admin) = setup_global_config();
+    let user = Keypair::new();
+    svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
+
+    let pool_id = 1;
+    let token_mint = Keypair::new().pubkey();
+    let pst_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+    inject_mint(&mut svm, pst_mint, 6);
+
+    let (pool_pda_addr, _) = pool_pda(pool_id);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
+
+    let ticket_registry = Keypair::new().pubkey();
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(user.pubkey())
+            .with_active(5)
+            .with_pending(2)
+            .build(),
+    ];
+    inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
+    inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
+
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+    inject_pool_with_huma_state(
+        &mut svm,
+        pool_id,
+        token_mint,
+        ticket_registry,
+        anchor::PoolStatus::Active,
+        false,
+        huma_pool_state,
+    );
+
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
+
+    let accounts = anchor::accounts::SellBonds {
+        user: user.pubkey(),
+        user_winnings,
+        pool: pool_pda_addr,
+        ticket_registry,
+        token_mint,
+        pool_pst_vault,
+        pending_redemption,
+        huma_program: huma_program_id(),
+        huma_config: Pubkey::default(),
+        huma_pool_config: Pubkey::default(),
+        huma_pool_state,
+        huma_mode_config: Pubkey::default(),
+        huma_mode_mint: pst_mint,
+        huma_redemption_request: Keypair::new().pubkey(),
+        huma_lender_state: Keypair::new().pubkey(),
+        huma_pool_authority: Pubkey::default(),
+        huma_pool_mode_token: Keypair::new().pubkey(),
+        token_program: anchor_spl::token::ID,
+        pst_token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
     let ix_pending = Instruction {
         program_id: anchor::id(),
         accounts,
@@ -401,11 +486,11 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
         }
         .data(),
     };
-    let bh2 = svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix_pending], Some(&user.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&user]).unwrap();
-    let res2 = svm.send_transaction(tx2);
-    assert_custom_error(res2, PremiumBondsError::InsufficientPendingTickets);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix_pending], Some(&user.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InsufficientPendingTickets);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -413,7 +498,7 @@ fn test_err_insufficient_tickets_and_unsupported_version() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_err_cycle_not_ended_and_freeze_guards() {
+fn test_err_cycle_not_ended() {
     let (mut svm, _admin, crank) = setup_global_with_crank();
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
@@ -624,7 +709,7 @@ fn test_err_invalid_batch_size() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_err_randomness_not_expired_and_unauthorized_crank() {
+fn test_err_randomness_not_expired() {
     let admin = Keypair::new();
     let crank = Keypair::new();
     let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
@@ -732,7 +817,7 @@ fn test_err_zero_shares_minted_definition() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_err_no_winnings_and_already_claimed() {
+fn test_err_no_winnings_to_claim() {
     let (mut svm, _admin) = setup_global_config();
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -799,7 +884,36 @@ fn test_err_no_winnings_and_already_claimed() {
 }
 
 #[test]
-fn test_err_winner_mismatch_and_invalid_index() {
+fn test_err_invalid_winner_index() {
+    let payout = anchor::PayoutRegistry {
+        pool_id: 1,
+        cycle_id: 0,
+        winners_count: 1,
+        payouts_completed: 0,
+        revealed_at: 0,
+        status: anchor::PayoutRegistryStatus::Active as u8,
+        version: 1,
+        _padding: [0; 6],
+        _reserved: [0; 64],
+    };
+
+    let user1 = Keypair::new().pubkey();
+
+    let winners = vec![WinnerTestBuilder::default_winner(user1, 1_000_000, 0)];
+
+    let pref = anchor::PayoutRegistryRef {
+        header: &payout,
+        winners: &winners,
+    };
+
+    assert_eq!(
+        pref.validate_winner(1, user1).unwrap_err(),
+        PremiumBondsError::InvalidWinnerIndex.into()
+    );
+}
+
+#[test]
+fn test_err_winner_mismatch() {
     let payout = anchor::PayoutRegistry {
         pool_id: 1,
         cycle_id: 0,
@@ -815,32 +929,13 @@ fn test_err_winner_mismatch_and_invalid_index() {
     let user1 = Keypair::new().pubkey();
     let user2 = Keypair::new().pubkey();
 
-    let winners = vec![anchor::Winner {
-        winner: user1,
-        amount_owed: 1_000_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: 1,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    }];
+    let winners = vec![WinnerTestBuilder::default_winner(user1, 1_000_000, 0)];
 
     let pref = anchor::PayoutRegistryRef {
         header: &payout,
         winners: &winners,
     };
 
-    let uw_user1 = UserWinningsTestBuilder::new(1, user1).build();
-    let uw_user2 = UserWinningsTestBuilder::new(1, user2).build();
-
-    // 1. InvalidWinnerIndex
-    assert_eq!(
-        pref.validate_winner(1, user1).unwrap_err(),
-        PremiumBondsError::InvalidWinnerIndex.into()
-    );
-
-    // 2. WinnerMismatch
     assert_eq!(
         pref.validate_winner(0, user2).unwrap_err(),
         PremiumBondsError::WinnerMismatch.into()
@@ -848,7 +943,7 @@ fn test_err_winner_mismatch_and_invalid_index() {
 }
 
 #[test]
-fn test_err_yield_venue_insolvent_and_unauthorized() {
+fn test_err_unauthorized() {
     let authority = Keypair::new();
     let admin = Keypair::new();
     let guardian = Keypair::new();
@@ -930,47 +1025,53 @@ fn assert_create_pool_fails_with_token_2022_extension(
 }
 
 #[test]
-fn test_err_adversarial_governance_and_extensions() {
-    // 1. InvalidAdminAddress
-    let res_init: Result<
-        litesvm::types::TransactionMetadata,
-        litesvm::types::FailedTransactionMetadata,
-    > = {
-        let mut svm = LiteSVM::new();
-        let _ = svm.add_program(
-            anchor::id(),
-            include_bytes!("../../../target/deploy/anchor.so"),
-        );
-        let payer = Keypair::new();
-        svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-        setup_program_data(&mut svm, Some(&payer.pubkey()));
-        send_initialize_global(
-            &mut svm,
-            &payer,
-            &Pubkey::default(),
-            &payer.pubkey(),
-            &payer.pubkey(),
-        )
-    };
-    assert_custom_error(res_init, PremiumBondsError::InvalidAdminAddress);
+fn test_err_invalid_admin_address() {
+    let mut svm = LiteSVM::new();
+    let _ = svm.add_program(
+        anchor::id(),
+        include_bytes!("../../../target/deploy/anchor.so"),
+    );
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    setup_program_data(&mut svm, Some(&payer.pubkey()));
+    let res = send_initialize_global(
+        &mut svm,
+        &payer,
+        &Pubkey::default(),
+        &payer.pubkey(),
+        &payer.pubkey(),
+    );
+    assert_custom_error(res, PremiumBondsError::InvalidAdminAddress);
+}
 
-    // 2. CannotNominateSelf & NoPendingAdmin & NotPendingAdmin
+#[test]
+fn test_err_cannot_nominate_self() {
     let (mut svm, admin) = setup_global_config();
     let res_self = send_nominate_admin(&mut svm, &admin, admin.pubkey());
     assert_custom_error(res_self, PremiumBondsError::CannotNominateSelf);
+}
 
+#[test]
+fn test_err_no_pending_admin() {
+    let (mut svm, admin) = setup_global_config();
     let res_cancel = send_cancel_admin_nomination(&mut svm, &admin);
     assert_custom_error(res_cancel, PremiumBondsError::NoPendingAdmin);
+}
 
+#[test]
+fn test_err_not_pending_admin() {
+    let (mut svm, admin) = setup_global_config();
     let alice = Keypair::new().pubkey();
     let bob = Keypair::new();
-    svm.airdrop(&bob.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&bob.pubkey(), 10_000_000_000).unwrap();
     send_nominate_admin(&mut svm, &admin, alice).unwrap();
 
     let res_bob = send_accept_admin(&mut svm, &bob);
     assert_custom_error(res_bob, PremiumBondsError::NotPendingAdmin);
+}
 
-    // 3. Solvency helper assert_solvent error code
+#[test]
+fn test_err_yield_venue_insolvent() {
     let pool = PrizePoolTestBuilder::new(1)
         .with_principal(10_000_000)
         .build();
@@ -978,73 +1079,83 @@ fn test_err_adversarial_governance_and_extensions() {
         pool.assert_solvent(0).unwrap_err(),
         PremiumBondsError::YieldVenueInsolvent.into()
     );
+}
 
-    // 4. TransferFeeNotSupported
+#[test]
+fn test_err_transfer_fee_not_supported() {
     assert_create_pool_fails_with_token_2022_extension(
         anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferFeeConfig,
         PremiumBondsError::TransferFeeNotSupported,
     );
+}
 
-    // 5. TransferHookNotSupported
+#[test]
+fn test_err_transfer_hook_not_supported() {
     assert_create_pool_fails_with_token_2022_extension(
         anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::TransferHook,
         PremiumBondsError::TransferHookNotSupported,
     );
+}
 
-    // 6. InvalidTokenMint (PermanentDelegate & MintCloseAuthority)
+#[test]
+fn test_err_invalid_token_mint_permanent_delegate() {
     assert_create_pool_fails_with_token_2022_extension(
         anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::PermanentDelegate,
         PremiumBondsError::InvalidTokenMint,
     );
+}
+
+#[test]
+fn test_err_invalid_token_mint_mint_close_authority() {
     assert_create_pool_fails_with_token_2022_extension(
         anchor_spl::token_2022::spl_token_2022::extension::ExtensionType::MintCloseAuthority,
         PremiumBondsError::InvalidTokenMint,
     );
+}
 
-    // 7. InvalidHumaPoolState
-    {
-        let (mut svm, admin) = setup_global_config();
-        let token_mint = Keypair::new().pubkey();
-        inject_mint(&mut svm, token_mint, 6);
-        let pst_mint = Keypair::new().pubkey();
-        inject_mint(&mut svm, pst_mint, 6);
-        let fee_wallet = Keypair::new().pubkey();
-        inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
-        let ticket_registry = Keypair::new().pubkey();
-        svm.set_account(
-            ticket_registry,
-            Account {
-                lamports: 10_000_000_000,
-                data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
-                owner: anchor::id(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-        // Uninitialized / wrong owner account for huma_pool_state
-        let uninit_huma_pool_state = Keypair::new().pubkey();
+#[test]
+fn test_err_invalid_huma_pool_state() {
+    let (mut svm, admin) = setup_global_config();
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+    let pst_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, pst_mint, 6);
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+    let ticket_registry = Keypair::new().pubkey();
+    svm.set_account(
+        ticket_registry,
+        Account {
+            lamports: 10_000_000_000,
+            data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    // Uninitialized / wrong owner account for huma_pool_state
+    let uninit_huma_pool_state = Keypair::new().pubkey();
 
-        let ix = build_create_pool_instruction(
-            &admin,
-            1,
-            1_000_000,
-            24,
-            100,
-            0,
-            0,
-            300,
-            default_prize_tiers(),
-            token_mint,
-            pst_mint,
-            ticket_registry,
-            fee_wallet,
-            uninit_huma_pool_state,
-        );
-        let bh = svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-        let res = svm.send_transaction(tx);
-        assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
-    }
+    let ix = build_create_pool_instruction(
+        &admin,
+        1,
+        1_000_000,
+        24,
+        100,
+        0,
+        0,
+        300,
+        default_prize_tiers(),
+        token_mint,
+        pst_mint,
+        ticket_registry,
+        fee_wallet,
+        uninit_huma_pool_state,
+    );
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    let res = svm.send_transaction(tx);
+    assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }

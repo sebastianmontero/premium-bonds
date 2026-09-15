@@ -85,16 +85,12 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user.pubkey(),
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(user.pubkey())
+            .with_active(10)
+            .build(),
+    ];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
     let huma_pool_state = Keypair::new().pubkey();
@@ -361,16 +357,12 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     let ticket_registry = Keypair::new().pubkey();
     let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: crank.pubkey(),
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(crank.pubkey())
+            .with_active(10)
+            .build(),
+    ];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
     // Inject draw cycle awaiting randomness
@@ -606,28 +598,15 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let token_mint = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![
+        UserEntryTestBuilder::new()
+            .with_owner(winner)
+            .with_active(10)
+            .build(),
+    ];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
-    let winner_entry = anchor::Winner {
-        winner,
-        amount_owed: 3_000_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner_entry = WinnerTestBuilder::default_winner(winner, 3_000_000, 0);
 
     let (pool_pda_addr, _) = pool_pda(pool_id);
     let (user_winnings, _) = user_winnings_pda(pool_id, &winner);

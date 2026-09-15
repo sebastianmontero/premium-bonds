@@ -775,11 +775,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         gc.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "GlobalConfig check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         gc.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "GlobalConfig ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 2. PrizePool
@@ -818,11 +820,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         pp.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PrizePool check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         pp.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PrizePool ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 3. TicketRegistry
@@ -840,11 +844,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         tr.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "TicketRegistry check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         tr.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "TicketRegistry ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 4. UserEntry
@@ -860,11 +866,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         ue.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "UserEntry check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         ue.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "UserEntry ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 5. Winner
@@ -880,11 +888,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         w.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "Winner check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         w.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "Winner ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 6. DrawCycle
@@ -905,11 +915,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         dc.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "DrawCycle check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         dc.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "DrawCycle ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 7. UserWinnings
@@ -926,11 +938,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         uw.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "UserWinnings check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         uw.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "UserWinnings ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 8. PayoutRegistry
@@ -947,11 +961,13 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         pr.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PayoutRegistry check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         pr.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PayoutRegistry ensure_current_version must fail with UnsupportedAccountVersion"
     );
 
     // 9. PendingRedemption
@@ -971,10 +987,12 @@ fn test_unsupported_account_version_all_9_structs() {
     };
     assert_eq!(
         pred.check_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PendingRedemption check_version must fail with UnsupportedAccountVersion"
     );
     assert_eq!(
         pred.ensure_current_version().unwrap_err(),
-        PremiumBondsError::UnsupportedAccountVersion.into()
+        PremiumBondsError::UnsupportedAccountVersion.into(),
+        "PendingRedemption ensure_current_version must fail with UnsupportedAccountVersion"
     );
 }

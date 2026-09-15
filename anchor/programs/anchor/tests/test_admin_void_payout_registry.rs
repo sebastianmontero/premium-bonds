@@ -52,26 +52,8 @@ fn test_admin_void_payout_registry_success() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: winner_amount,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let winner2 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: winner_amount,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
+    let winner2 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
 
     let _ = inject_payout_registry(
         &mut svm,
@@ -141,16 +123,8 @@ fn test_admin_void_fails_if_payouts_already_started() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 1, // Already processed
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let mut winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
+    winner1.processed = 1; // Already processed
 
     inject_payout_registry(
         &mut svm,
@@ -190,16 +164,7 @@ fn test_admin_void_fails_if_fees_already_withdrawn() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -239,16 +204,7 @@ fn test_unauthorized_user_cannot_void_draw() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -289,16 +245,7 @@ fn test_admin_void_fails_if_pool_is_closed() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -341,16 +288,7 @@ fn test_multi_cycle_allocated_prizes_and_void_recovery() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner_c2 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 75_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner_c2 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 75_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -417,16 +355,7 @@ fn test_admin_void_payout_registry_fails_invalid_event_authority() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 100_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 100_000, 0);
 
     let _ = inject_payout_registry(
         &mut svm,
@@ -496,16 +425,7 @@ fn test_admin_void_fails_on_double_void_handler_guard() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -544,16 +464,7 @@ fn test_admin_void_fails_on_sequential_second_call() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -603,26 +514,8 @@ fn test_admin_void_draw_with_zero_truncated_prize_succeeds_before_crank() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 50_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let winner2 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 1,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 50_000, 0);
+    let winner2 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 0, 1);
 
     inject_payout_registry(
         &mut svm,
@@ -688,16 +581,7 @@ fn test_admin_void_100_percent_zero_truncated_draw_succeeds() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 0, 0);
 
     inject_payout_registry(
         &mut svm,
@@ -744,16 +628,8 @@ fn test_admin_void_fails_if_zero_prize_winner_already_cranked() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: 0,
-        bonds_bought: 0,
-        processed: 1, // Already cranked!
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let mut winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 0, 0);
+    winner.processed = 1; // Already cranked!
 
     inject_payout_registry(
         &mut svm,
@@ -806,29 +682,7 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     send_e2e_harvest_yield_and_commit(&mut ctx).expect("cycle 1 yield harvest");
 
     // 4. Prepare draw for Cycle 1
-    {
-        let (pool, _) = pool_pda(1);
-        let (dc, _) = draw_cycle_pda(1, 1);
-        let accounts = anchor::accounts::PrepareDraw {
-            crank: ctx.admin.pubkey(),
-            pool,
-            draw_cycle: dc,
-            ticket_registry: ctx.ticket_registry,
-        }
-        .to_account_metas(None);
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-        };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-        let tx =
-            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-        ctx.svm
-            .send_transaction(tx)
-            .expect("prepare_draw should succeed");
-    }
+    send_e2e_prepare_draw(&mut ctx, 1, 1, 10).expect("prepare_draw should succeed");
 
     // 5. Inject resolved Switchboard Randomness into the EXACT account recorded by harvest in Cycle 1
     let (dc_pda, _) = draw_cycle_pda(1, 1);
@@ -845,32 +699,7 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     );
 
     // 6. Reveal and pick winners for Cycle 1
-    {
-        let (pool, _) = pool_pda(1);
-        let (payout, _) = payout_pda(1, 1);
-        let accounts = anchor::accounts::RevealAndPickWinners {
-            crank: ctx.admin.pubkey(),
-            current_draw_cycle: dc_pda,
-            pool,
-            ticket_registry: ctx.ticket_registry,
-            randomness_account: dc.randomness_account,
-            payout_registry: payout,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None);
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::RevealAndPickWinners {}.data(),
-        };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-        let tx =
-            VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-        ctx.svm.send_transaction(tx).expect("reveal should succeed");
-    }
+    send_e2e_reveal_and_pick_winners(&mut ctx, 1, 1, dc.randomness_account).expect("reveal should succeed");
 
     // 7. Execute Admin Void for Cycle 1
     send_admin_void_payout_registry(&mut ctx.svm, &ctx.admin, 1, 1)
@@ -946,26 +775,8 @@ fn test_admin_void_payout_registry_fails_when_frozen() {
         .with_locked_tickets(100)
         .inject(&mut svm);
 
-    let winner1 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: winner_amount,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    let winner2 = anchor::Winner {
-        winner: Keypair::new().pubkey(),
-        amount_owed: winner_amount,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
+    let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
+    let winner2 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
 
     inject_payout_registry(
         &mut svm,

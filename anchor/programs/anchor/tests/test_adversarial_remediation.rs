@@ -2049,29 +2049,15 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
         .with_payout_timelock_seconds(3600)
         .inject(&mut svm);
 
-    // Initialize completed draw cycle completed at timestamp 1000
-    let mut dc = default_draw_cycle(pool_id, 0, anchor::DrawStatus::Complete);
-    dc.completed_at = 1000;
-    inject_draw_cycle(&mut svm, pool_id, 0, &dc);
+    // Initialize completed draw cycle
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::Complete)
+        .inject(&mut svm);
 
-    let winner_entry = anchor::Winner {
-        winner: winner.pubkey(),
-        amount_owed: 1_000_000,
-        bonds_bought: 0,
-        processed: 0,
-        tier_index: 0,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    };
-    inject_payout_registry(
-        &mut svm,
-        pool_id,
-        0,
-        vec![winner_entry],
-        0,
-        anchor::PayoutRegistryStatus::Active,
-    );
+    PayoutRegistryTestBuilder::new(pool_id, 0)
+        .with_winners(vec![WinnerTestBuilder::default_winner(winner.pubkey(), 1_000_000, 0)])
+        .with_status(anchor::PayoutRegistryStatus::Active)
+        .inject(&mut svm);
     inject_user_winnings_with_index(&mut svm, pool_id, winner.pubkey(), 0, 0, 0, 0);
 
     let build_reinvest_ix = |payout_reg: Pubkey, user_winnings: Pubkey| {
@@ -2177,7 +2163,7 @@ fn test_v7_sell_bonds_huma_cpi_failure_atomic_rollback() {
         Pubkey::default(),
         huma_pool_mode_token,
     );
-    assert_error_contains(res, &["SimulatedRedemptionFailure"]);
+    assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedRedemptionFailure);
 
     // Verify all on-chain states were atomically rolled back by the runtime
     let post_pool = read_pool_state(&ctx.svm, 1);

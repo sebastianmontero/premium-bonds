@@ -682,13 +682,20 @@ pub fn extract_instruction_error(
     }
 }
 
+#[track_caller]
 pub fn assert_custom_code_at(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_ix_index: u8,
     expected_code: u32,
     error_label: &str,
 ) {
-    let err = res.expect_err("Expected transaction to fail, but it succeeded");
+    let err = match res {
+        Ok(meta) => panic!(
+            "\n❌ Expected transaction to fail with '{}' (code {}), but it succeeded!\nTransaction Logs:\n{:#?}\n",
+            error_label, expected_code, meta.logs
+        ),
+        Err(failed) => failed,
+    };
     let decoded = extract_detailed_error(&err).unwrap_or_else(|| {
         panic!(
             "Expected InstructionError, got: {:?}\nTransaction Logs:\n{:#?}",
@@ -708,6 +715,18 @@ pub fn assert_custom_code_at(
     );
 }
 
+#[track_caller]
+pub fn assert_custom_error_msg(
+    res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
+    expected_error: anchor::error::PremiumBondsError,
+    msg: &str,
+) {
+    let expected_code = (expected_error as u32) + anchor_lang::error::ERROR_CODE_OFFSET;
+    let label = format!("{:?} - {}", expected_error, msg);
+    assert_custom_code_at(res, 0, expected_code, &label);
+}
+
+#[track_caller]
 pub fn assert_custom_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor::error::PremiumBondsError,
@@ -715,6 +734,7 @@ pub fn assert_custom_error(
     assert_custom_error_at(res, 0, expected_error);
 }
 
+#[track_caller]
 pub fn assert_custom_error_at(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_ix_index: u8,
@@ -729,6 +749,7 @@ pub fn assert_custom_error_at(
     );
 }
 
+#[track_caller]
 pub fn assert_anchor_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor_lang::error::ErrorCode,
@@ -736,6 +757,7 @@ pub fn assert_anchor_error(
     assert_anchor_error_at(res, 0, expected_error);
 }
 
+#[track_caller]
 pub fn assert_anchor_error_at(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_ix_index: u8,
@@ -749,6 +771,7 @@ pub fn assert_anchor_error_at(
     );
 }
 
+#[track_caller]
 pub fn assert_token_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: anchor_spl::token::spl_token::error::TokenError,
@@ -756,6 +779,7 @@ pub fn assert_token_error(
     assert_token_error_at(res, 0, expected_error);
 }
 
+#[track_caller]
 pub fn assert_token_error_at(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_ix_index: u8,
@@ -770,6 +794,7 @@ pub fn assert_token_error_at(
     );
 }
 
+#[track_caller]
 pub fn assert_mock_huma_error(
     res: TxResult,
     expected_error: mock_huma::MockHumaError,
@@ -783,6 +808,7 @@ pub fn assert_mock_huma_error(
     );
 }
 
+#[track_caller]
 pub fn assert_instruction_error(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_error: solana_program::instruction::InstructionError,
@@ -790,6 +816,7 @@ pub fn assert_instruction_error(
     assert_instruction_error_at(res, 0, expected_error);
 }
 
+#[track_caller]
 pub fn assert_instruction_error_at(
     res: Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>,
     expected_ix_index: u8,
@@ -952,6 +979,14 @@ impl WinnerTestBuilder {
 
     pub fn build(self) -> anchor::Winner {
         self.winner
+    }
+
+    pub fn default_winner(winner: Pubkey, amount_owed: u64, tier_index: u8) -> anchor::Winner {
+        Self::new()
+            .with_winner(winner)
+            .with_amount_owed(amount_owed)
+            .with_tier_index(tier_index)
+            .build()
     }
 }
 
@@ -2773,6 +2808,270 @@ pub fn setup_e2e() -> E2eContext {
     }
 }
 
+pub struct LifecycleTestHarness {
+    pub ctx: E2eContext, // Alice is default user in ctx.user & ctx.user_usdc_account
+    pub guardian: Keypair,
+    pub crank: Keypair,
+    pub bob: Keypair,
+    pub bob_usdc: Pubkey,
+    pub pool_id: u32,
+    pub fee_wallet: Pubkey,
+}
+
+impl std::ops::Deref for LifecycleTestHarness {
+    type Target = E2eContext;
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
+
+impl std::ops::DerefMut for LifecycleTestHarness {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ctx
+    }
+}
+
+impl LifecycleTestHarness {
+    #[inline]
+    pub fn alice(&self) -> &Keypair {
+        &self.ctx.user
+    }
+
+    #[inline]
+    pub fn alice_usdc(&self) -> Pubkey {
+        self.ctx.user_usdc_account
+    }
+}
+
+/// Build an `InitializeHumaLender` instruction.
+pub fn build_initialize_huma_lender_ix(
+    admin: Pubkey,
+    pool_id: u32,
+    pst_token_program: Pubkey,
+    huma_program: Pubkey,
+    huma_config: Pubkey,
+    huma_pool_config: Pubkey,
+    huma_pool_state: Pubkey,
+    huma_mode_config: Pubkey,
+    huma_mode_mint: Pubkey,
+    huma_lender_state: Pubkey,
+    huma_lender_mode_token: Pubkey,
+) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+
+    let accounts = anchor::accounts::InitializeHumaLender {
+        admin,
+        global_config,
+        pool,
+        pool_pst_vault,
+        huma_program,
+        huma_config,
+        huma_pool_config,
+        huma_pool_state,
+        huma_mode_config,
+        huma_mode_mint,
+        huma_lender_state,
+        huma_lender_mode_token,
+        token_program: anchor_spl::token::ID,
+        pst_token_program,
+        associated_token_program: anchor_spl::associated_token::ID,
+        system_program: anchor_lang::system_program::ID,
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::InitializeHumaLender {}.data(),
+    }
+}
+
+/// Send an `InitializeHumaLender` instruction signed by the admin.
+pub fn send_initialize_huma_lender(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    ix: Instruction,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
+pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
+    let mut svm = LiteSVM::new();
+    let _ = svm.add_program(
+        anchor::id(),
+        include_bytes!("../../../../target/deploy/anchor.so"),
+    );
+    let _ = svm.add_program(
+        huma_program_id(),
+        include_bytes!("../../../../target/deploy/mock_huma.so"),
+    );
+
+    set_clock_timestamp(&mut svm, 1_700_000_000);
+
+    let admin = Keypair::new();
+    let guardian = Keypair::new();
+    let crank = Keypair::new();
+    let alice = Keypair::new();
+    let bob = Keypair::new();
+
+    for kp in &[&admin, &guardian, &crank, &alice, &bob] {
+        svm.airdrop(&kp.pubkey(), 50_000_000_000).unwrap();
+    }
+    setup_program_data(&mut svm, Some(&admin.pubkey()));
+
+    send_initialize_global(
+        &mut svm,
+        &admin,
+        &admin.pubkey(),
+        &guardian.pubkey(),
+        &crank.pubkey(),
+    )
+    .expect("Initialize GlobalConfig must succeed");
+
+    let usdc_mint_authority = Keypair::new();
+    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000).unwrap();
+    let usdc_mint = create_spl_mint(&mut svm, &admin, &usdc_mint_authority.pubkey(), 6);
+
+    let huma_pool_state = Keypair::new().pubkey();
+    let mut huma_pool_state_data = vec![0u8; 512];
+    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes());
+    svm.set_account(
+        huma_pool_state,
+        Account {
+            lamports: 1_000_000_000,
+            data: huma_pool_state_data,
+            owner: huma_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+
+    let (huma_pool_authority, _) = huma_pool_authority_pda(&huma_pool_state);
+    let pst_mint_kp = Keypair::new();
+    {
+        let mut data = vec![0u8; 82];
+        data[0..4].copy_from_slice(&1u32.to_le_bytes());
+        data[4..36].copy_from_slice(&huma_pool_authority.to_bytes());
+        data[44] = 6;
+        data[45] = 1;
+        svm.set_account(
+            pst_mint_kp.pubkey(),
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor_spl::token::ID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    }
+    let pst_mint = pst_mint_kp.pubkey();
+
+    let huma_pool_underlying_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut svm,
+        huma_pool_underlying_token,
+        usdc_mint,
+        huma_pool_authority,
+        1_000_000_000,
+    );
+
+    let ticket_registry_kp = Keypair::new();
+    svm.set_account(
+        ticket_registry_kp.pubkey(),
+        Account {
+            lamports: 10_000_000_000,
+            data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE],
+            owner: anchor::id(),
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+    let ticket_registry = ticket_registry_kp.pubkey();
+
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, fee_wallet, usdc_mint, admin.pubkey(), 0);
+
+    let pool_id = 1;
+    let tiers = vec![
+        anchor::PrizeTier::new(1, 7000),
+        anchor::PrizeTier::new(1, 3000),
+    ];
+
+    let ix_create_pool = build_create_pool_instruction(
+        &admin,
+        pool_id,
+        1_000_000, // 1 USDC per bond
+        24,
+        1000, // 10% fee
+        0,
+        0,
+        300, // 300s payout timelock
+        tiers,
+        usdc_mint,
+        pst_mint,
+        ticket_registry,
+        fee_wallet,
+        huma_pool_state,
+    );
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix_create_pool], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
+    svm.send_transaction(tx).expect("Create PrizePool must succeed");
+
+    let dummy = Keypair::new().pubkey();
+    let ix_init_lender = build_initialize_huma_lender_ix(
+        admin.pubkey(),
+        pool_id,
+        anchor_spl::token::ID,
+        huma_program_id(),
+        dummy,
+        dummy,
+        huma_pool_state,
+        dummy,
+        pst_mint,
+        dummy,
+        dummy,
+    );
+    send_initialize_huma_lender(&mut svm, &admin, ix_init_lender)
+        .expect("Initialize Huma Lender must succeed");
+
+    let alice_usdc = Keypair::new().pubkey();
+    inject_token_account(&mut svm, alice_usdc, usdc_mint, alice.pubkey(), 200_000_000);
+    let bob_usdc = Keypair::new().pubkey();
+    inject_token_account(&mut svm, bob_usdc, usdc_mint, bob.pubkey(), 100_000_000);
+
+    LifecycleTestHarness {
+        ctx: E2eContext {
+            svm,
+            admin,
+            user: alice,
+            usdc_mint_authority,
+            usdc_mint,
+            pst_mint,
+            ticket_registry,
+            huma_pool_state,
+            huma_pool_authority,
+            huma_pool_underlying_token,
+            user_usdc_account: alice_usdc,
+        },
+        guardian,
+        crank,
+        bob,
+        bob_usdc,
+        pool_id,
+        fee_wallet,
+    }
+}
+
 pub fn send_e2e_buy_bonds_for_user(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -3435,6 +3734,91 @@ pub fn send_e2e_harvest_yield_and_commit(
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
     ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_prepare_draw_with_crank(
+    ctx: &mut E2eContext,
+    crank: &Keypair,
+    pool_id: u32,
+    cycle_id: u32,
+    batch_size: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let (pool, _) = pool_pda(pool_id);
+    let (draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+    let accounts = anchor::accounts::PrepareDraw {
+        crank: crank.pubkey(),
+        pool,
+        draw_cycle,
+        ticket_registry: ctx.ticket_registry,
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::PrepareDraw { batch_size }.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[crank]).unwrap();
+    ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_prepare_draw(
+    ctx: &mut E2eContext,
+    pool_id: u32,
+    cycle_id: u32,
+    batch_size: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let admin = clone_keypair(&ctx.admin);
+    send_e2e_prepare_draw_with_crank(ctx, &admin, pool_id, cycle_id, batch_size)
+}
+
+pub fn send_e2e_reveal_and_pick_winners_with_crank(
+    ctx: &mut E2eContext,
+    crank: &Keypair,
+    pool_id: u32,
+    cycle_id: u32,
+    randomness_account: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let (pool, _) = pool_pda(pool_id);
+    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
+
+    let accounts = anchor::accounts::RevealAndPickWinners {
+        crank: crank.pubkey(),
+        current_draw_cycle,
+        pool,
+        ticket_registry: ctx.ticket_registry,
+        randomness_account,
+        payout_registry,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::RevealAndPickWinners {}.data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[crank]).unwrap();
+    ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_reveal_and_pick_winners(
+    ctx: &mut E2eContext,
+    pool_id: u32,
+    cycle_id: u32,
+    randomness_account: Pubkey,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let admin = clone_keypair(&ctx.admin);
+    send_e2e_reveal_and_pick_winners_with_crank(ctx, &admin, pool_id, cycle_id, randomness_account)
 }
 
 // ─── Math & Invariant Assertion Helpers ─────────────────────────────────────

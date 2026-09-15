@@ -46,16 +46,13 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
 }
 
 fn w(winner: Pubkey, owed: u64, tier: u8, bonds_bought: u32, processed: bool) -> anchor::Winner {
-    anchor::Winner {
-        winner,
-        amount_owed: owed,
-        bonds_bought,
-        processed: if processed { 1 } else { 0 },
-        tier_index: tier,
-        version: anchor::Winner::CURRENT_VERSION,
-        _padding: [0; 1],
-        _reserved: [0; 8],
-    }
+    WinnerTestBuilder::new()
+        .with_winner(winner)
+        .with_amount_owed(owed)
+        .with_tier_index(tier)
+        .with_bonds_bought(bonds_bought)
+        .with_processed(processed)
+        .build()
 }
 
 // ─── Context + instruction ──────────────────────────────────────────────────

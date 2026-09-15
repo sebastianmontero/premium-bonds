@@ -261,6 +261,10 @@ fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
         let admin = Keypair::new();
         let mut ctx = setup(&admin, status);
         let res = send_force_unlock(&mut ctx, &admin);
-        assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
+        assert_custom_error_msg(
+            res,
+            anchor::error::PremiumBondsError::InvalidDrawStatus,
+            &format!("Failed for draw status {status:?}"),
+        );
     }
 }
