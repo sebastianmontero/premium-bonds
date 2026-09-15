@@ -225,7 +225,10 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
     substitute_account_meta(&mut ix, pool_pda_addr, wrong_pool);
 
     let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]

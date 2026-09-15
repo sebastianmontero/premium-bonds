@@ -16,11 +16,7 @@ use common::*;
 #[test]
 fn test_off_canonical_pda_rejection_on_bump_constraint() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
+    let pool_id: u32 = 1;
 
     // Derive off-canonical PDA for user_winnings
     let pool_id_bytes = pool_id.to_le_bytes();
@@ -57,41 +53,10 @@ fn test_off_canonical_pda_rejection_on_bump_constraint() {
         .unwrap();
 
     // BuyBonds enforces canonical bump derivation: `seeds = [...], bump`
-    let accounts = anchor::accounts::BuyBonds {
-        user: ctx.user.pubkey(),
-        user_winnings: off_canonical_pda, // Off-canonical PDA passed
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        user_token_account: ctx.user_usdc_account,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: huma.huma_pool_authority,
-        huma_pool_underlying_token: huma.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = BuyBondsBuilder::new(&ctx)
+        .with_user_winnings(off_canonical_pda)
+        .build_ix(1);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
@@ -100,8 +65,6 @@ fn test_stored_bump_tampering_on_claim_redemption() {
     let mut ctx = setup_e2e();
     let pool_id = 1;
     let redemption_id = 0;
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
 
     let (_canonical_pda, canonical_bump) = pending_redemption_pda(pool_id, redemption_id);
     let tampered_bump = canonical_bump.wrapping_sub(1);
@@ -122,20 +85,9 @@ fn test_stored_bump_tampering_on_claim_redemption() {
         },
     );
 
-    let ix = build_claim_redemption_ix(
-        ctx.user.pubkey(),
-        ctx.user.pubkey(),
-        pool_id,
-        redemption_id,
-        ctx.usdc_mint,
-        ctx.user_usdc_account,
-        &huma,
-        Some(pool_vault),
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = ClaimRedemptionBuilder::new(&ctx)
+        .with_redemption_id(redemption_id)
+        .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }

@@ -2,8 +2,8 @@
 //! Verified via LiteSVM in-process test runner.
 
 use anchor_lang::{
-    prelude::AccountMeta, AccountDeserialize, AccountSerialize, AnchorDeserialize, InstructionData,
-    Space, ToAccountMetas,
+    prelude::AccountMeta, AccountDeserialize, AccountSerialize, AnchorDeserialize, Discriminator,
+    InstructionData, Space, ToAccountMetas,
 };
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
@@ -16,10 +16,8 @@ use solana_sdk::{
 use solana_transaction::versioned::VersionedTransaction;
 
 mod common;
-use common::*;
 use anchor::error::PremiumBondsError;
-
-
+use common::*;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Security Verification Tests
@@ -34,15 +32,22 @@ fn test_resize_registry_zero_initialization() {
 
     // Pre-fill registry with distinct non-zero bytes (0xAA) to verify they are successfully zeroed
     let initial_size = anchor::constants::REGISTRY_INITIAL_SIZE;
-    let mut initial_data = vec![0xAAu8; initial_size];
-    initial_data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]); // discriminator
-    initial_data[8..12].copy_from_slice(&pool_id.to_le_bytes());
     let initial_capacity = anchor::utils::registry_capacity_from_len(initial_size);
-    initial_data[12..16].copy_from_slice(&initial_capacity.to_le_bytes());
-    initial_data[16..20].copy_from_slice(&0u32.to_le_bytes()); // user_count
-    initial_data[20..24].copy_from_slice(&0u32.to_le_bytes()); // active
-    initial_data[24..28].copy_from_slice(&0u32.to_le_bytes()); // pending
-    initial_data[36] = anchor::state::TicketRegistry::CURRENT_VERSION;
+    let header = anchor::state::TicketRegistry {
+        pool_id,
+        capacity: initial_capacity,
+        user_count: 0,
+        total_active_tickets: 0,
+        total_pending_tickets: 0,
+        draw_cycle_id: 0,
+        draw_prepared_up_to: 0,
+        version: anchor::state::TicketRegistry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 64],
+    };
+    let mut initial_data = vec![0xAAu8; initial_size];
+    initial_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
+    initial_data[8..104].copy_from_slice(bytemuck::bytes_of(&header));
 
     svm.set_account(
         ticket_registry,
@@ -420,25 +425,37 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let huma = TestHumaAccounts {
-        huma_pool_state: fake_pool_state, // counterfeit
-        ..Default::default()
-    };
-    let ix = build_claim_redemption_ix(
-        user.pubkey(),
-        user.pubkey(),
-        pool_id,
-        redemption_id,
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
+    let accounts = anchor::accounts::ClaimRedemption {
+        caller: user.pubkey(),
+        beneficiary: user.pubkey(),
+        pool: pool_key,
+        pending_redemption,
         token_mint,
-        user_token_account,
-        &huma,
-        Some(pool_vault),
-    );
+        pool_vault_account: pool_vault,
+        beneficiary_token_account: user_token_account,
+        huma_program: huma_program_id(),
+        huma_config: Pubkey::default(),
+        huma_pool_config: Pubkey::default(),
+        huma_pool_state: fake_pool_state, // counterfeit
+        huma_mode_config: Pubkey::default(),
+        huma_lender_state: Pubkey::default(),
+        huma_pool_authority: Pubkey::default(),
+        huma_pool_underlying_token: Pubkey::default(),
+        token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
+    };
+
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -553,20 +570,7 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
 
     let fake_pool_state = Keypair::new().pubkey();
-    let mut data = vec![0u8; 1000];
-    data[26..30].copy_from_slice(&1u32.to_le_bytes()); // mode_states length = 1
-    data[30..46].copy_from_slice(&100_000_000u128.to_le_bytes()); // total_assets = 100 USDC
-    svm.set_account(
-        fake_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_huma_pool_state_with_assets(&mut svm, fake_pool_state, 100_000_000);
 
     // Counterfeit mode mint (owned by System Program instead of SPL Token Program)
     let fake_mode_mint = Keypair::new().pubkey();
@@ -629,7 +633,10 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
     let res = svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -671,12 +678,8 @@ fn test_claim_redemption_reentrancy_protection() {
     )
     .unwrap();
 
-    let (pending_pda, _) = pending_redemption_pda(1, 0);
-
     // Verify pending redemption initially has 3 USDC amount
-    let initial_acct = ctx.svm.get_account(&pending_pda).unwrap();
-    let initial_data =
-        anchor::state::PendingRedemption::try_deserialize(&mut &initial_acct.data[..]).unwrap();
+    let initial_data = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(initial_data.amount, 3_000_000);
 
     // Inject simulated Huma lender state with 3 USDC settled
@@ -697,7 +700,7 @@ fn test_claim_redemption_reentrancy_protection() {
 
     // Verify user received 3 USDC and pending_redemption PDA is closed (rent returned/not found)
     assert_eq!(read_token_balance(&ctx.svm, user_token_account), 93_000_000);
-    assert!(ctx.svm.get_account(&pending_pda).is_none());
+    assert!(ctx.svm.get_account(&pending_redemption_pda(1, 0).0).is_none());
 }
 
 #[test]
@@ -893,13 +896,9 @@ fn test_direct_vault_token_donation_does_not_break_solvency() {
     // User buys 10 bonds (10,000,000 USDC -> 10,000,000 PST in vault)
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    // Directly donate 2_000_000 PST by mutating the vault's SPL token account amount (offset 64..72)
-    {
-        let mut vault_acc = ctx.svm.get_account(&pool_pst_vault).unwrap();
-        let cur_amount = u64::from_le_bytes(vault_acc.data[64..72].try_into().unwrap());
-        vault_acc.data[64..72].copy_from_slice(&(cur_amount + 2_000_000).to_le_bytes());
-        ctx.svm.set_account(pool_pst_vault, vault_acc).unwrap();
-    }
+    // Directly donate 2_000_000 PST to the vault
+    let cur_amount = read_token_balance(&ctx.svm, pool_pst_vault);
+    set_token_balance(&mut ctx.svm, pool_pst_vault, cur_amount + 2_000_000);
 
     // Harvest should recognize increased value as surplus yield without failing solvency check
     let meta = send_e2e_harvest_yield_and_commit(&mut ctx);
@@ -990,7 +989,10 @@ fn test_interleaved_async_redemption_fifo_queue_sequence() {
         Pubkey::default(),
         huma_lender_state,
     );
-    assert_custom_error(res_b, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
+    assert_custom_error(
+        res_b,
+        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+    );
 
     // User A claims redemption 0 -> SUCCEEDS
     let res_a = send_e2e_claim_redemption_for_user(
@@ -1039,20 +1041,9 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
     // Cycle 1: merge_cycle_id = 0 (tickets stay pending)
     // Cycle 2: merge_cycle_id = 1 (tickets mature to active)
     // Cycle 3: merge_cycle_id = 2 (already mature, no change)
-    let mut reg_data = reg_acc.data.clone();
-    reg_data[28..32].copy_from_slice(&3u32.to_le_bytes()); // draw_cycle_id = 3
-    ctx.svm
-        .set_account(
-            ctx.ticket_registry,
-            Account {
-                lamports: reg_acc.lamports,
-                data: reg_data,
-                owner: reg_acc.owner,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+        hdr.draw_cycle_id = 3;
+    });
 
     // Prepare draw for cycle 3: merge_cycle_id = 3 - 1 = 2
     // Lazy merge merges all pending tickets up to cycle 2 in a single step
@@ -1088,8 +1079,14 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
     let entry_after = anchor::utils::registry_get_entry(&reg_acc_after.data, 0).unwrap();
     assert_eq!(entry_after.active, 10, "entry active is 10");
     assert_eq!(entry_after.pending, 0, "entry pending is 0");
-    assert_eq!(entry_after.cumulative_active, 10, "entry cumulative_active is 10");
-    assert_eq!(entry_after.merged_through_cycle, 2, "entry merged_through_cycle is 2");
+    assert_eq!(
+        entry_after.cumulative_active, 10,
+        "entry cumulative_active is 10"
+    );
+    assert_eq!(
+        entry_after.merged_through_cycle, 2,
+        "entry merged_through_cycle is 2"
+    );
 }
 
 #[test]
@@ -1149,7 +1146,10 @@ fn test_event_emission_payload_verification_e2e() {
     assert_eq!(event.user, user_a.pubkey(), "event user matches user_a");
     assert_eq!(event.bonds, 5, "event bonds is 5");
     assert_eq!(event.amount, 5_000_000, "event amount is 5 USDC");
-    assert_eq!(event.new_total_deposited_principal, 5_000_000, "event new_total_deposited_principal is 5 USDC");
+    assert_eq!(
+        event.new_total_deposited_principal, 5_000_000,
+        "event new_total_deposited_principal is 5 USDC"
+    );
     assert_eq!(event.user_total_bonds, 5, "event user_total_bonds is 5");
     assert!(event.timestamp > 0, "event timestamp is valid");
 }

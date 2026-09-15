@@ -14,15 +14,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
-    let (pda, _) = user_winnings_pda(pool_id, user);
-    anchor::state::UserWinnings::try_deserialize(
-        &mut svm.get_account(&pda).unwrap().data.as_slice(),
-    )
-    .unwrap()
-}
-
 #[test]
 fn test_winner_swap_resilience_preserves_payout_claim() {
     let (mut svm, _admin) = setup_global_config();
@@ -125,14 +116,26 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     assert_eq!(event.winner, user_b, "event winner matches swapped user_b");
     assert_eq!(event.winner_index, 0, "event winner_index is 0");
     assert_eq!(event.bonds_bought, 5, "event bonds_bought is 5");
-    assert_eq!(event.amount_reinvested, 5_000_000, "event amount_reinvested is 5 USDC");
-    assert_eq!(event.new_total_deposited_principal, 15_000_000, "event new_total_deposited_principal is 15 USDC");
-    assert_eq!(event.remaining_unclaimed_winnings, 0, "event remaining_unclaimed_winnings is 0");
+    assert_eq!(
+        event.amount_reinvested, 5_000_000,
+        "event amount_reinvested is 5 USDC"
+    );
+    assert_eq!(
+        event.new_total_deposited_principal, 15_000_000,
+        "event new_total_deposited_principal is 15 USDC"
+    );
+    assert_eq!(
+        event.remaining_unclaimed_winnings, 0,
+        "event remaining_unclaimed_winnings is 0"
+    );
     assert_eq!(event.crank, crank.pubkey(), "event crank matches caller");
 
     let winners = read_payout_winners(&svm, 1, 0);
     assert_eq!(winners[0].processed, 1, "winner 0 marked processed");
 
-    let uw_b = read_user_winnings(&svm, 1, &user_b);
-    assert_eq!(uw_b.total_reinvested, 5_000_000, "user_b total_reinvested matches 5 USDC");
+    let uw_b = read_user_winnings_state(&svm, 1, &user_b);
+    assert_eq!(
+        uw_b.total_reinvested, 5_000_000,
+        "user_b total_reinvested matches 5 USDC"
+    );
 }

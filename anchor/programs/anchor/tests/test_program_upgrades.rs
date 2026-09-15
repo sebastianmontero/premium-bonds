@@ -28,19 +28,6 @@ use common::*;
 
 // ─── Instruction Builders & Helpers ─────────────────────────────────────────
 
-fn clone_keypair(kp: &Keypair) -> Keypair {
-    let mut secret = [0u8; 32];
-    secret.copy_from_slice(&kp.to_bytes()[0..32]);
-    Keypair::new_from_array(secret)
-}
-
-fn read_user_winnings(svm: &LiteSVM, pool_id: u32, user: &Pubkey) -> anchor::state::UserWinnings {
-    let (pda, _) = user_winnings_pda(pool_id, user);
-    let acc = svm.get_account(&pda).expect("user_winnings must exist");
-    let mut data_slice = &acc.data[8..];
-    anchor::state::UserWinnings::deserialize(&mut data_slice).unwrap()
-}
-
 fn send_e2e_sell_bonds(
     ctx: &mut E2eContext,
     user: &Keypair,
@@ -57,8 +44,6 @@ fn send_e2e_sell_bonds(
         Pubkey::default(),
     )
 }
-
-
 
 // ─── Vector 1: Value & Boundary Extremes ────────────────────────────────────
 
@@ -103,20 +88,40 @@ fn test_v1_canary_buffer_deserialization() {
 
     // Verify deserialization succeeds cleanly and preserves canary data
     let read_acc = ctx.svm.get_account(&pending_pda).unwrap();
-    assert_eq!(read_acc.data.len(), 160, "pending_pda data length must be 160 bytes");
+    assert_eq!(
+        read_acc.data.len(),
+        160,
+        "pending_pda data length must be 160 bytes"
+    );
     let deserialized =
         anchor::state::PendingRedemption::try_deserialize(&mut &read_acc.data[..]).unwrap();
     assert_eq!(deserialized.pool_id, 1, "pool_id must be 1");
     assert_eq!(deserialized.redemption_id, 42, "redemption_id must be 42");
     assert_eq!(deserialized.amount, 5_000_000, "amount must be 5 USDC");
-    assert_eq!(&deserialized._reserved[0..8], &canary, "canary bytes must be preserved");
+    assert_eq!(
+        &deserialized._reserved[0..8],
+        &canary,
+        "canary bytes must be preserved"
+    );
 }
 
 #[test]
 fn test_v1_rent_exemption_exact_160_bytes() {
-    assert_eq!(anchor::state::PendingRedemption::INIT_SPACE, 152, "PendingRedemption INIT_SPACE must be 152");
-    assert_eq!(8 + anchor::state::PendingRedemption::INIT_SPACE, 160, "PendingRedemption total account size must be 160 bytes");
-    assert_eq!((8 + anchor::state::PendingRedemption::INIT_SPACE) % 8, 0, "Account size must be 8-byte aligned");
+    assert_eq!(
+        anchor::state::PendingRedemption::INIT_SPACE,
+        152,
+        "PendingRedemption INIT_SPACE must be 152"
+    );
+    assert_eq!(
+        8 + anchor::state::PendingRedemption::INIT_SPACE,
+        160,
+        "PendingRedemption total account size must be 160 bytes"
+    );
+    assert_eq!(
+        (8 + anchor::state::PendingRedemption::INIT_SPACE) % 8,
+        0,
+        "Account size must be 8-byte aligned"
+    );
     assert_eq!(
         core::mem::offset_of!(anchor::state::PendingRedemption, _reserved),
         88,
@@ -242,7 +247,7 @@ fn test_v2_user_winnings_lazy_migration_on_sell_bonds() {
     ctx.svm.set_account(user_winnings, uw_acc).unwrap();
 
     // Verify version is 0
-    let read_uw = read_user_winnings(&ctx.svm, 1, &ctx.user.pubkey());
+    let read_uw = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     assert_eq!(read_uw.version, 0);
 
     // Clone user keypair for sell_bonds
@@ -252,7 +257,7 @@ fn test_v2_user_winnings_lazy_migration_on_sell_bonds() {
     send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5).unwrap();
 
     // Verify user_winnings migrated to version 1
-    let read_uw_after = read_user_winnings(&ctx.svm, 1, &ctx.user.pubkey());
+    let read_uw_after = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     assert_eq!(
         read_uw_after.version,
         anchor::state::UserWinnings::CURRENT_VERSION
@@ -387,9 +392,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
     );
 
     // Read-only draw_cycle non-mutation check:
-    let dc_acc = ctx.svm.get_account(&draw_cycle_pda).unwrap();
-    let mut dc_slice = &dc_acc.data[8..];
-    let read_dc = anchor::state::DrawCycle::deserialize(&mut dc_slice).unwrap();
+    let read_dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_eq!(
         read_dc.version, 0,
         "Read-only draw_cycle must not be mutated"
@@ -410,25 +413,18 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
     let (pool_vault, _) = pool_vault_pda(1);
     let attacker_token =
         create_spl_token_account(&mut ctx.svm, &attacker, &ctx.usdc_mint, &attacker.pubkey());
-    let huma = TestHumaAccounts::from_e2e(&ctx);
 
     // Attacker attempts to claim ctx.user's redemption to attacker's token account
-    let ix = build_claim_redemption_ix(
-        attacker.pubkey(),
-        attacker.pubkey(), // Mismatched beneficiary
-        1,
-        0,
-        ctx.usdc_mint,
-        attacker_token,
-        &huma,
-        Some(pool_vault),
+    let ix = ClaimRedemptionBuilder::new(&ctx)
+        .with_caller(attacker.pubkey())
+        .with_beneficiary(attacker.pubkey(), attacker_token)
+        .with_redemption_id(0)
+        .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &attacker, ix);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRedemptionOwner,
     );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&attacker.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
 }
 
 #[test]
@@ -606,27 +602,15 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
     let mut ctx = setup_e2e();
     inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 1_000_000);
 
-    // Huma queue NOT settled (next_request_id remains 0)
-    let (pool_vault, _) = pool_vault_pda(1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
-    let huma = TestHumaAccounts::from_e2e(&ctx);
 
-    let ix = build_claim_redemption_ix(
-        ctx.user.pubkey(),
-        ctx.user.pubkey(),
-        1,
-        0,
-        ctx.usdc_mint,
-        user_token,
-        &huma,
-        Some(pool_vault),
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&ctx.user.pubkey(), user_token)
+        .with_caller(ctx.user.pubkey())
+        .with_redemption_id(0)
+        .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
@@ -713,9 +697,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     ctx.svm.send_transaction(tx2).unwrap();
 
     // Verify randomness account was updated to new_randomness
-    let dc_acc = ctx.svm.get_account(&draw_cycle_pda).unwrap();
-    let mut dc_slice = &dc_acc.data[8..];
-    let updated_dc = anchor::state::DrawCycle::deserialize(&mut dc_slice).unwrap();
+    let updated_dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_eq!(updated_dc.randomness_account, new_randomness);
     assert_eq!(updated_dc.harvest_slot, 1501);
 }
@@ -730,27 +712,16 @@ fn test_v7_claim_redemption_rejects_spoofed_huma_state() {
     let spoofed_huma_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
 
-    let (pool_vault, _) = pool_vault_pda(1);
     let user_token =
         create_spl_token_account(&mut ctx.svm, &ctx.user, &ctx.usdc_mint, &ctx.user.pubkey());
-    let mut huma = TestHumaAccounts::from_e2e(&ctx);
-    huma.huma_pool_state = spoofed_huma_state;
 
-    let ix = build_claim_redemption_ix(
-        ctx.user.pubkey(),
-        ctx.user.pubkey(),
-        1,
-        0,
-        ctx.usdc_mint,
-        user_token,
-        &huma,
-        Some(pool_vault),
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&ctx.user.pubkey(), user_token)
+        .with_caller(ctx.user.pubkey())
+        .with_huma_pool_state(spoofed_huma_state)
+        .with_redemption_id(0)
+        .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 

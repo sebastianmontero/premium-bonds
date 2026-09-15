@@ -57,10 +57,7 @@ fn setup_with_amounts(
     }
 }
 
-fn send_force_unlock(
-    ctx: &mut ForceUnlockCtx,
-    signer: &Keypair,
-) -> TxResult {
+fn send_force_unlock(ctx: &mut ForceUnlockCtx, signer: &Keypair) -> TxResult {
     let (global_config, _) = global_config_pda();
     let accounts = anchor::accounts::AdminForceUnlockDraw {
         global_config,
@@ -100,20 +97,46 @@ fn test_admin_force_unlock_happy_path() {
     let event = assert_cpi_event::<anchor::events::DrawForceUnlocked>(&meta);
     assert_eq!(event.pool_id, 1, "DrawForceUnlocked pool_id mismatch");
     assert_eq!(event.cycle_id, 0, "DrawForceUnlocked cycle_id mismatch");
-    assert_eq!(event.admin, admin.pubkey(), "DrawForceUnlocked admin mismatch");
-    assert_eq!(event.prize_pot, 1_000_000, "DrawForceUnlocked prize_pot mismatch");
-    assert_eq!(event.cycle_fee_collected, 100_000, "DrawForceUnlocked cycle_fee_collected mismatch");
+    assert_eq!(
+        event.admin,
+        admin.pubkey(),
+        "DrawForceUnlocked admin mismatch"
+    );
+    assert_eq!(
+        event.prize_pot, 1_000_000,
+        "DrawForceUnlocked prize_pot mismatch"
+    );
+    assert_eq!(
+        event.cycle_fee_collected, 100_000,
+        "DrawForceUnlocked cycle_fee_collected mismatch"
+    );
 
     // Verify status is ForceUnlocked, pool is unfrozen, and non-zero balances are exactly decremented
     let pool = common::read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.is_frozen_for_draw, 0, "Pool must be unfrozen after force unlock");
-    assert_eq!(pool.total_prizes_allocated, 1_500_000, "total_prizes_allocated must decrement by prize_pot (2.5M - 1M)");
-    assert_eq!(pool.total_fees_accrued, 200_000, "total_fees_accrued must decrement by cycle fee (300k - 100k)");
+    assert_eq!(
+        pool.is_frozen_for_draw, 0,
+        "Pool must be unfrozen after force unlock"
+    );
+    assert_eq!(
+        pool.total_prizes_allocated, 1_500_000,
+        "total_prizes_allocated must decrement by prize_pot (2.5M - 1M)"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, 200_000,
+        "total_fees_accrued must decrement by cycle fee (300k - 100k)"
+    );
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked, "Draw cycle status must be ForceUnlocked");
-    assert!(dc.completed_at > 0, "Draw cycle completed_at must be positive");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::ForceUnlocked,
+        "Draw cycle status must be ForceUnlocked"
+    );
+    assert!(
+        dc.completed_at > 0,
+        "Draw cycle completed_at must be positive"
+    );
 }
 
 #[test]
@@ -131,12 +154,22 @@ fn test_admin_force_unlock_with_zero_fee() {
     send_force_unlock(&mut ctx, &admin).unwrap();
 
     let pool = common::read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_prizes_allocated, 0, "total_prizes_allocated must be 0 after deducting full pot");
-    assert_eq!(pool.total_fees_accrued, 50_000, "total_fees_accrued must remain unchanged when cycle fee is 0");
+    assert_eq!(
+        pool.total_prizes_allocated, 0,
+        "total_prizes_allocated must be 0 after deducting full pot"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, 50_000,
+        "total_fees_accrued must remain unchanged when cycle fee is 0"
+    );
 
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::ForceUnlocked, "Draw cycle status must be ForceUnlocked");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::ForceUnlocked,
+        "Draw cycle status must be ForceUnlocked"
+    );
 }
 
 #[test]
@@ -211,8 +244,14 @@ fn test_admin_force_unlock_preserves_principal_and_unwithdrawn_fees() {
     // Pool accounting: total_prizes_allocated decremented by prize_pot (2.5M - 1M = 1.5M),
     // and total_fees_accrued decremented by cycle_fee_collected (300K - 100K = 200K)
     let pool = common::read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_prizes_allocated, 1_500_000, "total_prizes_allocated must decrement by prize_pot");
-    assert_eq!(pool.total_fees_accrued, 200_000, "total_fees_accrued must decrement by cycle_fee_collected");
+    assert_eq!(
+        pool.total_prizes_allocated, 1_500_000,
+        "total_prizes_allocated must decrement by prize_pot"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, 200_000,
+        "total_fees_accrued must decrement by cycle_fee_collected"
+    );
 }
 
 #[test]

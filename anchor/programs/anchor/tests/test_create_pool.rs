@@ -138,17 +138,35 @@ fn test_create_pool_succeeds() {
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
     assert_eq!(event.pool_id, 1, "Pool ID mismatch in event");
     assert_eq!(event.admin, ctx.admin.pubkey(), "Admin mismatch in event");
-    assert_eq!(event.token_mint, ctx.token_mint, "Token mint mismatch in event");
+    assert_eq!(
+        event.token_mint, ctx.token_mint,
+        "Token mint mismatch in event"
+    );
     assert_eq!(event.pst_mint, ctx.pst_mint, "PST mint mismatch in event");
-    assert_eq!(event.max_yield_basis_points, 0, "Max yield bips mismatch in event");
-    assert_eq!(event.payout_timelock_seconds, 300, "Payout timelock mismatch in event");
+    assert_eq!(
+        event.max_yield_basis_points, 0,
+        "Max yield bips mismatch in event"
+    );
+    assert_eq!(
+        event.payout_timelock_seconds, 300,
+        "Payout timelock mismatch in event"
+    );
     assert_eq!(event.tiers_count, 1, "Tiers count mismatch in event");
     assert_eq!(event.total_winners, 1, "Total winners mismatch in event");
 
     let pool_state = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_state.max_yield_basis_points, 0, "Max yield bips mismatch in state");
-    assert_eq!(pool_state.payout_timelock_seconds, 300, "Payout timelock mismatch in state");
-    assert_eq!(pool_state.prize_tiers_count, 1, "Tiers count mismatch in state");
+    assert_eq!(
+        pool_state.max_yield_basis_points, 0,
+        "Max yield bips mismatch in state"
+    );
+    assert_eq!(
+        pool_state.payout_timelock_seconds, 300,
+        "Payout timelock mismatch in state"
+    );
+    assert_eq!(
+        pool_state.prize_tiers_count, 1,
+        "Tiers count mismatch in state"
+    );
     assert_eq!(
         pool_state.prize_tiers[0],
         anchor::PrizeTier::default_single_winner(),

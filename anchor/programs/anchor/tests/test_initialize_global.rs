@@ -24,16 +24,6 @@ use {
 mod common;
 use common::*;
 
-/// Helper to deserialize GlobalConfig from LiteSVM
-fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
-    let (pda, _) = global_config_pda();
-    let account = svm
-        .get_account(&pda)
-        .expect("global_config account must exist after init");
-    anchor_lang::AccountDeserialize::try_deserialize(&mut account.data.as_slice())
-        .expect("account data should deserialize as GlobalConfig")
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Happy-path tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -63,9 +53,19 @@ fn test_initialize_global_succeeds_same_authority_and_admin() {
     );
 
     let config = read_global_config(&svm);
-    assert_eq!(config.admin, authority.pubkey());
-    assert_eq!(config.guardian, guardian);
-    assert_eq!(config.jobs_account, jobs);
+    assert_eq!(
+        config.admin,
+        authority.pubkey(),
+        "GlobalConfig admin must match authority pubkey"
+    );
+    assert_eq!(
+        config.guardian, guardian,
+        "GlobalConfig guardian must match designated guardian"
+    );
+    assert_eq!(
+        config.jobs_account, jobs,
+        "GlobalConfig jobs account must match designated jobs account"
+    );
 }
 
 /// Initialization succeeds when authority != admin (decoupled upgrade authority and operational admin).
@@ -81,16 +81,38 @@ fn test_initialize_global_succeeds_different_authority_and_admin() {
         .expect("initialize_global should succeed with separate admin");
 
     let event = assert_log_event::<anchor::events::GlobalConfigInitialized>(&meta);
-    assert_eq!(event.authority, authority.pubkey(), "event authority matches deployer");
-    assert_eq!(event.admin, designated_admin, "event admin matches designated admin");
-    assert_eq!(event.guardian, guardian, "event guardian matches designated guardian");
-    assert_eq!(event.jobs_account, jobs, "event jobs_account matches designated jobs");
+    assert_eq!(
+        event.authority,
+        authority.pubkey(),
+        "event authority matches deployer"
+    );
+    assert_eq!(
+        event.admin, designated_admin,
+        "event admin matches designated admin"
+    );
+    assert_eq!(
+        event.guardian, guardian,
+        "event guardian matches designated guardian"
+    );
+    assert_eq!(
+        event.jobs_account, jobs,
+        "event jobs_account matches designated jobs"
+    );
     assert!(event.timestamp > 0, "event timestamp is valid");
 
     let config = read_global_config(&svm);
-    assert_eq!(config.admin, designated_admin, "config admin matches designated admin");
-    assert_eq!(config.guardian, guardian, "config guardian matches designated guardian");
-    assert_eq!(config.jobs_account, jobs, "config jobs_account matches designated jobs");
+    assert_eq!(
+        config.admin, designated_admin,
+        "config admin matches designated admin"
+    );
+    assert_eq!(
+        config.guardian, guardian,
+        "config guardian matches designated guardian"
+    );
+    assert_eq!(
+        config.jobs_account, jobs,
+        "config jobs_account matches designated jobs"
+    );
 }
 
 /// The `jobs_account` field is stored verbatim — even for an arbitrary key or default pubkey.

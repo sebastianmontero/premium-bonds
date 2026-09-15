@@ -22,8 +22,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-
 // ─── Instruction builder (for guard tests) ───────────────────────────────────
 
 fn build_sell_bonds_ix(
@@ -164,11 +162,7 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
     }
 }
 
-fn send_sell_guard(
-    ctx: &mut GuardCtx,
-    active_to_sell: u32,
-    pending_to_sell: u32,
-) -> TxResult {
+fn send_sell_guard(ctx: &mut GuardCtx, active_to_sell: u32, pending_to_sell: u32) -> TxResult {
     let ix = build_sell_bonds_ix(
         ctx.user.pubkey(),
         1,
@@ -193,7 +187,10 @@ fn send_sell_guard(
 fn test_sell_bonds_fails_pool_frozen() {
     let mut ctx = setup_guard(true, 1, 0, &[]);
     let res = send_sell_guard(&mut ctx, 1, 0);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 #[test]
@@ -207,14 +204,20 @@ fn test_sell_bonds_fails_zero_quantity() {
 fn test_sell_bonds_fails_insufficient_active_tickets() {
     let mut ctx = setup_guard(false, 2, 0, &[]);
     let res = send_sell_guard(&mut ctx, 3, 0);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientActiveTickets);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientActiveTickets,
+    );
 }
 
 #[test]
 fn test_sell_bonds_fails_insufficient_pending_tickets() {
     let mut ctx = setup_guard(false, 0, 2, &[]);
     let res = send_sell_guard(&mut ctx, 0, 3);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientPendingTickets);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientPendingTickets,
+    );
 }
 
 #[test]
@@ -222,7 +225,10 @@ fn test_sell_bonds_fails_missing_swapped_user_winnings() {
     let other = Pubkey::new_unique();
     let mut ctx = setup_guard(false, 1, 0, &[other]);
     let res = send_sell_guard(&mut ctx, 1, 0);
-    assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
+    );
 }
 
 // ─── E2E happy-path and integration tests (with mock-huma program) ───────────
@@ -241,8 +247,16 @@ fn test_sell_bonds_e2e_happy_path() {
 
     // User A buys 10 bonds
     send_e2e_buy_bonds(&mut ctx, 10).expect("buy 10 bonds");
-    assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), 10);
-    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 10_000_000);
+    assert_eq!(
+        read_registry_pending(&ctx.svm, ctx.ticket_registry),
+        10,
+        "Registry pending count should be 10 after initial buy"
+    );
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_pst_vault),
+        10_000_000,
+        "Pool PST vault should hold 10 PST shares"
+    );
 
     // Clone User A keypair to avoid borrow checker conflict
     let user_a = clone_keypair(&ctx.user);
@@ -260,13 +274,22 @@ fn test_sell_bonds_e2e_happy_path() {
     .expect("sell 3 pending bonds");
 
     // Registry pending count should decrease by 3
-    assert_eq!(read_registry_pending(&ctx.svm, ctx.ticket_registry), 7);
+    assert_eq!(
+        read_registry_pending(&ctx.svm, ctx.ticket_registry),
+        7,
+        "Registry pending tickets must decrease to 7"
+    );
 
     // Vault balances: 3_000_000 PST should have moved to huma_pool_mode_token
-    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 7_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_pst_vault),
+        7_000_000,
+        "Pool PST vault must decrease to 7 PST shares"
+    );
     assert_eq!(
         read_token_balance(&ctx.svm, huma_pool_mode_token),
-        3_000_000
+        3_000_000,
+        "Huma pool mode token must receive 3 PST shares"
     );
 
     // A PendingRedemption PDA should be created at ID 0
@@ -276,11 +299,24 @@ fn test_sell_bonds_e2e_happy_path() {
         anchor::PendingRedemption::try_deserialize(&mut pending_redemption_account.data.as_slice())
             .unwrap();
 
-    assert_eq!(pending_redemption.user, ctx.user.pubkey(), "Redemption user mismatch");
+    assert_eq!(
+        pending_redemption.user,
+        ctx.user.pubkey(),
+        "Redemption user mismatch"
+    );
     assert_eq!(pending_redemption.pool_id, 1, "Redemption pool ID mismatch");
-    assert_eq!(pending_redemption.redemption_id, 0, "Redemption ID mismatch");
-    assert_eq!(pending_redemption.amount, 3_000_000, "Redemption amount mismatch");
-    assert_eq!(pending_redemption.pst_shares_locked, 3_000_000, "Locked PST shares mismatch");
+    assert_eq!(
+        pending_redemption.redemption_id, 0,
+        "Redemption ID mismatch"
+    );
+    assert_eq!(
+        pending_redemption.amount, 3_000_000,
+        "Redemption amount mismatch"
+    );
+    assert_eq!(
+        pending_redemption.pst_shares_locked, 3_000_000,
+        "Locked PST shares mismatch"
+    );
     assert_eq!(
         pending_redemption.redemption_type,
         anchor::state::RedemptionType::BondSale,
@@ -289,7 +325,10 @@ fn test_sell_bonds_e2e_happy_path() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.next_redemption_id, 1, "Next redemption ID mismatch");
-    assert_eq!(pool.total_pending_redemptions, 3_000_000, "Total pending redemptions mismatch");
+    assert_eq!(
+        pool.total_pending_redemptions, 3_000_000,
+        "Total pending redemptions mismatch"
+    );
 }
 
 #[test]
@@ -331,7 +370,11 @@ fn test_claim_redemption_e2e_happy_path() {
     )
     .unwrap();
 
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 90_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        90_000_000,
+        "User USDC balance should be 90 USDC before claim"
+    );
 
     // Inject simulated Huma lender state
     let huma_lender_state = Keypair::new().pubkey();
@@ -350,14 +393,24 @@ fn test_claim_redemption_e2e_happy_path() {
     .expect("claim redemption");
 
     // User A should have received 3 USDC back
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        93_000_000,
+        "User A USDC balance must increase to 93 USDC after claiming redemption"
+    );
 
     // PendingRedemption PDA should be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
+    assert!(
+        ctx.svm.get_account(&pending_redemption_key).is_none(),
+        "PendingRedemption PDA must be closed and deleted after claim"
+    );
 
     let pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_pending_redemptions, 0);
+    assert_eq!(
+        pool.total_pending_redemptions, 0,
+        "Pool total pending redemptions must decrement to 0"
+    );
 }
 
 #[test]
@@ -437,7 +490,10 @@ fn test_sell_bonds_multiple_users_and_sales() {
     assert_eq!(event_a.redemption_id, 0, "event_a redemption_id is 0");
     assert!(event_a.pst_shares > 0, "event_a pst_shares is positive");
     assert_eq!(event_a.huma_request_id, 0, "event_a huma_request_id is 0");
-    assert_eq!(event_a.user_remaining_bonds, 2, "event_a user_remaining_bonds is 2");
+    assert_eq!(
+        event_a.user_remaining_bonds, 2,
+        "event_a user_remaining_bonds is 2"
+    );
     assert!(event_a.timestamp > 0, "event_a timestamp is valid");
 
     // Verify active count and entry updates
@@ -684,7 +740,10 @@ fn test_claim_redemption_fails_not_settled() {
         huma_lender_state,
     );
 
-    assert_custom_error(res, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+    );
 }
 
 #[test]
@@ -739,7 +798,10 @@ fn test_claim_redemption_fails_wrong_owner() {
         huma_lender_state,
     );
 
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRedemptionOwner,
+    );
 }
 
 #[test]
@@ -943,12 +1005,7 @@ fn test_sell_bonds_pst_share_accounting_with_accrued_yield() {
     assert_eq!(pool.total_pending_redemptions, 10_000_000);
 
     // 3. PendingRedemption PDA stores expected_principal amount and locked PST shares (< 10_000_000)
-    let (pending_pda, _) = pending_redemption_pda(1, 0);
-    let pending_acc = ctx
-        .svm
-        .get_account(&pending_pda)
-        .expect("PendingRedemption exists");
-    let pending = anchor::state::PendingRedemption::try_from_slice(&pending_acc.data[8..]).unwrap();
+    let pending = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pending.amount, 10_000_000);
     assert_eq!(pending.pst_shares_locked, 8_333_334);
 }
@@ -1502,7 +1559,10 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
         let res = ctx.svm.send_transaction(tx);
-        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
+        assert_custom_error(
+            res,
+            anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
+        );
     }
 
     // Subcase 2: Wrong program owner (System Program owned)
@@ -1538,7 +1598,10 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
         let res = ctx.svm.send_transaction(tx);
-        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
+        assert_custom_error(
+            res,
+            anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
+        );
     }
 
     // Subcase 3: Wrong data length
@@ -1574,7 +1637,10 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
         let res = ctx.svm.send_transaction(tx);
-        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
+        assert_custom_error(
+            res,
+            anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
+        );
     }
 
     // Subcase 4: Mismatched user in UserWinnings
@@ -1625,6 +1691,9 @@ fn test_sell_bonds_decoy_accounts_rejected() {
         let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
         let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
         let res = ctx.svm.send_transaction(tx);
-        assert_custom_error(res, anchor::error::PremiumBondsError::MissingSwappedUserWinnings);
+        assert_custom_error(
+            res,
+            anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
+        );
     }
 }

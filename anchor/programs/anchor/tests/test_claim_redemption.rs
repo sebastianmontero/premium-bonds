@@ -21,8 +21,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-
-
 // ─── Guard Test Setup ────────────────────────────────────────────────────────
 
 struct ClaimGuardCtx {
@@ -120,8 +118,18 @@ fn send_claim_redemption_guard(
     override_huma_program: Option<Pubkey>,
 ) -> TxResult {
     let beneficiary = beneficiary.unwrap_or_else(|| ctx.user.pubkey());
-    let huma = TestHumaAccounts {
-        huma_program: override_huma_program.unwrap_or(huma_program_id()),
+    let (pool_pda_addr, _) = pool_pda(pool_id);
+    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
+
+    let accounts = anchor::accounts::ClaimRedemption {
+        caller: caller_kp.pubkey(),
+        beneficiary,
+        pool: pool_pda_addr,
+        pending_redemption,
+        token_mint: override_token_mint.unwrap_or(ctx.token_mint),
+        pool_vault_account: override_pool_vault.unwrap_or(ctx.pool_vault),
+        beneficiary_token_account: override_user_token_account.unwrap_or(ctx.user_token_account),
+        huma_program: override_huma_program.unwrap_or_else(huma_program_id),
         huma_config: ctx.huma_config,
         huma_pool_config: ctx.huma_pool_config,
         huma_pool_state: ctx.huma_pool_state,
@@ -129,21 +137,19 @@ fn send_claim_redemption_guard(
         huma_lender_state: ctx.huma_lender_state,
         huma_pool_authority: ctx.huma_pool_authority,
         huma_pool_underlying_token: ctx.huma_pool_underlying_token,
+        token_program: anchor_spl::token::ID,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ClaimRedemption {}.data(),
     };
-    let ix = build_claim_redemption_ix(
-        caller_kp.pubkey(),
-        beneficiary,
-        pool_id,
-        redemption_id,
-        override_token_mint.unwrap_or(ctx.token_mint),
-        override_user_token_account.unwrap_or(ctx.user_token_account),
-        &huma,
-        override_pool_vault,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&caller_kp.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller_kp]).unwrap();
-    ctx.svm.send_transaction(tx)
+    send_user_tx(&mut ctx.svm, caller_kp, ix)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -157,7 +163,10 @@ fn test_claim_redemption_fails_wrong_user() {
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
     let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRedemptionOwner);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRedemptionOwner,
+    );
 }
 
 #[test]
@@ -186,7 +195,10 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. Pool 2 account is not initialized (owned by system program).
     let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -269,19 +281,35 @@ fn test_claim_redemption_e2e_happy_path() {
     )
     .expect("claim redemption should succeed");
     let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
-    assert_eq!(event.caller, user_a.pubkey());
-    assert_eq!(event.user, user_a.pubkey());
+    assert_eq!(
+        event.caller,
+        user_a.pubkey(),
+        "RedemptionClaimed event caller must match claimer"
+    );
+    assert_eq!(
+        event.user,
+        user_a.pubkey(),
+        "RedemptionClaimed event user must match user_a"
+    );
     assert_eq!(
         event.redemption_type,
-        anchor::state::RedemptionType::BondSale
+        anchor::state::RedemptionType::BondSale,
+        "RedemptionClaimed event type must be BondSale"
     );
 
     // User A should have received 3 USDC back (93 USDC total)
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        93_000_000,
+        "User A USDC balance must equal 93 USDC after claiming 3 USDC"
+    );
 
     // PendingRedemption PDA should be closed and its rent/account space deleted
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
+    assert!(
+        ctx.svm.get_account(&pending_redemption_key).is_none(),
+        "PendingRedemption account must be closed after claim"
+    );
 }
 
 #[test]
@@ -331,7 +359,10 @@ fn test_claim_redemption_fails_insufficient_settled_amount() {
         huma_lender_state,
     );
 
-    assert_custom_error(res, anchor::error::PremiumBondsError::HumaRedemptionNotSettled);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::HumaRedemptionNotSettled,
+    );
 
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -391,12 +422,6 @@ fn test_claim_redemption_fails_simulated_disburse_failure() {
     // PendingRedemption PDA should NOT be closed
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
     assert!(ctx.svm.get_account(&pending_redemption_key).is_some());
-}
-
-fn set_huma_total_assets(svm: &mut LiteSVM, huma_pool_state: Pubkey, assets: u128) {
-    let mut account = svm.get_account(&huma_pool_state).unwrap();
-    account.data[30..46].copy_from_slice(&assets.to_le_bytes());
-    svm.set_account(huma_pool_state, account).unwrap();
 }
 
 fn set_pool_prizes_allocated(svm: &mut LiteSVM, pool_id: u32, amount: u64) {
@@ -482,7 +507,7 @@ fn test_claim_redemption_rounding_error_failure() {
 
     // Manipulate Huma pool state: total_assets = 10,000,030, pst_supply = 10,000,000
     // Yield rate is > 1:1 (approx 1.000003 USDC per share)
-    set_huma_total_assets(&mut ctx.svm, ctx.huma_pool_state, 10_000_030);
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 10_000_030);
 
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
@@ -499,10 +524,7 @@ fn test_claim_redemption_rounding_error_failure() {
     )
     .unwrap();
 
-    let (pending_key, _) = pending_redemption_pda(1, 0);
-    let pending_acct = ctx.svm.get_account(&pending_key).unwrap();
-    let pending_data =
-        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct.data[..]).unwrap();
+    let pending_data = read_pending_redemption(&ctx.svm, 1, 0);
 
     // S = ceil(3,000,000 * 10,000,000 / 10,000,030) = 2,999,992 shares
     // This assertion verifies that ceiling behavior is applied.
@@ -569,11 +591,11 @@ fn test_claim_redemption_case_a_1_to_1() {
     .unwrap();
 
     // Verify locked shares (exactly 3,000,000 for 1:1)
-    let (pending_key, _) = pending_redemption_pda(1, 0);
-    let pending_acct = ctx.svm.get_account(&pending_key).unwrap();
-    let pending_data =
-        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct.data[..]).unwrap();
-    assert_eq!(pending_data.pst_shares_locked, 3_000_000);
+    let pending_data = read_pending_redemption(&ctx.svm, 1, 0);
+    assert_eq!(
+        pending_data.pst_shares_locked, 3_000_000,
+        "Pending redemption locked PST shares must equal 3,000,000"
+    );
 
     let huma_lender_state = Keypair::new().pubkey();
     inject_lender_state(&mut ctx.svm, huma_lender_state, 3_000_000);
@@ -590,7 +612,11 @@ fn test_claim_redemption_case_a_1_to_1() {
     )
     .expect("Case A: 1:1 redemption claim should succeed");
 
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        93_000_000,
+        "User A USDC balance must equal 93 USDC after 1:1 redemption claim"
+    );
 }
 
 #[test]
@@ -615,7 +641,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
 
     // Manipulate Huma pool state: total_assets = 12_000_030, pst_supply = 10,000,000
     // Yield rate is > 1:1 (approx 1.200003 USDC per share)
-    set_huma_total_assets(&mut ctx.svm, ctx.huma_pool_state, 12_000_030);
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 12_000_030);
 
     let user_a = clone_keypair(&ctx.user);
     let user_a_usdc = ctx.user_usdc_account;
@@ -632,10 +658,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     )
     .unwrap();
 
-    let (pending_key0, _) = pending_redemption_pda(1, 0);
-    let pending_acct0 = ctx.svm.get_account(&pending_key0).unwrap();
-    let pending_data0 =
-        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct0.data[..]).unwrap();
+    let pending_data0 = read_pending_redemption(&ctx.svm, 1, 0);
 
     // Ceiling expectation:
     // S = ceil(3,000,000 * 10,000,000 / 12,000,030) = 2,499,994 shares
@@ -659,7 +682,10 @@ fn test_claim_redemption_case_b_accrued_yield() {
     assert_eq!(event.caller, user_a.pubkey(), "event caller matches user_a");
     assert_eq!(event.user, user_a.pubkey(), "event user matches user_a");
     assert_eq!(event.pool_id, 1, "event pool_id matches");
-    assert_eq!(event.amount, 3_000_000, "event amount matches sold principal");
+    assert_eq!(
+        event.amount, 3_000_000,
+        "event amount matches sold principal"
+    );
     assert_eq!(event.redemption_id, 0, "event redemption_id is 0");
     assert_eq!(
         event.redemption_type,
@@ -671,7 +697,11 @@ fn test_claim_redemption_case_b_accrued_yield() {
     assert!(event.requested_at > 0, "requested_at timestamp is valid");
     assert!(event.timestamp > 0, "event timestamp is valid");
 
-    assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 93_000_000, "user_a USDC balance matches 93 USDC");
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        93_000_000,
+        "user_a USDC balance matches 93 USDC"
+    );
 
     // ── Operation 2: Claim 2,000,000 USDC winnings ──
     set_pool_prizes_allocated(&mut ctx.svm, 1, 2_000_000);
@@ -686,10 +716,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     )
     .unwrap();
 
-    let (pending_key1, _) = pending_redemption_pda(1, 1);
-    let pending_acct1 = ctx.svm.get_account(&pending_key1).unwrap();
-    let pending_data1 =
-        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct1.data[..]).unwrap();
+    let pending_data1 = read_pending_redemption(&ctx.svm, 1, 1);
 
     // Ceiling expectation:
     // S = ceil(2,000,000 * 10,000,000 / 12,000,030) = 1,666,663 shares
@@ -732,10 +759,7 @@ fn test_claim_redemption_case_b_accrued_yield() {
     )
     .unwrap();
 
-    let (pending_key2, _) = pending_redemption_pda(1, 2);
-    let pending_acct2 = ctx.svm.get_account(&pending_key2).unwrap();
-    let pending_data2 =
-        anchor::state::PendingRedemption::try_deserialize(&mut &pending_acct2.data[..]).unwrap();
+    let pending_data2 = read_pending_redemption(&ctx.svm, 1, 2);
 
     // Ceiling expectation:
     // S = ceil(7,000,000 * 10,000,000 / 12,000,030) = 5,833,319 shares
@@ -1137,22 +1161,12 @@ fn test_claim_redemption_fails_when_pool_paused() {
     send_pause_pool(&mut ctx.svm, &ctx.admin, 1).expect("pause_pool should succeed");
 
     // Attempt claim_redemption while paused -> MUST FAIL with PoolPaused
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let ix = build_claim_redemption_ix(
-        user_a.pubkey(),
-        user_a.pubkey(),
-        1,
-        0,
-        ctx.usdc_mint,
-        user_a_usdc,
-        &huma,
-        Some(pool_vault),
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), user_a_usdc)
+        .with_caller(user_a.pubkey())
+        .with_redemption_id(0)
+        .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &user_a, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::PoolPaused);
 
     // Unpause pool -> claim_redemption succeeds

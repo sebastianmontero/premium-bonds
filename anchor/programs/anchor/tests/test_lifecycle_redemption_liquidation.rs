@@ -32,14 +32,23 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
     send_e2e_buy_bonds(&mut h, 100).expect("Alice buys 100 bonds");
 
     let pool_pre_sell = read_pool_state(&h.svm, h.pool_id);
-    assert_eq!(pool_pre_sell.total_deposited_principal, 100_000_000, "100 USDC principal deposited");
+    assert_eq!(
+        pool_pre_sell.total_deposited_principal, 100_000_000,
+        "100 USDC principal deposited"
+    );
 
     // 2. Bond Sale: Alice sells 40 pending bonds (40 USDC)
     let dummy = Keypair::new().pubkey();
     let huma_pool_mode_token = Keypair::new().pubkey();
     let pst_mint = h.pst_mint;
     let huma_pool_authority = h.huma_pool_authority;
-    inject_token_account(&mut h.svm, huma_pool_mode_token, pst_mint, huma_pool_authority, 0);
+    inject_token_account(
+        &mut h.svm,
+        huma_pool_mode_token,
+        pst_mint,
+        huma_pool_authority,
+        0,
+    );
 
     let alice_signer = clone_keypair(&h.user);
 
@@ -55,8 +64,14 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
     .expect("SellBonds must succeed");
 
     let pool_post_sell = read_pool_state(&h.svm, h.pool_id);
-    assert_eq!(pool_post_sell.total_deposited_principal, 60_000_000, "60 USDC remaining principal");
-    assert_eq!(pool_post_sell.next_redemption_id, 1, "next_redemption_id incremented to 1");
+    assert_eq!(
+        pool_post_sell.total_deposited_principal, 60_000_000,
+        "60 USDC remaining principal"
+    );
+    assert_eq!(
+        pool_post_sell.next_redemption_id, 1,
+        "next_redemption_id incremented to 1"
+    );
 
     // Settle Huma redemption request
     let huma_pool_state = h.huma_pool_state;
@@ -76,11 +91,7 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
 
     // 4. Protocol Fee Accrual and Withdrawal
     set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 100_000_000);
-    {
-        let mut pst_acc = h.svm.get_account(&pst_mint).unwrap();
-        pst_acc.data[36..44].copy_from_slice(&60_000_000u64.to_le_bytes());
-        h.svm.set_account(pst_mint, pst_acc).unwrap();
-    }
+    set_token_mint_supply(&mut h.svm, pst_mint, 60_000_000);
 
     let pool_id = h.pool_id;
     mutate_pool_state(&mut h.svm, pool_id, |p| {
@@ -120,11 +131,21 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         data: anchor::instruction::WithdrawFees { amount: 5_000_000 }.data(),
     };
     let bh_fee = h.svm.latest_blockhash();
-    let msg_fee = Message::new_with_blockhash(&[ix_withdraw_fees], Some(&h.admin.pubkey()), &bh_fee);
-    let tx_fee = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&h.admin]).unwrap();
-    h.svm.send_transaction(tx_fee).expect("WithdrawFees must succeed");
+    let msg_fee =
+        Message::new_with_blockhash(&[ix_withdraw_fees], Some(&h.admin.pubkey()), &bh_fee);
+    let tx_fee =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&h.admin]).unwrap();
+    h.svm
+        .send_transaction(tx_fee)
+        .expect("WithdrawFees must succeed");
 
     let pool_final = read_pool_state(&h.svm, h.pool_id);
-    assert_eq!(pool_final.total_fees_withdrawn, 5_000_000, "5 USDC fees successfully withdrawn");
-    assert_eq!(pool_final.total_deposited_principal, 60_000_000, "60 USDC remaining principal intact");
+    assert_eq!(
+        pool_final.total_fees_withdrawn, 5_000_000,
+        "5 USDC fees successfully withdrawn"
+    );
+    assert_eq!(
+        pool_final.total_deposited_principal, 60_000_000,
+        "60 USDC remaining principal intact"
+    );
 }

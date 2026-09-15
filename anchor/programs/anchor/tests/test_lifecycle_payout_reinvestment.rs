@@ -34,10 +34,11 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
         .expect("Bob buys 50 bonds");
 
     // Cycle 0 Harvest
-    set_clock_timestamp(&mut h.svm, 1_700_000_000 + 25 * 3600);
+    warp_to_timestamp(&mut h.svm, 1_700_000_000 + 25 * 3600);
     let (draw_cycle_0_pda, _) = draw_cycle_pda(h.pool_id, 0);
     let rand_acc_0 = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut h.svm, rand_acc_0, 0, 0, [0u8; 32]);
+    let clock_0: solana_sdk::clock::Clock = h.svm.get_sysvar();
+    inject_randomness_account_data(&mut h.svm, rand_acc_0, 0, clock_0.slot, [0u8; 32]);
 
     let accounts_harvest_0 = anchor::accounts::HarvestYieldAndCommit {
         crank: h.crank.pubkey(),
@@ -64,22 +65,21 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     let bh0 = h.svm.latest_blockhash();
     let msg0 = Message::new_with_blockhash(&[ix_harvest_0], Some(&h.crank.pubkey()), &bh0);
     let tx0 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg0), &[&h.crank]).unwrap();
-    h.svm.send_transaction(tx0).expect("Cycle 0 harvest must succeed");
+    h.svm
+        .send_transaction(tx0)
+        .expect("Cycle 0 harvest must succeed");
 
     // 2. Yield Generation: 15 USDC yield accrued in Huma
-    set_clock_timestamp(&mut h.svm, 1_700_000_000 + 50 * 3600);
+    warp_to_timestamp(&mut h.svm, 1_700_000_000 + 50 * 3600);
     let huma_pool_state = h.huma_pool_state;
     let pst_mint = h.pst_mint;
     set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 165_000_000);
-    {
-        let mut pst_acc = h.svm.get_account(&pst_mint).unwrap();
-        pst_acc.data[36..44].copy_from_slice(&150_000_000u64.to_le_bytes());
-        h.svm.set_account(pst_mint, pst_acc).unwrap();
-    }
+    set_token_mint_supply(&mut h.svm, pst_mint, 150_000_000);
 
     let (draw_cycle_1_pda, _) = draw_cycle_pda(h.pool_id, 1);
     let rand_acc_1 = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut h.svm, rand_acc_1, 0, 0, [0u8; 32]);
+    let clock_1: solana_sdk::clock::Clock = h.svm.get_sysvar();
+    inject_randomness_account_data(&mut h.svm, rand_acc_1, 0, clock_1.slot, [0u8; 32]);
 
     let accounts_harvest_1 = anchor::accounts::HarvestYieldAndCommit {
         crank: h.crank.pubkey(),
@@ -106,7 +106,9 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     let bh1 = h.svm.latest_blockhash();
     let msg1 = Message::new_with_blockhash(&[ix_harvest_1], Some(&h.crank.pubkey()), &bh1);
     let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&h.crank]).unwrap();
-    h.svm.send_transaction(tx1).expect("Cycle 1 harvest must succeed");
+    h.svm
+        .send_transaction(tx1)
+        .expect("Cycle 1 harvest must succeed");
 
     // 3. PrepareDraw & Reveal
     let accounts_prepare = anchor::accounts::PrepareDraw {
@@ -124,18 +126,15 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     };
     let bh_prep = h.svm.latest_blockhash();
     let msg_prep = Message::new_with_blockhash(&[ix_prepare], Some(&h.crank.pubkey()), &bh_prep);
-    let tx_prep = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&h.crank]).unwrap();
-    h.svm.send_transaction(tx_prep).expect("PrepareDraw must succeed");
+    let tx_prep =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&h.crank]).unwrap();
+    h.svm
+        .send_transaction(tx_prep)
+        .expect("PrepareDraw must succeed");
 
     let (payout_reg_pda, _) = payout_pda(h.pool_id, 1);
     let clock: solana_sdk::clock::Clock = h.svm.get_sysvar();
-    inject_randomness_account_data(
-        &mut h.svm,
-        rand_acc_1,
-        clock.slot,
-        clock.slot,
-        [42u8; 32],
-    );
+    inject_randomness_account_data(&mut h.svm, rand_acc_1, clock.slot, clock.slot, [42u8; 32]);
 
     let accounts_reveal = anchor::accounts::RevealAndPickWinners {
         crank: h.crank.pubkey(),
@@ -157,8 +156,11 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     };
     let bh_rev = h.svm.latest_blockhash();
     let msg_rev = Message::new_with_blockhash(&[ix_reveal], Some(&h.crank.pubkey()), &bh_rev);
-    let tx_rev = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&h.crank]).unwrap();
-    h.svm.send_transaction(tx_rev).expect("RevealAndPickWinners must succeed");
+    let tx_rev =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&h.crank]).unwrap();
+    h.svm
+        .send_transaction(tx_rev)
+        .expect("RevealAndPickWinners must succeed");
 
     let winners = read_payout_winners(&h.svm, h.pool_id, 1);
     assert_eq!(winners.len(), 2, "2 winners across 2 tiers");
@@ -190,10 +192,15 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
         .data(),
     };
     let bh_early = h.svm.latest_blockhash();
-    let msg_early = Message::new_with_blockhash(&[ix_reinvest_early], Some(&h.crank.pubkey()), &bh_early);
-    let tx_early = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_early), &[&h.crank]).unwrap();
+    let msg_early =
+        Message::new_with_blockhash(&[ix_reinvest_early], Some(&h.crank.pubkey()), &bh_early);
+    let tx_early =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_early), &[&h.crank]).unwrap();
     let res_early = h.svm.send_transaction(tx_early);
-    assert_custom_error(res_early, anchor::error::PremiumBondsError::PayoutTimelockActive);
+    assert_custom_error(
+        res_early,
+        anchor::error::PremiumBondsError::PayoutTimelockActive,
+    );
 
     // 5. Advance Time Past 300s Timelock & Reinvest
     h.svm.expire_blockhash();
@@ -223,23 +230,46 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     };
     let bh_reinv = h.svm.latest_blockhash();
     let msg_reinv = Message::new_with_blockhash(&[ix_reinvest], Some(&h.crank.pubkey()), &bh_reinv);
-    let tx_reinv = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&h.crank]).unwrap();
-    h.svm.send_transaction(tx_reinv).expect("ReinvestWinnings must succeed after timelock");
+    let tx_reinv =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&h.crank]).unwrap();
+    h.svm
+        .send_transaction(tx_reinv)
+        .expect("ReinvestWinnings must succeed after timelock");
 
     let winner_0_winnings = read_user_winnings_state(&h.svm, h.pool_id, &winner_0);
-    assert_eq!(winner_0_winnings.total_reinvested, 9_000_000, "9 USDC reinvested into bonds");
-    assert_eq!(winner_0_winnings.unclaimed_non_reinvested_winnings, 450_000, "450k dust tracked as unclaimed winnings");
+    assert_eq!(
+        winner_0_winnings.total_reinvested, 9_000_000,
+        "9 USDC reinvested into bonds"
+    );
+    assert_eq!(
+        winner_0_winnings.unclaimed_non_reinvested_winnings, 450_000,
+        "450k dust tracked as unclaimed winnings"
+    );
 
     // 6. Winner 0 Claims Unclaimed Dust Winnings via ClaimNonReinvestedWinnings
     let dummy = Keypair::new().pubkey();
     let huma_pool_mode_token = Keypair::new().pubkey();
     let pst_mint = h.pst_mint;
     let huma_pool_authority = h.huma_pool_authority;
-    inject_token_account(&mut h.svm, huma_pool_mode_token, pst_mint, huma_pool_authority, 0);
+    inject_token_account(
+        &mut h.svm,
+        huma_pool_mode_token,
+        pst_mint,
+        huma_pool_authority,
+        0,
+    );
     let (pending_claim_pda, _) = pending_redemption_pda(h.pool_id, 0);
 
-    let winner_0_signer = if winner_0 == h.user.pubkey() { &h.user } else { &h.bob };
-    let winner_0_usdc = if winner_0 == h.user.pubkey() { h.user_usdc_account } else { h.bob_usdc };
+    let winner_0_signer = if winner_0 == h.user.pubkey() {
+        &h.user
+    } else {
+        &h.bob
+    };
+    let winner_0_usdc = if winner_0 == h.user.pubkey() {
+        h.user_usdc_account
+    } else {
+        h.bob_usdc
+    };
 
     let accounts_claim_dust = anchor::accounts::ClaimNonReinvestedWinnings {
         user: winner_0,
@@ -272,10 +302,20 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
     };
     let bh_dust = h.svm.latest_blockhash();
     let msg_dust = Message::new_with_blockhash(&[ix_claim_dust], Some(&winner_0), &bh_dust);
-    let tx_dust = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_dust), &[winner_0_signer]).unwrap();
-    h.svm.send_transaction(tx_dust).expect("ClaimNonReinvestedWinnings must succeed");
+    let tx_dust =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_dust), &[winner_0_signer])
+            .unwrap();
+    h.svm
+        .send_transaction(tx_dust)
+        .expect("ClaimNonReinvestedWinnings must succeed");
 
     let post_claim_winnings = read_user_winnings_state(&h.svm, h.pool_id, &winner_0);
-    assert_eq!(post_claim_winnings.unclaimed_non_reinvested_winnings, 0, "Unclaimed dust fully emptied");
-    assert_eq!(post_claim_winnings.total_claimed, 450_000, "450k dust tracked as claimed");
+    assert_eq!(
+        post_claim_winnings.unclaimed_non_reinvested_winnings, 0,
+        "Unclaimed dust fully emptied"
+    );
+    assert_eq!(
+        post_claim_winnings.total_claimed, 450_000,
+        "450k dust tracked as claimed"
+    );
 }

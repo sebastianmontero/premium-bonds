@@ -25,18 +25,6 @@ fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey) {
     (svm, admin, initial_jobs_account)
 }
 
-/// Deserialize the `GlobalConfig` account from raw LiteSVM account data.
-fn read_global_config(svm: &LiteSVM) -> anchor::GlobalConfig {
-    let (global_config_pda, _) = global_config_pda();
-    let account = svm
-        .get_account(&global_config_pda)
-        .expect("global_config account must exist after init");
-
-    // Skip the 8-byte Anchor discriminator before deserializing.
-    anchor_lang::AccountDeserialize::try_deserialize(&mut account.data.as_slice())
-        .expect("account data should deserialize as GlobalConfig")
-}
-
 /// Helper to send `update_global_config` and return the `Result`.
 fn send_update_global_config_test(
     svm: &mut LiteSVM,
@@ -117,11 +105,27 @@ fn test_update_global_config_guardian_only() {
     )
     .expect("Updating guardian should succeed");
     let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
-    assert_eq!(event.authority, admin.pubkey(), "event authority matches admin");
-    assert_eq!(event.old_guardian, initial_config.guardian, "old_guardian matches initial");
-    assert_eq!(event.new_guardian, new_guardian, "new_guardian matches updated");
-    assert_eq!(event.old_jobs_account, jobs, "old_jobs_account matches initial");
-    assert_eq!(event.new_jobs_account, jobs, "new_jobs_account matches unchanged");
+    assert_eq!(
+        event.authority,
+        admin.pubkey(),
+        "event authority matches admin"
+    );
+    assert_eq!(
+        event.old_guardian, initial_config.guardian,
+        "old_guardian matches initial"
+    );
+    assert_eq!(
+        event.new_guardian, new_guardian,
+        "new_guardian matches updated"
+    );
+    assert_eq!(
+        event.old_jobs_account, jobs,
+        "old_jobs_account matches initial"
+    );
+    assert_eq!(
+        event.new_jobs_account, jobs,
+        "new_jobs_account matches unchanged"
+    );
     assert!(event.timestamp > 0, "event timestamp is valid");
 
     let config = read_global_config(&svm);

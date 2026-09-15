@@ -61,11 +61,6 @@ fn send_set_prize_tiers(
     svm.send_transaction(tx)
 }
 
-/// Deserialize the `PrizePool` account from raw LiteSVM account data.
-fn read_prize_pool(svm: &LiteSVM, pool_id: u32) -> anchor::PrizePool {
-    read_pool_state(svm, pool_id)
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Happy-path tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -94,12 +89,24 @@ fn test_set_prize_tiers_succeeds() {
     assert_eq!(event.tiers[0].basis_points, 5000, "event tier 0 basis points is 5000");
     assert!(event.timestamp > 0, "event timestamp is valid");
 
-    let pool = read_prize_pool(&svm, pool_id);
+    let pool = read_pool_state(&svm, pool_id);
     assert_eq!(pool.prize_tiers_count, 2, "pool prize_tiers_count is 2");
-    assert_eq!(pool.prize_tiers[0].basis_points, 5000, "tier 0 basis points is 5000");
-    assert_eq!(pool.prize_tiers[0].num_winners, 1, "tier 0 num_winners is 1");
-    assert_eq!(pool.prize_tiers[1].basis_points, 1000, "tier 1 basis points is 1000");
-    assert_eq!(pool.prize_tiers[1].num_winners, 5, "tier 1 num_winners is 5");
+    assert_eq!(
+        pool.prize_tiers[0].basis_points, 5000,
+        "tier 0 basis points is 5000"
+    );
+    assert_eq!(
+        pool.prize_tiers[0].num_winners, 1,
+        "tier 0 num_winners is 1"
+    );
+    assert_eq!(
+        pool.prize_tiers[1].basis_points, 1000,
+        "tier 1 basis points is 1000"
+    );
+    assert_eq!(
+        pool.prize_tiers[1].num_winners, 5,
+        "tier 1 num_winners is 5"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -117,7 +124,10 @@ fn test_set_prize_tiers_fails_if_frozen() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(result, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        result,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 #[test]
@@ -129,7 +139,10 @@ fn test_set_prize_tiers_fails_on_empty_tiers() {
     let tiers = vec![];
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(result, anchor::error::PremiumBondsError::InvalidPrizeTierConfig);
+    assert_custom_error(
+        result,
+        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+    );
 }
 
 #[test]
@@ -145,7 +158,10 @@ fn test_set_prize_tiers_fails_on_exceeding_max_tiers() {
     }
 
     let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(result, anchor::error::PremiumBondsError::InvalidPrizeTierConfig);
+    assert_custom_error(
+        result,
+        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+    );
 }
 
 #[test]
@@ -157,12 +173,18 @@ fn test_set_prize_tiers_fails_on_invalid_basis_points_or_winners() {
     // Zero basis points
     let tiers1 = vec![anchor::PrizeTier::new(1, 0)];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
-    assert_custom_error(res1, anchor::error::PremiumBondsError::InvalidPrizeTierConfig);
+    assert_custom_error(
+        res1,
+        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+    );
 
     // Zero winners
     let tiers2 = vec![anchor::PrizeTier::new(0, 10000)];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
-    assert_custom_error(res2, anchor::error::PremiumBondsError::InvalidPrizeTierConfig);
+    assert_custom_error(
+        res2,
+        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+    );
 }
 
 #[test]
@@ -187,7 +209,10 @@ fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
     // Total = 9,999 (not 10,000)
     let tiers1 = vec![anchor::PrizeTier::new(1, 9999)];
     let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
-    assert_custom_error(res1, anchor::error::PremiumBondsError::BasisPointsMustEqual10000);
+    assert_custom_error(
+        res1,
+        anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+    );
 
     // Total = 10,001
     let tiers2 = vec![
@@ -195,7 +220,10 @@ fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
         anchor::PrizeTier::new(1, 5001),
     ];
     let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
-    assert_custom_error(res2, anchor::error::PremiumBondsError::BasisPointsMustEqual10000);
+    assert_custom_error(
+        res2,
+        anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

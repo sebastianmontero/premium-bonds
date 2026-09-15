@@ -61,48 +61,29 @@ fn test_e2e_golden_journey_full_lifecycle() {
     .expect("Initialize GlobalConfig must succeed");
 
     let (global_config, _) = global_config_pda();
-    assert!(svm.get_account(&global_config).is_some(), "GlobalConfig PDA must exist");
+    assert!(
+        svm.get_account(&global_config).is_some(),
+        "GlobalConfig PDA must exist"
+    );
 
     // 2. Setup Mints & Create PrizePool
     let usdc_mint_authority = Keypair::new();
-    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000).unwrap();
+    svm.airdrop(&usdc_mint_authority.pubkey(), 1_000_000_000)
+        .unwrap();
     let usdc_mint = create_spl_mint(&mut svm, &admin, &usdc_mint_authority.pubkey(), 6);
 
     let huma_pool_state = Keypair::new().pubkey();
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes());
-    svm.set_account(
-        huma_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: huma_pool_state_data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 0);
 
     let (huma_pool_authority, _) = huma_pool_authority_pda(&huma_pool_state);
     let pst_mint_kp = Keypair::new();
-    {
-        let mut data = vec![0u8; 82];
-        data[0..4].copy_from_slice(&1u32.to_le_bytes());
-        data[4..36].copy_from_slice(&huma_pool_authority.to_bytes());
-        data[44] = 6;
-        data[45] = 1;
-        svm.set_account(
-            pst_mint_kp.pubkey(),
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-    }
+    inject_mint_with_authority_and_supply(
+        &mut svm,
+        pst_mint_kp.pubkey(),
+        huma_pool_authority,
+        6,
+        0,
+    );
     let pst_mint = pst_mint_kp.pubkey();
 
     let huma_pool_underlying_token = Keypair::new().pubkey();
@@ -156,7 +137,8 @@ fn test_e2e_golden_journey_full_lifecycle() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix_create_pool], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx).expect("Create PrizePool must succeed");
+    svm.send_transaction(tx)
+        .expect("Create PrizePool must succeed");
 
     // 3. Initialize Huma Lender
     let dummy = Keypair::new().pubkey();
@@ -192,7 +174,8 @@ fn test_e2e_golden_journey_full_lifecycle() {
     let bh = svm.latest_blockhash();
     let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx).expect("Initialize Huma Lender must succeed");
+    svm.send_transaction(tx)
+        .expect("Initialize Huma Lender must succeed");
 
     // 4. Deposits: Alice buys 100 bonds (100 USDC), Bob buys 50 bonds (50 USDC)
     let alice_usdc = Keypair::new().pubkey();
@@ -214,8 +197,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         user_usdc_account: alice_usdc,
     };
 
-    send_e2e_buy_bonds(&mut ctx, 100)
-        .expect("Alice buy_bonds must succeed");
+    send_e2e_buy_bonds(&mut ctx, 100).expect("Alice buy_bonds must succeed");
     send_e2e_buy_bonds_for_user(&mut ctx, &bob, bob_usdc, 50, Pubkey::default())
         .expect("Bob buy_bonds must succeed");
 
@@ -225,15 +207,25 @@ fn test_e2e_golden_journey_full_lifecycle() {
     assert_eq!(reg.total_active_tickets, 0, "0 active tickets in cycle 0");
 
     let pool = read_pool_state(&ctx.svm, pool_id);
-    assert_eq!(pool.total_deposited_principal, 150_000_000, "150 USDC principal deposited");
+    assert_eq!(
+        pool.total_deposited_principal, 150_000_000,
+        "150 USDC principal deposited"
+    );
 
     // 5. Cycle 0 Harvest -> Merge pending tickets into active tickets
-    set_clock_timestamp(&mut ctx.svm, 1_700_000_000 + 25 * 3600);
+    warp_to_timestamp(&mut ctx.svm, 1_700_000_000 + 25 * 3600);
 
     let (gc, _) = global_config_pda();
     let (draw_cycle_0_pda, _) = draw_cycle_pda(pool_id, 0);
     let rand_acc_0 = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut ctx.svm, rand_acc_0, 0, 0, [0u8; 32]);
+    let clock0: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    inject_randomness_account_data(
+        &mut ctx.svm,
+        rand_acc_0,
+        clock0.slot,
+        clock0.slot,
+        [0u8; 32],
+    );
 
     let accounts_harvest_0 = anchor::accounts::HarvestYieldAndCommit {
         crank: crank.pubkey(),
@@ -260,28 +252,35 @@ fn test_e2e_golden_journey_full_lifecycle() {
     let bh = ctx.svm.latest_blockhash();
     let msg0 = Message::new_with_blockhash(&[ix_harvest_0], Some(&crank.pubkey()), &bh);
     let tx0 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg0), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx0).expect("Cycle 0 harvest must succeed");
+    ctx.svm
+        .send_transaction(tx0)
+        .expect("Cycle 0 harvest must succeed");
 
     let reg_cycle_1 = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(reg_cycle_1.total_active_tickets, 150, "Tickets merged to active");
-    assert_eq!(reg_cycle_1.total_pending_tickets, 0, "No remaining pending tickets");
+    assert_eq!(
+        reg_cycle_1.total_active_tickets, 150,
+        "Tickets merged to active"
+    );
+    assert_eq!(
+        reg_cycle_1.total_pending_tickets, 0,
+        "No remaining pending tickets"
+    );
 
     // 6. Yield Generation: Advance to end of Cycle 1, accrue 15 USDC yield in Huma
-    set_clock_timestamp(&mut ctx.svm, 1_700_000_000 + 50 * 3600);
-    {
-        let mut huma_acc = ctx.svm.get_account(&ctx.huma_pool_state).unwrap();
-        huma_acc.data[30..46].copy_from_slice(&165_000_000u128.to_le_bytes());
-        ctx.svm.set_account(ctx.huma_pool_state, huma_acc).unwrap();
-    }
-    {
-        let mut pst_acc = ctx.svm.get_account(&ctx.pst_mint).unwrap();
-        pst_acc.data[36..44].copy_from_slice(&150_000_000u64.to_le_bytes());
-        ctx.svm.set_account(ctx.pst_mint, pst_acc).unwrap();
-    }
+    warp_to_timestamp(&mut ctx.svm, 1_700_000_000 + 50 * 3600);
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 165_000_000);
+    set_token_mint_supply(&mut ctx.svm, ctx.pst_mint, 150_000_000);
 
     let (draw_cycle_1_pda, _) = draw_cycle_pda(pool_id, 1);
     let rand_acc_1 = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut ctx.svm, rand_acc_1, 0, 0, [0u8; 32]);
+    let clock1: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    inject_randomness_account_data(
+        &mut ctx.svm,
+        rand_acc_1,
+        clock1.slot,
+        clock1.slot,
+        [0u8; 32],
+    );
 
     let accounts_harvest_1 = anchor::accounts::HarvestYieldAndCommit {
         crank: crank.pubkey(),
@@ -308,10 +307,15 @@ fn test_e2e_golden_journey_full_lifecycle() {
     let bh1 = ctx.svm.latest_blockhash();
     let msg1 = Message::new_with_blockhash(&[ix_harvest_1], Some(&crank.pubkey()), &bh1);
     let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx1).expect("Cycle 1 harvest must succeed");
+    ctx.svm
+        .send_transaction(tx1)
+        .expect("Cycle 1 harvest must succeed");
 
     let pool_frozen = read_pool_state(&ctx.svm, pool_id);
-    assert_eq!(pool_frozen.is_frozen_for_draw, 1, "Pool must be frozen for draw");
+    assert_eq!(
+        pool_frozen.is_frozen_for_draw, 1,
+        "Pool must be frozen for draw"
+    );
 
     // 7. PrepareDraw (Real instruction)
     let accounts_prepare = anchor::accounts::PrepareDraw {
@@ -329,19 +333,16 @@ fn test_e2e_golden_journey_full_lifecycle() {
     };
     let bh_prep = ctx.svm.latest_blockhash();
     let msg_prep = Message::new_with_blockhash(&[ix_prepare], Some(&crank.pubkey()), &bh_prep);
-    let tx_prep = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx_prep).expect("PrepareDraw must succeed");
+    let tx_prep =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&crank]).unwrap();
+    ctx.svm
+        .send_transaction(tx_prep)
+        .expect("PrepareDraw must succeed");
 
     // 8. Reveal and Pick Winners (Real instruction)
     let (payout_reg_pda, _) = payout_pda(pool_id, 1);
     let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
-    inject_randomness_account_data(
-        &mut ctx.svm,
-        rand_acc_1,
-        clock.slot,
-        clock.slot,
-        [42u8; 32],
-    );
+    inject_randomness_account_data(&mut ctx.svm, rand_acc_1, clock.slot, clock.slot, [42u8; 32]);
 
     let accounts_reveal = anchor::accounts::RevealAndPickWinners {
         crank: crank.pubkey(),
@@ -364,18 +365,32 @@ fn test_e2e_golden_journey_full_lifecycle() {
 
     let bh_rev = ctx.svm.latest_blockhash();
     let msg_rev = Message::new_with_blockhash(&[ix_reveal], Some(&crank.pubkey()), &bh_rev);
-    let tx_rev = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&crank]).unwrap();
-    let meta_rev = ctx.svm.send_transaction(tx_rev).expect("RevealAndPickWinners must succeed");
+    let tx_rev =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&crank]).unwrap();
+    let meta_rev = ctx
+        .svm
+        .send_transaction(tx_rev)
+        .expect("RevealAndPickWinners must succeed");
 
     let pool_unfrozen = read_pool_state(&ctx.svm, pool_id);
-    assert_eq!(pool_unfrozen.is_frozen_for_draw, 0, "Pool must be un-frozen after reveal");
-    assert_eq!(pool_unfrozen.total_prizes_allocated, 13_500_000, "13.5 USDC allocated in prizes");
+    assert_eq!(
+        pool_unfrozen.is_frozen_for_draw, 0,
+        "Pool must be un-frozen after reveal"
+    );
+    assert_eq!(
+        pool_unfrozen.total_prizes_allocated, 13_500_000,
+        "13.5 USDC allocated in prizes"
+    );
 
     let winners = read_payout_winners(&ctx.svm, pool_id, 1);
-    assert_eq!(winners.len(), 2, "Must pick exactly 2 winners across 2 tiers");
+    assert_eq!(
+        winners.len(),
+        2,
+        "Must pick exactly 2 winners across 2 tiers"
+    );
 
     // 9. Reinvest Winnings (Advance clock past 300s payout timelock)
-    set_clock_timestamp(&mut ctx.svm, 1_700_000_000 + 50 * 3600 + 301);
+    warp_forward_seconds(&mut ctx.svm, 301);
 
     let winner_0 = winners[0].winner;
     let (winner_winnings_pda, _) = user_winnings_pda(pool_id, &winner_0);
@@ -404,16 +419,31 @@ fn test_e2e_golden_journey_full_lifecycle() {
     };
     let bh_reinv = ctx.svm.latest_blockhash();
     let msg_reinv = Message::new_with_blockhash(&[ix_reinvest], Some(&crank.pubkey()), &bh_reinv);
-    let tx_reinv = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx_reinv).expect("ReinvestWinnings must succeed");
+    let tx_reinv =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&crank]).unwrap();
+    ctx.svm
+        .send_transaction(tx_reinv)
+        .expect("ReinvestWinnings must succeed");
 
     let winner_winnings = read_user_winnings_state(&ctx.svm, pool_id, &winner_0);
-    assert_eq!(winner_winnings.total_reinvested, 9_000_000, "9 USDC reinvested into bonds");
-    assert_eq!(winner_winnings.unclaimed_non_reinvested_winnings, 450_000, "450_000 dust saved as unclaimed winnings");
+    assert_eq!(
+        winner_winnings.total_reinvested, 9_000_000,
+        "9 USDC reinvested into bonds"
+    );
+    assert_eq!(
+        winner_winnings.unclaimed_non_reinvested_winnings, 450_000,
+        "450_000 dust saved as unclaimed winnings"
+    );
 
     // 10. Protocol Fee Withdrawal
     let huma_pool_mode_token = Keypair::new().pubkey();
-    inject_token_account(&mut ctx.svm, huma_pool_mode_token, ctx.pst_mint, ctx.huma_pool_authority, 0);
+    inject_token_account(
+        &mut ctx.svm,
+        huma_pool_mode_token,
+        ctx.pst_mint,
+        ctx.huma_pool_authority,
+        0,
+    );
 
     let (pending_fee_redemption, _) = pending_redemption_pda(pool_id, 0);
     let accounts_withdraw_fees = anchor::accounts::WithdrawFees {
@@ -448,10 +478,17 @@ fn test_e2e_golden_journey_full_lifecycle() {
         data: anchor::instruction::WithdrawFees { amount: 1_500_000 }.data(),
     };
     let bh_fee = ctx.svm.latest_blockhash();
-    let msg_fee = Message::new_with_blockhash(&[ix_withdraw_fees], Some(&ctx.admin.pubkey()), &bh_fee);
-    let tx_fee = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&ctx.admin]).unwrap();
-    ctx.svm.send_transaction(tx_fee).expect("WithdrawFees must succeed");
+    let msg_fee =
+        Message::new_with_blockhash(&[ix_withdraw_fees], Some(&ctx.admin.pubkey()), &bh_fee);
+    let tx_fee =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&ctx.admin]).unwrap();
+    ctx.svm
+        .send_transaction(tx_fee)
+        .expect("WithdrawFees must succeed");
 
     let pool_post_fee = read_pool_state(&ctx.svm, pool_id);
-    assert_eq!(pool_post_fee.total_fees_withdrawn, 1_500_000, "1.5 USDC fee withdrawn");
+    assert_eq!(
+        pool_post_fee.total_fees_withdrawn, 1_500_000,
+        "1.5 USDC fee withdrawn"
+    );
 }

@@ -61,15 +61,34 @@ fn test_guardian_can_pause_active_pool() {
     let meta =
         send_pause_pool(&mut svm, &guardian, 1).expect("Guardian should be able to pause pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.previous_status, anchor::PoolStatus::Active);
-    assert_eq!(event.new_status, anchor::PoolStatus::Paused);
-    assert_eq!(event.authority, guardian.pubkey());
-    assert!(event.timestamp > 0);
+    assert_eq!(
+        event.pool_id, 1,
+        "PoolStatusChanged event pool_id must equal 1"
+    );
+    assert_eq!(
+        event.previous_status,
+        anchor::PoolStatus::Active,
+        "PoolStatusChanged event previous_status must be Active"
+    );
+    assert_eq!(
+        event.new_status,
+        anchor::PoolStatus::Paused,
+        "PoolStatusChanged event new_status must be Paused"
+    );
+    assert_eq!(
+        event.authority,
+        guardian.pubkey(),
+        "PoolStatusChanged authority must match guardian pubkey"
+    );
+    assert!(
+        event.timestamp > 0,
+        "PoolStatusChanged timestamp must be non-zero"
+    );
 
     assert_eq!(
         read_pool_state(&svm, 1).status,
-        anchor::PoolStatus::Paused as u8
+        anchor::PoolStatus::Paused as u8,
+        "Pool state status must be Paused after guardian pause"
     );
 }
 
@@ -80,14 +99,29 @@ fn test_admin_can_pause_active_pool() {
 
     let meta = send_pause_pool(&mut svm, &admin, 1).expect("Admin should be able to pause pool");
     let event = assert_cpi_event::<anchor::events::PoolStatusChanged>(&meta);
-    assert_eq!(event.pool_id, 1);
-    assert_eq!(event.new_status, anchor::PoolStatus::Paused);
-    assert_eq!(event.authority, admin.pubkey());
-    assert!(event.timestamp > 0);
+    assert_eq!(
+        event.pool_id, 1,
+        "PoolStatusChanged event pool_id must equal 1"
+    );
+    assert_eq!(
+        event.new_status,
+        anchor::PoolStatus::Paused,
+        "PoolStatusChanged event new_status must be Paused"
+    );
+    assert_eq!(
+        event.authority,
+        admin.pubkey(),
+        "PoolStatusChanged authority must match admin pubkey"
+    );
+    assert!(
+        event.timestamp > 0,
+        "PoolStatusChanged timestamp must be non-zero"
+    );
 
     assert_eq!(
         read_pool_state(&svm, 1).status,
-        anchor::PoolStatus::Paused as u8
+        anchor::PoolStatus::Paused as u8,
+        "Pool state status must be Paused after admin pause"
     );
 }
 
@@ -173,7 +207,8 @@ fn test_guardian_cannot_close_pool() {
 
 #[test]
 fn test_cannot_pause_closed_pool() {
-    let (mut svm, admin, guardian, _pool_pda) = setup_pool_with_guardian(anchor::PoolStatus::Closed);
+    let (mut svm, admin, guardian, _pool_pda) =
+        setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
     assert_custom_error(res_guardian, anchor::error::PremiumBondsError::PoolClosed);

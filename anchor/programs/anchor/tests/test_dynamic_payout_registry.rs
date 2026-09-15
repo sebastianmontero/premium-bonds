@@ -73,18 +73,13 @@ fn setup_dynamic_ctx(
     }
 }
 
-fn inject_mock_randomness_value(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {
-    let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    common::inject_randomness_account_data(svm, address, clock.slot, clock.slot, value);
-}
-
 fn send_reveal(
     ctx: &mut DynamicRevealCtx,
     pool_id: u32,
     cycle_id: u32,
     seed: [u8; 32],
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    inject_mock_randomness_value(&mut ctx.svm, ctx.randomness_account, seed);
+    inject_current_slot_randomness(&mut ctx.svm, ctx.randomness_account, seed);
     let (pool, _) = pool_pda(pool_id);
     let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
     let (payout_registry, _) = payout_pda(pool_id, cycle_id);
@@ -202,7 +197,10 @@ fn test_vector_1_minimal_allocation_1_winner() {
 
     let (pda, _) = payout_pda(1, 0);
     let acc = ctx.svm.get_account(&pda).expect("payout registry exists");
-    assert_eq!(acc.data.len(), anchor::utils::payout_registry_space(1).unwrap()); // 160 bytes exact
+    assert_eq!(
+        acc.data.len(),
+        anchor::utils::payout_registry_space(1).unwrap()
+    ); // 160 bytes exact
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -229,7 +227,10 @@ fn test_vector_2_maximum_sizing_boundary_180_winners() {
 
     let (pda, _) = payout_pda(1, 0);
     let acc = ctx.svm.get_account(&pda).expect("payout registry exists");
-    assert_eq!(acc.data.len(), anchor::utils::payout_registry_space(180).unwrap()); // 10,184 bytes exact
+    assert_eq!(
+        acc.data.len(),
+        anchor::utils::payout_registry_space(180).unwrap()
+    ); // 10,184 bytes exact
 
     let pr = read_payout_registry(&ctx.svm, 1, 0);
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -510,7 +511,10 @@ fn test_vector_11_double_close_rejected() {
     ctx.svm.expire_blockhash();
     // Second close must fail
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -543,7 +547,10 @@ fn test_vector_12_reinvest_on_closed_account_rejected() {
         0,
         0,
     );
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -590,7 +597,10 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram);
+    assert_anchor_error(
+        res,
+        anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
+    );
 }
 
 #[test]
@@ -628,9 +638,19 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
     send_reveal(&mut ctx, 1, 0, [15u8; 32]).expect("reveal");
 
     let winners_before = read_payout_winners(&ctx.svm, 1, 0);
-    assert_eq!(winners_before.len(), 2, "Must have 2 winners before reinvest");
-    assert_eq!(winners_before[0].processed, 0, "Winner 0 processed must be 0");
-    assert_eq!(winners_before[1].processed, 0, "Winner 1 processed must be 0");
+    assert_eq!(
+        winners_before.len(),
+        2,
+        "Must have 2 winners before reinvest"
+    );
+    assert_eq!(
+        winners_before[0].processed, 0,
+        "Winner 0 processed must be 0"
+    );
+    assert_eq!(
+        winners_before[1].processed, 0,
+        "Winner 1 processed must be 0"
+    );
 
     // Process winner 0
     send_reinvest(
@@ -645,13 +665,31 @@ fn test_vector_15_winner_slice_in_place_mutation_parity() {
     .expect("reinvest 0");
 
     let winners_after = read_payout_winners(&ctx.svm, 1, 0);
-    assert_eq!(winners_after[0].processed, 1, "Winner 0 processed must be 1");
-    assert_eq!(winners_after[0].bonds_bought, 1, "Winner 0 bonds_bought must be 1"); // 1M owed -> 1 bond
-    // Winner 1 must remain untouched
-    assert_eq!(winners_after[1].processed, 0, "Winner 1 processed must remain 0");
-    assert_eq!(winners_after[1].bonds_bought, 0, "Winner 1 bonds_bought must remain 0");
-    assert_eq!(winners_after[1].amount_owed, winners_before[1].amount_owed, "Winner 1 amount_owed must remain untouched");
-    assert_eq!(winners_after[1].winner, winners_before[1].winner, "Winner 1 winner pubkey must remain untouched");
+    assert_eq!(
+        winners_after[0].processed, 1,
+        "Winner 0 processed must be 1"
+    );
+    assert_eq!(
+        winners_after[0].bonds_bought, 1,
+        "Winner 0 bonds_bought must be 1"
+    ); // 1M owed -> 1 bond
+       // Winner 1 must remain untouched
+    assert_eq!(
+        winners_after[1].processed, 0,
+        "Winner 1 processed must remain 0"
+    );
+    assert_eq!(
+        winners_after[1].bonds_bought, 0,
+        "Winner 1 bonds_bought must remain 0"
+    );
+    assert_eq!(
+        winners_after[1].amount_owed, winners_before[1].amount_owed,
+        "Winner 1 amount_owed must remain untouched"
+    );
+    assert_eq!(
+        winners_after[1].winner, winners_before[1].winner,
+        "Winner 1 winner pubkey must remain untouched"
+    );
 }
 
 #[test]
@@ -690,8 +728,14 @@ fn test_vector_17_rent_exemption_dynamic_verification() {
 
     // 10 winners account size > 1 winner account size
     assert!(acc10.data.len() > acc1.data.len());
-    assert_eq!(acc1.data.len(), anchor::utils::payout_registry_space(1).unwrap());
-    assert_eq!(acc10.data.len(), anchor::utils::payout_registry_space(10).unwrap());
+    assert_eq!(
+        acc1.data.len(),
+        anchor::utils::payout_registry_space(1).unwrap()
+    );
+    assert_eq!(
+        acc10.data.len(),
+        anchor::utils::payout_registry_space(10).unwrap()
+    );
     // Dynamic rent required is proportional to space
     assert!(acc10.lamports > acc1.lamports);
 }

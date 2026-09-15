@@ -15,43 +15,7 @@ use common::*;
 #[test]
 fn test_signer_enforcement_user_buy_bonds() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-
-    let accounts = anchor::accounts::BuyBonds {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        user_token_account: ctx.user_usdc_account,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: huma.huma_pool_authority,
-        huma_pool_underlying_token: huma.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
-    };
+    let ix = BuyBondsBuilder::new(&ctx).build_ix(1);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -66,48 +30,7 @@ fn test_signer_enforcement_user_buy_bonds() {
 #[test]
 fn test_signer_enforcement_user_sell_bonds() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-
-    let accounts = anchor::accounts::SellBonds {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: huma.huma_lender_state,
-        huma_pool_authority: huma.huma_pool_authority,
-        huma_pool_mode_token: huma.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 1,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
+    let ix = SellBondsBuilder::new(&ctx).build_ix(1, 0);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -122,42 +45,7 @@ fn test_signer_enforcement_user_sell_bonds() {
 #[test]
 fn test_signer_enforcement_user_claim_non_reinvested_winnings() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-
-    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: huma.huma_lender_state,
-        huma_pool_authority: huma.huma_pool_authority,
-        huma_pool_mode_token: huma.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    };
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx).build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -172,20 +60,7 @@ fn test_signer_enforcement_user_claim_non_reinvested_winnings() {
 #[test]
 fn test_signer_enforcement_user_claim_redemption() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-
-    let ix = build_claim_redemption_ix(
-        ctx.user.pubkey(),
-        ctx.user.pubkey(),
-        pool_id,
-        0,
-        ctx.usdc_mint,
-        ctx.user_usdc_account,
-        &huma,
-        Some(pool_vault),
-    );
+    let ix = ClaimRedemptionBuilder::new(&ctx).build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -206,12 +81,8 @@ fn test_signer_enforcement_admin_initialize_global() {
     let mut ctx = setup_e2e();
     let admin_pubkey = ctx.admin.pubkey();
     let payer = Keypair::new();
-    let ix = build_initialize_global_ix(
-        &payer.pubkey(),
-        &admin_pubkey,
-        &admin_pubkey,
-        &admin_pubkey,
-    );
+    let ix =
+        build_initialize_global_ix(&payer.pubkey(), &admin_pubkey, &admin_pubkey, &admin_pubkey);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -245,23 +116,22 @@ fn test_signer_enforcement_admin_initialize_huma_lender() {
     let pool_id = 1;
     let (pool_pda_addr, _) = pool_pda(pool_id);
     let (global_config_pda_addr, _) = global_config_pda();
-    let huma = TestHumaAccounts::from_e2e(&ctx);
-    let admin_pubkey = ctx.admin.pubkey();
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-
+    let admin_pubkey = ctx.admin.pubkey();
+    let dummy = Keypair::new().pubkey();
     let accounts = anchor::accounts::InitializeHumaLender {
         admin: admin_pubkey,
         global_config: global_config_pda_addr,
         pool: pool_pda_addr,
         pool_pst_vault,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
+        huma_program: huma_program_id(),
+        huma_config: dummy,
+        huma_pool_config: dummy,
+        huma_pool_state: ctx.huma_pool_state,
+        huma_mode_config: dummy,
         huma_mode_mint: ctx.pst_mint,
-        huma_lender_state: huma.huma_lender_state,
-        huma_lender_mode_token: Keypair::new().pubkey(),
+        huma_lender_state: dummy,
+        huma_lender_mode_token: dummy,
         token_program: anchor_spl::token::ID,
         pst_token_program: anchor_spl::token::ID,
         associated_token_program: anchor_spl::associated_token::ID,
@@ -338,7 +208,6 @@ fn test_signer_enforcement_admin_accept_admin() {
 fn test_signer_enforcement_admin_create_pool() {
     let mut ctx = setup_e2e();
     let admin_pubkey = ctx.admin.pubkey();
-    let huma = TestHumaAccounts::from_e2e(&ctx);
     let new_registry = Keypair::new().pubkey();
     let ix = build_create_pool_instruction(
         &ctx.admin,
@@ -354,7 +223,7 @@ fn test_signer_enforcement_admin_create_pool() {
         ctx.pst_mint,
         new_registry,
         ctx.user_usdc_account,
-        huma.huma_pool_state,
+        ctx.huma_pool_state,
     );
     assert_signer_required(
         &mut ctx.svm,
@@ -465,45 +334,8 @@ fn test_signer_enforcement_admin_close_pool() {
 #[test]
 fn test_signer_enforcement_admin_withdraw_fees() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (global_config_pda_addr, _) = global_config_pda();
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pending_pda, _) = pending_redemption_pda(pool_id, 0);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
     let admin_pubkey = ctx.admin.pubkey();
-
-    let accounts = anchor::accounts::WithdrawFees {
-        admin: admin_pubkey,
-        global_config: global_config_pda_addr,
-        pool: pool_pda_addr,
-        fee_wallet: ctx.user_usdc_account,
-        pool_pst_vault,
-        pending_redemption: pending_pda,
-        huma_program: huma.huma_program,
-        huma_config: huma.huma_config,
-        huma_pool_config: huma.huma_pool_config,
-        huma_pool_state: huma.huma_pool_state,
-        huma_mode_config: huma.huma_mode_config,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: huma.huma_lender_state,
-        huma_pool_authority: huma.huma_pool_authority,
-        huma_pool_mode_token: huma.huma_pool_underlying_token,
-        token_mint: ctx.usdc_mint,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::WithdrawFees { amount: 1_000 }.data(),
-    };
+    let ix = WithdrawFeesBuilder::new(&ctx).build_ix(1_000);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -574,38 +406,14 @@ fn test_signer_enforcement_admin_void_payout_registry() {
 #[test]
 fn test_signer_enforcement_crank_harvest_yield_and_commit() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (global_config_pda_addr, _) = global_config_pda();
-    let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let huma = TestHumaAccounts::from_e2e(&ctx);
     let crank = Keypair::new();
     let crank_pubkey = crank.pubkey();
     let randomness_account = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: crank_pubkey,
-        global_config: global_config_pda_addr,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        current_draw_cycle: draw_cycle_pda_addr,
-        pool_pst_vault,
-        pst_mint: ctx.pst_mint,
-        huma_pool_state: huma.huma_pool_state,
-        randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
+    let ix = HarvestYieldAndCommitBuilder::new(&ctx)
+        .with_crank(crank_pubkey)
+        .with_randomness_account(randomness_account)
+        .build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -620,25 +428,12 @@ fn test_signer_enforcement_crank_harvest_yield_and_commit() {
 #[test]
 fn test_signer_enforcement_crank_prepare_draw() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
     let crank = Keypair::new();
     let crank_pubkey = crank.pubkey();
 
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: crank_pubkey,
-        pool: pool_pda_addr,
-        draw_cycle: draw_cycle_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-    };
+    let ix = PrepareDrawBuilder::new(&ctx)
+        .with_crank(crank_pubkey)
+        .build_ix(10);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -653,32 +448,14 @@ fn test_signer_enforcement_crank_prepare_draw() {
 #[test]
 fn test_signer_enforcement_crank_reveal_and_pick_winners() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
-    let (payout_pda_addr, _) = payout_pda(pool_id, 0);
     let crank = Keypair::new();
     let crank_pubkey = crank.pubkey();
     let randomness_account = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::RevealAndPickWinners {
-        crank: crank_pubkey,
-        current_draw_cycle: draw_cycle_pda_addr,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        randomness_account,
-        payout_registry: payout_pda_addr,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::RevealAndPickWinners {}.data(),
-    };
+    let ix = RevealAndPickWinnersBuilder::new(&ctx)
+        .with_crank(crank_pubkey)
+        .with_randomness_account(randomness_account)
+        .build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -693,35 +470,12 @@ fn test_signer_enforcement_crank_reveal_and_pick_winners() {
 #[test]
 fn test_signer_enforcement_crank_reinvest_winnings() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (payout_pda_addr, _) = payout_pda(pool_id, 0);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &ctx.user.pubkey());
     let crank = Keypair::new();
     let crank_pubkey = crank.pubkey();
 
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: crank_pubkey,
-        winner: ctx.user.pubkey(),
-        payout_registry: payout_pda_addr,
-        pool: pool_pda_addr,
-        user_winnings,
-        ticket_registry: ctx.ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id: 0,
-            winner_index: 0,
-        }
-        .data(),
-    };
+    let ix = ReinvestWinningsBuilder::new(&ctx)
+        .with_crank(crank_pubkey)
+        .build_ix(0, 0);
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -742,8 +496,7 @@ fn test_signer_enforcement_crank_rebind_expired_randomness() {
     let randomness_account = Keypair::new().pubkey();
     let new_randomness = Keypair::new().pubkey();
 
-    let ix =
-        build_crank_rebind_instruction(&crank, pool_id, 0, randomness_account, new_randomness);
+    let ix = build_crank_rebind_instruction(&crank, pool_id, 0, randomness_account, new_randomness);
     assert_signer_required(
         &mut ctx.svm,
         ix,

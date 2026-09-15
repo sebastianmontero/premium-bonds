@@ -194,7 +194,10 @@ fn test_buy_bonds_fails_pool_closed() {
 fn test_buy_bonds_fails_pool_frozen() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, true, 1000, 0, 0);
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 /// `bonds_to_buy = 0` must be rejected with `InvalidBondQuantity`.
@@ -210,7 +213,10 @@ fn test_buy_bonds_fails_zero_quantity() {
 fn test_buy_bonds_passes_guards() {
     let mut ctx = setup_e2e();
     let res = send_e2e_buy_bonds(&mut ctx, 5);
-    assert!(res.is_ok(), "Valid buy_bonds passes guards and succeeds under e2e");
+    assert!(
+        res.is_ok(),
+        "Valid buy_bonds passes guards and succeeds under e2e"
+    );
 }
 
 /// Buying bonds when registry is full for a new user must fail with `RegistryFull` pre-CPI.
@@ -294,33 +300,57 @@ fn test_buy_bonds_e2e_single_bond() {
     // After: user pays 1 USDC
     assert_eq!(
         read_token_balance(&ctx.svm, ctx.user_usdc_account),
-        99_000_000
+        99_000_000,
+        "User USDC balance should decrease by 1 USDC"
     );
     // Pool vault should be 0 (USDC was forwarded to Huma)
-    assert_eq!(read_token_balance(&ctx.svm, pool_vault), 0);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_vault),
+        0,
+        "Pool USDC vault must be 0 after forwarding to Huma"
+    );
     // PST vault should have 1_000_000 PST (1:1 mock rate)
-    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 1_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_pst_vault),
+        1_000_000,
+        "Pool PST vault must hold 1 PST share"
+    );
     // Huma underlying should have received the USDC
     assert_eq!(
         read_token_balance(&ctx.svm, ctx.huma_pool_underlying_token),
-        1_000_000
+        1_000_000,
+        "Huma underlying token must receive 1 USDC"
     );
 
     // State checks
     let pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_deposited_principal, 1_000_000);
+    assert_eq!(
+        pool.total_deposited_principal, 1_000_000,
+        "Pool total deposited principal must equal 1 USDC"
+    );
 
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(pending, 1);
+    assert_eq!(pending, 1, "Registry pending tickets count must be 1");
 
     // Verify user entry
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     let entry_idx = winnings.registry_entry_index;
-    assert_ne!(entry_idx, u32::MAX);
+    assert_ne!(
+        entry_idx,
+        u32::MAX,
+        "User winnings must point to a valid registry entry"
+    );
     let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
-    assert_eq!(entry.owner, ctx.user.pubkey());
-    assert_eq!(entry.active, 0);
-    assert_eq!(entry.pending, 1);
+    assert_eq!(
+        entry.owner,
+        ctx.user.pubkey(),
+        "Registry entry owner must match user pubkey"
+    );
+    assert_eq!(
+        entry.active, 0,
+        "Registry entry active bonds must be 0 before draw rollover"
+    );
+    assert_eq!(entry.pending, 1, "Registry entry pending bonds must be 1");
 }
 
 /// Buy multiple bonds in one transaction.
@@ -334,24 +364,43 @@ fn test_buy_bonds_e2e_multiple_bonds() {
     // 5 bonds at 1 USDC each = 5_000_000 lamports
     assert_eq!(
         read_token_balance(&ctx.svm, ctx.user_usdc_account),
-        95_000_000
+        95_000_000,
+        "User USDC balance should decrease by 5 USDC"
     );
-    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 5_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_pst_vault),
+        5_000_000,
+        "Pool PST vault must hold 5 PST shares"
+    );
 
     let pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_deposited_principal, 5_000_000);
+    assert_eq!(
+        pool.total_deposited_principal, 5_000_000,
+        "Pool total deposited principal must equal 5 USDC"
+    );
 
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(pending, 5);
+    assert_eq!(pending, 5, "Registry pending tickets count must be 5");
 
     // Verify user entry
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     let entry_idx = winnings.registry_entry_index;
-    assert_ne!(entry_idx, u32::MAX);
+    assert_ne!(
+        entry_idx,
+        u32::MAX,
+        "User winnings must point to a valid registry entry"
+    );
     let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
-    assert_eq!(entry.owner, ctx.user.pubkey());
-    assert_eq!(entry.active, 0);
-    assert_eq!(entry.pending, 5);
+    assert_eq!(
+        entry.owner,
+        ctx.user.pubkey(),
+        "Registry entry owner must match user pubkey"
+    );
+    assert_eq!(
+        entry.active, 0,
+        "Registry entry active bonds must be 0 before draw rollover"
+    );
+    assert_eq!(entry.pending, 5, "Registry entry pending bonds must be 5");
 }
 
 /// Two sequential buy_bonds transactions accumulate correctly.
@@ -366,24 +415,49 @@ fn test_buy_bonds_e2e_sequential_buys() {
     // Total: 5 bonds = 5 USDC
     assert_eq!(
         read_token_balance(&ctx.svm, ctx.user_usdc_account),
-        95_000_000
+        95_000_000,
+        "User USDC balance should decrease by total 5 USDC"
     );
-    assert_eq!(read_token_balance(&ctx.svm, pool_pst_vault), 5_000_000);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_pst_vault),
+        5_000_000,
+        "Pool PST vault must hold cumulative 5 PST shares"
+    );
 
     let pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool.total_deposited_principal, 5_000_000);
+    assert_eq!(
+        pool.total_deposited_principal, 5_000_000,
+        "Pool total deposited principal must equal cumulative 5 USDC"
+    );
 
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
-    assert_eq!(pending, 5);
+    assert_eq!(
+        pending, 5,
+        "Registry pending tickets count must be cumulative 5"
+    );
 
     // Verify user entry
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     let entry_idx = winnings.registry_entry_index;
-    assert_ne!(entry_idx, u32::MAX);
+    assert_ne!(
+        entry_idx,
+        u32::MAX,
+        "User winnings must point to a valid registry entry"
+    );
     let entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, entry_idx as usize);
-    assert_eq!(entry.owner, ctx.user.pubkey());
-    assert_eq!(entry.active, 0);
-    assert_eq!(entry.pending, 5);
+    assert_eq!(
+        entry.owner,
+        ctx.user.pubkey(),
+        "Registry entry owner must match user pubkey"
+    );
+    assert_eq!(
+        entry.active, 0,
+        "Registry entry active bonds must be 0 before draw rollover"
+    );
+    assert_eq!(
+        entry.pending, 5,
+        "Registry entry pending bonds must accumulate to 5"
+    );
 }
 
 /// E2E test verifying multiple users can buy bonds.
@@ -686,17 +760,33 @@ fn test_buy_bonds_initializes_user_winnings() {
     assert_eq!(event.pool_id, 1, "Pool ID mismatch in event");
     assert_eq!(event.bonds, 1, "Bonds mismatch in event");
     assert_eq!(event.amount, 1_000_000, "Amount mismatch in event");
-    assert_eq!(event.new_total_deposited_principal, 1_000_000, "Principal mismatch in event");
-    assert_eq!(event.user_total_bonds, 1, "User total bonds mismatch in event");
+    assert_eq!(
+        event.new_total_deposited_principal, 1_000_000,
+        "Principal mismatch in event"
+    );
+    assert_eq!(
+        event.user_total_bonds, 1,
+        "User total bonds mismatch in event"
+    );
     assert!(event.timestamp > 0, "Event timestamp must be positive");
 
     // After: user_winnings account should exist and be initialized
     let winnings = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
     assert_eq!(winnings.pool_id, 1, "Pool ID mismatch in winnings");
-    assert_eq!(winnings.user, ctx.user.pubkey(), "User mismatch in winnings");
-    assert_eq!(winnings.unclaimed_non_reinvested_winnings, 0, "Unclaimed winnings should be 0");
+    assert_eq!(
+        winnings.user,
+        ctx.user.pubkey(),
+        "User mismatch in winnings"
+    );
+    assert_eq!(
+        winnings.unclaimed_non_reinvested_winnings, 0,
+        "Unclaimed winnings should be 0"
+    );
     assert_eq!(winnings.total_claimed, 0, "Claimed winnings should be 0");
-    assert_eq!(winnings.total_reinvested, 0, "Reinvested winnings should be 0");
+    assert_eq!(
+        winnings.total_reinvested, 0,
+        "Reinvested winnings should be 0"
+    );
 }
 
 #[test]
@@ -704,12 +794,10 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
     let mut ctx = setup_e2e();
 
     let other_user = Keypair::new().pubkey();
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(other_user)
-            .with_active(1)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(other_user)
+        .with_active(1)
+        .build()];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
 
     let mut seed = [0u8; 32];
@@ -743,9 +831,9 @@ fn test_buy_bonds_existing_user_succeeds_at_max_capacity() {
     send_e2e_buy_bonds(&mut ctx, 1).expect("initial buy 1 bond should succeed");
 
     // 2. Artificially set capacity = 1 on the registry account data so user_count (1) == capacity (1)
-    let mut account = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-    account.data[12..16].copy_from_slice(&1u32.to_le_bytes());
-    ctx.svm.set_account(ctx.ticket_registry, account).unwrap();
+    mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+        hdr.capacity = 1;
+    });
 
     // 3. Existing user buying more bonds should succeed because needs_slot is false
     send_e2e_buy_bonds(&mut ctx, 2)
@@ -858,8 +946,7 @@ fn test_mtr003_deposit_order_commutativity() {
         let (pool_pst_vault, _) = pool_pst_vault_pda(1);
         let pst_balance = read_token_balance(&ctx.svm, pool_pst_vault);
 
-        let reg_acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-        let user_count = u32::from_le_bytes(reg_acc.data[16..20].try_into().unwrap());
+        let user_count = read_registry_user_count(&ctx.svm, ctx.ticket_registry);
 
         let alice_winnings = read_user_winnings_state(&ctx.svm, 1, &alice.pubkey());
         let alice_entry = read_registry_entry(
@@ -907,8 +994,20 @@ fn test_mtr003_deposit_order_commutativity() {
         result_a.pst_vault_balance, result_b.pst_vault_balance,
         "MTR-003 broken: PST balance differs"
     );
-    assert_eq!(result_a.alice_pending, 5, "Path A Alice pending tickets must be 5");
-    assert_eq!(result_b.alice_pending, 5, "Path B Alice pending tickets must be 5");
-    assert_eq!(result_a.bob_pending, 3, "Path A Bob pending tickets must be 3");
-    assert_eq!(result_b.bob_pending, 3, "Path B Bob pending tickets must be 3");
+    assert_eq!(
+        result_a.alice_pending, 5,
+        "Path A Alice pending tickets must be 5"
+    );
+    assert_eq!(
+        result_b.alice_pending, 5,
+        "Path B Alice pending tickets must be 5"
+    );
+    assert_eq!(
+        result_a.bob_pending, 3,
+        "Path A Bob pending tickets must be 3"
+    );
+    assert_eq!(
+        result_b.bob_pending, 3,
+        "Path B Bob pending tickets must be 3"
+    );
 }

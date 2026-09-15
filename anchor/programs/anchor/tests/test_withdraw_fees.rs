@@ -336,7 +336,10 @@ fn test_withdraw_fees_fails_zero_amount() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientFeeBalance);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientFeeBalance,
+    );
 }
 
 #[test]
@@ -384,7 +387,10 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InsufficientFeeBalance);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientFeeBalance,
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -465,7 +471,10 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
     );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 #[test]
@@ -810,31 +819,16 @@ fn test_withdraw_fees_and_claim_e2e() {
     assert_eq!(event.huma_request_id, 0, "event huma_request_id is 0");
 
     // Verify PendingRedemption was created with admin (fee wallet owner) as the user
-    let pending_pda = pending_redemption_pda(1, 0).0;
-    let pending_acct = ctx.svm.get_account(&pending_pda).unwrap();
-    let pending_state =
-        <anchor::state::PendingRedemption as anchor_lang::AccountDeserialize>::try_deserialize(
-            &mut &pending_acct.data[..],
-        )
-        .unwrap();
+    let pending_state = read_pending_redemption(&ctx.svm, 1, 0);
     // admin.pubkey() is the owner of the fee_wallet token account
     assert_eq!(pending_state.user, ctx.admin.pubkey());
     assert_eq!(pending_state.amount, 2_000_000);
 
     // 2. Claim redemption
     // We mock Huma's disburse by transferring underlying USDC into the pool vault and advancing next_request_id.
-    // Let's set the Huma PoolState's redemption queue to next_request_id = 1.
-    let mut huma_pool_state_data = ctx.svm.get_account(&ctx.huma_pool_state).unwrap().data;
-    huma_pool_state_data[250..266].copy_from_slice(&1u128.to_le_bytes()); // next_request_id = 1
-
+    set_mock_huma_next_request_id(&mut ctx.svm, ctx.huma_pool_state, 1);
     // Set mock assets to 100_000_000 so conversion is 1:1
-    huma_pool_state_data[30..46].copy_from_slice(&100_000_000u128.to_le_bytes());
-
-    let mut pool_state_acct = ctx.svm.get_account(&ctx.huma_pool_state).unwrap();
-    pool_state_acct.data = huma_pool_state_data;
-    ctx.svm
-        .set_account(ctx.huma_pool_state, pool_state_acct)
-        .unwrap();
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 100_000_000);
 
     // Fund the pool vault so it can pay out the USDC
     inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda, 5_000_000);
@@ -847,31 +841,14 @@ fn test_withdraw_fees_and_claim_e2e() {
         &ctx.admin.pubkey(),
     );
 
-    let huma = TestHumaAccounts {
-        huma_pool_state: ctx.huma_pool_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        ..Default::default()
-    };
-    // Build and send claim_redemption signed by admin (or crank on behalf of fee wallet owner)
-    let ix_claim = build_claim_redemption_ix(
-        ctx.admin.pubkey(),
-        ctx.admin.pubkey(),
-        1,
-        0, // redemption_id = 0
-        ctx.usdc_mint,
-        admin_usdc,
-        &huma,
-        Some(pool_vault),
-    );
+    // Build and send claim_redemption signed by admin (fee wallet owner)
+    let ix_claim = ClaimRedemptionBuilder::new(&ctx)
+        .with_caller(ctx.admin.pubkey())
+        .with_beneficiary(ctx.admin.pubkey(), admin_usdc)
+        .with_redemption_id(0)
+        .build_ix();
 
-    // Admin signs the claim transaction!
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix_claim], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let meta_claim = ctx
-        .svm
-        .send_transaction(tx)
+    let meta_claim = send_user_tx(&mut ctx.svm, &ctx.admin, ix_claim)
         .expect("claim_redemption should succeed for fee wallet owner");
     let claim_event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta_claim);
     assert_eq!(claim_event.caller, ctx.admin.pubkey());
@@ -886,6 +863,7 @@ fn test_withdraw_fees_and_claim_e2e() {
     assert_eq!(balance, 2_000_000);
 
     // Assert that the PendingRedemption account was closed (does not exist anymore)
+    let (pending_pda, _) = pending_redemption_pda(1, 0);
     assert!(ctx.svm.get_account(&pending_pda).is_none());
 }
 
@@ -915,7 +893,11 @@ fn test_withdraw_fees_fails_invalid_fee_wallet() {
         1_000_000,
     );
 
-    substitute_account_meta(&mut ix, read_pool_state(&ctx.svm, 1).fee_wallet, wrong_wallet);
+    substitute_account_meta(
+        &mut ix,
+        read_pool_state(&ctx.svm, 1).fee_wallet,
+        wrong_wallet,
+    );
 
     let res = send_withdraw_fees(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidFeeWallet);

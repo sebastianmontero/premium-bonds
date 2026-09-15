@@ -36,28 +36,26 @@ fn inject_ticket_registry_account(
     pending: u32,
     size: usize,
 ) {
-    let mut data = vec![0u8; size];
-    // Anchor discriminator for TicketRegistry
-    data[0..8].copy_from_slice(&[58, 169, 167, 230, 107, 202, 126, 54]);
-    data[8..12].copy_from_slice(&pool_id.to_le_bytes());
-    data[12..16].copy_from_slice(&capacity.to_le_bytes());
-    data[16..20].copy_from_slice(&1u32.to_le_bytes()); // user_count = 1
-    data[20..24].copy_from_slice(&active.to_le_bytes()); // total_active_tickets
-    data[24..28].copy_from_slice(&pending.to_le_bytes()); // total_pending_tickets
-    data[28..32].copy_from_slice(&0u32.to_le_bytes()); // draw_cycle_id = 0
-    data[32..36].copy_from_slice(&0u32.to_le_bytes()); // draw_prepared_up_to = 0
-
-    svm.set_account(
+    let entry = anchor::state::UserEntry {
+        owner: Keypair::new().pubkey(),
+        active,
+        pending,
+        merged_through_cycle: 0,
+        cumulative_active: active,
+        version: anchor::state::UserEntry::CURRENT_VERSION,
+        _padding: [0; 3],
+        _reserved: [0; 12],
+    };
+    inject_registry_with_state_and_size(
+        svm,
         address,
-        Account {
-            lamports: svm.minimum_balance_for_rent_exemption(size),
-            data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+        pool_id,
+        capacity,
+        0,
+        0,
+        &[entry],
+        Some(size),
+    );
 }
 
 // (inject_prize_pool_account removed in favor of common::PrizePoolTestBuilder)
@@ -89,11 +87,6 @@ fn send_resize_registry_simple(
     let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[payer]).unwrap();
     svm.send_transaction(tx)
-}
-
-fn read_registry_capacity(svm: &LiteSVM, address: Pubkey) -> u32 {
-    let acct = svm.get_account(&address).expect("registry should exist");
-    u32::from_le_bytes(acct.data[12..16].try_into().unwrap())
 }
 
 fn write_entry_at_idx(
@@ -169,7 +162,7 @@ fn test_resize_registry_succeeds() {
     // Verify capacity and other header fields in zero-copy state
     let expected_new_capacity = anchor::utils::registry_capacity_from_len(expected_new_size);
     assert_eq!(
-        read_registry_capacity(&svm, ticket_registry),
+        read_ticket_registry(&svm, ticket_registry).capacity,
         expected_new_capacity
     );
     assert_eq!(read_registry_pending(&svm, ticket_registry), 3);
@@ -216,7 +209,7 @@ fn test_resize_registry_sequential_growth() {
         svm.get_account(&ticket_registry).unwrap().data.len(),
         size_1
     );
-    assert_eq!(read_registry_capacity(&svm, ticket_registry), cap_1);
+    assert_eq!(read_ticket_registry(&svm, ticket_registry).capacity, cap_1);
 
     // Step 2: Resize again sequentially
     // Since the instruction has no arguments and the same accounts, the transaction is identical.
@@ -253,7 +246,7 @@ fn test_resize_registry_sequential_growth() {
         svm.get_account(&ticket_registry).unwrap().data.len(),
         size_2
     );
-    assert_eq!(read_registry_capacity(&svm, ticket_registry), cap_2);
+    assert_eq!(read_ticket_registry(&svm, ticket_registry).capacity, cap_2);
 }
 
 #[test]
@@ -553,10 +546,9 @@ fn test_resize_registry_to_exact_max_capacity() {
     assert_eq!(reg_acc.data.len(), expected_new_size);
 
     // Verify capacity was correctly updated in the header
-    let header_capacity = u32::from_le_bytes(reg_acc.data[12..16].try_into().unwrap());
+    let header_capacity = read_ticket_registry(&svm, ticket_registry).capacity;
     assert_eq!(
         header_capacity,
         anchor::utils::registry_capacity_from_len(expected_new_size)
     );
 }
-

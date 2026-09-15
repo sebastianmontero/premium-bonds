@@ -43,19 +43,7 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
 
     // Create a new randomness account owned by Switchboard On-Demand
     let new_randomness_account = Keypair::new().pubkey();
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    svm.set_account(
-        new_randomness_account,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_mock_randomness_account(&mut svm, new_randomness_account);
 
     RebindCtx {
         svm,
@@ -66,10 +54,7 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
     }
 }
 
-fn send_rebind(
-    ctx: &mut RebindCtx,
-    signer: &Keypair,
-) -> TxResult {
+fn send_rebind(ctx: &mut RebindCtx, signer: &Keypair) -> TxResult {
     let (global_config, _) = global_config_pda();
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
@@ -127,7 +112,10 @@ fn test_rebind_fails_mismatched_current_randomness_account() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
 }
 
 #[test]
@@ -140,18 +128,38 @@ fn test_rebind_happy_path() {
     let crank = clone_keypair(&ctx.crank);
     let meta = send_rebind(&mut ctx, &crank).unwrap();
     let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
-    assert_eq!(event.crank, crank.pubkey(), "RandomnessRebound crank mismatch");
+    assert_eq!(
+        event.crank,
+        crank.pubkey(),
+        "RandomnessRebound crank mismatch"
+    );
     assert_eq!(event.pool_id, 1, "RandomnessRebound pool_id mismatch");
     assert_eq!(event.cycle_id, 0, "RandomnessRebound cycle_id mismatch");
-    assert_eq!(event.old_randomness_account, Pubkey::default(), "RandomnessRebound old_randomness_account mismatch");
-    assert_eq!(event.new_randomness_account, ctx.new_randomness_account, "RandomnessRebound new_randomness_account mismatch");
-    assert_eq!(event.harvest_slot, 1001, "RandomnessRebound harvest_slot mismatch");
+    assert_eq!(
+        event.old_randomness_account,
+        Pubkey::default(),
+        "RandomnessRebound old_randomness_account mismatch"
+    );
+    assert_eq!(
+        event.new_randomness_account, ctx.new_randomness_account,
+        "RandomnessRebound new_randomness_account mismatch"
+    );
+    assert_eq!(
+        event.harvest_slot, 1001,
+        "RandomnessRebound harvest_slot mismatch"
+    );
 
     // Verify draw cycle randomness account is updated and harvest slot reset
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
-    assert_eq!(dc.randomness_account, ctx.new_randomness_account, "DrawCycle randomness_account must match new randomness account");
-    assert_eq!(dc.harvest_slot, 1001, "DrawCycle harvest_slot must be updated to current slot 1001");
+    assert_eq!(
+        dc.randomness_account, ctx.new_randomness_account,
+        "DrawCycle randomness_account must match new randomness account"
+    );
+    assert_eq!(
+        dc.harvest_slot, 1001,
+        "DrawCycle harvest_slot must be updated to current slot 1001"
+    );
 }
 
 #[test]
@@ -211,7 +219,10 @@ fn test_rebind_fails_invalid_randomness_account() {
 
     let crank = clone_keypair(&ctx.crank);
     let res = send_rebind(&mut ctx, &crank);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidRandomnessAccount);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
 }
 
 #[test]
@@ -232,12 +243,26 @@ fn test_crank_rebind_exact_slot_boundary() {
     let meta = send_rebind(&mut ctx, &crank)
         .expect("rebind at exact expiration slot boundary should succeed");
     let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
-    assert_eq!(event.crank, crank.pubkey(), "RandomnessRebound crank mismatch");
+    assert_eq!(
+        event.crank,
+        crank.pubkey(),
+        "RandomnessRebound crank mismatch"
+    );
     assert_eq!(event.pool_id, 1, "RandomnessRebound pool_id mismatch");
     assert_eq!(event.cycle_id, 0, "RandomnessRebound cycle_id mismatch");
-    assert_eq!(event.old_randomness_account, Pubkey::default(), "RandomnessRebound old_randomness_account mismatch");
-    assert_eq!(event.new_randomness_account, ctx.new_randomness_account, "RandomnessRebound new_randomness_account mismatch");
-    assert_eq!(event.harvest_slot, 1101, "RandomnessRebound harvest_slot mismatch");
+    assert_eq!(
+        event.old_randomness_account,
+        Pubkey::default(),
+        "RandomnessRebound old_randomness_account mismatch"
+    );
+    assert_eq!(
+        event.new_randomness_account, ctx.new_randomness_account,
+        "RandomnessRebound new_randomness_account mismatch"
+    );
+    assert_eq!(
+        event.harvest_slot, 1101,
+        "RandomnessRebound harvest_slot mismatch"
+    );
 }
 
 #[test]

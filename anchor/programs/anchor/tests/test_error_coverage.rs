@@ -23,30 +23,6 @@ use {
 mod common;
 use common::*;
 
-fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
-    let admin = Keypair::new();
-    let crank = Keypair::new();
-    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
-    (svm, admin, crank)
-}
-
-fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Module 1: Pool Lifecycle & Configuration Errors
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -342,13 +318,11 @@ fn test_err_insufficient_active_tickets() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(user.pubkey())
-            .with_active(5)
-            .with_pending(2)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(user.pubkey())
+        .with_active(5)
+        .with_pending(2)
+        .build()];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 
@@ -426,13 +400,11 @@ fn test_err_insufficient_pending_tickets() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(user.pubkey())
-            .with_active(5)
-            .with_pending(2)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(user.pubkey())
+        .with_active(5)
+        .with_pending(2)
+        .build()];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
 

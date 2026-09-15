@@ -72,8 +72,14 @@ fn test_admin_void_payout_registry_success() {
     assert_eq!(event.pool_id, pool_id, "DrawVoided pool_id mismatch");
     assert_eq!(event.cycle_id, cycle_id, "DrawVoided cycle_id mismatch");
     assert_eq!(event.admin, admin.pubkey(), "DrawVoided admin mismatch");
-    assert_eq!(event.prizes_reversed, 99_998, "DrawVoided prizes_reversed mismatch");
-    assert_eq!(event.fees_reversed, cycle_fee, "DrawVoided fees_reversed mismatch");
+    assert_eq!(
+        event.prizes_reversed, 99_998,
+        "DrawVoided prizes_reversed mismatch"
+    );
+    assert_eq!(
+        event.fees_reversed, cycle_fee,
+        "DrawVoided fees_reversed mismatch"
+    );
 
     // Verify Pool accounting
     let pool = read_pool_state(&svm, pool_id);
@@ -88,15 +94,26 @@ fn test_admin_void_payout_registry_success() {
 
     // Verify PayoutRegistry status
     let pr = read_payout_registry(&svm, pool_id, cycle_id);
-    assert_eq!(pr.status, anchor::PayoutRegistryStatus::Voided as u8, "PayoutRegistry status must be Voided");
+    assert_eq!(
+        pr.status,
+        anchor::PayoutRegistryStatus::Voided as u8,
+        "PayoutRegistry status must be Voided"
+    );
 
     // Verify DrawCycle status
     let (dc_pda, _) = draw_cycle_pda(pool_id, cycle_id);
     let dc_acc = svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::Voided, "DrawCycle status must be Voided");
-    assert!(dc.completed_at > 0, "DrawCycle completed_at must be positive");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::Voided,
+        "DrawCycle status must be Voided"
+    );
+    assert!(
+        dc.completed_at > 0,
+        "DrawCycle completed_at must be positive"
+    );
 }
 
 #[test]
@@ -301,7 +318,10 @@ fn test_multi_cycle_allocated_prizes_and_void_recovery() {
 
     // Check pre-void state (total_prizes_allocated = 125_000)
     let pool = read_pool_state(&svm, pool_id);
-    assert_eq!(pool.total_prizes_allocated, 125_000, "total_prizes_allocated pre-void mismatch");
+    assert_eq!(
+        pool.total_prizes_allocated, 125_000,
+        "total_prizes_allocated pre-void mismatch"
+    );
 
     // Admin voids Cycle 2 (reverses 75_000)
     send_admin_void_payout_registry(&mut svm, &admin, pool_id, 2)
@@ -309,8 +329,14 @@ fn test_multi_cycle_allocated_prizes_and_void_recovery() {
 
     // Check post-void state: rolled back to 50_000
     let pool_post_void = read_pool_state(&svm, pool_id);
-    assert_eq!(pool_post_void.total_prizes_allocated, 50_000, "total_prizes_allocated post-void mismatch");
-    assert_eq!(pool_post_void.total_fees_accrued, 5_000, "total_fees_accrued post-void mismatch");
+    assert_eq!(
+        pool_post_void.total_prizes_allocated, 50_000,
+        "total_prizes_allocated post-void mismatch"
+    );
+    assert_eq!(
+        pool_post_void.total_fees_accrued, 5_000,
+        "total_fees_accrued post-void mismatch"
+    );
 
     // Cycle 3 completes: adds 100_000 USDC
     mutate_pool_state(&mut svm, pool_id, |pool| {
@@ -327,8 +353,14 @@ fn test_multi_cycle_allocated_prizes_and_void_recovery() {
 
     // Check final state: total_prizes_allocated = 150_000
     let pool_final = read_pool_state(&svm, pool_id);
-    assert_eq!(pool_final.total_prizes_allocated, 150_000, "total_prizes_allocated final mismatch");
-    assert_eq!(pool_final.total_fees_accrued, 15_000, "total_fees_accrued final mismatch");
+    assert_eq!(
+        pool_final.total_prizes_allocated, 150_000,
+        "total_prizes_allocated final mismatch"
+    );
+    assert_eq!(
+        pool_final.total_fees_accrued, 15_000,
+        "total_fees_accrued final mismatch"
+    );
 }
 
 #[test]
@@ -534,25 +566,45 @@ fn test_admin_void_draw_with_zero_truncated_prize_succeeds_before_crank() {
     assert_eq!(event.pool_id, pool_id, "DrawVoided pool_id mismatch");
     assert_eq!(event.cycle_id, cycle_id, "DrawVoided cycle_id mismatch");
     assert_eq!(event.admin, admin.pubkey(), "DrawVoided admin mismatch");
-    assert_eq!(event.prizes_reversed, 50_000, "DrawVoided prizes_reversed mismatch");
-    assert_eq!(event.fees_reversed, cycle_fee, "DrawVoided fees_reversed mismatch");
+    assert_eq!(
+        event.prizes_reversed, 50_000,
+        "DrawVoided prizes_reversed mismatch"
+    );
+    assert_eq!(
+        event.fees_reversed, cycle_fee,
+        "DrawVoided fees_reversed mismatch"
+    );
 
     // Verify Pool accounting
     let pool = read_pool_state(&svm, pool_id);
-    assert_eq!(pool.total_prizes_allocated, 0, "total_prizes_allocated must be 0");
+    assert_eq!(
+        pool.total_prizes_allocated, 0,
+        "total_prizes_allocated must be 0"
+    );
     assert_eq!(pool.total_fees_accrued, 0, "total_fees_accrued must be 0");
 
     // Verify PayoutRegistry marked as Voided
     let pr = read_payout_registry(&svm, pool_id, cycle_id);
-    assert_eq!(pr.status, anchor::PayoutRegistryStatus::Voided as u8, "PayoutRegistry status must be Voided");
+    assert_eq!(
+        pr.status,
+        anchor::PayoutRegistryStatus::Voided as u8,
+        "PayoutRegistry status must be Voided"
+    );
 
     // Verify DrawCycle marked as Voided
     let (dc_pda, _) = draw_cycle_pda(pool_id, cycle_id);
     let dc_acc = svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::Voided, "DrawCycle status must be Voided");
-    assert!(dc.completed_at > 0, "DrawCycle completed_at must be positive");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::Voided,
+        "DrawCycle status must be Voided"
+    );
+    assert!(
+        dc.completed_at > 0,
+        "DrawCycle completed_at must be positive"
+    );
 }
 
 #[test]
@@ -596,12 +648,24 @@ fn test_admin_void_100_percent_zero_truncated_draw_succeeds() {
         .expect("voiding 100% zero-truncated draw should succeed");
 
     let event = assert_cpi_event::<anchor::events::DrawVoided>(&meta);
-    assert_eq!(event.prizes_reversed, 0, "DrawVoided prizes_reversed must be 0");
-    assert_eq!(event.fees_reversed, cycle_fee, "DrawVoided fees_reversed mismatch");
+    assert_eq!(
+        event.prizes_reversed, 0,
+        "DrawVoided prizes_reversed must be 0"
+    );
+    assert_eq!(
+        event.fees_reversed, cycle_fee,
+        "DrawVoided fees_reversed mismatch"
+    );
 
     let pool = read_pool_state(&svm, pool_id);
-    assert_eq!(pool.total_prizes_allocated, 0, "total_prizes_allocated must remain 0");
-    assert_eq!(pool.total_fees_accrued, 0, "total_fees_accrued must be rolled back to 0");
+    assert_eq!(
+        pool.total_prizes_allocated, 0,
+        "total_prizes_allocated must remain 0"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, 0,
+        "total_fees_accrued must be rolled back to 0"
+    );
 }
 
 #[test]
@@ -663,8 +727,14 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     let book_value_before = pool_before.total_deposited_principal
         + (pool_before.total_fees_accrued - pool_before.total_fees_withdrawn)
         + pool_before.total_prizes_allocated;
-    assert_eq!(pool_before.total_prizes_allocated, 0, "total_prizes_allocated before must be 0");
-    assert_eq!(pool_before.total_fees_accrued, 0, "total_fees_accrued before must be 0");
+    assert_eq!(
+        pool_before.total_prizes_allocated, 0,
+        "total_prizes_allocated before must be 0"
+    );
+    assert_eq!(
+        pool_before.total_fees_accrued, 0,
+        "total_fees_accrued before must be 0"
+    );
 
     let (pool_vault, _) = pool_vault_pda(1);
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
@@ -699,7 +769,8 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     );
 
     // 6. Reveal and pick winners for Cycle 1
-    send_e2e_reveal_and_pick_winners(&mut ctx, 1, 1, dc.randomness_account).expect("reveal should succeed");
+    send_e2e_reveal_and_pick_winners(&mut ctx, 1, 1, dc.randomness_account)
+        .expect("reveal should succeed");
 
     // 7. Execute Admin Void for Cycle 1
     send_admin_void_payout_registry(&mut ctx.svm, &ctx.admin, 1, 1)
@@ -717,13 +788,21 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
         "MTR-007: BookValue not conserved after void"
     );
     assert_eq!(
-        pool_after.total_deposited_principal,
-        pool_before.total_deposited_principal,
+        pool_after.total_deposited_principal, pool_before.total_deposited_principal,
         "Deposited principal must be conserved"
     );
-    assert_eq!(pool_after.total_prizes_allocated, 0, "Prizes allocated must be 0 after void");
-    assert_eq!(pool_after.total_fees_accrued, 0, "Fees accrued must be 0 after void");
-    assert_eq!(pool_after.total_fees_withdrawn, 0, "Fees withdrawn must be 0");
+    assert_eq!(
+        pool_after.total_prizes_allocated, 0,
+        "Prizes allocated must be 0 after void"
+    );
+    assert_eq!(
+        pool_after.total_fees_accrued, 0,
+        "Fees accrued must be 0 after void"
+    );
+    assert_eq!(
+        pool_after.total_fees_withdrawn, 0,
+        "Fees withdrawn must be 0"
+    );
 
     // [B] Physical Vault Parity
     let vault_usdc_after = read_token_balance(&ctx.svm, pool_vault);
@@ -788,5 +867,8 @@ fn test_admin_void_payout_registry_fails_when_frozen() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }

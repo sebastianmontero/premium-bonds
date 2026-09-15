@@ -30,24 +30,33 @@ fn test_lifecycle_emergency_pausing_and_governance() {
 
     // 1. Guardian triggers emergency pause
     let guardian = clone_keypair(&h.guardian);
-    send_pause_pool(&mut h.svm, &guardian, pool_id)
-        .expect("Guardian should be able to pause pool");
+    send_pause_pool(&mut h.svm, &guardian, pool_id).expect("Guardian should be able to pause pool");
 
     let pool_paused = read_pool_state(&h.svm, pool_id);
-    assert_eq!(pool_paused.status, anchor::state::PoolStatus::Paused as u8, "Pool must be Paused");
+    assert_eq!(
+        pool_paused.status,
+        anchor::state::PoolStatus::Paused as u8,
+        "Pool must be Paused"
+    );
 
     // 2. User attempts to buy bonds while paused -> Must Fail
     let res_buy_paused = send_e2e_buy_bonds(&mut h, 50);
-    assert_custom_error(res_buy_paused, anchor::error::PremiumBondsError::PoolNotActive);
+    assert_custom_error(
+        res_buy_paused,
+        anchor::error::PremiumBondsError::PoolNotActive,
+    );
     h.svm.expire_blockhash();
 
     // 3. Admin unpauses pool
     let admin = clone_keypair(&h.admin);
-    send_unpause_pool(&mut h.svm, &admin, pool_id)
-        .expect("Admin should be able to unpause pool");
+    send_unpause_pool(&mut h.svm, &admin, pool_id).expect("Admin should be able to unpause pool");
 
     let pool_unpaused = read_pool_state(&h.svm, pool_id);
-    assert_eq!(pool_unpaused.status, anchor::state::PoolStatus::Active as u8, "Pool must be Active again");
+    assert_eq!(
+        pool_unpaused.status,
+        anchor::state::PoolStatus::Active as u8,
+        "Pool must be Active again"
+    );
 
     // 4. User successfully buys bonds now that pool is Active
     send_e2e_buy_bonds(&mut h, 50).expect("BuyBonds must succeed after unpause");
@@ -86,13 +95,20 @@ fn test_lifecycle_emergency_pausing_and_governance() {
         data: anchor::instruction::AdminForceUnlockDraw {}.data(),
     };
     let bh_unlock = h.svm.latest_blockhash();
-    let msg_unlock = Message::new_with_blockhash(&[ix_force_unlock], Some(&h.admin.pubkey()), &bh_unlock);
-    let tx_unlock = VersionedTransaction::try_new(VersionedMessage::Legacy(msg_unlock), &[&admin]).unwrap();
-    h.svm.send_transaction(tx_unlock).expect("AdminForceUnlockDraw must succeed");
+    let msg_unlock =
+        Message::new_with_blockhash(&[ix_force_unlock], Some(&h.admin.pubkey()), &bh_unlock);
+    let tx_unlock =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_unlock), &[&admin]).unwrap();
+    h.svm
+        .send_transaction(tx_unlock)
+        .expect("AdminForceUnlockDraw must succeed");
 
     let pool_unlocked = read_pool_state(&h.svm, pool_id);
     assert_eq!(pool_unlocked.is_frozen_for_draw, 0, "Pool is unfrozen");
-    assert_eq!(pool_unlocked.total_prizes_allocated, 0, "Allocated prize returned");
+    assert_eq!(
+        pool_unlocked.total_prizes_allocated, 0,
+        "Allocated prize returned"
+    );
     assert_eq!(pool_unlocked.total_fees_accrued, 0, "Accrued fee returned");
 
     // 6. Admin Void Payout Registry Recovery
@@ -106,7 +122,11 @@ fn test_lifecycle_emergency_pausing_and_governance() {
 
     let user_pubkey = h.user.pubkey();
     let (payout_reg_pda, _) = PayoutRegistryTestBuilder::new(pool_id, cycle_id)
-        .with_winners(vec![WinnerTestBuilder::default_winner(user_pubkey, 5_000_000, 0)])
+        .with_winners(vec![WinnerTestBuilder::default_winner(
+            user_pubkey,
+            5_000_000,
+            0,
+        )])
         .with_status(anchor::state::PayoutRegistryStatus::Active)
         .inject(&mut h.svm);
 
@@ -119,9 +139,19 @@ fn test_lifecycle_emergency_pausing_and_governance() {
         .expect("AdminVoidPayoutRegistry must succeed");
 
     let pool_post_void = read_pool_state(&h.svm, pool_id);
-    assert_eq!(pool_post_void.total_prizes_allocated, 0, "Allocated prize pot rolled back to 0");
-    assert_eq!(pool_post_void.total_fees_accrued, 0, "Fees accrued rolled back to 0");
+    assert_eq!(
+        pool_post_void.total_prizes_allocated, 0,
+        "Allocated prize pot rolled back to 0"
+    );
+    assert_eq!(
+        pool_post_void.total_fees_accrued, 0,
+        "Fees accrued rolled back to 0"
+    );
 
     let payout_post_void = read_payout_registry(&h.svm, pool_id, cycle_id);
-    assert_eq!(payout_post_void.status, anchor::state::PayoutRegistryStatus::Voided as u8, "Payout registry status is Voided");
+    assert_eq!(
+        payout_post_void.status,
+        anchor::state::PayoutRegistryStatus::Voided as u8,
+        "Payout registry status is Voided"
+    );
 }

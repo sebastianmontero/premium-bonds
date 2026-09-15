@@ -146,11 +146,7 @@ fn send_claim(ctx: &mut ClaimCtx, pool_id: u32) -> TxResult {
     send_claim_with_redemption_id(ctx, pool_id, 0)
 }
 
-fn send_claim_with_redemption_id(
-    ctx: &mut ClaimCtx,
-    pool_id: u32,
-    redemption_id: u64,
-) -> TxResult {
+fn send_claim_with_redemption_id(ctx: &mut ClaimCtx, pool_id: u32, redemption_id: u64) -> TxResult {
     let ix = build_claim_ix_with_redemption_id(
         ctx.user.pubkey(),
         pool_id,
@@ -272,9 +268,16 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
         .send_transaction(tx)
         .expect("claim non-reinvested winnings");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
-    assert_eq!(event.user, ctx.user.pubkey(), "event user must match claimant");
+    assert_eq!(
+        event.user,
+        ctx.user.pubkey(),
+        "event user must match claimant"
+    );
     assert_eq!(event.pool_id, 1, "event pool_id must match pool");
-    assert_eq!(event.amount, 500_000, "event amount must match claimed winnings");
+    assert_eq!(
+        event.amount, 500_000,
+        "event amount must match claimed winnings"
+    );
     assert_eq!(event.redemption_id, 0, "event redemption_id must be 0");
     assert!(event.pst_shares > 0, "event pst_shares must be non-zero");
     assert_eq!(event.huma_request_id, 0, "event huma_request_id must be 0");
@@ -282,15 +285,30 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     // Assert UserWinnings state updates
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
-    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0, "unclaimed winnings must be cleared");
-    assert_eq!(uw.total_claimed, 500_000, "total_claimed must equal 500_000");
+    assert_eq!(
+        uw.unclaimed_non_reinvested_winnings, 0,
+        "unclaimed winnings must be cleared"
+    );
+    assert_eq!(
+        uw.total_claimed, 500_000,
+        "total_claimed must equal 500_000"
+    );
 
     // Assert PrizePool state updates
     let pool_account = ctx.svm.get_account(&pool_pda(1).0).unwrap();
     let pool = anchor::PrizePool::try_deserialize(&mut pool_account.data.as_slice()).unwrap();
-    assert_eq!(pool.total_prizes_allocated, 500_000, "pool prizes allocated updated"); // 1_000_000 - 500_000
-    assert_eq!(pool.next_redemption_id, 1, "pool next_redemption_id incremented");
-    assert_eq!(pool.total_pending_redemptions, 500_000, "total_pending_redemptions updated");
+    assert_eq!(
+        pool.total_prizes_allocated, 500_000,
+        "pool prizes allocated updated"
+    ); // 1_000_000 - 500_000
+    assert_eq!(
+        pool.next_redemption_id, 1,
+        "pool next_redemption_id incremented"
+    );
+    assert_eq!(
+        pool.total_pending_redemptions, 500_000,
+        "total_pending_redemptions updated"
+    );
 
     // Assert PendingRedemption PDA creation and all fields
     let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
@@ -302,7 +320,11 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(pr.amount, 500_000, "pr amount matches");
     assert!(pr.pst_shares_locked > 0, "pr pst_shares_locked non-zero");
     assert_eq!(pr.huma_request_id, 0, "pr huma_request_id matches");
-    assert_eq!(pr.version, anchor::PendingRedemption::CURRENT_VERSION, "pr version is current");
+    assert_eq!(
+        pr.version,
+        anchor::PendingRedemption::CURRENT_VERSION,
+        "pr version is current"
+    );
     assert_eq!(
         pr.redemption_type,
         anchor::state::RedemptionType::PrizeClaim,
@@ -334,7 +356,10 @@ fn test_claim_non_reinvested_winnings_fails_when_frozen() {
     let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
     let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
     let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::AwaitingRandomnessFreeze);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
+    );
 }
 
 #[test]
@@ -401,7 +426,10 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
 
     let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
     let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
-    assert_eq!(uw.unclaimed_non_reinvested_winnings, 0, "unclaimed winnings cleared");
+    assert_eq!(
+        uw.unclaimed_non_reinvested_winnings, 0,
+        "unclaimed winnings cleared"
+    );
     assert_eq!(uw.total_claimed, 500_000, "total claimed matches");
 }
 

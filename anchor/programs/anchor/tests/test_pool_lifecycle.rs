@@ -85,12 +85,10 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(user.pubkey())
-            .with_active(10)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(user.pubkey())
+        .with_active(10)
+        .build()];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
     let huma_pool_state = Keypair::new().pubkey();
@@ -357,12 +355,10 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     let ticket_registry = Keypair::new().pubkey();
     let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(crank.pubkey())
-            .with_active(10)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(crank.pubkey())
+        .with_active(10)
+        .build()];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
     // Inject draw cycle awaiting randomness
@@ -553,12 +549,8 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     // Rotate global_config jobs account to crank2
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
-    {
-        let mut gc_acc = svm.get_account(&gc).unwrap();
-        // Update jobs_account in GlobalConfig (offset 8 + 32 + 32 = 72)
-        gc_acc.data[72..104].copy_from_slice(&crank2.pubkey().to_bytes());
-        svm.set_account(gc, gc_acc).unwrap();
-    }
+    send_update_global_config(&mut svm, &admin, None, Some(crank2.pubkey()))
+        .expect("Rotate crank/jobs_account via genuine admin instruction");
 
     let accounts2 = anchor::accounts::CrankRebindExpiredRandomness {
         crank: crank2.pubkey(),
@@ -598,12 +590,10 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let token_mint = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
 
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(winner)
-            .with_active(10)
-            .build(),
-    ];
+    let entries = vec![UserEntryTestBuilder::new()
+        .with_owner(winner)
+        .with_active(10)
+        .build()];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
     let winner_entry = WinnerTestBuilder::default_winner(winner, 3_000_000, 0);

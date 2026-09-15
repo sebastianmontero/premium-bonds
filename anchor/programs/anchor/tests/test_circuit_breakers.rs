@@ -192,21 +192,38 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
 
     // Verify Pool is now Paused and cycle advanced
     let pool_after = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8, "Pool should be paused");
-    assert_eq!(pool_after.is_frozen_for_draw, 0, "Pool should not be frozen for draw");
-    assert_eq!(pool_after.current_draw_cycle_id, 1, "Draw cycle ID should advance");
+    assert_eq!(
+        pool_after.status,
+        anchor::PoolStatus::Paused as u8,
+        "Pool should be paused"
+    );
+    assert_eq!(
+        pool_after.is_frozen_for_draw, 0,
+        "Pool should not be frozen for draw"
+    );
+    assert_eq!(
+        pool_after.current_draw_cycle_id, 1,
+        "Draw cycle ID should advance"
+    );
 
     // Verify DrawCycle is HaltedInsolvent
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent, "DrawStatus should be HaltedInsolvent");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::HaltedInsolvent,
+        "DrawStatus should be HaltedInsolvent"
+    );
     assert_eq!(dc.locked_ticket_count, 10, "Locked ticket count mismatch");
     assert_eq!(dc.prize_pot, 0, "Prize pot should be 0");
     assert_eq!(dc.cycle_fee_collected, 0, "Cycle fee should be 0");
     assert!(dc.initiated_at > 0, "Initiated at should be positive");
-    assert_eq!(dc.completed_at, dc.initiated_at, "Completed at should equal initiated at");
+    assert_eq!(
+        dc.completed_at, dc.initiated_at,
+        "Completed at should equal initiated at"
+    );
 }
 
 #[test]
@@ -235,26 +252,49 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
     assert_eq!(event.cycle_id, 0, "Event cycle_id mismatch");
     assert_eq!(event.crank, ctx.crank.pubkey(), "Event crank mismatch");
     assert_eq!(event.yield_generated, 2_000_000, "Yield generated mismatch");
-    assert_eq!(event.max_allowed_yield, 500_000, "Max allowed yield mismatch"); // 5% of 10M
-    assert_eq!(event.locked_ticket_count, 10, "Locked ticket count mismatch");
+    assert_eq!(
+        event.max_allowed_yield, 500_000,
+        "Max allowed yield mismatch"
+    ); // 5% of 10M
+    assert_eq!(
+        event.locked_ticket_count, 10,
+        "Locked ticket count mismatch"
+    );
 
     // Verify Pool is now Paused and cycle advanced
     let pool_after = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8, "Pool should be paused");
-    assert_eq!(pool_after.is_frozen_for_draw, 0, "Pool should not be frozen for draw");
-    assert_eq!(pool_after.current_draw_cycle_id, 1, "Draw cycle ID should advance");
+    assert_eq!(
+        pool_after.status,
+        anchor::PoolStatus::Paused as u8,
+        "Pool should be paused"
+    );
+    assert_eq!(
+        pool_after.is_frozen_for_draw, 0,
+        "Pool should not be frozen for draw"
+    );
+    assert_eq!(
+        pool_after.current_draw_cycle_id, 1,
+        "Draw cycle ID should advance"
+    );
 
     // Verify DrawCycle is HaltedYieldSpike
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::HaltedYieldSpike, "DrawStatus should be HaltedYieldSpike");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::HaltedYieldSpike,
+        "DrawStatus should be HaltedYieldSpike"
+    );
     assert_eq!(dc.locked_ticket_count, 10, "Locked ticket count mismatch");
     assert_eq!(dc.prize_pot, 0, "Prize pot should be 0");
     assert_eq!(dc.cycle_fee_collected, 0, "Cycle fee should be 0");
     assert!(dc.initiated_at > 0, "Initiated at should be positive");
-    assert_eq!(dc.completed_at, dc.initiated_at, "Completed at should equal initiated at");
+    assert_eq!(
+        dc.completed_at, dc.initiated_at,
+        "Completed at should equal initiated at"
+    );
 }
 
 #[test]
@@ -289,17 +329,31 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
 
     // Verify Pool is Paused and cycle advanced
     let pool_after = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_after.status, anchor::PoolStatus::Paused as u8, "Pool should be paused");
-    assert_eq!(pool_after.current_draw_cycle_id, 1, "Draw cycle ID should advance");
+    assert_eq!(
+        pool_after.status,
+        anchor::PoolStatus::Paused as u8,
+        "Pool should be paused"
+    );
+    assert_eq!(
+        pool_after.current_draw_cycle_id, 1,
+        "Draw cycle ID should advance"
+    );
 
     // Verify DrawCycle is HaltedInsolvent and base metadata is present
     let (dc_pda, _) = draw_cycle_pda(1, 0);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
         anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
-    assert_eq!(dc.status, anchor::DrawStatus::HaltedInsolvent, "DrawStatus should be HaltedInsolvent");
+    assert_eq!(
+        dc.status,
+        anchor::DrawStatus::HaltedInsolvent,
+        "DrawStatus should be HaltedInsolvent"
+    );
     assert!(dc.initiated_at > 0, "Initiated at should be positive");
-    assert_eq!(dc.completed_at, dc.initiated_at, "Completed at should equal initiated at");
+    assert_eq!(
+        dc.completed_at, dc.initiated_at,
+        "Completed at should equal initiated at"
+    );
     assert_eq!(dc.pool_id, 1, "Pool ID mismatch");
     assert_eq!(dc.cycle_id, 0, "Cycle ID mismatch");
     assert_eq!(dc.locked_ticket_count, 0, "Locked ticket count mismatch");
@@ -379,11 +433,28 @@ fn test_yield_velocity_spike_guard_exact_boundary() {
     );
     let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Yield > max allowed should halt");
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta_halt);
-    assert_eq!(event.crank, ctx_halt.crank.pubkey(), "event crank must match caller");
-    assert_eq!(event.yield_generated, 500_001, "event yield_generated must match breach yield");
-    assert_eq!(event.max_allowed_yield, 500_000, "event max_allowed_yield must match limit");
+    assert_eq!(
+        event.crank,
+        ctx_halt.crank.pubkey(),
+        "event crank must match caller"
+    );
+    assert_eq!(
+        event.yield_generated, 500_001,
+        "event yield_generated must match breach yield"
+    );
+    assert_eq!(
+        event.max_allowed_yield, 500_000,
+        "event max_allowed_yield must match limit"
+    );
     assert_eq!(event.cycle_id, 0, "event cycle_id must match current cycle");
-    assert_eq!(event.locked_ticket_count, 10, "event locked_ticket_count must match tickets");
+    assert_eq!(
+        event.locked_ticket_count, 10,
+        "event locked_ticket_count must match tickets"
+    );
     let pool_halt = read_pool_state(&ctx_halt.svm, 1);
-    assert_eq!(pool_halt.status, anchor::PoolStatus::Paused as u8, "pool status must transition to Paused");
+    assert_eq!(
+        pool_halt.status,
+        anchor::PoolStatus::Paused as u8,
+        "pool status must transition to Paused"
+    );
 }

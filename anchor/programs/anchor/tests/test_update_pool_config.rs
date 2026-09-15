@@ -123,8 +123,14 @@ fn test_update_pool_config_succeeds_one_field() {
     assert_eq!(event.admin, admin.pubkey(), "Event admin mismatch");
     assert_eq!(event.old_fee_basis_points, 100, "Old fee bips mismatch");
     assert_eq!(event.new_fee_basis_points, 200, "New fee bips mismatch");
-    assert_eq!(event.old_stake_cycle_duration_hrs, 24, "Old duration mismatch");
-    assert_eq!(event.new_stake_cycle_duration_hrs, 24, "New duration mismatch");
+    assert_eq!(
+        event.old_stake_cycle_duration_hrs, 24,
+        "Old duration mismatch"
+    );
+    assert_eq!(
+        event.new_stake_cycle_duration_hrs, 24,
+        "New duration mismatch"
+    );
     assert!(event.timestamp > 0, "Event timestamp must be positive");
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
@@ -167,8 +173,14 @@ fn test_update_pool_config_succeeds_all_fields() {
         .send_transaction(tx)
         .expect("update_pool_config should succeed updating all fields");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
-    assert_eq!(event.old_stake_cycle_duration_hrs, 24, "Old duration mismatch");
-    assert_eq!(event.new_stake_cycle_duration_hrs, 168, "New duration mismatch");
+    assert_eq!(
+        event.old_stake_cycle_duration_hrs, 24,
+        "Old duration mismatch"
+    );
+    assert_eq!(
+        event.new_stake_cycle_duration_hrs, 168,
+        "New duration mismatch"
+    );
     assert_eq!(event.old_fee_basis_points, 100, "Old fee bips mismatch");
     assert_eq!(event.new_fee_basis_points, 50, "New fee bips mismatch");
     assert!(event.timestamp > 0, "Event timestamp must be positive");
@@ -180,8 +192,14 @@ fn test_update_pool_config_succeeds_all_fields() {
     assert_eq!(pool_state.fee_basis_points, 50, "Pool fee bips mismatch");
     assert_eq!(pool_state.bond_price, 2_000_000, "Pool bond price mismatch");
     assert_eq!(pool_state.fee_wallet, new_fee_wallet, "Fee wallet mismatch");
-    assert_eq!(pool_state.min_yield_threshold, 1_000_000, "Min yield threshold mismatch");
-    assert_eq!(pool_state.stake_cycle_duration_hrs, 168, "Duration mismatch");
+    assert_eq!(
+        pool_state.min_yield_threshold, 1_000_000,
+        "Min yield threshold mismatch"
+    );
+    assert_eq!(
+        pool_state.stake_cycle_duration_hrs, 168,
+        "Duration mismatch"
+    );
 }
 
 #[test]
@@ -200,14 +218,23 @@ fn test_update_pool_config_succeeds_stake_cycle_duration() {
         .expect("update_pool_config should succeed updating duration");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1, "Pool ID mismatch");
-    assert_eq!(event.old_stake_cycle_duration_hrs, 24, "Old duration mismatch");
-    assert_eq!(event.new_stake_cycle_duration_hrs, 72, "New duration mismatch");
+    assert_eq!(
+        event.old_stake_cycle_duration_hrs, 24,
+        "Old duration mismatch"
+    );
+    assert_eq!(
+        event.new_stake_cycle_duration_hrs, 72,
+        "New duration mismatch"
+    );
     assert!(event.timestamp > 0, "Event timestamp must be positive");
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
-    assert_eq!(pool_state.stake_cycle_duration_hrs, 72, "Duration mismatch in state");
+    assert_eq!(
+        pool_state.stake_cycle_duration_hrs, 72,
+        "Duration mismatch in state"
+    );
 }
 
 #[test]
@@ -624,17 +651,35 @@ fn test_update_pool_config_succeeds_max_yield_and_timelock() {
 
     let meta = svm.send_transaction(tx).expect("update should succeed");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
-    assert_eq!(event.old_max_yield_basis_points, 0, "old_max_yield_basis_points was 0");
-    assert_eq!(event.new_max_yield_basis_points, 500, "new_max_yield_basis_points is 500");
-    assert_eq!(event.old_payout_timelock_seconds, 300, "old_payout_timelock_seconds was 300");
-    assert_eq!(event.new_payout_timelock_seconds, 600, "new_payout_timelock_seconds is 600");
+    assert_eq!(
+        event.old_max_yield_basis_points, 0,
+        "old_max_yield_basis_points was 0"
+    );
+    assert_eq!(
+        event.new_max_yield_basis_points, 500,
+        "new_max_yield_basis_points is 500"
+    );
+    assert_eq!(
+        event.old_payout_timelock_seconds, 300,
+        "old_payout_timelock_seconds was 300"
+    );
+    assert_eq!(
+        event.new_payout_timelock_seconds, 600,
+        "new_payout_timelock_seconds is 600"
+    );
     assert!(event.timestamp > 0, "event timestamp is valid");
 
     let pool_acc = svm.get_account(&pool_pda).unwrap();
     let mut data_slice: &[u8] = &pool_acc.data;
     let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
-    assert_eq!(pool_state.max_yield_basis_points, 500, "pool max_yield_basis_points updated");
-    assert_eq!(pool_state.payout_timelock_seconds, 600, "pool payout_timelock_seconds updated");
+    assert_eq!(
+        pool_state.max_yield_basis_points, 500,
+        "pool max_yield_basis_points updated"
+    );
+    assert_eq!(
+        pool_state.payout_timelock_seconds, 600,
+        "pool payout_timelock_seconds updated"
+    );
 }
 
 #[test]
