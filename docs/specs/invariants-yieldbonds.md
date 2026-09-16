@@ -17,7 +17,7 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L177-L236`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L177-L236)
+- **Source Location:** [`harvest_yield_and_commit.rs#L188-L230`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L188-L230)
 - **Conservation Law:**
   $$\text{CurrentValue} = \left\lfloor \frac{\text{pool\_pst\_balance} \times \text{huma\_total\_assets}}{\text{pst\_supply}} \right\rfloor$$
   $$\text{BookValue} = \text{total\_deposited\_principal} + (\text{total\_fees\_accrued} - \text{total\_fees\_withdrawn}) + \text{total\_prizes\_allocated}$$
@@ -53,7 +53,7 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 - **Vector Tag:** `Math`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`pool.rs#L103`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L103), [`pool.rs#L258-L264`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L258-L264), [`sell_bonds.rs#L258`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L258), [`claim_redemption.rs#L215-L219`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L215-L219)
+- **Source Location:** [`pool.rs#L103`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L103), [`pool.rs#L258-L269`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L258-L269), [`sell_bonds.rs#L258`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/sell_bonds.rs#L258), [`claim_redemption.rs#L215-L219`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/user/claim_redemption.rs#L215-L219)
 - **Conservation Law:**
   $$\text{PrizePool.total\_pending\_redemptions} = \sum_{r \in \text{ActivePendingRedemptions}} \text{PendingRedemption}[r].\text{amount}$$
 - **Description:** The aggregate `total_pending_redemptions` counter tracked on `PrizePool` strictly equals the sum of all active, unsettled `PendingRedemption` PDA amounts across bond sales, prize claims, and fee withdrawals.
@@ -115,8 +115,8 @@ These algebraic invariants and conservation laws must ALWAYS hold across all ins
 | Account Name                                                                                                                             |       Size (Bytes)        | Discriminator / Space Formula                                                                                                                                       | Canonical PDA Seeds                                                           | Struct Alignment |
 | :--------------------------------------------------------------------------------------------------------------------------------------- | :-----------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------- | :--------------: |
 | [`GlobalConfig`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L12-L25)            |           `201`           | `8 + 32 + 32 + 32 + 32 + 1 + 64` (includes `pending_admin`)                                                                                                        | `[b"global_config"]`                                                          |  8-byte aligned  |
-| [`PrizePool`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L70-L131)                      |           `448`           | `8 + 440` (zero-copy `unsafe`)                                                                                                                                      | `[b"prize_pool", pool_id.to_le_bytes()]`                                      |  8-byte aligned  |
-| [`TicketRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L11-L33)              | `262,248` to `10,485,760` | `104` B Header + $N \times 64$ B [`UserEntry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L107-L124)           | `[b"ticket_registry", pool_id.to_le_bytes()]` (or direct key)                 |  8-byte aligned  |
+| [`PrizePool`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L83-L143)                      |           `448`           | `8 + 440` (zero-copy `unsafe`)                                                                                                                                      | `[b"prize_pool", pool_id.to_le_bytes()]`                                      |  8-byte aligned  |
+| [`TicketRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L10-L33)              | `262,248` to `10,485,760` | `104` B Header + $N \times 64$ B [`UserEntry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L107-L124)           | `[b"ticket_registry", pool_id.to_le_bytes()]` (or direct key)                 |  8-byte aligned  |
 | [`UserWinnings`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L528-L550)                  |           `138`           | `8 + 8 + 8 + 8 + 4 + 4 + 32 + 1 + 1 + 64`                                                                                                                           | `[b"user_winnings", pool_id.to_le_bytes(), user.as_ref()]`                    |  8-byte aligned  |
 | [`DrawCycle`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L58-L87)                       |           `186`           | `8 + 8 + 8 + 8 + 8 + 8 + 32 + 4 + 4 + 4 + 1 + 1 + 32 + 64`                                                                                                          | `[b"draw_cycle", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`              |  8-byte aligned  |
 | [`PayoutRegistry`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L211-L232)                 |    `160` to `10,184`      | `104` B Header + $W \times 56$ B [`Winner`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L237-L266) (dynamic sizing) | `[b"payout", pool_id.to_le_bytes(), cycle_id.to_le_bytes()]`                  |  8-byte aligned  |
@@ -395,7 +395,7 @@ stateDiagram-v2
 - **Vector Tag:** `Access` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`emergency_pause.rs#L7-L58`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L7-L58)
+- **Source Location:** [`emergency_pause.rs#L7-L60`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L7-L60)
 - **Precondition:** `(signer.key() == global_config.guardian || signer.key() == global_config.admin) && pool.status != PoolStatus::Closed`.
 - **Action:** `pause_pool()`
 - **Postcondition:**
@@ -412,7 +412,7 @@ stateDiagram-v2
 - **Vector Tag:** `Access` / `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`emergency_pause.rs#L60-L111`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L60-L111)
+- **Source Location:** [`emergency_pause.rs#L62-L115`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L62-L115)
 - **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status == PoolStatus::Paused`.
 - **Action:** `unpause_pool()`
 - **Postcondition:**
@@ -429,7 +429,7 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`emergency_pause.rs#L113-L168`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L113-L168)
+- **Source Location:** [`emergency_pause.rs#L117-L174`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/emergency_pause.rs#L117-L174)
 - **Precondition:** `admin.is_signer && admin.key() == global_config.admin && pool.status != PoolStatus::Closed && pool.is_frozen_for_draw == 0`.
 - **Action:** `close_pool()`
 - **Postcondition:**
@@ -648,7 +648,7 @@ stateDiagram-v2
 - **Vector Tag:** `Math` / `Boundary`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L208-L236`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L208-L236)
+- **Source Location:** [`harvest_yield_and_commit.rs#L208-L229`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L208-L229)
 - **Precondition:** `current_value < book_value && (book_value - current_value) > 1,000`.
 - **Action:** `harvest_yield_and_commit()`
 - **Postcondition:**
@@ -665,7 +665,7 @@ stateDiagram-v2
 - **Vector Tag:** `Math` / `Boundary`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L238-L263`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L238-L263)
+- **Source Location:** [`harvest_yield_and_commit.rs#L240-L263`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L240-L263)
 - **Precondition:** `pool.max_yield_basis_points > 0 && yield_generated > (book_value * max_yield_basis_points) / 10000`.
 - **Action:** `harvest_yield_and_commit()`
 - **Postcondition:**
@@ -682,7 +682,7 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`harvest_yield_and_commit.rs#L305-L325`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L305-L325)
+- **Source Location:** [`harvest_yield_and_commit.rs#L305-L322`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/harvest_yield_and_commit.rs#L305-L322)
 - **Precondition:** `yield_generated < pool.min_yield_threshold || eligible_locked_count == 0`.
 - **Action:** `harvest_yield_and_commit()`
 - **Postcondition:**
@@ -933,7 +933,7 @@ stateDiagram-v2
 - **Vector Tag:** `Lifecycle` / `Boundary`
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
-- **Source Location:** [`global_state.rs#L43-L59`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L43-L59), [`draw.rs#L95-L111`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L95-L111), [`pending_redemption.rs#L99-L115`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L99-L115)
+- **Source Location:** [`global_state.rs#L43-L59`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/global_state.rs#L43-L59), [`draw.rs#L95-L111`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/draw.rs#L95-L111), [`pending_redemption.rs#L99-L115`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pending_redemption.rs#L99-L115), [`pool.rs#L178-L194`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/pool.rs#L178-L194), [`registry.rs#L40-L56`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/state/registry.rs#L40-L56)
 - **Precondition:** `account.version <= CURRENT_VERSION (1)`.
 - **Action:** Read/Write instruction handlers invoke `check_version()` and `ensure_current_version()`.
 - **Postcondition:**
