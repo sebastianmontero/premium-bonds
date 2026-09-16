@@ -472,39 +472,39 @@ fn test_update_pool_config_idempotent_bond_price_succeeds_with_deposits() {
 
 #[test]
 fn test_update_pool_config_duration_advances_on_next_harvest() {
-    let (mut svm, admin) = setup_global_config();
-    let clock: solana_sdk::clock::Clock = svm.get_sysvar();
-    let cycle_end_at = clock.unix_timestamp + 100_000;
+    let mut ctx = setup_e2e();
+    let pool_state = read_pool_state(&ctx.svm, 1);
+    let initial_cycle_end = pool_state.current_cycle_end_at;
 
-    let pool_pda = PrizePoolTestBuilder::new(1)
-        .with_cycle_end_at(cycle_end_at)
-        .inject(&mut svm)
-        .0;
+    // Mid-cycle config update to 168 hours (7 days)
+    let admin_pubkey = ctx.admin.pubkey();
+    let ix = build_update_pool_config_ix(admin_pubkey, 1, None, None, None, None, Some(168));
+    let blockhash = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin_pubkey), &blockhash);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    let res = ctx.svm.send_transaction(tx);
+    assert!(res.is_ok(), "Config update should succeed: {:?}", res.err());
 
-    // Warp clock to mid-cycle (+50_000) and update duration to 168 hours
-    warp_forward_seconds(&mut svm, 50_000);
+    // Invariant check: current_cycle_end_at MUST remain initial_cycle_end for the active cycle
+    let pool_after_update = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_after_update.stake_cycle_duration_hrs, 168);
+    assert_eq!(pool_after_update.current_cycle_end_at, initial_cycle_end);
 
-    let ix = build_update_pool_config_ix(admin.pubkey(), 1, None, None, None, None, Some(168));
+    // Warp clock to initial_cycle_end and execute HarvestYieldAndCommit on-chain
+    let harvest_res = send_e2e_harvest_yield_and_commit(&mut ctx);
+    assert!(
+        harvest_res.is_ok(),
+        "Harvest should succeed: {:?}",
+        harvest_res.err()
+    );
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-
-    let res = svm.send_transaction(tx);
-    assert!(res.is_ok(), "Config update should succeed");
-
-    // Invariant check: current_cycle_end_at MUST remain cycle_end_at for the active cycle
-    let pool_acc = svm.get_account(&pool_pda).unwrap();
-    let mut data_slice: &[u8] = &pool_acc.data;
-    let pool_state = anchor::PrizePool::try_deserialize(&mut data_slice).unwrap();
-    assert_eq!(pool_state.stake_cycle_duration_hrs, 168);
-    assert_eq!(pool_state.current_cycle_end_at, cycle_end_at);
-
-    // Now test advancing cycle at cycle_end_at + 1
-    let mut pool_mut = pool_state;
-    let advance_time = cycle_end_at + 1;
-    pool_mut.advance_cycle_end_at(advance_time).unwrap();
-    assert_eq!(pool_mut.current_cycle_end_at, advance_time + 168 * 3600);
+    // Verify on-chain state: current_cycle_end_at has advanced by new 168 hours duration
+    let pool_after_harvest = read_pool_state(&ctx.svm, 1);
+    assert_eq!(
+        pool_after_harvest.current_cycle_end_at,
+        initial_cycle_end + 168 * 3600,
+        "Cycle end time must advance by 168 hours upon on-chain harvest"
+    );
 }
 
 #[test]

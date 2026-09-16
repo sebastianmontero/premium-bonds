@@ -362,37 +362,13 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
     // Inject draw cycle awaiting randomness
-    let dc = anchor::state::DrawCycle {
-        prize_pot: 10_000_000,
-        cycle_fee_collected: 100_000,
-        harvest_slot: 100,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        randomness_account: Pubkey::default(),
-        pool_id,
-        cycle_id: 0,
-        locked_ticket_count: 10,
-        status: anchor::DrawStatus::AwaitingRandomness,
-        version: anchor::DrawCycle::CURRENT_VERSION,
-        randomness_seed: [0; 32],
-        _reserved: [0; 64],
-    };
-    let mut dc_data = vec![];
-    use anchor_lang::Discriminator;
-    dc_data.extend_from_slice(&anchor::state::DrawCycle::DISCRIMINATOR);
-    use anchor_lang::AnchorSerialize;
-    dc.serialize(&mut dc_data).unwrap();
-    svm.set_account(
-        draw_cycle_addr,
-        Account {
-            lamports: 1_000_000_000,
-            data: dc_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_prize_pot(10_000_000)
+        .with_cycle_fee(100_000)
+        .with_harvest_slot(100)
+        .with_locked_tickets(10)
+        .inject(&mut svm);
 
     // 1. Paused
     let pool_pda_addr = inject_pool(
@@ -472,37 +448,13 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
     // Inject draw cycle awaiting randomness
-    let dc = anchor::state::DrawCycle {
-        prize_pot: 10_000_000,
-        cycle_fee_collected: 100_000,
-        harvest_slot: 100,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        randomness_account: Pubkey::default(),
-        pool_id,
-        cycle_id: 0,
-        locked_ticket_count: 10,
-        status: anchor::DrawStatus::AwaitingRandomness,
-        version: 1,
-        randomness_seed: [0; 32],
-        _reserved: [0; 64],
-    };
-    let mut dc_data = vec![];
-    use anchor_lang::Discriminator;
-    dc_data.extend_from_slice(&anchor::state::DrawCycle::DISCRIMINATOR);
-    use anchor_lang::AnchorSerialize;
-    dc.serialize(&mut dc_data).unwrap();
-    svm.set_account(
-        draw_cycle_addr,
-        Account {
-            lamports: 1_000_000_000,
-            data: dc_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_prize_pot(10_000_000)
+        .with_cycle_fee(100_000)
+        .with_harvest_slot(100)
+        .with_locked_tickets(10)
+        .inject(&mut svm);
 
     // 1. Paused
     let pool_pda_addr = inject_pool(

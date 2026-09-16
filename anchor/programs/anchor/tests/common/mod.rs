@@ -37,6 +37,16 @@ pub const FAIL_REDEMPTION_PUBKEY: Pubkey = Pubkey::new_from_array([2; 32]);
 pub const FAIL_DISBURSE_PUBKEY: Pubkey = Pubkey::new_from_array([3; 32]);
 pub const FAIL_ZERO_SHARES_PUBKEY: Pubkey = Pubkey::new_from_array([5; 32]);
 
+// ─── Test Time & Slot Constants ─────────────────────────────────────────────
+
+pub const TEST_GENESIS_TIMESTAMP: i64 = 1_700_000_000;
+pub const SECONDS_PER_HOUR: i64 = 3600;
+pub const DEFAULT_STAKE_CYCLE_DURATION_HRS: i64 = 24;
+pub const DEFAULT_STAKE_CYCLE_DURATION_SECS: i64 =
+    DEFAULT_STAKE_CYCLE_DURATION_HRS * SECONDS_PER_HOUR;
+pub const TEST_SLOT_OFFSET_RANDOMNESS_EXPIRED: u64 =
+    anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+
 // ─── PDA helpers ─────────────────────────────────────────────────────────────
 
 pub fn global_config_pda() -> (Pubkey, u8) {
@@ -3414,6 +3424,42 @@ pub fn send_admin_void_payout_registry(
     svm.send_transaction(tx)
 }
 
+pub fn build_admin_force_unlock_ix(admin: &Pubkey, pool_id: u32, cycle_id: u32) -> Instruction {
+    let (global_config, _) = global_config_pda();
+    let (pool, _) = pool_pda(pool_id);
+    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
+
+    let accounts = anchor::accounts::AdminForceUnlockDraw {
+        admin: *admin,
+        global_config,
+        pool,
+        current_draw_cycle,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
+    }
+}
+
+/// Helper to send an `AdminForceUnlockDraw` transaction.
+pub fn send_admin_force_unlock(
+    svm: &mut LiteSVM,
+    admin: &Keypair,
+    pool_id: u32,
+    cycle_id: u32,
+) -> TxResult {
+    let ix = build_admin_force_unlock_ix(&admin.pubkey(), pool_id, cycle_id);
+    let bh = svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
+    svm.send_transaction(tx)
+}
+
 // ─── Test Fixture & State Mutation Helpers ────────────────────────────────────
 
 pub fn clone_keypair(keypair: &Keypair) -> Keypair {
@@ -3476,8 +3522,9 @@ pub fn set_huma_solvency_state(
     set_token_mint_supply(svm, pst_mint, pst_supply);
 }
 
-pub fn send_e2e_harvest_yield_and_commit(
+pub fn send_e2e_harvest_yield_and_commit_with_crank(
     ctx: &mut E2eContext,
+    crank: &Keypair,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let (global_config, _) = global_config_pda();
     let (pool_key, _) = pool_pda(1);
@@ -3487,14 +3534,7 @@ pub fn send_e2e_harvest_yield_and_commit(
     warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (current_draw_cycle, _) = Pubkey::find_program_address(
-        &[
-            b"draw_cycle",
-            1u32.to_le_bytes().as_ref(),
-            pool.current_draw_cycle_id.to_le_bytes().as_ref(),
-        ],
-        &anchor::id(),
-    );
+    let (current_draw_cycle, _) = draw_cycle_pda(1, pool.current_draw_cycle_id);
 
     let randomness_account = Keypair::new().pubkey();
     let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
@@ -3522,7 +3562,7 @@ pub fn send_e2e_harvest_yield_and_commit(
     );
 
     let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: ctx.admin.pubkey(),
+        crank: crank.pubkey(),
         global_config,
         pool: pool_key,
         ticket_registry: ctx.ticket_registry,
@@ -3545,9 +3585,16 @@ pub fn send_e2e_harvest_yield_and_commit(
     };
 
     let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[crank]).unwrap();
     ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_harvest_yield_and_commit(
+    ctx: &mut E2eContext,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let admin = clone_keypair(&ctx.admin);
+    send_e2e_harvest_yield_and_commit_with_crank(ctx, &admin)
 }
 
 pub fn send_e2e_prepare_draw_with_crank(
@@ -3633,6 +3680,58 @@ pub fn send_e2e_reveal_and_pick_winners(
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     let admin = clone_keypair(&ctx.admin);
     send_e2e_reveal_and_pick_winners_with_crank(ctx, &admin, pool_id, cycle_id, randomness_account)
+}
+
+pub fn send_e2e_reinvest_winnings_with_crank(
+    ctx: &mut E2eContext,
+    crank: &Keypair,
+    pool_id: u32,
+    winner: &Pubkey,
+    cycle_id: u32,
+    winner_index: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let (pool, _) = pool_pda(pool_id);
+    let (payout_reg, _) = payout_pda(pool_id, cycle_id);
+    let (user_winnings, _) = user_winnings_pda(pool_id, winner);
+
+    let accounts = anchor::accounts::ReinvestWinnings {
+        crank: crank.pubkey(),
+        winner: *winner,
+        payout_registry: payout_reg,
+        pool,
+        user_winnings,
+        ticket_registry: ctx.ticket_registry,
+        system_program: anchor_lang::system_program::ID,
+        event_authority: event_authority_pda(),
+        program: anchor::id(),
+    }
+    .to_account_metas(None);
+
+    let ix = Instruction {
+        program_id: anchor::id(),
+        accounts,
+        data: anchor::instruction::ReinvestWinnings {
+            cycle_id,
+            winner_index,
+        }
+        .data(),
+    };
+
+    let bh = ctx.svm.latest_blockhash();
+    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[crank]).unwrap();
+    ctx.svm.send_transaction(tx)
+}
+
+pub fn send_e2e_reinvest_winnings(
+    ctx: &mut E2eContext,
+    pool_id: u32,
+    winner: &Pubkey,
+    cycle_id: u32,
+    winner_index: u32,
+) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+    let admin = clone_keypair(&ctx.admin);
+    send_e2e_reinvest_winnings_with_crank(ctx, &admin, pool_id, winner, cycle_id, winner_index)
 }
 
 // ─── Math & Invariant Assertion Helpers ─────────────────────────────────────

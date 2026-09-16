@@ -396,10 +396,11 @@ fn test_harvest_happy_path_yield_and_eligible() {
         event.raw_yield, 500_000,
         "YieldHarvested raw_yield must be 500,000"
     );
-    assert_eq!(event.fee, 5_000, "YieldHarvested fee must be 5,000");
+    assert_fee_partition_conserved(event.raw_yield, 100, event.fee, event.prize_pot);
     assert_eq!(
-        event.prize_pot, 495_000,
-        "YieldHarvested prize_pot must be 495,000"
+        event.fee + event.prize_pot,
+        event.raw_yield,
+        "Global mass conservation: fee + prize_pot == raw_yield"
     );
     assert_eq!(
         event.locked_ticket_count, 2,
@@ -427,6 +428,14 @@ fn test_harvest_happy_path_yield_and_eligible() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(pool.is_frozen_for_draw, 1, "Pool must be frozen for draw");
+    assert_eq!(
+        pool.total_prizes_allocated, event.prize_pot,
+        "Pool prizes allocated must match prize pot"
+    );
+    assert_eq!(
+        pool.total_fees_accrued, event.fee,
+        "Pool fees accrued must match fee collected"
+    );
 }
 
 #[test]
@@ -454,19 +463,25 @@ fn test_harvest_happy_path_zero_fee_bps() {
     send_harvest(&mut ctx, 1, 0).expect("zero fee harvest");
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_fee_partition_conserved(500_000, 0, dc.cycle_fee_collected, dc.prize_pot);
+    assert_eq!(
+        dc.cycle_fee_collected + dc.prize_pot,
+        500_000,
+        "Global mass conservation: fee + prize_pot == raw_yield"
+    );
     assert_eq!(
         dc.cycle_fee_collected, 0,
         "DrawCycle cycle_fee_collected must be 0 with 0 bps fee"
-    );
-    assert_eq!(
-        dc.prize_pot, 500_000,
-        "DrawCycle prize_pot must be full 500,000 yield"
     );
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(
         pool.total_fees_accrued, 0,
         "Pool total_fees_accrued must be 0"
+    );
+    assert_eq!(
+        pool.total_prizes_allocated, dc.prize_pot,
+        "Pool total_prizes_allocated must match prize pot"
     );
 }
 
@@ -743,11 +758,7 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
         event.raw_yield, 5_000,
         "YieldHarvested raw_yield must be 5,000"
     );
-    assert_eq!(event.fee, 50, "YieldHarvested fee must be 50");
-    assert_eq!(
-        event.prize_pot, 4_950,
-        "YieldHarvested prize_pot must be 4,950"
-    );
+    assert_fee_partition_conserved(event.raw_yield, 100, event.fee, event.prize_pot);
     assert_eq!(
         event.fee + event.prize_pot,
         event.raw_yield,
@@ -759,11 +770,11 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
 
     let updated_pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(
-        updated_pool.total_prizes_allocated, 4_950,
+        updated_pool.total_prizes_allocated, event.prize_pot,
         "Pool total_prizes_allocated must match prize pot"
     );
     assert_eq!(
-        updated_pool.total_fees_accrued, 50,
+        updated_pool.total_fees_accrued, event.fee,
         "Pool total_fees_accrued must match fee"
     );
 }
@@ -839,23 +850,21 @@ fn test_harvest_yield_fee_truncation_rounding() {
         event.raw_yield, 9_999,
         "YieldHarvested raw_yield must be 9,999"
     );
+    assert_fee_partition_conserved(event.raw_yield, 1, event.fee, event.prize_pot);
     assert_eq!(
-        event.fee, 0,
-        "YieldHarvested fee must be 0 due to truncation"
-    );
-    assert_eq!(
-        event.prize_pot, 9_999,
-        "YieldHarvested prize_pot must be 9,999"
+        event.fee + event.prize_pot,
+        event.raw_yield,
+        "Global mass conservation: fee + prize_pot == raw_yield"
     );
 
     let updated_pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(
-        updated_pool.total_prizes_allocated, 9_999,
-        "Pool total_prizes_allocated must match 9,999"
+        updated_pool.total_prizes_allocated, event.prize_pot,
+        "Pool total_prizes_allocated must match prize pot"
     );
     assert_eq!(
-        updated_pool.total_fees_accrued, 0,
-        "Pool total_fees_accrued must be 0"
+        updated_pool.total_fees_accrued, event.fee,
+        "Pool total_fees_accrued must match fee"
     );
 }
 

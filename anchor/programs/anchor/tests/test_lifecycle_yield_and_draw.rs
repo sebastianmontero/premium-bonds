@@ -8,14 +8,9 @@
 //! 5. VRF reveal and winner selection with unfreezing.
 
 use {
-    anchor_lang::{InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_program::{instruction::Instruction, pubkey::Pubkey},
-    solana_sdk::account::Account,
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
+    anchor_lang::AccountDeserialize,
+    solana_program::pubkey::Pubkey,
+    solana_sdk::{signature::Keypair, signer::Signer},
 };
 
 mod common;
@@ -24,16 +19,14 @@ use common::*;
 #[test]
 fn test_lifecycle_yield_harvest_and_draw_resolution() {
     let mut h = setup_lifecycle_harness();
-    let (pool_pda_addr, _) = pool_pda(h.pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(h.pool_id);
-    let (gc, _) = global_config_pda();
+    let pool_id = h.pool_id;
+    let crank = clone_keypair(&h.crank);
+    let admin = clone_keypair(&h.admin);
 
     let custom_tiers = vec![
         anchor::PrizeTier::new(1, 6000),
         anchor::PrizeTier::new(2, 2000),
     ];
-    let pool_id = h.pool_id;
-    let admin = clone_keypair(&h.admin);
     send_set_prize_tiers(&mut h.svm, &admin, pool_id, custom_tiers.clone())
         .expect("Set prize tiers must succeed");
 
@@ -52,39 +45,7 @@ fn test_lifecycle_yield_harvest_and_draw_resolution() {
     );
 
     // 2. Cycle 0 Harvest -> Rolls pending tickets into active tickets
-    warp_to_timestamp(&mut h.svm, 1_700_000_000 + 25 * 3600);
-    let (draw_cycle_0_pda, _) = draw_cycle_pda(h.pool_id, 0);
-    let rand_acc_0 = Keypair::new().pubkey();
-    let clock0: solana_sdk::clock::Clock = h.svm.get_sysvar();
-    inject_randomness_account_data(&mut h.svm, rand_acc_0, clock0.slot, clock0.slot, [0u8; 32]);
-
-    let accounts_harvest_0 = anchor::accounts::HarvestYieldAndCommit {
-        crank: h.crank.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        ticket_registry: h.ticket_registry,
-        current_draw_cycle: draw_cycle_0_pda,
-        pool_pst_vault,
-        pst_mint: h.pst_mint,
-        huma_pool_state: h.huma_pool_state,
-        randomness_account: rand_acc_0,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_harvest_0 = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_harvest_0,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-    let bh = h.svm.latest_blockhash();
-    let msg0 = Message::new_with_blockhash(&[ix_harvest_0], Some(&h.crank.pubkey()), &bh);
-    let tx0 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg0), &[&h.crank]).unwrap();
-    h.svm
-        .send_transaction(tx0)
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
         .expect("Cycle 0 harvest must succeed");
 
     let reg_1 = read_ticket_registry(&h.svm, h.ticket_registry);
@@ -97,73 +58,23 @@ fn test_lifecycle_yield_harvest_and_draw_resolution() {
         "No remaining pending tickets"
     );
 
-    // 3. Cycle 1 Yield Generation and Harvest
-    warp_to_timestamp(&mut h.svm, 1_700_000_000 + 50 * 3600);
+    // 3. Cycle 1 Yield Generation and Harvest (20 USDC yield accrued in Huma)
     let huma_pool_state = h.huma_pool_state;
     let pst_mint = h.pst_mint;
     set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 170_000_000);
     set_token_mint_supply(&mut h.svm, pst_mint, 150_000_000);
 
-    let (draw_cycle_1_pda, _) = draw_cycle_pda(h.pool_id, 1);
-    let rand_acc_1 = Keypair::new().pubkey();
-    let clock1: solana_sdk::clock::Clock = h.svm.get_sysvar();
-    inject_randomness_account_data(&mut h.svm, rand_acc_1, clock1.slot, clock1.slot, [0u8; 32]);
-
-    let accounts_harvest_1 = anchor::accounts::HarvestYieldAndCommit {
-        crank: h.crank.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        ticket_registry: h.ticket_registry,
-        current_draw_cycle: draw_cycle_1_pda,
-        pool_pst_vault,
-        pst_mint,
-        huma_pool_state,
-        randomness_account: rand_acc_1,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_harvest_1 = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_harvest_1,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-    let bh1 = h.svm.latest_blockhash();
-    let msg1 = Message::new_with_blockhash(&[ix_harvest_1], Some(&h.crank.pubkey()), &bh1);
-    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&h.crank]).unwrap();
-    h.svm
-        .send_transaction(tx1)
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
         .expect("Cycle 1 harvest must succeed");
 
-    let pool_frozen = read_pool_state(&h.svm, h.pool_id);
+    let pool_frozen = read_pool_state(&h.svm, pool_id);
     assert_eq!(
         pool_frozen.is_frozen_for_draw, 1,
         "Pool must be frozen for draw"
     );
 
     // 4. Batch PrepareDraw
-    let accounts_prepare = anchor::accounts::PrepareDraw {
-        crank: h.crank.pubkey(),
-        pool: pool_pda_addr,
-        draw_cycle: draw_cycle_1_pda,
-        ticket_registry: h.ticket_registry,
-    }
-    .to_account_metas(None);
-
-    let ix_prepare = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_prepare,
-        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-    };
-    let bh_prep = h.svm.latest_blockhash();
-    let msg_prep = Message::new_with_blockhash(&[ix_prepare], Some(&h.crank.pubkey()), &bh_prep);
-    let tx_prep =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&h.crank]).unwrap();
-    h.svm
-        .send_transaction(tx_prep)
+    send_e2e_prepare_draw_with_crank(&mut h.ctx, &crank, pool_id, 1, 10)
         .expect("PrepareDraw must succeed");
 
     let reg_prep = read_ticket_registry(&h.svm, h.ticket_registry);
@@ -173,37 +84,13 @@ fn test_lifecycle_yield_harvest_and_draw_resolution() {
     );
 
     // 5. Reveal VRF Randomness and Pick Winners
-    let (payout_reg_pda, _) = payout_pda(h.pool_id, 1);
-    let clock: solana_sdk::clock::Clock = h.svm.get_sysvar();
-    inject_randomness_account_data(&mut h.svm, rand_acc_1, clock.slot, clock.slot, [42u8; 32]);
-
-    let accounts_reveal = anchor::accounts::RevealAndPickWinners {
-        crank: h.crank.pubkey(),
-        current_draw_cycle: draw_cycle_1_pda,
-        pool: pool_pda_addr,
-        ticket_registry: h.ticket_registry,
-        randomness_account: rand_acc_1,
-        payout_registry: payout_reg_pda,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_reveal = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_reveal,
-        data: anchor::instruction::RevealAndPickWinners {}.data(),
-    };
-    let bh_rev = h.svm.latest_blockhash();
-    let msg_rev = Message::new_with_blockhash(&[ix_reveal], Some(&h.crank.pubkey()), &bh_rev);
-    let tx_rev =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&h.crank]).unwrap();
-    h.svm
-        .send_transaction(tx_rev)
+    let dc1 = read_draw_cycle_state(&h.svm, pool_id, 1);
+    let rand_acc = dc1.randomness_account;
+    inject_current_slot_randomness(&mut h.svm, rand_acc, [42u8; 32]);
+    send_e2e_reveal_and_pick_winners_with_crank(&mut h.ctx, &crank, pool_id, 1, rand_acc)
         .expect("RevealAndPickWinners must succeed");
 
-    let pool_unfrozen = read_pool_state(&h.svm, h.pool_id);
+    let pool_unfrozen = read_pool_state(&h.svm, pool_id);
     assert_eq!(
         pool_unfrozen.is_frozen_for_draw, 0,
         "Pool must be un-frozen after reveal"
@@ -213,7 +100,7 @@ fn test_lifecycle_yield_harvest_and_draw_resolution() {
         "18 USDC prizes allocated (20 USDC total yield - 10% fee = 18 USDC)"
     );
 
-    let winners = read_payout_winners(&h.svm, h.pool_id, 1);
+    let winners = read_payout_winners(&h.svm, pool_id, 1);
     assert_eq!(
         winners.len(),
         3,

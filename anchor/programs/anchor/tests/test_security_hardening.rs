@@ -700,7 +700,10 @@ fn test_claim_redemption_reentrancy_protection() {
 
     // Verify user received 3 USDC and pending_redemption PDA is closed (rent returned/not found)
     assert_eq!(read_token_balance(&ctx.svm, user_token_account), 93_000_000);
-    assert!(ctx.svm.get_account(&pending_redemption_pda(1, 0).0).is_none());
+    assert!(ctx
+        .svm
+        .get_account(&pending_redemption_pda(1, 0).0)
+        .is_none());
 }
 
 #[test]

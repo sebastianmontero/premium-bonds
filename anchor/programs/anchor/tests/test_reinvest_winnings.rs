@@ -45,7 +45,13 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         .inject(svm);
 }
 
-fn mock_winner(winner: Pubkey, owed: u64, tier: u8, bonds_bought: u32, processed: bool) -> anchor::Winner {
+fn mock_winner(
+    winner: Pubkey,
+    owed: u64,
+    tier: u8,
+    bonds_bought: u32,
+    processed: bool,
+) -> anchor::Winner {
     WinnerTestBuilder::new()
         .with_winner(winner)
         .with_amount_owed(owed)
@@ -548,7 +554,12 @@ fn test_reinvest_preserves_existing_pending_tickets() {
         false,
         1_000_000,
     );
-    inject_payout(&mut svm, 1, 1, vec![mock_winner(winner, 3_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut svm,
+        1,
+        1,
+        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+    );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
     let mut ctx = ReinvestCtx {
@@ -594,7 +605,12 @@ fn test_reinvest_exited_user_creates_active_entry() {
         false,
         1_000_000,
     );
-    inject_payout(&mut svm, 1, 0, vec![mock_winner(winner, 4_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut svm,
+        1,
+        0,
+        vec![mock_winner(winner, 4_000_000, 0, 0, false)],
+    );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, u32::MAX);
 
     let mut ctx = ReinvestCtx {
@@ -655,7 +671,12 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
         false,
         1_000_000,
     );
-    inject_payout(&mut svm, 1, 1, vec![mock_winner(winner, 2_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut svm,
+        1,
+        1,
+        vec![mock_winner(winner, 2_000_000, 0, 0, false)],
+    );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
     let mut ctx = ReinvestCtx {
@@ -715,7 +736,12 @@ fn test_reinvest_fails_payout_timelock_active() {
         .inject(&mut svm);
 
     // Payout revealed at timestamp 1_700_000_000
-    inject_payout(&mut svm, 1, 0, vec![mock_winner(winner, 3_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut svm,
+        1,
+        0,
+        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+    );
     PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
         .with_revealed_at(1_700_000_000)
         .inject(&mut svm);
@@ -933,7 +959,12 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
         .inject(&mut svm);
 
     let (payout_pda, _) = payout_pda(1, 0);
-    inject_payout(&mut svm, 1, 0, vec![mock_winner(winner, 3_000_000, 0, 0, false)]);
+    inject_payout(
+        &mut svm,
+        1,
+        0,
+        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+    );
     PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
         .with_revealed_at(1_700_000_000)
         .inject(&mut svm);
@@ -1151,7 +1182,10 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
         &mut svm,
         1,
         0,
-        vec![mock_winner(winner0, 0, 0, 0, false), mock_winner(winner1, 0, 1, 0, false)],
+        vec![
+            mock_winner(winner0, 0, 0, 0, false),
+            mock_winner(winner1, 0, 1, 0, false),
+        ],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
     common::inject_user_winnings_with_index(&mut svm, 1, winner1, 0, 0, 0, 0);
@@ -1415,7 +1449,12 @@ fn test_reinvest_exact_timelock_boundaries() {
             .with_payout_timelock_seconds(300)
             .inject(&mut svm);
 
-        inject_payout(&mut svm, 1, 0, vec![mock_winner(winner, 3_000_000, 0, 0, false)]);
+        inject_payout(
+            &mut svm,
+            1,
+            0,
+            vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+        );
         PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
             .with_revealed_at(1_700_000_000)
             .inject(&mut svm);

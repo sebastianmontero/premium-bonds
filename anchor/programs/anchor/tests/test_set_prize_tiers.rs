@@ -86,7 +86,10 @@ fn test_set_prize_tiers_succeeds() {
     assert_eq!(event.new_tiers_count, 2, "new_tiers_count is 2");
     assert_eq!(event.new_total_winners, 6, "new_total_winners is 6");
     assert_eq!(event.tiers.len(), 2, "event tiers len is 2");
-    assert_eq!(event.tiers[0].basis_points, 5000, "event tier 0 basis points is 5000");
+    assert_eq!(
+        event.tiers[0].basis_points, 5000,
+        "event tier 0 basis points is 5000"
+    );
     assert!(event.timestamp > 0, "event timestamp is valid");
 
     let pool = read_pool_state(&svm, pool_id);
@@ -131,99 +134,66 @@ fn test_set_prize_tiers_fails_if_frozen() {
 }
 
 #[test]
-fn test_set_prize_tiers_fails_on_empty_tiers() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
-
-    let tiers = vec![];
-
-    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(
-        result,
-        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
-    );
-}
-
-#[test]
-fn test_set_prize_tiers_fails_on_exceeding_max_tiers() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
-
-    // Create 11 tiers (MAX_PRIZE_TIERS is 10)
-    let mut tiers = vec![];
-    for _ in 0..11 {
-        tiers.push(anchor::PrizeTier::new(1, 100));
+fn test_set_prize_tiers_constraint_matrix() {
+    struct TestCase {
+        name: &'static str,
+        tiers: Vec<anchor::PrizeTier>,
+        expected_error: anchor::error::PremiumBondsError,
     }
 
-    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(
-        result,
-        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
-    );
-}
-
-#[test]
-fn test_set_prize_tiers_fails_on_invalid_basis_points_or_winners() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
-
-    // Zero basis points
-    let tiers1 = vec![anchor::PrizeTier::new(1, 0)];
-    let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
-    assert_custom_error(
-        res1,
-        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
-    );
-
-    // Zero winners
-    let tiers2 = vec![anchor::PrizeTier::new(0, 10000)];
-    let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
-    assert_custom_error(
-        res2,
-        anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
-    );
-}
-
-#[test]
-fn test_set_prize_tiers_fails_on_exceeding_total_winners() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
-
-    // MAX_TOTAL_WINNERS is 180. Let's send 181 winners.
-    let tiers = vec![anchor::PrizeTier::new(181, 10000)];
-
-    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(result, anchor::error::PremiumBondsError::TooManyWinners);
-}
-
-#[test]
-fn test_set_prize_tiers_fails_on_incorrect_total_basis_points() {
-    let (mut svm, admin) = setup_global_config();
-    let pool_id = 1;
-    PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
-
-    // Total = 9,999 (not 10,000)
-    let tiers1 = vec![anchor::PrizeTier::new(1, 9999)];
-    let res1 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers1, None, None);
-    assert_custom_error(
-        res1,
-        anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
-    );
-
-    // Total = 10,001
-    let tiers2 = vec![
-        anchor::PrizeTier::new(1, 5000),
-        anchor::PrizeTier::new(1, 5001),
+    let cases = vec![
+        TestCase {
+            name: "empty_tiers",
+            tiers: vec![],
+            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+        },
+        TestCase {
+            name: "exceeding_max_tiers (11 tiers)",
+            tiers: (0..11).map(|_| anchor::PrizeTier::new(1, 100)).collect(),
+            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+        },
+        TestCase {
+            name: "zero_basis_points",
+            tiers: vec![anchor::PrizeTier::new(1, 0)],
+            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+        },
+        TestCase {
+            name: "zero_winners",
+            tiers: vec![anchor::PrizeTier::new(0, 10000)],
+            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+        },
+        TestCase {
+            name: "exceeding_max_winners (181 winners)",
+            tiers: vec![anchor::PrizeTier::new(181, 10000)],
+            expected_error: anchor::error::PremiumBondsError::TooManyWinners,
+        },
+        TestCase {
+            name: "basis_points_sum_9999",
+            tiers: vec![anchor::PrizeTier::new(1, 9999)],
+            expected_error: anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+        },
+        TestCase {
+            name: "basis_points_sum_10001",
+            tiers: vec![
+                anchor::PrizeTier::new(1, 5000),
+                anchor::PrizeTier::new(1, 5001),
+            ],
+            expected_error: anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+        },
     ];
-    let res2 = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers2, None, None);
-    assert_custom_error(
-        res2,
-        anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
-    );
+
+    for case in cases {
+        let (mut svm, admin) = setup_global_config();
+        let pool_id = 1;
+        PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
+
+        let res = send_set_prize_tiers(&mut svm, &admin, pool_id, case.tiers, None, None);
+        assert_custom_error_msg(
+            res,
+            case.expected_error,
+            &format!("Failed for test case: {}", case.name),
+        );
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

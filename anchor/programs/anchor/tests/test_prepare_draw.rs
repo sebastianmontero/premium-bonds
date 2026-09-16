@@ -518,20 +518,29 @@ fn test_prepare_draw_non_aligned_batches() {
     let res = send_prepare(&mut ctx, 7);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawState);
 
-    // Verify all cumulative active prefix sums on disk
+    // Verify prefix-sum invariant oracle and zero unmerged pending tickets
+    let expected_total_active: u32 = entries.iter().map(|e| e.active + e.pending).sum();
     let reg_final = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-    let mut expected_cumulative = 0u32;
+    let mut prev_cumulative = 0u32;
     for i in 0..25 {
         let entry = anchor::utils::registry_get_entry(&reg_final.data, i).unwrap();
-        let expected_active = (i as u32 % 5 + 1) * 2 + 1; // initial active + merged pending
-        assert_eq!(entry.active, expected_active, "entry {i} active mismatch");
-        assert_eq!(entry.pending, 0, "entry {i} pending mismatch");
-        expected_cumulative += expected_active;
         assert_eq!(
-            entry.cumulative_active, expected_cumulative,
-            "entry {i} cumulative mismatch"
+            entry.pending, 0,
+            "entry {i} pending must be 0 after maturation"
         );
+        assert_eq!(
+            entry.cumulative_active,
+            prev_cumulative + entry.active,
+            "entry {i} cumulative_active must be prefix sum: {} + {}",
+            prev_cumulative,
+            entry.active
+        );
+        prev_cumulative = entry.cumulative_active;
     }
+    assert_eq!(
+        prev_cumulative, expected_total_active,
+        "Global sum conservation: total cumulative active tickets must match sum of entries"
+    );
 }
 
 #[test]

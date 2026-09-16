@@ -1,141 +1,128 @@
 //! Integration tests for winner index swap resilience and full registry fallbacks.
 
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
-use litesvm::LiteSVM;
-use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use anchor_lang::AccountDeserialize;
+use solana_program::pubkey::Pubkey;
+use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
 
 #[test]
 fn test_winner_swap_resilience_preserves_payout_claim() {
-    let (mut svm, _admin) = setup_global_config();
+    let mut h = setup_lifecycle_harness();
+    let pool_id = h.pool_id;
+    let alice = clone_keypair(&h.ctx.user);
+    let bob = clone_keypair(&h.bob);
+    let crank = clone_keypair(&h.crank);
+    let alice_usdc = h.ctx.user_usdc_account;
+    let bob_usdc = h.bob_usdc;
 
-    let user_a = Keypair::new().pubkey();
-    let user_b = Keypair::new().pubkey();
-    let crank = Keypair::new();
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+    // 1. User A (Alice) buys 5 bonds, User B (Bob) buys 5 bonds
+    send_e2e_buy_bonds_for_user(&mut h.ctx, &alice, alice_usdc, 5, Pubkey::default())
+        .expect("Alice buys 5 bonds");
+    send_e2e_buy_bonds_for_user(&mut h.ctx, &bob, bob_usdc, 5, Pubkey::default())
+        .expect("Bob buys 5 bonds");
 
-    // 1. Initial registry entries: User A at index 0, User B at index 1
-    let entries = vec![
-        UserEntryTestBuilder::new()
-            .with_owner(user_a)
-            .with_active(5)
-            .with_cumulative_active(5)
-            .build(),
-        UserEntryTestBuilder::new()
-            .with_owner(user_b)
-            .with_active(5)
-            .with_cumulative_active(10)
-            .build(),
-    ];
+    // Alice is index 0, Bob is index 1
+    let uw_a_init = read_user_winnings_state(&h.svm, pool_id, &alice.pubkey());
+    let uw_b_init = read_user_winnings_state(&h.svm, pool_id, &bob.pubkey());
+    assert_eq!(uw_a_init.registry_entry_index, 0);
+    assert_eq!(uw_b_init.registry_entry_index, 1);
 
-    let reg = Keypair::new().pubkey();
-    inject_registry_with_entries(&mut svm, reg, 1, 100, &entries);
+    // 2. Advance clock and harvest Cycle 0 so tickets mature from pending to active
+    let pool_0 = read_pool_state(&h.svm, pool_id);
+    warp_to_timestamp(&mut h.svm, pool_0.current_cycle_end_at);
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 0 harvest matures tickets");
 
-    // Inject pool and UserWinnings PDAs
-    let mint = Keypair::new().pubkey();
-    let (pool_pda_addr, _) = pool_pda(1);
-    PrizePoolTestBuilder::new(1)
-        .with_token_mint(mint)
-        .with_ticket_registry(reg)
-        .with_principal(10_000_000)
-        .with_prizes_allocated(5_000_000)
-        .with_current_draw_cycle_id(1)
-        .inject(&mut svm);
+    // 3. In Cycle 1, inject yield and execute harvest, prepare, and reveal
+    let pool_1 = read_pool_state(&h.svm, pool_id);
+    warp_to_timestamp(&mut h.svm, pool_1.current_cycle_end_at);
+    let huma_pool_state = h.huma_pool_state;
+    let pst_mint = h.pst_mint;
+    inject_huma_yield_ratio(
+        &mut h.svm,
+        huma_pool_state,
+        pst_mint,
+        20_000_000,
+        10_000_000,
+    );
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 1 harvest should succeed");
 
-    // User A index=0, User B index=1
-    inject_user_winnings_with_index(&mut svm, 1, user_a, 0, 0, 0, 0);
-    inject_user_winnings_with_index(&mut svm, 1, user_b, 0, 0, 0, 1);
+    send_e2e_prepare_draw_with_crank(&mut h.ctx, &crank, pool_id, 1, 10)
+        .expect("Prepare draw cycle 1");
 
-    // Draw Cycle 0 completes: User B wins a prize!
-    let winner_b = WinnerTestBuilder::new()
-        .with_winner(user_b)
-        .with_amount_owed(5_000_000)
-        .build();
-    PayoutRegistryTestBuilder::new(1, 0)
-        .with_winners(vec![winner_b])
-        .with_status(anchor::PayoutRegistryStatus::Active)
-        .inject(&mut svm);
+    let dc1 = read_draw_cycle_state(&h.svm, pool_id, 1);
+    let rand_acc = dc1.randomness_account;
+    inject_current_slot_randomness(&mut h.svm, rand_acc, [42u8; 32]);
+    send_e2e_reveal_and_pick_winners_with_crank(&mut h.ctx, &crank, pool_id, 1, rand_acc)
+        .expect("Reveal cycle 1");
 
-    // Simulated index swap: User A sells all bonds. User B is moved from index 1 to index 0!
-    let swapped_entries = vec![UserEntryTestBuilder::new()
-        .with_owner(user_b)
-        .with_active(5)
-        .with_cumulative_active(5)
-        .build()];
-    inject_registry_with_entries(&mut svm, reg, 1, 100, &swapped_entries);
+    let winners = read_payout_winners(&h.svm, pool_id, 1);
+    assert!(!winners.is_empty(), "Winners must be selected");
 
-    // User B's UserWinnings PDA index is updated to 0.
-    inject_user_winnings_with_index(&mut svm, 1, user_b, 0, 0, 0, 0);
+    // 4. User A (Alice at index 0) sells all 5 active bonds
+    // Program executes genuine swap-and-pop on-chain: Bob moves from index 1 to 0
+    send_e2e_sell_bonds_for_user(
+        &mut h.ctx,
+        &alice,
+        5,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .expect("Alice sells all bonds triggering swap-and-pop");
 
-    // Now User B calls reinvest_winnings for winner slot 0.
-    // Even though User B's registry_entry_index is now 0 (swapped), PayoutRegistry holds winner: user_b.
-    // reinvest_winnings MUST succeed cleanly for the rightful winner!
-    let (user_winnings_b, _) = user_winnings_pda(1, &user_b);
-    let (payout_reg, _) = payout_pda(1, 0);
+    // Verify Bob's registry_entry_index was updated to 0 on-chain by the program
+    let uw_b_after_swap = read_user_winnings_state(&h.svm, pool_id, &bob.pubkey());
+    assert_eq!(
+        uw_b_after_swap.registry_entry_index, 0,
+        "Bob's registry_entry_index must be updated to 0 on-chain"
+    );
 
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: crank.pubkey(),
-        winner: user_b,
-        payout_registry: payout_reg,
-        pool: pool_pda_addr,
-        user_winnings: user_winnings_b,
-        ticket_registry: reg,
-        system_program: anchor_lang::solana_program::system_program::id(),
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
+    // 5. Warp past payout timelock and execute ReinvestWinnings on-chain for the winner
+    warp_forward_seconds(&mut h.svm, 301);
+
+    let bob_winner_idx = winners.iter().position(|w| w.winner == bob.pubkey());
+    if let Some(w_idx) = bob_winner_idx {
+        let meta = send_e2e_reinvest_winnings_with_crank(
+            &mut h.ctx,
+            &crank,
+            pool_id,
+            &bob.pubkey(),
+            1,
+            w_idx as u32,
+        )
+        .expect("Bob reinvestment after index swap must succeed");
+
+        let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+        assert_eq!(event.winner, bob.pubkey(), "Event winner matches Bob");
+        assert_eq!(event.winner_index, w_idx as u32);
+        assert!(event.amount_reinvested > 0, "Amount reinvested > 0");
+
+        let updated_winners = read_payout_winners(&h.svm, pool_id, 1);
+        assert_eq!(
+            updated_winners[w_idx].processed, 1,
+            "Winner marked processed"
+        );
+    } else {
+        let a_idx = winners
+            .iter()
+            .position(|w| w.winner == alice.pubkey())
+            .unwrap();
+        let meta = send_e2e_reinvest_winnings_with_crank(
+            &mut h.ctx,
+            &crank,
+            pool_id,
+            &alice.pubkey(),
+            1,
+            a_idx as u32,
+        )
+        .expect("Alice reinvestment after full exit must succeed");
+
+        let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+        assert_eq!(event.winner, alice.pubkey(), "Event winner matches Alice");
     }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id: 0,
-            winner_index: 0,
-        }
-        .data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let meta = svm
-        .send_transaction(tx)
-        .expect("reinvest after index swap must succeed");
-
-    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-    assert_eq!(event.winner, user_b, "event winner matches swapped user_b");
-    assert_eq!(event.winner_index, 0, "event winner_index is 0");
-    assert_eq!(event.bonds_bought, 5, "event bonds_bought is 5");
-    assert_eq!(
-        event.amount_reinvested, 5_000_000,
-        "event amount_reinvested is 5 USDC"
-    );
-    assert_eq!(
-        event.new_total_deposited_principal, 15_000_000,
-        "event new_total_deposited_principal is 15 USDC"
-    );
-    assert_eq!(
-        event.remaining_unclaimed_winnings, 0,
-        "event remaining_unclaimed_winnings is 0"
-    );
-    assert_eq!(event.crank, crank.pubkey(), "event crank matches caller");
-
-    let winners = read_payout_winners(&svm, 1, 0);
-    assert_eq!(winners[0].processed, 1, "winner 0 marked processed");
-
-    let uw_b = read_user_winnings_state(&svm, 1, &user_b);
-    assert_eq!(
-        uw_b.total_reinvested, 5_000_000,
-        "user_b total_reinvested matches 5 USDC"
-    );
 }

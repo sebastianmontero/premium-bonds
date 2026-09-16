@@ -62,45 +62,45 @@ fn test_lifecycle_emergency_pausing_and_governance() {
     send_e2e_buy_bonds(&mut h, 50).expect("BuyBonds must succeed after unpause");
 
     // 5. Admin Force Unlock of Stalled Draw Cycle
-    let (draw_cycle_1_pda, _) = draw_cycle_pda(pool_id, 1);
-    DrawCycleTestBuilder::new(pool_id, 1)
-        .with_status(anchor::DrawStatus::AwaitingRandomness)
-        .with_prize_pot(10_000_000)
-        .with_cycle_fee(1_000_000)
-        .with_harvest_slot(100)
-        .inject(&mut h.svm);
+    let crank = clone_keypair(&h.crank);
+    let huma_pool_state = h.huma_pool_state;
+    let pst_mint = h.pst_mint;
 
-    mutate_pool_state(&mut h.svm, pool_id, |p| {
-        p.is_frozen_for_draw = 1;
-        p.total_prizes_allocated = 10_000_000;
-        p.total_fees_accrued = 1_000_000;
-    });
+    // Cycle 0 harvest matures 50 pending tickets into 50 active tickets (DrawSkipped for cycle 0)
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 0 harvest should succeed to mature tickets");
+
+    // Cycle 1: Now with 50 active tickets, inject yield and harvest to legitimately freeze into AwaitingRandomness
+    let pool_c1 = read_pool_state(&h.svm, pool_id);
+    warp_to_timestamp(&mut h.svm, pool_c1.current_cycle_end_at);
+    inject_huma_yield_ratio(
+        &mut h.svm,
+        huma_pool_state,
+        pst_mint,
+        60_000_000,
+        50_000_000,
+    );
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Harvest should succeed for cycle 1");
+
+    let pool_harvested = read_pool_state(&h.svm, pool_id);
+    assert_eq!(
+        pool_harvested.is_frozen_for_draw, 1,
+        "Pool must be frozen awaiting randomness"
+    );
+    assert!(
+        pool_harvested.total_prizes_allocated > 0,
+        "Prizes must be allocated"
+    );
+    assert!(
+        pool_harvested.total_fees_accrued > 0,
+        "Fees must be accrued"
+    );
 
     // Advance slot past 256 timeout
     h.svm.warp_to_slot(1000);
 
-    let accounts_force_unlock = anchor::accounts::AdminForceUnlockDraw {
-        admin: h.admin.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        current_draw_cycle: draw_cycle_1_pda,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_force_unlock = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_force_unlock,
-        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
-    };
-    let bh_unlock = h.svm.latest_blockhash();
-    let msg_unlock =
-        Message::new_with_blockhash(&[ix_force_unlock], Some(&h.admin.pubkey()), &bh_unlock);
-    let tx_unlock =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_unlock), &[&admin]).unwrap();
-    h.svm
-        .send_transaction(tx_unlock)
+    send_admin_force_unlock(&mut h.svm, &admin, pool_id, 1)
         .expect("AdminForceUnlockDraw must succeed");
 
     let pool_unlocked = read_pool_state(&h.svm, pool_id);
@@ -111,29 +111,33 @@ fn test_lifecycle_emergency_pausing_and_governance() {
     );
     assert_eq!(pool_unlocked.total_fees_accrued, 0, "Accrued fee returned");
 
-    // 6. Admin Void Payout Registry Recovery
+    // 6. Admin Void Payout Recovery
     let cycle_id = 2;
-    DrawCycleTestBuilder::new(pool_id, cycle_id)
-        .with_status(anchor::DrawStatus::Complete)
-        .with_prize_pot(5_000_000)
-        .with_cycle_fee(500_000)
-        .with_locked_tickets(50)
-        .inject(&mut h.svm);
+    warp_to_timestamp(&mut h.svm, pool_unlocked.current_cycle_end_at);
+    inject_huma_yield_ratio(
+        &mut h.svm,
+        huma_pool_state,
+        pst_mint,
+        70_000_000,
+        50_000_000,
+    );
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 2 harvest should succeed");
 
-    let user_pubkey = h.user.pubkey();
-    let (payout_reg_pda, _) = PayoutRegistryTestBuilder::new(pool_id, cycle_id)
-        .with_winners(vec![WinnerTestBuilder::default_winner(
-            user_pubkey,
-            5_000_000,
-            0,
-        )])
-        .with_status(anchor::state::PayoutRegistryStatus::Active)
-        .inject(&mut h.svm);
+    send_e2e_prepare_draw_with_crank(&mut h.ctx, &crank, pool_id, cycle_id, 10)
+        .expect("Cycle 2 prepare draw should succeed");
 
-    mutate_pool_state(&mut h.svm, pool_id, |p| {
-        p.total_prizes_allocated = 5_000_000;
-        p.total_fees_accrued = 500_000;
-    });
+    let dc2 = read_draw_cycle_state(&h.svm, pool_id, cycle_id);
+    let rand_acc = dc2.randomness_account;
+    inject_current_slot_randomness(&mut h.svm, rand_acc, [42u8; 32]);
+    send_e2e_reveal_and_pick_winners_with_crank(&mut h.ctx, &crank, pool_id, cycle_id, rand_acc)
+        .expect("Cycle 2 reveal should succeed");
+
+    let pool_post_reveal = read_pool_state(&h.svm, pool_id);
+    assert!(
+        pool_post_reveal.total_prizes_allocated > 0,
+        "Prize allocated before void"
+    );
 
     send_admin_void_payout_registry(&mut h.svm, &admin, pool_id, cycle_id)
         .expect("AdminVoidPayoutRegistry must succeed");

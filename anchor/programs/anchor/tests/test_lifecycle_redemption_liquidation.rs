@@ -90,15 +90,46 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
     .expect("ClaimRedemption must succeed");
 
     // 4. Protocol Fee Accrual and Withdrawal
-    set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 100_000_000);
+    let pool_id = h.pool_id;
+    let crank = clone_keypair(&h.crank);
+
+    // Harvest Cycle 0 to mature the 60 pending tickets into active tickets
+    let pool_0 = read_pool_state(&h.svm, pool_id);
+    warp_to_timestamp(&mut h.svm, pool_0.current_cycle_end_at);
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 0 harvest matures tickets");
+
+    // Set Huma pool assets to 110M with supply 60M (yield = 50M, fee at 10% = 5_000_000)
+    set_mock_huma_pool_assets(&mut h.svm, huma_pool_state, 110_000_000);
     set_token_mint_supply(&mut h.svm, pst_mint, 60_000_000);
 
-    let pool_id = h.pool_id;
-    mutate_pool_state(&mut h.svm, pool_id, |p| {
-        p.total_fees_accrued = 5_000_000; // 5 USDC fee accrued
-    });
+    let pool_1 = read_pool_state(&h.svm, pool_id);
+    warp_to_timestamp(&mut h.svm, pool_1.current_cycle_end_at);
+    send_e2e_harvest_yield_and_commit_with_crank(&mut h.ctx, &crank)
+        .expect("Cycle 1 harvest accrues 5 USDC fee");
 
-    let (pending_fee_redemption, _) = pending_redemption_pda(h.pool_id, 1);
+    // Prepare and reveal draw to unfreeze pool
+    send_e2e_prepare_draw_with_crank(&mut h.ctx, &crank, pool_id, 1, 10)
+        .expect("Prepare draw cycle 1");
+
+    let dc1 = read_draw_cycle_state(&h.svm, pool_id, 1);
+    let rand_acc = dc1.randomness_account;
+    inject_current_slot_randomness(&mut h.svm, rand_acc, [42u8; 32]);
+    send_e2e_reveal_and_pick_winners_with_crank(&mut h.ctx, &crank, pool_id, 1, rand_acc)
+        .expect("Reveal cycle 1 unfreezes pool");
+
+    let pool_unfrozen = read_pool_state(&h.svm, pool_id);
+    assert_eq!(
+        pool_unfrozen.is_frozen_for_draw, 0,
+        "Pool must be unfrozen after reveal"
+    );
+    assert_eq!(
+        pool_unfrozen.total_fees_accrued, 5_000_000,
+        "5 USDC fee accrued"
+    );
+
+    let (pending_fee_redemption, _) =
+        pending_redemption_pda(pool_id, pool_unfrozen.next_redemption_id);
     let accounts_withdraw_fees = anchor::accounts::WithdrawFees {
         admin: h.admin.pubkey(),
         global_config: gc,
