@@ -12,6 +12,10 @@ import {
   USDC_MINT,
 } from "../app/lib/bonds-sdk";
 import type { PrizeHistoryEntry } from "../app/types";
+import {
+  buildMockPrizeHistoryEntry,
+  TEST_ADDRESSES,
+} from "../app/lib/test-harness";
 
 describe("Winner Crank Status & Ledger Sync Suite", () => {
   it("should calculate reinvestment breakdown matching on-chain parity", () => {
@@ -122,7 +126,7 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
     }
 
     const initialEntries: PrizeHistoryEntry[] = [
-      {
+      buildMockPrizeHistoryEntry({
         drawCycleId: 8,
         winnerIndex: 0,
         amount: 10_000_000,
@@ -130,8 +134,8 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
         date: new Date().toISOString(),
         tierIndex: 1,
         bondsBought: 0,
-      },
-      {
+      }),
+      buildMockPrizeHistoryEntry({
         drawCycleId: 8,
         winnerIndex: 1,
         amount: 5_000_000,
@@ -139,7 +143,7 @@ describe("Winner Crank Status & Ledger Sync Suite", () => {
         date: new Date().toISOString(),
         tierIndex: 2,
         bondsBought: 0,
-      },
+      }),
     ];
 
     const selectedPrizeKey = { drawCycleId: 8, winnerIndex: 0 };

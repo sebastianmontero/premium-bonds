@@ -1,17 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { NextRequest } from "next/server";
 import { GET } from "../route";
 import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+import {
+  createApiRequest,
+  assertSuccessResponse,
+  assertErrorResponse,
+  assertNoCache,
+} from "@/app/lib/test-harness";
 
 describe("GET /api/indexer/draws Route Handler", () => {
   it("should return valid paginated envelope and handle cache headers gracefully", async () => {
-    const req = new NextRequest(
-      "http://localhost:3000/api/indexer/draws?poolId=1&limit=50"
-    );
+    const req = createApiRequest("/api/indexer/draws?poolId=1&limit=50");
     const res = await GET(req);
-    assert.strictEqual(res.status, 200);
-
     const cacheControl = res.headers.get("Cache-Control");
     assert.ok(
       cacheControl === "public, s-maxage=60, stale-while-revalidate=120" ||
@@ -19,51 +20,38 @@ describe("GET /api/indexer/draws Route Handler", () => {
       `Unexpected Cache-Control header: ${cacheControl}`
     );
 
-    const json = await res.json();
+    const { json, aggregates } = await assertSuccessResponse(res, 200);
     assert.ok(Array.isArray(json.draws), "draws should be an array");
     assert.ok("meta" in json, "meta should exist in json");
     assert.ok("aggregates" in json, "aggregates should exist in json");
-    assert.strictEqual(json.success, true);
-    assert.strictEqual(json.fallbackRequired, false);
-
-    assert.ok(json.aggregates !== null, "aggregates should not be null");
-    assert.strictEqual(typeof json.aggregates.totalYieldDistributed, "number");
-    assert.strictEqual(typeof json.aggregates.totalDrawsCompleted, "number");
-    assert.strictEqual(typeof json.aggregates.totalWinningBonds, "number");
-    assert.strictEqual(typeof json.aggregates.averagePrizePot, "number");
+    assert.ok(aggregates, "aggregates should not be null or undefined");
+    assert.strictEqual(typeof aggregates?.totalYieldDistributed, "number");
+    assert.strictEqual(typeof aggregates?.totalDrawsCompleted, "number");
+    assert.strictEqual(typeof aggregates?.totalWinningBonds, "number");
+    assert.strictEqual(typeof aggregates?.averagePrizePot, "number");
   });
 
   it("should reject limit parameter exceeding max allowed bounds of 100 with 400 Bad Request", async () => {
-    const reqOverLimit = new NextRequest(
-      "http://localhost:3000/api/indexer/draws?poolId=1&limit=500"
+    const reqOverLimit = createApiRequest(
+      "/api/indexer/draws?poolId=1&limit=500"
     );
     const res = await GET(reqOverLimit);
-    assert.strictEqual(res.status, 400);
-    assert.strictEqual(
-      res.headers.get("Cache-Control"),
-      NO_CACHE_HEADERS["Cache-Control"]
-    );
-    const json = await res.json();
-    assert.strictEqual(json.success, false);
-    assert.strictEqual(json.fallbackRequired, true);
+    assertNoCache(res);
+    await assertErrorResponse(res, 400);
   });
 
   it("should accept valid limit parameter up to 100 with 200 OK", async () => {
-    const reqMaxValid = new NextRequest(
-      "http://localhost:3000/api/indexer/draws?poolId=1&limit=100&page=1"
+    const reqMaxValid = createApiRequest(
+      "/api/indexer/draws?poolId=1&limit=100&page=1"
     );
     const res = await GET(reqMaxValid);
-    assert.strictEqual(res.status, 200);
-    const json = await res.json();
-    assert.strictEqual(json.success, true);
-    assert.ok(json.data.length <= 100);
+    const { data } = await assertSuccessResponse<unknown[]>(res, 200);
+    assert.ok(data.length <= 100);
   });
 
   it("should default to poolId 1 when query param is omitted", async () => {
-    const req = new NextRequest("http://localhost:3000/api/indexer/draws");
+    const req = createApiRequest("/api/indexer/draws");
     const res = await GET(req);
-    assert.strictEqual(res.status, 200);
-    const json = await res.json();
-    assert.strictEqual(json.success, true);
+    await assertSuccessResponse(res, 200);
   });
 });

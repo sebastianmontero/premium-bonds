@@ -6,26 +6,18 @@ import {
   type Rpc,
   type GetSignatureStatusesApi,
 } from "@solana/kit";
+import { MockRpcBuilder } from "../test-harness";
 
 const VALID_TEST_SIG = toSignature(
   "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
 );
 
 test("transaction-poller: confirms successfully when status is confirmed", async () => {
-  let calls = 0;
-  const mockRpc = {
-    getSignatureStatuses: () => ({
-      send: async () => {
-        calls++;
-        if (calls < 2) {
-          return { value: [null] };
-        }
-        return {
-          value: [{ confirmationStatus: "confirmed", err: null }],
-        };
-      },
-    }),
-  } as unknown as Rpc<GetSignatureStatusesApi>;
+  const rpcBuilder = new MockRpcBuilder().withSignatureStatusesSequence(
+    VALID_TEST_SIG,
+    [null, { confirmationStatus: "confirmed", err: null }]
+  );
+  const mockRpc = rpcBuilder.build() as unknown as Rpc<GetSignatureStatusesApi>;
 
   await pollSignatureConfirmation(mockRpc, VALID_TEST_SIG, {
     initialDelayMs: 10,
@@ -33,22 +25,20 @@ test("transaction-poller: confirms successfully when status is confirmed", async
     timeoutMs: 1000,
   });
 
-  assert.equal(calls, 2);
+  assert.equal(rpcBuilder.getSignatureCallCount(VALID_TEST_SIG), 2);
 });
 
 test("transaction-poller: throws TransactionError on on-chain execution error", async () => {
-  const mockRpc = {
-    getSignatureStatuses: () => ({
-      send: async () => ({
-        value: [
-          {
-            confirmationStatus: "processed",
-            err: { InstructionError: [0, { Custom: 6007 }] },
-          },
-        ],
-      }),
-    }),
-  } as unknown as Rpc<GetSignatureStatusesApi>;
+  const rpcBuilder = new MockRpcBuilder().withSignatureStatusesSequence(
+    VALID_TEST_SIG,
+    [
+      {
+        confirmationStatus: "processed",
+        err: { InstructionError: [0, { Custom: 6007 }] },
+      },
+    ]
+  );
+  const mockRpc = rpcBuilder.build() as unknown as Rpc<GetSignatureStatusesApi>;
 
   await assert.rejects(
     async () => {

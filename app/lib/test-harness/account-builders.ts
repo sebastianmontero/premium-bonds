@@ -1,4 +1,4 @@
-import { address, Address, getAddressEncoder } from "@solana/kit";
+import { Address, getAddressEncoder } from "@solana/kit";
 import {
   PrizePool,
   PrizePoolArgs,
@@ -17,17 +17,20 @@ import {
   serializeTicketRegistry,
   SerializeTicketRegistryOptions,
   TICKET_REGISTRY_DISCRIMINATOR,
+  TicketRegistry,
 } from "../ticket-registry-helpers";
 import {
   serializePayoutRegistry,
   PayoutRegistry,
   PAYOUT_REGISTRY_DISCRIMINATOR,
+  ExtendedPayoutRegistry,
+  Winner,
 } from "../payout-registry-helpers";
+import type { DrawCycleInfo } from "../bonds-sdk";
+import { TEST_ADDRESSES } from "./addresses";
 
-export const MOCK_PUBKEY = address("11111111111111111111111111111111");
-export const MOCK_TOKEN_MINT = address(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-);
+const MOCK_PUBKEY = TEST_ADDRESSES.USER;
+const MOCK_TOKEN_MINT = TEST_ADDRESSES.MINT;
 
 export {
   PRIZE_POOL_DISCRIMINATOR,
@@ -44,6 +47,10 @@ export type {
   DrawCycle,
   DrawCycleArgs,
   PayoutRegistry,
+  TicketRegistry,
+  ExtendedPayoutRegistry,
+  Winner,
+  DrawCycleInfo,
 };
 
 export function buildMockPrizePool(
@@ -188,10 +195,95 @@ export function buildMockDrawCycleEncoded(
   return new Uint8Array(getDrawCycleEncoder().encode(cycleArgs));
 }
 
+export function buildMockTicketRegistry(
+  overrides: Partial<TicketRegistry> = {}
+): TicketRegistry {
+  return {
+    discriminator: TICKET_REGISTRY_DISCRIMINATOR,
+    poolId: 1,
+    drawCycleId: 1,
+    version: 1,
+    userCount: 10,
+    capacity: 100,
+    totalActiveTickets: 500,
+    totalPendingTickets: 0,
+    drawPreparedUpTo: 10,
+    padding: new Uint8Array(3),
+    reserved: new Uint8Array(64),
+    ...overrides,
+  };
+}
+
 export function buildMockTicketRegistryEncoded(
   options: SerializeTicketRegistryOptions = { poolId: 1 }
 ): Uint8Array {
   return serializeTicketRegistry(options);
+}
+
+export function buildMockPayoutRegistry(
+  overrides: Partial<PayoutRegistry> & { winners?: Winner[] } = {}
+): PayoutRegistry & { winners: Winner[] } {
+  const winners: Winner[] = overrides.winners ?? [
+    {
+      winner: MOCK_PUBKEY,
+      amountOwed: 50_000_000n,
+      bondsBought: 10,
+      processed: 0,
+      tierIndex: 0,
+      version: 1,
+      padding: new Uint8Array(1),
+      reserved: new Uint8Array(8),
+    },
+  ];
+
+  return {
+    discriminator: PAYOUT_REGISTRY_DISCRIMINATOR,
+    poolId: 1,
+    cycleId: 1,
+    status: 0,
+    winnersCount: overrides.winnersCount ?? winners.length,
+    payoutsCompleted: 0,
+    revealedAt: 1700000000n,
+    version: 1,
+    padding: new Uint8Array(6),
+    reserved: new Uint8Array(64),
+    ...overrides,
+    winners,
+  };
+}
+
+export function buildMockPayoutRegistryInfo(
+  overrides: Partial<ExtendedPayoutRegistry> = {}
+): ExtendedPayoutRegistry {
+  const defaultWinners: Winner[] = [
+    {
+      winner: MOCK_PUBKEY,
+      amountOwed: 50_000_000n,
+      bondsBought: 10,
+      processed: 0,
+      tierIndex: 0,
+      version: 1,
+      padding: new Uint8Array(1),
+      reserved: new Uint8Array(8),
+    },
+  ];
+
+  const winners = overrides.winners ?? defaultWinners;
+
+  return {
+    discriminator: PAYOUT_REGISTRY_DISCRIMINATOR,
+    poolId: 1,
+    cycleId: 1,
+    status: 0,
+    winnersCount: overrides.winnersCount ?? winners.length,
+    payoutsCompleted: overrides.payoutsCompleted ?? 0,
+    revealedAt: overrides.revealedAt ?? 1700000000n,
+    version: 1,
+    padding: new Uint8Array(6),
+    reserved: new Uint8Array(64),
+    ...overrides,
+    winners,
+  };
 }
 
 export function buildMockPayoutRegistryEncoded(
@@ -201,6 +293,28 @@ export function buildMockPayoutRegistryEncoded(
   }
 ): Uint8Array {
   return serializePayoutRegistry(options);
+}
+
+export function buildMockDrawCycleInfo(
+  overrides: Partial<DrawCycleInfo> = {}
+): DrawCycleInfo {
+  return {
+    discriminator: DRAW_CYCLE_DISCRIMINATOR,
+    poolId: 1,
+    cycleId: 1,
+    status: "Complete" as const,
+    prizePot: 100_000_000n,
+    cycleFeeCollected: 5_000_000n,
+    harvestSlot: 1000n,
+    initiatedAt: 1700000000n,
+    completedAt: 1700003600n,
+    randomnessAccount: MOCK_PUBKEY,
+    lockedTicketCount: 500,
+    version: 1,
+    randomnessSeed: new Uint8Array(32).fill(7),
+    reserved: new Uint8Array(64),
+    ...overrides,
+  };
 }
 
 export function buildMockTokenAccountBytes(

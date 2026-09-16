@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, isDatabaseConfigured } from "@/app/lib/db";
-import { pendingRedemptions } from "@/app/lib/db/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { isDatabaseConfigured } from "@/app/lib/db";
 import {
   ApiResponse,
   PendingRedemptionDto,
   toPendingRedemptionDto,
 } from "@/app/lib/indexer-mappers";
+import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
+import { fetchPendingRedemptions } from "./queries";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export async function GET(
         fallbackRequired: true,
         error: "Database not configured",
       },
-      { status: 200 }
+      { headers: NO_CACHE_HEADERS, status: 200 }
     );
   }
 
@@ -46,50 +46,33 @@ export async function GET(
         fallbackRequired: true,
         error: "Missing 'user' parameter",
       },
-      { status: 400 }
+      { headers: NO_CACHE_HEADERS, status: 400 }
     );
   }
 
   try {
-    const conditions = [
-      eq(pendingRedemptions.poolId, poolId),
-      eq(pendingRedemptions.userAddress, user),
-    ];
-
-    if (statusParam === "pending") {
-      conditions.push(
-        inArray(pendingRedemptions.status, ["settling", "ready"])
-      );
-    } else if (statusParam !== "all") {
-      conditions.push(eq(pendingRedemptions.status, statusParam));
-    }
-
-    const rows = await db
-      .select()
-      .from(pendingRedemptions)
-      .where(and(...conditions))
-      .orderBy(desc(pendingRedemptions.requestedAt))
-      .limit(limit);
+    const rows = await fetchPendingRedemptions({
+      user,
+      poolId,
+      status: statusParam,
+      limit,
+    });
 
     const data = rows.map(toPendingRedemptionDto);
 
     return NextResponse.json(
       { success: true, data, fallbackRequired: false },
-      {
-        headers: {
-          "Cache-Control": "private, no-cache, no-store, must-revalidate",
-        },
-      }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch (err: unknown) {
-    console.error("[API Redemptions Error]:", err);
+    console.warn("[API Redemptions Error - Falling Back to RPC]:", err);
     return NextResponse.json(
       {
         success: false,
         fallbackRequired: true,
         error: err instanceof Error ? err.message : String(err),
       },
-      { status: 500 }
+      { headers: NO_CACHE_HEADERS, status: 200 }
     );
   }
 }

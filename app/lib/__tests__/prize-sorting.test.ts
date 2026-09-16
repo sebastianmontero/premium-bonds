@@ -4,21 +4,7 @@ import {
   comparePrizeHistoryEntries,
   sortPrizeHistoryEntries,
 } from "../draw-helpers";
-import type { PrizeHistoryEntry } from "../../types";
-
-function createMockPrize(
-  overrides: Partial<PrizeHistoryEntry> = {}
-): PrizeHistoryEntry {
-  return {
-    drawCycleId: 1,
-    date: "2026-09-01T12:00:00.000Z",
-    tierIndex: 0,
-    amount: 100_000_000,
-    winnerIndex: 0,
-    status: "processing",
-    ...overrides,
-  };
-}
+import { buildMockPrizeHistoryEntry as createMockPrize } from "../test-harness";
 
 describe("Prize History Ledger Sorting Suite", () => {
   it("should sort primary key by draw cycle descending (newest draws first)", () => {

@@ -8,7 +8,12 @@ import {
   fetchTicketRegistryHeader,
   serializeTicketRegistry,
 } from "@/app/lib/bonds-sdk";
-import { address, Address, createSolanaRpc, getBase64Decoder } from "@solana/kit";
+import {
+  address,
+  Address,
+  createSolanaRpc,
+  getBase64Decoder,
+} from "@solana/kit";
 import { MockRpcBuilder, MOCK_PUBKEY } from "@/app/lib/test-harness";
 
 describe("pool-state-service Unit Tests", () => {

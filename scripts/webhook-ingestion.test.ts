@@ -104,24 +104,23 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
       await import("../app/lib/services/pool-stats-aggregator");
     const { invalidatePoolInfoCache } =
       await import("../app/lib/services/pool-state-service");
+    const { createMockAggregationDb } =
+      await import("../app/lib/services/__tests__/mock-aggregation-db");
 
     let queryCount = 0;
-    const mockDb = {
-      select: () => ({
-        from: () => ({
-          where: async () => {
-            queryCount++;
-            return [
-              {
-                totalDistributed: "50000000",
-                totalDrawsCompleted: 1,
-                totalWinningBonds: 5,
-              },
-            ];
-          },
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        queryCount++;
+      },
+      rows: [
+        {
+          status: "Complete",
+          count: 1,
+          totalDistributed: "50000000",
+          totalWinningBonds: 5,
+        },
+      ],
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
     await aggregator.getPoolDrawStats(1);

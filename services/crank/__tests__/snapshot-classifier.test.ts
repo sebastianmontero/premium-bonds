@@ -1,25 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { address } from "@solana/kit";
 import { classifyPoolState } from "../state/snapshot-classifier";
 import { PoolStateSnapshot } from "../types";
-import {
-  PrizePool,
-  TicketRegistry,
-  DrawCycle,
-  PayoutRegistry,
-  DrawStatus,
-} from "../../../app/lib/bonds-sdk";
+import { DrawStatus } from "../../../app/lib/bonds-sdk";
 import {
   buildMockPrizePool,
-  MOCK_PUBKEY,
-  TICKET_REGISTRY_DISCRIMINATOR,
+  buildMockTicketRegistry,
+  buildMockDrawCycle,
+  buildMockPayoutRegistry,
+  TEST_ADDRESSES,
 } from "@/app/lib/test-harness";
 
-const mockPoolAddress = MOCK_PUBKEY;
-const mockRegistryAddress = address(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-);
+const mockPoolAddress = TEST_ADDRESSES.USER;
+const mockRegistryAddress = TEST_ADDRESSES.ATA_PROGRAM;
 
 function assertSnapshotState<TState extends PoolStateSnapshot["state"]>(
   snapshot: PoolStateSnapshot,
@@ -34,45 +27,14 @@ function assertSnapshotState<TState extends PoolStateSnapshot["state"]>(
   );
 }
 
-function createMockPool(overrides: Partial<PrizePool> = {}): PrizePool {
-  return buildMockPrizePool({
-    minYieldThreshold: 5_000_000n,
-    totalDepositedPrincipal: 100_000_000n,
-    currentCycleEndAt: 1000n,
-    feeBasisPoints: 250,
-    maxYieldBasisPoints: 500,
-    vaultAuthorityBump: 254,
-    ticketRegistry: mockRegistryAddress,
-    ...overrides,
-  });
-}
-
-function createMockRegistry(
-  overrides: Partial<TicketRegistry> = {}
-): TicketRegistry {
-  return {
-    discriminator: TICKET_REGISTRY_DISCRIMINATOR,
-    poolId: 1,
-    drawCycleId: 1,
-    version: 1,
-    userCount: 10,
-    capacity: 100,
-    totalActiveTickets: 500,
-    totalPendingTickets: 0,
-    drawPreparedUpTo: 10,
-    padding: new Uint8Array(3),
-    reserved: new Uint8Array(64),
-    ...overrides,
-  };
-}
-
 describe("Snapshot Classifier", () => {
   it("should classify as YIELD_HARVEST_READY when cycle is due and not frozen", () => {
-    const pool = createMockPool({
+    const pool = buildMockPrizePool({
       currentCycleEndAt: 1000n,
       isFrozenForDraw: 0,
+      ticketRegistry: mockRegistryAddress,
     });
-    const registry = createMockRegistry();
+    const registry = buildMockTicketRegistry();
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -97,10 +59,11 @@ describe("Snapshot Classifier", () => {
   });
 
   it("should classify as PREPARE_BATCHING when frozen and drawPreparedUpTo < userCount", () => {
-    const pool = createMockPool({
+    const pool = buildMockPrizePool({
       isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
     });
-    const registry = createMockRegistry({
+    const registry = buildMockTicketRegistry({
       userCount: 50,
       drawPreparedUpTo: 20,
     });
@@ -133,29 +96,19 @@ describe("Snapshot Classifier", () => {
   });
 
   it("should classify as READY_TO_DRAW when prepared and awaiting randomness within 1000 slots", () => {
-    const pool = createMockPool({
+    const pool = buildMockPrizePool({
       isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
     });
-    const registry = createMockRegistry({
+    const registry = buildMockTicketRegistry({
       userCount: 50,
       drawPreparedUpTo: 50,
     });
-    const drawCycle = {
-      poolId: 1,
-      drawCycleId: 1,
-      bump: 255,
-      version: 1,
+    const drawCycle = buildMockDrawCycle({
       status: DrawStatus.AwaitingRandomness,
       harvestSlot: 100n,
-      harvestTimestamp: 1000n,
-      prizePot: 50_000_000n,
-      eligibleLockedCount: 500,
-      totalWinnersCount: 3,
-      padding: new Uint8Array(4),
       randomnessAccount: mockPoolAddress,
-      randomnessSeed: new Uint8Array(32),
-      reserved: new Uint8Array(64),
-    } as unknown as DrawCycle;
+    });
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -181,29 +134,19 @@ describe("Snapshot Classifier", () => {
   });
 
   it("should classify as VRF_EXPIRED when randomness exceeds 1000 slots", () => {
-    const pool = createMockPool({
+    const pool = buildMockPrizePool({
       isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
     });
-    const registry = createMockRegistry({
+    const registry = buildMockTicketRegistry({
       userCount: 50,
       drawPreparedUpTo: 50,
     });
-    const drawCycle = {
-      poolId: 1,
-      drawCycleId: 1,
-      bump: 255,
-      version: 1,
+    const drawCycle = buildMockDrawCycle({
       status: DrawStatus.AwaitingRandomness,
       harvestSlot: 100n,
-      harvestTimestamp: 1000n,
-      prizePot: 50_000_000n,
-      eligibleLockedCount: 500,
-      totalWinnersCount: 3,
-      padding: new Uint8Array(4),
       randomnessAccount: mockPoolAddress,
-      randomnessSeed: new Uint8Array(32),
-      reserved: new Uint8Array(64),
-    } as unknown as DrawCycle;
+    });
 
     const snapshot = classifyPoolState({
       poolId: 1,
@@ -229,34 +172,17 @@ describe("Snapshot Classifier", () => {
   });
 
   it("should classify as TIMELOCK_WAITING and REINVESTMENT_PENDING accurately", () => {
-    const pool = createMockPool({
+    const pool = buildMockPrizePool({
       isFrozenForDraw: 0,
       currentCycleEndAt: 2000n,
       payoutTimelockSeconds: 300,
+      ticketRegistry: mockRegistryAddress,
     });
-    const registry = createMockRegistry();
-    const payoutRegistry = {
-      poolId: 1,
-      drawCycleId: 1,
-      bump: 255,
-      version: 1,
-      status: 0,
+    const registry = buildMockTicketRegistry();
+    const payoutRegistry = buildMockPayoutRegistry({
       revealedAt: 1000n,
       winnersCount: 1,
-      padding: new Uint8Array(4),
-      winners: [
-        {
-          winner: mockPoolAddress,
-          prizeAmount: 10_000_000n,
-          winningTicket: 100n,
-          tierIndex: 0,
-          isReinvested: 0,
-          isClaimed: 0,
-          padding: new Uint8Array(6),
-        },
-      ],
-      reserved: new Uint8Array(64),
-    } as unknown as PayoutRegistry;
+    });
 
     // Before timelock elapsed (1000 + 300 = 1300)
     const snapshotWaiting = classifyPoolState({
@@ -301,24 +227,14 @@ describe("Snapshot Classifier", () => {
   });
 
   it("should classify as CIRCUIT_BREAKER_HALTED on solvency halt", () => {
-    const pool = createMockPool();
-    const registry = createMockRegistry();
-    const drawCycle = {
-      poolId: 1,
-      drawCycleId: 1,
-      bump: 255,
-      version: 1,
+    const pool = buildMockPrizePool({ ticketRegistry: mockRegistryAddress });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
       status: DrawStatus.HaltedInsolvent,
       harvestSlot: 100n,
-      harvestTimestamp: 1000n,
       prizePot: 0n,
-      eligibleLockedCount: 0,
-      totalWinnersCount: 0,
-      padding: new Uint8Array(4),
       randomnessAccount: mockPoolAddress,
-      randomnessSeed: new Uint8Array(32),
-      reserved: new Uint8Array(64),
-    } as unknown as DrawCycle;
+    });
 
     const snapshot = classifyPoolState({
       poolId: 1,

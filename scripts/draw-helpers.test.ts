@@ -35,18 +35,21 @@ import {
   PayoutRegistryInfo,
   DrawSkipReason,
 } from "../app/lib/bonds-sdk";
-import { address } from "@solana/kit";
-import { withVirtualClock } from "../app/lib/test-harness";
+import {
+  withVirtualClock,
+  buildMockDrawCycleInfo,
+  buildMockPayoutRegistryInfo,
+  TEST_ADDRESSES,
+} from "../app/lib/test-harness";
 
-const mockAddress1 = address("11111111111111111111111111111111");
-const mockAddress2 = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const mockAddress3 = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const mockAddress1 = TEST_ADDRESSES.USER;
+const mockAddress2 = TEST_ADDRESSES.USER_2;
+const mockAddress3 = TEST_ADDRESSES.ATA_PROGRAM;
 
 function createMockDrawCycle(
   overrides: Partial<DrawCycleInfo> = {}
 ): DrawCycleInfo {
-  return {
-    poolId: 1,
+  return buildMockDrawCycleInfo({
     cycleId: 14,
     status: "Complete",
     prizePot: 100_000_000n,
@@ -58,14 +61,13 @@ function createMockDrawCycle(
     randomnessAccount: mockAddress1,
     randomnessSeed: new Uint8Array(32).fill(7),
     ...overrides,
-  };
+  });
 }
 
 function createMockPayoutRegistry(
   overrides: Partial<PayoutRegistryInfo> = {}
 ): PayoutRegistryInfo {
-  return {
-    poolId: 1,
+  return buildMockPayoutRegistryInfo({
     cycleId: 14,
     status: 0,
     winnersCount: 2,
@@ -78,6 +80,7 @@ function createMockPayoutRegistry(
         bondsBought: 10,
         processed: 1,
         tierIndex: 0,
+        version: 1,
       },
       {
         winner: mockAddress2,
@@ -85,10 +88,11 @@ function createMockPayoutRegistry(
         bondsBought: 5,
         processed: 0,
         tierIndex: 1,
+        version: 1,
       },
     ],
     ...overrides,
-  };
+  });
 }
 
 describe("Draw Helpers & SDK Architecture Suite", () => {

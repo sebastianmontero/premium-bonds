@@ -1,29 +1,31 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { fetchUserAtaBalance, USDC_MINT } from "../app/lib/bonds-sdk";
+import {
+  fetchUserAtaBalance,
+  findAtaAddress,
+  USDC_MINT,
+} from "../app/lib/bonds-sdk";
 import { formatTokenAmount } from "../app/lib/formatters";
 import {
   buildMockTokenAccountBytes,
   MockRpcBuilder,
-  MOCK_PUBKEY,
+  TEST_ADDRESSES,
 } from "../app/lib/test-harness";
 
 describe("User Token Balance Synchronization Suite", () => {
-  const dummyUser = "4rQzK5R2YQ2m1bL5x1eK5y9b1P6m1V2b5Q8m2V1b4Q9m";
+  const dummyUser = TEST_ADDRESSES.USER;
 
   it("should decode positive token ATA balance and format currency accurately", async () => {
-    const rawBytes = buildMockTokenAccountBytes(500_000_000n);
-    const mockRpc = new MockRpcBuilder()
-      .withAccount(MOCK_PUBKEY, rawBytes)
-      .build();
-
-    // Override getAccountInfo to return the token account data for any ATA derivation
-    const rpcAdapter = {
-      getAccountInfo: () => mockRpc.getAccountInfo(MOCK_PUBKEY),
-    };
+    const userAta = await findAtaAddress(dummyUser, USDC_MINT);
+    const rawBytes = buildMockTokenAccountBytes(
+      500_000_000n,
+      USDC_MINT,
+      dummyUser
+    );
+    const mockRpc = new MockRpcBuilder().withAccount(userAta, rawBytes).build();
 
     const balance = await fetchUserAtaBalance(
-      rpcAdapter as any,
+      mockRpc as any,
       dummyUser,
       USDC_MINT
     );
@@ -42,17 +44,14 @@ describe("User Token Balance Synchronization Suite", () => {
   });
 
   it("should decode zero balance account correctly", async () => {
-    const zeroBytes = buildMockTokenAccountBytes(0n);
+    const userAta = await findAtaAddress(dummyUser, USDC_MINT);
+    const zeroBytes = buildMockTokenAccountBytes(0n, USDC_MINT, dummyUser);
     const mockRpc = new MockRpcBuilder()
-      .withAccount(MOCK_PUBKEY, zeroBytes)
+      .withAccount(userAta, zeroBytes)
       .build();
 
-    const rpcAdapter = {
-      getAccountInfo: () => mockRpc.getAccountInfo(MOCK_PUBKEY),
-    };
-
     const zeroBalance = await fetchUserAtaBalance(
-      rpcAdapter as any,
+      mockRpc as any,
       dummyUser,
       USDC_MINT
     );
@@ -64,14 +63,11 @@ describe("User Token Balance Synchronization Suite", () => {
   });
 
   it("should gracefully return 0 for non-existent ATA account", async () => {
-    const mockRpc = new MockRpcBuilder().withAccount(MOCK_PUBKEY, null).build();
-
-    const rpcAdapter = {
-      getAccountInfo: () => mockRpc.getAccountInfo(MOCK_PUBKEY),
-    };
+    const userAta = await findAtaAddress(dummyUser, USDC_MINT);
+    const mockRpc = new MockRpcBuilder().withAccount(userAta, null).build();
 
     const nullBalance = await fetchUserAtaBalance(
-      rpcAdapter as any,
+      mockRpc as any,
       dummyUser,
       USDC_MINT
     );
@@ -83,23 +79,16 @@ describe("User Token Balance Synchronization Suite", () => {
   });
 
   it("should return 0 upon RPC network or connection timeout", async () => {
-    const mockRpc = {
-      getAccountInfo: () => ({
-        send: async () => {
-          throw new Error("RPC network timeout");
-        },
-      }),
-    };
+    const userAta = await findAtaAddress(dummyUser, USDC_MINT);
+    const mockRpc = new MockRpcBuilder()
+      .withAccountError(userAta, new Error("RPC network timeout"))
+      .build();
 
     const errorBalance = await fetchUserAtaBalance(
       mockRpc as any,
       dummyUser,
       USDC_MINT
     );
-    assert.strictEqual(
-      errorBalance,
-      0,
-      "Network error must safely fallback to 0 balance"
-    );
+    assert.strictEqual(errorBalance, 0, "RPC error should gracefully return 0");
   });
 });

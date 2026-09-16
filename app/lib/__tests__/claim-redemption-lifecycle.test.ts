@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import { QueryClient } from "@tanstack/react-query";
 import { bondsKeys } from "../query-keys";
 import type { PendingRedemption } from "@/app/types";
+import { buildMockPendingRedemption, TEST_ADDRESSES } from "../test-harness";
 
 describe("Claim Redemption Lifecycle & Cache Invariant Suite", () => {
   const poolId = 1;
-  const userAddress = "DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK";
+  const userAddress = TEST_ADDRESSES.USER_2.toString();
   const queryKey = bondsKeys.userRedemptions(poolId, userAddress);
 
   const initialRedemptions: PendingRedemption[] = [
-    {
+    buildMockPendingRedemption({
       redemptionId: "100",
       amount: 50_000_000,
       status: "ready",
@@ -18,8 +19,8 @@ describe("Claim Redemption Lifecycle & Cache Invariant Suite", () => {
       type: "bond_sale",
       pstSharesLocked: "25000000",
       humaRequestId: "1",
-    },
-    {
+    }),
+    buildMockPendingRedemption({
       redemptionId: "101",
       amount: 100_000_000,
       status: "ready",
@@ -27,7 +28,7 @@ describe("Claim Redemption Lifecycle & Cache Invariant Suite", () => {
       type: "prize_claim",
       pstSharesLocked: "50000000",
       humaRequestId: "2",
-    },
+    }),
   ];
 
   it("should maintain redemption in cache during in-flight wallet signing stage", () => {

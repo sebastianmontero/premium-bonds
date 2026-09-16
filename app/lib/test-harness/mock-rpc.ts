@@ -13,6 +13,18 @@ export class MockRpcBuilder {
   private currentSlot = 1000n;
   private currentBlockTime = 1700000000n;
 
+  private signatureSequences = new Map<
+    string,
+    Array<{ confirmationStatus: string; err: unknown } | null>
+  >();
+  private signatureCallIndices = new Map<string, number>();
+
+  private accountSequences = new Map<
+    string,
+    Array<Uint8Array | null | Error>
+  >();
+  private accountCallIndices = new Map<string, number>();
+
   withAccount(
     pubkey: Address | string,
     data: Uint8Array | null,
@@ -24,6 +36,33 @@ export class MockRpcBuilder {
       data ? { data, owner, lamports, executable: false } : null
     );
     return this;
+  }
+
+  withSignatureStatusesSequence(
+    signature: string,
+    sequence: Array<{ confirmationStatus: string; err: unknown } | null>
+  ): this {
+    this.signatureSequences.set(signature, sequence);
+    this.signatureCallIndices.set(signature, 0);
+    return this;
+  }
+
+  withAccountSequence(
+    pubkey: Address | string,
+    sequence: Array<Uint8Array | null | Error>
+  ): this {
+    const key = pubkey.toString();
+    this.accountSequences.set(key, sequence);
+    this.accountCallIndices.set(key, 0);
+    return this;
+  }
+
+  getSignatureCallCount(signature: string): number {
+    return this.signatureCallIndices.get(signature) ?? 0;
+  }
+
+  getAccountCallCount(pubkey: Address | string): number {
+    return this.accountCallIndices.get(pubkey.toString()) ?? 0;
   }
 
   withSlot(slot: bigint): this {
@@ -51,6 +90,29 @@ export class MockRpcBuilder {
       if (this.errors.has(pubkey)) {
         throw this.errors.get(pubkey)!;
       }
+
+      if (this.accountSequences.has(pubkey)) {
+        const seq = this.accountSequences.get(pubkey)!;
+        const idx = this.accountCallIndices.get(pubkey) ?? 0;
+        this.accountCallIndices.set(pubkey, idx + 1);
+        const item = seq[Math.min(idx, seq.length - 1)];
+        if (item instanceof Error) throw item;
+        if (!item) return null;
+        const slice = sliceConfig
+          ? item.subarray(
+              sliceConfig.offset,
+              sliceConfig.offset + sliceConfig.length
+            )
+          : item;
+        return {
+          executable: false,
+          lamports: 1_000_000n,
+          owner: "11111111111111111111111111111111" as Address,
+          space: BigInt(item.byteLength),
+          data: [base64Decoder.decode(slice), "base64" as const],
+        };
+      }
+
       const raw = this.accounts.get(pubkey);
       if (!raw || !raw.data) {
         return null;
@@ -88,6 +150,18 @@ export class MockRpcBuilder {
           value: pubkeys.map((pk) =>
             formatAccount(pk.toString(), config?.dataSlice)
           ),
+        }),
+      }),
+
+      getSignatureStatuses: (signatures: string[]) => ({
+        send: async () => ({
+          value: signatures.map((sig) => {
+            const seq = this.signatureSequences.get(sig);
+            if (!seq) return null;
+            const idx = this.signatureCallIndices.get(sig) ?? 0;
+            this.signatureCallIndices.set(sig, idx + 1);
+            return seq[Math.min(idx, seq.length - 1)];
+          }),
         }),
       }),
 

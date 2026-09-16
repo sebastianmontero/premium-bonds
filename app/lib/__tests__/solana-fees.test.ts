@@ -6,6 +6,7 @@ import {
   USER_WINNINGS_RENT_EXEMPTION_SOL,
   USER_WINNINGS_SPACE_BYTES,
 } from "../solana-fees";
+import { assertAlmostEqual } from "../test-harness";
 
 describe("Solana Fee Estimation & Protocol Constants", () => {
   it("should match protocol fee constants", () => {
@@ -38,8 +39,10 @@ describe("Solana Fee Estimation & Protocol Constants", () => {
       0.00185136,
       `Expected storageFeeSol 0.00185136, got ${fees.storageFeeSol}`
     );
-    assert.ok(
-      Math.abs(fees.totalSolFee - 0.00185636) < 1e-8,
+    assertAlmostEqual(
+      fees.totalSolFee,
+      0.00185636,
+      1e-8,
       `Expected totalSolFee ~0.00185636, got ${fees.totalSolFee}`
     );
   });

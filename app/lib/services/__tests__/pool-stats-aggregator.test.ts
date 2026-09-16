@@ -2,51 +2,19 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   PoolStatsAggregator,
-  type DbAggregationClient,
   type PoolFetchOptions,
 } from "@/app/lib/services/pool-stats-aggregator";
-import type { PoolInfo } from "@/app/types";
-import { withVirtualClock } from "@/app/lib/test-harness";
-
-function createMockPoolInfo(poolId: number = 1): PoolInfo {
-  return {
-    poolId,
-    tokenMint: "TokenMint1111111111111111111111111111111111",
-    tokenSymbol: "USDC",
-    tokenDecimals: 6,
-    bondPrice: 1_000_000,
-    stakeCycleDurationHrs: 24,
-    feeBasisPoints: 250,
-    status: "Active",
-    totalDepositedPrincipal: 50_000_000,
-    currentCycleEndAt: 1700086400,
-    isFrozenForDraw: false,
-    currentDrawCycleId: 1,
-    prizeTiers: [],
-    estimatedPrizePot: 500_000,
-    minYieldThreshold: 5_000_000,
-    underlyingApy: 0.085,
-    lastSyncedAt: 1700000000,
-    totalUsers: 10,
-    totalPrizesDistributed: undefined,
-  };
-}
+import { withVirtualClock, buildMockPoolInfo } from "@/app/lib/test-harness";
+import { createMockAggregationDb } from "./mock-aggregation-db";
 
 describe("PoolStatsAggregator Unit Tests", () => {
   it("should return undefined immediately when isConfigured is false", async () => {
     let dbCalls = 0;
-    const mockDb: DbAggregationClient = {
-      select: () => {
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
         dbCalls++;
-        return {
-          from: () => ({
-            where: () => ({
-              groupBy: () => Promise.resolve([]),
-            }),
-          }),
-        };
       },
-    };
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, false);
     const result = await aggregator.getPoolDrawStats(1);
@@ -60,15 +28,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
   });
 
   it("should return undefined for invalid poolId inputs", async () => {
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: () => Promise.resolve([]),
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({ rows: [] });
     const aggregator = new PoolStatsAggregator(mockDb, true);
     assert.strictEqual(await aggregator.getPoolDrawStats(0), undefined);
     assert.strictEqual(await aggregator.getPoolDrawStats(-1), undefined);
@@ -78,31 +38,25 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
   it("should query database, parse all aggregate fields, map statusCounts, and cache result on success", async () => {
     let queryCount = 0;
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              queryCount++;
-              return [
-                {
-                  status: "Complete",
-                  count: 2,
-                  totalDistributed: "15500000",
-                  totalWinningBonds: 10,
-                },
-                {
-                  status: "Skipped",
-                  count: 1,
-                  totalDistributed: "0",
-                  totalWinningBonds: 0,
-                },
-              ];
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        queryCount++;
+      },
+      rows: [
+        {
+          status: "Complete",
+          count: 2,
+          totalDistributed: "15500000",
+          totalWinningBonds: 10,
+        },
+        {
+          status: "Skipped",
+          count: 1,
+          totalDistributed: "0",
+          totalWinningBonds: 0,
+        },
+      ],
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
 
@@ -141,25 +95,19 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
   it("should bypass cache and re-query database when bypassCache: true is passed", async () => {
     let queryCount = 0;
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              queryCount++;
-              return [
-                {
-                  status: "Complete",
-                  count: queryCount,
-                  totalDistributed: (queryCount * 10_000_000).toString(),
-                  totalWinningBonds: queryCount * 5,
-                },
-              ];
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        queryCount++;
+      },
+      rows: (callIndex) => [
+        {
+          status: "Complete",
+          count: callIndex + 1,
+          totalDistributed: ((callIndex + 1) * 10_000_000).toString(),
+          totalWinningBonds: (callIndex + 1) * 5,
+        },
+      ],
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
 
@@ -186,22 +134,16 @@ describe("PoolStatsAggregator Unit Tests", () => {
   });
 
   it("should handle empty or null/non-numeric totals by defaulting to 0 and empty statusCounts", async () => {
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => [
-              {
-                status: "Complete",
-                count: null as unknown as number,
-                totalDistributed: null,
-                totalWinningBonds: null,
-              },
-            ],
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      rows: [
+        {
+          status: "Complete",
+          count: null as unknown as number,
+          totalDistributed: null,
+          totalWinningBonds: null,
+        },
+      ],
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
     const res = await aggregator.getPoolDrawStats(1);
@@ -216,15 +158,7 @@ describe("PoolStatsAggregator Unit Tests", () => {
     });
 
     // Completely empty rows test
-    const emptyDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => [],
-          }),
-        }),
-      }),
-    };
+    const emptyDb = createMockAggregationDb({ rows: [] });
     const emptyAggregator = new PoolStatsAggregator(emptyDb, true);
     const emptyRes = await emptyAggregator.getPoolDrawStats(1);
     assert.deepStrictEqual(emptyRes, {
@@ -257,18 +191,12 @@ describe("PoolStatsAggregator Unit Tests", () => {
       resolveQuery = resolve;
     });
 
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: () => {
-              queryCount++;
-              return queryPromise;
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        queryCount++;
+      },
+      execute: () => queryPromise,
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
 
@@ -304,28 +232,24 @@ describe("PoolStatsAggregator Unit Tests", () => {
       let shouldFail = false;
       let queryCount = 0;
 
-      const mockDb: DbAggregationClient = {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              groupBy: async () => {
-                queryCount++;
-                if (shouldFail) {
-                  throw new Error("PostgreSQL connection lost");
-                }
-                return [
-                  {
-                    status: "Complete",
-                    count: 1,
-                    totalDistributed: "10000000",
-                    totalWinningBonds: 5,
-                  },
-                ];
-              },
-            }),
-          }),
-        }),
-      };
+      const mockDb = createMockAggregationDb({
+        onQuery: () => {
+          queryCount++;
+        },
+        execute: () => {
+          if (shouldFail) {
+            throw new Error("PostgreSQL connection lost");
+          }
+          return [
+            {
+              status: "Complete",
+              count: 1,
+              totalDistributed: "10000000",
+              totalWinningBonds: 5,
+            },
+          ];
+        },
+      });
 
       // Use short TTL (10ms) and short retry backoff (100ms) for testing
       const aggregator = new PoolStatsAggregator(
@@ -372,17 +296,9 @@ describe("PoolStatsAggregator Unit Tests", () => {
   });
 
   it("should return undefined when query fails and no prior cache exists", async () => {
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              throw new Error("DB timeout");
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      error: new Error("DB timeout"),
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
     const res = await aggregator.getPoolDrawStats(1);
@@ -391,25 +307,19 @@ describe("PoolStatsAggregator Unit Tests", () => {
 
   it("should properly invalidate cache for specific pool and all pools", async () => {
     let queryCount = 0;
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              queryCount++;
-              return [
-                {
-                  status: "Complete",
-                  count: 1,
-                  totalDistributed: "5000000",
-                  totalWinningBonds: 2,
-                },
-              ];
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        queryCount++;
+      },
+      rows: [
+        {
+          status: "Complete",
+          count: 1,
+          totalDistributed: "5000000",
+          totalWinningBonds: 2,
+        },
+      ],
+    });
 
     const aggregator = new PoolStatsAggregator(mockDb, true);
 
@@ -436,24 +346,18 @@ describe("PoolStatsAggregator Unit Tests", () => {
   });
 
   it("should compose getEnrichedPoolInfo immutably with cumulative prizes", async () => {
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => [
-              {
-                status: "Complete",
-                count: 5,
-                totalDistributed: "25000000",
-                totalWinningBonds: 20,
-              },
-            ],
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      rows: [
+        {
+          status: "Complete",
+          count: 5,
+          totalDistributed: "25000000",
+          totalWinningBonds: 20,
+        },
+      ],
+    });
 
-    const basePool = createMockPoolInfo(1);
+    const basePool = buildMockPoolInfo({ poolId: 1 });
     const mockGetPoolInfo = async (poolId: number) => {
       return poolId === 1 ? { ...basePool } : null;
     };
@@ -480,32 +384,26 @@ describe("PoolStatsAggregator Unit Tests", () => {
     const receivedPoolInfoOptions: (PoolFetchOptions | undefined)[] = [];
     let dbQueryCount = 0;
 
-    const mockDb: DbAggregationClient = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            groupBy: async () => {
-              dbQueryCount++;
-              return [
-                {
-                  status: "Complete",
-                  count: 3,
-                  totalDistributed: "30000000",
-                  totalWinningBonds: 15,
-                },
-              ];
-            },
-          }),
-        }),
-      }),
-    };
+    const mockDb = createMockAggregationDb({
+      onQuery: () => {
+        dbQueryCount++;
+      },
+      rows: [
+        {
+          status: "Complete",
+          count: 3,
+          totalDistributed: "30000000",
+          totalWinningBonds: 15,
+        },
+      ],
+    });
 
     const mockGetPoolInfo = async (
       poolId: number,
       options?: PoolFetchOptions
     ) => {
       receivedPoolInfoOptions.push(options);
-      return poolId === 1 ? createMockPoolInfo(1) : null;
+      return poolId === 1 ? buildMockPoolInfo({ poolId: 1 }) : null;
     };
 
     const aggregator = new PoolStatsAggregator(mockDb, true, mockGetPoolInfo);

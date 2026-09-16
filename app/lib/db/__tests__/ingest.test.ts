@@ -21,9 +21,10 @@ import {
   isPendingRedemptionStatus,
 } from "../../indexer-mappers";
 import { address } from "@solana/kit";
+import { TEST_ADDRESSES } from "../../test-harness";
 
-const userAddr = address("11111111111111111111111111111111");
-const randAddr = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const userAddr = TEST_ADDRESSES.USER;
+const randAddr = TEST_ADDRESSES.MINT;
 
 describe("Database Ingestion & Event Metadata Resolution", () => {
   it("should convert BigInts to string recursively in sanitizeForJsonb", () => {

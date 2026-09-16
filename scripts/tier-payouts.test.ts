@@ -7,17 +7,7 @@ import {
   getLocalizedTierLabel,
 } from "../app/lib/formatters";
 
-function assertAlmostEqual(
-  a: number,
-  b: number,
-  eps: number = 1e-9,
-  message: string = ""
-) {
-  assert.ok(
-    Math.abs(a - b) <= eps,
-    `Expected ${a} to be approximately equal to ${b} (diff: ${Math.abs(a - b)} > ${eps}). ${message}`
-  );
-}
+import { assertAlmostEqual } from "../app/lib/test-harness";
 
 describe("Tier Payout & BPS Math Verification Suite", () => {
   it("Vector 1: Exact On-Chain BPS Math Verification", () => {

@@ -6,35 +6,32 @@ import {
   isTerminalDrawStatus,
   type DrawCycleSummaryDto,
 } from "../indexer-mappers";
-import type { drawHistory } from "../db/schema";
 import { buildDrawCyclesWithPayoutsQuery } from "../../../app/api/indexer/draws/queries";
+import { buildMockDrawPayoutProgressRow } from "../test-harness";
 
 describe("Draw Payout Progress & Stats Suite", () => {
   it("should accurately map draw rows with 0 payouts completed", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & {
-      payoutsCompleted: number;
-    })[] = [
-      {
+    const mockRows = [
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 1,
         status: "Complete",
-        prizePot: BigInt(100_000_000),
-        cycleFeeCollected: BigInt(5_000_000),
-        lockedTicketCount: BigInt(500),
+        prizePot: 100_000_000n,
+        cycleFeeCollected: 5_000_000n,
+        lockedTicketCount: 500n,
         harvestSlot: 123456,
         randomnessAccount: "Random1111111111111111111111111111111111111",
         vrfSeedHex: "0x1234567890abcdef",
         winnersCount: 8,
-        totalDistributed: BigInt(0),
+        totalDistributed: 0n,
         winnersSynced: true,
         initiatedAt: 1772500000,
         revealedAt: 1772500300,
         completedAt: 1772500600,
         signature: "Sig1111111111111111111111111111111111111111",
         blockTime: 1772500000,
-        createdAt: new Date(),
         payoutsCompleted: 0,
-      },
+      }),
     ];
 
     const summaries = mapDrawHistoryRowsToSummaries(mockRows);
@@ -47,51 +44,47 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should accurately map partial and fully processed payouts", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & {
-      payoutsCompleted: number;
-    })[] = [
-      {
+    const mockRows = [
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 2,
         status: "Complete",
-        prizePot: BigInt(200_000_000),
-        cycleFeeCollected: BigInt(10_000_000),
-        lockedTicketCount: BigInt(1000),
+        prizePot: 200_000_000n,
+        cycleFeeCollected: 10_000_000n,
+        lockedTicketCount: 1000n,
         harvestSlot: 234567,
         randomnessAccount: "Random2222222222222222222222222222222222222",
         vrfSeedHex: "0xabcdef1234567890",
         winnersCount: 8,
-        totalDistributed: BigInt(75_000_000),
+        totalDistributed: 75_000_000n,
         winnersSynced: true,
         initiatedAt: 1772600000,
         revealedAt: 1772600300,
         completedAt: 1772600600,
         signature: "Sig2222222222222222222222222222222222222222",
         blockTime: 1772600000,
-        createdAt: new Date(),
         payoutsCompleted: 3,
-      },
-      {
+      }),
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 3,
         status: "Complete",
-        prizePot: BigInt(300_000_000),
-        cycleFeeCollected: BigInt(15_000_000),
-        lockedTicketCount: BigInt(1500),
+        prizePot: 300_000_000n,
+        cycleFeeCollected: 15_000_000n,
+        lockedTicketCount: 1500n,
         harvestSlot: 345678,
         randomnessAccount: "Random3333333333333333333333333333333333333",
         vrfSeedHex: "0x9876543210fedcba",
         winnersCount: 8,
-        totalDistributed: BigInt(300_000_000),
+        totalDistributed: 300_000_000n,
         winnersSynced: true,
         initiatedAt: 1772700000,
         revealedAt: 1772700300,
         completedAt: 1772700600,
         signature: "Sig3333333333333333333333333333333333333333",
         blockTime: 1772700000,
-        createdAt: new Date(),
         payoutsCompleted: 8,
-      },
+      }),
     ];
 
     const summaries = mapDrawHistoryRowsToSummaries(mockRows);
@@ -100,51 +93,47 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should defensively clamp payoutsCompleted to [0, winnersCount]", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & {
-      payoutsCompleted: number;
-    })[] = [
-      {
+    const mockRows = [
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 4,
         status: "Complete",
-        prizePot: BigInt(50_000_000),
-        cycleFeeCollected: BigInt(2_500_000),
-        lockedTicketCount: BigInt(250),
+        prizePot: 50_000_000n,
+        cycleFeeCollected: 2_500_000n,
+        lockedTicketCount: 250n,
         harvestSlot: 456789,
         randomnessAccount: "Random4444444444444444444444444444444444444",
         vrfSeedHex: "0x1122334455667788",
         winnersCount: 5,
-        totalDistributed: BigInt(50_000_000),
+        totalDistributed: 50_000_000n,
         winnersSynced: true,
         initiatedAt: 1772800000,
         revealedAt: 1772800300,
         completedAt: 1772800600,
         signature: "Sig4444444444444444444444444444444444444444",
         blockTime: 1772800000,
-        createdAt: new Date(),
         payoutsCompleted: 10, // Overflow count from edge case
-      },
-      {
+      }),
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 5,
         status: "Complete",
-        prizePot: BigInt(50_000_000),
-        cycleFeeCollected: BigInt(2_500_000),
-        lockedTicketCount: BigInt(250),
+        prizePot: 50_000_000n,
+        cycleFeeCollected: 2_500_000n,
+        lockedTicketCount: 250n,
         harvestSlot: 567890,
         randomnessAccount: "Random5555555555555555555555555555555555555",
         vrfSeedHex: "0x8877665544332211",
         winnersCount: 5,
-        totalDistributed: BigInt(0),
+        totalDistributed: 0n,
         winnersSynced: true,
         initiatedAt: 1772900000,
         revealedAt: 1772900300,
         completedAt: 1772900600,
         signature: "Sig5555555555555555555555555555555555555555",
         blockTime: 1772900000,
-        createdAt: new Date(),
         payoutsCompleted: -3, // Negative number edge case
-      },
+      }),
     ];
 
     const summaries = mapDrawHistoryRowsToSummaries(mockRows);
@@ -153,51 +142,47 @@ describe("Draw Payout Progress & Stats Suite", () => {
   });
 
   it("should handle Skipped, Voided, and ForceUnlocked terminal timestamps", () => {
-    const mockRows: (typeof drawHistory.$inferSelect & {
-      payoutsCompleted: number;
-    })[] = [
-      {
+    const mockRows = [
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 6,
         status: "Skipped",
-        prizePot: BigInt(0),
-        cycleFeeCollected: BigInt(0),
-        lockedTicketCount: BigInt(0),
+        prizePot: 0n,
+        cycleFeeCollected: 0n,
+        lockedTicketCount: 0n,
         harvestSlot: 678901,
         randomnessAccount: "",
         vrfSeedHex: "",
         winnersCount: 0,
-        totalDistributed: BigInt(0),
+        totalDistributed: 0n,
         winnersSynced: true,
         initiatedAt: 1773000000,
         revealedAt: null,
         completedAt: null,
         signature: "Sig6666666666666666666666666666666666666666",
         blockTime: 1773000500,
-        createdAt: new Date(),
         payoutsCompleted: 0,
-      },
-      {
+      }),
+      buildMockDrawPayoutProgressRow({
         poolId: 1,
         cycleId: 7,
         status: "Voided",
-        prizePot: BigInt(10_000_000),
-        cycleFeeCollected: BigInt(500_000),
-        lockedTicketCount: BigInt(100),
+        prizePot: 10_000_000n,
+        cycleFeeCollected: 500_000n,
+        lockedTicketCount: 100n,
         harvestSlot: 789012,
         randomnessAccount: "Random7777777777777777777777777777777777777",
         vrfSeedHex: "",
         winnersCount: 0,
-        totalDistributed: BigInt(0),
+        totalDistributed: 0n,
         winnersSynced: true,
         initiatedAt: 1773100000,
         revealedAt: null,
         completedAt: 1773100600,
         signature: "Sig7777777777777777777777777777777777777777",
         blockTime: 1773100000,
-        createdAt: new Date(),
         payoutsCompleted: 0,
-      },
+      }),
     ];
 
     const summaries = mapDrawHistoryRowsToSummaries(mockRows);

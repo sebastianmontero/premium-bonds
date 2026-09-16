@@ -16,59 +16,13 @@ import {
   toUnixTimestamp,
 } from "../types";
 import {
-  PrizePool,
-  TicketRegistry,
-  PayoutRegistry,
-} from "../../../app/lib/bonds-sdk";
-import {
   buildMockPrizePool,
-  MOCK_PUBKEY,
-  TICKET_REGISTRY_DISCRIMINATOR,
-  PAYOUT_REGISTRY_DISCRIMINATOR,
+  buildMockTicketRegistry,
+  buildMockPayoutRegistry,
+  TEST_ADDRESSES,
 } from "@/app/lib/test-harness";
 
-const mockAddress = MOCK_PUBKEY;
-
-function createTestPrizePool(overrides: Partial<PrizePool> = {}): PrizePool {
-  return buildMockPrizePool(overrides);
-}
-
-function createTestTicketRegistry(
-  overrides: Partial<TicketRegistry> = {}
-): TicketRegistry {
-  return {
-    discriminator: TICKET_REGISTRY_DISCRIMINATOR,
-    poolId: 1,
-    capacity: 1000,
-    userCount: 0,
-    totalActiveTickets: 0,
-    totalPendingTickets: 0,
-    drawCycleId: 1,
-    drawPreparedUpTo: 0,
-    version: 1,
-    padding: new Uint8Array(3),
-    reserved: new Uint8Array(64),
-    ...overrides,
-  };
-}
-
-function createTestPayoutRegistry(
-  overrides: Partial<PayoutRegistry> = {}
-): PayoutRegistry {
-  return {
-    discriminator: PAYOUT_REGISTRY_DISCRIMINATOR,
-    poolId: 1,
-    cycleId: 1,
-    winnersCount: 0,
-    payoutsCompleted: 0,
-    revealedAt: 0n,
-    status: 0,
-    version: 1,
-    padding: new Uint8Array(6),
-    reserved: new Uint8Array(64),
-    ...overrides,
-  };
-}
+const mockAddress = TEST_ADDRESSES.USER;
 
 function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
   return {
@@ -89,9 +43,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool(),
+      pool: buildMockPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "YIELD_HARVEST_READY" as const,
@@ -113,9 +67,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool(),
+      pool: buildMockPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "PREPARE_BATCHING" as const,
@@ -137,9 +91,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool(),
+      pool: buildMockPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 1500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "VRF_EXPIRED" as const,
@@ -161,9 +115,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool(),
+      pool: buildMockPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "READY_TO_DRAW" as const,
@@ -185,15 +139,19 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool(),
+      pool: buildMockPrizePool(),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "REINVESTMENT_PENDING" as const,
       cycleId: toDrawCycleId(1),
       payoutRegistryAddress: mockAddress,
-      payoutRegistry: createTestPayoutRegistry(),
+      payoutRegistry: buildMockPayoutRegistry({
+        winnersCount: 0,
+        payoutsCompleted: 0,
+        revealedAt: 0n,
+      }),
       unprocessedWinners: [
         { winner: mockAddress, winnerIndex: 0 },
         { winner: mockAddress, winnerIndex: 1 },
@@ -227,8 +185,8 @@ describe("Strategy Workers Unit Tests", () => {
     // 80% utilization -> should NOT trigger
     const snapshot80 = {
       ...baseSnapshot,
-      pool: createTestPrizePool({ isFrozenForDraw: 0 }),
-      ticketRegistry: createTestTicketRegistry({
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
         userCount: 80,
         capacity: 100,
       }),
@@ -239,8 +197,8 @@ describe("Strategy Workers Unit Tests", () => {
     // 90% utilization -> should trigger
     const snapshot90 = {
       ...baseSnapshot,
-      pool: createTestPrizePool({ isFrozenForDraw: 0 }),
-      ticketRegistry: createTestTicketRegistry({
+      pool: buildMockPrizePool({ isFrozenForDraw: 0 }),
+      ticketRegistry: buildMockTicketRegistry({
         userCount: 90,
         capacity: 100,
       }),
@@ -252,8 +210,8 @@ describe("Strategy Workers Unit Tests", () => {
     // 90% utilization but pool is frozen -> should NOT trigger
     const snapshotFrozen = {
       ...baseSnapshot,
-      pool: createTestPrizePool({ isFrozenForDraw: 1 }),
-      ticketRegistry: createTestTicketRegistry({
+      pool: buildMockPrizePool({ isFrozenForDraw: 1 }),
+      ticketRegistry: buildMockTicketRegistry({
         userCount: 90,
         capacity: 100,
       }),
@@ -270,9 +228,9 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: createTestPrizePool({ tokenMint: mockAddress }),
+      pool: buildMockPrizePool({ tokenMint: mockAddress }),
       ticketRegistryAddress: mockAddress,
-      ticketRegistry: createTestTicketRegistry(),
+      ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
       currentTimestamp: toUnixTimestamp(1000),
       state: "IDLE" as const,

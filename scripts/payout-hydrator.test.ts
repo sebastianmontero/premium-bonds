@@ -12,94 +12,18 @@ import {
   parseDrawCycle,
 } from "../app/lib/bonds-sdk";
 import { deriveRandomIndex } from "../app/lib/vrf-utils";
-import { isAddress, address, type Address } from "@solana/kit";
-import { getPayoutRegistryEncoder } from "../app/lib/generated/yield-bonds/src/generated/accounts/payoutRegistry";
-import { getDrawCycleEncoder } from "../app/lib/generated/yield-bonds/src/generated/accounts/drawCycle";
+import { isAddress } from "@solana/kit";
 import { DrawStatus } from "../app/lib/generated/yield-bonds/src/generated/types/drawStatus";
-
-// Helpers to construct valid mock binary accounts
-function createMockDrawCycleBuffer(params: {
-  poolId?: number;
-  cycleId?: number;
-  lockedTicketCount?: number;
-  randomnessSeed?: Uint8Array;
-  status?: DrawStatus;
-}): Buffer {
-  const bytes = getDrawCycleEncoder().encode({
-    poolId: params.poolId ?? 1,
-    cycleId: params.cycleId ?? 1,
-    prizePot: 100_000_000n,
-    cycleFeeCollected: 5_000_000n,
-    harvestSlot: 1000n,
-    initiatedAt: 1700000000n,
-    completedAt: 1700003600n,
-    randomnessAccount: address("11111111111111111111111111111111"),
-    lockedTicketCount: params.lockedTicketCount ?? 500,
-    status: params.status ?? DrawStatus.Complete,
-    version: 1,
-    randomnessSeed: params.randomnessSeed ?? new Uint8Array(32).fill(7),
-    reserved: new Uint8Array(64),
-  });
-  return Buffer.from(bytes);
-}
-
-function createMockPayoutRegistryBuffer(params: {
-  poolId?: number;
-  cycleId?: number;
-  winnersCount?: number;
-  winners?: Array<{
-    winner: Address;
-    tierIndex: number;
-    amountOwed: bigint;
-    processed?: number;
-    bondsBought?: number;
-  }>;
-}): Buffer {
-  const emptyWinner = {
-    winner: address("11111111111111111111111111111111"),
-    tierIndex: 0,
-    amountOwed: 0n,
-    processed: 0,
-    bondsBought: 0,
-    version: 1,
-    padding: new Uint8Array(1),
-    reserved: new Uint8Array(8),
-  };
-
-  const winnersList = Array.from({ length: 50 }, (_, idx) => {
-    const custom = params.winners?.[idx];
-    if (custom) {
-      return {
-        ...emptyWinner,
-        winner: custom.winner,
-        tierIndex: custom.tierIndex,
-        amountOwed: custom.amountOwed,
-        processed: custom.processed ?? 0,
-        bondsBought: custom.bondsBought ?? 0,
-      };
-    }
-    return { ...emptyWinner };
-  });
-
-  const bytes = getPayoutRegistryEncoder().encode({
-    poolId: params.poolId ?? 1,
-    cycleId: params.cycleId ?? 1,
-    winnersCount:
-      params.winnersCount ?? (params.winners ? params.winners.length : 0),
-    payoutsCompleted: 0,
-    revealedAt: 1700003600n,
-    status: 0,
-    version: 1,
-    padding: new Uint8Array(6),
-    reserved: new Uint8Array(64),
-    winners: winnersList,
-  });
-  return Buffer.from(bytes);
-}
+import {
+  buildMockDrawCycleEncoded,
+  buildMockPayoutRegistryEncoded,
+  MockRpcBuilder,
+  TEST_ADDRESSES,
+} from "@/app/lib/test-harness";
 
 describe("PayoutHydrator Test Hardening Suite", () => {
-  const TEST_ADDR_1 = address("11111111111111111111111111111111");
-  const TEST_ADDR_2 = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const TEST_ADDR_1 = TEST_ADDRESSES.USER;
+  const TEST_ADDR_2 = TEST_ADDRESSES.USER_2;
 
   describe("Vector 1: PDA Regression & Address Guards", () => {
     it("should return valid base58 address for findPayoutRegistryPda without string destructuring bug", async () => {
@@ -365,31 +289,24 @@ describe("PayoutHydrator Test Hardening Suite", () => {
 
   describe("Vector 3: RPC Replication Lag & Transient Retry Logic", () => {
     it("should retry and successfully recover when accounts are missing on first attempt", async () => {
-      const mockPayoutBuf = createMockPayoutRegistryBuffer({
+      const payoutPda = await findPayoutRegistryPda(1, 1);
+      const cyclePda = await findDrawCyclePda(1, 1);
+
+      const mockPayoutBuf = buildMockPayoutRegistryEncoded({
         poolId: 1,
         cycleId: 1,
       });
-      const mockCycleBuf = createMockDrawCycleBuffer({ poolId: 1, cycleId: 1 });
+      const mockCycleBuf = buildMockDrawCycleEncoded({
+        poolId: 1,
+        cycleId: 1,
+        status: DrawStatus.Complete,
+      });
 
-      let callCount = 0;
-      const mockRpc = {
-        getMultipleAccounts: (_addresses: any, _opts: any) => ({
-          send: async () => {
-            callCount++;
-            if (callCount === 1) {
-              // Attempt 1: replication lag (accounts not yet available)
-              return { value: [null, null] };
-            }
-            // Attempt 2: accounts available
-            return {
-              value: [
-                { data: [mockPayoutBuf.toString("base64"), "base64"] },
-                { data: [mockCycleBuf.toString("base64"), "base64"] },
-              ],
-            };
-          },
-        }),
-      } as unknown as SolanaRpcClient;
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [null, mockPayoutBuf])
+        .withAccountSequence(cyclePda, [null, mockCycleBuf]);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
 
       const service = new PayoutHydratorService(mockRpc, {
         retryDelays: [0, 0], // zero delays for fast test
@@ -398,7 +315,7 @@ describe("PayoutHydrator Test Hardening Suite", () => {
       const accounts = await service.fetchDrawAccounts(1, 1);
       assert.ok(accounts !== null, "Accounts should be resolved after retry");
       assert.strictEqual(
-        callCount,
+        rpcBuilder.getAccountCallCount(payoutPda),
         2,
         "RPC should have been called exactly twice"
       );
@@ -412,15 +329,14 @@ describe("PayoutHydrator Test Hardening Suite", () => {
 
   describe("Vector 4: Missing Accounts & Permanent Failure Recovery", () => {
     it("should return null after exhausting all retries when accounts do not exist", async () => {
-      let callCount = 0;
-      const mockRpc = {
-        getMultipleAccounts: (_addresses: any, _opts: any) => ({
-          send: async () => {
-            callCount++;
-            return { value: [null, null] };
-          },
-        }),
-      } as unknown as SolanaRpcClient;
+      const payoutPda = await findPayoutRegistryPda(1, 999);
+      const cyclePda = await findDrawCyclePda(1, 999);
+
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [null, null, null])
+        .withAccountSequence(cyclePda, [null, null, null]);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
 
       const service = new PayoutHydratorService(mockRpc, {
         retryDelays: [0, 0], // 1 initial + 2 retries = 3 calls
@@ -429,7 +345,7 @@ describe("PayoutHydrator Test Hardening Suite", () => {
       const accounts = await service.fetchDrawAccounts(1, 999);
       assert.strictEqual(accounts, null);
       assert.strictEqual(
-        callCount,
+        rpcBuilder.getAccountCallCount(payoutPda),
         3,
         "RPC should have been called 3 times (1 initial + 2 retries)"
       );
@@ -438,29 +354,27 @@ describe("PayoutHydrator Test Hardening Suite", () => {
 
   describe("Vector 5: RPC Network Exception Handling", () => {
     it("should recover from transient network exception on first call and succeed on second call", async () => {
-      const mockPayoutBuf = createMockPayoutRegistryBuffer({
+      const payoutPda = await findPayoutRegistryPda(1, 2);
+      const cyclePda = await findDrawCyclePda(1, 2);
+
+      const mockPayoutBuf = buildMockPayoutRegistryEncoded({
         poolId: 1,
         cycleId: 2,
       });
-      const mockCycleBuf = createMockDrawCycleBuffer({ poolId: 1, cycleId: 2 });
+      const mockCycleBuf = buildMockDrawCycleEncoded({
+        poolId: 1,
+        cycleId: 2,
+        status: DrawStatus.Complete,
+      });
 
-      let callCount = 0;
-      const mockRpc = {
-        getMultipleAccounts: (_addresses: any, _opts: any) => ({
-          send: async () => {
-            callCount++;
-            if (callCount === 1) {
-              throw new Error("HTTP 429 Too Many Requests");
-            }
-            return {
-              value: [
-                { data: [mockPayoutBuf.toString("base64"), "base64"] },
-                { data: [mockCycleBuf.toString("base64"), "base64"] },
-              ],
-            };
-          },
-        }),
-      } as unknown as SolanaRpcClient;
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [
+          new Error("HTTP 429 Too Many Requests"),
+          mockPayoutBuf,
+        ])
+        .withAccount(cyclePda, mockCycleBuf);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
 
       const service = new PayoutHydratorService(mockRpc, {
         retryDelays: [0, 0],
@@ -471,19 +385,26 @@ describe("PayoutHydrator Test Hardening Suite", () => {
         accounts !== null,
         "Should recover after transient network exception"
       );
-      assert.strictEqual(callCount, 2);
+      assert.strictEqual(rpcBuilder.getAccountCallCount(payoutPda), 2);
     });
 
     it("should re-throw when network exception persists across all retries", async () => {
-      let callCount = 0;
-      const mockRpc = {
-        getMultipleAccounts: (_addresses: any, _opts: any) => ({
-          send: async () => {
-            callCount++;
-            throw new Error("Connection Refused ECONNREFUSED");
-          },
-        }),
-      } as unknown as SolanaRpcClient;
+      const payoutPda = await findPayoutRegistryPda(1, 1);
+      const cyclePda = await findDrawCyclePda(1, 1);
+
+      const rpcBuilder = new MockRpcBuilder()
+        .withAccountSequence(payoutPda, [
+          new Error("Connection Refused ECONNREFUSED"),
+          new Error("Connection Refused ECONNREFUSED"),
+          new Error("Connection Refused ECONNREFUSED"),
+        ])
+        .withAccountSequence(cyclePda, [
+          new Error("Connection Refused ECONNREFUSED"),
+          new Error("Connection Refused ECONNREFUSED"),
+          new Error("Connection Refused ECONNREFUSED"),
+        ]);
+
+      const mockRpc = rpcBuilder.build() as unknown as SolanaRpcClient;
 
       const service = new PayoutHydratorService(mockRpc, {
         retryDelays: [0, 0],
@@ -493,7 +414,7 @@ describe("PayoutHydrator Test Hardening Suite", () => {
         await service.fetchDrawAccounts(1, 1);
       }, /Connection Refused ECONNREFUSED/);
       assert.strictEqual(
-        callCount,
+        rpcBuilder.getAccountCallCount(payoutPda),
         3,
         "Should have attempted initial + 2 retries"
       );
