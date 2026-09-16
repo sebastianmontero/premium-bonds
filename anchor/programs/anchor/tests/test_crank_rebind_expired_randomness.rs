@@ -15,10 +15,7 @@ struct RebindCtx {
 }
 
 fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
-    let admin = Keypair::new();
-    let crank = Keypair::new();
-    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+    let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let ticket_registry = Keypair::new().pubkey();
     let (pool_key, _) = PrizePoolTestBuilder::new(1)

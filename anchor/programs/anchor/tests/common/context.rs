@@ -1,6 +1,7 @@
 use {
     crate::common::{
         account_builders::*, constants::*, dispatch::*, injectors::*, pda::*, readers::*, spl::*,
+        vrf::*,
     },
     anchor_lang::{solana_program::bpf_loader_upgradeable::UpgradeableLoaderState, Discriminator},
     litesvm::LiteSVM,
@@ -76,13 +77,22 @@ pub fn setup_program_data(svm: &mut LiteSVM, upgrade_authority: Option<&Pubkey>)
     }
 }
 
-pub fn setup_svm_with_authority(authority: &Keypair) -> LiteSVM {
+pub fn setup_svm() -> LiteSVM {
     let mut svm = LiteSVM::new();
     let _ = svm.add_program(
         anchor::id(),
         include_bytes!("../../../../target/deploy/anchor.so"),
     );
+    let _ = svm.add_program(
+        huma_program_id(),
+        include_bytes!("../../../../target/deploy/mock_huma.so"),
+    );
     set_clock_timestamp(&mut svm, 1_700_000_000);
+    svm
+}
+
+pub fn setup_svm_with_authority(authority: &Keypair) -> LiteSVM {
+    let mut svm = setup_svm();
     svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
     setup_program_data(&mut svm, Some(&authority.pubkey()));
     svm
@@ -122,12 +132,47 @@ pub fn setup_global_config() -> (LiteSVM, Keypair) {
     (svm, authority)
 }
 
+pub struct GlobalRolesContext {
+    pub svm: LiteSVM,
+    pub admin: Keypair,
+    pub guardian: Keypair,
+    pub crank: Keypair,
+}
+
+impl GlobalRolesContext {
+    pub fn new() -> Self {
+        let authority = Keypair::new();
+        let admin = Keypair::new();
+        let guardian = Keypair::new();
+        let crank = Keypair::new();
+        let mut svm = setup_svm_with_authority(&authority);
+        svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&guardian.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+        send_initialize_global(
+            &mut svm,
+            &authority,
+            &admin.pubkey(),
+            &guardian.pubkey(),
+            &crank.pubkey(),
+        )
+        .expect("initialize_global should succeed");
+        Self {
+            svm,
+            admin,
+            guardian,
+            crank,
+        }
+    }
+}
+
+pub fn setup_global_roles() -> GlobalRolesContext {
+    GlobalRolesContext::new()
+}
+
 pub fn setup_global_with_crank() -> (LiteSVM, Keypair, Keypair) {
-    let admin = Keypair::new();
-    let crank = Keypair::new();
-    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
-    (svm, admin, crank)
+    let ctx = setup_global_roles();
+    (ctx.svm, ctx.admin, ctx.crank)
 }
 
 // ─── E2E Context ─────────────────────────────────────────────────────────────
@@ -144,21 +189,13 @@ pub struct E2eContext {
     pub huma_pool_state: Pubkey,
     pub huma_pool_authority: Pubkey,
     pub huma_pool_underlying_token: Pubkey,
+    pub huma_pool_mode_token: Pubkey,
+    pub pool_id: u32,
+    pub fee_wallet: Pubkey,
 }
 
 pub fn setup_e2e() -> E2eContext {
-    let mut svm = LiteSVM::new();
-    // Load both programs
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../../target/deploy/anchor.so"),
-    );
-    let _ = svm.add_program(
-        huma_program_id(),
-        include_bytes!("../../../../target/deploy/mock_huma.so"),
-    );
-
-    set_clock_timestamp(&mut svm, 1_700_000_000);
+    let mut svm = setup_svm();
 
     let admin = Keypair::new();
     let user = Keypair::new();
@@ -271,6 +308,16 @@ pub fn setup_e2e() -> E2eContext {
         0,
     );
 
+    // 10b. Create huma_pool_mode_token (PST token account owned by huma_pool_authority)
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut svm,
+        huma_pool_mode_token,
+        pst_mint,
+        huma_pool_authority,
+        0,
+    );
+
     E2eContext {
         svm,
         admin,
@@ -283,6 +330,9 @@ pub fn setup_e2e() -> E2eContext {
         huma_pool_state,
         huma_pool_authority,
         huma_pool_underlying_token: huma_pool_underlying,
+        huma_pool_mode_token,
+        pool_id: 1,
+        fee_wallet,
     }
 }
 
@@ -324,17 +374,7 @@ impl LifecycleTestHarness {
 }
 
 pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../../target/deploy/anchor.so"),
-    );
-    let _ = svm.add_program(
-        huma_program_id(),
-        include_bytes!("../../../../target/deploy/mock_huma.so"),
-    );
-
-    set_clock_timestamp(&mut svm, 1_700_000_000);
+    let mut svm = setup_svm();
 
     let admin = Keypair::new();
     let guardian = Keypair::new();
@@ -407,6 +447,15 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
         1_000_000_000,
     );
 
+    let huma_pool_mode_token = Keypair::new().pubkey();
+    inject_token_account(
+        &mut svm,
+        huma_pool_mode_token,
+        pst_mint,
+        huma_pool_authority,
+        0,
+    );
+
     let ticket_registry_kp = Keypair::new();
     svm.set_account(
         ticket_registry_kp.pubkey(),
@@ -474,7 +523,10 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
             huma_pool_state,
             huma_pool_authority,
             huma_pool_underlying_token,
+            huma_pool_mode_token,
             user_usdc_account: alice_usdc,
+            pool_id,
+            fee_wallet,
         },
         guardian,
         crank,
@@ -587,24 +639,47 @@ where
         .expect("Set pool account failed");
 }
 
+pub fn mutate_anchor_account<T, F>(svm: &mut LiteSVM, address: Pubkey, f: F)
+where
+    T: anchor_lang::AccountDeserialize + anchor_lang::AccountSerialize,
+    F: FnOnce(&mut T),
+{
+    let mut account = svm.get_account(&address).expect("Account must exist");
+    let mut data = T::try_deserialize(&mut account.data.as_slice())
+        .expect("Deserialize anchor account failed");
+    f(&mut data);
+    let mut new_data = Vec::new();
+    data.try_serialize(&mut new_data)
+        .expect("Serialize anchor account failed");
+    let target_len = account.data.len().max(new_data.len());
+    new_data.resize(target_len, 0);
+    account.data = new_data;
+    svm.set_account(address, account)
+        .expect("Set anchor account failed");
+}
+
 pub fn mutate_draw_cycle<F>(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, mutator: F)
 where
     F: FnOnce(&mut anchor::DrawCycle),
 {
-    use anchor_lang::{AccountDeserialize, AccountSerialize};
     let (pda, _) = draw_cycle_pda(pool_id, cycle_id);
-    let mut account = svm.get_account(&pda).expect("DrawCycle account must exist");
-    let mut cycle = anchor::DrawCycle::try_deserialize(&mut account.data.as_slice())
-        .expect("Deserialize DrawCycle failed");
-    mutator(&mut cycle);
-    let mut new_data = Vec::new();
-    cycle
-        .try_serialize(&mut new_data)
-        .expect("Serialize DrawCycle failed");
-    new_data.resize(account.data.len(), 0);
-    account.data = new_data;
-    svm.set_account(pda, account)
-        .expect("Set DrawCycle account failed");
+    mutate_anchor_account(svm, pda, mutator);
+}
+
+pub fn mutate_global_config<F>(svm: &mut LiteSVM, mutator: F)
+where
+    F: FnOnce(&mut anchor::GlobalConfig),
+{
+    let (pda, _) = global_config_pda();
+    mutate_anchor_account(svm, pda, mutator);
+}
+
+pub fn mutate_user_winnings<F>(svm: &mut LiteSVM, pool_id: u32, user: &Pubkey, mutator: F)
+where
+    F: FnOnce(&mut anchor::UserWinnings),
+{
+    let (pda, _) = user_winnings_pda(pool_id, user);
+    mutate_anchor_account(svm, pda, mutator);
 }
 
 pub fn mutate_ticket_registry_header<F>(svm: &mut LiteSVM, address: Pubkey, f: F)
@@ -660,4 +735,225 @@ pub fn force_user_entries_version(
     }
     svm.set_account(registry_pda, acc)
         .expect("Updating registry must succeed");
+}
+
+// ─── Reveal Fixture & Builder ────────────────────────────────────────────────
+
+pub struct RevealFixture {
+    pub svm: LiteSVM,
+    pub admin: Keypair,
+    pub crank: Keypair,
+    pub jobs_account: Keypair,
+    pub ticket_registry: Pubkey,
+    pub tickets: Vec<Pubkey>,
+    pub randomness_account: Pubkey,
+    pub pool_id: u32,
+    pub cycle_id: u32,
+}
+
+impl RevealFixture {
+    pub fn builder() -> RevealFixtureBuilder {
+        RevealFixtureBuilder::new()
+    }
+
+    pub fn send_reveal(&mut self, seed: [u8; 32]) -> TxResult {
+        inject_current_slot_randomness(&mut self.svm, self.randomness_account, seed);
+        let crank = clone_keypair(&self.crank);
+        crate::common::account_builders::RevealAndPickWinnersBuilder::for_pool(
+            self.pool_id,
+            self.cycle_id,
+            crank.pubkey(),
+        )
+        .with_ticket_registry(self.ticket_registry)
+        .with_randomness_account(self.randomness_account)
+        .send(&mut self.svm, &crank)
+    }
+
+    pub fn send_reveal_for_cycle(
+        &mut self,
+        pool_id: u32,
+        cycle_id: u32,
+        seed: [u8; 32],
+    ) -> TxResult {
+        inject_current_slot_randomness(&mut self.svm, self.randomness_account, seed);
+        let crank = clone_keypair(&self.crank);
+        crate::common::account_builders::RevealAndPickWinnersBuilder::for_pool(
+            pool_id,
+            cycle_id,
+            crank.pubkey(),
+        )
+        .with_ticket_registry(self.ticket_registry)
+        .with_randomness_account(self.randomness_account)
+        .send(&mut self.svm, &crank)
+    }
+
+    pub fn send_reinvest(&mut self, winner: &Pubkey, winner_index: u32) -> TxResult {
+        let (uw_pda, _) = user_winnings_pda(self.pool_id, winner);
+        if self.svm.get_account(&uw_pda).is_none() {
+            inject_user_winnings(&mut self.svm, self.pool_id, *winner, 0, 0, 0);
+        }
+        let crank = clone_keypair(&self.crank);
+        crate::common::account_builders::ReinvestWinningsBuilder::for_pool(
+            self.pool_id,
+            self.cycle_id,
+            crank.pubkey(),
+        )
+        .with_winner(winner)
+        .with_ticket_registry(self.ticket_registry)
+        .with_winner_index(winner_index)
+        .send(&mut self.svm, &crank)
+    }
+
+    pub fn send_crank_close(&mut self) -> TxResult {
+        let crank = clone_keypair(&self.crank);
+        crate::common::account_builders::CrankClosePayoutRegistryBuilder::new(
+            crank.pubkey(),
+            self.pool_id,
+            self.cycle_id,
+        )
+        .send(&mut self.svm, &crank)
+    }
+}
+
+pub struct RevealFixtureBuilder {
+    pool_id: u32,
+    cycle_id: u32,
+    status: anchor::PoolStatus,
+    is_frozen: bool,
+    tiers: Vec<anchor::PrizeTier>,
+    num_tickets: usize,
+    locked_tickets: Option<u32>,
+    prize_pot: u64,
+    allocated_prizes: Option<u64>,
+    draw_status: anchor::DrawStatus,
+}
+
+impl RevealFixtureBuilder {
+    pub fn new() -> Self {
+        Self {
+            pool_id: 1,
+            cycle_id: 0,
+            status: anchor::PoolStatus::Active,
+            is_frozen: true,
+            tiers: vec![anchor::PrizeTier::default_single_winner()],
+            num_tickets: 5,
+            locked_tickets: None,
+            prize_pot: 1_000_000,
+            allocated_prizes: None,
+            draw_status: anchor::DrawStatus::AwaitingRandomness,
+        }
+    }
+
+    pub fn with_pool_id(mut self, pool_id: u32) -> Self {
+        self.pool_id = pool_id;
+        self
+    }
+
+    pub fn with_cycle_id(mut self, cycle_id: u32) -> Self {
+        self.cycle_id = cycle_id;
+        self
+    }
+
+    pub fn with_status(mut self, status: anchor::PoolStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn with_frozen(mut self, is_frozen: bool) -> Self {
+        self.is_frozen = is_frozen;
+        self
+    }
+
+    pub fn with_tiers(mut self, tiers: Vec<anchor::PrizeTier>) -> Self {
+        self.tiers = tiers;
+        self
+    }
+
+    pub fn with_num_tickets(mut self, num_tickets: usize) -> Self {
+        self.num_tickets = num_tickets;
+        self
+    }
+
+    pub fn with_locked_tickets(mut self, locked_tickets: u32) -> Self {
+        self.locked_tickets = Some(locked_tickets);
+        self
+    }
+
+    pub fn with_prize_pot(mut self, prize_pot: u64) -> Self {
+        self.prize_pot = prize_pot;
+        self
+    }
+
+    pub fn with_allocated_prizes(mut self, allocated_prizes: u64) -> Self {
+        self.allocated_prizes = Some(allocated_prizes);
+        self
+    }
+
+    pub fn with_draw_status(mut self, draw_status: anchor::DrawStatus) -> Self {
+        self.draw_status = draw_status;
+        self
+    }
+
+    pub fn build(self) -> RevealFixture {
+        let authority = Keypair::new();
+        let admin = Keypair::new();
+        let crank = Keypair::new();
+        let jobs = crank.insecure_clone();
+        let mut svm =
+            setup_global_config_with_admin(&authority, &admin.pubkey(), Some(&crank.pubkey()));
+        svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+        svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+
+        let tickets = create_test_ticket_owners(self.num_tickets);
+        let registry = Keypair::new().pubkey();
+        inject_registry_with_tickets(
+            &mut svm,
+            registry,
+            self.pool_id,
+            10_000,
+            self.num_tickets as u32,
+            0,
+            &tickets,
+        );
+
+        let allocated = self.allocated_prizes.unwrap_or(self.prize_pot);
+        crate::common::state_builders::PrizePoolTestBuilder::new(self.pool_id)
+            .with_ticket_registry(registry)
+            .with_status(self.status)
+            .with_frozen(self.is_frozen)
+            .with_prize_tiers(self.tiers)
+            .with_current_draw_cycle_id(self.cycle_id)
+            .with_cycle_end_at(1_700_000_000)
+            .with_solvency_state((self.num_tickets as u64) * 1_000_000, allocated, 0)
+            .inject(&mut svm);
+
+        let randomness_account = Keypair::new().pubkey();
+        inject_mock_randomness_account(&mut svm, randomness_account);
+
+        let locked = self.locked_tickets.unwrap_or(self.num_tickets as u32);
+        crate::common::state_builders::DrawCycleTestBuilder::new(self.pool_id, self.cycle_id)
+            .with_status(self.draw_status)
+            .with_locked_tickets(locked)
+            .with_prize_pot(self.prize_pot)
+            .with_randomness_account(randomness_account)
+            .inject(&mut svm);
+
+        RevealFixture {
+            svm,
+            admin,
+            crank,
+            jobs_account: jobs,
+            ticket_registry: registry,
+            tickets,
+            randomness_account,
+            pool_id: self.pool_id,
+            cycle_id: self.cycle_id,
+        }
+    }
+}
+
+impl Default for RevealFixtureBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }

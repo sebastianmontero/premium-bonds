@@ -115,7 +115,7 @@ fn test_err_cannot_modify_bond_price_with_active_deposits() {
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
 
-    let pool_addr = inject_pool(
+    let _pool_addr = inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -126,31 +126,10 @@ fn test_err_cannot_modify_bond_price_with_active_deposits() {
     mutate_pool_state(&mut svm, pool_id, |p| {
         p.total_deposited_principal = 10_000_000;
     });
-    let (gc, _) = global_config_pda();
-    let accounts = anchor::accounts::UpdatePoolConfig {
-        admin: admin.pubkey(),
-        global_config: gc,
-        pool: pool_addr,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::UpdatePoolConfig {
-            new_stake_cycle_duration_hrs: None,
-            new_bond_price: Some(2_000_000), // Cannot update price with principal
-            new_fee_basis_points: None,
-            new_min_yield_threshold: None,
-            new_max_yield_basis_points: None,
-            new_payout_timelock_seconds: None,
-            new_fee_wallet: None,
-        }
-        .data(),
-    };
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res = UpdatePoolConfigBuilder::for_pool(pool_id, admin.pubkey())
+        .with_bond_price(2_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
@@ -163,7 +142,7 @@ fn test_err_pool_closed() {
     let pool_id = 2;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let pool_addr = inject_pool(
+    let _pool_addr = inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -171,8 +150,6 @@ fn test_err_pool_closed() {
         anchor::PoolStatus::Closed,
         false,
     );
-    let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
-    let (payout_reg, _) = payout_pda(pool_id, 0);
     DrawCycleTestBuilder::new(pool_id, 0)
         .with_status(anchor::DrawStatus::Complete)
         .with_prize_pot(1_000_000)
@@ -187,23 +164,8 @@ fn test_err_pool_closed() {
         anchor::PayoutRegistryStatus::Active,
     );
 
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        admin: admin.pubkey(),
-        global_config: global_config_pda().0,
-        pool: pool_addr,
-        current_draw_cycle: draw_cycle_key,
-        payout_registry: payout_reg,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res =
+        AdminVoidPayoutRegistryBuilder::new(admin.pubkey(), pool_id, 0).send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::PoolClosed);
 }
 
@@ -326,45 +288,13 @@ fn test_err_insufficient_active_tickets() {
         huma_pool_state,
     );
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
-    let accounts = anchor::accounts::SellBonds {
-        user: user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry,
-        token_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: Keypair::new().pubkey(),
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_active = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 10,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
-    let res = send_user_tx(&mut svm, &user, ix_active);
+    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
+        .with_shares(10, 0)
+        .with_token_mint(token_mint)
+        .with_huma_mode_mint(pst_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_huma_pool_state(huma_pool_state)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::InsufficientActiveTickets);
 }
 
@@ -405,45 +335,13 @@ fn test_err_insufficient_pending_tickets() {
         huma_pool_state,
     );
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
-    let accounts = anchor::accounts::SellBonds {
-        user: user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry,
-        token_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: Keypair::new().pubkey(),
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_pending = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 0,
-            pending_to_sell: 5,
-        }
-        .data(),
-    };
-    let res = send_user_tx(&mut svm, &user, ix_pending);
+    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
+        .with_shares(0, 5)
+        .with_token_mint(token_mint)
+        .with_huma_mode_mint(pst_mint)
+        .with_ticket_registry(ticket_registry)
+        .with_huma_pool_state(huma_pool_state)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::InsufficientPendingTickets);
 }
 
@@ -475,33 +373,15 @@ fn test_err_cycle_not_ended() {
         .with_cycle_end_at(2_000_000_000)
         .inject(&mut svm);
 
-    let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
     let randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, randomness_account);
 
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: crank.pubkey(),
-        global_config: global_config_pda().0,
-        pool: pool_addr,
-        ticket_registry: registry,
-        current_draw_cycle: draw_cycle_pda_addr,
-        pool_pst_vault,
-        pst_mint,
-        huma_pool_state,
-        randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = HarvestYieldAndCommitBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_pst_mint(pst_mint)
+        .with_ticket_registry(registry)
+        .with_huma_pool_state(huma_pool_state)
+        .with_randomness_account(randomness_account)
+        .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::CycleNotEnded);
 }
 
@@ -511,7 +391,7 @@ fn test_err_draw_already_voided() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let pool_addr = inject_pool(
+    let _pool_addr = inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -519,8 +399,6 @@ fn test_err_draw_already_voided() {
         anchor::PoolStatus::Active,
         false,
     );
-    let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
-    let (payout_reg, _) = payout_pda(pool_id, 0);
 
     DrawCycleTestBuilder::new(pool_id, 0)
         .with_status(anchor::DrawStatus::Complete)
@@ -536,23 +414,8 @@ fn test_err_draw_already_voided() {
         anchor::PayoutRegistryStatus::Voided,
     );
 
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        admin: admin.pubkey(),
-        global_config: global_config_pda().0,
-        pool: pool_addr,
-        current_draw_cycle: draw_cycle_key,
-        payout_registry: payout_reg,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res =
+        AdminVoidPayoutRegistryBuilder::new(admin.pubkey(), pool_id, 0).send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::DrawAlreadyVoided);
 }
 
@@ -562,7 +425,7 @@ fn test_err_payouts_already_started() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let pool_addr = inject_pool(
+    let _pool_addr = inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -570,8 +433,6 @@ fn test_err_payouts_already_started() {
         anchor::PoolStatus::Active,
         false,
     );
-    let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
-    let (payout_reg, _) = payout_pda(pool_id, 0);
 
     DrawCycleTestBuilder::new(pool_id, 0)
         .with_status(anchor::DrawStatus::Complete)
@@ -587,23 +448,8 @@ fn test_err_payouts_already_started() {
         anchor::PayoutRegistryStatus::Active,
     ); // processed_count = 1
 
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        admin: admin.pubkey(),
-        global_config: global_config_pda().0,
-        pool: pool_addr,
-        current_draw_cycle: draw_cycle_key,
-        payout_registry: payout_reg,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res =
+        AdminVoidPayoutRegistryBuilder::new(admin.pubkey(), pool_id, 0).send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::PayoutsAlreadyStarted);
 }
 
@@ -613,8 +459,6 @@ fn test_err_invalid_batch_size() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
-    let (pool_addr, _) = pool_pda(pool_id);
-    let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
     inject_registry(&mut svm, registry, pool_id, 1000, 0, 0);
     inject_pool_with_huma_state(
@@ -629,20 +473,10 @@ fn test_err_invalid_batch_size() {
     let dc = default_draw_cycle(pool_id, 0, anchor::DrawStatus::AwaitingRandomness);
     inject_draw_cycle(&mut svm, pool_id, 0, &dc);
 
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: crank.pubkey(),
-        pool: pool_addr,
-        draw_cycle: draw_cycle_addr,
-        ticket_registry: registry,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size: 0 }.data(),
-    };
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = PrepareDrawBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_ticket_registry(registry)
+        .with_batch_size(0)
+        .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::InvalidBatchSize);
 }
 
@@ -660,7 +494,7 @@ fn test_err_randomness_not_expired() {
     let token_mint = Keypair::new().pubkey();
     let registry = Keypair::new().pubkey();
 
-    let pool_addr = inject_pool(
+    let _pool_addr = inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -668,38 +502,15 @@ fn test_err_randomness_not_expired() {
         anchor::PoolStatus::Active,
         true,
     );
-    let (draw_cycle_key, _) = draw_cycle_pda(pool_id, 0);
 
     // Inject DrawCycle with harvest_slot = 100
-    let dc = anchor::state::DrawCycle {
-        prize_pot: 10_000_000,
-        cycle_fee_collected: 100_000,
-        harvest_slot: 100,
-        initiated_at: 1_700_000_000,
-        completed_at: 0,
-        randomness_account: Pubkey::default(),
-        pool_id,
-        cycle_id: 0,
-        locked_ticket_count: 10,
-        status: anchor::DrawStatus::AwaitingRandomness,
-        version: 1,
-        randomness_seed: [0; 32],
-        _reserved: [0; 64],
-    };
-    let mut dc_data = vec![];
-    dc_data.extend_from_slice(anchor::state::DrawCycle::DISCRIMINATOR);
-    dc.serialize(&mut dc_data).unwrap();
-    svm.set_account(
-        draw_cycle_key,
-        Account {
-            lamports: 1_000_000_000,
-            data: dc_data,
-            owner: anchor::id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    DrawCycleTestBuilder::new(pool_id, 0)
+        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_prize_pot(10_000_000)
+        .with_cycle_fee(100_000)
+        .with_harvest_slot(100)
+        .with_locked_tickets(10)
+        .inject(&mut svm);
 
     svm.set_sysvar::<solana_sdk::sysvar::clock::Clock>(&solana_sdk::sysvar::clock::Clock {
         slot: 500, // diff 400 < 1000 expiry window
@@ -709,25 +520,14 @@ fn test_err_randomness_not_expired() {
     let new_randomness_account = Keypair::new().pubkey();
     inject_mock_randomness_account(&mut svm, new_randomness_account);
 
-    let (gc, _) = global_config_pda();
-    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        crank: crank.pubkey(),
-        global_config: gc,
-        pool: pool_addr,
-        current_draw_cycle: draw_cycle_key,
-        current_randomness_account: Pubkey::default(),
+    let res = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        pool_id,
+        0,
+        Pubkey::default(),
         new_randomness_account,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &crank, ix);
+    )
+    .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::RandomnessNotExpired);
 }
 
@@ -781,61 +581,25 @@ fn test_err_no_winnings_to_claim() {
     );
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0); // 0 unclaimed winnings
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_addr, 10_000_000);
 
-    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
-        user: user.pubkey(),
-        user_winnings,
-        pool: pool_addr,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: Keypair::new().pubkey(),
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    };
-    let res = send_user_tx(&mut svm, &user, ix);
+    let res = ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, user.pubkey())
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_pool_state(huma_pool_state)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::NoWinningsToClaim);
 }
 
 #[test]
 fn test_err_invalid_winner_index() {
-    let payout = anchor::PayoutRegistry {
-        pool_id: 1,
-        cycle_id: 0,
-        winners_count: 1,
-        payouts_completed: 0,
-        revealed_at: 0,
-        status: anchor::PayoutRegistryStatus::Active as u8,
-        version: 1,
-        _padding: [0; 6],
-        _reserved: [0; 64],
-    };
+    let payout = PayoutRegistryTestBuilder::new(1, 0)
+        .with_winners_count(1)
+        .build_header();
 
     let user1 = Keypair::new().pubkey();
 
-    let winners = vec![WinnerTestBuilder::default_winner(user1, 1_000_000, 0)];
+    let winners = vec![WinnerTestBuilder::unprocessed(user1, 1_000_000, 0)];
 
     let pref = anchor::PayoutRegistryRef {
         header: &payout,
@@ -850,22 +614,14 @@ fn test_err_invalid_winner_index() {
 
 #[test]
 fn test_err_winner_mismatch() {
-    let payout = anchor::PayoutRegistry {
-        pool_id: 1,
-        cycle_id: 0,
-        winners_count: 1,
-        payouts_completed: 0,
-        revealed_at: 0,
-        status: anchor::PayoutRegistryStatus::Active as u8,
-        version: 1,
-        _padding: [0; 6],
-        _reserved: [0; 64],
-    };
+    let payout = PayoutRegistryTestBuilder::new(1, 0)
+        .with_winners_count(1)
+        .build_header();
 
     let user1 = Keypair::new().pubkey();
     let user2 = Keypair::new().pubkey();
 
-    let winners = vec![WinnerTestBuilder::default_winner(user1, 1_000_000, 0)];
+    let winners = vec![WinnerTestBuilder::unprocessed(user1, 1_000_000, 0)];
 
     let pref = anchor::PayoutRegistryRef {
         header: &payout,
@@ -959,14 +715,8 @@ fn assert_create_pool_fails_with_token_2022_extension(
 
 #[test]
 fn test_err_invalid_admin_address() {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
     let payer = Keypair::new();
-    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
-    setup_program_data(&mut svm, Some(&payer.pubkey()));
+    let mut svm = setup_svm_with_authority(&payer);
     let res = send_initialize_global(
         &mut svm,
         &payer,

@@ -70,29 +70,11 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
 
     let ticket_registry = Keypair::new().pubkey();
 
-    let mut entries = vec![anchor::state::UserEntry {
-        owner: user.pubkey(),
-        active,
-        pending,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let mut entries = vec![UserEntryTestBuilder::entry(user.pubkey(), active, pending)];
 
     for &pk in tickets {
         if pk != user.pubkey() {
-            entries.push(anchor::state::UserEntry {
-                owner: pk,
-                active: 1,
-                pending: 0,
-                merged_through_cycle: 0,
-                cumulative_active: 0,
-                version: anchor::state::UserEntry::CURRENT_VERSION,
-                _padding: [0; 3],
-                _reserved: [0; 12],
-            });
+            entries.push(UserEntryTestBuilder::active(pk, 1));
         }
     }
 
@@ -821,16 +803,7 @@ fn test_sell_bonds_fails_user_entry_idx_ge_user_count() {
     // Forge slot 5 with owner = user.pubkey() in raw registry data while keeping user_count = 1
     {
         let mut acc = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
-        let forged_entry = anchor::state::UserEntry {
-            owner: ctx.user.pubkey(),
-            active: 1,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        };
+        let forged_entry = UserEntryTestBuilder::active(ctx.user.pubkey(), 1);
         anchor::utils::registry_set_entry(&mut acc.data, 5, &forged_entry).unwrap();
         ctx.svm.set_account(ctx.ticket_registry, acc).unwrap();
     }
@@ -873,16 +846,7 @@ fn test_sell_bonds_fails_u32_overflow() {
 fn test_sell_bonds_fails_yield_venue_insolvent() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
     // Inject valid user entry in ticket registry
-    let entries = vec![anchor::state::UserEntry {
-        owner: ctx.user.pubkey(),
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(ctx.user.pubkey(), 10)];
     inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
 
@@ -1041,16 +1005,7 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     let mut ctx = setup_guard(false, 1, 0, &[]);
 
     // Inject entry and winnings
-    let entries = vec![anchor::state::UserEntry {
-        owner: ctx.user.pubkey(),
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(ctx.user.pubkey(), 10)];
     inject_registry_with_entries(&mut ctx.svm, ctx.ticket_registry, 1, 1000, &entries);
     inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 0, 0, 0, 0);
 
@@ -1073,46 +1028,15 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 10_000_000);
 
     let (pending_redemption, _) = pending_redemption_pda(1, u64::MAX);
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
-    let dummy = Keypair::new().pubkey();
+    let res = SellBondsBuilder::for_pool(1, ctx.user.pubkey())
+        .with_shares(1, 0)
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_token_mint(ctx.token_mint)
+        .with_huma_mode_mint(ctx.huma_mode_mint)
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_pending_redemption(pending_redemption)
+        .send(&mut ctx.svm, &ctx.user);
 
-    let accounts = anchor::accounts::SellBonds {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.token_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.huma_mode_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: dummy,
-        huma_pool_mode_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 1,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
@@ -1253,56 +1177,14 @@ fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
     send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
 
     let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
-    let (pool_pda_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
-    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
-    let dummy = Keypair::new().pubkey();
 
-    let mut accounts = anchor::accounts::SellBonds {
-        user: user_a.pubkey(),
-        user_winnings: user_a_winnings,
-        pool: pool_pda_key,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    // Explicitly push User B's UserWinnings PDA as remaining account 0
-    accounts.push(solana_program::instruction::AccountMeta::new(
-        user_b_winnings,
-        false,
-    ));
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 0,
-            pending_to_sell: 3,
-        }
-        .data(),
-    };
-
-    send_user_tx(&mut ctx.svm, &user_a, ix).unwrap();
+    SellBondsBuilder::from_ctx(&ctx)
+        .with_user(&user_a.pubkey())
+        .with_huma_pool_mode_token(huma_pool_mode_token)
+        .with_shares(0, 3)
+        .with_swapped_user_winnings(Some(user_b_winnings))
+        .send(&mut ctx.svm, &user_a)
+        .unwrap();
 
     // Verify swap-and-pop results
     assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
@@ -1351,66 +1233,17 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
     let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
 
     // Corrupt User B's winnings state so that registry_entry_index == 99 (instead of expected 1)
-    {
-        let mut winnings_b = read_user_winnings_state(&ctx.svm, 1, &user_b.pubkey());
-        winnings_b.registry_entry_index = 99;
-        let mut data = vec![];
-        winnings_b.try_serialize(&mut data).unwrap();
-        data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-        let mut account = ctx.svm.get_account(&user_b_winnings).unwrap();
-        account.data = data;
-        ctx.svm.set_account(user_b_winnings, account).unwrap();
-    }
+    mutate_user_winnings(&mut ctx.svm, 1, &user_b.pubkey(), |w| {
+        w.registry_entry_index = 99;
+    });
 
-    let (pool_pda_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
-    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
-    let dummy = Keypair::new().pubkey();
+    let res = SellBondsBuilder::from_ctx(&ctx)
+        .with_user(&user_a.pubkey())
+        .with_huma_pool_mode_token(huma_pool_mode_token)
+        .with_shares(0, 3)
+        .with_swapped_user_winnings(Some(user_b_winnings))
+        .send(&mut ctx.svm, &user_a);
 
-    let mut accounts = anchor::accounts::SellBonds {
-        user: user_a.pubkey(),
-        user_winnings: user_a_winnings,
-        pool: pool_pda_key,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    accounts.push(solana_program::instruction::AccountMeta::new(
-        user_b_winnings,
-        false,
-    ));
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 0,
-            pending_to_sell: 3,
-        }
-        .data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &user_a, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
@@ -1445,58 +1278,18 @@ fn test_sell_bonds_decoy_accounts_rejected() {
     send_e2e_buy_bonds_for_user(&mut ctx, &user_b, user_b_usdc, 2, Pubkey::default()).unwrap();
 
     let (user_b_winnings, _) = user_winnings_pda(1, &user_b.pubkey());
-    let (pool_pda_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
-    let (user_a_winnings, _) = user_winnings_pda(1, &user_a.pubkey());
-    let dummy = Keypair::new().pubkey();
-
-    let make_base_accounts = || {
-        anchor::accounts::SellBonds {
-            user: user_a.pubkey(),
-            user_winnings: user_a_winnings,
-            pool: pool_pda_key,
-            ticket_registry: ctx.ticket_registry,
-            token_mint: ctx.usdc_mint,
-            pool_pst_vault,
-            pending_redemption,
-            huma_program: huma_program_id(),
-            huma_config: dummy,
-            huma_pool_config: dummy,
-            huma_pool_state: ctx.huma_pool_state,
-            huma_mode_config: dummy,
-            huma_mode_mint: ctx.pst_mint,
-            huma_redemption_request: dummy,
-            huma_lender_state: dummy,
-            huma_pool_authority: ctx.huma_pool_authority,
-            huma_pool_mode_token,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None)
-    };
 
     // Subcase 1: Read-only remaining account
     {
-        let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new_readonly(
-            user_b_winnings,
-            false,
-        ));
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::SellBonds {
-                active_to_sell: 0,
-                pending_to_sell: 3,
-            }
-            .data(),
-        };
-        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
+        let res = SellBondsBuilder::from_ctx(&ctx)
+            .with_user(&user_a.pubkey())
+            .with_huma_pool_mode_token(huma_pool_mode_token)
+            .with_shares(0, 3)
+            .with_remaining_account(solana_program::instruction::AccountMeta::new_readonly(
+                user_b_winnings,
+                false,
+            ))
+            .send(&mut ctx.svm, &user_a);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1519,20 +1312,14 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             )
             .unwrap();
 
-        let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(
-            fake_key, false,
-        ));
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::SellBonds {
-                active_to_sell: 0,
-                pending_to_sell: 3,
-            }
-            .data(),
-        };
-        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
+        let res = SellBondsBuilder::from_ctx(&ctx)
+            .with_user(&user_a.pubkey())
+            .with_huma_pool_mode_token(huma_pool_mode_token)
+            .with_shares(0, 3)
+            .with_remaining_account(solana_program::instruction::AccountMeta::new(
+                fake_key, false,
+            ))
+            .send(&mut ctx.svm, &user_a);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1555,20 +1342,14 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             )
             .unwrap();
 
-        let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(
-            fake_key, false,
-        ));
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::SellBonds {
-                active_to_sell: 0,
-                pending_to_sell: 3,
-            }
-            .data(),
-        };
-        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
+        let res = SellBondsBuilder::from_ctx(&ctx)
+            .with_user(&user_a.pubkey())
+            .with_huma_pool_mode_token(huma_pool_mode_token)
+            .with_shares(0, 3)
+            .with_remaining_account(solana_program::instruction::AccountMeta::new(
+                fake_key, false,
+            ))
+            .send(&mut ctx.svm, &user_a);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1606,20 +1387,14 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             )
             .unwrap();
 
-        let mut accounts = make_base_accounts();
-        accounts.push(solana_program::instruction::AccountMeta::new(
-            decoy_pda, false,
-        ));
-        let ix = Instruction {
-            program_id: anchor::id(),
-            accounts,
-            data: anchor::instruction::SellBonds {
-                active_to_sell: 0,
-                pending_to_sell: 3,
-            }
-            .data(),
-        };
-        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
+        let res = SellBondsBuilder::from_ctx(&ctx)
+            .with_user(&user_a.pubkey())
+            .with_huma_pool_mode_token(huma_pool_mode_token)
+            .with_shares(0, 3)
+            .with_remaining_account(solana_program::instruction::AccountMeta::new(
+                decoy_pda, false,
+            ))
+            .send(&mut ctx.svm, &user_a);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,

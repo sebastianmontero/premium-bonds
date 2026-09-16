@@ -38,11 +38,7 @@ fn setup_claim_redemption_guard(
     redemption_amount: u64,
     redemption_owner: Option<Pubkey>,
 ) -> ClaimGuardCtx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
+    let mut svm = setup_svm();
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();

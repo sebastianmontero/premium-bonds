@@ -17,16 +17,8 @@
 //! | `reinvest_winnings`           | ✅ Allowed    | ❌ Blocked   | ✅ Allowed   |
 
 use {
-    anchor::error::PremiumBondsError,
-    anchor_lang::prelude::Pubkey,
-    anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_program::instruction::Instruction,
-    solana_sdk::account::Account,
-    solana_sdk::message::{Message, VersionedMessage},
+    anchor::error::PremiumBondsError, anchor_lang::prelude::Pubkey, solana_keypair::Keypair,
     solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
 };
 
 mod common;
@@ -85,10 +77,7 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_pda_addr, 0);
 
     let ticket_registry = Keypair::new().pubkey();
-    let entries = vec![UserEntryTestBuilder::new()
-        .with_owner(user.pubkey())
-        .with_active(10)
-        .build()];
+    let entries = vec![UserEntryTestBuilder::active(user.pubkey(), 10)];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
     inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
     let huma_pool_state = Keypair::new().pubkey();
@@ -104,53 +93,20 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
         huma_pool_state,
     );
 
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
     let huma_redemption_request = Keypair::new().pubkey();
     let huma_lender_state = Keypair::new().pubkey();
-    let huma_pool_mode_token = Keypair::new().pubkey();
     inject_dummy_huma_account(&mut svm, huma_redemption_request);
     inject_dummy_huma_account(&mut svm, huma_lender_state);
-    inject_dummy_huma_account(&mut svm, huma_pool_mode_token);
 
-    let accounts = anchor::accounts::SellBonds {
-        user: user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry,
-        token_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: pst_mint,
-        huma_redemption_request,
-        huma_lender_state,
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 1,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
-
-    let res = send_user_tx(&mut svm, &user, ix);
+    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_token_mint(token_mint)
+        .with_huma_pool_state(huma_pool_state)
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_redemption_request(huma_redemption_request)
+        .with_huma_lender_state(huma_lender_state)
+        .with_shares(1, 0)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -176,7 +132,7 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     let user_token_account = Keypair::new().pubkey();
     inject_token_account(&mut svm, user_token_account, token_mint, user.pubkey(), 0);
 
-    let (pending_redemption, bump) = pending_redemption_pda(pool_id, 0);
+    let (_pending_redemption, bump) = pending_redemption_pda(pool_id, 0);
     inject_pending_redemption_with_params(
         &mut svm,
         anchor::state::InitPendingRedemptionParams {
@@ -210,36 +166,13 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
     inject_dummy_huma_account(&mut svm, huma_lender_state);
     inject_dummy_huma_account(&mut svm, huma_pool_underlying_token);
 
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_pda_addr,
-        pending_redemption,
-        token_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_lender_state,
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &user, ix);
+    let res = ClaimRedemptionBuilder::for_redemption(pool_id, 0, user.pubkey(), user.pubkey())
+        .with_beneficiary_token_account(user_token_account)
+        .with_token_mint(token_mint)
+        .with_huma_pool_state(huma_pool_state)
+        .with_huma_lender_state(huma_lender_state)
+        .with_huma_pool_underlying_token(huma_pool_underlying_token)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -282,49 +215,20 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
         .with_fees_accrued(10_000_000)
         .inject(&mut svm);
 
-    let (gc, _) = global_config_pda();
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-
     let huma_redemption_request = Keypair::new().pubkey();
     let huma_lender_state = Keypair::new().pubkey();
-    let huma_pool_mode_token = Keypair::new().pubkey();
     inject_dummy_huma_account(&mut svm, huma_redemption_request);
     inject_dummy_huma_account(&mut svm, huma_lender_state);
-    inject_dummy_huma_account(&mut svm, huma_pool_mode_token);
 
-    let accounts = anchor::accounts::WithdrawFees {
-        admin: admin.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state,
-        huma_mode_config: Pubkey::default(),
-        huma_mode_mint: pst_mint,
-        huma_redemption_request,
-        huma_lender_state,
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_mode_token,
-        token_mint,
-        fee_wallet,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res = WithdrawFeesBuilder::for_pool(pool_id, admin.pubkey())
+        .with_token_mint(token_mint)
+        .with_fee_wallet(fee_wallet)
+        .with_huma_pool_state(huma_pool_state)
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_redemption_request(huma_redemption_request)
+        .with_huma_lender_state(huma_lender_state)
+        .with_amount(1_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -341,12 +245,8 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
-    let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
-    let entries = vec![UserEntryTestBuilder::new()
-        .with_owner(crank.pubkey())
-        .with_active(10)
-        .build()];
+    let entries = vec![UserEntryTestBuilder::active(crank.pubkey(), 10)];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
     // Inject draw cycle awaiting randomness
@@ -359,7 +259,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         .inject(&mut svm);
 
     // 1. Paused
-    let pool_pda_addr = inject_pool(
+    inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -367,21 +267,10 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         anchor::PoolStatus::Paused,
         true,
     );
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: crank.pubkey(),
-        pool: pool_pda_addr,
-        draw_cycle: draw_cycle_addr,
-        ticket_registry,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = PrepareDrawBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_batch_size(10)
+        .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
@@ -396,19 +285,10 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
     // Use new crank keypair to guarantee distinct signature
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
-    let accounts2 = anchor::accounts::PrepareDraw {
-        crank: crank2.pubkey(),
-        pool: pool_pda_addr,
-        draw_cycle: draw_cycle_addr,
-        ticket_registry,
-    }
-    .to_account_metas(None);
-    let ix2 = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts2,
-        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-    };
-    let res2 = send_user_tx(&mut svm, &crank2, ix2);
+    let res2 = PrepareDrawBuilder::for_pool(pool_id, 0, crank2.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_batch_size(10)
+        .send(&mut svm, &crank2);
     assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
@@ -426,8 +306,6 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     let pool_id = 1;
     let token_mint = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
-    let (gc, _) = global_config_pda();
-    let (draw_cycle_addr, _) = draw_cycle_pda(pool_id, 0);
 
     // Inject draw cycle awaiting randomness
     DrawCycleTestBuilder::new(pool_id, 0)
@@ -439,7 +317,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
         .inject(&mut svm);
 
     // 1. Paused
-    let pool_pda_addr = inject_pool(
+    inject_pool(
         &mut svm,
         pool_id,
         token_mint,
@@ -447,25 +325,14 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
         anchor::PoolStatus::Paused,
         true,
     );
-    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        crank: crank.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        current_draw_cycle: draw_cycle_addr,
-        current_randomness_account: Pubkey::default(),
-        new_randomness_account: Pubkey::default(),
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        pool_id,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
@@ -483,23 +350,14 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
     send_update_global_config(&mut svm, &admin, None, Some(crank2.pubkey()))
         .expect("Rotate crank/jobs_account via genuine admin instruction");
 
-    let accounts2 = anchor::accounts::CrankRebindExpiredRandomness {
-        crank: crank2.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        current_draw_cycle: draw_cycle_addr,
-        current_randomness_account: Pubkey::default(),
-        new_randomness_account: Pubkey::default(),
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-    let ix2 = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts2,
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-    let res2 = send_user_tx(&mut svm, &crank2, ix2);
+    let res2 = CrankRebindExpiredRandomnessBuilder::new(
+        crank2.pubkey(),
+        pool_id,
+        0,
+        Pubkey::default(),
+        Pubkey::default(),
+    )
+    .send(&mut svm, &crank2);
     assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
@@ -518,17 +376,10 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     let token_mint = Keypair::new().pubkey();
     let ticket_registry = Keypair::new().pubkey();
 
-    let entries = vec![UserEntryTestBuilder::new()
-        .with_owner(winner)
-        .with_active(10)
-        .build()];
+    let entries = vec![UserEntryTestBuilder::active(winner, 10)];
     inject_registry_with_entries(&mut svm, ticket_registry, pool_id, 1000, &entries);
 
-    let winner_entry = WinnerTestBuilder::default_winner(winner, 3_000_000, 0);
-
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &winner);
-    let (payout_reg, _) = payout_pda(pool_id, 0);
+    let winner_entry = WinnerTestBuilder::unprocessed(winner, 3_000_000, 0);
 
     // 1. Paused -> Blocked with PoolPaused
     PrizePoolTestBuilder::new(pool_id)
@@ -548,30 +399,11 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     );
     inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
 
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: crank.pubkey(),
-        winner,
-        payout_registry: payout_reg,
-        pool: pool_pda_addr,
-        user_winnings,
-        ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts.clone(),
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id: 0,
-            winner_index: 0,
-        }
-        .data(),
-    };
-
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = ReinvestWinningsBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_winner(&winner)
+        .with_ticket_registry(ticket_registry)
+        .with_winner_index(0)
+        .send(&mut svm, &crank);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 
     // 2. Active -> Allowed
@@ -594,18 +426,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
 
     let crank2 = Keypair::new();
     svm.airdrop(&crank2.pubkey(), 10_000_000_000).unwrap();
-    let mut accounts_active = accounts.clone();
-    accounts_active[0].pubkey = crank2.pubkey();
-    let ix_active = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_active,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id: 0,
-            winner_index: 0,
-        }
-        .data(),
-    };
-    assert!(send_user_tx(&mut svm, &crank2, ix_active).is_ok());
+    assert!(
+        ReinvestWinningsBuilder::for_pool(pool_id, 0, crank2.pubkey())
+            .with_winner(&winner)
+            .with_ticket_registry(ticket_registry)
+            .with_winner_index(0)
+            .send(&mut svm, &crank2)
+            .is_ok()
+    );
 
     // 3. Closed -> Allowed (graceful cash fallback)
     PrizePoolTestBuilder::new(pool_id)
@@ -625,20 +453,14 @@ fn test_lifecycle_reinvest_winnings_permissions() {
     );
     inject_user_winnings_with_index(&mut svm, pool_id, winner, 0, 0, 0, 0);
 
-    let (payout_reg_1, _) = payout_pda(pool_id, 1);
     let crank3 = Keypair::new();
     svm.airdrop(&crank3.pubkey(), 10_000_000_000).unwrap();
-    let mut accounts_closed = accounts;
-    accounts_closed[0].pubkey = crank3.pubkey();
-    accounts_closed[2].pubkey = payout_reg_1;
-    let ix_closed = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_closed,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id: 1,
-            winner_index: 0,
-        }
-        .data(),
-    };
-    assert!(send_user_tx(&mut svm, &crank3, ix_closed).is_ok());
+    assert!(
+        ReinvestWinningsBuilder::for_pool(pool_id, 1, crank3.pubkey())
+            .with_winner(&winner)
+            .with_ticket_registry(ticket_registry)
+            .with_winner_index(0)
+            .send(&mut svm, &crank3)
+            .is_ok()
+    );
 }

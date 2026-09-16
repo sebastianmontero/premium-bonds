@@ -208,29 +208,16 @@ fn test_initialize_global_requires_authority_signature() {
     svm.airdrop(&real_authority.pubkey(), 10_000_000_000)
         .unwrap();
 
-    let (global_config, _) = global_config_pda();
-    let (program_data, _) = program_data_pda();
-    let guardian = Keypair::new().pubkey();
-    let jobs = Keypair::new().pubkey();
-
-    let mut accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        authority: unsigned_authority.pubkey(),
-        admin: unsigned_authority.pubkey(),
-        guardian,
-        jobs_account: jobs,
-        program_data,
-        program: anchor::id(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
+    let mut metas =
+        InitializeGlobalBuilder::new(unsigned_authority.pubkey(), unsigned_authority.pubkey())
+            .build_metas();
 
     // Manually remove signer flag
-    set_signer_flag(&mut accounts, &unsigned_authority.pubkey(), false);
+    set_signer_flag(&mut metas, &unsigned_authority.pubkey(), false);
 
     let ix = Instruction {
         program_id: anchor::id(),
-        accounts,
+        accounts: metas,
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
@@ -248,29 +235,11 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
     let (wrong_pda, _) = Pubkey::find_program_address(&[b"wrong_seed"], &anchor::id());
-    let (program_data, _) = program_data_pda();
-    let guardian = Keypair::new().pubkey();
-    let jobs = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config: wrong_pda,
-        authority: authority.pubkey(),
-        admin: authority.pubkey(),
-        guardian,
-        jobs_account: jobs,
-        program_data,
-        program: anchor::id(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
+    let res = InitializeGlobalBuilder::new(authority.pubkey(), authority.pubkey())
+        .with_global_config(wrong_pda)
+        .send(&mut svm, &authority);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &authority, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
@@ -279,31 +248,13 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
 fn test_initialize_global_rejects_wrong_program_data_pda() {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
-    let (global_config, _) = global_config_pda();
     let (wrong_program_data, _) =
         Pubkey::find_program_address(&[b"wrong_program_data"], &anchor::id());
-    let guardian = Keypair::new().pubkey();
-    let jobs = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::InitializeGlobal {
-        global_config,
-        authority: authority.pubkey(),
-        admin: authority.pubkey(),
-        guardian,
-        jobs_account: jobs,
-        program_data: wrong_program_data,
-        program: anchor::id(),
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
+    let res = InitializeGlobalBuilder::new(authority.pubkey(), authority.pubkey())
+        .with_program_data(wrong_program_data)
+        .send(&mut svm, &authority);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeGlobal {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &authority, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 

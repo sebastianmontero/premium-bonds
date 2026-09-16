@@ -48,10 +48,6 @@ impl ClaimCtx {
 fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> ClaimCtx {
     let authority = Keypair::new();
     let mut svm = setup_svm_with_authority(&authority);
-    let _ = svm.add_program(
-        anchor::constants::HUMA_PROGRAM_ID,
-        include_bytes!("../../../target/deploy/mock_huma.so"),
-    );
 
     let user = Keypair::new();
     svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
@@ -171,13 +167,6 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     let mut ctx = common::setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
-    let huma_pool_mode_token = common::create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
-
     // Setup user winnings with 500_000 unclaimed winnings
     let (user_winnings_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.user.pubkey(), 500_000, 0, 0, 0);
@@ -197,9 +186,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
     // Send claim instruction via ClaimNonReinvestedWinningsBuilder
-    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
-        .build_ix();
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx).build_ix();
     let user = clone_keypair(&ctx.user);
     let meta = send_user_tx(&mut ctx.svm, &user, ix).expect("claim non-reinvested winnings");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
@@ -287,13 +274,6 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     let mut ctx = common::setup_e2e();
     let pool_pst_vault = pool_pst_vault_pda(1).0;
 
-    let huma_pool_mode_token = common::create_spl_token_account(
-        &mut ctx.svm,
-        &ctx.admin,
-        &ctx.pst_mint,
-        &ctx.huma_pool_authority,
-    );
-
     // Setup pool in Closed state
     PrizePoolTestBuilder::new(1)
         .with_token_mint(ctx.usdc_mint)
@@ -321,9 +301,7 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
     // Send claim instruction on closed pool via ClaimNonReinvestedWinningsBuilder
-    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
-        .build_ix();
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx).build_ix();
     let user = clone_keypair(&ctx.user);
     let meta = send_user_tx(&mut ctx.svm, &user, ix)
         .expect("claim non-reinvested winnings on closed pool should succeed");

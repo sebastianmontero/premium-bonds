@@ -59,10 +59,12 @@ fn setup_circuit_breaker_ctx(
 }
 
 fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> CircuitBreakerCtx {
-    let admin = Keypair::new();
-    let crank = Keypair::new();
-    let mut svm = setup_global_config_with_admin(&admin, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
+    let GlobalRolesContext {
+        mut svm,
+        admin,
+        crank,
+        ..
+    } = setup_global_roles();
 
     let pool_id = 1;
     let (pool_pda, bump) = pool_pda(pool_id);

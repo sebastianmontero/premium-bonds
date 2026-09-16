@@ -9,88 +9,23 @@ use solana_sdk::signature::{Keypair, Signer};
 mod common;
 use common::*;
 
-struct DynamicRevealCtx {
-    svm: LiteSVM,
-    crank: Keypair,
-    admin: Keypair,
-    jobs_account: Keypair,
-    ticket_registry: Pubkey,
-    tickets: Vec<Pubkey>,
-    randomness_account: Pubkey,
-}
-
 fn setup_dynamic_ctx(
     tiers: Vec<anchor::PrizeTier>,
     ticket_count: u32,
     prize_pot: u64,
-) -> DynamicRevealCtx {
-    let authority = Keypair::new();
-    let admin = Keypair::new();
-    let crank = Keypair::new();
-    let jobs = crank.insecure_clone();
-    let mut svm =
-        setup_global_config_with_admin(&authority, &admin.pubkey(), Some(&crank.pubkey()));
-    svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
-    let registry = Keypair::new().pubkey();
-    let mut tickets = Vec::new();
-    for _ in 0..ticket_count {
-        tickets.push(Keypair::new().pubkey());
-    }
-    inject_registry_with_tickets(&mut svm, registry, 1, 10_000, ticket_count, 0, &tickets);
-
-    PrizePoolTestBuilder::new(1)
-        .with_ticket_registry(registry)
-        .with_status(anchor::PoolStatus::Active)
-        .with_frozen(true)
-        .with_prize_tiers(tiers)
-        .with_solvency_state((ticket_count as u64) * 1_000_000, prize_pot, 0)
-        .with_current_draw_cycle_id(0)
-        .with_cycle_end_at(1_700_000_000)
-        .inject(&mut svm);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut svm, randomness_account);
-
-    DrawCycleTestBuilder::new(1, 0)
-        .with_status(anchor::DrawStatus::AwaitingRandomness)
-        .with_locked_tickets(ticket_count)
+) -> RevealFixture {
+    RevealFixture::builder()
+        .with_tiers(tiers)
+        .with_num_tickets(ticket_count as usize)
         .with_prize_pot(prize_pot)
-        .with_randomness_account(randomness_account)
-        .inject(&mut svm);
-
-    DynamicRevealCtx {
-        svm,
-        crank,
-        admin,
-        jobs_account: jobs,
-        ticket_registry: registry,
-        tickets,
-        randomness_account,
-    }
+        .build()
 }
 
-fn send_reveal(
-    ctx: &mut DynamicRevealCtx,
-    pool_id: u32,
-    cycle_id: u32,
-    seed: [u8; 32],
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    inject_current_slot_randomness(&mut ctx.svm, ctx.randomness_account, seed);
-    let crank = clone_keypair(&ctx.crank);
-    RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
-        .with_ticket_registry(ctx.ticket_registry)
-        .with_randomness_account(ctx.randomness_account)
-        .send(&mut ctx.svm, &crank)
+fn send_reveal(ctx: &mut RevealFixture, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> TxResult {
+    ctx.send_reveal_for_cycle(pool_id, cycle_id, seed)
 }
 
-fn send_crank_close(
-    svm: &mut LiteSVM,
-    caller: &Keypair,
-    pool_id: u32,
-    cycle_id: u32,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+fn send_crank_close(svm: &mut LiteSVM, caller: &Keypair, pool_id: u32, cycle_id: u32) -> TxResult {
     CrankClosePayoutRegistryBuilder::new(caller.pubkey(), pool_id, cycle_id).send(svm, caller)
 }
 
@@ -102,7 +37,7 @@ fn send_reinvest(
     pool_id: u32,
     cycle_id: u32,
     winner_index: u32,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
+) -> TxResult {
     let (uw_pda, _) = user_winnings_pda(pool_id, &winner);
     if svm.get_account(&uw_pda).is_none() {
         inject_user_winnings(svm, pool_id, winner, 0, 0, 0);
@@ -196,22 +131,9 @@ fn test_vector_4_tier_sum_consistency() {
         anchor::PrizeTier::new(100, 60),
         anchor::PrizeTier::new(80, 50),
     ];
-    let (global_config, _) = global_config_pda();
-    let accounts = anchor::accounts::SetPrizeTiers {
-        global_config,
-        admin: admin.pubkey(),
-        pool: pool_pda,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts.clone(),
-        data: anchor::instruction::SetPrizeTiers { tiers: valid_tiers }.data(),
-    };
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res = SetPrizeTiersBuilder::for_pool(1, admin.pubkey())
+        .with_tiers(valid_tiers)
+        .send(&mut svm, &admin);
     assert!(res.is_ok(), "Setting 180 winners must succeed: {:?}", res);
 
     // 2. Setting tiers totalling 181 winners fails
@@ -219,15 +141,9 @@ fn test_vector_4_tier_sum_consistency() {
         anchor::PrizeTier::new(101, 60),
         anchor::PrizeTier::new(80, 50),
     ];
-    let ix_invalid = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SetPrizeTiers {
-            tiers: invalid_tiers,
-        }
-        .data(),
-    };
-    let res_invalid = send_user_tx(&mut svm, &admin, ix_invalid);
+    let res_invalid = SetPrizeTiersBuilder::for_pool(1, admin.pubkey())
+        .with_tiers(invalid_tiers)
+        .send(&mut svm, &admin);
     assert_custom_error(
         res_invalid,
         anchor::error::PremiumBondsError::TooManyWinners,
@@ -373,28 +289,9 @@ fn test_vector_10_voided_draw_close_permitted() {
     send_reveal(&mut ctx, 1, 0, [10u8; 32]).expect("reveal");
 
     // Void the draw cycle and payout registry via admin
-    let (global_config, _) = global_config_pda();
-    let (pool_pda, _) = pool_pda(1);
-    let (dc_pda, _) = draw_cycle_pda(1, 0);
-    let (payout_pda, _) = payout_pda(1, 0);
-
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        global_config,
-        admin: ctx.admin.pubkey(),
-        pool: pool_pda,
-        current_draw_cycle: dc_pda,
-        payout_registry: payout_pda,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-    send_user_tx(&mut ctx.svm, &ctx.admin, ix).expect("Admin void must succeed");
+    AdminVoidPayoutRegistryBuilder::new(ctx.admin.pubkey(), 1, 0)
+        .send(&mut ctx.svm, &ctx.admin)
+        .expect("Admin void must succeed");
 
     // Close must succeed immediately even with 0 payouts completed
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
@@ -489,28 +386,8 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
     .expect("reinvest");
     send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0).expect("close");
 
-    let (global_config, _) = global_config_pda();
-    let (pool_pda, _) = pool_pda(1);
-    let (dc_pda, _) = draw_cycle_pda(1, 0);
-    let (payout_pda, _) = payout_pda(1, 0);
-
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        global_config,
-        admin: ctx.admin.pubkey(),
-        pool: pool_pda,
-        current_draw_cycle: dc_pda,
-        payout_registry: payout_pda,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
+    let res = AdminVoidPayoutRegistryBuilder::new(ctx.admin.pubkey(), 1, 0)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,

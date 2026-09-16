@@ -21,20 +21,12 @@ mod common;
 use common::*;
 
 fn setup_pool_with_guardian(status: anchor::PoolStatus) -> (LiteSVM, Keypair, Keypair, Pubkey) {
-    let authority = Keypair::new();
-    let admin = Keypair::new();
-    let guardian = Keypair::new();
-    let jobs = Keypair::new().pubkey();
-
-    let mut svm = setup_global_config_with_admin_and_guardian(
-        &authority,
-        &admin.pubkey(),
-        &guardian.pubkey(),
-        Some(&jobs),
-    );
-
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-    svm.airdrop(&guardian.pubkey(), 10_000_000_000).unwrap();
+    let GlobalRolesContext {
+        mut svm,
+        admin,
+        guardian,
+        ..
+    } = setup_global_roles();
 
     let (pool_pda, _) = PrizePoolTestBuilder::new(1)
         .with_status(status)
@@ -239,19 +231,7 @@ fn test_cannot_unpause_active_or_closed_pool() {
 
 #[test]
 fn test_cannot_close_pool_while_frozen_for_draw() {
-    let authority = Keypair::new();
-    let admin = Keypair::new();
-    let guardian = Keypair::new();
-    let jobs = Keypair::new().pubkey();
-
-    let mut svm = setup_global_config_with_admin_and_guardian(
-        &authority,
-        &admin.pubkey(),
-        &guardian.pubkey(),
-        Some(&jobs),
-    );
-
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
+    let GlobalRolesContext { mut svm, admin, .. } = setup_global_roles();
 
     PrizePoolTestBuilder::new(1)
         .with_status(anchor::PoolStatus::Active)

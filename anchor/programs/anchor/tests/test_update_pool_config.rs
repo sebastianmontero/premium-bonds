@@ -1,7 +1,7 @@
 use anchor::error::PremiumBondsError;
 use anchor_lang::AccountDeserialize;
 use litesvm::LiteSVM;
-use solana_program::{instruction::Instruction, pubkey::Pubkey};
+use solana_program::pubkey::Pubkey;
 use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
@@ -14,36 +14,12 @@ fn inject_pool(svm: &mut LiteSVM, pool_id: u32) -> Pubkey {
         .0
 }
 
-fn update_pool_config_simple(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    pool_id: u32,
-    new_fee_basis_points: Option<u16>,
-    new_bond_price: Option<u64>,
-    new_fee_wallet: Option<Pubkey>,
-    new_min_yield_threshold: Option<u64>,
-    new_stake_cycle_duration_hrs: Option<i64>,
-) -> TxResult {
-    send_update_pool_config(
-        svm,
-        admin,
-        pool_id,
-        new_fee_basis_points,
-        new_bond_price,
-        new_fee_wallet,
-        new_min_yield_threshold,
-        new_stake_cycle_duration_hrs,
-        None,
-        None,
-    )
-}
-
 #[test]
 fn test_update_pool_config_succeeds_empty() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey()).send(&mut svm, &admin);
     assert!(res.is_ok());
 }
 
@@ -52,7 +28,9 @@ fn test_update_pool_config_succeeds_one_field() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let meta = update_pool_config_simple(&mut svm, &admin, 1, Some(200), None, None, None, None)
+    let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_basis_points(200)
+        .send(&mut svm, &admin)
         .expect("update_pool_config should succeed updating one field");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1, "Event pool_id mismatch");
@@ -91,17 +69,14 @@ fn test_update_pool_config_succeeds_all_fields() {
         0,
     );
 
-    let meta = update_pool_config_simple(
-        &mut svm,
-        &admin,
-        1,
-        Some(50),
-        Some(2_000_000),
-        Some(new_fee_wallet),
-        Some(1_000_000),
-        Some(168),
-    )
-    .expect("update_pool_config should succeed updating all fields");
+    let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_basis_points(50)
+        .with_bond_price(2_000_000)
+        .with_fee_wallet(new_fee_wallet)
+        .with_min_yield_threshold(1_000_000)
+        .with_stake_cycle_duration_hrs(168)
+        .send(&mut svm, &admin)
+        .expect("update_pool_config should succeed updating all fields");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(
         event.old_stake_cycle_duration_hrs, 24,
@@ -137,7 +112,9 @@ fn test_update_pool_config_succeeds_stake_cycle_duration() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let meta = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, Some(72))
+    let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_stake_cycle_duration_hrs(72)
+        .send(&mut svm, &admin)
         .expect("update_pool_config should succeed updating duration");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.pool_id, 1, "Pool ID mismatch");
@@ -165,7 +142,9 @@ fn test_update_pool_config_fails_invalid_stake_cycle_duration_zero() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, Some(0));
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_stake_cycle_duration_hrs(0)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
@@ -174,7 +153,9 @@ fn test_update_pool_config_fails_negative_stake_cycle_duration() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, Some(-10));
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_stake_cycle_duration_hrs(-10)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
@@ -183,7 +164,9 @@ fn test_update_pool_config_fails_exceeds_max_stake_cycle_duration() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, Some(8761));
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_stake_cycle_duration_hrs(8761)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidStakeCycleDuration);
 }
 
@@ -192,7 +175,9 @@ fn test_update_pool_config_fails_invalid_bond_price() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, Some(0), None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_bond_price(0)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidBondPrice);
 }
 
@@ -204,7 +189,9 @@ fn test_update_pool_config_unauthorized_admin() {
     let hacker = Keypair::new();
     svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
 
-    let res = update_pool_config_simple(&mut svm, &hacker, 1, Some(0), None, None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, hacker.pubkey())
+        .with_fee_basis_points(0)
+        .send(&mut svm, &hacker);
     assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
@@ -213,34 +200,23 @@ fn test_update_pool_config_fails_invalid_fee() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = update_pool_config_simple(&mut svm, &admin, 1, Some(10_001), None, None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_basis_points(10_001)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidFeeConfig);
-}
-
-fn inject_pool_custom(
-    svm: &mut LiteSVM,
-    pool_id: u32,
-    total_deposited_principal: u64,
-    total_prizes_allocated: u64,
-    total_pending_redemptions: u64,
-    is_frozen_for_draw: u8,
-) -> Pubkey {
-    PrizePoolTestBuilder::new(pool_id)
-        .with_payout_timelock_seconds(300)
-        .with_solvency_state(total_deposited_principal, total_prizes_allocated, 0)
-        .with_pending_redemptions(total_pending_redemptions)
-        .with_frozen(is_frozen_for_draw != 0)
-        .inject(svm)
-        .0
 }
 
 #[test]
 fn test_update_pool_config_fails_when_deposited_principal_non_zero() {
     let (mut svm, admin) = setup_global_config();
-    inject_pool_custom(&mut svm, 1, 5_000_000, 0, 0, 0);
+    PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_solvency_state(5_000_000, 0, 0)
+        .inject(&mut svm);
 
-    let res =
-        update_pool_config_simple(&mut svm, &admin, 1, None, Some(2_000_000), None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_bond_price(2_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
@@ -250,10 +226,14 @@ fn test_update_pool_config_fails_when_deposited_principal_non_zero() {
 #[test]
 fn test_update_pool_config_fails_when_prizes_allocated_non_zero() {
     let (mut svm, admin) = setup_global_config();
-    inject_pool_custom(&mut svm, 1, 0, 1_000_000, 0, 0);
+    PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_solvency_state(0, 1_000_000, 0)
+        .inject(&mut svm);
 
-    let res =
-        update_pool_config_simple(&mut svm, &admin, 1, None, Some(2_000_000), None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_bond_price(2_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
@@ -263,10 +243,14 @@ fn test_update_pool_config_fails_when_prizes_allocated_non_zero() {
 #[test]
 fn test_update_pool_config_fails_when_pending_redemptions_non_zero() {
     let (mut svm, admin) = setup_global_config();
-    inject_pool_custom(&mut svm, 1, 0, 0, 2, 0);
+    PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_pending_redemptions(2)
+        .inject(&mut svm);
 
-    let res =
-        update_pool_config_simple(&mut svm, &admin, 1, None, Some(2_000_000), None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_bond_price(2_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
@@ -276,39 +260,47 @@ fn test_update_pool_config_fails_when_pending_redemptions_non_zero() {
 #[test]
 fn test_update_pool_config_fails_when_frozen_for_draw() {
     let (mut svm, admin) = setup_global_config();
-    inject_pool_custom(&mut svm, 1, 0, 0, 0, 1);
+    PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_frozen(true)
+        .inject(&mut svm);
 
     // Attempting to update any parameter (e.g. fee basis points) should fail if frozen
-    let res = update_pool_config_simple(&mut svm, &admin, 1, Some(200), None, None, None, None);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_basis_points(200)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
 fn test_update_pool_config_fails_when_frozen_stake_duration() {
     let (mut svm, admin) = setup_global_config();
-    inject_pool_custom(&mut svm, 1, 0, 0, 0, 1);
+    PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_frozen(true)
+        .inject(&mut svm);
 
     // Attempting to update duration should fail if frozen
-    let res = update_pool_config_simple(&mut svm, &admin, 1, None, None, None, None, Some(168));
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_stake_cycle_duration_hrs(168)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
 fn test_update_pool_config_idempotent_bond_price_succeeds_with_deposits() {
     let (mut svm, admin) = setup_global_config();
-    let pool_pda = inject_pool_custom(&mut svm, 1, 10_000_000, 500_000, 1, 0);
+    let (pool_pda, _) = PrizePoolTestBuilder::new(1)
+        .with_payout_timelock_seconds(300)
+        .with_solvency_state(10_000_000, 500_000, 0)
+        .with_pending_redemptions(1)
+        .inject(&mut svm);
 
     // Passing current bond_price (1_000_000) along with a new fee should succeed
-    let res = update_pool_config_simple(
-        &mut svm,
-        &admin,
-        1,
-        Some(250),
-        Some(1_000_000), // Same bond price (idempotent)
-        None,
-        None,
-        None,
-    );
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_basis_points(250)
+        .with_bond_price(1_000_000) // Same bond price (idempotent)
+        .send(&mut svm, &admin);
     assert!(
         res.is_ok(),
         "Idempotent bond_price update should succeed on active pools"
@@ -329,16 +321,9 @@ fn test_update_pool_config_duration_advances_on_next_harvest() {
     let initial_cycle_end = pool_state.current_cycle_end_at;
 
     // Mid-cycle config update to 168 hours (7 days)
-    let res = update_pool_config_simple(
-        &mut ctx.svm,
-        &ctx.admin,
-        1,
-        None,
-        None,
-        None,
-        None,
-        Some(168),
-    );
+    let res = UpdatePoolConfigBuilder::for_pool(1, ctx.admin.pubkey())
+        .with_stake_cycle_duration_hrs(168)
+        .send(&mut ctx.svm, &ctx.admin);
     assert!(res.is_ok(), "Config update should succeed: {:?}", res.err());
 
     // Invariant check: current_cycle_end_at MUST remain initial_cycle_end for the active cycle
@@ -369,33 +354,11 @@ fn test_update_pool_config_fails_missing_fee_wallet_account() {
     inject_pool(&mut svm, 1);
     let new_fee_wallet = Keypair::new().pubkey();
 
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(1);
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .without_fee_wallet_account()
+        .send(&mut svm, &admin);
 
-    let accounts = anchor::accounts::UpdatePoolConfig {
-        global_config,
-        admin: admin.pubkey(),
-        pool,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    };
-
-    // Intentionally do NOT push new_fee_wallet to remaining_accounts
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor_lang::ToAccountMetas::to_account_metas(&accounts, None),
-        data: anchor_lang::InstructionData::data(&anchor::instruction::UpdatePoolConfig {
-            new_fee_basis_points: None,
-            new_bond_price: None,
-            new_fee_wallet: Some(new_fee_wallet),
-            new_min_yield_threshold: None,
-            new_stake_cycle_duration_hrs: None,
-            new_max_yield_basis_points: None,
-            new_payout_timelock_seconds: None,
-        }),
-    };
-
-    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
 }
 
@@ -410,16 +373,9 @@ fn test_update_pool_config_fails_invalid_fee_wallet_mint() {
     inject_token_account(&mut svm, new_fee_wallet, wrong_mint, admin.pubkey(), 0);
 
     // Pool's token_mint is Pubkey::default() in inject_pool, which does not match wrong_mint
-    let res = update_pool_config_simple(
-        &mut svm,
-        &admin,
-        1,
-        None,
-        None,
-        Some(new_fee_wallet),
-        None,
-        None,
-    );
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_fee_wallet(new_fee_wallet)
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidFeeWallet);
 }
 
@@ -428,18 +384,9 @@ fn test_update_pool_config_fails_timelock_exceeds_max() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = send_update_pool_config(
-        &mut svm,
-        &admin,
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(86_401), // > 86400 max
-    );
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_payout_timelock_seconds(86_401) // > 86400 max
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidPayoutTimelock);
 }
 
@@ -448,18 +395,9 @@ fn test_update_pool_config_fails_max_yield_exceeds_max() {
     let (mut svm, admin) = setup_global_config();
     inject_pool(&mut svm, 1);
 
-    let res = send_update_pool_config(
-        &mut svm,
-        &admin,
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(10_001), // > 10_000 max bps
-        None,
-    );
+    let res = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_max_yield_basis_points(10_001) // > 10_000 max bps
+        .send(&mut svm, &admin);
     assert_custom_error(res, PremiumBondsError::InvalidMaxYieldBasisPoints);
 }
 
@@ -468,19 +406,11 @@ fn test_update_pool_config_succeeds_max_yield_and_timelock() {
     let (mut svm, admin) = setup_global_config();
     let pool_pda = inject_pool(&mut svm, 1);
 
-    let meta = send_update_pool_config(
-        &mut svm,
-        &admin,
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(500), // 5%
-        Some(600), // 600s
-    )
-    .expect("update should succeed");
+    let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_max_yield_basis_points(500) // 5%
+        .with_payout_timelock_seconds(600) // 600s
+        .send(&mut svm, &admin)
+        .expect("update should succeed");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(
         event.old_max_yield_basis_points, 0,
@@ -526,19 +456,10 @@ fn test_update_pool_config_bond_price_change_after_full_exit() {
         p.bond_price = 1_000_000;
     });
 
-    let meta = send_update_pool_config(
-        &mut svm,
-        &admin,
-        1,
-        None,
-        Some(5_000_000), // update bond_price from 1 to 5 USDC
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("bond price change after full exit should succeed");
+    let meta = UpdatePoolConfigBuilder::for_pool(1, admin.pubkey())
+        .with_bond_price(5_000_000) // update bond_price from 1 to 5 USDC
+        .send(&mut svm, &admin)
+        .expect("bond price change after full exit should succeed");
     let event = assert_cpi_event::<anchor::events::PoolConfigUpdated>(&meta);
     assert_eq!(event.old_bond_price, 1_000_000);
     assert_eq!(event.new_bond_price, 5_000_000);

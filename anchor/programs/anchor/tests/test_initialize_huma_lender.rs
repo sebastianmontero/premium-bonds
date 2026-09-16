@@ -11,8 +11,6 @@ use {anchor_lang::prelude::Pubkey, solana_keypair::Keypair, solana_signer::Signe
 mod common;
 use common::*;
 
-pub const FAIL_CREATE_LENDER_PUBKEY: Pubkey = Pubkey::new_from_array([4; 32]);
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Happy-path Scenario
 // ═══════════════════════════════════════════════════════════════════════════════

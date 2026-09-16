@@ -32,16 +32,7 @@ fn inject_ticket_registry_account(
     pending: u32,
     size: usize,
 ) {
-    let entry = anchor::state::UserEntry {
-        owner: Keypair::new().pubkey(),
-        active,
-        pending,
-        merged_through_cycle: 0,
-        cumulative_active: active,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    };
+    let entry = UserEntryTestBuilder::entry(Keypair::new().pubkey(), active, pending);
     inject_registry_with_state_and_size(
         svm,
         address,
@@ -79,11 +70,7 @@ fn test_resize_registry_succeeds() {
 
     // Write a dummy entry to verify data preservation
     let entry_owner = Keypair::new().pubkey();
-    let entry = UserEntryTestBuilder::new()
-        .with_owner(entry_owner)
-        .with_active(2)
-        .with_pending(3)
-        .build();
+    let entry = UserEntryTestBuilder::entry(entry_owner, 2, 3);
     write_registry_entry(&mut svm, ticket_registry, 0, &entry);
 
     PrizePoolTestBuilder::new(pool_id)

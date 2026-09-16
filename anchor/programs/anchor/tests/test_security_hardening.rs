@@ -149,50 +149,15 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let dummy = Keypair::new().pubkey();
-    let (user_winnings, _) = Pubkey::find_program_address(
-        &[
-            b"user_winnings",
-            1u32.to_le_bytes().as_ref(),
-            user.pubkey().as_ref(),
-        ],
-        &anchor::id(),
-    );
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::SellBonds {
-            user: user.pubkey(),
-            user_winnings,
-            pool: pool_key,
-            ticket_registry,
-            token_mint,
-            pool_pst_vault,
-            pending_redemption,
-            huma_program: huma_program_id(),
-            huma_config: dummy,
-            huma_pool_config: dummy,
-            huma_pool_state: fake_pool_state, // counterfeit
-            huma_mode_config: dummy,
-            huma_mode_mint: pst_mint,
-            huma_redemption_request: dummy,
-            huma_lender_state: dummy,
-            huma_pool_authority: dummy,
-            huma_pool_mode_token: dummy,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 1,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
-
-    let res = send_user_tx(&mut svm, &user, ix);
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
+    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_token_mint(token_mint)
+        .with_user_winnings(user_winnings)
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_pool_state(fake_pool_state)
+        .with_shares(1, 0)
+        .send(&mut svm, &user);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -200,7 +165,7 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
 fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
     let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
-    let (pool_key, bump) = pool_pda(pool_id);
+    let (pool_key, _bump) = pool_pda(pool_id);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
 
@@ -237,49 +202,21 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         .with_cycle_end_at(i64::MAX)
         .inject(&mut svm);
 
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let (gc_pda, _) = global_config_pda();
-    let dummy = Keypair::new().pubkey();
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::WithdrawFees {
-            admin: admin.pubkey(),
-            global_config: gc_pda,
-            pool: pool_key,
-            pool_pst_vault,
-            pending_redemption,
-            huma_program: huma_program_id(),
-            huma_config: dummy,
-            huma_pool_config: dummy,
-            huma_pool_state: fake_pool_state, // counterfeit
-            huma_mode_config: dummy,
-            huma_mode_mint: pst_mint,
-            huma_redemption_request: dummy,
-            huma_lender_state: dummy,
-            huma_pool_authority: dummy,
-            huma_pool_mode_token: dummy,
-            token_mint,
-            fee_wallet,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &admin, ix);
+    let res = WithdrawFeesBuilder::for_pool(pool_id, admin.pubkey())
+        .with_fee_wallet(fee_wallet)
+        .with_token_mint(token_mint)
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_pool_state(fake_pool_state)
+        .with_amount(1_000_000)
+        .send(&mut svm, &admin);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
 fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config();
+    let (mut svm, _admin) = setup_global_config();
     let pool_id = 1;
-    let (pool_key, bump) = pool_pda(pool_id);
+    let (pool_key, _bump) = pool_pda(pool_id);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
 
@@ -304,8 +241,6 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
 
     let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
     common::inject_user_winnings_with_index(&mut svm, pool_id, user.pubkey(), 0, 0, 0, 0);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let dummy = Keypair::new().pubkey();
 
     let fake_pool_state = Keypair::new().pubkey();
     svm.set_account(
@@ -320,41 +255,17 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::ClaimNonReinvestedWinnings {
-            user: user.pubkey(),
-            pool: pool_key,
-            user_winnings,
-            pool_pst_vault,
-            pending_redemption,
-            huma_program: huma_program_id(),
-            huma_config: dummy,
-            huma_pool_config: dummy,
-            huma_pool_state: fake_pool_state,
-            huma_mode_config: dummy,
-            huma_mode_mint: pst_mint,
-            huma_redemption_request: dummy,
-            huma_lender_state: dummy,
-            huma_pool_authority: dummy,
-            huma_pool_mode_token: dummy,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &user, ix);
+    let res = ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, user.pubkey())
+        .with_user_winnings(user_winnings)
+        .with_huma_mode_mint(pst_mint)
+        .with_huma_pool_state(fake_pool_state)
+        .send(&mut svm, &user);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
 #[test]
 fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
-    let (mut svm, admin) = setup_global_config();
+    let (mut svm, _admin) = setup_global_config();
     let pool_id = 1;
     let (pool_key, _) = pool_pda(pool_id);
     let token_mint = Keypair::new().pubkey();
@@ -404,36 +315,18 @@ fn test_claim_redemption_fails_huma_pool_state_owner_mismatch() {
     .unwrap();
 
     let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: user.pubkey(),
-        beneficiary: user.pubkey(),
-        pool: pool_key,
-        pending_redemption,
-        token_mint,
-        pool_vault_account: pool_vault,
-        beneficiary_token_account: user_token_account,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: Pubkey::default(),
-        huma_pool_state: fake_pool_state, // counterfeit
-        huma_mode_config: Pubkey::default(),
-        huma_lender_state: Pubkey::default(),
-        huma_pool_authority: Pubkey::default(),
-        huma_pool_underlying_token: Pubkey::default(),
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &user, ix);
+    let res = ClaimRedemptionBuilder::for_redemption(
+        pool_id,
+        redemption_id,
+        user.pubkey(),
+        user.pubkey(),
+    )
+    .with_pending_redemption(pending_redemption)
+    .with_token_mint(token_mint)
+    .with_pool_vault_account(pool_vault)
+    .with_beneficiary_token_account(user_token_account)
+    .with_huma_pool_state(fake_pool_state)
+    .send(&mut svm, &user);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -456,13 +349,10 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
         false,
     );
 
-    let (gc, _) = global_config_pda();
-    let (draw_cycle_pda, _) = draw_cycle_pda(pool_id, 0);
     let pst_mint = Keypair::new().pubkey();
     inject_mint(&mut svm, pst_mint, 6);
     let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 100_000_000);
-    let dummy = Keypair::new().pubkey();
 
     let fake_pool_state = Keypair::new().pubkey();
     svm.set_account(
@@ -477,28 +367,11 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
     )
     .unwrap();
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::HarvestYieldAndCommit {
-            crank: crank.pubkey(),
-            global_config: gc,
-            pool: pool_key,
-            ticket_registry,
-            current_draw_cycle: draw_cycle_pda,
-            pool_pst_vault,
-            pst_mint,
-            huma_pool_state: fake_pool_state,
-            randomness_account: dummy,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-
-    let res = send_user_tx(&mut svm, &crank, ix);
+    let res = HarvestYieldAndCommitBuilder::for_pool(pool_id, 0, crank.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_pst_mint(pst_mint)
+        .with_huma_pool_state(fake_pool_state)
+        .send(&mut svm, &crank);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -561,50 +434,16 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
     )
     .unwrap();
 
-    let dummy = Keypair::new().pubkey();
-    let (user_winnings, _) = Pubkey::find_program_address(
-        &[
-            b"user_winnings",
-            1u32.to_le_bytes().as_ref(),
-            user.pubkey().as_ref(),
-        ],
-        &anchor::id(),
-    );
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::SellBonds {
-            user: user.pubkey(),
-            user_winnings,
-            pool: pool_key,
-            ticket_registry,
-            token_mint,
-            pool_pst_vault,
-            pending_redemption,
-            huma_program: huma_program_id(),
-            huma_config: dummy,
-            huma_pool_config: dummy,
-            huma_pool_state: fake_pool_state,
-            huma_mode_config: dummy,
-            huma_mode_mint: fake_mode_mint, // counterfeit
-            huma_redemption_request: dummy,
-            huma_lender_state: dummy,
-            huma_pool_authority: dummy,
-            huma_pool_mode_token: dummy,
-            token_program: anchor_spl::token::ID,
-            pst_token_program: anchor_spl::token::ID,
-            system_program: anchor_lang::system_program::ID,
-            event_authority: event_authority_pda(),
-            program: anchor::id(),
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 1,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
+    let (user_winnings, _) = user_winnings_pda(pool_id, &user.pubkey());
+    let res = SellBondsBuilder::for_pool(pool_id, user.pubkey())
+        .with_ticket_registry(ticket_registry)
+        .with_token_mint(token_mint)
+        .with_user_winnings(user_winnings)
+        .with_huma_pool_state(fake_pool_state)
+        .with_huma_mode_mint(fake_mode_mint)
+        .with_shares(1, 0)
+        .send(&mut svm, &user);
 
-    let res = send_user_tx(&mut svm, &user, ix);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
@@ -696,44 +535,10 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
         )
         .unwrap();
 
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (user_winnings_pda_key, _) = user_winnings_pda(1, &ctx.user.pubkey());
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::BuyBonds {
-        user: ctx.user.pubkey(),
-        user_winnings: user_winnings_pda_key,
-        pool: pool_pda_key,
-        ticket_registry: ctx.ticket_registry,
-        user_token_account: ctx.user_usdc_account,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: wrong_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = solana_program::instruction::Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
+    let res = BuyBondsBuilder::new(&ctx)
+        .with_huma_pool_state(wrong_pool_state)
+        .with_tickets(1)
+        .send(&mut ctx.svm, &ctx.user);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -754,38 +559,9 @@ fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
         )
         .unwrap();
 
-    let (global_config, _) = global_config_pda();
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::InitializeHumaLender {
-        admin: ctx.admin.pubkey(),
-        global_config,
-        pool: pool_pda_key,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: wrong_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_lender_state: dummy,
-        huma_lender_mode_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        associated_token_program: anchor_spl::associated_token::ID,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = solana_program::instruction::Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeHumaLender {}.data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
+    let res =
+        InitializeHumaLenderBuilder::new(ctx.admin.pubkey(), 1, wrong_pool_state, ctx.pst_mint)
+            .send(&mut ctx.svm, &ctx.admin);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -1038,43 +814,9 @@ fn test_event_emission_payload_verification_e2e() {
 
     // 1. Buy bonds event assertion
     let user_a = clone_keypair(&ctx.user);
-    let user_a_usdc = ctx.user_usdc_account;
-    let (pool_pda_key, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (user_winnings_pda_key, _) = user_winnings_pda(1, &user_a.pubkey());
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::BuyBonds {
-        user: user_a.pubkey(),
-        user_winnings: user_winnings_pda_key,
-        pool: pool_pda_key,
-        ticket_registry: ctx.ticket_registry,
-        user_token_account: user_a_usdc,
-        token_mint: ctx.usdc_mint,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds { tickets_to_buy: 5 }.data(),
-    };
+    let ix = BuyBondsBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), ctx.user_usdc_account)
+        .build_ix(5);
 
     let meta = send_user_tx(&mut ctx.svm, &user_a, ix).expect("Buy bonds should succeed");
 

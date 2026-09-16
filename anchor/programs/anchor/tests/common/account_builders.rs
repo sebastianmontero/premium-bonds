@@ -319,7 +319,7 @@ impl SellBondsBuilder {
                 huma_redemption_request: dummy,
                 huma_lender_state: dummy,
                 huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: dummy,
+                huma_pool_mode_token: ctx.huma_pool_mode_token,
                 token_program: anchor_spl::token::ID,
                 pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
@@ -697,13 +697,55 @@ impl ClaimRedemptionBuilder {
 // ─── 4. WithdrawFeesBuilder ──────────────────────────────────────────────────
 
 pub struct WithdrawFeesBuilder {
+    pub pool_id: u32,
     pub accounts: anchor::accounts::WithdrawFees,
     pub amount: u64,
 }
 
 impl WithdrawFeesBuilder {
+    pub fn for_pool(pool_id: u32, admin: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (pool_pda_addr, _) = pool_pda(pool_id);
+        let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
+        let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
+        let dummy = Keypair::new().pubkey();
+
+        Self {
+            pool_id,
+            accounts: anchor::accounts::WithdrawFees {
+                admin,
+                global_config,
+                pool: pool_pda_addr,
+                fee_wallet: dummy,
+                pending_redemption,
+                token_mint: dummy,
+                pool_pst_vault,
+                huma_program: huma_program_id(),
+                huma_config: dummy,
+                huma_pool_config: dummy,
+                huma_pool_state: dummy,
+                huma_mode_config: dummy,
+                huma_mode_mint: dummy,
+                huma_redemption_request: dummy,
+                huma_lender_state: dummy,
+                huma_pool_authority: dummy,
+                huma_pool_mode_token: dummy,
+                token_program: anchor_spl::token::ID,
+                pst_token_program: anchor_spl::token::ID,
+                system_program: anchor_lang::system_program::ID,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            amount: 1_000_000,
+        }
+    }
+
+    pub fn from_ctx(ctx: &E2eContext) -> Self {
+        Self::new(ctx)
+    }
+
     pub fn new(ctx: &E2eContext) -> Self {
-        let pool_id = 1;
+        let pool_id = ctx.pool_id;
         let (global_config, _) = global_config_pda();
         let (pool_pda_addr, _) = pool_pda(pool_id);
         let pool = read_pool_state(&ctx.svm, pool_id);
@@ -712,11 +754,16 @@ impl WithdrawFeesBuilder {
         let dummy = Keypair::new().pubkey();
 
         Self {
+            pool_id,
             accounts: anchor::accounts::WithdrawFees {
                 admin: ctx.admin.pubkey(),
                 global_config,
                 pool: pool_pda_addr,
-                fee_wallet: pool.fee_wallet,
+                fee_wallet: if ctx.fee_wallet != Pubkey::default() {
+                    ctx.fee_wallet
+                } else {
+                    pool.fee_wallet
+                },
                 pending_redemption,
                 token_mint: ctx.usdc_mint,
                 pool_pst_vault,
@@ -729,7 +776,7 @@ impl WithdrawFeesBuilder {
                 huma_redemption_request: dummy,
                 huma_lender_state: dummy,
                 huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: dummy,
+                huma_pool_mode_token: ctx.huma_pool_mode_token,
                 token_program: anchor_spl::token::ID,
                 pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
@@ -738,6 +785,11 @@ impl WithdrawFeesBuilder {
             },
             amount: 1_000_000,
         }
+    }
+
+    pub fn with_redemption_id(mut self, redemption_id: u64) -> Self {
+        self.accounts.pending_redemption = pending_redemption_pda(self.pool_id, redemption_id).0;
+        self
     }
 
     pub fn with_amount(mut self, amount: u64) -> Self {
@@ -1469,7 +1521,7 @@ impl ClaimNonReinvestedWinningsBuilder {
                 huma_redemption_request: dummy,
                 huma_lender_state: dummy,
                 huma_pool_authority: ctx.huma_pool_authority,
-                huma_pool_mode_token: dummy,
+                huma_pool_mode_token: ctx.huma_pool_mode_token,
                 token_program: anchor_spl::token::ID,
                 pst_token_program: anchor_spl::token::ID,
                 system_program: anchor_lang::system_program::ID,
@@ -2374,5 +2426,315 @@ impl CreatePoolBuilder {
     ) -> TxResult {
         let ix = self.build_ix_with_admin(&admin.pubkey());
         send_tx(svm, admin, additional_signers, ix)
+    }
+}
+
+// ─── 17. UpdatePoolConfigBuilder ─────────────────────────────────────────────
+
+pub struct UpdatePoolConfigBuilder {
+    pub accounts: anchor::accounts::UpdatePoolConfig,
+    pub pool_id: u32,
+    pub new_fee_basis_points: Option<u16>,
+    pub new_bond_price: Option<u64>,
+    pub new_fee_wallet: Option<Pubkey>,
+    pub new_min_yield_threshold: Option<u64>,
+    pub new_stake_cycle_duration_hrs: Option<i64>,
+    pub new_max_yield_basis_points: Option<u16>,
+    pub new_payout_timelock_seconds: Option<u32>,
+    pub include_fee_wallet_account: bool,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl UpdatePoolConfigBuilder {
+    pub fn for_pool(pool_id: u32, admin: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (pool, _) = pool_pda(pool_id);
+
+        Self {
+            accounts: anchor::accounts::UpdatePoolConfig {
+                global_config,
+                admin,
+                pool,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            pool_id,
+            new_fee_basis_points: None,
+            new_bond_price: None,
+            new_fee_wallet: None,
+            new_min_yield_threshold: None,
+            new_stake_cycle_duration_hrs: None,
+            new_max_yield_basis_points: None,
+            new_payout_timelock_seconds: None,
+            include_fee_wallet_account: true,
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn from_ctx(ctx: &E2eContext, pool_id: u32) -> Self {
+        Self::for_pool(pool_id, ctx.admin.pubkey())
+    }
+
+    pub fn with_admin(mut self, admin: Pubkey) -> Self {
+        self.accounts.admin = admin;
+        self
+    }
+
+    pub fn with_global_config(mut self, global_config: Pubkey) -> Self {
+        self.accounts.global_config = global_config;
+        self
+    }
+
+    pub fn with_pool(mut self, pool: Pubkey) -> Self {
+        self.accounts.pool = pool;
+        self
+    }
+
+    pub fn with_fee_basis_points(mut self, bps: u16) -> Self {
+        self.new_fee_basis_points = Some(bps);
+        self
+    }
+
+    pub fn with_bond_price(mut self, price: u64) -> Self {
+        self.new_bond_price = Some(price);
+        self
+    }
+
+    pub fn with_fee_wallet(mut self, wallet: Pubkey) -> Self {
+        self.new_fee_wallet = Some(wallet);
+        self
+    }
+
+    pub fn with_min_yield_threshold(mut self, threshold: u64) -> Self {
+        self.new_min_yield_threshold = Some(threshold);
+        self
+    }
+
+    pub fn with_stake_cycle_duration_hrs(mut self, hrs: i64) -> Self {
+        self.new_stake_cycle_duration_hrs = Some(hrs);
+        self
+    }
+
+    pub fn with_max_yield_basis_points(mut self, bps: u16) -> Self {
+        self.new_max_yield_basis_points = Some(bps);
+        self
+    }
+
+    pub fn with_payout_timelock_seconds(mut self, secs: u32) -> Self {
+        self.new_payout_timelock_seconds = Some(secs);
+        self
+    }
+
+    pub fn without_fee_wallet_account(mut self) -> Self {
+        self.include_fee_wallet_account = false;
+        self
+    }
+
+    pub fn modify_accounts<F: FnOnce(&mut anchor::accounts::UpdatePoolConfig)>(
+        mut self,
+        f: F,
+    ) -> Self {
+        f(&mut self.accounts);
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        if self.include_fee_wallet_account {
+            if let Some(fw) = self.new_fee_wallet {
+                metas.push(AccountMeta::new_readonly(fw, false));
+            }
+        }
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::UpdatePoolConfig {
+                new_fee_basis_points: self.new_fee_basis_points,
+                new_bond_price: self.new_bond_price,
+                new_fee_wallet: self.new_fee_wallet,
+                new_min_yield_threshold: self.new_min_yield_threshold,
+                new_stake_cycle_duration_hrs: self.new_stake_cycle_duration_hrs,
+                new_max_yield_basis_points: self.new_max_yield_basis_points,
+                new_payout_timelock_seconds: self.new_payout_timelock_seconds,
+            }
+            .data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 18. SetPrizeTiersBuilder ────────────────────────────────────────────────
+
+pub struct SetPrizeTiersBuilder {
+    pub accounts: anchor::accounts::SetPrizeTiers,
+    pub pool_id: u32,
+    pub tiers: Vec<anchor::PrizeTier>,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl SetPrizeTiersBuilder {
+    pub fn for_pool(pool_id: u32, admin: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (pool, _) = pool_pda(pool_id);
+
+        Self {
+            accounts: anchor::accounts::SetPrizeTiers {
+                global_config,
+                admin,
+                pool,
+                event_authority: event_authority_pda(),
+                program: anchor::id(),
+            },
+            pool_id,
+            tiers: Vec::new(),
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn from_ctx(ctx: &E2eContext, pool_id: u32) -> Self {
+        Self::for_pool(pool_id, ctx.admin.pubkey())
+    }
+
+    pub fn with_admin(mut self, admin: Pubkey) -> Self {
+        self.accounts.admin = admin;
+        self
+    }
+
+    pub fn with_global_config(mut self, global_config: Pubkey) -> Self {
+        self.accounts.global_config = global_config;
+        self
+    }
+
+    pub fn with_pool(mut self, pool: Pubkey) -> Self {
+        self.accounts.pool = pool;
+        self
+    }
+
+    pub fn with_tiers(mut self, tiers: Vec<anchor::PrizeTier>) -> Self {
+        self.tiers = tiers;
+        self
+    }
+
+    pub fn modify_accounts<F: FnOnce(&mut anchor::accounts::SetPrizeTiers)>(
+        mut self,
+        f: F,
+    ) -> Self {
+        f(&mut self.accounts);
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::SetPrizeTiers {
+                tiers: self.tiers.clone(),
+            }
+            .data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
+    }
+}
+
+// ─── 19. InitializeGlobalBuilder ─────────────────────────────────────────────
+
+pub struct InitializeGlobalBuilder {
+    pub accounts: anchor::accounts::InitializeGlobal,
+    pub remaining_accounts: Vec<AccountMeta>,
+}
+
+impl InitializeGlobalBuilder {
+    pub fn new(authority: Pubkey, admin: Pubkey) -> Self {
+        let (global_config, _) = global_config_pda();
+        let (program_data, _) = program_data_pda();
+        let guardian = Keypair::new().pubkey();
+        let jobs_account = Keypair::new().pubkey();
+
+        Self {
+            accounts: anchor::accounts::InitializeGlobal {
+                global_config,
+                authority,
+                admin,
+                guardian,
+                jobs_account,
+                program_data,
+                program: anchor::id(),
+                system_program: anchor_lang::system_program::ID,
+            },
+            remaining_accounts: Vec::new(),
+        }
+    }
+
+    pub fn with_authority(mut self, authority: Pubkey) -> Self {
+        self.accounts.authority = authority;
+        self
+    }
+
+    pub fn with_admin(mut self, admin: Pubkey) -> Self {
+        self.accounts.admin = admin;
+        self
+    }
+
+    pub fn with_guardian(mut self, guardian: Pubkey) -> Self {
+        self.accounts.guardian = guardian;
+        self
+    }
+
+    pub fn with_jobs_account(mut self, jobs_account: Pubkey) -> Self {
+        self.accounts.jobs_account = jobs_account;
+        self
+    }
+
+    pub fn with_global_config(mut self, global_config: Pubkey) -> Self {
+        self.accounts.global_config = global_config;
+        self
+    }
+
+    pub fn with_program_data(mut self, program_data: Pubkey) -> Self {
+        self.accounts.program_data = program_data;
+        self
+    }
+
+    pub fn modify_accounts<F: FnOnce(&mut anchor::accounts::InitializeGlobal)>(
+        mut self,
+        f: F,
+    ) -> Self {
+        f(&mut self.accounts);
+        self
+    }
+
+    pub fn build_metas(&self) -> Vec<AccountMeta> {
+        let mut metas = self.accounts.to_account_metas(None);
+        metas.extend(self.remaining_accounts.clone());
+        metas
+    }
+
+    pub fn build_ix(&self) -> Instruction {
+        Instruction {
+            program_id: anchor::id(),
+            accounts: self.build_metas(),
+            data: anchor::instruction::InitializeGlobal {}.data(),
+        }
+    }
+
+    pub fn send(&self, svm: &mut LiteSVM, payer: &Keypair) -> TxResult {
+        send_user_tx(svm, payer, self.build_ix())
     }
 }

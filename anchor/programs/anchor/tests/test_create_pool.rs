@@ -116,12 +116,24 @@ fn test_create_pool_with_custom_security_parameters_succeeds() {
         .expect("create_pool should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
     assert_eq!(event.pool_id, 1, "Pool ID mismatch in event");
-    assert_eq!(event.max_yield_basis_points, 500, "Max yield mismatch in event");
-    assert_eq!(event.payout_timelock_seconds, 600, "Payout timelock mismatch in event");
+    assert_eq!(
+        event.max_yield_basis_points, 500,
+        "Max yield mismatch in event"
+    );
+    assert_eq!(
+        event.payout_timelock_seconds, 600,
+        "Payout timelock mismatch in event"
+    );
 
     let pool_state = read_pool_state(&ctx.svm, 1);
-    assert_eq!(pool_state.max_yield_basis_points, 500, "Max yield mismatch in state");
-    assert_eq!(pool_state.payout_timelock_seconds, 600, "Payout timelock mismatch in state");
+    assert_eq!(
+        pool_state.max_yield_basis_points, 500,
+        "Max yield mismatch in state"
+    );
+    assert_eq!(
+        pool_state.payout_timelock_seconds, 600,
+        "Payout timelock mismatch in state"
+    );
 }
 
 #[test]
@@ -136,8 +148,14 @@ fn test_create_pool_boundary_values_succeed() {
         .send(&mut ctx.svm, &ctx.admin)
         .expect("create_pool boundary should succeed");
     let event = assert_log_event::<anchor::events::PoolCreated>(&meta);
-    assert_eq!(event.max_yield_basis_points, 10_000, "Max yield mismatch in event");
-    assert_eq!(event.payout_timelock_seconds, 86_400, "Payout timelock mismatch in event");
+    assert_eq!(
+        event.max_yield_basis_points, 10_000,
+        "Max yield mismatch in event"
+    );
+    assert_eq!(
+        event.payout_timelock_seconds, 86_400,
+        "Payout timelock mismatch in event"
+    );
 }
 
 #[test]

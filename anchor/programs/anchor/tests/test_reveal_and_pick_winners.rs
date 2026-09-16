@@ -8,26 +8,7 @@ use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 mod common;
 use common::*;
 
-// ─── Context + helpers ───────────────────────────────────────────────────────
-
-struct RevealCtx {
-    svm: LiteSVM,
-    crank: Keypair,
-    ticket_registry: Pubkey,
-    tickets: Vec<Pubkey>, // known ticket pubkeys for verification
-    randomness_account: Pubkey,
-}
-
-fn send_reveal(ctx: &mut RevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> TxResult {
-    inject_current_slot_randomness(&mut ctx.svm, ctx.randomness_account, seed);
-    let crank = clone_keypair(&ctx.crank);
-    RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
-        .with_ticket_registry(ctx.ticket_registry)
-        .with_randomness_account(ctx.randomness_account)
-        .send(&mut ctx.svm, &crank)
-}
-
-// ─── Setup builders ──────────────────────────────────────────────────────────
+// ─── Setup helpers ──────────────────────────────────────────────────────────
 
 fn setup_reveal(
     status: anchor::PoolStatus,
@@ -36,82 +17,24 @@ fn setup_reveal(
     locked: u32,
     prize_pot: u64,
     num_tickets: usize,
-) -> RevealCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank();
-
-    let tickets = create_test_ticket_owners(num_tickets);
-    let registry = Keypair::new().pubkey();
-    inject_registry_with_tickets(&mut svm, registry, 1, 1000, num_tickets as u32, 0, &tickets);
-
-    PrizePoolTestBuilder::new(1)
-        .with_ticket_registry(registry)
+) -> RevealFixture {
+    RevealFixture::builder()
         .with_status(status)
         .with_frozen(is_frozen)
-        .with_prize_tiers(tiers)
-        .with_current_draw_cycle_id(0)
-        .with_solvency_state(0, 10_000_000_000, 0)
-        .inject(&mut svm);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut svm, randomness_account, 0, 0, [0u8; 32]);
-
-    DrawCycleTestBuilder::new(1, 0)
-        .with_status(anchor::DrawStatus::AwaitingRandomness)
+        .with_tiers(tiers)
         .with_locked_tickets(locked)
         .with_prize_pot(prize_pot)
-        .inject(&mut svm);
-
-    // Also update randomness account reference in draw cycle
-    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
-        dc.randomness_account = randomness_account;
-    });
-
-    RevealCtx {
-        svm,
-        crank,
-        ticket_registry: registry,
-        tickets,
-        randomness_account,
-    }
+        .with_num_tickets(num_tickets)
+        .with_allocated_prizes(10_000_000_000)
+        .build()
 }
 
-/// Setup with overridden draw status (for guard tests).
-fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
-    let tiers = vec![anchor::PrizeTier::default_single_winner()];
-    let (mut svm, _admin, crank) = setup_global_with_crank();
+fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealFixture {
+    RevealFixture::builder().with_draw_status(dc_status).build()
+}
 
-    let tickets = create_test_ticket_owners(5);
-    let registry = Keypair::new().pubkey();
-    inject_registry_with_tickets(&mut svm, registry, 1, 1000, 5, 0, &tickets);
-
-    PrizePoolTestBuilder::new(1)
-        .with_ticket_registry(registry)
-        .with_status(anchor::PoolStatus::Active)
-        .with_frozen(true)
-        .with_prize_tiers(tiers)
-        .with_current_draw_cycle_id(0)
-        .inject(&mut svm);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut svm, randomness_account, 0, 0, [0u8; 32]);
-
-    DrawCycleTestBuilder::new(1, 0)
-        .with_status(dc_status)
-        .with_locked_tickets(5)
-        .with_prize_pot(1_000_000)
-        .inject(&mut svm);
-
-    mutate_draw_cycle(&mut svm, 1, 0, |dc| {
-        dc.randomness_account = randomness_account;
-    });
-
-    RevealCtx {
-        svm,
-        crank,
-        ticket_registry: registry,
-        tickets,
-        randomness_account,
-    }
+fn send_reveal(ctx: &mut RevealFixture, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> TxResult {
+    ctx.send_reveal_for_cycle(pool_id, cycle_id, seed)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -730,12 +653,16 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
             dc.randomness_account = randomness_account;
         });
 
-        let mut ctx = RevealCtx {
+        let mut ctx = RevealFixture {
             svm,
+            admin: Keypair::new(),
             crank,
+            jobs_account: Keypair::new(),
             ticket_registry: registry,
             tickets: vec![user1, user2, user3],
             randomness_account,
+            pool_id: 1,
+            cycle_id: 0,
         };
 
         let seed = deterministic_seed_for_index(target_index);
@@ -1005,12 +932,16 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
         dc.randomness_account = randomness_account;
     });
 
-    let mut ctx = RevealCtx {
+    let mut ctx = RevealFixture {
         svm,
+        admin: Keypair::new(),
         crank,
+        jobs_account: Keypair::new(),
         ticket_registry: registry,
         tickets: vec![user_0, user_1, user_2, user_3, user_4],
         randomness_account,
+        pool_id: 1,
+        cycle_id: 0,
     };
 
     // Test with index 5 (maps to User 1)
@@ -1062,12 +993,16 @@ fn test_reveal_fails_invalid_winner_index() {
         dc.randomness_account = randomness_account;
     });
 
-    let mut ctx = RevealCtx {
+    let mut ctx = RevealFixture {
         svm,
+        admin: Keypair::new(),
         crank,
+        jobs_account: Keypair::new(),
         ticket_registry: registry,
         tickets: vec![user_0],
         randomness_account,
+        pool_id: 1,
+        cycle_id: 0,
     };
 
     let res = send_reveal(&mut ctx, 1, 0, [42u8; 32]);

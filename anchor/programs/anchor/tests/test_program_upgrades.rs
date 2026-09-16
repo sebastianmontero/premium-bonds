@@ -115,64 +115,28 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
     let mut ctx = setup_e2e();
 
     // 1. Test declarative check_version() constraint rejection on GlobalConfig (PausePool)
-    let (global_config, _) = global_config_pda();
-    let (pool_pda_addr, _) = pool_pda(1);
+    mutate_global_config(&mut ctx.svm, |gc| {
+        gc.version = anchor::state::GlobalConfig::CURRENT_VERSION + 1;
+    });
 
-    // Forge GlobalConfig to version CURRENT_VERSION + 1
-    let mut gc_acc = ctx.svm.get_account(&global_config).unwrap();
-    let mut gc = anchor::state::GlobalConfig::try_deserialize(&mut &gc_acc.data[..]).unwrap();
-    gc.version = anchor::state::GlobalConfig::CURRENT_VERSION + 1;
-    let mut new_gc_data = vec![];
-    gc.try_serialize(&mut new_gc_data).unwrap();
-    new_gc_data.resize(8 + anchor::state::GlobalConfig::INIT_SPACE, 0);
-    gc_acc.data = new_gc_data;
-    ctx.svm.set_account(global_config, gc_acc).unwrap();
-
-    let accounts = anchor::accounts::PausePool {
-        global_config,
-        signer: ctx.admin.pubkey(),
-        pool: pool_pda_addr,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PausePool {}.data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
+    let res = send_pause_pool(&mut ctx.svm, &ctx.admin, 1);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::UnsupportedAccountVersion,
     );
 
     // Restore GlobalConfig version
-    let mut gc_acc = ctx.svm.get_account(&global_config).unwrap();
-    let mut gc = anchor::state::GlobalConfig::try_deserialize(&mut &gc_acc.data[..]).unwrap();
-    gc.version = anchor::state::GlobalConfig::CURRENT_VERSION;
-    let mut restored_gc_data = vec![];
-    gc.try_serialize(&mut restored_gc_data).unwrap();
-    restored_gc_data.resize(8 + anchor::state::GlobalConfig::INIT_SPACE, 0);
-    gc_acc.data = restored_gc_data;
-    ctx.svm.set_account(global_config, gc_acc).unwrap();
+    mutate_global_config(&mut ctx.svm, |gc| {
+        gc.version = anchor::state::GlobalConfig::CURRENT_VERSION;
+    });
 
     // 2. Test declarative check_version() constraint rejection on UserWinnings (SellBonds)
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
     // Forge user_winnings to version CURRENT_VERSION + 1
-    let mut uw_acc = ctx.svm.get_account(&user_winnings).unwrap();
-    let mut uw_data = &uw_acc.data[8..];
-    let mut uw = anchor::state::UserWinnings::deserialize(&mut uw_data).unwrap();
-    uw.version = anchor::state::UserWinnings::CURRENT_VERSION + 1;
-    let mut new_data = vec![];
-    uw.try_serialize(&mut new_data).unwrap();
-    new_data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-    uw_acc.data = new_data;
-    ctx.svm.set_account(user_winnings, uw_acc).unwrap();
+    mutate_user_winnings(&mut ctx.svm, 1, &ctx.user.pubkey(), |uw| {
+        uw.version = anchor::state::UserWinnings::CURRENT_VERSION + 1;
+    });
 
     let user_kp = clone_keypair(&ctx.user);
     let sell_res = send_e2e_sell_bonds(&mut ctx, &user_kp, 0, 5);
@@ -212,17 +176,10 @@ fn test_v2_user_winnings_lazy_migration_on_sell_bonds() {
     let mut ctx = setup_e2e();
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
     // Forge user_winnings to version 0
-    let mut uw_acc = ctx.svm.get_account(&user_winnings).unwrap();
-    let mut uw_data = &uw_acc.data[8..];
-    let mut uw = anchor::state::UserWinnings::deserialize(&mut uw_data).unwrap();
-    uw.version = 0;
-    let mut new_data = vec![];
-    uw.try_serialize(&mut new_data).unwrap();
-    new_data.resize(8 + anchor::state::UserWinnings::INIT_SPACE, 0);
-    uw_acc.data = new_data;
-    ctx.svm.set_account(user_winnings, uw_acc).unwrap();
+    mutate_user_winnings(&mut ctx.svm, 1, &ctx.user.pubkey(), |uw| {
+        uw.version = 0;
+    });
 
     // Verify version is 0
     let read_uw = read_user_winnings_state(&ctx.svm, 1, &ctx.user.pubkey());
@@ -334,21 +291,12 @@ fn test_v2_batch_boundary_slice_version_migration() {
     let crank = Keypair::new();
     ctx.svm.airdrop(&crank.pubkey(), 1_000_000_000).unwrap();
 
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: crank.pubkey(),
-        pool: pool_pda_addr,
-        draw_cycle: draw_cycle_pda,
-        ticket_registry: ticket_registry_key,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size: 2 }.data(),
-    };
-
-    send_user_tx(&mut ctx.svm, &crank, ix).unwrap();
+    PrepareDrawBuilder::for_pool(1, 0, crank.pubkey())
+        .with_draw_cycle(draw_cycle_pda)
+        .with_ticket_registry(ticket_registry_key)
+        .with_batch_size(2)
+        .send(&mut ctx.svm, &crank)
+        .unwrap();
 
     // Verify Batch Boundary Slice:
     // Entries 0..2 should have version = 1, while entry 2 must remain version = 0!
@@ -385,7 +333,7 @@ fn test_v3_claim_redemption_mismatched_beneficiary() {
     inject_pending_redemption(&mut ctx.svm, 1, 0, ctx.user.pubkey(), 1_000_000, 1_000_000);
     settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
-    let (pool_vault, _) = pool_vault_pda(1);
+    let (_pool_vault, _) = pool_vault_pda(1);
     let attacker_token =
         create_spl_token_account(&mut ctx.svm, &attacker, &ctx.usdc_mint, &attacker.pubkey());
 
@@ -410,26 +358,7 @@ fn test_v3_admin_instructions_reject_non_admin() {
         .airdrop(&fake_admin.pubkey(), 1_000_000_000)
         .unwrap();
 
-    let (global_config, _) = global_config_pda();
-    let (pool_pda_addr, _) = pool_pda(1);
-
-    // Attempt pause with non-admin / non-guardian
-    let accounts = anchor::accounts::PausePool {
-        global_config,
-        signer: fake_admin.pubkey(),
-        pool: pool_pda_addr,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PausePool {}.data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &fake_admin, ix);
+    let res = send_pause_pool(&mut ctx.svm, &fake_admin, 1);
     assert_custom_error(res, anchor::error::PremiumBondsError::Unauthorized);
 }
 
@@ -530,21 +459,9 @@ fn test_v5_resize_registry_preserves_header() {
     let payer = Keypair::new();
     ctx.svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
-    let accounts = anchor::accounts::ResizeRegistry {
-        payer: payer.pubkey(),
-        pool: pool_pda_addr,
-        ticket_registry: ticket_registry_key,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ResizeRegistry {}.data(),
-    };
-
-    send_user_tx(&mut ctx.svm, &payer, ix).unwrap();
+    ResizeRegistryBuilder::new(1, ticket_registry_key, payer.pubkey())
+        .send(&mut ctx.svm, &payer)
+        .unwrap();
 
     let resized_len = ctx
         .svm
@@ -589,9 +506,7 @@ fn test_v6_claim_redemption_fails_unsettled_huma_queue() {
 #[test]
 fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     let mut ctx = setup_e2e();
-    let (pool_pda_addr, _) = pool_pda(1);
     let (draw_cycle_pda, _) = draw_cycle_pda(1, 0);
-    let (global_config_pda_addr, _) = global_config_pda();
 
     let old_randomness = Keypair::new().pubkey();
     let draw_cycle = anchor::state::DrawCycle {
@@ -632,31 +547,28 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     // Boundary Test 1: at slot 1500 (1500 - 500 = 1000, NOT > 1000) -> MUST FAIL
     ctx.svm.warp_to_slot(1500);
 
-    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        crank: ctx.admin.pubkey(), // admin is jobs_account in setup_e2e
-        global_config: global_config_pda_addr,
-        pool: pool_pda_addr,
-        current_draw_cycle: draw_cycle_pda,
-        current_randomness_account: old_randomness,
-        new_randomness_account: new_randomness,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts.clone(),
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-
-    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix.clone());
+    let res = CrankRebindExpiredRandomnessBuilder::new(
+        ctx.admin.pubkey(),
+        1,
+        0,
+        old_randomness,
+        new_randomness,
+    )
+    .send(&mut ctx.svm, &ctx.admin);
     assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
 
     // Boundary Test 2: at slot 1501 (1501 - 500 = 1001, strictly > 1000) -> MUST SUCCEED
     ctx.svm.warp_to_slot(1501);
     ctx.svm.expire_blockhash();
-    send_user_tx(&mut ctx.svm, &ctx.admin, ix).unwrap();
+    CrankRebindExpiredRandomnessBuilder::new(
+        ctx.admin.pubkey(),
+        1,
+        0,
+        old_randomness,
+        new_randomness,
+    )
+    .send(&mut ctx.svm, &ctx.admin)
+    .unwrap();
 
     // Verify randomness account was updated to new_randomness
     let updated_dc = read_draw_cycle_state(&ctx.svm, 1, 0);

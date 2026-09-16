@@ -39,22 +39,6 @@ fn inject_payout(svm: &mut LiteSVM, pool_id: u32, cycle_id: u32, winners: Vec<an
         .inject(svm);
 }
 
-fn mock_winner(
-    winner: Pubkey,
-    owed: u64,
-    tier: u8,
-    bonds_bought: u32,
-    processed: bool,
-) -> anchor::Winner {
-    WinnerTestBuilder::new()
-        .with_winner(winner)
-        .with_amount_owed(owed)
-        .with_tier_index(tier)
-        .with_bonds_bought(bonds_bought)
-        .with_processed(processed)
-        .build()
-}
-
 // ─── Context + instruction ──────────────────────────────────────────────────
 
 struct ReinvestCtx {
@@ -69,35 +53,12 @@ fn send(
     cycle_id: u32,
     winner_index: u32,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let (pool, _) = pool_pda(1);
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.winner);
-    let (payout_registry, _) = payout_pda(1, cycle_id);
-
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: ctx.crank.pubkey(),
-        winner: ctx.winner,
-        payout_registry,
-        pool,
-        user_winnings,
-        ticket_registry: ctx.registry,
-        system_program: anchor_lang::solana_program::system_program::id(),
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id,
-            winner_index,
-        }
-        .data(),
-    };
-
     let crank = clone_keypair(&ctx.crank);
-    send_user_tx(&mut ctx.svm, &crank, ix)
+    ReinvestWinningsBuilder::for_pool(1, cycle_id, crank.pubkey())
+        .with_winner(&ctx.winner)
+        .with_ticket_registry(ctx.registry)
+        .with_winner_index(winner_index)
+        .send(&mut ctx.svm, &crank)
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -107,7 +68,6 @@ fn setup(
     frozen: bool,
     bond_price: u64,
     amount_owed: u64,
-    bonds_bought: u32,
 ) -> ReinvestCtx {
     let (mut svm, _admin) = common::setup_global_config();
 
@@ -118,16 +78,7 @@ fn setup(
     let mint = Keypair::new().pubkey();
     let reg = Keypair::new().pubkey();
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(winner, 10)];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
     inject_pool(&mut svm, 1, mint, reg, status, frozen, bond_price);
@@ -135,7 +86,7 @@ fn setup(
         &mut svm,
         1,
         0,
-        vec![mock_winner(winner, amount_owed, 0, bonds_bought, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, amount_owed, 0)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
@@ -153,7 +104,7 @@ fn setup(
 
 #[test]
 fn test_reinvest_fails_wrong_winner() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     ctx.winner = Keypair::new().pubkey(); // different from registry entry
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, 1);
     let res = send(&mut ctx, 0, 0);
@@ -162,13 +113,13 @@ fn test_reinvest_fails_wrong_winner() {
 
 #[test]
 fn test_reinvest_fails_already_paid() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     // Re-inject with processed=true
     inject_payout(
         &mut ctx.svm,
         1,
         0,
-        vec![mock_winner(ctx.winner, 3_000_000, 0, 0, true)],
+        vec![WinnerTestBuilder::processed(ctx.winner, 3_000_000, 0)],
     );
     let res = send(&mut ctx, 0, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::AlreadyClaimed);
@@ -176,7 +127,7 @@ fn test_reinvest_fails_already_paid() {
 
 #[test]
 fn test_reinvest_fails_winner_index_out_of_bounds() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     let res = send(&mut ctx, 0, 1);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidWinnerIndex);
 }
@@ -187,7 +138,7 @@ fn test_reinvest_fails_winner_index_out_of_bounds() {
 
 #[test]
 fn test_reinvest_single_batch_full() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     let meta = send(&mut ctx, 0, 0).expect("reinvest");
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner, ctx.winner, "Event winner mismatch");
@@ -251,7 +202,7 @@ fn test_reinvest_single_batch_full() {
 #[test]
 fn test_reinvest_single_batch_with_dust() {
     // 3.5M owed, 1M bond_price → 3 bonds (3M reinvested), 500K dust
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_500_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_500_000);
     send(&mut ctx, 0, 0).expect("reinvest");
 
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -265,7 +216,7 @@ fn test_reinvest_single_batch_with_dust() {
 
 #[test]
 fn test_reinvest_tickets_written() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 2_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 2_000_000);
     send(&mut ctx, 0, 0).expect("reinvest");
 
     // Reinvested tickets are added directly to total_active_tickets (starts at 10 + 2 = 12)
@@ -279,7 +230,7 @@ fn test_reinvest_tickets_written() {
 
 #[test]
 fn test_reinvest_principal_increments() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     send(&mut ctx, 0, 0).expect("reinvest");
 
     let pool = read_pool_state(&ctx.svm, 1);
@@ -288,7 +239,7 @@ fn test_reinvest_principal_increments() {
 
 #[test]
 fn test_reinvest_populates_bonds_bought() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000);
     send(&mut ctx, 0, 0).expect("reinvest");
 
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -299,7 +250,7 @@ fn test_reinvest_populates_bonds_bought() {
 #[test]
 fn test_reinvest_combines_prior_dust_and_current_prize() {
     // Bond price 100, prize owed 50, prior dust 50 -> total available 100 -> buys 1 bond, dust left 0
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 100, 50, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 100, 50);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 50, 0, 0, 0);
 
@@ -321,7 +272,7 @@ fn test_reinvest_combines_prior_dust_and_current_prize() {
 #[test]
 fn test_reinvest_dust_only_no_bonds() {
     // amount < bond_price → 0 bonds reinvested, dust stays
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000);
     send(&mut ctx, 0, 0).expect("dust only");
 
     let winners = read_payout_winners(&ctx.svm, 1, 0);
@@ -337,14 +288,14 @@ fn test_reinvest_dust_only_no_bonds() {
 
 #[test]
 fn test_reinvest_fails_pool_paused() {
-    let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Paused, false, 1_000_000, 3_000_000);
     let res = send(&mut ctx, 0, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::PoolPaused);
 }
 
 #[test]
 fn test_reinvest_fails_pool_frozen() {
-    let mut ctx = setup(anchor::PoolStatus::Active, true, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, true, 1_000_000, 3_000_000);
     let res = send(&mut ctx, 0, 0);
     assert_custom_error(
         res,
@@ -356,7 +307,7 @@ fn test_reinvest_fails_pool_frozen() {
 #[test]
 fn test_reinvest_using_accumulated_dust() {
     // Setup pool with 1M bond price, winner owes 500K (from current draw).
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000);
 
     // Inject 600K accumulated dust in UserWinnings PDA first, pointed to index 0
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 600_000, 0, 0, 0);
@@ -380,7 +331,7 @@ fn test_reinvest_using_accumulated_dust() {
 #[test]
 fn test_reinvest_fails_total_reinvested_overflow() {
     // Setup pool with 1M bond price, winner owes 1M (from current draw).
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 1_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 1_000_000);
 
     // Inject u64::MAX total_reinvested in UserWinnings PDA, pointed to index 0
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, u64::MAX, 0);
@@ -393,29 +344,11 @@ fn test_reinvest_fails_total_reinvested_overflow() {
 
 #[test]
 fn test_reinvest_fails_invalid_user_entry_hint() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     let other_user = Keypair::new().pubkey();
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: ctx.winner,
-            active: 0,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: other_user,
-            active: 0,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::active(ctx.winner, 0),
+        UserEntryTestBuilder::active(other_user, 0),
     ];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1000, &entries);
 
@@ -424,7 +357,7 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
         &mut ctx.svm,
         1,
         0,
-        vec![mock_winner(ctx.winner, 3_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(ctx.winner, 3_000_000, 0)],
     );
 
     let res = send(&mut ctx, 0, 0);
@@ -433,26 +366,17 @@ fn test_reinvest_fails_invalid_user_entry_hint() {
 
 #[test]
 fn test_reinvest_exited_user_full_registry_fallback() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
     inject_payout(
         &mut ctx.svm,
         1,
         0,
-        vec![mock_winner(ctx.winner, 3_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(ctx.winner, 3_000_000, 0)],
     );
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: Keypair::new().pubkey(),
-        active: 0,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(Keypair::new().pubkey(), 0)];
     common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1, &entries);
 
     // Full registry fallback: exited user cannot buy new tickets when registry is full.
@@ -490,7 +414,7 @@ fn test_reinvest_exited_user_full_registry_fallback() {
 #[test]
 fn test_reinvest_immediate_draw_eligibility() {
     // Verify that reinvesting prize money immediately increases total_active_tickets and entry.active
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 5_000_000);
 
     // Initial state: entry.active = 10, total_active = 10, pending = 0
     assert_eq!(read_registry_active(&ctx.svm, ctx.registry), 10);
@@ -520,16 +444,7 @@ fn test_reinvest_preserves_existing_pending_tickets() {
     let reg = Keypair::new().pubkey();
 
     // User has 10 active tickets and 5 pending tickets in cycle 1
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 5,
-        merged_through_cycle: 1,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::entry(winner, 10, 5)];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
     // Manually set total_pending_tickets = 5
@@ -550,7 +465,7 @@ fn test_reinvest_preserves_existing_pending_tickets() {
         &mut svm,
         1,
         1,
-        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, 3_000_000, 0)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
@@ -601,7 +516,7 @@ fn test_reinvest_exited_user_creates_active_entry() {
         &mut svm,
         1,
         0,
-        vec![mock_winner(winner, 4_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, 4_000_000, 0)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, u32::MAX);
 
@@ -635,16 +550,7 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
     let reg = Keypair::new().pubkey();
 
     // User entry in cycle 1 has active = 10, pending = 6 from cycle 0 (merged_through_cycle = 0)
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 6,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::entry(winner, 10, 6)];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
     // Set registry total_active_tickets = 16, total_pending_tickets = 0, draw_cycle_id = 1
@@ -667,7 +573,7 @@ fn test_reinvest_with_lazy_merge_from_past_cycle() {
         &mut svm,
         1,
         1,
-        vec![mock_winner(winner, 2_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, 2_000_000, 0)],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner, 0, 0, 0, 0);
 
@@ -701,19 +607,10 @@ fn test_reinvest_fails_payout_timelock_active() {
     let mint = Keypair::new().pubkey();
     let reg = Keypair::new().pubkey();
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(winner, 10)];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-    let pool_pda = inject_pool(
+    let _pool_pda = inject_pool(
         &mut svm,
         1,
         mint,
@@ -732,7 +629,7 @@ fn test_reinvest_fails_payout_timelock_active() {
         &mut svm,
         1,
         0,
-        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, 3_000_000, 0)],
     );
     PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
         .with_revealed_at(1_700_000_000)
@@ -771,7 +668,7 @@ fn test_reinvest_fails_payout_timelock_active() {
 
 #[test]
 fn test_reinvest_fails_draw_voided() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
     PayoutRegistryTestBuilder::from_state(&ctx.svm, 1, 0)
         .with_status(anchor::state::PayoutRegistryStatus::Voided)
         .inject(&mut ctx.svm);
@@ -788,7 +685,7 @@ fn test_reinvest_fails_draw_voided() {
 
 #[test]
 fn test_reinvest_closed_pool_graceful_cash_fallback() {
-    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 3_000_000);
     let pool_before = read_pool_state(&ctx.svm, 1);
 
     let meta = send(&mut ctx, 0, 0).expect("closed pool reinvest");
@@ -841,7 +738,7 @@ fn test_reinvest_closed_pool_graceful_cash_fallback() {
 
 #[test]
 fn test_reinvest_closed_pool_with_existing_dust() {
-    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 2_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 2_000_000);
 
     // User already has 500_000 in unclaimed_non_reinvested_winnings
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 500_000, 0, 0, 0);
@@ -865,7 +762,7 @@ fn test_reinvest_closed_pool_with_existing_dust() {
 
 #[test]
 fn test_reinvest_closed_pool_exited_user() {
-    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 4_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Closed, false, 1_000_000, 4_000_000);
 
     // Exited user has registry_entry_index = u32::MAX
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 0, 0, 0, u32::MAX);
@@ -907,7 +804,7 @@ fn test_reinvest_closed_pool_exited_user() {
 
 #[test]
 fn test_reinvest_closed_pool_fails_when_frozen() {
-    let mut ctx = setup(anchor::PoolStatus::Closed, true, 1_000_000, 3_000_000, 0);
+    let mut ctx = setup(anchor::PoolStatus::Closed, true, 1_000_000, 3_000_000);
     assert_custom_error(
         send(&mut ctx, 0, 0),
         anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
@@ -924,19 +821,10 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     let mint = Keypair::new().pubkey();
     let reg = Keypair::new().pubkey();
 
-    let entries = vec![anchor::state::UserEntry {
-        owner: winner,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(winner, 10)];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
-    let pool_pda = inject_pool(
+    let _pool_pda = inject_pool(
         &mut svm,
         1,
         mint,
@@ -950,12 +838,11 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
         .with_payout_timelock_seconds(300)
         .inject(&mut svm);
 
-    let (payout_pda, _) = payout_pda(1, 0);
     inject_payout(
         &mut svm,
         1,
         0,
-        vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+        vec![WinnerTestBuilder::unprocessed(winner, 3_000_000, 0)],
     );
     PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
         .with_revealed_at(1_700_000_000)
@@ -1005,7 +892,7 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
 
 #[test]
 fn test_reinvest_zero_prize_owed_without_prior_dust() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0);
 
     let meta = send(&mut ctx, 0, 0).expect("reinvest of 0 prize should succeed");
 
@@ -1047,7 +934,7 @@ fn test_reinvest_zero_prize_owed_without_prior_dust() {
 
 #[test]
 fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0);
     // Inject 400k lamports of prior dust (< bond_price of 1_000_000)
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 400_000, 0, 0, 0);
 
@@ -1086,7 +973,7 @@ fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
 
 #[test]
 fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0);
     // Inject 1.5 USDC of prior accumulated dust (1_500_000 lamports)
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 1_500_000, 0, 0, 0);
 
@@ -1139,26 +1026,8 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     let reg = Keypair::new().pubkey();
 
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: winner0,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: winner1,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::active(winner0, 5),
+        UserEntryTestBuilder::active(winner1, 5),
     ];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
     inject_pool(
@@ -1175,8 +1044,8 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
         1,
         0,
         vec![
-            mock_winner(winner0, 0, 0, 0, false),
-            mock_winner(winner1, 0, 1, 0, false),
+            WinnerTestBuilder::unprocessed(winner0, 0, 0),
+            WinnerTestBuilder::unprocessed(winner1, 0, 1),
         ],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
@@ -1246,7 +1115,7 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
 
 #[test]
 fn test_reinvest_fails_if_already_processed_zero_prize() {
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 0);
     send(&mut ctx, 0, 0).expect("first reinvest should succeed");
 
     ctx.svm.expire_blockhash();
@@ -1260,7 +1129,7 @@ fn test_reinvest_fails_if_already_processed_zero_prize() {
 #[test]
 fn test_reinvest_fails_pool_principal_overflow() {
     // Setup pool with active status and winner owed 200
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 200, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 200);
 
     // Mutate pool total_deposited_principal to near max so checked_add(200) overflows
     common::mutate_pool_state(&mut ctx.svm, 1, |pool| {
@@ -1277,7 +1146,7 @@ fn test_reinvest_fails_pool_principal_overflow() {
 #[test]
 fn test_reinvest_winnings_with_unit_bond_price() {
     // Setup with bond_price = 1 and prize = 500
-    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 500, 0);
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1, 500);
 
     let initial_reg_active = read_registry_active(&ctx.svm, ctx.registry);
     send(&mut ctx, 0, 0).expect("reinvest with unit bond price should succeed");
@@ -1309,36 +1178,9 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     let reg = Keypair::new().pubkey();
 
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: winner0,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: winner1,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: winner2,
-            active: 10,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::active(winner0, 5),
+        UserEntryTestBuilder::active(winner1, 5),
+        UserEntryTestBuilder::active(winner2, 10),
     ];
     common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
     inject_pool(
@@ -1355,9 +1197,9 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
         1,
         0,
         vec![
-            mock_winner(winner0, 0, 0, 0, false),
-            mock_winner(winner1, 0, 1, 0, false),
-            mock_winner(winner2, 4_000_000, 2, 0, false),
+            WinnerTestBuilder::unprocessed(winner0, 0, 0),
+            WinnerTestBuilder::unprocessed(winner1, 0, 1),
+            WinnerTestBuilder::unprocessed(winner2, 4_000_000, 2),
         ],
     );
     common::inject_user_winnings_with_index(&mut svm, 1, winner0, 0, 0, 0, 0);
@@ -1416,16 +1258,7 @@ fn test_reinvest_exact_timelock_boundaries() {
         let mint = Keypair::new().pubkey();
         let reg = Keypair::new().pubkey();
 
-        let entries = vec![anchor::state::UserEntry {
-            owner: winner,
-            active: 10,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        }];
+        let entries = vec![UserEntryTestBuilder::active(winner, 10)];
         common::inject_registry_with_entries(&mut svm, reg, 1, 1000, &entries);
 
         inject_pool(
@@ -1445,7 +1278,7 @@ fn test_reinvest_exact_timelock_boundaries() {
             &mut svm,
             1,
             0,
-            vec![mock_winner(winner, 3_000_000, 0, 0, false)],
+            vec![WinnerTestBuilder::unprocessed(winner, 3_000_000, 0)],
         );
         PayoutRegistryTestBuilder::from_state(&svm, 1, 0)
             .with_revealed_at(1_700_000_000)

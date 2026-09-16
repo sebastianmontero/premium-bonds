@@ -17,6 +17,7 @@ pub const USER_WINNINGS_SEED: &[u8] = b"user_winnings";
 pub const FAIL_DEPOSIT_PUBKEY: Pubkey = Pubkey::new_from_array([1; 32]);
 pub const FAIL_REDEMPTION_PUBKEY: Pubkey = Pubkey::new_from_array([2; 32]);
 pub const FAIL_DISBURSE_PUBKEY: Pubkey = Pubkey::new_from_array([3; 32]);
+pub const FAIL_CREATE_LENDER_PUBKEY: Pubkey = Pubkey::new_from_array([4; 32]);
 pub const FAIL_ZERO_SHARES_PUBKEY: Pubkey = Pubkey::new_from_array([5; 32]);
 
 // ─── Test Time & Slot Constants ─────────────────────────────────────────────

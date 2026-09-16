@@ -19,11 +19,7 @@ fn setup(
     dc_status: anchor::DrawStatus,
     entries: &[anchor::state::UserEntry],
 ) -> PrepareDrawCtx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
+    let mut svm = setup_svm();
 
     let crank = Keypair::new();
     svm.airdrop(&crank.pubkey(), 10_000_000_000).unwrap();
@@ -80,26 +76,8 @@ fn test_prepare_draw_happy_path() {
     let user_a = Keypair::new().pubkey();
     let user_b = Keypair::new().pubkey();
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: user_a,
-            active: 5,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: user_b,
-            active: 3,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::active(user_a, 5),
+        UserEntryTestBuilder::active(user_b, 3),
     ];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
@@ -176,26 +154,8 @@ fn test_prepare_draw_fails_invalid_draw_status() {
 fn test_prepare_draw_fails_math_overflow() {
     let user_a = Keypair::new().pubkey();
     let entries = vec![
-        anchor::state::UserEntry {
-            owner: user_a,
-            active: u32::MAX,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
-        anchor::state::UserEntry {
-            owner: Keypair::new().pubkey(),
-            active: 1,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        },
+        UserEntryTestBuilder::active(user_a, u32::MAX),
+        UserEntryTestBuilder::active(Keypair::new().pubkey(), 1),
     ];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
@@ -207,16 +167,7 @@ fn test_prepare_draw_fails_math_overflow() {
 #[test]
 fn test_prepare_draw_excludes_pending_tickets() {
     let user_a = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user_a,
-        active: 10,
-        pending: 5,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::entry(user_a, 10, 5)];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
@@ -252,16 +203,7 @@ fn test_prepare_draw_excludes_pending_tickets() {
 #[test]
 fn test_prepare_draw_already_complete_rejected() {
     let user_a = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user_a,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(user_a, 10)];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
@@ -288,16 +230,7 @@ fn test_prepare_draw_already_complete_rejected() {
 #[test]
 fn test_prepare_draw_multi_batch_events() {
     let entries = (0..4)
-        .map(|_| anchor::state::UserEntry {
-            owner: Keypair::new().pubkey(),
-            active: 10,
-            pending: 0,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        })
+        .map(|_| UserEntryTestBuilder::active(Keypair::new().pubkey(), 10))
         .collect::<Vec<_>>();
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
@@ -340,16 +273,7 @@ fn test_prepare_draw_multi_batch_events() {
 #[test]
 fn test_prepare_draw_batch_size_zero_rejected() {
     let user_a = Keypair::new().pubkey();
-    let entries = vec![anchor::state::UserEntry {
-        owner: user_a,
-        active: 10,
-        pending: 0,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::active(user_a, 10)];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
@@ -362,16 +286,7 @@ fn test_prepare_draw_batch_size_zero_rejected() {
 fn test_prepare_draw_first_cycle_genesis() {
     let user_a = Keypair::new().pubkey();
     // User deposited in cycle 0: merged_through_cycle = 0, active = 0, pending = 10
-    let entries = vec![anchor::state::UserEntry {
-        owner: user_a,
-        active: 0,
-        pending: 10,
-        merged_through_cycle: 0,
-        cumulative_active: 0,
-        version: anchor::state::UserEntry::CURRENT_VERSION,
-        _padding: [0; 3],
-        _reserved: [0; 12],
-    }];
+    let entries = vec![UserEntryTestBuilder::entry(user_a, 0, 10)];
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 
@@ -440,15 +355,12 @@ fn test_prepare_draw_first_cycle_genesis() {
 fn test_prepare_draw_non_aligned_batches() {
     // 25 users with various active & pending balances
     let entries = (0..25)
-        .map(|i| anchor::state::UserEntry {
-            owner: Keypair::new().pubkey(),
-            active: (i % 5 + 1) * 2, // 2, 4, 6, 8, 10...
-            pending: 1,              // pending will mature
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
+        .map(|i| {
+            UserEntryTestBuilder::new()
+                .with_owner(Keypair::new().pubkey())
+                .with_active((i % 5 + 1) * 2)
+                .with_pending(1)
+                .build()
         })
         .collect::<Vec<_>>();
 
@@ -529,16 +441,10 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
     let mut entries = Vec::new();
     for i in 0..10 {
         let is_zero = i == 6 || i == 7 || i == 8;
-        entries.push(anchor::state::UserEntry {
-            owner: Keypair::new().pubkey(),
-            active: if is_zero { 0 } else { 10 },
-            pending: 0,
-            merged_through_cycle: 1,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        });
+        let mut entry =
+            UserEntryTestBuilder::active(Keypair::new().pubkey(), if is_zero { 0 } else { 10 });
+        entry.merged_through_cycle = 1;
+        entries.push(entry);
     }
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
@@ -582,19 +488,9 @@ fn test_prepare_draw_zero_ticket_entries_at_boundary() {
 
 #[test]
 fn test_prepare_draw_saturating_u32_max_batch_size() {
-    let mut entries = Vec::new();
-    for _ in 0..10 {
-        entries.push(anchor::state::UserEntry {
-            owner: Keypair::new().pubkey(),
-            active: 5,
-            pending: 2,
-            merged_through_cycle: 0,
-            cumulative_active: 0,
-            version: anchor::state::UserEntry::CURRENT_VERSION,
-            _padding: [0; 3],
-            _reserved: [0; 12],
-        });
-    }
+    let entries = (0..10)
+        .map(|_| UserEntryTestBuilder::entry(Keypair::new().pubkey(), 5, 2))
+        .collect::<Vec<_>>();
 
     let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
 

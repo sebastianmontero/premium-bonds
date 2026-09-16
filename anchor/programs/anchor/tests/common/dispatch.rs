@@ -708,10 +708,7 @@ pub fn send_e2e_buy_bonds_for_user(
 }
 
 pub fn send_e2e_buy_bonds(ctx: &mut E2eContext, bonds: u32) -> TxResult {
-    let bytes = ctx.user.to_bytes();
-    let mut secret = [0u8; 32];
-    secret.copy_from_slice(&bytes[0..32]);
-    let user = Keypair::new_from_array(secret);
+    let user = clone_keypair(&ctx.user);
     let user_token_account = ctx.user_usdc_account;
     send_e2e_buy_bonds_for_user(ctx, &user, user_token_account, bonds, Pubkey::default())
 }
@@ -841,15 +838,14 @@ pub fn send_e2e_harvest_yield_and_commit_with_crank(
     ctx: &mut E2eContext,
     crank: &Keypair,
 ) -> TxResult {
-    let (global_config, _) = global_config_pda();
-    let (pool_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
+    let pool_id = ctx.pool_id;
+    let pool = read_pool_state(&ctx.svm, pool_id);
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
 
     // Warp clock to current_cycle_end_at to satisfy time check without clobbering other fields
-    warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at);
-
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (current_draw_cycle, _) = draw_cycle_pda(1, pool.current_draw_cycle_id);
+    if clock.unix_timestamp < pool.current_cycle_end_at {
+        warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at);
+    }
 
     let randomness_account = Keypair::new().pubkey();
     let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
@@ -876,30 +872,10 @@ pub fn send_e2e_harvest_yield_and_commit_with_crank(
         [0u8; 32],
     );
 
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: crank.pubkey(),
-        global_config,
-        pool: pool_key,
-        ticket_registry: ctx.ticket_registry,
-        current_draw_cycle,
-        pool_pst_vault,
-        pst_mint: ctx.pst_mint,
-        huma_pool_state: ctx.huma_pool_state,
-        randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    };
-
-    send_user_tx(&mut ctx.svm, crank, ix)
+    HarvestYieldAndCommitBuilder::from_ctx(ctx)
+        .with_crank(crank.pubkey())
+        .with_randomness_account(randomness_account)
+        .send(&mut ctx.svm, crank)
 }
 
 pub fn send_e2e_harvest_yield_and_commit(ctx: &mut E2eContext) -> TxResult {
@@ -914,23 +890,10 @@ pub fn send_e2e_prepare_draw_with_crank(
     cycle_id: u32,
     batch_size: u32,
 ) -> TxResult {
-    let (pool, _) = pool_pda(pool_id);
-    let (draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: crank.pubkey(),
-        pool,
-        draw_cycle,
-        ticket_registry: ctx.ticket_registry,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size }.data(),
-    };
-
-    send_user_tx(&mut ctx.svm, crank, ix)
+    PrepareDrawBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_batch_size(batch_size)
+        .send(&mut ctx.svm, crank)
 }
 
 pub fn send_e2e_prepare_draw(
@@ -950,30 +913,10 @@ pub fn send_e2e_reveal_and_pick_winners_with_crank(
     cycle_id: u32,
     randomness_account: Pubkey,
 ) -> TxResult {
-    let (pool, _) = pool_pda(pool_id);
-    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
-    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
-
-    let accounts = anchor::accounts::RevealAndPickWinners {
-        crank: crank.pubkey(),
-        current_draw_cycle,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        randomness_account,
-        payout_registry,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::RevealAndPickWinners {}.data(),
-    };
-
-    send_user_tx(&mut ctx.svm, crank, ix)
+    RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(randomness_account)
+        .send(&mut ctx.svm, crank)
 }
 
 pub fn send_e2e_reveal_and_pick_winners(
@@ -994,34 +937,11 @@ pub fn send_e2e_reinvest_winnings_with_crank(
     cycle_id: u32,
     winner_index: u32,
 ) -> TxResult {
-    let (pool, _) = pool_pda(pool_id);
-    let (payout_reg, _) = payout_pda(pool_id, cycle_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, winner);
-
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: crank.pubkey(),
-        winner: *winner,
-        payout_registry: payout_reg,
-        pool,
-        user_winnings,
-        ticket_registry: ctx.ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id,
-            winner_index,
-        }
-        .data(),
-    };
-
-    send_user_tx(&mut ctx.svm, crank, ix)
+    ReinvestWinningsBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_winner(winner)
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_winner_index(winner_index)
+        .send(&mut ctx.svm, crank)
 }
 
 pub fn send_e2e_reinvest_winnings(
@@ -1033,4 +953,27 @@ pub fn send_e2e_reinvest_winnings(
 ) -> TxResult {
     let admin = clone_keypair(&ctx.admin);
     send_e2e_reinvest_winnings_with_crank(ctx, &admin, pool_id, winner, cycle_id, winner_index)
+}
+
+pub fn send_e2e_withdraw_fees_with_admin(
+    ctx: &mut E2eContext,
+    admin: &Keypair,
+    amount: u64,
+) -> TxResult {
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    WithdrawFeesBuilder::from_ctx(ctx)
+        .with_admin(admin.pubkey())
+        .with_huma_pool_mode_token(huma_pool_mode_token)
+        .with_amount(amount)
+        .send(&mut ctx.svm, admin)
+}
+
+pub fn send_e2e_withdraw_fees(ctx: &mut E2eContext, amount: u64) -> TxResult {
+    let admin = clone_keypair(&ctx.admin);
+    send_e2e_withdraw_fees_with_admin(ctx, &admin, amount)
 }

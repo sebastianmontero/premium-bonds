@@ -128,41 +128,9 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         "5 USDC fee accrued"
     );
 
-    let (pending_fee_redemption, _) =
-        pending_redemption_pda(pool_id, pool_unfrozen.next_redemption_id);
-    let accounts_withdraw_fees = anchor::accounts::WithdrawFees {
-        admin: h.admin.pubkey(),
-        global_config: gc,
-        pool: pool_pda_addr,
-        fee_wallet: h.fee_wallet,
-        token_mint: h.usdc_mint,
-        pool_pst_vault,
-        pending_redemption: pending_fee_redemption,
-        huma_program: huma_program_id(),
-        huma_config: Pubkey::default(),
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: pst_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority,
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix_withdraw_fees = Instruction {
-        program_id: anchor::id(),
-        accounts: accounts_withdraw_fees,
-        data: anchor::instruction::WithdrawFees { amount: 5_000_000 }.data(),
-    };
     let admin = clone_keypair(&h.admin);
-    send_user_tx(&mut h.svm, &admin, ix_withdraw_fees).expect("WithdrawFees must succeed");
+    send_e2e_withdraw_fees_with_admin(&mut h.ctx, &admin, 5_000_000)
+        .expect("WithdrawFees must succeed");
 
     let pool_final = read_pool_state(&h.svm, h.pool_id);
     assert_eq!(

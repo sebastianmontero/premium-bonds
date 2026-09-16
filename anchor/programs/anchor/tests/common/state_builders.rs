@@ -69,6 +69,23 @@ impl WinnerTestBuilder {
             .with_tier_index(tier_index)
             .build()
     }
+
+    pub fn unprocessed(winner: Pubkey, amount_owed: u64, tier_index: u8) -> anchor::Winner {
+        Self::new()
+            .with_winner(winner)
+            .with_amount_owed(amount_owed)
+            .with_tier_index(tier_index)
+            .build()
+    }
+
+    pub fn processed(winner: Pubkey, amount_owed: u64, tier_index: u8) -> anchor::Winner {
+        Self::new()
+            .with_winner(winner)
+            .with_amount_owed(amount_owed)
+            .with_tier_index(tier_index)
+            .with_processed(true)
+            .build()
+    }
 }
 
 // ─── UserEntryTestBuilder ───────────────────────────────────────────────────
@@ -125,6 +142,25 @@ impl UserEntryTestBuilder {
 
     pub fn build(self) -> anchor::state::UserEntry {
         self.entry
+    }
+
+    pub fn active(owner: Pubkey, active: u32) -> anchor::state::UserEntry {
+        Self::new().with_owner(owner).with_active(active).build()
+    }
+
+    pub fn entry(owner: Pubkey, active: u32, pending: u32) -> anchor::state::UserEntry {
+        Self::new()
+            .with_owner(owner)
+            .with_active(active)
+            .with_pending(pending)
+            .build()
+    }
+
+    pub fn active_entries(owners: &[Pubkey], active_count: u32) -> Vec<anchor::state::UserEntry> {
+        owners
+            .iter()
+            .map(|&o| Self::active(o, active_count))
+            .collect()
     }
 }
 
@@ -470,6 +506,7 @@ pub struct PayoutRegistryTestBuilder {
     pool_id: u32,
     cycle_id: u32,
     winners: Vec<anchor::Winner>,
+    winners_count_override: Option<u32>,
     payouts_completed: u32,
     revealed_at: i64,
     status: anchor::state::PayoutRegistryStatus,
@@ -484,6 +521,7 @@ impl PayoutRegistryTestBuilder {
             pool_id,
             cycle_id,
             winners,
+            winners_count_override: None,
             payouts_completed: header.payouts_completed,
             revealed_at: header.revealed_at,
             status: match header.status {
@@ -499,6 +537,7 @@ impl PayoutRegistryTestBuilder {
             pool_id,
             cycle_id,
             winners: Vec::new(),
+            winners_count_override: None,
             payouts_completed: 0,
             revealed_at: 1_700_000_000,
             status: anchor::state::PayoutRegistryStatus::Active,
@@ -513,6 +552,11 @@ impl PayoutRegistryTestBuilder {
 
     pub fn with_winners(mut self, winners: Vec<anchor::Winner>) -> Self {
         self.winners = winners;
+        self
+    }
+
+    pub fn with_winners_count(mut self, count: u32) -> Self {
+        self.winners_count_override = Some(count);
         self
     }
 
@@ -531,19 +575,29 @@ impl PayoutRegistryTestBuilder {
         self
     }
 
-    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::PayoutRegistry) {
-        let (pda, _) = payout_pda(self.pool_id, self.cycle_id);
-        let header = anchor::PayoutRegistry {
+    pub fn build_header(&self) -> anchor::PayoutRegistry {
+        anchor::PayoutRegistry {
             pool_id: self.pool_id,
             cycle_id: self.cycle_id,
-            winners_count: self.winners.len() as u32,
+            winners_count: self
+                .winners_count_override
+                .unwrap_or(self.winners.len() as u32),
             payouts_completed: self.payouts_completed,
             revealed_at: self.revealed_at,
             status: self.status as u8,
             version: self.version,
             _padding: [0; 6],
             _reserved: [0; 64],
-        };
+        }
+    }
+
+    pub fn build(&self) -> (anchor::PayoutRegistry, Vec<anchor::Winner>) {
+        (self.build_header(), self.winners.clone())
+    }
+
+    pub fn inject(self, svm: &mut LiteSVM) -> (Pubkey, anchor::PayoutRegistry) {
+        let (pda, _) = payout_pda(self.pool_id, self.cycle_id);
+        let header = self.build_header();
 
         let mut data = Vec::with_capacity(
             8 + std::mem::size_of::<anchor::PayoutRegistry>()
