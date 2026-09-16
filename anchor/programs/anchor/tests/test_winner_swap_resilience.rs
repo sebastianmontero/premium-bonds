@@ -82,47 +82,74 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
         "Bob's registry_entry_index must be updated to 0 on-chain"
     );
 
-    // 5. Warp past payout timelock and execute ReinvestWinnings on-chain for the winner
+    // 5. Warp past payout timelock and execute ReinvestWinnings on-chain
     warp_forward_seconds(&mut h.svm, 301);
 
-    let bob_winner_idx = winners.iter().position(|w| w.winner == bob.pubkey());
-    if let Some(w_idx) = bob_winner_idx {
-        let meta = send_e2e_reinvest_winnings_with_crank(
-            &mut h.ctx,
-            &crank,
-            pool_id,
-            &bob.pubkey(),
-            1,
-            w_idx as u32,
-        )
-        .expect("Bob reinvestment after index swap must succeed");
+    // Deterministically locate Bob's and Alice's winner indices across the two prize tiers
+    let bob_winner_idx = winners
+        .iter()
+        .position(|w| w.winner == bob.pubkey())
+        .expect("Bob must be selected as a winner");
+    let alice_winner_idx = winners
+        .iter()
+        .position(|w| w.winner == alice.pubkey())
+        .expect("Alice must be selected as a winner");
+    assert_ne!(
+        bob_winner_idx, alice_winner_idx,
+        "Bob and Alice must win distinct prize tiers"
+    );
 
-        let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-        assert_eq!(event.winner, bob.pubkey(), "Event winner matches Bob");
-        assert_eq!(event.winner_index, w_idx as u32);
-        assert!(event.amount_reinvested > 0, "Amount reinvested > 0");
+    // 5a. Reinvest Bob (whose index was swapped from 1 to 0 on-chain)
+    let meta_bob = send_e2e_reinvest_winnings_with_crank(
+        &mut h.ctx,
+        &crank,
+        pool_id,
+        &bob.pubkey(),
+        1,
+        bob_winner_idx as u32,
+    )
+    .expect("Bob reinvestment after index swap must succeed");
 
-        let updated_winners = read_payout_winners(&h.svm, pool_id, 1);
-        assert_eq!(
-            updated_winners[w_idx].processed, 1,
-            "Winner marked processed"
-        );
-    } else {
-        let a_idx = winners
-            .iter()
-            .position(|w| w.winner == alice.pubkey())
-            .unwrap();
-        let meta = send_e2e_reinvest_winnings_with_crank(
-            &mut h.ctx,
-            &crank,
-            pool_id,
-            &alice.pubkey(),
-            1,
-            a_idx as u32,
-        )
-        .expect("Alice reinvestment after full exit must succeed");
+    let event_bob = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta_bob);
+    assert_eq!(event_bob.winner, bob.pubkey(), "Event winner matches Bob");
+    assert_eq!(event_bob.winner_index, bob_winner_idx as u32);
+    assert!(event_bob.amount_reinvested > 0, "Amount reinvested > 0");
 
-        let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
-        assert_eq!(event.winner, alice.pubkey(), "Event winner matches Alice");
-    }
+    let updated_winners = read_payout_winners(&h.svm, pool_id, 1);
+    assert_eq!(
+        updated_winners[bob_winner_idx].processed, 1,
+        "Bob winner entry marked processed"
+    );
+    let uw_b_after_reinvest = read_user_winnings_state(&h.svm, pool_id, &bob.pubkey());
+    assert_eq!(
+        uw_b_after_reinvest.registry_entry_index, 0,
+        "Bob remains at swapped index 0"
+    );
+
+    // 5b. Reinvest Alice (who fully exited and has no active registry slot)
+    let meta_alice = send_e2e_reinvest_winnings_with_crank(
+        &mut h.ctx,
+        &crank,
+        pool_id,
+        &alice.pubkey(),
+        1,
+        alice_winner_idx as u32,
+    )
+    .expect("Alice reinvestment after full exit must succeed");
+
+    let event_alice = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta_alice);
+    assert_eq!(event_alice.winner, alice.pubkey(), "Event winner matches Alice");
+    assert_eq!(event_alice.winner_index, alice_winner_idx as u32);
+    assert!(event_alice.amount_reinvested > 0, "Amount reinvested > 0");
+
+    let updated_winners_final = read_payout_winners(&h.svm, pool_id, 1);
+    assert_eq!(
+        updated_winners_final[alice_winner_idx].processed, 1,
+        "Alice winner entry marked processed"
+    );
+    let uw_a_after_reinvest = read_user_winnings_state(&h.svm, pool_id, &alice.pubkey());
+    assert_eq!(
+        uw_a_after_reinvest.registry_entry_index, 1,
+        "Alice re-allocated at registry index 1"
+    );
 }

@@ -94,6 +94,13 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
         "Winner mass conservation: total_reinvested + unclaimed dust == winner_owed"
     );
 
+    // Assert winner 0 processed status after reinvestment
+    let winners_post_reinvest = read_payout_winners(&h.svm, pool_id, 1);
+    assert_eq!(
+        winners_post_reinvest[0].processed, 1,
+        "Winner 0 must be marked processed after reinvestment"
+    );
+
     // 6. Winner 0 Claims Unclaimed Dust Winnings via ClaimNonReinvestedWinnings
     let dummy = Keypair::new().pubkey();
     let huma_pool_mode_token = Keypair::new().pubkey();
@@ -106,11 +113,14 @@ fn test_lifecycle_payout_reinvestment_and_claims() {
         0,
     );
 
-    let winner_0_signer = if winner_0 == h.user.pubkey() {
-        clone_keypair(&h.user)
-    } else {
-        clone_keypair(&h.bob)
-    };
+    // In this deterministic scenario (seed [42; 32], 100 Alice tickets, 50 Bob tickets),
+    // Tier 0 winner is deterministically Alice (h.user).
+    assert_eq!(
+        winner_0,
+        h.user.pubkey(),
+        "Tier 0 winner must deterministically match Alice"
+    );
+    let winner_0_signer = clone_keypair(&h.user);
 
     let ix_claim_dust = ClaimNonReinvestedWinningsBuilder::new(&h.ctx)
         .with_user(&winner_0)
