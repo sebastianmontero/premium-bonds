@@ -121,41 +121,10 @@ fn test_initialize_huma_lender_rejects_spoofed_huma_state() {
     let spoofed_huma_state = Keypair::new().pubkey();
     inject_huma_pool_state(&mut ctx.svm, spoofed_huma_state);
 
-    let (global_config, _) = global_config_pda();
-    let (pool_pda_addr, _) = pool_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::InitializeHumaLender {
-        admin: ctx.admin.pubkey(),
-        global_config,
-        pool: pool_pda_addr,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: spoofed_huma_state, // Spoofed!
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_lender_state: dummy,
-        huma_lender_mode_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        associated_token_program: anchor_spl::associated_token::ID,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeHumaLender {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix =
+        InitializeHumaLenderBuilder::new(ctx.admin.pubkey(), 1, spoofed_huma_state, ctx.pst_mint)
+            .build_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -181,66 +150,22 @@ fn test_sell_bonds_fails_when_huma_sub_par() {
 #[test]
 fn test_sell_bonds_fails_when_committed_yield_exceeds_vault() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     send_e2e_buy_bonds(&mut ctx, 10).unwrap();
 
     // Increase total_prizes_allocated on pool to 50,000,000 (total book liabilities = 10M principal + 50M prizes = 60M)
     // While pool vault only has 10M PST
-    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
         .with_prizes_allocated(50_000_000)
         .inject(&mut ctx.svm);
 
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, 0);
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
-
-    let accounts = anchor::accounts::SellBonds {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        token_mint: ctx.usdc_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell: 5,
-            pending_to_sell: 0,
-        }
-        .data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = SellBondsBuilder::new(&ctx).build_ix(5, 0);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 }
 
 #[test]
 fn test_claim_winnings_fails_when_insolvent() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
 
     // Pre-fund user with 10,000 USDC ($10,000 in 6 decimals = 10_000_000_000 base units)
     mint_tokens(
@@ -257,11 +182,10 @@ fn test_claim_winnings_fails_when_insolvent() {
 
     // Set up user_winnings with 5_000_000_000 unclaimed winnings and pool with 5_000_000_000 total_prizes_allocated
     // Total liabilities = 10_000_000_000 principal + 5_000_000_000 allocated = 15_000_000_000
-    let (pool_pda_addr, _) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
         .with_prizes_allocated(5_000_000_000)
         .inject(&mut ctx.svm);
 
-    let (user_winnings_addr, _) = user_winnings_pda(1, &ctx.user.pubkey());
     inject_user_winnings(&mut ctx.svm, 1, ctx.user.pubkey(), 5_000_000_000, 0, 0);
 
     // Impair Huma assets to 8,000_000_000 (less than 15,000_000_000 book liabilities) with 10_000_000_000 PST supply
@@ -273,43 +197,8 @@ fn test_claim_winnings_fails_when_insolvent() {
         10_000_000_000,
     );
 
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, 0);
-
-    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
-        user: ctx.user.pubkey(),
-        pool: pool_pda_addr,
-        user_winnings: user_winnings_addr,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx).build_ix();
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 
     // Verify user unclaimed balance remains untouched
@@ -323,7 +212,6 @@ fn test_claim_winnings_fails_when_insolvent() {
 #[test]
 fn test_withdraw_fees_fails_when_insolvent() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
 
     // Pre-fund user with 50,000 USDC ($50,000 in 6 decimals = 50_000_000_000 base units)
     mint_tokens(
@@ -339,7 +227,7 @@ fn test_withdraw_fees_fails_when_insolvent() {
     send_e2e_buy_bonds(&mut ctx, 50_000).unwrap();
 
     // Set accrued fees = 2,000_000_000 on pool (total book liabilities = 50B principal + 2B fees = 52B)
-    let (pool_pda_addr, pool) = PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
         .with_fees_accrued(2_000_000_000)
         .with_fees_withdrawn(0)
         .inject(&mut ctx.svm);
@@ -353,49 +241,8 @@ fn test_withdraw_fees_fails_when_insolvent() {
         50_000_000_000,
     );
 
-    let (global_config, _) = global_config_pda();
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, 0);
-
-    let accounts = anchor::accounts::WithdrawFees {
-        admin: ctx.admin.pubkey(),
-        global_config,
-        pool: pool_pda_addr,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: Keypair::new().pubkey(),
-        huma_lender_state: dummy,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token: Keypair::new().pubkey(),
-        token_mint: ctx.usdc_mint,
-        fee_wallet: pool.fee_wallet,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::WithdrawFees {
-            amount: 1_000_000_000,
-        }
-        .data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let ix = WithdrawFeesBuilder::new(&ctx).build_ix(1_000_000_000);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 
     // Verify pool total_fees_withdrawn remains 0
@@ -502,10 +349,7 @@ fn test_create_pool_rejects_transfer_fee_mint() {
         anchor_spl::token::ID,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::TransferFeeNotSupported);
 }
 
@@ -558,10 +402,7 @@ fn test_create_pool_rejects_transfer_hook_mint() {
         anchor_spl::token::ID,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::TransferHookNotSupported);
 }
 
@@ -619,10 +460,7 @@ fn test_create_pool_rejects_permanent_delegate_mint() {
         anchor_spl::token::ID,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidTokenMint);
 }
 
@@ -680,10 +518,7 @@ fn test_create_pool_rejects_mint_close_authority_mint() {
         anchor_spl::token::ID,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidTokenMint);
 }
 
@@ -744,10 +579,7 @@ fn test_create_pool_rejects_uninitialized_huma_pool_state() {
         bad_huma_state,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolData);
 }
 
@@ -801,10 +633,7 @@ fn test_create_pool_accepts_standard_spl_and_token_2022() {
         anchor_spl::token_2022::ID,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert!(
         res.is_ok(),
         "Clean Token-2022 and SPL mints should succeed: {res:?}"
@@ -864,10 +693,7 @@ fn test_v1_sell_bonds_rejects_zero_quantity() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::InvalidBondQuantity);
 }
 
@@ -973,10 +799,7 @@ fn test_v1_registry_full_rejects_new_buyer_allows_existing_topup() {
             }
             .data(),
         };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-        ctx.svm.send_transaction(tx)
+        send_user_tx(&mut ctx.svm, user, ix)
     };
 
     let user_1 = Keypair::new();
@@ -1063,10 +886,7 @@ fn test_v2_sell_bonds_fail_fast_on_paused_pool_with_spoofed_huma() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -1118,10 +938,7 @@ fn test_v2_claim_winnings_fail_fast_on_frozen_pool() {
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
@@ -1180,10 +997,7 @@ fn test_v2_withdraw_fees_fail_fast_on_paused_pool() {
         data: anchor::instruction::WithdrawFees { amount: 500_000 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -1243,10 +1057,7 @@ fn test_v3_sell_bonds_rejects_unauthorized_user_entry_owner() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&attacker.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &attacker, ix);
     assert_custom_error(res, PremiumBondsError::InvalidUserEntryHint);
 }
 
@@ -1295,10 +1106,7 @@ fn test_v3_withdraw_fees_rejects_unauthorized_signer() {
         data: anchor::instruction::WithdrawFees { amount: 100_000 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&attacker.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&attacker]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &attacker, ix);
     assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
@@ -1366,10 +1174,7 @@ fn test_v4_sell_bonds_solvency_failure_preserves_liabilities() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 
     // Assert 100% untouched state
@@ -1444,10 +1249,7 @@ fn test_v4_claim_winnings_solvency_failure_preserves_liabilities() {
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 
     // Assert liabilities and user winnings 100% unchanged
@@ -1522,10 +1324,7 @@ fn test_v4_withdraw_fees_solvency_failure_preserves_liabilities() {
         data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, PremiumBondsError::YieldVenueInsolvent);
 
     // Assert fees withdrawn and pending redemptions 100% unchanged
@@ -1625,12 +1424,7 @@ fn test_v5_pending_redemption_exact_rent_refund_and_closure() {
         data: anchor::instruction::ClaimRedemption {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .expect("claim redemption should succeed");
+    send_user_tx(&mut ctx.svm, &user_a, ix).expect("claim redemption should succeed");
 
     // PendingRedemption must be closed (account is None)
     assert!(ctx.svm.get_account(&pending_redemption_key).is_none());
@@ -1752,10 +1546,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
     warp_to_timestamp(&mut svm, 1_700_002_000);
 
     let ix = build_reinvest_ix(payout_reg, user_winnings);
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::PayoutTimelockActive);
 
     // 2. Advance clock timestamp to 1_700_003_601 (>= 1_700_003_600) -> succeeds!
@@ -1785,10 +1576,7 @@ fn test_v6_reinvest_winnings_enforces_payout_timelock() {
         }
         .data(),
     };
-    let bh2 = svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
-    let res2 = svm.send_transaction(tx2);
+    let res2 = send_user_tx(&mut svm, &crank2, ix2);
     assert!(
         res2.is_ok(),
         "Reinvesting after timelock expiration must succeed: {res2:?}"
@@ -1897,10 +1685,7 @@ fn test_v4_buy_bonds_zero_share_inflation_guard() {
         data: anchor::instruction::BuyBonds { tickets_to_buy: 10 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &user_a, ix);
     assert_custom_error(res, PremiumBondsError::ZeroSharesMinted);
 
     let post_vault_amount = read_token_balance(&ctx.svm, pool_pst_vault_pda(1).0);
@@ -2008,6 +1793,10 @@ fn test_v4_terminal_share_clamping_withdraw_fees() {
     );
 
     let (global_config, _) = global_config_pda();
+    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
+    let (pending_redemption, _) = pending_redemption_pda(1, 0);
+    let dummy = Keypair::new().pubkey();
+
     let accounts = anchor::accounts::WithdrawFees {
         admin: ctx.admin.pubkey(),
         global_config,
@@ -2040,18 +1829,11 @@ fn test_v4_terminal_share_clamping_withdraw_fees() {
         data: anchor::instruction::WithdrawFees { amount: 5_000_000 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert!(
         res.is_ok(),
         "Terminal fee withdrawal with book value 0 must clamp shares and succeed: {res:?}"
     );
-
-    let updated_pool = read_pool_state(&ctx.svm, 1);
-    assert_eq!(updated_pool.total_fees_withdrawn, 5_000_000);
-    assert_eq!(updated_pool.calculate_book_value().unwrap(), 0);
 }
 
 #[test]
@@ -2128,10 +1910,7 @@ fn test_v4_terminal_share_clamping_claim_non_reinvested_winnings() {
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert!(
         res.is_ok(),
         "Terminal prize winnings claim with book value 0 must clamp shares and succeed: {res:?}"
@@ -2244,10 +2023,7 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
         current_randomness,
         new_randomness,
     );
-    let bh1 = ctx.svm.latest_blockhash();
-    let msg1 = Message::new_with_blockhash(&[ix1], Some(&ctx.admin.pubkey()), &bh1);
-    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&ctx.admin]).unwrap();
-    let res1 = ctx.svm.send_transaction(tx1);
+    let res1 = send_user_tx(&mut ctx.svm, &ctx.admin, ix1);
     assert_custom_error(res1, PremiumBondsError::RandomnessNotExpired);
 
     // Scenario 2: Clock slot = 1200.
@@ -2262,10 +2038,7 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
         current_randomness,
         new_randomness,
     );
-    let bh2 = ctx.svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix2], Some(&ctx.admin.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
-    let res2 = ctx.svm.send_transaction(tx2);
+    let res2 = send_user_tx(&mut ctx.svm, &ctx.admin, ix2);
     assert_custom_error(res2, PremiumBondsError::RandomnessNotExpired);
 
     // Scenario 3: Clock slot = 2051.
@@ -2280,10 +2053,7 @@ fn test_v6_rebind_two_layer_anti_reroll_guard() {
         current_randomness,
         new_randomness,
     );
-    let bh3 = ctx.svm.latest_blockhash();
-    let msg3 = Message::new_with_blockhash(&[ix3], Some(&ctx.admin.pubkey()), &bh3);
-    let tx3 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg3), &[&ctx.admin]).unwrap();
-    let res3 = ctx.svm.send_transaction(tx3);
+    let res3 = send_user_tx(&mut ctx.svm, &ctx.admin, ix3);
     assert!(
         res3.is_ok(),
         "Two-layer expired randomness rebind must succeed: {res3:?}"

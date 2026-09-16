@@ -39,12 +39,7 @@ fn test_huma_simulation_yield_and_settle() {
         .to_account_metas(None),
     );
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[init_instruction], Some(&payer.pubkey()), &blockhash);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer, &pool_state_kp])
-            .unwrap();
-    svm.send_transaction(tx).unwrap();
+    send_tx(&mut svm, &payer, &[&pool_state_kp], init_instruction).unwrap();
 
     // Verify it was initialized with mode length = 1
     assert_eq!(
@@ -65,10 +60,7 @@ fn test_huma_simulation_yield_and_settle() {
         .to_account_metas(None),
     );
 
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[yield_instruction], Some(&payer.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    send_user_tx(&mut svm, &payer, yield_instruction).unwrap();
 
     // Verify assets increased by delta
     assert_eq!(

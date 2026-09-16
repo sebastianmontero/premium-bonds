@@ -22,61 +22,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-// ─── Instruction builder (for guard tests) ───────────────────────────────────
-
-fn build_sell_bonds_ix(
-    user: Pubkey,
-    pool_id: u32,
-    token_mint: Pubkey,
-    ticket_registry: Pubkey,
-    active_to_sell: u32,
-    pending_to_sell: u32,
-    huma_pool_state: Pubkey,
-    huma_mode_mint: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, 0);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::SellBonds {
-        user,
-        user_winnings,
-        pool,
-        ticket_registry,
-        token_mint,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: dummy,
-        huma_pool_mode_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SellBonds {
-            active_to_sell,
-            pending_to_sell,
-        }
-        .data(),
-    }
-}
-
 // ─── Guard test setup ────────────────────────────────────────────────────────
 
 struct GuardCtx {
@@ -86,6 +31,24 @@ struct GuardCtx {
     ticket_registry: Pubkey,
     huma_pool_state: Pubkey,
     huma_mode_mint: Pubkey,
+}
+
+impl GuardCtx {
+    pub fn sell_builder(&self, active_to_sell: u32, pending_to_sell: u32) -> SellBondsBuilder {
+        SellBondsBuilder::for_pool(1, self.user.pubkey())
+            .with_token_mint(self.token_mint)
+            .with_ticket_registry(self.ticket_registry)
+            .with_huma_pool_state(self.huma_pool_state)
+            .with_huma_mode_mint(self.huma_mode_mint)
+            .with_shares(active_to_sell, pending_to_sell)
+    }
+
+    pub fn send_sell(&mut self, active_to_sell: u32, pending_to_sell: u32) -> TxResult {
+        let ix = self
+            .sell_builder(active_to_sell, pending_to_sell)
+            .build_default_ix();
+        send_user_tx(&mut self.svm, &self.user, ix)
+    }
 }
 
 fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -> GuardCtx {
@@ -163,20 +126,7 @@ fn setup_guard(is_frozen: bool, active: u32, pending: u32, tickets: &[Pubkey]) -
 }
 
 fn send_sell_guard(ctx: &mut GuardCtx, active_to_sell: u32, pending_to_sell: u32) -> TxResult {
-    let ix = build_sell_bonds_ix(
-        ctx.user.pubkey(),
-        1,
-        ctx.token_mint,
-        ctx.ticket_registry,
-        active_to_sell,
-        pending_to_sell,
-        ctx.huma_pool_state,
-        ctx.huma_mode_mint,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm.send_transaction(tx)
+    ctx.send_sell(active_to_sell, pending_to_sell)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1162,10 +1112,7 @@ fn test_sell_bonds_fails_next_redemption_id_overflow() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
@@ -1355,10 +1302,7 @@ fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    ctx.svm.send_transaction(tx).unwrap();
+    send_user_tx(&mut ctx.svm, &user_a, ix).unwrap();
 
     // Verify swap-and-pop results
     assert_eq!(read_registry_user_count(&ctx.svm, ctx.ticket_registry), 1);
@@ -1466,10 +1410,7 @@ fn test_sell_bonds_swapped_winnings_index_mismatch_fails() {
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &user_a, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
 }
 
@@ -1555,10 +1496,7 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             }
             .data(),
         };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let res = ctx.svm.send_transaction(tx);
+        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1594,10 +1532,7 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             }
             .data(),
         };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let res = ctx.svm.send_transaction(tx);
+        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1633,10 +1568,7 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             }
             .data(),
         };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let res = ctx.svm.send_transaction(tx);
+        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,
@@ -1687,10 +1619,7 @@ fn test_sell_bonds_decoy_accounts_rejected() {
             }
             .data(),
         };
-        let bh = ctx.svm.latest_blockhash();
-        let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-        let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-        let res = ctx.svm.send_transaction(tx);
+        let res = send_user_tx(&mut ctx.svm, &user_a, ix);
         assert_custom_error(
             res,
             anchor::error::PremiumBondsError::MissingSwappedUserWinnings,

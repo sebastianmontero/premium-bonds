@@ -46,7 +46,7 @@ fn test_resize_registry_zero_initialization() {
         _reserved: [0; 64],
     };
     let mut initial_data = vec![0xAAu8; initial_size];
-    initial_data[0..8].copy_from_slice(&anchor::state::TicketRegistry::DISCRIMINATOR);
+    initial_data[0..8].copy_from_slice(anchor::state::TicketRegistry::DISCRIMINATOR);
     initial_data[8..104].copy_from_slice(bytemuck::bytes_of(&header));
 
     svm.set_account(
@@ -76,22 +76,9 @@ fn test_resize_registry_zero_initialization() {
     let payer = Keypair::new();
     svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::ResizeRegistry {
-            payer: payer.pubkey(),
-            pool: pool_key,
-            ticket_registry,
-            system_program: anchor_lang::system_program::ID,
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::ResizeRegistry {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    svm.send_transaction(tx).expect("ResizeRegistry failed");
+    ResizeRegistryBuilder::new(pool_id, ticket_registry, payer.pubkey())
+        .send(&mut svm, &payer)
+        .expect("ResizeRegistry failed");
 
     // Fetch account data and verify that all newly allocated bytes are strictly 0
     let registry_acct = svm.get_account(&ticket_registry).unwrap();
@@ -205,10 +192,7 @@ fn test_sell_bonds_fails_huma_pool_state_owner_mismatch() {
         .data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -287,10 +271,7 @@ fn test_withdraw_fees_fails_huma_pool_state_owner_mismatch() {
         data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -367,10 +348,7 @@ fn test_claim_non_reinvested_winnings_fails_huma_pool_state_owner_mismatch() {
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -520,10 +498,7 @@ fn test_harvest_yield_fails_huma_pool_state_owner_mismatch() {
         data: anchor::instruction::HarvestYieldAndCommit {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -629,10 +604,7 @@ fn test_sell_bonds_fails_huma_mode_mint_owner_mismatch() {
         .data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
@@ -761,16 +733,7 @@ fn test_buy_bonds_fails_huma_pool_state_owner_mismatch() {
         data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg =
-        solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
-        solana_sdk::message::VersionedMessage::Legacy(msg),
-        &[&ctx.user],
-    )
-    .unwrap();
-
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.user, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -822,16 +785,7 @@ fn test_initialize_huma_lender_fails_huma_pool_state_owner_mismatch() {
         data: anchor::instruction::InitializeHumaLender {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg =
-        solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
-        solana_sdk::message::VersionedMessage::Legacy(msg),
-        &[&ctx.admin],
-    )
-    .unwrap();
-
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
 
@@ -1059,23 +1013,9 @@ fn test_multi_cycle_compounding_lazy_merge_skip_sequence() {
         p.current_draw_cycle_id = 3;
     });
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts: anchor::accounts::PrepareDraw {
-            crank: ctx.admin.pubkey(),
-            pool: pool_pda_key,
-            draw_cycle: draw_cycle_3,
-            ticket_registry: ctx.ticket_registry,
-        }
-        .to_account_metas(None),
-        data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
+    PrepareDrawBuilder::new(&ctx)
+        .with_batch_size(10)
+        .send(&mut ctx.svm, &ctx.admin)
         .expect("Prepare draw after multi-cycle skip should succeed");
 
     let reg_acc_after = ctx.svm.get_account(&ctx.ticket_registry).unwrap();
@@ -1136,13 +1076,7 @@ fn test_event_emission_payload_verification_e2e() {
         data: anchor::instruction::BuyBonds { tickets_to_buy: 5 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user_a.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user_a]).unwrap();
-    let meta = ctx
-        .svm
-        .send_transaction(tx)
-        .expect("Buy bonds should succeed");
+    let meta = send_user_tx(&mut ctx.svm, &user_a, ix).expect("Buy bonds should succeed");
 
     let event = assert_cpi_event::<anchor::events::BondsPurchased>(&meta);
     assert_eq!(event.pool_id, 1, "event pool_id is 1");

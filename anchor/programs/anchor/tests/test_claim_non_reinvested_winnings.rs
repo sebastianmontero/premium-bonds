@@ -1,79 +1,15 @@
 //! Integration tests for `claim_non_reinvested_winnings` (Huma-based async redemption).
 //!
 //! Guard tests verify validation logic before CPI is reached.
-//! Happy-path tests require a mock-huma program and are marked #[ignore].
+//! Happy-path tests verify the full claim flow with mock Huma program.
 
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
-
-// ─── Instruction builder ─────────────────────────────────────────────────────
-
-fn build_claim_ix(user: Pubkey, pool_id: u32, pst_mint: Pubkey) -> Instruction {
-    build_claim_ix_with_redemption_id(
-        user,
-        pool_id,
-        pst_mint,
-        0,
-        Pubkey::default(),
-        Pubkey::default(),
-    )
-}
-
-fn build_claim_ix_with_redemption_id(
-    user: Pubkey,
-    pool_id: u32,
-    pst_mint: Pubkey,
-    redemption_id: u64,
-    huma_pool_state: Pubkey,
-    huma_pool_mode_token: Pubkey,
-) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
-        user,
-        pool,
-        user_winnings,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: anchor::constants::HUMA_PROGRAM_ID,
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: pst_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: dummy,
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    }
-}
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -86,12 +22,32 @@ struct ClaimCtx {
     huma_pool_mode_token: Pubkey,
 }
 
+impl ClaimCtx {
+    pub fn claim_builder(
+        &self,
+        pool_id: u32,
+        redemption_id: u64,
+    ) -> ClaimNonReinvestedWinningsBuilder {
+        ClaimNonReinvestedWinningsBuilder::for_pool(pool_id, self.user.pubkey())
+            .with_huma_pool_state(self.huma_pool_state)
+            .with_huma_mode_mint(self.pst_mint)
+            .with_huma_pool_mode_token(self.huma_pool_mode_token)
+            .with_redemption_id(pool_id, redemption_id)
+    }
+
+    pub fn send_claim(&mut self, pool_id: u32) -> TxResult {
+        self.send_claim_with_redemption_id(pool_id, 0)
+    }
+
+    pub fn send_claim_with_redemption_id(&mut self, pool_id: u32, redemption_id: u64) -> TxResult {
+        let ix = self.claim_builder(pool_id, redemption_id).build_ix();
+        send_user_tx(&mut self.svm, &self.user, ix)
+    }
+}
+
 fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> ClaimCtx {
-    let mut svm = LiteSVM::new();
-    let _ = svm.add_program(
-        anchor::id(),
-        include_bytes!("../../../target/deploy/anchor.so"),
-    );
+    let authority = Keypair::new();
+    let mut svm = setup_svm_with_authority(&authority);
     let _ = svm.add_program(
         anchor::constants::HUMA_PROGRAM_ID,
         include_bytes!("../../../target/deploy/mock_huma.so"),
@@ -118,7 +74,7 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
         .inject(&mut svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 1_000_000_000); // Fund vault with PST to pass Huma transfer
+    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 1_000_000_000);
 
     inject_user_winnings(&mut svm, 1, user.pubkey(), unclaimed_amount, 0, 0);
 
@@ -143,22 +99,11 @@ fn setup_claim_guard(unclaimed_amount: u64, status: anchor::PoolStatus) -> Claim
 }
 
 fn send_claim(ctx: &mut ClaimCtx, pool_id: u32) -> TxResult {
-    send_claim_with_redemption_id(ctx, pool_id, 0)
+    ctx.send_claim(pool_id)
 }
 
 fn send_claim_with_redemption_id(ctx: &mut ClaimCtx, pool_id: u32, redemption_id: u64) -> TxResult {
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        pool_id,
-        ctx.pst_mint,
-        redemption_id,
-        ctx.huma_pool_state,
-        ctx.huma_pool_mode_token,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm.send_transaction(tx)
+    ctx.send_claim_with_redemption_id(pool_id, redemption_id)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -251,22 +196,12 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
-    // Send claim instruction
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        1,
-        ctx.pst_mint,
-        0,
-        ctx.huma_pool_state,
-        huma_pool_mode_token,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let meta = ctx
-        .svm
-        .send_transaction(tx)
-        .expect("claim non-reinvested winnings");
+    // Send claim instruction via ClaimNonReinvestedWinningsBuilder
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx)
+        .with_huma_pool_mode_token(huma_pool_mode_token)
+        .build_ix();
+    let user = clone_keypair(&ctx.user);
+    let meta = send_user_tx(&mut ctx.svm, &user, ix).expect("claim non-reinvested winnings");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
     assert_eq!(
         event.user,
@@ -283,8 +218,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     assert_eq!(event.huma_request_id, 0, "event huma_request_id must be 0");
 
     // Assert UserWinnings state updates
-    let uw_account = ctx.svm.get_account(&user_winnings_key).unwrap();
-    let uw = anchor::UserWinnings::try_deserialize(&mut uw_account.data.as_slice()).unwrap();
+    let uw = read_user_winnings(&ctx.svm, 1, &ctx.user.pubkey());
     assert_eq!(
         uw.unclaimed_non_reinvested_winnings, 0,
         "unclaimed winnings must be cleared"
@@ -295,12 +229,11 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     );
 
     // Assert PrizePool state updates
-    let pool_account = ctx.svm.get_account(&pool_pda(1).0).unwrap();
-    let pool = anchor::PrizePool::try_deserialize(&mut pool_account.data.as_slice()).unwrap();
+    let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(
         pool.total_prizes_allocated, 500_000,
         "pool prizes allocated updated"
-    ); // 1_000_000 - 500_000
+    );
     assert_eq!(
         pool.next_redemption_id, 1,
         "pool next_redemption_id incremented"
@@ -311,9 +244,7 @@ fn test_claim_non_reinvested_winnings_e2e_happy_path() {
     );
 
     // Assert PendingRedemption PDA creation and all fields
-    let (pending_redemption_key, _) = pending_redemption_pda(1, 0);
-    let pr_account = ctx.svm.get_account(&pending_redemption_key).unwrap();
-    let pr = anchor::PendingRedemption::try_deserialize(&mut pr_account.data.as_slice()).unwrap();
+    let pr = read_pending_redemption(&ctx.svm, 1, 0);
     assert_eq!(pr.pool_id, 1, "pr pool_id matches");
     assert_eq!(pr.redemption_id, 0, "pr redemption_id matches");
     assert_eq!(pr.user, ctx.user.pubkey(), "pr user matches");
@@ -344,18 +275,7 @@ fn test_claim_non_reinvested_winnings_fails_when_frozen() {
         .with_solvency_state(0, 1_000_000_000, 0)
         .inject(&mut ctx.svm);
 
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        1,
-        ctx.pst_mint,
-        0,
-        ctx.huma_pool_state,
-        ctx.huma_pool_mode_token,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_claim(&mut ctx, 1);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
@@ -400,21 +320,12 @@ fn test_claim_non_reinvested_winnings_succeeds_when_pool_closed() {
     inject_mint_with_supply(&mut ctx.svm, ctx.pst_mint, 6, 1_000_000);
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 1_000_000);
 
-    // Send claim instruction on closed pool
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        1,
-        ctx.pst_mint,
-        0,
-        ctx.huma_pool_state,
-        huma_pool_mode_token,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let meta = ctx
-        .svm
-        .send_transaction(tx)
+    // Send claim instruction on closed pool via ClaimNonReinvestedWinningsBuilder
+    let ix = ClaimNonReinvestedWinningsBuilder::new(&ctx)
+        .with_huma_pool_mode_token(huma_pool_mode_token)
+        .build_ix();
+    let user = clone_keypair(&ctx.user);
+    let meta = send_user_tx(&mut ctx.svm, &user, ix)
         .expect("claim non-reinvested winnings on closed pool should succeed");
     let event = assert_cpi_event::<anchor::events::WinningsClaimed>(&meta);
     assert_eq!(event.user, ctx.user.pubkey(), "event user matches claimant");
@@ -443,17 +354,6 @@ fn test_claim_non_reinvested_winnings_fails_yield_venue_insolvent() {
     // Inject insolvent Huma pool state: total_assets = 0 (with vec_len = 1)
     inject_huma_pool_state_with_assets(&mut ctx.svm, ctx.huma_pool_state, 0);
 
-    let ix = build_claim_ix_with_redemption_id(
-        ctx.user.pubkey(),
-        1,
-        ctx.pst_mint,
-        0,
-        ctx.huma_pool_state,
-        ctx.huma_pool_mode_token,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_claim(&mut ctx, 1);
     assert_custom_error(res, anchor::error::PremiumBondsError::YieldVenueInsolvent);
 }

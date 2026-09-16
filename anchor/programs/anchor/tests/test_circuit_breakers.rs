@@ -13,9 +13,7 @@ use {
     solana_keypair::Keypair,
     solana_program::instruction::Instruction,
     solana_sdk::account::Account,
-    solana_sdk::message::{Message, VersionedMessage},
     solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
 };
 
 mod common;
@@ -120,46 +118,18 @@ fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> Ci
     }
 }
 
-fn build_harvest_ix(ctx: &CircuitBreakerCtx, pool_id: u32, cycle_id: u32) -> Instruction {
-    let (gc, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
-
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: ctx.crank.pubkey(),
-        global_config: gc,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        current_draw_cycle: draw_cycle,
-        pool_pst_vault,
-        pst_mint: ctx.pst_mint,
-        huma_pool_state: ctx.huma_pool_state,
-        randomness_account: ctx.randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
-    }
-}
-
 fn send_harvest(
     ctx: &mut CircuitBreakerCtx,
     pool_id: u32,
     cycle_id: u32,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let ix = build_harvest_ix(ctx, pool_id, cycle_id);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+    let crank = clone_keypair(&ctx.crank);
+    HarvestYieldAndCommitBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_pst_mint(ctx.pst_mint)
+        .with_huma_pool_state(ctx.huma_pool_state)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank)
 }
 
 #[test]

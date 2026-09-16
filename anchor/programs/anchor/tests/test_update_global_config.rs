@@ -4,15 +4,8 @@
 //!   cargo +nightly test --package anchor --test test_update_global_config -- --nocapture
 
 use {
-    anchor::error::PremiumBondsError,
-    anchor_lang::prelude::Pubkey,
-    anchor_lang::{InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_program::instruction::Instruction,
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
+    anchor::error::PremiumBondsError, anchor_lang::prelude::Pubkey, litesvm::LiteSVM,
+    solana_keypair::Keypair, solana_signer::Signer,
 };
 
 mod common;
@@ -25,50 +18,6 @@ fn setup_and_initialize() -> (LiteSVM, Keypair, Pubkey) {
     (svm, admin, initial_jobs_account)
 }
 
-/// Helper to send `update_global_config` and return the `Result`.
-fn send_update_global_config_test(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    global_config_account: Pubkey,
-    admin_account_override: Option<Pubkey>,
-    override_is_signer: Option<bool>,
-    new_guardian: Option<Pubkey>,
-    new_jobs_account: Option<Pubkey>,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let mut accounts = anchor::accounts::UpdateGlobalConfig {
-        global_config: global_config_account,
-        admin: admin_account_override.unwrap_or_else(|| admin.pubkey()),
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    // Apply signer override if provided (e.g. for testing missing signatures)
-    if let Some(is_signer) = override_is_signer {
-        for meta in accounts.iter_mut() {
-            if meta.pubkey == admin_account_override.unwrap_or_else(|| admin.pubkey()) {
-                meta.is_signer = is_signer;
-            }
-        }
-    }
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::UpdateGlobalConfig {
-            new_guardian,
-            new_jobs_account,
-        }
-        .data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx)
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Update Global Config Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -76,9 +25,8 @@ fn send_update_global_config_test(
 #[test]
 fn test_update_global_config_no_fields() {
     let (mut svm, admin, jobs) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
 
-    send_update_global_config_test(&mut svm, &admin, global_config, None, None, None, None)
+    send_update_global_config(&mut svm, &admin, None, None)
         .expect("Updating no fields should succeed");
 
     let config = read_global_config(&svm);
@@ -89,21 +37,12 @@ fn test_update_global_config_no_fields() {
 #[test]
 fn test_update_global_config_guardian_only() {
     let (mut svm, admin, jobs) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
     let initial_config = read_global_config(&svm);
 
     let new_guardian = Keypair::new().pubkey();
 
-    let meta = send_update_global_config_test(
-        &mut svm,
-        &admin,
-        global_config,
-        None,
-        None,
-        Some(new_guardian),
-        None,
-    )
-    .expect("Updating guardian should succeed");
+    let meta = send_update_global_config(&mut svm, &admin, Some(new_guardian), None)
+        .expect("Updating guardian should succeed");
     let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
     assert_eq!(
         event.authority,
@@ -137,20 +76,11 @@ fn test_update_global_config_guardian_only() {
 #[test]
 fn test_update_global_config_jobs_account_only() {
     let (mut svm, admin, _) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
 
     let new_jobs_account = Keypair::new().pubkey();
 
-    let meta = send_update_global_config_test(
-        &mut svm,
-        &admin,
-        global_config,
-        None,
-        None,
-        None,
-        Some(new_jobs_account),
-    )
-    .expect("Updating jobs account should succeed");
+    let meta = send_update_global_config(&mut svm, &admin, None, Some(new_jobs_account))
+        .expect("Updating jobs account should succeed");
     let event = assert_cpi_event::<anchor::events::GlobalConfigUpdated>(&meta);
     assert_eq!(event.authority, admin.pubkey());
     assert_eq!(event.new_jobs_account, new_jobs_account);
@@ -163,21 +93,12 @@ fn test_update_global_config_jobs_account_only() {
 #[test]
 fn test_update_global_config_all_fields() {
     let (mut svm, admin, _) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
 
     let new_guardian = Keypair::new().pubkey();
     let new_jobs_account = Keypair::new().pubkey();
 
-    send_update_global_config_test(
-        &mut svm,
-        &admin,
-        global_config,
-        None,
-        None,
-        Some(new_guardian),
-        Some(new_jobs_account),
-    )
-    .expect("Updating all fields should succeed");
+    send_update_global_config(&mut svm, &admin, Some(new_guardian), Some(new_jobs_account))
+        .expect("Updating all fields should succeed");
 
     let config = read_global_config(&svm);
     assert_eq!(config.admin, admin.pubkey());
@@ -188,20 +109,12 @@ fn test_update_global_config_all_fields() {
 #[test]
 fn test_update_global_config_unauthorized_admin() {
     let (mut svm, _admin, _) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
 
     let attacker = Keypair::new();
     svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
-    let result = send_update_global_config_test(
-        &mut svm,
-        &attacker,
-        global_config,
-        None,
-        None,
-        Some(Keypair::new().pubkey()),
-        None,
-    );
+    let result =
+        send_update_global_config(&mut svm, &attacker, Some(Keypair::new().pubkey()), None);
 
     assert_custom_error(result, PremiumBondsError::UnauthorizedAdmin);
 }
@@ -209,22 +122,18 @@ fn test_update_global_config_unauthorized_admin() {
 #[test]
 fn test_update_global_config_requires_admin_signature() {
     let (mut svm, admin, _) = setup_and_initialize();
-    let (global_config, _) = global_config_pda();
 
-    let random_payer = Keypair::new();
-    svm.airdrop(&random_payer.pubkey(), 1_000_000_000).unwrap();
+    let ix = build_update_global_config_ix(&admin.pubkey(), Some(Keypair::new().pubkey()), None);
 
-    let result = send_update_global_config_test(
+    assert_signer_required(
         &mut svm,
-        &random_payer,
-        global_config,
-        Some(admin.pubkey()),
-        Some(false),
-        Some(Keypair::new().pubkey()),
-        None,
+        ix,
+        1,
+        &admin.pubkey(),
+        &[],
+        "update_global_config",
+        "admin",
     );
-
-    assert_anchor_error(result, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
 #[test]
@@ -237,16 +146,11 @@ fn test_update_global_config_wrong_pda() {
     let global_config_acc = svm.get_account(&global_config_pda).unwrap();
     svm.set_account(wrong_pda, global_config_acc).unwrap();
 
-    let result = send_update_global_config_test(
-        &mut svm,
-        &admin,
-        wrong_pda,
-        None,
-        None,
-        Some(Keypair::new().pubkey()),
-        None,
-    );
+    let mut ix =
+        build_update_global_config_ix(&admin.pubkey(), Some(Keypair::new().pubkey()), None);
+    substitute_account_meta(&mut ix, global_config_pda, wrong_pda);
 
+    let result = send_user_tx(&mut svm, &admin, ix);
     assert_anchor_error(result, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 

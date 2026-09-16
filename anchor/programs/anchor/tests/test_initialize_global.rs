@@ -234,12 +234,7 @@ fn test_initialize_global_requires_authority_signature() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&real_authority.pubkey()), &bh);
-    let tx =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&real_authority]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &real_authority, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotSigner);
 }
 
@@ -275,11 +270,7 @@ fn test_initialize_global_rejects_wrong_global_config_pda() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &authority, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
@@ -312,11 +303,7 @@ fn test_initialize_global_rejects_wrong_program_data_pda() {
         data: anchor::instruction::InitializeGlobal {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&authority.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&authority]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &authority, ix);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 

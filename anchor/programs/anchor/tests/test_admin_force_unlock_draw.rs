@@ -1,12 +1,9 @@
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor::error::PremiumBondsError;
+use anchor_lang::{error::ErrorCode, AccountDeserialize};
 use litesvm::LiteSVM;
-use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_keypair::Keypair;
+use solana_program::pubkey::Pubkey;
+use solana_signer::Signer;
 
 mod common;
 use common::*;
@@ -58,27 +55,10 @@ fn setup_with_amounts(
 }
 
 fn send_force_unlock(ctx: &mut ForceUnlockCtx, signer: &Keypair) -> TxResult {
-    let (global_config, _) = global_config_pda();
-    let accounts = anchor::accounts::AdminForceUnlockDraw {
-        global_config,
-        admin: signer.pubkey(),
-        pool: ctx.pool_key,
-        current_draw_cycle: ctx.current_draw_cycle,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm.send_transaction(tx)
+    AdminForceUnlockDrawBuilder::new(signer.pubkey(), 1, 0)
+        .with_pool(ctx.pool_key)
+        .with_current_draw_cycle(ctx.current_draw_cycle)
+        .send(&mut ctx.svm, signer)
 }
 
 #[test]
@@ -185,7 +165,7 @@ fn test_admin_force_unlock_math_overflow_prizes() {
     );
 
     let res = send_force_unlock(&mut ctx, &admin);
-    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
+    assert_custom_error(res, PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -201,7 +181,7 @@ fn test_admin_force_unlock_fees_already_withdrawn() {
     );
 
     let res = send_force_unlock(&mut ctx, &admin);
-    assert_custom_error(res, anchor::error::PremiumBondsError::FeesAlreadyWithdrawn);
+    assert_custom_error(res, PremiumBondsError::FeesAlreadyWithdrawn);
 }
 
 #[test]
@@ -215,7 +195,7 @@ fn test_admin_force_unlock_fails_unauthorized_admin() {
         .unwrap();
 
     let res = send_force_unlock(&mut ctx, &fake_admin);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -224,7 +204,7 @@ fn test_admin_force_unlock_fails_invalid_draw_status() {
     let mut ctx = setup(&admin, anchor::DrawStatus::Complete);
 
     let res = send_force_unlock(&mut ctx, &admin);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
+    assert_custom_error(res, PremiumBondsError::InvalidDrawStatus);
 }
 
 #[test]
@@ -259,30 +239,15 @@ fn test_admin_force_unlock_fails_invalid_event_authority() {
     let admin = Keypair::new();
     let mut ctx = setup(&admin, anchor::DrawStatus::AwaitingRandomness);
 
-    let (global_config, _) = global_config_pda();
     let fake_event_authority = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::AdminForceUnlockDraw {
-        global_config,
-        admin: admin.pubkey(),
-        pool: ctx.pool_key,
-        current_draw_cycle: ctx.current_draw_cycle,
-        event_authority: fake_event_authority,
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
+    let res = AdminForceUnlockDrawBuilder::new(admin.pubkey(), 1, 0)
+        .with_pool(ctx.pool_key)
+        .with_current_draw_cycle(ctx.current_draw_cycle)
+        .with_event_authority(fake_event_authority)
+        .send(&mut ctx.svm, &admin);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
+    assert_anchor_error(res, ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -302,7 +267,7 @@ fn test_admin_force_unlock_fails_on_all_invalid_draw_statuses() {
         let res = send_force_unlock(&mut ctx, &admin);
         assert_custom_error_msg(
             res,
-            anchor::error::PremiumBondsError::InvalidDrawStatus,
+            PremiumBondsError::InvalidDrawStatus,
             &format!("Failed for draw status {status:?}"),
         );
     }

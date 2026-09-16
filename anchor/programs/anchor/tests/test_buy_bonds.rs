@@ -1,74 +1,16 @@
 //! Integration tests for `buy_bonds` (Huma-based).
 //!
 //! Guard tests verify validation logic before the Huma CPI boundary.
-//! Happy-path tests require a mock-huma program and are not included here.
+//! Happy-path tests require a mock-huma program and are included in E2E sections.
 
-use anchor_lang::{AccountSerialize, InstructionData, Space, ToAccountMetas};
+use anchor::error::PremiumBondsError;
+use anchor_lang::{error::ErrorCode, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
-
-/// Build a `BuyBonds` instruction with dummy Huma accounts (for guard tests).
-fn build_buy_bonds_ix(
-    user: Pubkey,
-    pool_id: u32,
-    token_mint: Pubkey,
-    pst_mint: Pubkey,
-    user_token_account: Pubkey,
-    ticket_registry: Pubkey,
-    huma_pool_state: Pubkey,
-    bonds_to_buy: u32,
-) -> Instruction {
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let (pool_vault_account, _) = pool_vault_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &user);
-    let dummy = Keypair::new().pubkey();
-
-    let accounts = anchor::accounts::BuyBonds {
-        user,
-        user_winnings,
-        pool,
-        ticket_registry,
-        user_token_account,
-        token_mint,
-        pool_vault_account,
-        pool_pst_vault,
-        huma_program: anchor::constants::HUMA_PROGRAM_ID,
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: pst_mint,
-        huma_pool_authority: dummy,
-        huma_pool_underlying_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds {
-            tickets_to_buy: bonds_to_buy,
-        }
-        .data(),
-    }
-}
 
 // ─── Shared setup ────────────────────────────────────────────────────────────
 
@@ -80,6 +22,23 @@ struct BuyBondsCtx {
     user_token_account: Pubkey,
     ticket_registry: Pubkey,
     huma_pool_state: Pubkey,
+}
+
+impl BuyBondsCtx {
+    pub fn buy_builder(&self, tickets: u32) -> BuyBondsBuilder {
+        BuyBondsBuilder::for_pool(1, self.user.pubkey())
+            .with_token_mint(self.token_mint)
+            .with_huma_mode_mint(self.pst_mint)
+            .with_user_token_account(self.user_token_account)
+            .with_ticket_registry(self.ticket_registry)
+            .with_huma_pool_state(self.huma_pool_state)
+            .with_tickets(tickets)
+    }
+
+    pub fn send_buy(&mut self, tickets: u32) -> TxResult {
+        let ix = self.buy_builder(tickets).build_default_ix();
+        send_user_tx(&mut self.svm, &self.user, ix)
+    }
 }
 
 fn setup_buy_bonds(
@@ -149,24 +108,8 @@ fn setup_buy_bonds(
     }
 }
 
-fn send_buy_bonds(
-    ctx: &mut BuyBondsCtx,
-    bonds_to_buy: u32,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let ix = build_buy_bonds_ix(
-        ctx.user.pubkey(),
-        1,
-        ctx.token_mint,
-        ctx.pst_mint,
-        ctx.user_token_account,
-        ctx.ticket_registry,
-        ctx.huma_pool_state,
-        bonds_to_buy,
-    );
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    ctx.svm.send_transaction(tx)
+fn send_buy_bonds(ctx: &mut BuyBondsCtx, bonds_to_buy: u32) -> TxResult {
+    ctx.send_buy(bonds_to_buy)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -178,7 +121,7 @@ fn send_buy_bonds(
 fn test_buy_bonds_fails_pool_paused() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Paused, false, 1000, 0, 0);
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
+    assert_custom_error(res, PremiumBondsError::PoolNotActive);
 }
 
 /// Pool in Closed state must be rejected with `PoolNotActive`.
@@ -186,7 +129,7 @@ fn test_buy_bonds_fails_pool_paused() {
 fn test_buy_bonds_fails_pool_closed() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Closed, false, 1000, 0, 0);
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
+    assert_custom_error(res, PremiumBondsError::PoolNotActive);
 }
 
 /// Pool frozen for draw must be rejected with `AwaitingRandomnessFreeze`.
@@ -194,10 +137,7 @@ fn test_buy_bonds_fails_pool_closed() {
 fn test_buy_bonds_fails_pool_frozen() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, true, 1000, 0, 0);
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(
-        res,
-        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
-    );
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 /// `bonds_to_buy = 0` must be rejected with `InvalidBondQuantity`.
@@ -205,7 +145,7 @@ fn test_buy_bonds_fails_pool_frozen() {
 fn test_buy_bonds_fails_zero_quantity() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let res = send_buy_bonds(&mut ctx, 0);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidBondQuantity);
+    assert_custom_error(res, PremiumBondsError::InvalidBondQuantity);
 }
 
 /// Valid ticket quantity passes all pre-CPI guards and succeeds in E2E setup.
@@ -235,7 +175,7 @@ fn test_buy_bonds_fails_registry_full_pre_cpi() {
     );
 
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
+    assert_custom_error(res, PremiumBondsError::RegistryFull);
 }
 
 /// Total pending tickets overflow must fail with `MathOverflow` pre-CPI.
@@ -243,7 +183,7 @@ fn test_buy_bonds_fails_registry_full_pre_cpi() {
 fn test_buy_bonds_fails_total_pending_overflow_pre_cpi() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, u32::MAX - 2);
     let res = send_buy_bonds(&mut ctx, 5);
-    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
+    assert_custom_error(res, PremiumBondsError::MathOverflow);
 }
 
 /// A re-entering user (has user_winnings with UNASSIGNED_ENTRY_INDEX) fails with RegistryFull when capacity is full.
@@ -272,14 +212,12 @@ fn test_buy_bonds_reentering_user_fails_registry_full() {
     );
 
     let res = send_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
+    assert_custom_error(res, PremiumBondsError::RegistryFull);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // E2E happy-path tests (with mock-huma program)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// ── E2E Tests ────────────────────────────────────────────────────────────────
 
 /// Happy path: buy 1 bond, verify USDC moves, PST minted, principal updated, ticket registered.
 #[test]
@@ -573,7 +511,7 @@ fn test_buy_bonds_fails_registry_full() {
         100_000_000,
     );
     let res = send_e2e_buy_bonds_for_user(&mut ctx, &user3, user3_usdc, 1, Pubkey::default());
-    assert_custom_error(res, anchor::error::PremiumBondsError::RegistryFull);
+    assert_custom_error(res, PremiumBondsError::RegistryFull);
 }
 
 /// Passing a ticket registry account that doesn't match pool.ticket_registry must fail.
@@ -583,22 +521,11 @@ fn test_buy_bonds_fails_invalid_registry_has_one() {
     let fake_registry = Keypair::new().pubkey();
     inject_registry(&mut ctx.svm, fake_registry, 1, 10, 0, 0);
 
-    let ix = build_buy_bonds_ix(
-        ctx.user.pubkey(),
-        1,
-        ctx.token_mint,
-        ctx.pst_mint,
-        ctx.user_token_account,
-        fake_registry, // Invalid registry address
-        ctx.huma_pool_state,
-        1,
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintHasOne);
+    let res = ctx
+        .buy_builder(1)
+        .with_ticket_registry(fake_registry)
+        .send(&mut ctx.svm, &ctx.user);
+    assert_anchor_error(res, ErrorCode::ConstraintHasOne);
 }
 
 /// Passing an invalid token mint must fail.
@@ -608,71 +535,24 @@ fn test_buy_bonds_fails_invalid_token_mint() {
     let fake_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, fake_mint, 6);
 
-    let ix = build_buy_bonds_ix(
-        ctx.user.pubkey(),
-        1,
-        fake_mint, // Invalid token mint
-        ctx.pst_mint,
-        ctx.user_token_account,
-        ctx.ticket_registry,
-        ctx.huma_pool_state,
-        1,
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenMint);
+    let res = ctx
+        .buy_builder(1)
+        .with_token_mint(fake_mint)
+        .send(&mut ctx.svm, &ctx.user);
+    assert_anchor_error(res, ErrorCode::ConstraintTokenMint);
 }
 
 /// Attempting to use an incorrect program address for the Huma program constraint must fail.
 #[test]
 fn test_buy_bonds_fails_invalid_huma_program() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
-    let (pool, _) = pool_pda(1);
-    let (pool_vault, _) = pool_vault_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (user_winnings, _) = user_winnings_pda(1, &ctx.user.pubkey());
-    let dummy = Keypair::new().pubkey();
     let fake_huma = Keypair::new().pubkey(); // Random key instead of Huma program ID
 
-    let accounts = anchor::accounts::BuyBonds {
-        user: ctx.user.pubkey(),
-        user_winnings,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        user_token_account: ctx.user_token_account,
-        token_mint: ctx.token_mint,
-        pool_vault_account: pool_vault,
-        pool_pst_vault,
-        huma_program: fake_huma, // Mismatched huma_program address
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_pool_authority: dummy,
-        huma_pool_underlying_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::BuyBonds { tickets_to_buy: 1 }.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
+    let res = ctx
+        .buy_builder(1)
+        .with_huma_program(fake_huma)
+        .send(&mut ctx.svm, &ctx.user);
+    assert_anchor_error(res, ErrorCode::ConstraintAddress);
 }
 
 /// INV-BOND-001: Supplying an invalid/mismatched Huma mode mint ($PST mint) must fail address constraint.
@@ -681,22 +561,11 @@ fn test_buy_bonds_fails_invalid_mode_mint() {
     let mut ctx = setup_buy_bonds(anchor::PoolStatus::Active, false, 1000, 0, 0);
     let fake_pst_mint = create_spl_mint(&mut ctx.svm, &ctx.user, &ctx.user.pubkey(), 6);
 
-    let ix = build_buy_bonds_ix(
-        ctx.user.pubkey(),
-        1,
-        ctx.token_mint,
-        fake_pst_mint, // Mismatched huma_mode_mint
-        ctx.user_token_account,
-        ctx.ticket_registry,
-        ctx.huma_pool_state,
-        1,
-    );
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.user]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
+    let res = ctx
+        .buy_builder(1)
+        .with_huma_mode_mint(fake_pst_mint)
+        .send(&mut ctx.svm, &ctx.user);
+    assert_custom_error(res, PremiumBondsError::InvalidModeMint);
 }
 
 /// Buying bonds when the user does not have enough token balance must fail.
@@ -808,7 +677,7 @@ fn test_buy_bonds_fails_invalid_user_entry_hint() {
 
     let user_usdc = ctx.user_usdc_account;
     let res = send_e2e_buy_bonds_for_user(&mut ctx, &user, user_usdc, 1, Pubkey::default());
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidUserEntryHint);
+    assert_custom_error(res, PremiumBondsError::InvalidUserEntryHint);
 }
 
 #[test]
@@ -818,7 +687,7 @@ fn test_buy_bonds_fails_math_overflow() {
     common::inject_registry(&mut ctx.svm, ctx.ticket_registry, 1, 1000, 0, u32::MAX);
 
     let res = send_e2e_buy_bonds(&mut ctx, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
+    assert_custom_error(res, PremiumBondsError::MathOverflow);
 }
 
 /// An existing user with an assigned registry entry can buy more bonds even when user_count == capacity.

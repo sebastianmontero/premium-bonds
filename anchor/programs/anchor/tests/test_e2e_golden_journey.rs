@@ -134,11 +134,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         fee_wallet,
         huma_pool_state,
     );
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix_create_pool], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx)
-        .expect("Create PrizePool must succeed");
+    send_user_tx(&mut svm, &admin, ix_create_pool).expect("Create PrizePool must succeed");
 
     // 3. Initialize Huma Lender
     let dummy = Keypair::new().pubkey();
@@ -171,11 +167,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         accounts: accounts_init_lender,
         data: ix_init_lender,
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    svm.send_transaction(tx)
-        .expect("Initialize Huma Lender must succeed");
+    send_user_tx(&mut svm, &admin, ix).expect("Initialize Huma Lender must succeed");
 
     // 4. Deposits: Alice buys 100 bonds (100 USDC), Bob buys 50 bonds (50 USDC)
     let alice_usdc = Keypair::new().pubkey();
@@ -249,12 +241,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         accounts: accounts_harvest_0,
         data: anchor::instruction::HarvestYieldAndCommit {}.data(),
     };
-    let bh = ctx.svm.latest_blockhash();
-    let msg0 = Message::new_with_blockhash(&[ix_harvest_0], Some(&crank.pubkey()), &bh);
-    let tx0 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg0), &[&crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx0)
-        .expect("Cycle 0 harvest must succeed");
+    send_user_tx(&mut ctx.svm, &crank, ix_harvest_0).expect("Cycle 0 harvest must succeed");
 
     let reg_cycle_1 = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
     assert_eq!(
@@ -304,12 +291,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         accounts: accounts_harvest_1,
         data: anchor::instruction::HarvestYieldAndCommit {}.data(),
     };
-    let bh1 = ctx.svm.latest_blockhash();
-    let msg1 = Message::new_with_blockhash(&[ix_harvest_1], Some(&crank.pubkey()), &bh1);
-    let tx1 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg1), &[&crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx1)
-        .expect("Cycle 1 harvest must succeed");
+    send_user_tx(&mut ctx.svm, &crank, ix_harvest_1).expect("Cycle 1 harvest must succeed");
 
     let pool_frozen = read_pool_state(&ctx.svm, pool_id);
     assert_eq!(
@@ -331,13 +313,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         accounts: accounts_prepare,
         data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
     };
-    let bh_prep = ctx.svm.latest_blockhash();
-    let msg_prep = Message::new_with_blockhash(&[ix_prepare], Some(&crank.pubkey()), &bh_prep);
-    let tx_prep =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_prep), &[&crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx_prep)
-        .expect("PrepareDraw must succeed");
+    send_user_tx(&mut ctx.svm, &crank, ix_prepare).expect("PrepareDraw must succeed");
 
     // 8. Reveal and Pick Winners (Real instruction)
     let (payout_reg_pda, _) = payout_pda(pool_id, 1);
@@ -363,14 +339,8 @@ fn test_e2e_golden_journey_full_lifecycle() {
         data: anchor::instruction::RevealAndPickWinners {}.data(),
     };
 
-    let bh_rev = ctx.svm.latest_blockhash();
-    let msg_rev = Message::new_with_blockhash(&[ix_reveal], Some(&crank.pubkey()), &bh_rev);
-    let tx_rev =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_rev), &[&crank]).unwrap();
-    let meta_rev = ctx
-        .svm
-        .send_transaction(tx_rev)
-        .expect("RevealAndPickWinners must succeed");
+    let meta_rev =
+        send_user_tx(&mut ctx.svm, &crank, ix_reveal).expect("RevealAndPickWinners must succeed");
 
     let pool_unfrozen = read_pool_state(&ctx.svm, pool_id);
     assert_eq!(
@@ -417,13 +387,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         }
         .data(),
     };
-    let bh_reinv = ctx.svm.latest_blockhash();
-    let msg_reinv = Message::new_with_blockhash(&[ix_reinvest], Some(&crank.pubkey()), &bh_reinv);
-    let tx_reinv =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_reinv), &[&crank]).unwrap();
-    ctx.svm
-        .send_transaction(tx_reinv)
-        .expect("ReinvestWinnings must succeed");
+    send_user_tx(&mut ctx.svm, &crank, ix_reinvest).expect("ReinvestWinnings must succeed");
 
     let winner_winnings = read_user_winnings_state(&ctx.svm, pool_id, &winner_0);
     assert_eq!(
@@ -477,14 +441,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
         accounts: accounts_withdraw_fees,
         data: anchor::instruction::WithdrawFees { amount: 1_500_000 }.data(),
     };
-    let bh_fee = ctx.svm.latest_blockhash();
-    let msg_fee =
-        Message::new_with_blockhash(&[ix_withdraw_fees], Some(&ctx.admin.pubkey()), &bh_fee);
-    let tx_fee =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&ctx.admin]).unwrap();
-    ctx.svm
-        .send_transaction(tx_fee)
-        .expect("WithdrawFees must succeed");
+    send_user_tx(&mut ctx.svm, &ctx.admin, ix_withdraw_fees).expect("WithdrawFees must succeed");
 
     let pool_post_fee = read_pool_state(&ctx.svm, pool_id);
     assert_eq!(

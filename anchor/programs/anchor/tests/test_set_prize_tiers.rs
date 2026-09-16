@@ -1,65 +1,12 @@
 //! Integration tests for the `set_prize_tiers` instruction.
-//!
-//! Run with:
-//!   cargo test --package anchor --test test_set_prize_tiers -- --nocapture
 
 use {
-    anchor_lang::prelude::Pubkey,
-    anchor_lang::{AccountSerialize, Space},
-    anchor_lang::{InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_program::instruction::Instruction,
-    solana_sdk::account::Account,
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
+    anchor::error::PremiumBondsError, anchor_lang::error::ErrorCode, anchor_lang::prelude::Pubkey,
+    solana_keypair::Keypair, solana_signer::Signer,
 };
 
 mod common;
 use common::*;
-
-/// Helper to send `set_prize_tiers` instruction.
-fn send_set_prize_tiers(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    pool_id: u32,
-    tiers: Vec<anchor::PrizeTier>,
-    admin_account_override: Option<Pubkey>,
-    override_is_signer: Option<bool>,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-
-    let mut accounts = anchor::accounts::SetPrizeTiers {
-        global_config,
-        admin: admin_account_override.unwrap_or_else(|| admin.pubkey()),
-        pool,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    if let Some(is_signer) = override_is_signer {
-        for meta in accounts.iter_mut() {
-            if meta.pubkey == admin_account_override.unwrap_or_else(|| admin.pubkey()) {
-                meta.is_signer = is_signer;
-            }
-        }
-    }
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::SetPrizeTiers { tiers }.data(),
-    };
-
-    let blockhash = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &blockhash);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-
-    svm.send_transaction(tx)
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Happy-path tests
@@ -76,7 +23,7 @@ fn test_set_prize_tiers_succeeds() {
         anchor::PrizeTier::new(5, 1000), // 50% split among 5 winners (10% each)
     ];
 
-    let meta = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone(), None, None)
+    let meta = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers.clone())
         .expect("Setting valid prize tiers should succeed");
     let event = assert_cpi_event::<anchor::events::PrizeTiersUpdated>(&meta);
     assert_eq!(event.pool_id, pool_id, "event pool_id matches");
@@ -126,11 +73,8 @@ fn test_set_prize_tiers_fails_if_frozen() {
 
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
 
-    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(
-        result,
-        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
-    );
+    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers);
+    assert_custom_error(result, PremiumBondsError::AwaitingRandomnessFreeze);
 }
 
 #[test]
@@ -138,39 +82,39 @@ fn test_set_prize_tiers_constraint_matrix() {
     struct TestCase {
         name: &'static str,
         tiers: Vec<anchor::PrizeTier>,
-        expected_error: anchor::error::PremiumBondsError,
+        expected_error: PremiumBondsError,
     }
 
     let cases = vec![
         TestCase {
             name: "empty_tiers",
             tiers: vec![],
-            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+            expected_error: PremiumBondsError::InvalidPrizeTierConfig,
         },
         TestCase {
             name: "exceeding_max_tiers (11 tiers)",
             tiers: (0..11).map(|_| anchor::PrizeTier::new(1, 100)).collect(),
-            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+            expected_error: PremiumBondsError::InvalidPrizeTierConfig,
         },
         TestCase {
             name: "zero_basis_points",
             tiers: vec![anchor::PrizeTier::new(1, 0)],
-            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+            expected_error: PremiumBondsError::InvalidPrizeTierConfig,
         },
         TestCase {
             name: "zero_winners",
             tiers: vec![anchor::PrizeTier::new(0, 10000)],
-            expected_error: anchor::error::PremiumBondsError::InvalidPrizeTierConfig,
+            expected_error: PremiumBondsError::InvalidPrizeTierConfig,
         },
         TestCase {
             name: "exceeding_max_winners (181 winners)",
             tiers: vec![anchor::PrizeTier::new(181, 10000)],
-            expected_error: anchor::error::PremiumBondsError::TooManyWinners,
+            expected_error: PremiumBondsError::TooManyWinners,
         },
         TestCase {
             name: "basis_points_sum_9999",
             tiers: vec![anchor::PrizeTier::new(1, 9999)],
-            expected_error: anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+            expected_error: PremiumBondsError::BasisPointsMustEqual10000,
         },
         TestCase {
             name: "basis_points_sum_10001",
@@ -178,7 +122,7 @@ fn test_set_prize_tiers_constraint_matrix() {
                 anchor::PrizeTier::new(1, 5000),
                 anchor::PrizeTier::new(1, 5001),
             ],
-            expected_error: anchor::error::PremiumBondsError::BasisPointsMustEqual10000,
+            expected_error: PremiumBondsError::BasisPointsMustEqual10000,
         },
     ];
 
@@ -187,7 +131,7 @@ fn test_set_prize_tiers_constraint_matrix() {
         let pool_id = 1;
         PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
 
-        let res = send_set_prize_tiers(&mut svm, &admin, pool_id, case.tiers, None, None);
+        let res = send_set_prize_tiers(&mut svm, &admin, pool_id, case.tiers);
         assert_custom_error_msg(
             res,
             case.expected_error,
@@ -210,15 +154,8 @@ fn test_set_prize_tiers_unauthorized_admin() {
     svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
 
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
-
-    let result = send_set_prize_tiers(
-        &mut svm, &attacker, // Attacker signs the tx
-        pool_id, tiers,
-        None, // The admin account passed in the IX defaults to `attacker.pubkey()`
-        None,
-    );
-
-    assert_custom_error(result, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    let result = send_set_prize_tiers(&mut svm, &attacker, pool_id, tiers);
+    assert_custom_error(result, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -227,23 +164,10 @@ fn test_set_prize_tiers_requires_admin_signature() {
     let pool_id = 1;
     PrizePoolTestBuilder::new(pool_id).inject(&mut svm);
 
-    let random_payer = Keypair::new();
-    svm.airdrop(&random_payer.pubkey(), 1_000_000_000).unwrap();
-
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
+    let ix = build_set_prize_tiers_ix(&admin.pubkey(), pool_id, tiers);
 
-    // We pass `admin.pubkey()` as the admin account in the instruction,
-    // BUT we override `is_signer` to `false`. Then we sign with a random payer.
-    let result = send_set_prize_tiers(
-        &mut svm,
-        &random_payer,
-        pool_id,
-        tiers,
-        Some(admin.pubkey()), // Pass the true admin
-        Some(false),          // But clear the signer flag
-    );
-
-    assert_anchor_error(result, anchor_lang::error::ErrorCode::AccountNotSigner);
+    assert_signer_required_dynamic(&mut svm, ix, &admin.pubkey(), "set_prize_tiers");
 }
 
 #[test]
@@ -255,6 +179,6 @@ fn test_set_prize_tiers_fails_on_math_overflow() {
     // This will cause a math overflow because 2 * u32::MAX overflows u32 checked_mul
     let tiers = vec![anchor::PrizeTier::new(u32::MAX, 2)];
 
-    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers, None, None);
-    assert_custom_error(result, anchor::error::PremiumBondsError::MathOverflow);
+    let result = send_set_prize_tiers(&mut svm, &admin, pool_id, tiers);
+    assert_custom_error(result, PremiumBondsError::MathOverflow);
 }

@@ -138,7 +138,11 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     .expect("Alice reinvestment after full exit must succeed");
 
     let event_alice = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta_alice);
-    assert_eq!(event_alice.winner, alice.pubkey(), "Event winner matches Alice");
+    assert_eq!(
+        event_alice.winner,
+        alice.pubkey(),
+        "Event winner matches Alice"
+    );
     assert_eq!(event_alice.winner_index, alice_winner_idx as u32);
     assert!(event_alice.amount_reinvested > 0, "Amount reinvested > 0");
 

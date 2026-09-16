@@ -9,17 +9,9 @@
 //! 6. Rejection by unauthorized non-admin callers.
 
 use {
-    anchor_lang::prelude::Pubkey,
-    anchor_lang::AccountDeserialize,
-    anchor_lang::InstructionData,
-    anchor_lang::ToAccountMetas,
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_program::instruction::Instruction,
-    solana_sdk::account::Account,
-    solana_sdk::message::{Message, VersionedMessage},
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
+    anchor::error::PremiumBondsError, anchor_lang::error::ErrorCode,
+    anchor_lang::AccountDeserialize, litesvm::LiteSVM, solana_keypair::Keypair,
+    solana_program::pubkey::Pubkey, solana_signer::Signer,
 };
 
 mod common;
@@ -38,7 +30,7 @@ fn test_admin_void_payout_registry_success() {
     let winner_amount = 49_999;
     let cycle_fee = 5_000;
 
-    let (pool_pda_addr, _) = PrizePoolTestBuilder::new(pool_id)
+    PrizePoolTestBuilder::new(pool_id)
         .with_status(anchor::PoolStatus::Active)
         .with_frozen(false)
         .with_solvency_state(0, 99_998, 5_000)
@@ -55,7 +47,7 @@ fn test_admin_void_payout_registry_success() {
     let winner1 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
     let winner2 = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), winner_amount, 0);
 
-    let _ = inject_payout_registry(
+    inject_payout_registry(
         &mut svm,
         pool_id,
         cycle_id,
@@ -104,7 +96,7 @@ fn test_admin_void_payout_registry_success() {
     let (dc_pda, _) = draw_cycle_pda(pool_id, cycle_id);
     let dc_acc = svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
-        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+        AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(
         dc.status,
         anchor::DrawStatus::Voided,
@@ -153,7 +145,7 @@ fn test_admin_void_fails_if_payouts_already_started() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsAlreadyStarted);
+    assert_custom_error(res, PremiumBondsError::PayoutsAlreadyStarted);
 }
 
 #[test]
@@ -193,7 +185,7 @@ fn test_admin_void_fails_if_fees_already_withdrawn() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::FeesAlreadyWithdrawn);
+    assert_custom_error(res, PremiumBondsError::FeesAlreadyWithdrawn);
 }
 
 #[test]
@@ -233,7 +225,7 @@ fn test_unauthorized_user_cannot_void_draw() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &attacker, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
 }
 
 #[test]
@@ -274,7 +266,7 @@ fn test_admin_void_fails_if_pool_is_closed() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PoolClosed);
+    assert_custom_error(res, PremiumBondsError::PoolClosed);
 }
 
 #[test]
@@ -389,7 +381,7 @@ fn test_admin_void_payout_registry_fails_invalid_event_authority() {
 
     let winner = WinnerTestBuilder::default_winner(Keypair::new().pubkey(), 100_000, 0);
 
-    let _ = inject_payout_registry(
+    inject_payout_registry(
         &mut svm,
         pool_id,
         cycle_id,
@@ -398,38 +390,13 @@ fn test_admin_void_payout_registry_fails_invalid_event_authority() {
         anchor::PayoutRegistryStatus::Active,
     );
 
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
-    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
     let fake_event_authority = Keypair::new().pubkey();
 
-    let accounts = anchor::accounts::AdminVoidPayoutRegistry {
-        global_config,
-        admin: admin.pubkey(),
-        pool,
-        current_draw_cycle,
-        payout_registry,
-        event_authority: fake_event_authority,
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
+    let res = AdminVoidPayoutRegistryBuilder::new(admin.pubkey(), pool_id, cycle_id)
+        .with_event_authority(fake_event_authority)
+        .send(&mut svm, &admin);
 
-    let ix = solana_program::instruction::Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = solana_sdk::message::Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = solana_transaction::versioned::VersionedTransaction::try_new(
-        solana_sdk::message::VersionedMessage::Legacy(msg),
-        &[&admin],
-    )
-    .unwrap();
-    let res = svm.send_transaction(tx);
-    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
+    assert_anchor_error(res, ErrorCode::ConstraintSeeds);
 }
 
 #[test]
@@ -469,7 +436,7 @@ fn test_admin_void_fails_on_double_void_handler_guard() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::DrawAlreadyVoided);
+    assert_custom_error(res, PremiumBondsError::DrawAlreadyVoided);
 }
 
 #[test]
@@ -515,7 +482,7 @@ fn test_admin_void_fails_on_sequential_second_call() {
 
     // Second sequential void on the same accounts fails via account constraint (InvalidDrawStatus)
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::InvalidDrawStatus);
+    assert_custom_error(res, PremiumBondsError::InvalidDrawStatus);
 }
 
 // ─── Zero-Prize Void Tests ───────────────────────────────────────────────────
@@ -595,7 +562,7 @@ fn test_admin_void_draw_with_zero_truncated_prize_succeeds_before_crank() {
     let (dc_pda, _) = draw_cycle_pda(pool_id, cycle_id);
     let dc_acc = svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
-        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+        AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
     assert_eq!(
         dc.status,
         anchor::DrawStatus::Voided,
@@ -705,7 +672,7 @@ fn test_admin_void_fails_if_zero_prize_winner_already_cranked() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsAlreadyStarted);
+    assert_custom_error(res, PremiumBondsError::PayoutsAlreadyStarted);
 }
 
 /// MTR-007: Admin Draw Void Complete Rollback Equivalence
@@ -758,7 +725,7 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     let (dc_pda, _) = draw_cycle_pda(1, 1);
     let dc_acc = ctx.svm.get_account(&dc_pda).unwrap();
     let dc: anchor::DrawCycle =
-        anchor_lang::AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
+        AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
 
     common::inject_randomness_account_data(
         &mut ctx.svm,
@@ -867,8 +834,5 @@ fn test_admin_void_payout_registry_fails_when_frozen() {
     );
 
     let res = send_admin_void_payout_registry(&mut svm, &admin, pool_id, cycle_id);
-    assert_custom_error(
-        res,
-        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
-    );
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
 }

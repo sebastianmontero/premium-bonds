@@ -26,25 +26,6 @@ use solana_transaction::versioned::VersionedTransaction;
 mod common;
 use common::*;
 
-// ─── Instruction Builders & Helpers ─────────────────────────────────────────
-
-fn send_e2e_sell_bonds(
-    ctx: &mut E2eContext,
-    user: &Keypair,
-    active_to_sell: u32,
-    pending_to_sell: u32,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    send_e2e_sell_bonds_for_user(
-        ctx,
-        user,
-        active_to_sell,
-        pending_to_sell,
-        Pubkey::default(),
-        Pubkey::default(),
-        Pubkey::default(),
-    )
-}
-
 // ─── Vector 1: Value & Boundary Extremes ────────────────────────────────────
 
 #[test]
@@ -162,10 +143,7 @@ fn test_v1_on_chain_unsupported_account_version_rejection() {
         data: anchor::instruction::PausePool {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::UnsupportedAccountVersion,
@@ -370,10 +348,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
         data: anchor::instruction::PrepareDraw { batch_size: 2 }.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    ctx.svm.send_transaction(tx).unwrap();
+    send_user_tx(&mut ctx.svm, &crank, ix).unwrap();
 
     // Verify Batch Boundary Slice:
     // Entries 0..2 should have version = 1, while entry 2 must remain version = 0!
@@ -454,10 +429,7 @@ fn test_v3_admin_instructions_reject_non_admin() {
         data: anchor::instruction::PausePool {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&fake_admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&fake_admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &fake_admin, ix);
     assert_custom_error(res, anchor::error::PremiumBondsError::Unauthorized);
 }
 
@@ -572,10 +544,7 @@ fn test_v5_resize_registry_preserves_header() {
         data: anchor::instruction::ResizeRegistry {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&payer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
-    ctx.svm.send_transaction(tx).unwrap();
+    send_user_tx(&mut ctx.svm, &payer, ix).unwrap();
 
     let resized_len = ctx
         .svm
@@ -681,20 +650,13 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
         data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg =
-        Message::new_with_blockhash(std::slice::from_ref(&ix), Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix.clone());
     assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
 
     // Boundary Test 2: at slot 1501 (1501 - 500 = 1001, strictly > 1000) -> MUST SUCCEED
     ctx.svm.warp_to_slot(1501);
     ctx.svm.expire_blockhash();
-    let bh2 = ctx.svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&ctx.admin]).unwrap();
-    ctx.svm.send_transaction(tx2).unwrap();
+    send_user_tx(&mut ctx.svm, &ctx.admin, ix).unwrap();
 
     // Verify randomness account was updated to new_randomness
     let updated_dc = read_draw_cycle_state(&ctx.svm, 1, 0);

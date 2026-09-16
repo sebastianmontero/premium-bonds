@@ -150,11 +150,7 @@ fn test_lifecycle_sell_bonds_paused_blocks() {
         .data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -243,11 +239,7 @@ fn test_lifecycle_claim_redemption_paused_blocks() {
         data: anchor::instruction::ClaimRedemption {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -332,11 +324,7 @@ fn test_lifecycle_withdraw_fees_paused_blocks() {
         data: anchor::instruction::WithdrawFees { amount: 1_000_000 }.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 }
 
@@ -393,10 +381,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
@@ -423,10 +408,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         accounts: accounts2,
         data: anchor::instruction::PrepareDraw { batch_size: 10 }.data(),
     };
-    let bh2 = svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
-    let res2 = svm.send_transaction(tx2);
+    let res2 = send_user_tx(&mut svm, &crank2, ix2);
     assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
@@ -483,10 +465,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
         data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::PoolNotActive);
 
     // 2. Closed
@@ -520,10 +499,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
         accounts: accounts2,
         data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
     };
-    let bh2 = svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix2], Some(&crank2.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
-    let res2 = svm.send_transaction(tx2);
+    let res2 = send_user_tx(&mut svm, &crank2, ix2);
     assert_custom_error(res2, PremiumBondsError::PoolNotActive);
 }
 
@@ -595,10 +571,7 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         .data(),
     };
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix.clone()], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::PoolPaused);
 
     // 2. Active -> Allowed
@@ -632,10 +605,7 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         }
         .data(),
     };
-    let bh2 = svm.latest_blockhash();
-    let msg2 = Message::new_with_blockhash(&[ix_active], Some(&crank2.pubkey()), &bh2);
-    let tx2 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg2), &[&crank2]).unwrap();
-    assert!(svm.send_transaction(tx2).is_ok());
+    assert!(send_user_tx(&mut svm, &crank2, ix_active).is_ok());
 
     // 3. Closed -> Allowed (graceful cash fallback)
     PrizePoolTestBuilder::new(pool_id)
@@ -670,8 +640,5 @@ fn test_lifecycle_reinvest_winnings_permissions() {
         }
         .data(),
     };
-    let bh3 = svm.latest_blockhash();
-    let msg3 = Message::new_with_blockhash(&[ix_closed], Some(&crank3.pubkey()), &bh3);
-    let tx3 = VersionedTransaction::try_new(VersionedMessage::Legacy(msg3), &[&crank3]).unwrap();
-    assert!(svm.send_transaction(tx3).is_ok());
+    assert!(send_user_tx(&mut svm, &crank3, ix_closed).is_ok());
 }

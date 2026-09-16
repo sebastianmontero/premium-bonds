@@ -3,30 +3,10 @@
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
-
-/// Pre-computed deterministic nonces mapping seed[0..4] to winner ticket indices 0..29
-/// with tier_idx=0, winner_slot=0, cycle_id=0, and ticket_count=30.
-pub const DETERMINISTIC_NONCES_0_TO_29: [u32; 30] = [
-    21, 29, 24, 62, 13, 97, 19, 2, 33, 11, // Indices 0..9 -> User 1
-    55, 37, 15, 48, 22, 46, 9, 104, 39, 0, // Indices 10..19 -> User 3 (User 2 skipped!)
-    6, 20, 1, 3, 56, 23, 31, 35, 12, 4, // Indices 20..29 -> User 3
-];
-
-pub fn deterministic_seed_for_index(target_index: usize) -> [u8; 32] {
-    let mut seed = [0u8; 32];
-    seed[0..4].copy_from_slice(&DETERMINISTIC_NONCES_0_TO_29[target_index].to_le_bytes());
-    seed
-}
 
 // ─── Context + helpers ───────────────────────────────────────────────────────
 
@@ -38,45 +18,16 @@ struct RevealCtx {
     randomness_account: Pubkey,
 }
 
-fn build_reveal_ix(ctx: &RevealCtx, pool_id: u32, cycle_id: u32) -> Instruction {
-    let (pool, _) = pool_pda(pool_id);
-    let (dc, _) = draw_cycle_pda(pool_id, cycle_id);
-    let (payout, _) = payout_pda(pool_id, cycle_id);
-
-    let accounts = anchor::accounts::RevealAndPickWinners {
-        crank: ctx.crank.pubkey(),
-        current_draw_cycle: dc,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        randomness_account: ctx.randomness_account,
-        payout_registry: payout,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::RevealAndPickWinners {}.data(),
-    }
-}
-
 fn send_reveal(ctx: &mut RevealCtx, pool_id: u32, cycle_id: u32, seed: [u8; 32]) -> TxResult {
     inject_current_slot_randomness(&mut ctx.svm, ctx.randomness_account, seed);
-    let ix = build_reveal_ix(ctx, pool_id, cycle_id);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+    let crank = clone_keypair(&ctx.crank);
+    RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank)
 }
 
 // ─── Setup builders ──────────────────────────────────────────────────────────
-
-fn make_tickets(n: usize) -> Vec<Pubkey> {
-    (0..n).map(|_| Keypair::new().pubkey()).collect()
-}
 
 fn setup_reveal(
     status: anchor::PoolStatus,
@@ -88,7 +39,7 @@ fn setup_reveal(
 ) -> RevealCtx {
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
-    let tickets = make_tickets(num_tickets);
+    let tickets = create_test_ticket_owners(num_tickets);
     let registry = Keypair::new().pubkey();
     inject_registry_with_tickets(&mut svm, registry, 1, 1000, num_tickets as u32, 0, &tickets);
 
@@ -129,7 +80,7 @@ fn setup_reveal_with_dc_status(dc_status: anchor::DrawStatus) -> RevealCtx {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
-    let tickets = make_tickets(5);
+    let tickets = create_test_ticket_owners(5);
     let registry = Keypair::new().pubkey();
     inject_registry_with_tickets(&mut svm, registry, 1, 1000, 5, 0, &tickets);
 
@@ -543,7 +494,7 @@ fn test_reveal_fails_wrong_ticket_registry() {
         1000,
         5,
         0,
-        &make_tickets(5),
+        &create_test_ticket_owners(5),
     );
     ctx.ticket_registry = wrong_registry;
 
@@ -559,11 +510,11 @@ fn test_reveal_fails_invalid_randomness_account_key() {
 
     inject_randomness_account_data(&mut ctx.svm, wrong_randomness_account, 0, 0, [1u8; 32]);
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
@@ -586,11 +537,11 @@ fn test_reveal_fails_invalid_randomness_account_owner() {
         )
         .unwrap();
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
@@ -607,11 +558,11 @@ fn test_reveal_fails_stale_randomness_request_seed_slot() {
 
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::StaleRandomnessRequest,
@@ -626,11 +577,11 @@ fn test_reveal_fails_stale_randomness_request_expired() {
 
     ctx.svm.warp_to_slot(1006);
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::StaleRandomnessRequest,
@@ -645,11 +596,11 @@ fn test_reveal_fails_randomness_not_resolved() {
 
     ctx.svm.warp_to_slot(5);
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotResolved);
 }
 
@@ -1133,11 +1084,11 @@ fn test_reveal_freshness_slot_difference_1000_succeeds() {
     // Set clock to slot 1005 -> 1005 - 5 = 1000 (exact boundary)
     ctx.svm.warp_to_slot(1005);
 
-    let ix = build_reveal_ix(&ctx, 1, 0);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
     assert!(
         res.is_ok(),
         "reveal should succeed at exactly 1000 slot diff: {:?}",

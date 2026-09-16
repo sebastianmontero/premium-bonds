@@ -150,10 +150,7 @@ fn test_err_cannot_modify_bond_price_with_active_deposits() {
         }
         .data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(
         res,
         PremiumBondsError::CannotModifyBondPriceWithActiveDeposits,
@@ -206,10 +203,7 @@ fn test_err_pool_closed() {
         accounts,
         data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::PoolClosed);
 }
 
@@ -250,32 +244,29 @@ fn test_err_registry_full() {
 
 #[test]
 fn test_err_registry_too_small() {
-    let authority = Keypair::new();
-    let admin = Keypair::new();
-    let mut svm = setup_global_config_with_admin(&authority, &admin.pubkey(), None);
-    svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
-
+    let (mut svm, admin) = setup_global_config();
     let pool_id = 1;
-    let token_mint = create_spl_mint(&mut svm, &admin, &admin.pubkey(), 6);
-    let pst_mint = create_spl_mint(&mut svm, &admin, &admin.pubkey(), 6);
-    let fee_wallet = create_spl_token_account(&mut svm, &admin, &token_mint, &admin.pubkey());
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 6);
+    let pst_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, pst_mint, 6);
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
     let registry = Keypair::new().pubkey();
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
-
-    // Small registry (less than REGISTRY_INITIAL_SIZE)
+    // Inject registry with size smaller than REGISTRY_INITIAL_SIZE
     svm.set_account(
         registry,
         Account {
-            lamports: 1_000_000_000,
-            data: vec![0u8; 100],
+            lamports: 10_000_000_000,
+            data: vec![0u8; anchor::constants::REGISTRY_INITIAL_SIZE - 1],
             owner: anchor::id(),
             executable: false,
             rent_epoch: 0,
         },
     )
     .unwrap();
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let ix = build_create_pool_instruction(
         &admin,
@@ -294,10 +285,7 @@ fn test_err_registry_too_small() {
         huma_pool_state,
     );
 
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::RegistryTooSmall);
 }
 
@@ -376,10 +364,7 @@ fn test_err_insufficient_active_tickets() {
         }
         .data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix_active], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix_active);
     assert_custom_error(res, PremiumBondsError::InsufficientActiveTickets);
 }
 
@@ -458,10 +443,7 @@ fn test_err_insufficient_pending_tickets() {
         }
         .data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix_pending], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix_pending);
     assert_custom_error(res, PremiumBondsError::InsufficientPendingTickets);
 }
 
@@ -519,10 +501,7 @@ fn test_err_cycle_not_ended() {
         accounts,
         data: anchor::instruction::HarvestYieldAndCommit {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::CycleNotEnded);
 }
 
@@ -573,10 +552,7 @@ fn test_err_draw_already_voided() {
         accounts,
         data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::DrawAlreadyVoided);
 }
 
@@ -627,10 +603,7 @@ fn test_err_payouts_already_started() {
         accounts,
         data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::PayoutsAlreadyStarted);
 }
 
@@ -669,10 +642,7 @@ fn test_err_invalid_batch_size() {
         accounts,
         data: anchor::instruction::PrepareDraw { batch_size: 0 }.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::InvalidBatchSize);
 }
 
@@ -717,7 +687,7 @@ fn test_err_randomness_not_expired() {
         _reserved: [0; 64],
     };
     let mut dc_data = vec![];
-    dc_data.extend_from_slice(&anchor::state::DrawCycle::DISCRIMINATOR);
+    dc_data.extend_from_slice(anchor::state::DrawCycle::DISCRIMINATOR);
     dc.serialize(&mut dc_data).unwrap();
     svm.set_account(
         draw_cycle_key,
@@ -757,10 +727,7 @@ fn test_err_randomness_not_expired() {
         accounts,
         data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&crank]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &crank, ix);
     assert_custom_error(res, PremiumBondsError::RandomnessNotExpired);
 }
 
@@ -848,10 +815,7 @@ fn test_err_no_winnings_to_claim() {
         accounts,
         data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&user]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &user, ix);
     assert_custom_error(res, PremiumBondsError::NoWinningsToClaim);
 }
 
@@ -989,10 +953,7 @@ fn assert_create_pool_fails_with_token_2022_extension(
         anchor_spl::token_2022::ID,
         anchor_spl::token::ID,
     );
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, expected_error);
 }
 
@@ -1125,9 +1086,6 @@ fn test_err_invalid_huma_pool_state() {
         fee_wallet,
         uninit_huma_pool_state,
     );
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }

@@ -7,13 +7,7 @@
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
@@ -29,45 +23,31 @@ struct HarvestCtx {
     randomness_account: Pubkey,
 }
 
-fn build_harvest_ix(ctx: &HarvestCtx, pool_id: u32, _cycle_id: u32) -> Instruction {
-    let (gc, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let pool_state = &ctx.svm.get_account(&pool).unwrap();
-    let pool_data: anchor::PrizePool =
-        anchor::PrizePool::try_deserialize(&mut pool_state.data.as_slice()).unwrap();
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let (draw_cycle, _) = draw_cycle_pda(pool_id, pool_data.current_draw_cycle_id);
+impl HarvestCtx {
+    pub fn harvest_builder(&self, pool_id: u32) -> HarvestYieldAndCommitBuilder {
+        let (pool_key, _) = pool_pda(pool_id);
+        let cycle_id = self
+            .svm
+            .get_account(&pool_key)
+            .and_then(|acc| anchor::PrizePool::try_deserialize(&mut acc.data.as_slice()).ok())
+            .map(|p| p.current_draw_cycle_id)
+            .unwrap_or(0);
 
-    let accounts = anchor::accounts::HarvestYieldAndCommit {
-        crank: ctx.crank.pubkey(),
-        global_config: gc,
-        pool,
-        ticket_registry: ctx.ticket_registry,
-        current_draw_cycle: draw_cycle,
-        pool_pst_vault,
-        pst_mint: ctx.pst_mint,
-        huma_pool_state: ctx.huma_pool_state,
-        randomness_account: ctx.randomness_account,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
+        HarvestYieldAndCommitBuilder::for_pool(pool_id, cycle_id, self.crank.pubkey())
+            .with_ticket_registry(self.ticket_registry)
+            .with_pst_mint(self.pst_mint)
+            .with_huma_pool_state(self.huma_pool_state)
+            .with_randomness_account(self.randomness_account)
     }
-    .to_account_metas(None);
 
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::HarvestYieldAndCommit {}.data(),
+    pub fn send_harvest(&mut self, pool_id: u32, _cycle_id: u32) -> TxResult {
+        let ix = self.harvest_builder(pool_id).build_ix();
+        send_user_tx(&mut self.svm, &self.crank, ix)
     }
 }
 
 fn send_harvest(ctx: &mut HarvestCtx, pool_id: u32, cycle_id: u32) -> TxResult {
-    let ix = build_harvest_ix(ctx, pool_id, cycle_id);
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+    ctx.send_harvest(pool_id, cycle_id)
 }
 
 // ─── Setup helpers ───────────────────────────────────────────────────────────

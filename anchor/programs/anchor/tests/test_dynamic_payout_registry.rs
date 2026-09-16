@@ -3,10 +3,8 @@ use anchor_lang::InstructionData;
 use anchor_lang::ToAccountMetas;
 use litesvm::LiteSVM;
 use solana_sdk::instruction::Instruction;
-use solana_sdk::message::{Message, VersionedMessage};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::{Keypair, Signer};
-use solana_sdk::transaction::VersionedTransaction;
 
 mod common;
 use common::*;
@@ -80,33 +78,11 @@ fn send_reveal(
     seed: [u8; 32],
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
     inject_current_slot_randomness(&mut ctx.svm, ctx.randomness_account, seed);
-    let (pool, _) = pool_pda(pool_id);
-    let (current_draw_cycle, _) = draw_cycle_pda(pool_id, cycle_id);
-    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
-
-    let accounts = anchor::accounts::RevealAndPickWinners {
-        crank: ctx.crank.pubkey(),
-        pool,
-        current_draw_cycle,
-        payout_registry,
-        ticket_registry: ctx.ticket_registry,
-        randomness_account: ctx.randomness_account,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::RevealAndPickWinners {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+    let crank = clone_keypair(&ctx.crank);
+    RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank)
 }
 
 fn send_crank_close(
@@ -115,28 +91,7 @@ fn send_crank_close(
     pool_id: u32,
     cycle_id: u32,
 ) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let (global_config, _) = global_config_pda();
-    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
-
-    let accounts = anchor::accounts::CrankClosePayoutRegistry {
-        global_config,
-        crank: caller.pubkey(),
-        payout_registry,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankClosePayoutRegistry { pool_id, cycle_id }.data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&caller.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[caller]).unwrap();
-    svm.send_transaction(tx)
+    CrankClosePayoutRegistryBuilder::new(caller.pubkey(), pool_id, cycle_id).send(svm, caller)
 }
 
 fn send_reinvest(
@@ -153,37 +108,11 @@ fn send_reinvest(
         inject_user_winnings(svm, pool_id, winner, 0, 0, 0);
     }
 
-    let (pool, _) = pool_pda(pool_id);
-    let (payout_registry, _) = payout_pda(pool_id, cycle_id);
-    let (user_winnings, _) = user_winnings_pda(pool_id, &winner);
-
-    let accounts = anchor::accounts::ReinvestWinnings {
-        crank: crank.pubkey(),
-        winner,
-        payout_registry,
-        pool,
-        user_winnings,
-        ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ReinvestWinnings {
-            cycle_id,
-            winner_index,
-        }
-        .data(),
-    };
-
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[crank]).unwrap();
-    svm.send_transaction(tx)
+    ReinvestWinningsBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
+        .with_winner(&winner)
+        .with_ticket_registry(ticket_registry)
+        .with_winner_index(winner_index)
+        .send(svm, crank)
 }
 
 // ─── Vectors 1-18 ─────────────────────────────────────────────────────────────
@@ -282,10 +211,7 @@ fn test_vector_4_tier_sum_consistency() {
         accounts: accounts.clone(),
         data: anchor::instruction::SetPrizeTiers { tiers: valid_tiers }.data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&admin]).unwrap();
-    let res = svm.send_transaction(tx);
+    let res = send_user_tx(&mut svm, &admin, ix);
     assert!(res.is_ok(), "Setting 180 winners must succeed: {:?}", res);
 
     // 2. Setting tiers totalling 181 winners fails
@@ -301,11 +227,7 @@ fn test_vector_4_tier_sum_consistency() {
         }
         .data(),
     };
-    let bh = svm.latest_blockhash();
-    let msg_invalid = Message::new_with_blockhash(&[ix_invalid], Some(&admin.pubkey()), &bh);
-    let tx_invalid =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_invalid), &[&admin]).unwrap();
-    let res_invalid = svm.send_transaction(tx_invalid);
+    let res_invalid = send_user_tx(&mut svm, &admin, ix_invalid);
     assert_custom_error(
         res_invalid,
         anchor::error::PremiumBondsError::TooManyWinners,
@@ -472,12 +394,7 @@ fn test_vector_10_voided_draw_close_permitted() {
         accounts,
         data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
     };
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    ctx.svm
-        .send_transaction(tx)
-        .expect("Admin void must succeed");
+    send_user_tx(&mut ctx.svm, &ctx.admin, ix).expect("Admin void must succeed");
 
     // Close must succeed immediately even with 0 payouts completed
     let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
@@ -593,10 +510,7 @@ fn test_vector_13_voiding_on_closed_account_rejected() {
         accounts,
         data: anchor::instruction::AdminVoidPayoutRegistry {}.data(),
     };
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.admin]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let res = send_user_tx(&mut ctx.svm, &ctx.admin, ix);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,

@@ -10,13 +10,7 @@ use anchor_lang::{
 };
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
@@ -106,50 +100,31 @@ fn setup_claim_redemption_guard(
     }
 }
 
-fn send_claim_redemption_guard(
-    ctx: &mut ClaimGuardCtx,
-    caller_kp: &Keypair,
-    beneficiary: Option<Pubkey>,
-    pool_id: u32,
-    redemption_id: u64,
-    override_token_mint: Option<Pubkey>,
-    override_pool_vault: Option<Pubkey>,
-    override_user_token_account: Option<Pubkey>,
-    override_huma_program: Option<Pubkey>,
-) -> TxResult {
-    let beneficiary = beneficiary.unwrap_or_else(|| ctx.user.pubkey());
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (pending_redemption, _) = pending_redemption_pda(pool_id, redemption_id);
-
-    let accounts = anchor::accounts::ClaimRedemption {
-        caller: caller_kp.pubkey(),
-        beneficiary,
-        pool: pool_pda_addr,
-        pending_redemption,
-        token_mint: override_token_mint.unwrap_or(ctx.token_mint),
-        pool_vault_account: override_pool_vault.unwrap_or(ctx.pool_vault),
-        beneficiary_token_account: override_user_token_account.unwrap_or(ctx.user_token_account),
-        huma_program: override_huma_program.unwrap_or_else(huma_program_id),
-        huma_config: ctx.huma_config,
-        huma_pool_config: ctx.huma_pool_config,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: ctx.huma_mode_config,
-        huma_lender_state: ctx.huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_underlying_token: ctx.huma_pool_underlying_token,
-        token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
+impl ClaimGuardCtx {
+    pub fn claim_builder(
+        &self,
+        pool_id: u32,
+        redemption_id: u64,
+        caller: Pubkey,
+    ) -> ClaimRedemptionBuilder {
+        ClaimRedemptionBuilder::for_redemption(pool_id, redemption_id, caller, self.user.pubkey())
+            .with_token_mint(self.token_mint)
+            .with_pool_vault_account(self.pool_vault)
+            .with_user_token_account(self.user_token_account)
+            .with_huma_pool_state(self.huma_pool_state)
     }
-    .to_account_metas(None);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimRedemption {}.data(),
-    };
-    send_user_tx(&mut ctx.svm, caller_kp, ix)
+    pub fn send_claim(
+        &mut self,
+        caller_kp: &Keypair,
+        pool_id: u32,
+        redemption_id: u64,
+    ) -> TxResult {
+        let ix = self
+            .claim_builder(pool_id, redemption_id, caller_kp.pubkey())
+            .build_ix();
+        send_user_tx(&mut self.svm, caller_kp, ix)
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -162,7 +137,7 @@ fn test_claim_redemption_fails_wrong_user() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, Some(wrong_user));
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
-    let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 1, 0, None, None, None, None);
+    let res = ctx.send_claim(&user_kp, 1, 0);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRedemptionOwner,
@@ -175,17 +150,10 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
     let user_kp = clone_keypair(&ctx.user);
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
-    let res = send_claim_redemption_guard(
-        &mut ctx,
-        &user_kp,
-        None,
-        1,
-        0,
-        Some(wrong_mint),
-        None,
-        None,
-        None,
-    );
+    let res = ctx
+        .claim_builder(1, 0, user_kp.pubkey())
+        .with_token_mint(wrong_mint)
+        .send(&mut ctx.svm, &user_kp);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
@@ -194,7 +162,7 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. Pool 2 account is not initialized (owned by system program).
-    let res = send_claim_redemption_guard(&mut ctx, &user_kp, None, 2, 0, None, None, None, None);
+    let res = ctx.send_claim(&user_kp, 2, 0);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
@@ -206,17 +174,10 @@ fn test_claim_redemption_fails_huma_program_mismatch() {
     let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
     let user_kp = clone_keypair(&ctx.user);
     let wrong_huma_program = Pubkey::new_unique();
-    let res = send_claim_redemption_guard(
-        &mut ctx,
-        &user_kp,
-        None,
-        1,
-        0,
-        None,
-        None,
-        None,
-        Some(wrong_huma_program),
-    );
+    let res = ctx
+        .claim_builder(1, 0, user_kp.pubkey())
+        .with_huma_program(wrong_huma_program)
+        .send(&mut ctx.svm, &user_kp);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
@@ -437,52 +398,16 @@ fn send_e2e_claim_winnings_for_user(
     huma_lender_state: Pubkey,
     huma_pool_mode_token: Pubkey,
 ) -> TxResult {
-    let (pool_pda_key, _) = pool_pda(1);
-    let pool = read_pool_state(&ctx.svm, 1);
-    let (user_winnings, _) = user_winnings_pda(1, &user.pubkey());
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    let (pending_redemption, _) = pending_redemption_pda(1, pool.next_redemption_id);
-    let dummy = Keypair::new().pubkey();
-    let huma_lender_state = if huma_lender_state == Pubkey::default() {
-        Keypair::new().pubkey()
-    } else {
-        huma_lender_state
-    };
-
-    let accounts = anchor::accounts::ClaimNonReinvestedWinnings {
-        user: user.pubkey(),
-        pool: pool_pda_key,
-        user_winnings,
-        pool_pst_vault,
-        pending_redemption,
-        huma_program: huma_program_id(),
-        huma_config,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_redemption_request: dummy,
-        huma_lender_state,
-        huma_pool_authority: ctx.huma_pool_authority,
-        huma_pool_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        system_program: anchor_lang::system_program::ID,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
+    let mut builder = ClaimNonReinvestedWinningsBuilder::new(ctx)
+        .with_user(&user.pubkey())
+        .with_huma_pool_mode_token(huma_pool_mode_token);
+    if huma_config != Pubkey::default() {
+        builder = builder.with_huma_config(huma_config);
     }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ClaimNonReinvestedWinnings {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&user.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[user]).unwrap();
-    ctx.svm.send_transaction(tx)
+    if huma_lender_state != Pubkey::default() {
+        builder = builder.with_huma_lender_state(huma_lender_state);
+    }
+    send_user_tx(&mut ctx.svm, user, builder.build_ix())
 }
 
 #[test]

@@ -13,7 +13,7 @@
 //! 10. Closed pool blocks buy_bonds and harvest, but allows sell_bonds, claim_redemption, and withdraw_fees for capital exit.
 
 use {
-    anchor_lang::prelude::Pubkey, anchor_lang::AccountDeserialize, litesvm::LiteSVM,
+    anchor::error::PremiumBondsError, anchor_lang::prelude::Pubkey, litesvm::LiteSVM,
     solana_keypair::Keypair, solana_signer::Signer,
 };
 
@@ -36,16 +36,11 @@ fn setup_pool_with_guardian(status: anchor::PoolStatus) -> (LiteSVM, Keypair, Ke
     svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
     svm.airdrop(&guardian.pubkey(), 10_000_000_000).unwrap();
 
-    let _pool_pda = inject_pool(
-        &mut svm,
-        1,
-        Pubkey::default(),
-        Pubkey::default(),
-        status,
-        false,
-    );
+    let (pool_pda, _) = PrizePoolTestBuilder::new(1)
+        .with_status(status)
+        .inject(&mut svm);
 
-    (svm, admin, guardian, _pool_pda)
+    (svm, admin, guardian, pool_pda)
 }
 
 #[test]
@@ -133,7 +128,7 @@ fn test_unauthorized_signer_cannot_pause_pool() {
     svm.airdrop(&attacker.pubkey(), 10_000_000_000).unwrap();
 
     let res = send_pause_pool(&mut svm, &attacker, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::Unauthorized);
+    assert_custom_error(res, PremiumBondsError::Unauthorized);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Active as u8
@@ -166,7 +161,7 @@ fn test_guardian_cannot_unpause_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Paused);
 
     let res = send_unpause_pool(&mut svm, &guardian, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Paused as u8
@@ -198,7 +193,7 @@ fn test_guardian_cannot_close_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let res = send_close_pool(&mut svm, &guardian, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Active as u8
@@ -211,10 +206,10 @@ fn test_cannot_pause_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res_guardian = send_pause_pool(&mut svm, &guardian, 1);
-    assert_custom_error(res_guardian, anchor::error::PremiumBondsError::PoolClosed);
+    assert_custom_error(res_guardian, PremiumBondsError::PoolClosed);
 
     let res_admin = send_pause_pool(&mut svm, &admin, 1);
-    assert_custom_error(res_admin, anchor::error::PremiumBondsError::PoolClosed);
+    assert_custom_error(res_admin, PremiumBondsError::PoolClosed);
 
     assert_eq!(
         read_pool_state(&svm, 1).status,
@@ -228,19 +223,14 @@ fn test_cannot_unpause_active_or_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Active);
 
     let res_active = send_unpause_pool(&mut svm, &admin, 1);
-    assert_custom_error(res_active, anchor::error::PremiumBondsError::PoolNotActive);
+    assert_custom_error(res_active, PremiumBondsError::PoolNotActive);
 
-    let _pool_closed_pda = inject_pool(
-        &mut svm,
-        2,
-        Pubkey::default(),
-        Pubkey::default(),
-        anchor::PoolStatus::Closed,
-        false,
-    );
+    PrizePoolTestBuilder::new(2)
+        .with_status(anchor::PoolStatus::Closed)
+        .inject(&mut svm);
 
     let res_closed = send_unpause_pool(&mut svm, &admin, 2);
-    assert_custom_error(res_closed, anchor::error::PremiumBondsError::PoolNotActive);
+    assert_custom_error(res_closed, PremiumBondsError::PoolNotActive);
     assert_eq!(
         read_pool_state(&svm, 2).status,
         anchor::PoolStatus::Closed as u8
@@ -263,20 +253,13 @@ fn test_cannot_close_pool_while_frozen_for_draw() {
 
     svm.airdrop(&admin.pubkey(), 10_000_000_000).unwrap();
 
-    let _pool_pda = inject_pool(
-        &mut svm,
-        1,
-        Pubkey::default(),
-        Pubkey::default(),
-        anchor::PoolStatus::Active,
-        true, // is_frozen_for_draw == 1
-    );
+    PrizePoolTestBuilder::new(1)
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .inject(&mut svm);
 
     let res = send_close_pool(&mut svm, &admin, 1);
-    assert_custom_error(
-        res,
-        anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
-    );
+    assert_custom_error(res, PremiumBondsError::AwaitingRandomnessFreeze);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Active as u8
@@ -289,7 +272,7 @@ fn test_cannot_close_already_closed_pool() {
         setup_pool_with_guardian(anchor::PoolStatus::Closed);
 
     let res = send_close_pool(&mut svm, &admin, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::PoolClosed);
+    assert_custom_error(res, PremiumBondsError::PoolClosed);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Closed as u8
@@ -304,7 +287,7 @@ fn test_unauthenticated_caller_cannot_close_pool() {
     svm.airdrop(&attacker.pubkey(), 10_000_000_000).unwrap();
 
     let res = send_close_pool(&mut svm, &attacker, 1);
-    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+    assert_custom_error(res, PremiumBondsError::UnauthorizedAdmin);
     assert_eq!(
         read_pool_state(&svm, 1).status,
         anchor::PoolStatus::Active as u8

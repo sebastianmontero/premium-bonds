@@ -1,12 +1,7 @@
 use anchor_lang::{AccountDeserialize, AnchorDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
@@ -61,25 +56,23 @@ fn setup(
     }
 }
 
-fn send_prepare(ctx: &mut PrepareDrawCtx, batch_size: u32) -> TxResult {
-    let accounts = anchor::accounts::PrepareDraw {
-        crank: ctx.crank.pubkey(),
-        pool: ctx.pool_key,
-        draw_cycle: ctx.draw_cycle,
-        ticket_registry: ctx.ticket_registry,
+impl PrepareDrawCtx {
+    pub fn prepare_builder(&self, batch_size: u32) -> PrepareDrawBuilder {
+        PrepareDrawBuilder::for_pool(1, 0, self.crank.pubkey())
+            .with_pool(self.pool_key)
+            .with_draw_cycle(self.draw_cycle)
+            .with_ticket_registry(self.ticket_registry)
+            .with_batch_size(batch_size)
     }
-    .to_account_metas(None);
 
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::PrepareDraw { batch_size }.data(),
-    };
+    pub fn send_prepare(&mut self, batch_size: u32) -> TxResult {
+        let ix = self.prepare_builder(batch_size).build_default_ix();
+        send_user_tx(&mut self.svm, &self.crank, ix)
+    }
+}
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+fn send_prepare(ctx: &mut PrepareDrawCtx, batch_size: u32) -> TxResult {
+    ctx.send_prepare(batch_size)
 }
 
 #[test]
@@ -138,8 +131,8 @@ fn test_prepare_draw_happy_path() {
         event.user_count, 2,
         "DrawPreparationProgress user_count must be 2"
     );
-    assert_eq!(
-        event.is_complete, true,
+    assert!(
+        event.is_complete,
         "DrawPreparationProgress is_complete must be true"
     );
 
@@ -322,8 +315,8 @@ fn test_prepare_draw_multi_batch_events() {
     assert_eq!(event1.batch_start, 0, "Batch 1 event batch_start mismatch");
     assert_eq!(event1.batch_end, 2, "Batch 1 event batch_end mismatch");
     assert_eq!(event1.user_count, 4, "Batch 1 event user_count mismatch");
-    assert_eq!(
-        event1.is_complete, false,
+    assert!(
+        !event1.is_complete,
         "Batch 1 event is_complete must be false"
     );
 
@@ -341,10 +334,7 @@ fn test_prepare_draw_multi_batch_events() {
     assert_eq!(event2.batch_start, 2, "Batch 2 event batch_start mismatch");
     assert_eq!(event2.batch_end, 4, "Batch 2 event batch_end mismatch");
     assert_eq!(event2.user_count, 4, "Batch 2 event user_count mismatch");
-    assert_eq!(
-        event2.is_complete, true,
-        "Batch 2 event is_complete must be true"
-    );
+    assert!(event2.is_complete, "Batch 2 event is_complete must be true");
 }
 
 #[test]
@@ -475,10 +465,7 @@ fn test_prepare_draw_non_aligned_batches() {
     assert_eq!(event1.crank, ctx.crank.pubkey(), "Batch 1 crank mismatch");
     assert_eq!(event1.batch_start, 0, "Batch 1 batch_start mismatch");
     assert_eq!(event1.batch_end, 7, "Batch 1 batch_end mismatch");
-    assert_eq!(
-        event1.is_complete, false,
-        "Batch 1 is_complete must be false"
-    );
+    assert!(!event1.is_complete, "Batch 1 is_complete must be false");
 
     // Batch 2: 7..14
     ctx.svm.expire_blockhash();
@@ -487,10 +474,7 @@ fn test_prepare_draw_non_aligned_batches() {
     assert_eq!(event2.crank, ctx.crank.pubkey(), "Batch 2 crank mismatch");
     assert_eq!(event2.batch_start, 7, "Batch 2 batch_start mismatch");
     assert_eq!(event2.batch_end, 14, "Batch 2 batch_end mismatch");
-    assert_eq!(
-        event2.is_complete, false,
-        "Batch 2 is_complete must be false"
-    );
+    assert!(!event2.is_complete, "Batch 2 is_complete must be false");
 
     // Batch 3: 14..21
     ctx.svm.expire_blockhash();
@@ -499,10 +483,7 @@ fn test_prepare_draw_non_aligned_batches() {
     assert_eq!(event3.crank, ctx.crank.pubkey(), "Batch 3 crank mismatch");
     assert_eq!(event3.batch_start, 14, "Batch 3 batch_start mismatch");
     assert_eq!(event3.batch_end, 21, "Batch 3 batch_end mismatch");
-    assert_eq!(
-        event3.is_complete, false,
-        "Batch 3 is_complete must be false"
-    );
+    assert!(!event3.is_complete, "Batch 3 is_complete must be false");
 
     // Batch 4: 21..25 (clamped from 21 + 7 = 28 to 25)
     ctx.svm.expire_blockhash();
@@ -511,7 +492,7 @@ fn test_prepare_draw_non_aligned_batches() {
     assert_eq!(event4.crank, ctx.crank.pubkey(), "Batch 4 crank mismatch");
     assert_eq!(event4.batch_start, 21, "Batch 4 batch_start mismatch");
     assert_eq!(event4.batch_end, 25, "Batch 4 batch_end mismatch");
-    assert_eq!(event4.is_complete, true, "Batch 4 is_complete must be true");
+    assert!(event4.is_complete, "Batch 4 is_complete must be true");
 
     // Batch 5: Already complete -> must fail fast with InvalidDrawState
     ctx.svm.expire_blockhash();
@@ -642,8 +623,8 @@ fn test_prepare_draw_saturating_u32_max_batch_size() {
         event.user_count, 10,
         "DrawPreparationProgress user_count mismatch"
     );
-    assert_eq!(
-        event.is_complete, true,
+    assert!(
+        event.is_complete,
         "DrawPreparationProgress is_complete must be true"
     );
 

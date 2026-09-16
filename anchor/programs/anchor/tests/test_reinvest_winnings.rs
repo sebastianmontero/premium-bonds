@@ -6,13 +6,7 @@
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
@@ -102,10 +96,8 @@ fn send(
         .data(),
     };
 
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    ctx.svm.send_transaction(tx)
+    let crank = clone_keypair(&ctx.crank);
+    send_user_tx(&mut ctx.svm, &crank, ix)
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────

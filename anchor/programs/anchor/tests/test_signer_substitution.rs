@@ -113,37 +113,9 @@ fn test_signer_enforcement_admin_update_global_config() {
 #[test]
 fn test_signer_enforcement_admin_initialize_huma_lender() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (global_config_pda_addr, _) = global_config_pda();
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
     let admin_pubkey = ctx.admin.pubkey();
-    let dummy = Keypair::new().pubkey();
-    let accounts = anchor::accounts::InitializeHumaLender {
-        admin: admin_pubkey,
-        global_config: global_config_pda_addr,
-        pool: pool_pda_addr,
-        pool_pst_vault,
-        huma_program: huma_program_id(),
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state: ctx.huma_pool_state,
-        huma_mode_config: dummy,
-        huma_mode_mint: ctx.pst_mint,
-        huma_lender_state: dummy,
-        huma_lender_mode_token: dummy,
-        token_program: anchor_spl::token::ID,
-        pst_token_program: anchor_spl::token::ID,
-        associated_token_program: anchor_spl::associated_token::ID,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeHumaLender {}.data(),
-    };
+    let ix = InitializeHumaLenderBuilder::new(admin_pubkey, 1, ctx.huma_pool_state, ctx.pst_mint)
+        .build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -350,27 +322,8 @@ fn test_signer_enforcement_admin_withdraw_fees() {
 #[test]
 fn test_signer_enforcement_admin_force_unlock_draw() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
-    let (global_config_pda_addr, _) = global_config_pda();
-    let (draw_cycle_pda_addr, _) = draw_cycle_pda(pool_id, 0);
     let admin_pubkey = ctx.admin.pubkey();
-
-    let accounts = anchor::accounts::AdminForceUnlockDraw {
-        admin: admin_pubkey,
-        global_config: global_config_pda_addr,
-        pool: pool_pda_addr,
-        current_draw_cycle: draw_cycle_pda_addr,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::AdminForceUnlockDraw {}.data(),
-    };
+    let ix = AdminForceUnlockDrawBuilder::new(admin_pubkey, 1, 0).build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -511,29 +464,10 @@ fn test_signer_enforcement_crank_rebind_expired_randomness() {
 #[test]
 fn test_signer_enforcement_crank_close_payout_registry() {
     let mut ctx = setup_e2e();
-    let (global_config_pda_addr, _) = global_config_pda();
-    let (payout_pda_addr, _) = payout_pda(1, 0);
     let crank = Keypair::new();
     let crank_pubkey = crank.pubkey();
 
-    let accounts = anchor::accounts::CrankClosePayoutRegistry {
-        global_config: global_config_pda_addr,
-        crank: crank_pubkey,
-        payout_registry: payout_pda_addr,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankClosePayoutRegistry {
-            pool_id: 1,
-            cycle_id: 0,
-        }
-        .data(),
-    };
+    let ix = CrankClosePayoutRegistryBuilder::new(crank_pubkey, 1, 0).build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,
@@ -552,24 +486,10 @@ fn test_signer_enforcement_crank_close_payout_registry() {
 #[test]
 fn test_signer_enforcement_payer_resize_registry() {
     let mut ctx = setup_e2e();
-    let pool_id = 1;
-    let (pool_pda_addr, _) = pool_pda(pool_id);
     let payer = Keypair::new();
     let payer_pubkey = payer.pubkey();
 
-    let accounts = anchor::accounts::ResizeRegistry {
-        payer: payer_pubkey,
-        pool: pool_pda_addr,
-        ticket_registry: ctx.ticket_registry,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::ResizeRegistry {}.data(),
-    };
+    let ix = ResizeRegistryBuilder::new(1, ctx.ticket_registry, payer_pubkey).build_ix();
     assert_signer_required(
         &mut ctx.svm,
         ix,

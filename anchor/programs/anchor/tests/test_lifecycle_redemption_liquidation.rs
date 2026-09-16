@@ -161,14 +161,8 @@ fn test_lifecycle_redemption_liquidation_and_fees() {
         accounts: accounts_withdraw_fees,
         data: anchor::instruction::WithdrawFees { amount: 5_000_000 }.data(),
     };
-    let bh_fee = h.svm.latest_blockhash();
-    let msg_fee =
-        Message::new_with_blockhash(&[ix_withdraw_fees], Some(&h.admin.pubkey()), &bh_fee);
-    let tx_fee =
-        VersionedTransaction::try_new(VersionedMessage::Legacy(msg_fee), &[&h.admin]).unwrap();
-    h.svm
-        .send_transaction(tx_fee)
-        .expect("WithdrawFees must succeed");
+    let admin = clone_keypair(&h.admin);
+    send_user_tx(&mut h.svm, &admin, ix_withdraw_fees).expect("WithdrawFees must succeed");
 
     let pool_final = read_pool_state(&h.svm, h.pool_id);
     assert_eq!(

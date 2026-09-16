@@ -1,13 +1,8 @@
 use {
-    anchor_lang::{AccountSerialize, InstructionData, Space, ToAccountMetas},
-    solana_keypair::Keypair,
-    solana_program::{instruction::Instruction, pubkey::Pubkey},
-    solana_sdk::{
-        account::Account,
-        message::{Message, VersionedMessage},
-    },
+    anchor_lang::{AccountSerialize, Space},
+    solana_program::pubkey::Pubkey,
+    solana_sdk::account::Account,
     solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
 };
 
 mod common;

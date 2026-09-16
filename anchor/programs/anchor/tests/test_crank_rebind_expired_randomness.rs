@@ -1,13 +1,7 @@
 use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{
-    account::Account,
-    message::{Message, VersionedMessage},
-    signature::Keypair,
-    signer::Signer,
-};
-use solana_transaction::versioned::VersionedTransaction;
+use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 
 mod common;
 use common::*;
@@ -55,32 +49,19 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
 }
 
 fn send_rebind(ctx: &mut RebindCtx, signer: &Keypair) -> TxResult {
-    let (global_config, _) = global_config_pda();
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
 
-    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        global_config,
-        crank: signer.pubkey(),
-        pool: ctx.pool_key,
-        current_draw_cycle: ctx.current_draw_cycle,
-        current_randomness_account: dc.randomness_account,
-        new_randomness_account: ctx.new_randomness_account,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&signer.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[signer]).unwrap();
-    ctx.svm.send_transaction(tx)
+    CrankRebindExpiredRandomnessBuilder::new(
+        signer.pubkey(),
+        1,
+        0,
+        dc.randomness_account,
+        ctx.new_randomness_account,
+    )
+    .with_pool(ctx.pool_key)
+    .with_current_draw_cycle(ctx.current_draw_cycle)
+    .send(&mut ctx.svm, signer)
 }
 
 #[test]
@@ -91,29 +72,17 @@ fn test_rebind_fails_mismatched_current_randomness_account() {
 
     ctx.svm.warp_to_slot(expired_slot);
 
-    let (global_config, _) = global_config_pda();
-    let accounts = anchor::accounts::CrankRebindExpiredRandomness {
-        global_config,
-        crank: ctx.crank.pubkey(),
-        pool: ctx.pool_key,
-        current_draw_cycle: ctx.current_draw_cycle,
-        current_randomness_account: Keypair::new().pubkey(), // Mismatched!
-        new_randomness_account: ctx.new_randomness_account,
-        event_authority: event_authority_pda(),
-        program: anchor::id(),
-    }
-    .to_account_metas(None);
-
-    let ix = Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::CrankRebindExpiredRandomness {}.data(),
-    };
-
-    let bh = ctx.svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&ctx.crank.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&ctx.crank]).unwrap();
-    let res = ctx.svm.send_transaction(tx);
+    let crank = clone_keypair(&ctx.crank);
+    let res = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        Keypair::new().pubkey(), // Mismatched!
+        ctx.new_randomness_account,
+    )
+    .with_pool(ctx.pool_key)
+    .with_current_draw_cycle(ctx.current_draw_cycle)
+    .send(&mut ctx.svm, &crank);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,

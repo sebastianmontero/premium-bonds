@@ -6,78 +6,12 @@
 //! Using LiteSVM, we verify happy paths and all security constraints (admin signer, global config,
 //! pool PDAs, pool PST vaults, Huma program ID, token programs, and Huma CPI errors).
 
-use {
-    anchor_lang::{AccountSerialize, InstructionData, Space, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_message::{Message, VersionedMessage},
-    solana_program::{instruction::Instruction, pubkey::Pubkey},
-    solana_sdk::account::Account,
-    solana_signer::Signer,
-    solana_transaction::versioned::VersionedTransaction,
-};
+use {anchor_lang::prelude::Pubkey, solana_keypair::Keypair, solana_signer::Signer};
 
 mod common;
 use common::*;
 
 pub const FAIL_CREATE_LENDER_PUBKEY: Pubkey = Pubkey::new_from_array([4; 32]);
-
-/// Build an `InitializeHumaLender` instruction.
-fn build_initialize_huma_lender_ix(
-    admin: Pubkey,
-    pool_id: u32,
-    pst_token_program: Pubkey,
-    huma_program: Pubkey,
-    huma_config: Pubkey,
-    huma_pool_config: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_mode_config: Pubkey,
-    huma_mode_mint: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_lender_mode_token: Pubkey,
-) -> Instruction {
-    let (global_config, _) = global_config_pda();
-    let (pool, _) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-
-    let accounts = anchor::accounts::InitializeHumaLender {
-        admin,
-        global_config,
-        pool,
-        pool_pst_vault,
-        huma_program,
-        huma_config,
-        huma_pool_config,
-        huma_pool_state,
-        huma_mode_config,
-        huma_mode_mint,
-        huma_lender_state,
-        huma_lender_mode_token,
-        token_program: anchor_spl::token::ID,
-        pst_token_program,
-        associated_token_program: anchor_spl::associated_token::ID,
-        system_program: anchor_lang::system_program::ID,
-    }
-    .to_account_metas(None);
-
-    Instruction {
-        program_id: anchor::id(),
-        accounts,
-        data: anchor::instruction::InitializeHumaLender {}.data(),
-    }
-}
-
-/// Send an `InitializeHumaLender` instruction signed by the admin.
-fn send_initialize_huma_lender(
-    svm: &mut LiteSVM,
-    admin: &Keypair,
-    ix: Instruction,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let bh = svm.latest_blockhash();
-    let msg = Message::new_with_blockhash(&[ix], Some(&admin.pubkey()), &bh);
-    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[admin]).unwrap();
-    svm.send_transaction(tx)
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Happy-path Scenario
@@ -86,24 +20,10 @@ fn send_initialize_huma_lender(
 #[test]
 fn test_initialize_huma_lender_succeeds() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
-
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let meta = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix)
+    let meta = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .send(&mut ctx.svm, &ctx.admin)
         .expect("initialize_huma_lender should succeed");
+
     let event = assert_log_event::<anchor::events::HumaLenderInitialized>(&meta);
     assert_eq!(event.pool_id, 1);
     assert_eq!(event.admin, ctx.admin.pubkey());
@@ -116,21 +36,7 @@ fn test_initialize_huma_lender_succeeds() {
 #[test]
 fn test_initialize_huma_lender_fails_unsigned_admin() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
-
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
+    let ix = InitializeHumaLenderBuilder::from_ctx(&ctx).build_ix();
 
     assert_signer_required(
         &mut ctx.svm,
@@ -148,24 +54,10 @@ fn test_initialize_huma_lender_fails_unauthorized_admin() {
     let mut ctx = setup_e2e();
     let hacker = Keypair::new();
     ctx.svm.airdrop(&hacker.pubkey(), 10_000_000_000).unwrap();
-    let dummy = Keypair::new().pubkey();
 
-    // Signer is hacker, but global_config expects admin
-    let ix = build_initialize_huma_lender_ix(
-        hacker.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &hacker, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_admin(hacker.pubkey())
+        .send(&mut ctx.svm, &hacker);
     assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
@@ -176,55 +68,22 @@ fn test_initialize_huma_lender_fails_unauthorized_admin() {
 #[test]
 fn test_initialize_huma_lender_fails_wrong_global_config_pda() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     let wrong_global_config = Keypair::new().pubkey();
 
-    let mut ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    // Mismatched global_config address
-    substitute_account_meta(&mut ix, global_config_pda().0, wrong_global_config);
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_global_config(wrong_global_config)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
 #[test]
 fn test_initialize_huma_lender_fails_wrong_pool_pda() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     let wrong_pool = Keypair::new().pubkey();
-    let (pool_pda_addr, _) = pool_pda(1);
 
-    let mut ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    // Mismatched pool PDA address
-    substitute_account_meta(&mut ix, pool_pda_addr, wrong_pool);
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_pool(wrong_pool)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
@@ -234,56 +93,24 @@ fn test_initialize_huma_lender_fails_wrong_pool_pda() {
 #[test]
 fn test_initialize_huma_lender_fails_pool_vault_authority_bump_mismatch() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
 
     // Corrupt the pool state bump
     mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.vault_authority_bump ^= 1;
     });
 
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx).send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintSeeds);
 }
 
 #[test]
 fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     let wrong_pst_vault = Keypair::new().pubkey();
-    let (pool_pst_vault_addr, _) = pool_pst_vault_pda(1);
 
-    let mut ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    // Mismatched pool_pst_vault PDA address
-    substitute_account_meta(&mut ix, pool_pst_vault_addr, wrong_pst_vault);
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_pool_pst_vault(wrong_pst_vault)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::AccountNotInitialized);
 }
 
@@ -294,24 +121,11 @@ fn test_initialize_huma_lender_fails_wrong_pool_pst_vault_pda() {
 #[test]
 fn test_initialize_huma_lender_fails_invalid_huma_program() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     let wrong_huma_program = Keypair::new().pubkey();
 
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        wrong_huma_program, // Mismatched huma_program ID
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_huma_program(wrong_huma_program)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
 }
 
@@ -322,24 +136,11 @@ fn test_initialize_huma_lender_fails_invalid_huma_program() {
 #[test]
 fn test_initialize_huma_lender_fails_invalid_pst_token_program() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
-    let wrong_pst_token_program = anchor_spl::associated_token::ID; // Mismatched program
+    let wrong_pst_token_program = anchor_spl::associated_token::ID;
 
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        wrong_pst_token_program,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_pst_token_program(wrong_pst_token_program)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::InvalidProgramId);
 }
 
@@ -350,24 +151,11 @@ fn test_initialize_huma_lender_fails_invalid_pst_token_program() {
 #[test]
 fn test_initialize_huma_lender_fails_huma_cpi_error() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
 
     // Use FAIL_CREATE_LENDER_PUBKEY as the huma_config account to trigger simulated failure
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        FAIL_CREATE_LENDER_PUBKEY,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        ctx.pst_mint,
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_huma_config(FAIL_CREATE_LENDER_PUBKEY)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_mock_huma_error(res, mock_huma::MockHumaError::SimulatedCreateLenderFailure);
 }
 
@@ -375,23 +163,10 @@ fn test_initialize_huma_lender_fails_huma_cpi_error() {
 #[test]
 fn test_initialize_huma_lender_fails_invalid_mode_mint() {
     let mut ctx = setup_e2e();
-    let dummy = Keypair::new().pubkey();
     let fake_pst_mint = create_spl_mint(&mut ctx.svm, &ctx.admin, &ctx.admin.pubkey(), 6);
 
-    let ix = build_initialize_huma_lender_ix(
-        ctx.admin.pubkey(),
-        1,
-        anchor_spl::token::ID,
-        huma_program_id(),
-        dummy,
-        dummy,
-        ctx.huma_pool_state,
-        dummy,
-        fake_pst_mint, // Mismatched huma_mode_mint
-        dummy,
-        dummy,
-    );
-
-    let res = send_initialize_huma_lender(&mut ctx.svm, &ctx.admin, ix);
+    let res = InitializeHumaLenderBuilder::from_ctx(&ctx)
+        .with_huma_mode_mint(fake_pst_mint)
+        .send(&mut ctx.svm, &ctx.admin);
     assert_custom_error(res, anchor::error::PremiumBondsError::InvalidModeMint);
 }
