@@ -205,4 +205,7 @@ pub enum PremiumBondsError {
     /// Pool vault has insufficient balance to settle redemption.
     #[msg("Pool vault has insufficient balance to settle redemption.")]
     InsufficientVaultBalance,
+    /// Token mint decimals must equal 6.
+    #[msg("Token mint decimals must equal 6.")]
+    InvalidTokenDecimals,
 }

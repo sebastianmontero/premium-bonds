@@ -1,6 +1,6 @@
 use crate::constants::{
-    DISCRIMINATOR, GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED,
-    REGISTRY_INITIAL_SIZE,
+    DISCRIMINATOR, EXPECTED_TOKEN_DECIMALS, GLOBAL_CONFIG_SEED, POOL_PST_SEED, POOL_VAULT_SEED,
+    PRIZE_POOL_SEED, REGISTRY_INITIAL_SIZE,
 };
 use crate::error::PremiumBondsError;
 use crate::events::PoolCreated;
@@ -47,13 +47,15 @@ pub struct CreatePool<'info> {
 
     /// The underlying token mint (e.g. USDC) used for bond purchases.
     #[account(
-        mint::token_program = token_program
+        mint::token_program = token_program,
+        constraint = token_mint.decimals == EXPECTED_TOKEN_DECIMALS @ PremiumBondsError::InvalidTokenDecimals
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
     /// The Huma yield-bearing $PST token mint representing deposits.
     #[account(
-        mint::token_program = pst_token_program
+        mint::token_program = pst_token_program,
+        constraint = pst_mint.decimals == EXPECTED_TOKEN_DECIMALS @ PremiumBondsError::InvalidTokenDecimals
     )]
     pub pst_mint: Box<InterfaceAccount<'info, Mint>>,
 

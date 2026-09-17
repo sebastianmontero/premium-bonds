@@ -1,7 +1,7 @@
 //! Comprehensive Error Code Coverage Test Suite
 //!
 //! Explicitly asserts and verifies every canonical Anchor error code
-//! defined in `anchor::error::PremiumBondsError` (6000–6066) using strongly typed
+//! defined in `anchor::error::PremiumBondsError` (6000–6067) using strongly typed
 //! `assert_custom_error` matching across 5 domain-partitioned submodules.
 
 use {
@@ -859,3 +859,42 @@ fn test_err_invalid_huma_pool_state() {
     let res = send_user_tx(&mut svm, &admin, ix);
     assert_custom_error(res, PremiumBondsError::InvalidHumaPoolState);
 }
+
+#[test]
+fn test_err_invalid_token_decimals() {
+    let (mut svm, admin) = setup_global_config();
+    let token_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, token_mint, 9);
+    let pst_mint = Keypair::new().pubkey();
+    inject_mint(&mut svm, pst_mint, 6);
+    let fee_wallet = Keypair::new().pubkey();
+    inject_token_account(&mut svm, fee_wallet, token_mint, admin.pubkey(), 0);
+    let ticket_registry = Keypair::new().pubkey();
+    inject_zero_account(
+        &mut svm,
+        ticket_registry,
+        anchor::constants::REGISTRY_INITIAL_SIZE,
+    );
+    let huma_pool_state = Keypair::new().pubkey();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
+
+    let ix = build_create_pool_instruction(
+        &admin,
+        1,
+        1_000_000,
+        24,
+        100,
+        0,
+        0,
+        300,
+        default_prize_tiers(),
+        token_mint,
+        pst_mint,
+        ticket_registry,
+        fee_wallet,
+        huma_pool_state,
+    );
+    let res = send_user_tx(&mut svm, &admin, ix);
+    assert_custom_error(res, PremiumBondsError::InvalidTokenDecimals);
+}
+

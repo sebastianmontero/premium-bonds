@@ -324,7 +324,7 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`create_pool.rs#L12-L220`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/admin/create_pool.rs#L12-L220)
-- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && bond_price > 0 && 1 <= stake_cycle_duration_hrs <= 8760 && fee_basis_points <= 10000 && max_yield_basis_points <= 10000 && payout_timelock_seconds <= 86400 && sum(tier.basis_points * tier.num_winners) == 10000 && total_winners <= 180 && ticket_registry.len >= 262,248 && mint extensions supported`.
+- **Precondition:** `admin.is_signer && admin.key() == global_config.admin && bond_price > 0 && 1 <= stake_cycle_duration_hrs <= 8760 && fee_basis_points <= 10000 && max_yield_basis_points <= 10000 && payout_timelock_seconds <= 86400 && sum(tier.basis_points * tier.num_winners) == 10000 && total_winners <= 180 && ticket_registry.len >= 262,248 && mint extensions supported && token_mint.decimals == 6 && pst_mint.decimals == 6`.
 - **Action:** `create_pool(pool_id, bond_price, duration, fee_bps, min_yield, max_yield_bps, timelock, prize_tiers)`
 - **Postcondition:**
   - `PrizePool` zero-copy state initialized with `status = PoolStatus::Active (0)`.
@@ -343,6 +343,7 @@ stateDiagram-v2
   - If mint has transfer fee: `ErrorCode::TransferFeeNotSupported` (6055)
   - If mint has transfer hook: `ErrorCode::TransferHookNotSupported` (6056)
   - If mint has permanent delegate or close authority: `ErrorCode::InvalidTokenMint` (6057)
+  - If `token_mint.decimals != 6 || pst_mint.decimals != 6`: `ErrorCode::InvalidTokenDecimals` (6067)
   - If Huma pool state invalid: `ErrorCode::InvalidHumaPoolState` (6062)
 
 #### `INV-POOL-002`: Prize Pool Config Update (`update_pool_config`)
@@ -1051,6 +1052,8 @@ stateDiagram-v2
 | `6063` | `PayoutsPending`                          | "Cannot close payout registry: payouts are still pending."                                                     | `crank_close_payout_registry`                                                                                                                 | `Lifecycle` |
 | `6064` | `InvalidRedemptionType`                   | "Invalid redemption type value."                                                                               | `claim_redemption`, `PendingRedemption` Deserialization                                                                                       | `Lifecycle` |
 | `6065` | `InvalidBatchSize`                        | "Draw preparation batch size must be greater than 0."                                                          | `prepare_draw`                                                                                                                                | `Boundary`  |
+| `6066` | `InsufficientVaultBalance`                | "Pool vault has insufficient balance to settle redemption."                                                    | `claim_redemption`                                                                                                                            |   `Math`    |
+| `6067` | `InvalidTokenDecimals`                    | "Token mint decimals must equal 6."                                                                            | `create_pool`                                                                                                                                 | `Boundary`  |
 
 ---
 

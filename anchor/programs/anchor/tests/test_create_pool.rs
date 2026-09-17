@@ -371,3 +371,70 @@ fn test_create_pool_fails_reusing_initialized_registry() {
     let res2 = ctx.pool_builder(2).send(&mut ctx.svm, &ctx.admin);
     assert_anchor_error(res2, anchor_lang::error::ErrorCode::ConstraintZero);
 }
+
+#[test]
+fn test_create_pool_fails_on_invalid_token_mint_decimals() {
+    let mut ctx = setup_create_pool_context();
+
+    // Case 1: > 6 decimals (9 decimals)
+    let invalid_mint_high = Keypair::new().pubkey();
+    inject_mint(&mut ctx.svm, invalid_mint_high, 9);
+    let fee_wallet_high = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        fee_wallet_high,
+        invalid_mint_high,
+        ctx.admin.pubkey(),
+        0,
+    );
+    let res_high = ctx
+        .pool_builder(1)
+        .with_token_mint(invalid_mint_high)
+        .with_fee_wallet(fee_wallet_high)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res_high, PremiumBondsError::InvalidTokenDecimals);
+
+    // Case 2: < 6 decimals (2 decimals)
+    ctx.svm.expire_blockhash();
+    let invalid_mint_low = Keypair::new().pubkey();
+    inject_mint(&mut ctx.svm, invalid_mint_low, 2);
+    let fee_wallet_low = Keypair::new().pubkey();
+    inject_token_account(
+        &mut ctx.svm,
+        fee_wallet_low,
+        invalid_mint_low,
+        ctx.admin.pubkey(),
+        0,
+    );
+    let res_low = ctx
+        .pool_builder(2)
+        .with_token_mint(invalid_mint_low)
+        .with_fee_wallet(fee_wallet_low)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res_low, PremiumBondsError::InvalidTokenDecimals);
+}
+
+#[test]
+fn test_create_pool_fails_on_invalid_pst_mint_decimals() {
+    let mut ctx = setup_create_pool_context();
+
+    // Case 1: > 6 decimals (8 decimals)
+    let invalid_pst_high = Keypair::new().pubkey();
+    inject_mint(&mut ctx.svm, invalid_pst_high, 8);
+    let res_high = ctx
+        .pool_builder(1)
+        .with_pst_mint(invalid_pst_high)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res_high, PremiumBondsError::InvalidTokenDecimals);
+
+    // Case 2: < 6 decimals (0 decimals)
+    ctx.svm.expire_blockhash();
+    let invalid_pst_low = Keypair::new().pubkey();
+    inject_mint(&mut ctx.svm, invalid_pst_low, 0);
+    let res_low = ctx
+        .pool_builder(2)
+        .with_pst_mint(invalid_pst_low)
+        .send(&mut ctx.svm, &ctx.admin);
+    assert_custom_error(res_low, PremiumBondsError::InvalidTokenDecimals);
+}
+

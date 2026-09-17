@@ -8,13 +8,14 @@ import {
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
+  ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 67 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 67 errors defined from 6000 to 6066 inclusive
-    for (let code = 6000; code <= 6066; code++) {
+  it("should have complete 68 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 68 errors defined from 6000 to 6067 inclusive
+    for (let code = 6000; code <= 6067; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -41,6 +42,11 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       ANCHOR_ERROR__INVALID_POOL_STATUS,
       6001,
       "ANCHOR_ERROR__INVALID_POOL_STATUS must equal 6001"
+    );
+    assert.strictEqual(
+      ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
+      6067,
+      "ANCHOR_ERROR__INVALID_TOKEN_DECIMALS must equal 6067"
     );
 
     const poolNotActiveMsg = getAnchorErrorMessage(

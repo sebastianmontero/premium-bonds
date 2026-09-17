@@ -148,6 +148,8 @@ export const ANCHOR_ERROR__INVALID_REDEMPTION_TYPE = 0x17b0; // 6064
 export const ANCHOR_ERROR__INVALID_BATCH_SIZE = 0x17b1; // 6065
 /** InsufficientVaultBalance: Pool vault has insufficient balance to settle redemption. */
 export const ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE = 0x17b2; // 6066
+/** InvalidTokenDecimals: Token mint decimals must equal 6. */
+export const ANCHOR_ERROR__INVALID_TOKEN_DECIMALS = 0x17b3; // 6067
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -184,6 +186,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INVALID_REDEMPTION_TYPE
   | typeof ANCHOR_ERROR__INVALID_REGISTRY_STATE
   | typeof ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION
+  | typeof ANCHOR_ERROR__INVALID_TOKEN_DECIMALS
   | typeof ANCHOR_ERROR__INVALID_TOKEN_MINT
   | typeof ANCHOR_ERROR__INVALID_USER_ENTRY_HINT
   | typeof ANCHOR_ERROR__INVALID_WINNER_INDEX
@@ -255,6 +258,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INVALID_REDEMPTION_TYPE]: `Invalid redemption type value.`,
     [ANCHOR_ERROR__INVALID_REGISTRY_STATE]: `Ticket registry buffer layout or alignment is invalid`,
     [ANCHOR_ERROR__INVALID_STAKE_CYCLE_DURATION]: `Stake cycle duration must be greater than 0 hours.`,
+    [ANCHOR_ERROR__INVALID_TOKEN_DECIMALS]: `Token mint decimals must equal 6.`,
     [ANCHOR_ERROR__INVALID_TOKEN_MINT]: `Token mint account data is malformed or invalid.`,
     [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: `Invalid registry user entry hint provided`,
     [ANCHOR_ERROR__INVALID_WINNER_INDEX]: `Winner index is out of bounds.`,

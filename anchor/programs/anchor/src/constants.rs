@@ -42,6 +42,8 @@ pub const DEFAULT_PAYOUT_TIMELOCK_SECONDS: u32 = 300;
 pub const MAX_PAYOUT_TIMELOCK_SECONDS: u32 = 86_400;
 /// Maximum allowable deficit (in token base units / lamports) tolerated as rounding dust during solvency checks.
 pub const SOLVENCY_DUST_TOLERANCE: u64 = 1_000;
+/// Required token mint decimal precision for underlying and yield tokens (USDC = 6 decimals).
+pub const EXPECTED_TOKEN_DECIMALS: u8 = 6;
 
 /// Maximum allowable slot freshness window before a Switchboard VRF randomness request is considered expired.
 pub const VRF_FRESHNESS_WINDOW_SLOTS: u64 = 1_000;

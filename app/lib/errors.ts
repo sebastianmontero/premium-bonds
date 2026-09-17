@@ -66,6 +66,7 @@ import {
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
+  ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -547,6 +548,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     message: "Pool vault has insufficient balance to settle redemption.",
     actionable:
       "The yield venue has not yet disbursed sufficient funds. Please retry once venue liquidity settles.",
+  },
+  [ANCHOR_ERROR__INVALID_TOKEN_DECIMALS]: {
+    name: "InvalidTokenDecimals",
+    message: "Token mint decimals must equal 6.",
+    actionable:
+      "Please ensure both the underlying token mint (e.g. USDC) and Huma PST mint have exactly 6 decimals.",
   },
 };
 
