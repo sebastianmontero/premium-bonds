@@ -1,7 +1,7 @@
 //! Comprehensive Error Code Coverage Test Suite
 //!
 //! Explicitly asserts and verifies every canonical Anchor error code
-//! defined in `anchor::error::PremiumBondsError` (6000–6065) using strongly typed
+//! defined in `anchor::error::PremiumBondsError` (6000–6066) using strongly typed
 //! `assert_custom_error` matching across 5 domain-partitioned submodules.
 
 use {
@@ -566,6 +566,13 @@ fn test_err_invalid_redemption_type() {
             "RedemptionType::try_from({invalid_discriminant}) must return InvalidRedemptionType"
         );
     }
+}
+
+#[test]
+fn test_err_insufficient_vault_balance() {
+    // Compile-time smoke test: ensures variant exists and serializes. Behavioral coverage in test_claim_redemption.rs.
+    let err: anchor_lang::error::Error = PremiumBondsError::InsufficientVaultBalance.into();
+    assert_eq!(err, PremiumBondsError::InsufficientVaultBalance.into());
 }
 
 #[test]

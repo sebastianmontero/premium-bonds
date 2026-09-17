@@ -268,6 +268,20 @@ impl PrizePool {
         Ok(redemption_id)
     }
 
+    /// Settles a completed pending redemption liability.
+    ///
+    /// Clears the nominal pending liability registered during `queue_pending_redemption`.
+    pub fn complete_pending_redemption(&mut self, amount: u64) -> Result<()> {
+        if amount == 0 {
+            return Ok(());
+        }
+        self.total_pending_redemptions = self
+            .total_pending_redemptions
+            .checked_sub(amount)
+            .ok_or(PremiumBondsError::MathOverflow)?;
+        Ok(())
+    }
+
     /// Atomically rolls back allocated prizes and accrued protocol fees from a voided or force-unlocked draw.
     /// Enforces that unwithdrawn fees cover the rolled back fee to prevent underflow in unwithdrawn_fees().
     pub fn rollback_draw_liabilities(

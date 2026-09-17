@@ -468,9 +468,11 @@ fn test_claim_redemption_rounding_error_failure() {
         huma_lender_state,
     );
 
-    assert!(
-        res.is_ok(),
-        "claim redemption with 1-unit rounding deficit should succeed due to vault clamping"
+    let meta = res.expect("claim redemption with 1-unit rounding deficit should succeed due to vault clamping");
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(
+        event.amount, 2_999_999,
+        "RedemptionClaimed event amount must truthfully report actual disbursed amount"
     );
     // User started with 90_000_000 USDC and received the clamped 2_999_999 USDC
     assert_eq!(read_token_balance(&ctx.svm, user_a_usdc), 92_999_999);
@@ -1106,5 +1108,306 @@ fn test_claim_redemption_fails_when_pool_paused() {
         res_ok.is_ok(),
         "Claiming after unpause must succeed: {:?}",
         res_ok
+    );
+}
+
+// ─── Bounded Solvency Dust Settlement Tests ─────────────────────────────────
+
+// Vector V2: Surplus Vault Leaves Excess
+#[test]
+fn test_claim_redemption_surplus_vault_leaves_excess() {
+    let mut ctx = setup_e2e();
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        20_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+    let user_a_usdc = ctx.user_usdc_account;
+
+    // Disburse 10,000,000 into pool vault (3,000,000 redemption + 7,000,000 surplus)
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 10_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    let meta = res.expect("claim redemption with surplus vault balance must succeed");
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(
+        event.amount, 3_000_000,
+        "Must disburse exactly redemption_amount"
+    );
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        93_000_000,
+        "User must receive exactly 3 USDC"
+    );
+    let (pool_vault, _) = pool_vault_pda(1);
+    assert_eq!(
+        read_token_balance(&ctx.svm, pool_vault),
+        7_000_000,
+        "Vault must retain 7 USDC surplus"
+    );
+}
+
+// Vector V4: Max Bounded Dust Tolerance Succeeds
+#[test]
+fn test_claim_redemption_max_dust_tolerance_succeeds() {
+    let mut ctx = setup_e2e();
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(
+        &mut ctx.svm,
+        huma_lender_state,
+        3_000_000 - anchor::constants::SOLVENCY_DUST_TOLERANCE,
+    );
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    let meta = res.expect(
+        "claim redemption at exact dust tolerance boundary (1,000 deficit) must succeed",
+    );
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(
+        event.amount, 2_999_000,
+        "Disbursed amount must equal 2_999_000"
+    );
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        92_999_000,
+        "User balance must match clamped transfer"
+    );
+}
+
+// Vector V5 & V7: Exceeds Dust Tolerance by 1 Base Unit Fails & Preserves State
+#[test]
+fn test_claim_redemption_exceeds_dust_tolerance_fails() {
+    let mut ctx = setup_e2e();
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let huma_lender_state = Keypair::new().pubkey();
+    // 1,001 deficit (exceeds 1,000 tolerance by 1 base unit)
+    inject_lender_state(
+        &mut ctx.svm,
+        huma_lender_state,
+        3_000_000 - (anchor::constants::SOLVENCY_DUST_TOLERANCE + 1),
+    );
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientVaultBalance,
+    );
+
+    // Vector V7 Invariant Proof: State rolled back cleanly
+    let pending_data = read_pending_redemption(&ctx.svm, 1, 0);
+    assert_eq!(
+        pending_data.amount, 3_000_000,
+        "PendingRedemption amount must remain untouched"
+    );
+    let pool = read_pool_state(&ctx.svm, 1);
+    assert_eq!(
+        pool.total_pending_redemptions, 3_000_000,
+        "Pool total_pending_redemptions liability must remain intact"
+    );
+}
+
+// Vector V6A: Normal Redemption with Empty Vault Fails
+#[test]
+fn test_claim_redemption_empty_vault_fails() {
+    let mut ctx = setup_e2e();
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user_a = clone_keypair(&ctx.user);
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user_a,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+    let user_a_usdc = ctx.user_usdc_account;
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InsufficientVaultBalance,
+    );
+}
+
+// Vector V6B: Sub-Tolerance Micro-Redemption with Zero Vault Succeeds & Recovers Rent
+#[test]
+fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
+    let mut ctx = setup_e2e();
+    let user_a = clone_keypair(&ctx.user);
+    let user_a_usdc = ctx.user_usdc_account;
+    let initial_user_sol = ctx.svm.get_balance(&user_a.pubkey()).unwrap();
+
+    // Inject a sub-tolerance pending redemption (500 base units <= SOLVENCY_DUST_TOLERANCE)
+    let pda = inject_pending_redemption(&mut ctx.svm, 1, 99, user_a.pubkey(), 500, 500);
+
+    // Update pool state to reflect the injected liability
+    mutate_pool_state(&mut ctx.svm, 1, |pool| {
+        pool.total_pending_redemptions = 500;
+        pool.next_redemption_id = 100;
+    });
+
+    // Pool vault balance is 0
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    // Claim must succeed: 500 deficit is within the 1,000 dust tolerance threshold
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user_a,
+        user_a_usdc,
+        99,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    let meta = res.expect(
+        "sub-tolerance redemption with empty vault must succeed under dust tolerance",
+    );
+
+    // Truthful event reporting: disbursed 0
+    let event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta);
+    assert_eq!(event.amount, 0, "Emitted amount must be 0");
+    assert_eq!(
+        read_token_balance(&ctx.svm, user_a_usdc),
+        100_000_000,
+        "USDC token balance unchanged"
+    );
+
+    // Account closed and rent refunded to user
+    assert!(
+        ctx.svm.get_account(&pda).is_none(),
+        "PendingRedemption PDA must be closed"
+    );
+    assert!(
+        ctx.svm.get_balance(&user_a.pubkey()).unwrap() > initial_user_sol,
+        "User must receive rent refund from closed PendingRedemption"
     );
 }

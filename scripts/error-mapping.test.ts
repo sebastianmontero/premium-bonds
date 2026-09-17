@@ -7,13 +7,14 @@ import {
   ANCHOR_ERROR__ZERO_SHARES_MINTED,
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
+  ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   getAnchorErrorMessage,
 } from "../app/lib/generated/yield-bonds/src/generated/errors";
 
 describe("Codama Error Mapping & Transaction Error Sanitization", () => {
-  it("should have complete 66 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
-    // There are 66 errors defined from 6000 to 6065 inclusive
-    for (let code = 6000; code <= 6065; code++) {
+  it("should have complete 67 custom Anchor error definitions in ANCHOR_CUSTOM_ERRORS", () => {
+    // There are 67 errors defined from 6000 to 6066 inclusive
+    for (let code = 6000; code <= 6066; code++) {
       const mapped = ANCHOR_CUSTOM_ERRORS[code];
       assert.ok(
         mapped,
@@ -213,6 +214,28 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       parsed6065.message.includes(
         "Draw preparation batch size must be greater than 0"
       )
+    );
+
+    // 6066: InsufficientVaultBalance
+    assert.strictEqual(
+      ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
+      6066,
+      "ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE must equal 6066"
+    );
+    const parsed6066 = parseTransactionError({
+      message:
+        "Transaction simulation failed: AnchorError occurred. Error Code: InsufficientVaultBalance. Error Number: 6066.",
+    });
+    assert.strictEqual(parsed6066.code, 6066);
+    assert.strictEqual(
+      parsed6066.title,
+      "Program Error: InsufficientVaultBalance"
+    );
+    assert.ok(
+      parsed6066.message.includes("Pool vault has insufficient balance")
+    );
+    assert.ok(
+      parsed6066.actionableStep?.includes("yield venue has not yet disbursed")
     );
   });
 });

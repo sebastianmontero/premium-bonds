@@ -146,6 +146,8 @@ export const ANCHOR_ERROR__PAYOUTS_PENDING = 0x17af; // 6063
 export const ANCHOR_ERROR__INVALID_REDEMPTION_TYPE = 0x17b0; // 6064
 /** InvalidBatchSize: Draw preparation batch size must be greater than 0. */
 export const ANCHOR_ERROR__INVALID_BATCH_SIZE = 0x17b1; // 6065
+/** InsufficientVaultBalance: Pool vault has insufficient balance to settle redemption. */
+export const ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE = 0x17b2; // 6066
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -161,6 +163,7 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS
   | typeof ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE
   | typeof ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS
+  | typeof ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE
   | typeof ANCHOR_ERROR__INVALID_ADMIN_ADDRESS
   | typeof ANCHOR_ERROR__INVALID_BATCH_SIZE
   | typeof ANCHOR_ERROR__INVALID_BOND_PRICE
@@ -231,6 +234,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS]: `Insufficient active tickets for this transaction`,
     [ANCHOR_ERROR__INSUFFICIENT_FEE_BALANCE]: `Insufficient accrued fee balance for withdrawal.`,
     [ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS]: `Insufficient pending tickets for this transaction`,
+    [ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE]: `Pool vault has insufficient balance to settle redemption.`,
     [ANCHOR_ERROR__INVALID_ADMIN_ADDRESS]: `Admin address cannot be the default zero address.`,
     [ANCHOR_ERROR__INVALID_BATCH_SIZE]: `Draw preparation batch size must be greater than 0.`,
     [ANCHOR_ERROR__INVALID_BOND_PRICE]: `Bond price must be greater than 0.`,

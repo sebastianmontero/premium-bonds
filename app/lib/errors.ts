@@ -65,6 +65,7 @@ import {
   ANCHOR_ERROR__PAYOUTS_PENDING,
   ANCHOR_ERROR__INVALID_REDEMPTION_TYPE,
   ANCHOR_ERROR__INVALID_BATCH_SIZE,
+  ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
 } from "./generated/yield-bonds/src/generated";
 
 export type ErrorLayer =
@@ -540,6 +541,12 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
     name: "InvalidBatchSize",
     message: "Draw preparation batch size must be greater than 0.",
     actionable: "Please specify a batch size greater than zero.",
+  },
+  [ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE]: {
+    name: "InsufficientVaultBalance",
+    message: "Pool vault has insufficient balance to settle redemption.",
+    actionable:
+      "The yield venue has not yet disbursed sufficient funds. Please retry once venue liquidity settles.",
   },
 };
 

@@ -1,4 +1,6 @@
-use crate::constants::{PENDING_REDEMPTION_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED};
+use crate::constants::{
+    PENDING_REDEMPTION_SEED, POOL_VAULT_SEED, PRIZE_POOL_SEED, SOLVENCY_DUST_TOLERANCE,
+};
 use crate::error::PremiumBondsError;
 use crate::events::RedemptionClaimed;
 use crate::huma;
@@ -207,38 +209,44 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         PremiumBondsError::HumaRedemptionNotSettled
     );
 
+    // Reload pool vault balance and assert bounded solvency tolerance
+    ctx.accounts.pool_vault_account.reload()?;
+    let vault_balance = ctx.accounts.pool_vault_account.amount;
+    let deficit = redemption_amount.saturating_sub(vault_balance);
+    require!(
+        deficit <= SOLVENCY_DUST_TOLERANCE,
+        PremiumBondsError::InsufficientVaultBalance
+    );
+
     // Prevent re-entrancy: zero out the redemption amount and update pool state before token transfer CPI
     ctx.accounts.pending_redemption.clear_amount();
+    ctx.accounts
+        .pool
+        .load_mut()?
+        .complete_pending_redemption(redemption_amount)?;
 
-    {
-        let mut pool_mut = ctx.accounts.pool.load_mut()?;
-        pool_mut.total_pending_redemptions = pool_mut
-            .total_pending_redemptions
-            .checked_sub(redemption_amount)
-            .ok_or(PremiumBondsError::MathOverflow)?;
+    // Transfer owed USDC to beneficiary (clamped to available vault amount to accommodate dust deficit)
+    let transfer_amount = redemption_amount.min(vault_balance);
+    if transfer_amount > 0 {
+        let cpi_accounts = TransferChecked {
+            from: ctx.accounts.pool_vault_account.to_account_info(),
+            mint: ctx.accounts.token_mint.to_account_info(),
+            to: ctx.accounts.beneficiary_token_account.to_account_info(),
+            authority: ctx.accounts.pool.to_account_info(),
+        };
+        transfer_checked(
+            CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
+            transfer_amount,
+            ctx.accounts.token_mint.decimals,
+        )?;
     }
-
-    // Transfer owed USDC to beneficiary (clamped to available vault amount to protect against floor rounding deficits)
-    ctx.accounts.pool_vault_account.reload()?;
-    let transfer_amount = redemption_amount.min(ctx.accounts.pool_vault_account.amount);
-    let cpi_accounts = TransferChecked {
-        from: ctx.accounts.pool_vault_account.to_account_info(),
-        mint: ctx.accounts.token_mint.to_account_info(),
-        to: ctx.accounts.beneficiary_token_account.to_account_info(),
-        authority: ctx.accounts.pool.to_account_info(),
-    };
-    transfer_checked(
-        CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer_seeds),
-        transfer_amount,
-        ctx.accounts.token_mint.decimals,
-    )?;
 
     #[cfg(feature = "debug-logs")]
     msg!(
         "ClaimRedemption: caller={}, beneficiary={}, amount={}, redemption_id={}, huma_request_id={}",
         ctx.accounts.caller.key(),
         ctx.accounts.beneficiary.key(),
-        redemption_amount,
+        transfer_amount,
         redemption_id,
         huma_request_id,
     );
@@ -247,7 +255,7 @@ pub fn handle(ctx: Context<ClaimRedemption>) -> Result<()> {
         caller: ctx.accounts.caller.key(),
         user: ctx.accounts.beneficiary.key(),
         pool_id,
-        amount: redemption_amount,
+        amount: transfer_amount,
         redemption_id,
         redemption_type,
         pst_shares_locked,

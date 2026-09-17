@@ -202,4 +202,7 @@ pub enum PremiumBondsError {
     /// Draw preparation batch size must be greater than 0.
     #[msg("Draw preparation batch size must be greater than 0.")]
     InvalidBatchSize,
+    /// Pool vault has insufficient balance to settle redemption.
+    #[msg("Pool vault has insufficient balance to settle redemption.")]
+    InsufficientVaultBalance,
 }
