@@ -546,3 +546,72 @@ fn test_prepare_draw_saturating_u32_max_batch_size() {
         "Draw cycle locked_ticket_count must be 10"
     );
 }
+
+/// Metamorphic Relation MTR-002: Prepare Draw Batch Size Equivalence
+/// Verifies that preparing a draw via 4 incremental batches of size 5 produces an
+/// identical on-chain ticket registry state and monotonic prefix sums as a single batch of 20.
+#[test]
+fn test_mtr002_prepare_draw_batch_equivalence() {
+    let entries = (0..20)
+        .map(|i| {
+            UserEntryTestBuilder::new()
+                .with_owner(Keypair::new().pubkey())
+                .with_active((i % 4 + 1) * 3)
+                .with_pending(1)
+                .build()
+        })
+        .collect::<Vec<_>>();
+
+    let execute_prepare_run = |batch_size: u32| -> (anchor::state::TicketRegistry, Vec<anchor::state::UserEntry>, Vec<u8>) {
+        let mut ctx = setup(true, anchor::DrawStatus::AwaitingRandomness, &entries);
+        mutate_ticket_registry_header(&mut ctx.svm, ctx.ticket_registry, |hdr| {
+            hdr.draw_cycle_id = 2;
+        });
+
+        let mut processed = 0;
+        while processed < 20 {
+            send_prepare(&mut ctx, batch_size).expect("prepare batch");
+            processed += batch_size;
+            ctx.svm.expire_blockhash();
+        }
+
+        let header = read_ticket_registry(&ctx.svm, ctx.ticket_registry);
+        let entries = read_ticket_registry_entries(&ctx.svm, ctx.ticket_registry);
+        let raw_data = ctx.svm
+            .get_account(&ctx.ticket_registry)
+            .expect("registry account")
+            .data;
+        (header, entries, raw_data)
+    };
+
+    let (hdr_inc, entries_inc, data_inc) = execute_prepare_run(5);
+    let (hdr_bulk, entries_bulk, data_bulk) = execute_prepare_run(20);
+
+    // 1. Semantic Progress & State Invariants
+    assert_eq!(hdr_inc.draw_prepared_up_to, 20, "Incremental prepare must complete all 20 entries");
+    assert_eq!(hdr_bulk.draw_prepared_up_to, 20, "Bulk prepare must complete all 20 entries");
+    assert_eq!(hdr_inc.user_count, 20, "Incremental user_count must be 20");
+    assert_eq!(hdr_bulk.user_count, 20, "Bulk user_count must be 20");
+
+    // 2. Monotonic Cumulative Active Assertions
+    for i in 0..20 {
+        assert_eq!(
+            entries_inc[i].cumulative_active,
+            entries_bulk[i].cumulative_active,
+            "Cumulative active ticket prefix sum mismatch at entry index {i}"
+        );
+        if i > 0 {
+            assert!(
+                entries_inc[i].cumulative_active > entries_inc[i - 1].cumulative_active,
+                "Prefix sums must be strictly monotonic at entry {i}"
+            );
+        }
+    }
+
+    // 3. Bitwise Exact Account Buffer Equality
+    assert_eq!(
+        data_inc, data_bulk,
+        "MTR-002 broken: TicketRegistry data buffer differs between incremental and bulk prepare"
+    );
+}
+

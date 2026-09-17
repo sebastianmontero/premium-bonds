@@ -1,7 +1,7 @@
 //! Comprehensive Error Code Coverage Test Suite
 //!
 //! Explicitly asserts and verifies every canonical Anchor error code
-//! defined in `anchor::error::PremiumBondsError` (6000–6050) using strongly typed
+//! defined in `anchor::error::PremiumBondsError` (6000–6065) using strongly typed
 //! `assert_custom_error` matching across 5 domain-partitioned submodules.
 
 use {
@@ -554,6 +554,19 @@ fn test_err_zero_shares_minted_definition() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Module 5: Redemption, Winnings & Solvency Errors
 // ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_err_invalid_redemption_type() {
+    for invalid_discriminant in [3, 99, 255] {
+        assert!(
+            matches!(
+                anchor::state::RedemptionType::try_from(invalid_discriminant).unwrap_err(),
+                PremiumBondsError::InvalidRedemptionType
+            ),
+            "RedemptionType::try_from({invalid_discriminant}) must return InvalidRedemptionType"
+        );
+    }
+}
 
 #[test]
 fn test_err_no_winnings_to_claim() {

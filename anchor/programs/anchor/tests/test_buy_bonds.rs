@@ -880,3 +880,58 @@ fn test_mtr003_deposit_order_commutativity() {
         "Path B Bob pending tickets must be 3"
     );
 }
+
+/// Metamorphic Relation MTR-001: Deposit Linearity & Scale Invariance
+/// Verifies that a single bulk deposit of 10 bonds yields the exact same total pending tickets,
+/// pool principal, PST vault shares, and user entry state as two sequential deposits of 6 and 4 bonds.
+#[test]
+fn test_mtr001_deposit_linearity_and_scale_invariance() {
+    #[derive(Debug, PartialEq, Eq)]
+    struct DepositRunResult {
+        total_pending: u32,
+        total_principal: u64,
+        pst_vault_balance: u64,
+        user_count: u32,
+        user_pending_tickets: u32,
+    }
+
+    let execute_deposit_path = |single_shot: bool| -> DepositRunResult {
+        let mut ctx = setup_e2e();
+        if single_shot {
+            send_e2e_buy_bonds(&mut ctx, 10).expect("single-shot buy 10");
+        } else {
+            send_e2e_buy_bonds(&mut ctx, 6).expect("sequential buy 6");
+            ctx.svm.expire_blockhash();
+            send_e2e_buy_bonds(&mut ctx, 4).expect("sequential buy 4");
+        }
+        let pool = read_pool_state(&ctx.svm, 1);
+        let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
+        let user_count = read_registry_user_count(&ctx.svm, ctx.ticket_registry);
+        let user_entry = read_registry_entry(&ctx.svm, ctx.ticket_registry, 0);
+        let (pst_vault, _) = pool_pst_vault_pda(1);
+        let pst_balance = read_token_balance(&ctx.svm, pst_vault);
+        DepositRunResult {
+            total_pending: pending,
+            total_principal: pool.total_deposited_principal,
+            pst_vault_balance: pst_balance,
+            user_count,
+            user_pending_tickets: user_entry.pending,
+        }
+    };
+
+    let result_a = execute_deposit_path(true);  // Single-shot: 10 bonds
+    let result_b = execute_deposit_path(false); // Sequential: 6 + 4 bonds
+
+    // 1. Metamorphic Equivalence
+    assert_eq!(
+        result_a, result_b,
+        "MTR-001 broken: single-shot and sequential deposit outcomes differ"
+    );
+
+    // 2. Absolute Baseline Verifications
+    assert_eq!(result_a.total_pending, 10, "Total pending tickets must be 10");
+    assert_eq!(result_a.total_principal, 10_000_000, "Total deposited principal must be 10,000,000");
+    assert_eq!(result_a.user_count, 1, "User count must remain 1 after repeated deposits");
+    assert_eq!(result_a.user_pending_tickets, 10, "User pending tickets must accumulate to 10");
+}
+

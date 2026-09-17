@@ -544,6 +544,15 @@ fn test_sell_bonds_e2e_swap_and_pop() {
     // 4. User A's UserWinnings registry_entry_index should be u32::MAX (exited)
     let winnings_a = read_user_winnings_state(&ctx.svm, 1, &user_a.pubkey());
     assert_eq!(winnings_a.registry_entry_index, u32::MAX);
+
+    // Vacated Tail Slot Hygiene (INV-SOLV-003 / DEC-06):
+    // Slot 1 (vacated by User B moving to slot 0) must be strictly sanitized with UserEntry::default() (all 64 zero bytes)
+    let entry_1 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(
+        entry_1,
+        anchor::state::UserEntry::default(),
+        "Vacated swap-and-pop tail slot at index 1 must be strictly sanitized to UserEntry::default()"
+    );
 }
 
 #[test]
@@ -1197,6 +1206,15 @@ fn test_sell_bonds_swapped_winnings_at_remaining_index_zero() {
 
     let winnings_a = read_user_winnings_state(&ctx.svm, 1, &user_a.pubkey());
     assert_eq!(winnings_a.registry_entry_index, u32::MAX);
+
+    // Vacated Tail Slot Hygiene (INV-SOLV-003 / DEC-06):
+    // Slot 1 (vacated by User B moving to slot 0) must be strictly sanitized with UserEntry::default() (all 64 zero bytes)
+    let entry_1 = read_registry_entry(&ctx.svm, ctx.ticket_registry, 1);
+    assert_eq!(
+        entry_1,
+        anchor::state::UserEntry::default(),
+        "Vacated swap-and-pop tail slot at index 1 must be strictly sanitized to UserEntry::default()"
+    );
 }
 
 #[test]
