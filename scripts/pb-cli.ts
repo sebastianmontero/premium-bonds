@@ -75,6 +75,8 @@ import {
   findPendingRedemptionPda,
   parseUserWinnings,
   parsePendingRedemption,
+  USER_WINNINGS_ACCOUNT_SIZE,
+  getPendingRedemptionFilters,
   RedemptionType,
   parseTicketRegistry,
   resolveUserTickets,
@@ -3910,7 +3912,7 @@ async function main() {
         const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
 
         const filters = [
-          { dataSize: 138n },
+          { dataSize: USER_WINNINGS_ACCOUNT_SIZE },
           {
             memcmp: {
               offset: 32n,
@@ -3999,29 +4001,10 @@ async function main() {
         console.log(
           `Fetching Pending Redemptions for Pool ${poolId}${userOption ? ` filtered by User: ${userOption}` : ""}...`
         );
-        const base58Decoder = getBase58Decoder();
-        const poolIdBase58 = base58Decoder.decode(encodeU32(poolId));
-
-        const filters = [
-          { dataSize: 159n },
-          {
-            memcmp: {
-              offset: 88n,
-              bytes: poolIdBase58 as Base58EncodedBytes,
-              encoding: "base58" as const,
-            },
-          },
-        ];
-
-        if (userOption) {
-          filters.push({
-            memcmp: {
-              offset: 56n,
-              bytes: userOption as Base58EncodedBytes,
-              encoding: "base58" as const,
-            },
-          });
-        }
+        const filters = getPendingRedemptionFilters({
+          poolId,
+          user: userOption ? (userOption as Address) : undefined,
+        });
 
         const accounts = await rpc
           .getProgramAccounts(PROGRAM_ID, {

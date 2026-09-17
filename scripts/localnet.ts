@@ -39,6 +39,11 @@ import {
   buildCreatePoolInstruction,
   buildSetPrizeTiersInstruction,
   parseMockHumaPoolState,
+  getPendingRedemptionFilters,
+  calculateSettlementAmounts,
+  decodeAccountBase64Data,
+  parsePendingRedemption,
+  type PendingRedemption,
 } from "../app/lib/bonds-sdk";
 import {
   TICKET_REGISTRY_DISCRIMINATOR,
@@ -249,7 +254,10 @@ function printUsage() {
     "                        Warps clock to cycle end, harvests & commits draw, reveals winners, and optionally reinvests."
   );
   console.log(
-    "  settle [--count <n>]  Updates mock Huma queue to enable the redemption of pending requests (settles all by default)"
+    "  settle [count] [--count <n> | -c <n>] [--pool-id <id> | -i <id>]"
+  );
+  console.log(
+    "                        Updates mock Huma queue to enable the redemption of pending requests (settles all by default)"
   );
   console.log("  yield <amount_usdc> [--pool-id <id> | -i <id>]");
   console.log(
@@ -2072,29 +2080,126 @@ async function main() {
   }
 }
 
-async function handleSettle(args: string[]) {
-  let count = -1; // sentinel: -1 means "settle all pending"
-  const countEq = args.find((a) => a.startsWith("--count="));
-  const cEq = args.find((a) => a.startsWith("-c="));
-  const countIndex = args.indexOf("--count");
-  const cIndex = args.indexOf("-c");
+export type SettleArgsResult =
+  | { success: true; count: number; poolId?: number }
+  | { success: false; error: string };
 
-  if (countEq) {
-    count = parseInt(countEq.split("=")[1], 10);
-  } else if (cEq) {
-    count = parseInt(cEq.split("=")[1], 10);
-  } else if (countIndex !== -1 && args[countIndex + 1]) {
-    count = parseInt(args[countIndex + 1], 10);
-  } else if (cIndex !== -1 && args[cIndex + 1]) {
-    count = parseInt(args[cIndex + 1], 10);
-  } else if (args[0] && !isNaN(parseInt(args[0], 10))) {
-    count = parseInt(args[0], 10);
+export function parseSettleArgs(args: string[]): SettleArgsResult {
+  let count = -1; // Sentinel: -1 means "settle all pending"
+  let poolId: number | undefined = undefined;
+  let countSpecified = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Normalize equals-separated flags (e.g., --count=5 -> flag: '--count', val: '5')
+    let flag = arg;
+    let val: string | undefined = undefined;
+    const eqIdx = arg.indexOf("=");
+
+    if (arg.startsWith("-") && eqIdx !== -1) {
+      flag = arg.slice(0, eqIdx);
+      val = arg.slice(eqIdx + 1);
+    }
+
+    // Pool flag: --pool, --pool-id, -i (space or equals separated)
+    if (flag === "--pool" || flag === "--pool-id" || flag === "-i") {
+      if (val === undefined) {
+        val = args[++i];
+      }
+      if (!val || (val.startsWith("-") && isNaN(Number(val)))) {
+        return { success: false, error: `Missing value for '${flag}' flag.` };
+      }
+      if (!/^\d+$/.test(val)) {
+        return {
+          success: false,
+          error: `Invalid pool ID '${val}'. Must be a positive integer.`,
+        };
+      }
+      const parsedPool = parseInt(val, 10);
+      if (isNaN(parsedPool) || parsedPool <= 0) {
+        return {
+          success: false,
+          error: `Invalid pool ID '${val}'. Must be a positive integer.`,
+        };
+      }
+      poolId = parsedPool;
+    }
+    // Count flag: --count, -c (space or equals separated)
+    else if (flag === "--count" || flag === "-c") {
+      if (countSpecified) {
+        return {
+          success: false,
+          error: `Count already specified. Cannot specify multiple count arguments.`,
+        };
+      }
+      if (val === undefined) {
+        val = args[++i];
+      }
+      if (!val || (val.startsWith("-") && isNaN(Number(val)))) {
+        return { success: false, error: `Missing value for '${flag}' flag.` };
+      }
+      if (!/^-?\d+$/.test(val)) {
+        return {
+          success: false,
+          error: `Invalid count value '${val}'. Must be a non-negative integer or omit for all.`,
+        };
+      }
+      const parsedCount = parseInt(val, 10);
+      if (isNaN(parsedCount) || (parsedCount < 0 && parsedCount !== -1)) {
+        return {
+          success: false,
+          error: `Invalid count value '${val}'. Must be a non-negative integer or omit for all.`,
+        };
+      }
+      count = parsedCount;
+      countSpecified = true;
+    }
+    // Positional count argument (e.g., '5' or '-1')
+    else if (!arg.startsWith("-") || /^-?\d+$/.test(arg)) {
+      if (countSpecified) {
+        return {
+          success: false,
+          error: `Unexpected extra argument '${arg}'.`,
+        };
+      }
+      if (!/^-?\d+$/.test(arg)) {
+        return {
+          success: false,
+          error: `Invalid count value '${arg}'. Must be a non-negative integer or omit for all.`,
+        };
+      }
+      const parsedCount = parseInt(arg, 10);
+      if (isNaN(parsedCount) || (parsedCount < 0 && parsedCount !== -1)) {
+        return {
+          success: false,
+          error: `Invalid count value '${arg}'. Must be a non-negative integer or omit for all.`,
+        };
+      }
+      count = parsedCount;
+      countSpecified = true;
+    }
+    // Unknown flag / argument
+    else {
+      return {
+        success: false,
+        error: `Unknown argument '${arg}'. Usage: npm run localnet settle [count] [--count <n> | -c <n>] [--pool-id <id> | -i <id>]`,
+      };
+    }
   }
 
-  if (isNaN(count) || count < 0) {
-    console.error("Error: Invalid count value. Must be a non-negative number.");
+  return { success: true, count, poolId };
+}
+
+async function handleSettle(args: string[]) {
+  const parsed = parseSettleArgs(args);
+  if (!parsed.success) {
+    console.error(`Error: ${parsed.error}`);
     process.exit(1);
   }
+
+  const count = parsed.count;
+  const poolId = parsed.poolId;
 
   const isRpcActive = await checkRpcHealth(RPC_URL);
   if (!isRpcActive) {
@@ -2231,54 +2336,6 @@ async function handleSettle(args: string[]) {
     const startRequestId = next;
     const endRequestId = next + countBi - 1n;
 
-    // Calculate exact PST to burn by querying matching on-chain PendingRedemption accounts
-    let exactPstToBurn = 0n;
-    let matchedCount = 0;
-
-    try {
-      const redemptions = await rpc
-        .getProgramAccounts(address(PROGRAM_ID_STR), {
-          filters: [{ dataSize: 159n }],
-          encoding: "base64",
-        })
-        .send();
-
-      for (const acc of redemptions) {
-        const buf = Buffer.from(acc.account.data[0], "base64");
-        if (buf.length < 159) continue;
-
-        const low = buf.readBigUInt64LE(8);
-        const high = buf.readBigUInt64LE(16);
-        const humaRequestId = low | (high << 64n);
-
-        if (humaRequestId >= startRequestId && humaRequestId <= endRequestId) {
-          const pstShares = buf.readBigUInt64LE(40);
-          exactPstToBurn += pstShares;
-          matchedCount++;
-        }
-      }
-    } catch (e) {
-      console.warn(
-        "Could not query PendingRedemption accounts, using fallback formula:",
-        e
-      );
-    }
-
-    let pstToBurn = 0n;
-    if (matchedCount > 0) {
-      pstToBurn = exactPstToBurn > escrowedPst ? escrowedPst : exactPstToBurn;
-      console.log(
-        `Found ${matchedCount} matching PendingRedemption account(s) for Huma requests ${startRequestId}..${endRequestId}.`
-      );
-      console.log(`Exact PST to burn: ${pstToBurn} micro-PST`);
-    } else {
-      const pendingCountBi = BigInt(pendingCount);
-      pstToBurn = (escrowedPst * countBi) / pendingCountBi;
-      console.log(
-        `No matching PendingRedemption accounts found. Using proportional PST burn fallback: ${pstToBurn} micro-PST`
-      );
-    }
-
     // 2. Read PST mint supply
     const pstMintInfo = await rpc
       .getAccountInfo(address(addresses.pstMint))
@@ -2302,13 +2359,55 @@ async function handleSettle(args: string[]) {
     const totalAssetsHigh = updatedRawData.readBigUInt64LE(38);
     const totalAssets = (totalAssetsHigh << 64n) | totalAssetsLow;
 
-    // 4. Compute USDC value of pstToBurn and decrement total_assets
-    // Use ceiling division to avoid rounding down by 1 micro-USDC, which would
-    // leave the pool_vault underfunded when claim_redemption transfers exact principal.
-    if (pstSupply > 0n && totalAssets > 0n) {
-      usdcValue = (pstToBurn * totalAssets + pstSupply - 1n) / pstSupply;
+    // Calculate exact PST to burn by querying matching on-chain PendingRedemption accounts
+    const pendingAccounts: PendingRedemption[] = [];
+    try {
+      const redemptions = await rpc
+        .getProgramAccounts(address(PROGRAM_ID_STR), {
+          filters: getPendingRedemptionFilters(
+            poolId !== undefined ? { poolId } : undefined
+          ),
+          encoding: "base64",
+        })
+        .send();
+
+      for (const acc of redemptions) {
+        const rawBytes = decodeAccountBase64Data(acc.account);
+        if (rawBytes) {
+          pendingAccounts.push(parsePendingRedemption(rawBytes));
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "Could not query PendingRedemption accounts, using fallback formula:",
+        e
+      );
+    }
+
+    const settlement = calculateSettlementAmounts({
+      redemptions: pendingAccounts,
+      poolId,
+      startRequestId,
+      endRequestId,
+      escrowedPst,
+      pendingCount,
+      count,
+      pstSupply,
+      totalAssets,
+    });
+
+    const pstToBurn = settlement.pstToBurn;
+    usdcValue = settlement.usdcDisbursed;
+
+    if (settlement.matchedCount > 0) {
+      console.log(
+        `Found ${settlement.matchedCount} matching PendingRedemption account(s) for Huma requests ${startRequestId}..${endRequestId}.`
+      );
+      console.log(`Exact PST to burn: ${pstToBurn} micro-PST`);
     } else {
-      usdcValue = pstToBurn; // 1:1 fallback
+      console.log(
+        `No matching PendingRedemption accounts found. Using proportional PST burn fallback: ${pstToBurn} micro-PST`
+      );
     }
 
     const newTotalAssets =

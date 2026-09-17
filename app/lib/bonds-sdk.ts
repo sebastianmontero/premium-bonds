@@ -10,11 +10,13 @@ import {
   Address,
   AccountRole,
   getProgramDerivedAddress,
+  getBase58Decoder,
   getBase58Encoder,
   getBase64Encoder,
   lamports,
   TransactionSigner,
   Instruction,
+  type Base58EncodedBytes,
 } from "@solana/kit";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +30,9 @@ import {
   decodePayoutRegistry,
   decodeUserWinnings,
   decodePendingRedemption,
+  getPendingRedemptionSize,
+  getUserWinningsSize,
+  PENDING_REDEMPTION_DISCRIMINATOR,
 } from "./generated/yield-bonds/src/generated";
 import type {
   GlobalConfig,
@@ -45,6 +50,7 @@ export {
   decodePayoutRegistry,
   decodeUserWinnings,
   decodePendingRedemption,
+  PENDING_REDEMPTION_DISCRIMINATOR,
 };
 export type {
   GlobalConfig,
@@ -639,6 +645,208 @@ export function parsePendingRedemption(data: Uint8Array): PendingRedemption {
   return decodedData<PendingRedemption>(
     decodePendingRedemption(mockAccount(data))
   );
+}
+
+export const PENDING_REDEMPTION_ACCOUNT_SIZE = BigInt(
+  getPendingRedemptionSize()
+); // 160n
+
+export const USER_WINNINGS_ACCOUNT_SIZE = BigInt(getUserWinningsSize()); // 138n
+
+export const PENDING_REDEMPTION_OFFSETS = {
+  DISCRIMINATOR: 0,
+  HUMA_REQUEST_ID: 8,
+  REDEMPTION_ID: 24,
+  AMOUNT: 32,
+  PST_SHARES_LOCKED: 40,
+  REQUESTED_AT: 48,
+  USER: 56,
+  POOL_ID: 88,
+  BUMP: 92,
+  VERSION: 93,
+  REDEMPTION_TYPE: 94,
+  PADDING: 95,
+  RESERVED: 96,
+  ACCOUNT_SIZE: 160,
+} as const;
+
+export interface PendingRedemptionFilterOptions {
+  poolId?: number;
+  user?: Address;
+}
+
+export function getPendingRedemptionFilters(
+  options?: PendingRedemptionFilterOptions
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filters: any[] = [{ dataSize: PENDING_REDEMPTION_ACCOUNT_SIZE }];
+  if (options?.poolId !== undefined) {
+    const base58Decoder = getBase58Decoder();
+    filters.push({
+      memcmp: {
+        offset: BigInt(PENDING_REDEMPTION_OFFSETS.POOL_ID),
+        bytes: base58Decoder.decode(
+          encodeU32(options.poolId)
+        ) as Base58EncodedBytes,
+        encoding: "base58" as const,
+      },
+    });
+  }
+  if (options?.user) {
+    filters.push({
+      memcmp: {
+        offset: BigInt(PENDING_REDEMPTION_OFFSETS.USER),
+        bytes: options.user as unknown as Base58EncodedBytes,
+        encoding: "base58" as const,
+      },
+    });
+  }
+  return filters;
+}
+
+export interface SettlementRedemptionItem {
+  poolId: number;
+  humaRequestId: bigint | number;
+  pstSharesLocked: bigint | number;
+  amount: bigint | number;
+}
+
+export interface SettlementCalculationParams {
+  redemptions: Iterable<SettlementRedemptionItem>;
+  poolId?: number;
+  startRequestId: bigint | number;
+  endRequestId: bigint | number;
+  escrowedPst: bigint | number;
+  pendingCount?: number;
+  count?: number;
+  pstSupply: bigint | number;
+  totalAssets: bigint | number;
+}
+
+export interface SettlementResult {
+  pstToBurn: bigint;
+  usdcDisbursed: bigint;
+  matchedCount: number;
+  exactUsdcOwed: bigint;
+}
+
+/**
+ * Aggregates PST shares and USDC owed for redemptions matching the optional pool and Huma request range.
+ */
+export function aggregateRedemptionsInRange(
+  redemptions: Iterable<SettlementRedemptionItem>,
+  poolId: number | undefined,
+  startRequestId: bigint | number,
+  endRequestId: bigint | number
+): { totalPstLocked: bigint; totalUsdcOwed: bigint; matchedCount: number } {
+  const startReq = BigInt(startRequestId);
+  const endReq = BigInt(endRequestId);
+
+  let totalPstLocked = 0n;
+  let totalUsdcOwed = 0n;
+  let matchedCount = 0;
+
+  for (const r of redemptions) {
+    const reqId = BigInt(r.humaRequestId);
+    const matchesPool = poolId === undefined || r.poolId === poolId;
+    if (matchesPool && reqId >= startReq && reqId <= endReq) {
+      totalPstLocked += BigInt(r.pstSharesLocked);
+      totalUsdcOwed += BigInt(r.amount);
+      matchedCount++;
+    }
+  }
+
+  return { totalPstLocked, totalUsdcOwed, matchedCount };
+}
+
+/**
+ * Computes exact PST to burn and USDC amount to disburse for settled Huma redemptions.
+ *
+ * Invariants:
+ * - When matched accounts exist, exact PST shares are burned and exact USDC is credited.
+ * - For partial unmatched slices (matchedCount < count), blends exact PST with proportional remainder.
+ * - `pstToBurn` is capped by `escrowedPst`.
+ * - `usdcDisbursed` is calculated with ceiling division and guaranteed >= `exactUsdcOwed`
+ *   to satisfy on-chain solvency tolerance (deficit <= 1,000 micro-USDC).
+ */
+export function calculateSettlementAmounts(
+  params: SettlementCalculationParams
+): SettlementResult {
+  const count = params.count ?? 0;
+  const startReq = BigInt(params.startRequestId);
+  const endReq = BigInt(params.endRequestId);
+
+  if (count <= 0 || endReq < startReq) {
+    return {
+      pstToBurn: 0n,
+      usdcDisbursed: 0n,
+      matchedCount: 0,
+      exactUsdcOwed: 0n,
+    };
+  }
+
+  const escrowedPst = BigInt(params.escrowedPst);
+  const pstSupply = BigInt(params.pstSupply);
+  const totalAssets = BigInt(params.totalAssets);
+  const pendingCount = params.pendingCount ?? 0;
+
+  const { totalPstLocked, totalUsdcOwed, matchedCount } =
+    aggregateRedemptionsInRange(
+      params.redemptions,
+      params.poolId,
+      params.startRequestId,
+      params.endRequestId
+    );
+
+  let pstToBurn = 0n;
+  if (matchedCount > 0) {
+    const exactPst =
+      totalPstLocked > escrowedPst ? escrowedPst : totalPstLocked;
+    if (count > matchedCount && pendingCount > matchedCount) {
+      // Partial slice: blend exact matched PST with proportional fallback for unmatched requests
+      const unmatchedCount = BigInt(count - matchedCount);
+      const remainingEscrowed =
+        escrowedPst > exactPst ? escrowedPst - exactPst : 0n;
+      const fallbackPst =
+        (remainingEscrowed * unmatchedCount) /
+        BigInt(pendingCount - matchedCount);
+      pstToBurn = exactPst + fallbackPst;
+    } else {
+      pstToBurn = exactPst;
+    }
+  } else if (pendingCount > 0 && count > 0) {
+    pstToBurn = (escrowedPst * BigInt(count)) / BigInt(pendingCount);
+  }
+
+  if (pstToBurn > escrowedPst) {
+    pstToBurn = escrowedPst;
+  }
+
+  if (pstToBurn === 0n) {
+    return {
+      pstToBurn: 0n,
+      usdcDisbursed: 0n,
+      matchedCount,
+      exactUsdcOwed: totalUsdcOwed,
+    };
+  }
+
+  // Ceiling division to guarantee sufficient funding even with rounding dust
+  const computedUsdcValue =
+    pstSupply > 0n && totalAssets > 0n
+      ? (pstToBurn * totalAssets + pstSupply - 1n) / pstSupply
+      : pstToBurn;
+
+  // Ensure USDC owed is never less than exact amount recorded in pending redemptions
+  const usdcDisbursed =
+    computedUsdcValue > totalUsdcOwed ? computedUsdcValue : totalUsdcOwed;
+
+  return {
+    pstToBurn,
+    usdcDisbursed,
+    matchedCount,
+    exactUsdcOwed: totalUsdcOwed,
+  };
 }
 
 export function parseTokenAccountBalance(data: Uint8Array): bigint {
