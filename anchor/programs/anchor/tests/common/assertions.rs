@@ -200,16 +200,24 @@ pub fn assert_program_error(
     assert_custom_code_at(res, 0, custom_code, &format!("{:?}", expected_error));
 }
 
-pub fn assert_error_contains(res: TxResult, expected_substrings: &[&str]) {
-    let err = res.expect_err("Expected transaction to fail, but it succeeded");
-    let err_str = format!("{err:?}");
-    let matched = expected_substrings.iter().any(|s| err_str.contains(s));
-    assert!(
-        matched,
-        "\n❌ Error substring mismatch!\nExpected one of: {:?}\nActual TransactionError: {:?}\nTransaction Logs:\n{:#?}\n",
-        expected_substrings,
-        err.err,
-        err.meta.logs
+#[track_caller]
+pub fn assert_system_error(
+    res: TxResult,
+    expected_error: solana_program_v2::system_instruction::SystemError,
+) {
+    assert_system_error_at(res, 0, expected_error);
+}
+
+#[track_caller]
+pub fn assert_system_error_at(
+    res: TxResult,
+    expected_ix_index: u8,
+    expected_error: solana_program_v2::system_instruction::SystemError,
+) {
+    assert_instruction_error_at(
+        res,
+        expected_ix_index,
+        solana_program::instruction::InstructionError::Custom(expected_error as u32),
     );
 }
 

@@ -15,114 +15,6 @@ use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
 mod common;
 use common::*;
 
-// ─── Guard Test Setup ────────────────────────────────────────────────────────
-
-struct ClaimGuardCtx {
-    svm: LiteSVM,
-    user: Keypair,
-    token_mint: Pubkey,
-    pool_vault: Pubkey,
-    user_token_account: Pubkey,
-    huma_config: Pubkey,
-    huma_pool_config: Pubkey,
-    huma_pool_state: Pubkey,
-    huma_mode_config: Pubkey,
-    huma_lender_state: Pubkey,
-    huma_pool_authority: Pubkey,
-    huma_pool_underlying_token: Pubkey,
-}
-
-fn setup_claim_redemption_guard(
-    pool_id: u32,
-    redemption_id: u64,
-    redemption_amount: u64,
-    redemption_owner: Option<Pubkey>,
-) -> ClaimGuardCtx {
-    let mut svm = setup_svm();
-
-    let user = Keypair::new();
-    svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
-
-    let token_mint = Keypair::new().pubkey();
-    let pst_mint = Keypair::new().pubkey();
-    inject_mint(&mut svm, token_mint, 6);
-    inject_mint(&mut svm, pst_mint, 6);
-
-    let pool_key = pool_pda(pool_id).0;
-
-    inject_pool(
-        &mut svm,
-        pool_id,
-        token_mint,
-        Pubkey::default(),
-        anchor::PoolStatus::Active,
-        false,
-    );
-
-    let (pool_vault, _) = pool_vault_pda(pool_id);
-    inject_token_account(&mut svm, pool_vault, token_mint, pool_key, 0);
-
-    let owner = redemption_owner.unwrap_or_else(|| user.pubkey());
-
-    inject_pending_redemption(
-        &mut svm,
-        pool_id,
-        redemption_id,
-        owner,
-        redemption_amount,
-        redemption_amount,
-    );
-
-    let user_token_account = create_spl_token_account(&mut svm, &user, &token_mint, &user.pubkey());
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state(&mut svm, huma_pool_state);
-
-    let dummy = Keypair::new().pubkey();
-
-    ClaimGuardCtx {
-        svm,
-        user,
-        token_mint,
-        pool_vault,
-        user_token_account,
-        huma_config: dummy,
-        huma_pool_config: dummy,
-        huma_pool_state,
-        huma_mode_config: dummy,
-        huma_lender_state: dummy,
-        huma_pool_authority: dummy,
-        huma_pool_underlying_token: dummy,
-    }
-}
-
-impl ClaimGuardCtx {
-    pub fn claim_builder(
-        &self,
-        pool_id: u32,
-        redemption_id: u64,
-        caller: Pubkey,
-    ) -> ClaimRedemptionBuilder {
-        ClaimRedemptionBuilder::for_redemption(pool_id, redemption_id, caller, self.user.pubkey())
-            .with_token_mint(self.token_mint)
-            .with_pool_vault_account(self.pool_vault)
-            .with_user_token_account(self.user_token_account)
-            .with_huma_pool_state(self.huma_pool_state)
-    }
-
-    pub fn send_claim(
-        &mut self,
-        caller_kp: &Keypair,
-        pool_id: u32,
-        redemption_id: u64,
-    ) -> TxResult {
-        let ix = self
-            .claim_builder(pool_id, redemption_id, caller_kp.pubkey())
-            .build_ix();
-        send_user_tx(&mut self.svm, caller_kp, ix)
-    }
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // Guard Tests (Validation checks before any Huma CPI)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -130,10 +22,12 @@ impl ClaimGuardCtx {
 #[test]
 fn test_claim_redemption_fails_wrong_user() {
     let wrong_user = Pubkey::new_unique();
-    let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, Some(wrong_user));
+    let mut ctx = ClaimRedemptionFixtureBuilder::new()
+        .with_redemption_owner(wrong_user)
+        .build();
     let user_kp = clone_keypair(&ctx.user);
     // User ctx.user is unauthorized because the pending redemption owner is wrong_user.
-    let res = ctx.send_claim(&user_kp, 1, 0);
+    let res = ctx.send_claim(&user_kp);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRedemptionOwner,
@@ -142,12 +36,12 @@ fn test_claim_redemption_fails_wrong_user() {
 
 #[test]
 fn test_claim_redemption_fails_token_mint_mismatch() {
-    let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
+    let mut ctx = ClaimRedemptionFixtureBuilder::new().build();
     let user_kp = clone_keypair(&ctx.user);
     let wrong_mint = Keypair::new().pubkey();
     inject_mint(&mut ctx.svm, wrong_mint, 6);
     let res = ctx
-        .claim_builder(1, 0, user_kp.pubkey())
+        .claim_builder(user_kp.pubkey())
         .with_token_mint(wrong_mint)
         .send(&mut ctx.svm, &user_kp);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
@@ -155,10 +49,14 @@ fn test_claim_redemption_fails_token_mint_mismatch() {
 
 #[test]
 fn test_claim_redemption_fails_pool_id_mismatch() {
-    let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
+    let mut ctx = ClaimRedemptionFixtureBuilder::new().build();
     let user_kp = clone_keypair(&ctx.user);
     // Use pool_id = 2 instead of 1. Pool 2 account is not initialized (owned by system program).
-    let res = ctx.send_claim(&user_kp, 2, 0);
+    let (pool_2_pda, _) = pool_pda(2);
+    let res = ctx
+        .claim_builder(user_kp.pubkey())
+        .with_pool(pool_2_pda)
+        .send(&mut ctx.svm, &user_kp);
     assert_anchor_error(
         res,
         anchor_lang::error::ErrorCode::AccountOwnedByWrongProgram,
@@ -167,11 +65,11 @@ fn test_claim_redemption_fails_pool_id_mismatch() {
 
 #[test]
 fn test_claim_redemption_fails_huma_program_mismatch() {
-    let mut ctx = setup_claim_redemption_guard(1, 0, 1_000_000, None);
+    let mut ctx = ClaimRedemptionFixtureBuilder::new().build();
     let user_kp = clone_keypair(&ctx.user);
     let wrong_huma_program = Pubkey::new_unique();
     let res = ctx
-        .claim_builder(1, 0, user_kp.pubkey())
+        .claim_builder(user_kp.pubkey())
         .with_huma_program(wrong_huma_program)
         .send(&mut ctx.svm, &user_kp);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);

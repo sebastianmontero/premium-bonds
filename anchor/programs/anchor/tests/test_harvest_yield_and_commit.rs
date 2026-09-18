@@ -4,188 +4,12 @@
 //! account on-chain, calculates yield, accrues fee to state, creates DrawCycle.
 //! No CPI, no token movement.
 
-use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, Space, ToAccountMetas};
-use litesvm::LiteSVM;
-use solana_program::{instruction::Instruction, pubkey::Pubkey};
-use solana_sdk::{account::Account, signature::Keypair, signer::Signer};
+use anchor_lang::AccountDeserialize;
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 
 mod common;
 use common::*;
-
-// ─── Context + instruction builder ──────────────────────────────────────────
-
-struct HarvestCtx {
-    svm: LiteSVM,
-    crank: Keypair,
-    pst_mint: Pubkey,
-    ticket_registry: Pubkey,
-    huma_pool_state: Pubkey,
-    randomness_account: Pubkey,
-}
-
-impl HarvestCtx {
-    pub fn harvest_builder(&self, pool_id: u32) -> HarvestYieldAndCommitBuilder {
-        let (pool_key, _) = pool_pda(pool_id);
-        let cycle_id = self
-            .svm
-            .get_account(&pool_key)
-            .and_then(|acc| anchor::PrizePool::try_deserialize(&mut acc.data.as_slice()).ok())
-            .map(|p| p.current_draw_cycle_id)
-            .unwrap_or(0);
-
-        HarvestYieldAndCommitBuilder::for_pool(pool_id, cycle_id, self.crank.pubkey())
-            .with_ticket_registry(self.ticket_registry)
-            .with_pst_mint(self.pst_mint)
-            .with_huma_pool_state(self.huma_pool_state)
-            .with_randomness_account(self.randomness_account)
-    }
-
-    pub fn send_harvest(&mut self, pool_id: u32, _cycle_id: u32) -> TxResult {
-        let ix = self.harvest_builder(pool_id).build_ix();
-        send_user_tx(&mut self.svm, &self.crank, ix)
-    }
-}
-
-fn send_harvest(ctx: &mut HarvestCtx, pool_id: u32, cycle_id: u32) -> TxResult {
-    ctx.send_harvest(pool_id, cycle_id)
-}
-
-// ─── Setup helpers ───────────────────────────────────────────────────────────
-
-/// Setup for guard tests — no yield, just validation checks.
-fn setup_guard(status: anchor::PoolStatus, is_frozen: bool, cycle_end_at: i64) -> HarvestCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank();
-
-    let token_mint = Keypair::new().pubkey();
-    let pst_mint = Keypair::new().pubkey();
-    inject_mint_with_supply(&mut svm, token_mint, 6, 0);
-    inject_mint_with_supply(&mut svm, pst_mint, 6, 0);
-
-    let fee_wallet = Keypair::new().pubkey();
-    let registry = Keypair::new().pubkey();
-    inject_registry_with_tickets(&mut svm, registry, 1, 1000, 0, 0, &[]);
-
-    let pool_key = pool_pda(1).0;
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, 0);
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, 0);
-
-    PrizePoolTestBuilder::new(1)
-        .with_token_mint(token_mint)
-        .with_ticket_registry(registry)
-        .with_fee_wallet(fee_wallet)
-        .with_huma_pool_state(huma_pool_state)
-        .with_status(status)
-        .with_frozen(is_frozen)
-        .with_fee_basis_points(100)
-        .with_cycle_end_at(cycle_end_at)
-        .with_current_draw_cycle_id(0)
-        .with_solvency_state(0, 0, 0)
-        .inject(&mut svm);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut svm, randomness_account);
-
-    warp_to_timestamp(&mut svm, 1_700_001_000);
-
-    HarvestCtx {
-        svm,
-        crank,
-        pst_mint,
-        ticket_registry: registry,
-        huma_pool_state,
-        randomness_account,
-    }
-}
-
-/// Setup for happy-path tests — inject PST balance and Huma pool state to simulate yield.
-///
-/// `pst_balance`: number of $PST shares held by pool
-/// `pst_supply`: total $PST supply
-/// `total_assets`: total USDC in Huma pool (used for price calculation)
-/// `principal`: total deposited principal
-fn setup_happy(
-    active: u32,
-    pending: u32,
-    fee_bps: u16,
-    prize_tiers: Vec<anchor::PrizeTier>,
-    pst_balance: u64,
-    pst_supply: u64,
-    total_assets: u128,
-    principal: u64,
-) -> HarvestCtx {
-    setup_happy_with_cycle_end(
-        active,
-        pending,
-        fee_bps,
-        prize_tiers,
-        pst_balance,
-        pst_supply,
-        total_assets,
-        principal,
-        0,
-    )
-}
-
-fn setup_happy_with_cycle_end(
-    active: u32,
-    pending: u32,
-    fee_bps: u16,
-    prize_tiers: Vec<anchor::PrizeTier>,
-    pst_balance: u64,
-    pst_supply: u64,
-    total_assets: u128,
-    principal: u64,
-    cycle_end_at: i64,
-) -> HarvestCtx {
-    let (mut svm, _admin, crank) = setup_global_with_crank();
-
-    let token_mint = Keypair::new().pubkey();
-    let pst_mint = Keypair::new().pubkey();
-    inject_mint_with_supply(&mut svm, token_mint, 6, 0);
-    inject_mint_with_supply(&mut svm, pst_mint, 6, pst_supply);
-
-    let fee_wallet = Keypair::new().pubkey();
-    let registry = Keypair::new().pubkey();
-    inject_registry(&mut svm, registry, 1, 1000, active, pending);
-
-    let pool_key = pool_pda(1).0;
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
-    inject_token_account(&mut svm, pool_pst_vault, pst_mint, pool_key, pst_balance);
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, total_assets);
-
-    PrizePoolTestBuilder::new(1)
-        .with_token_mint(token_mint)
-        .with_ticket_registry(registry)
-        .with_fee_wallet(fee_wallet)
-        .with_huma_pool_state(huma_pool_state)
-        .with_status(anchor::PoolStatus::Active)
-        .with_frozen(false)
-        .with_fee_basis_points(fee_bps)
-        .with_cycle_end_at(cycle_end_at)
-        .with_current_draw_cycle_id(0)
-        .with_prize_tiers(prize_tiers)
-        .with_solvency_state(principal, 0, 0)
-        .inject(&mut svm);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut svm, randomness_account);
-
-    warp_to_timestamp(&mut svm, 1_700_001_000);
-
-    HarvestCtx {
-        svm,
-        crank,
-        pst_mint,
-        ticket_registry: registry,
-        huma_pool_state,
-        randomness_account,
-    }
-}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Guard tests
@@ -193,27 +17,36 @@ fn setup_happy_with_cycle_end(
 
 #[test]
 fn test_harvest_fails_unauthorized_crank() {
-    let mut ctx = setup_guard(anchor::PoolStatus::Active, false, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
     let fake_crank = Keypair::new();
     ctx.svm
         .airdrop(&fake_crank.pubkey(), 10_000_000_000)
         .unwrap();
     ctx.crank = fake_crank;
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedCrank);
 }
 
 #[test]
 fn test_harvest_fails_pool_not_active() {
-    let mut ctx = setup_guard(anchor::PoolStatus::Paused, false, 0);
-    let res = send_harvest(&mut ctx, 1, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Paused, false)
+        .with_cycle_end_at(0)
+        .build();
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
 }
 
 #[test]
 fn test_harvest_fails_pool_frozen() {
-    let mut ctx = setup_guard(anchor::PoolStatus::Active, true, 0);
-    let res = send_harvest(&mut ctx, 1, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, true)
+        .with_cycle_end_at(0)
+        .build();
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
@@ -222,8 +55,11 @@ fn test_harvest_fails_pool_frozen() {
 
 #[test]
 fn test_harvest_fails_cycle_not_ended() {
-    let mut ctx = setup_guard(anchor::PoolStatus::Active, false, i64::MAX);
-    let res = send_harvest(&mut ctx, 1, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(i64::MAX)
+        .build();
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::CycleNotEnded);
 }
 
@@ -234,8 +70,13 @@ fn test_harvest_fails_cycle_not_ended() {
 #[test]
 fn test_harvest_happy_path_zero_yield() {
     // PST balance=0 → current_value=0, yield=0, DrawCycle Complete
-    let mut ctx = setup_happy(0, 3, 100, vec![], 0, 0, 0, 0);
-    let meta = send_harvest(&mut ctx, 1, 0).expect("zero yield harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 3)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
+    let meta = ctx.send_harvest(1, 0).expect("zero yield harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
     assert_eq!(
         event.crank,
@@ -295,17 +136,13 @@ fn test_harvest_happy_path_yield_no_eligible() {
     // current_value = 1M * 1.5M / 1M = 1.5M
     // yield = 1.5M - 1M (principal) - 0 (accrued) = 500K
     // fee = 500K * 500 / 10000 = 25K
-    let mut ctx = setup_happy(
-        0,
-        2,
-        500,
-        vec![],
-        1_000_000,
-        1_000_000,
-        1_500_000,
-        1_000_000,
-    );
-    let meta = send_harvest(&mut ctx, 1, 0).expect("yield no eligible harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 2)
+        .with_circuit_breaker(0, 500)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(1_000_000, 1_000_000, 1_500_000, 1_000_000)
+        .build();
+    let meta = ctx.send_harvest(1, 0).expect("yield no eligible harvest");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
     assert_eq!(
         event.crank,
@@ -314,7 +151,10 @@ fn test_harvest_happy_path_yield_no_eligible() {
     );
     assert_eq!(event.pool_id, 1, "DrawSkipped pool_id must be 1");
     assert_eq!(event.cycle_id, 0, "DrawSkipped cycle_id must be 0");
-    assert_eq!(event.raw_yield, 0, "DrawSkipped raw_yield must be 0");
+    assert_eq!(
+        event.raw_yield, 0,
+        "DrawSkipped raw_yield must be 0"
+    );
     assert_eq!(
         event.locked_ticket_count, 0,
         "DrawSkipped locked_ticket_count must be 0"
@@ -362,8 +202,13 @@ fn test_harvest_happy_path_yield_and_eligible() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 2M PST, 2M supply, 2.5M total_assets, 2M principal
     // yield = 2M * 2.5M / 2M - 2M = 500K
-    let mut ctx = setup_happy(2, 1, 100, tiers, 2_000_000, 2_000_000, 2_500_000, 2_000_000);
-    let meta = send_harvest(&mut ctx, 1, 0).expect("yield + eligible harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(2, 1)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(tiers)
+        .with_raw_huma_state(2_000_000, 2_000_000, 2_500_000, 2_000_000)
+        .build();
+    let meta = ctx.send_harvest(1, 0).expect("yield + eligible harvest");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
     assert_eq!(
         event.crank,
@@ -422,8 +267,13 @@ fn test_harvest_happy_path_yield_and_eligible() {
 fn test_harvest_happy_path_fee_exact() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 2M total_assets, 1M principal → yield=1M, fee_bps=250 (2.5%)
-    let mut ctx = setup_happy(1, 0, 250, tiers, 1_000_000, 1_000_000, 2_000_000, 1_000_000);
-    send_harvest(&mut ctx, 1, 0).expect("fee exact harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(1, 0)
+        .with_circuit_breaker(0, 250)
+        .with_prize_tiers(tiers)
+        .with_raw_huma_state(1_000_000, 1_000_000, 2_000_000, 1_000_000)
+        .build();
+    ctx.send_harvest(1, 0).expect("fee exact harvest");
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_fee_partition_conserved(1_000_000, 250, dc.cycle_fee_collected, dc.prize_pot);
@@ -439,8 +289,13 @@ fn test_harvest_happy_path_fee_exact() {
 fn test_harvest_happy_path_zero_fee_bps() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 1.5M total_assets, 1M principal → yield=500K, fee=0
-    let mut ctx = setup_happy(1, 0, 0, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
-    send_harvest(&mut ctx, 1, 0).expect("zero fee harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(1, 0)
+        .with_circuit_breaker(0, 0)
+        .with_prize_tiers(tiers)
+        .with_raw_huma_state(1_000_000, 1_000_000, 1_500_000, 1_000_000)
+        .build();
+    ctx.send_harvest(1, 0).expect("zero fee harvest");
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_fee_partition_conserved(500_000, 0, dc.cycle_fee_collected, dc.prize_pot);
@@ -468,8 +323,13 @@ fn test_harvest_happy_path_zero_fee_bps() {
 #[test]
 fn test_harvest_happy_path_pending_merge() {
     // 2 active + 3 pending → after: 5 active, 0 pending
-    let mut ctx = setup_happy(2, 3, 100, vec![], 0, 0, 0, 0);
-    send_harvest(&mut ctx, 1, 0).expect("merge harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(2, 3)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
+    ctx.send_harvest(1, 0).expect("merge harvest");
 
     let active = read_registry_active(&ctx.svm, ctx.ticket_registry);
     let pending = read_registry_pending(&ctx.svm, ctx.ticket_registry);
@@ -493,9 +353,14 @@ fn test_harvest_happy_path_pending_merge() {
 
 #[test]
 fn test_harvest_happy_path_cycle_advances() {
-    let mut ctx = setup_happy(0, 0, 100, vec![], 0, 0, 0, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
     let current_ts = 1_700_001_000i64;
-    send_harvest(&mut ctx, 1, 0).expect("cycle advance harvest");
+    ctx.send_harvest(1, 0).expect("cycle advance harvest");
 
     let pool = read_pool_state(&ctx.svm, 1);
     assert_eq!(
@@ -512,17 +377,13 @@ fn test_harvest_happy_path_cycle_advances() {
 #[test]
 fn test_harvest_fails_prize_tiers_not_configured() {
     // yield > 0, eligible > 0, but prize_tiers empty
-    let mut ctx = setup_happy(
-        2,
-        0,
-        100,
-        vec![],
-        1_000_000,
-        1_000_000,
-        2_000_000,
-        1_000_000,
-    );
-    let res = send_harvest(&mut ctx, 1, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(2, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(1_000_000, 1_000_000, 2_000_000, 1_000_000)
+        .build();
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::PrizeTiersNotConfigured,
@@ -531,13 +392,18 @@ fn test_harvest_fails_prize_tiers_not_configured() {
 
 #[test]
 fn test_harvest_happy_path_consecutive_cycles() {
-    let mut ctx = setup_happy(0, 0, 100, vec![], 0, 0, 0, 0);
-    send_harvest(&mut ctx, 1, 0).expect("first harvest");
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
+    ctx.send_harvest(1, 0).expect("first harvest");
 
     let pool = read_pool_state(&ctx.svm, 1);
     warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at + 1);
 
-    send_harvest(&mut ctx, 1, 1).expect("second harvest");
+    ctx.send_harvest(1, 1).expect("second harvest");
 
     let pool2 = read_pool_state(&ctx.svm, 1);
     assert_eq!(
@@ -553,22 +419,30 @@ fn test_harvest_happy_path_consecutive_cycles() {
 
 #[test]
 fn test_harvest_fails_invalid_mint() {
-    let mut ctx = setup_happy(0, 0, 100, vec![], 0, 0, 0, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
     let fake_mint = Keypair::new().pubkey();
     ctx.pst_mint = fake_mint;
 
     // Inject the fake mint into the SVM
     inject_mint_with_supply(&mut ctx.svm, fake_mint, 6, 0);
 
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintTokenMint);
 }
 
 #[test]
 fn test_harvest_fails_invalid_randomness_account() {
-    let mut ctx = setup_guard(anchor::PoolStatus::Active, false, 0);
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
     ctx.randomness_account = Keypair::new().pubkey();
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
@@ -577,22 +451,18 @@ fn test_harvest_fails_invalid_randomness_account() {
 
 #[test]
 fn test_harvest_fails_math_overflow() {
-    let mut ctx = setup_happy(
-        10, // active count > 0 to have yield_generated > 0
-        0,
-        100,                                              // fee bps
-        vec![anchor::PrizeTier::default_single_winner()], // prize tiers not empty
-        1_000_000,                                        // pst_balance
-        1_000_000,                                        // pst_supply
-        2_000_000,                                        // total_assets
-        1_000_000,                                        // principal
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0) // active count > 0 to have yield_generated > 0
+        .with_circuit_breaker(0, 100) // fee bps
+        .with_prize_tiers(vec![anchor::PrizeTier::default_single_winner()]) // prize tiers not empty
+        .with_raw_huma_state(1_000_000, 1_000_000, 2_000_000, 1_000_000)
+        .build();
 
     mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.total_prizes_allocated = u64::MAX;
     });
 
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
@@ -600,15 +470,17 @@ fn test_harvest_fails_math_overflow() {
 fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     // 1M PST, 1M supply, 1.5M total_assets, 1M principal → raw yield = 500k
-    let mut ctx = setup_happy(5, 0, 100, tiers, 1_000_000, 1_000_000, 1_500_000, 1_000_000);
-
-    // Set min_yield_threshold to 1M (1,000,000 > 500,000 raw yield)
-    mutate_pool_state(&mut ctx.svm, 1, |p| {
-        p.min_yield_threshold = 1_000_000;
-    });
+    // min_yield_threshold = 1M (1,000,000 > 500,000 raw yield)
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(5, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(tiers)
+        .with_raw_huma_state(1_000_000, 1_000_000, 1_500_000, 1_000_000)
+        .with_min_yield_threshold(1_000_000)
+        .build();
 
     // Execute harvest
-    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest below threshold");
+    let meta = ctx.send_harvest(1, 0).expect("harvest below threshold");
     let event = assert_cpi_event::<anchor::events::DrawSkipped>(&meta);
     assert_eq!(
         event.crank,
@@ -670,18 +542,14 @@ fn test_harvest_below_min_yield_threshold_skips_and_rolls_over() {
 fn test_harvest_yield_and_commit_succeeds_immediately_after_create_pool_and_deposit() {
     // End-to-end test verifying that a newly created pool with atomic prize tiers
     // allows deposits and immediately completes a harvest draw cycle without calling set_prize_tiers.
-    let mut ctx = setup_happy(
-        10,
-        0,
-        100,
-        default_prize_tiers(),
-        1_000_000,
-        1_000_000,
-        2_000_000,
-        1_000_000,
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(1_000_000, 1_000_000, 2_000_000, 1_000_000)
+        .build();
 
-    send_harvest(&mut ctx, 1, 0)
+    ctx.send_harvest(1, 0)
         .expect("harvest should succeed immediately with atomic prize tiers");
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
@@ -712,18 +580,14 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     // deposited_principal = 10_000_000 (10 USDC)
     // total_prizes_allocated = 0 (because prior cycle had 5_000 lamports dust rolled over/deducted)
     // PST vault balance = 10_005_000 (representing 10 USDC principal + 0.005 USDC dust)
-    let mut ctx = setup_happy(
-        10,
-        0,
-        100, // 1% fee
-        default_prize_tiers(),
-        10_005_000,
-        10_000_000,
-        10_000_000,
-        10_000_000,
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100) // 1% fee
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(10_005_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
 
-    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with rolled-over dust should succeed");
+    let meta = ctx.send_harvest(1, 0).expect("harvest with rolled-over dust should succeed");
 
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
     assert_eq!(
@@ -736,7 +600,7 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
     // Prize pot = 4_950 lamports
     assert_eq!(
         event.raw_yield, 5_000,
-        "YieldHarvested raw_yield must be 5,000"
+        "YieldHarvested raw_yield must be 5_000"
     );
     assert_fee_partition_conserved(event.raw_yield, 100, event.fee, event.prize_pot);
     assert_eq!(
@@ -761,21 +625,17 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
 
 #[test]
 fn test_harvest_fails_double_harvest_same_cycle() {
-    let mut ctx = setup_happy(
-        10,
-        0,
-        100,
-        default_prize_tiers(),
-        11_000_000,
-        10_000_000,
-        10_000_000,
-        10_000_000,
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
 
-    send_harvest(&mut ctx, 1, 0).expect("first harvest should succeed");
+    ctx.send_harvest(1, 0).expect("first harvest should succeed");
 
     // Second harvest in same cycle should fail
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(
         res,
         anchor::error::PremiumBondsError::AwaitingRandomnessFreeze,
@@ -784,22 +644,18 @@ fn test_harvest_fails_double_harvest_same_cycle() {
 
 #[test]
 fn test_harvest_fails_current_draw_cycle_id_overflow() {
-    let mut ctx = setup_happy(
-        10,
-        0,
-        100,
-        default_prize_tiers(),
-        11_000_000,
-        10_000_000,
-        10_000_000,
-        10_000_000,
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
 
     common::mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.current_draw_cycle_id = u32::MAX;
     });
 
-    let res = send_harvest(&mut ctx, 1, 0);
+    let res = ctx.send_harvest(1, 0);
     assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
@@ -808,18 +664,14 @@ fn test_harvest_yield_fee_truncation_rounding() {
     // Setup pool with fee_basis_points = 1 (0.01%) and yield = 9_999 lamports
     // fee = 9_999 * 1 / 10_000 = 0 lamports (truncated)
     // prize_pot = 9_999 - 0 = 9_999 lamports
-    let mut ctx = setup_happy(
-        10,
-        0,
-        1, // 1 bps fee
-        default_prize_tiers(),
-        10_009_999, // current value
-        10_000_000, // book value
-        10_000_000,
-        10_000_000,
-    );
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 1) // 1 bps fee
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(10_009_999, 10_000_000, 10_000_000, 10_000_000)
+        .build();
 
-    let meta = send_harvest(&mut ctx, 1, 0).expect("harvest with fee truncation should succeed");
+    let meta = ctx.send_harvest(1, 0).expect("harvest with fee truncation should succeed");
     let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
     assert_eq!(
         event.crank,
@@ -828,7 +680,7 @@ fn test_harvest_yield_fee_truncation_rounding() {
     );
     assert_eq!(
         event.raw_yield, 9_999,
-        "YieldHarvested raw_yield must be 9,999"
+        "YieldHarvested raw_yield must be 9_999"
     );
     assert_fee_partition_conserved(event.raw_yield, 1, event.fee, event.prize_pot);
     assert_eq!(
@@ -854,39 +706,31 @@ fn test_harvest_yield_exact_temporal_boundaries() {
 
     // Boundary 1: cycle_end_at - 1 must fail with CycleNotEnded
     {
-        let mut ctx = setup_happy_with_cycle_end(
-            10,
-            0,
-            100,
-            default_prize_tiers(),
-            11_000_000,
-            10_000_000,
-            10_000_000,
-            10_000_000,
-            cycle_end_at,
-        );
+        let mut ctx = HarvestFixtureBuilder::new()
+            .with_tickets(10, 0)
+            .with_circuit_breaker(0, 100)
+            .with_prize_tiers(default_prize_tiers())
+            .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+            .with_cycle_end_at(cycle_end_at)
+            .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at - 1);
-        let res = send_harvest(&mut ctx, 1, 0);
+        let res = ctx.send_harvest(1, 0);
         assert_custom_error(res, anchor::error::PremiumBondsError::CycleNotEnded);
     }
 
     // Boundary 2: cycle_end_at must succeed
     {
-        let mut ctx = setup_happy_with_cycle_end(
-            10,
-            0,
-            100,
-            default_prize_tiers(),
-            11_000_000,
-            10_000_000,
-            10_000_000,
-            10_000_000,
-            cycle_end_at,
-        );
+        let mut ctx = HarvestFixtureBuilder::new()
+            .with_tickets(10, 0)
+            .with_circuit_breaker(0, 100)
+            .with_prize_tiers(default_prize_tiers())
+            .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+            .with_cycle_end_at(cycle_end_at)
+            .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at);
-        let res = send_harvest(&mut ctx, 1, 0);
+        let res = ctx.send_harvest(1, 0);
         assert!(
             res.is_ok(),
             "Harvest at exact cycle_end_at must succeed: {:?}",
@@ -896,20 +740,16 @@ fn test_harvest_yield_exact_temporal_boundaries() {
 
     // Boundary 3: cycle_end_at + 1 must succeed
     {
-        let mut ctx = setup_happy_with_cycle_end(
-            10,
-            0,
-            100,
-            default_prize_tiers(),
-            11_000_000,
-            10_000_000,
-            10_000_000,
-            10_000_000,
-            cycle_end_at,
-        );
+        let mut ctx = HarvestFixtureBuilder::new()
+            .with_tickets(10, 0)
+            .with_circuit_breaker(0, 100)
+            .with_prize_tiers(default_prize_tiers())
+            .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+            .with_cycle_end_at(cycle_end_at)
+            .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at + 1);
-        let res = send_harvest(&mut ctx, 1, 0);
+        let res = ctx.send_harvest(1, 0);
         assert!(
             res.is_ok(),
             "Harvest at cycle_end_at + 1 must succeed: {:?}",

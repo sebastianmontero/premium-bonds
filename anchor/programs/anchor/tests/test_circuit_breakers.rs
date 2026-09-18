@@ -7,150 +7,23 @@
 //!    pool is automatically paused, draw cycle marked HaltedYieldSpike, and YieldVelocityBreached emitted.
 
 use {
-    anchor_lang::prelude::Pubkey,
-    anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas},
-    litesvm::LiteSVM,
-    solana_keypair::Keypair,
-    solana_program::instruction::Instruction,
-    solana_sdk::account::Account,
+    anchor_lang::AccountDeserialize,
     solana_signer::Signer,
 };
 
 mod common;
 use common::*;
 
-struct CircuitBreakerCtx {
-    svm: LiteSVM,
-    admin: Keypair,
-    crank: Keypair,
-    pool_pda: Pubkey,
-    pst_mint: Pubkey,
-    ticket_registry: Pubkey,
-    huma_pool_state: Pubkey,
-    randomness_account: Pubkey,
-}
-
-pub struct CircuitBreakerTestParams {
-    pub max_yield_basis_points: u16,
-    pub deposited_principal: u64,
-    pub pst_shares_amount: u64,
-    pub pst_supply: u64,
-    pub total_assets: u128,
-    pub active_tickets: u32,
-    pub pending_tickets: u32,
-}
-
-fn setup_circuit_breaker_ctx(
-    max_yield_basis_points: u16,
-    deposited_principal: u64,
-    pst_shares_amount: u64,
-    pst_supply: u64,
-    total_assets: u128,
-) -> CircuitBreakerCtx {
-    setup_circuit_breaker_ctx_with_params(CircuitBreakerTestParams {
-        max_yield_basis_points,
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        total_assets,
-        active_tickets: 10,
-        pending_tickets: 0,
-    })
-}
-
-fn setup_circuit_breaker_ctx_with_params(params: CircuitBreakerTestParams) -> CircuitBreakerCtx {
-    let GlobalRolesContext {
-        mut svm,
-        admin,
-        crank,
-        ..
-    } = setup_global_roles();
-
-    let pool_id = 1;
-    let (pool_pda, bump) = pool_pda(pool_id);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(pool_id);
-    let token_mint = Keypair::new().pubkey();
-    let pst_mint = Keypair::new().pubkey();
-
-    inject_mint_with_supply(&mut svm, token_mint, 6, 1_000_000_000_000);
-    inject_mint_with_supply(&mut svm, pst_mint, 6, params.pst_supply);
-    inject_token_account(
-        &mut svm,
-        pool_pst_vault,
-        pst_mint,
-        pool_pda,
-        params.pst_shares_amount,
-    );
-
-    let ticket_registry = Keypair::new().pubkey();
-    inject_registry(
-        &mut svm,
-        ticket_registry,
-        pool_id,
-        100,
-        params.active_tickets,
-        params.pending_tickets,
-    );
-
-    let huma_pool_state = Keypair::new().pubkey();
-    inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, params.total_assets);
-
-    let randomness_account = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut svm, randomness_account);
-
-    PrizePoolTestBuilder::new(pool_id)
-        .with_token_mint(token_mint)
-        .with_ticket_registry(ticket_registry)
-        .with_huma_pool_state(huma_pool_state)
-        .with_principal(params.deposited_principal)
-        .with_max_yield_basis_points(params.max_yield_basis_points)
-        .with_payout_timelock_seconds(300)
-        .with_prize_tiers(vec![anchor::PrizeTier::default_single_winner()])
-        .inject(&mut svm);
-
-    CircuitBreakerCtx {
-        svm,
-        admin,
-        crank,
-        pool_pda,
-        pst_mint,
-        ticket_registry,
-        huma_pool_state,
-        randomness_account,
-    }
-}
-
-fn send_harvest(
-    ctx: &mut CircuitBreakerCtx,
-    pool_id: u32,
-    cycle_id: u32,
-) -> Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata> {
-    let crank = clone_keypair(&ctx.crank);
-    HarvestYieldAndCommitBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
-        .with_ticket_registry(ctx.ticket_registry)
-        .with_pst_mint(ctx.pst_mint)
-        .with_huma_pool_state(ctx.huma_pool_state)
-        .with_randomness_account(ctx.randomness_account)
-        .send(&mut ctx.svm, &crank)
-}
-
 #[test]
 fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
-    let deposited_principal = 10_000_000; // 10 USDC book value
-    let pst_supply = 10_000_000;
-    let pst_shares_amount = 10_000_000;
-    // Venue suffered a loss: total_assets dropped to 8_000_000 (2 USDC deficit > 1000 dust tolerance)
-    let total_assets = 8_000_000u128;
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_insolvency_deficit(10_000_000, 2_000_000)
+        .build();
 
-    let mut ctx = setup_circuit_breaker_ctx(
-        0, // uncapped velocity
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        total_assets,
-    );
-
-    let meta = send_harvest(&mut ctx, 1, 0).expect("Harvest should succeed and commit pause state");
+    let meta = ctx
+        .send_harvest(1, 0)
+        .expect("Harvest should succeed and commit pause state");
 
     // Verify EmergencyInsolvencyDetected event was emitted
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
@@ -200,22 +73,14 @@ fn test_solvency_circuit_breaker_halts_when_venue_in_deficit() {
 
 #[test]
 fn test_yield_velocity_circuit_breaker_halts_on_spike() {
-    let deposited_principal = 10_000_000; // 10 USDC book value
-    let pst_supply = 10_000_000;
-    let pst_shares_amount = 10_000_000;
-    // Single cycle yield is 2 USDC (20% return).
-    // Configured max_yield_basis_points = 500 (5.0% max allowed = 0.5 USDC).
-    let total_assets = 12_000_000u128;
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(500, 100)
+        .with_simulated_yield(10_000_000, 2_000_000)
+        .build();
 
-    let mut ctx = setup_circuit_breaker_ctx(
-        500, // 5% max velocity
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        total_assets,
-    );
-
-    let meta = send_harvest(&mut ctx, 1, 0)
+    let meta = ctx
+        .send_harvest(1, 0)
         .expect("Harvest should succeed and commit pause state on velocity spike");
 
     // Verify YieldVelocityBreached event was emitted
@@ -271,23 +136,13 @@ fn test_yield_velocity_circuit_breaker_halts_on_spike() {
 
 #[test]
 fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
-    let deposited_principal = 10_000_000; // 10 USDC book value
-    let pst_supply = 10_000_000;
-    let pst_shares_amount = 10_000_000;
-    // Venue deficit with 0 active tickets (10 pending tickets)
-    let total_assets = 7_000_000u128; // 3 USDC deficit
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 10)
+        .with_insolvency_deficit(10_000_000, 3_000_000)
+        .build();
 
-    let mut ctx = setup_circuit_breaker_ctx_with_params(CircuitBreakerTestParams {
-        max_yield_basis_points: 0, // uncapped velocity
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        total_assets,
-        active_tickets: 0,   // 0 active tickets!
-        pending_tickets: 10, // 10 pending tickets
-    });
-
-    let meta = send_harvest(&mut ctx, 1, 0)
+    let meta = ctx
+        .send_harvest(1, 0)
         .expect("Harvest should halt and pause pool even with 0 active tickets");
 
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta);
@@ -335,35 +190,27 @@ fn test_solvency_circuit_breaker_halts_with_zero_active_tickets() {
 
 #[test]
 fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
-    let deposited_principal = 10_000_000u64;
-    let pst_supply = 10_000_000u64;
-    let pst_shares_amount = 10_000_000u64;
-
     // Case 1: Deficit == SOLVENCY_DUST_TOLERANCE (1,000 lamports deficit -> total_assets = 9_999_000)
     // Within dust tolerance -> does NOT halt, stays Active
-    let mut ctx_pass = setup_circuit_breaker_ctx(
-        0,
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        9_999_000u128,
-    );
-    let meta_pass = send_harvest(&mut ctx_pass, 1, 0)
+    let mut ctx_pass = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_insolvency_deficit(10_000_000, 1_000)
+        .build();
+    let _meta_pass = ctx_pass
+        .send_harvest(1, 0)
         .expect("Deficit <= dust tolerance should proceed normally");
     let pool_pass = read_pool_state(&ctx_pass.svm, 1);
     assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
 
     // Case 2: Deficit == SOLVENCY_DUST_TOLERANCE + 1 (1,001 lamports deficit -> total_assets = 9_998_999)
     // Exceeds dust tolerance -> halts and pauses pool
-    let mut ctx_halt = setup_circuit_breaker_ctx(
-        0,
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        9_998_999u128,
-    );
-    let meta_halt =
-        send_harvest(&mut ctx_halt, 1, 0).expect("Deficit > dust tolerance should halt");
+    let mut ctx_halt = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_insolvency_deficit(10_000_000, 1_001)
+        .build();
+    let meta_halt = ctx_halt
+        .send_harvest(1, 0)
+        .expect("Deficit > dust tolerance should halt");
     let event = assert_cpi_event::<anchor::events::EmergencyInsolvencyDetected>(&meta_halt);
     assert_eq!(event.crank, ctx_halt.crank.pubkey());
     assert_eq!(event.deficit, 1001);
@@ -375,35 +222,31 @@ fn test_solvency_circuit_breaker_exact_dust_tolerance_boundary() {
 
 #[test]
 fn test_yield_velocity_spike_guard_exact_boundary() {
-    let deposited_principal = 10_000_000u64;
-    let pst_supply = 10_000_000u64;
-    let pst_shares_amount = 10_000_000u64;
     let max_yield_basis_points = 500u16; // 5.0% = 500,000 lamports max allowed
 
     // Case 1: Yield == max_allowed_yield (500_000 lamports -> total_assets = 10_500_000)
     // Passes without halting
-    let mut ctx_pass = setup_circuit_breaker_ctx(
-        max_yield_basis_points,
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        10_500_000u128,
-    );
-    let meta_pass =
-        send_harvest(&mut ctx_pass, 1, 0).expect("Yield <= max allowed should proceed normally");
+    let mut ctx_pass = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(max_yield_basis_points, 100)
+        .with_simulated_yield(10_000_000, 500_000)
+        .build();
+    let _meta_pass = ctx_pass
+        .send_harvest(1, 0)
+        .expect("Yield <= max allowed should proceed normally");
     let pool_pass = read_pool_state(&ctx_pass.svm, 1);
     assert_eq!(pool_pass.status, anchor::PoolStatus::Active as u8);
 
     // Case 2: Yield == max_allowed_yield + 1 (500_001 lamports -> total_assets = 10_500_001)
     // Exceeds limit by 1 lamport -> halts and pauses pool
-    let mut ctx_halt = setup_circuit_breaker_ctx(
-        max_yield_basis_points,
-        deposited_principal,
-        pst_shares_amount,
-        pst_supply,
-        10_500_001u128,
-    );
-    let meta_halt = send_harvest(&mut ctx_halt, 1, 0).expect("Yield > max allowed should halt");
+    let mut ctx_halt = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(max_yield_basis_points, 100)
+        .with_simulated_yield(10_000_000, 500_001)
+        .build();
+    let meta_halt = ctx_halt
+        .send_harvest(1, 0)
+        .expect("Yield > max allowed should halt");
     let event = assert_cpi_event::<anchor::events::YieldVelocityBreached>(&meta_halt);
     assert_eq!(
         event.crank,

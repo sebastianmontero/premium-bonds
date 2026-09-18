@@ -546,9 +546,12 @@ fn test_err_fees_already_withdrawn() {
 }
 
 #[test]
-fn test_err_zero_shares_minted_definition() {
-    let err = PremiumBondsError::ZeroSharesMinted;
-    assert_eq!(format!("{:?}", err), "ZeroSharesMinted");
+fn test_err_zero_shares_minted() {
+    let mut ctx = setup_e2e();
+    let res = BuyBondsBuilder::new(&ctx)
+        .with_huma_config(FAIL_ZERO_SHARES_PUBKEY)
+        .send(&mut ctx.svm, &ctx.user);
+    assert_custom_error(res, PremiumBondsError::ZeroSharesMinted);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -570,9 +573,48 @@ fn test_err_invalid_redemption_type() {
 
 #[test]
 fn test_err_insufficient_vault_balance() {
-    // Compile-time smoke test: ensures variant exists and serializes. Behavioral coverage in test_claim_redemption.rs.
-    let err: anchor_lang::error::Error = PremiumBondsError::InsufficientVaultBalance.into();
-    assert_eq!(err, PremiumBondsError::InsufficientVaultBalance.into());
+    let mut ctx = setup_e2e();
+    mint_tokens(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.usdc_mint,
+        &ctx.huma_pool_underlying_token,
+        &ctx.usdc_mint_authority,
+        10_000_000,
+    );
+    let huma_pool_mode_token = create_spl_token_account(
+        &mut ctx.svm,
+        &ctx.admin,
+        &ctx.pst_mint,
+        &ctx.huma_pool_authority,
+    );
+    send_e2e_buy_bonds(&mut ctx, 10).unwrap();
+    let user = clone_keypair(&ctx.user);
+    send_e2e_sell_bonds_for_user(
+        &mut ctx,
+        &user,
+        0,
+        3,
+        Pubkey::default(),
+        Pubkey::default(),
+        huma_pool_mode_token,
+    )
+    .unwrap();
+    let user_usdc = ctx.user_usdc_account;
+
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 0);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let res = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &user,
+        user_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    );
+    assert_custom_error(res, PremiumBondsError::InsufficientVaultBalance);
 }
 
 #[test]

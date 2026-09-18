@@ -54,11 +54,11 @@ fn test_withdraw_fees_succeeds() {
     );
 
     // Update pool state to have accrued fees
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.next_redemption_id = 0;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_next_redemption_id(0)
+        .inject(&mut ctx.svm);
 
     let res = WithdrawFeesBuilder::new(&ctx)
         .with_huma_pool_mode_token(huma_pool_mode_token)
@@ -122,11 +122,11 @@ fn test_withdraw_fees_math_non_1_to_1() {
     );
 
     // Update pool state to have accrued fees
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.next_redemption_id = 0;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_next_redemption_id(0)
+        .inject(&mut ctx.svm);
 
     // Withdraw 2 USDC (2_000_000). At 1 PST = 2 USDC, this should equal 1 PST (1_000_000 shares)
     let res = WithdrawFeesBuilder::new(&ctx)
@@ -210,10 +210,10 @@ fn test_withdraw_fees_fails_exceeds_available_fees() {
     );
 
     // Set up pool state
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 4_000_000; // Available = 1_000_000
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(4_000_000) // Available = 1_000_000
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pool_pda, _) = pool_pda(1);
@@ -266,10 +266,10 @@ fn test_withdraw_fees_fails_frozen_for_draw() {
 
     // Set accrued fees and freeze the pool for draw
     let (pool_pda_key, _) = pool_pda(1);
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.is_frozen_for_draw = 1;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_frozen(true)
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(
@@ -354,9 +354,9 @@ fn test_withdraw_fees_fails_invalid_huma_pool_state_layout() {
     let mut ctx = setup_e2e();
 
     let (pool_pda_key, _) = pool_pda(1);
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(
@@ -408,11 +408,11 @@ fn test_withdraw_fees_fails_huma_redemption_error() {
 
     // Set up pool state
     let (pool_pda, _) = pool_pda(1);
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.next_redemption_id = 0;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_next_redemption_id(0)
+        .inject(&mut ctx.svm);
 
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     inject_token_account(
@@ -479,49 +479,42 @@ fn test_withdraw_fees_fails_invalid_mode_mint() {
 fn test_withdraw_fees_and_claim_e2e() {
     let mut ctx = setup_e2e();
     let (pool_pda, _) = pool_pda(1);
-    let (pool_pst_vault, _) = pool_pst_vault_pda(1);
     let (pool_vault, _) = pool_vault_pda(1);
 
-    // Set Huma venue solvency state to cover book liabilities (10M assets / 10M supply)
-    set_huma_solvency_state(
-        &mut ctx.svm,
-        ctx.huma_pool_state,
-        ctx.pst_mint,
-        10_000_000,
-        10_000_000,
-    );
+    // 1. User buys 10 bonds (10_000_000 USDC principal -> 10 pending tickets for cycle 0)
+    send_e2e_buy_bonds(&mut ctx, 10).expect("buy bonds should succeed");
 
-    // Setup pool state with accrued fees
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.next_redemption_id = 0;
-    });
+    // 2. Warp past cycle 0 and harvest to merge pending tickets into active tickets for cycle 1
+    warp_forward_seconds(&mut ctx.svm, 24 * 3600 + 1);
+    send_e2e_harvest_yield_and_commit(&mut ctx).expect("cycle 0 harvest should succeed");
 
-    // Set up mock $PST in pool's pst vault (representing Huma yield)
-    inject_token_account(
-        &mut ctx.svm,
-        pool_pst_vault,
-        ctx.pst_mint,
-        pool_pda,
-        10_000_000,
-    );
+    // 3. Configure pool fee_basis_points = 1000 (10%) for cycle 1 and warp past cycle 1 duration
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fee_basis_points(1000)
+        .inject(&mut ctx.svm);
+    warp_forward_seconds(&mut ctx.svm, 24 * 3600 + 1);
 
-    // Initialize huma_pool_mode_token owned by huma_pool_authority
-    let huma_pool_mode_token = Keypair::new().pubkey();
-    inject_token_account(
-        &mut ctx.svm,
-        huma_pool_mode_token,
-        ctx.pst_mint,
-        ctx.huma_pool_authority,
-        0,
-    );
+    // 4. Accrue authentic yield in Huma: total_assets = 30_000_000 with 10_000_000 PST supply (20 USDC yield)
+    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 30_000_000);
 
-    // 1. Withdraw fees (creates PendingRedemption)
-    let meta = WithdrawFeesBuilder::new(&ctx)
-        .with_huma_pool_mode_token(huma_pool_mode_token)
-        .with_amount(2_000_000)
-        .send(&mut ctx.svm, &ctx.admin)
+    // 5. Crank harvests yield for cycle 1 -> accrues 2_000_000 fees and freezes pool for draw
+    send_e2e_harvest_yield_and_commit(&mut ctx).expect("cycle 1 harvest yield should succeed");
+    let pool_after_harvest = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_after_harvest.total_fees_accrued, 2_000_000);
+    assert_eq!(pool_after_harvest.is_frozen_for_draw, 1);
+
+    // 6. Crank prepares draw and reveals randomness for cycle 1 to pick winners and unfreeze pool
+    send_e2e_prepare_draw(&mut ctx, 1, 1, 10).expect("prepare draw should succeed");
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 1);
+    send_e2e_reveal_and_pick_winners(&mut ctx, 1, 1, dc.randomness_account)
+        .expect("reveal and pick winners should succeed");
+
+    let pool_after_reveal = read_pool_state(&ctx.svm, 1);
+    assert_eq!(pool_after_reveal.is_frozen_for_draw, 0);
+
+    // 7. Admin withdraws fees (creates PendingRedemption 0 for 2_000_000 USDC)
+    let admin_kp = clone_keypair(&ctx.admin);
+    let meta = send_e2e_withdraw_fees_with_admin(&mut ctx, &admin_kp, 2_000_000)
         .expect("withdraw_fees should succeed");
 
     let event = assert_cpi_event::<anchor::events::FeesWithdrawn>(&meta);
@@ -537,11 +530,11 @@ fn test_withdraw_fees_and_claim_e2e() {
     assert_eq!(pending_state.user, ctx.admin.pubkey());
     assert_eq!(pending_state.amount, 2_000_000);
 
-    // 2. Claim redemption
-    // We mock Huma's disburse by transferring underlying USDC into the pool vault and advancing next_request_id.
+    // 7. Settle Huma redemption and disburse USDC to pool vault
     set_mock_huma_next_request_id(&mut ctx.svm, ctx.huma_pool_state, 1);
-    // Set mock assets to 100_000_000 so conversion is 1:1
-    set_mock_huma_pool_assets(&mut ctx.svm, ctx.huma_pool_state, 100_000_000);
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 2_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
 
     // Fund the pool vault so it can pay out the USDC
     inject_token_account(&mut ctx.svm, pool_vault, ctx.usdc_mint, pool_pda, 5_000_000);
@@ -554,13 +547,16 @@ fn test_withdraw_fees_and_claim_e2e() {
         &ctx.admin.pubkey(),
     );
 
-    // Build and send claim_redemption signed by admin (fee wallet owner)
-    let meta_claim = ClaimRedemptionBuilder::new(&ctx)
-        .with_caller(ctx.admin.pubkey())
-        .with_beneficiary(ctx.admin.pubkey(), admin_usdc)
-        .with_redemption_id(0)
-        .send(&mut ctx.svm, &ctx.admin)
-        .expect("claim_redemption should succeed for fee wallet owner");
+    // 8. Admin claims fee redemption
+    let meta_claim = send_e2e_claim_redemption_for_user(
+        &mut ctx,
+        &admin_kp,
+        admin_usdc,
+        0,
+        Pubkey::default(),
+        huma_lender_state,
+    )
+    .expect("claim_redemption should succeed for fee wallet owner");
 
     let claim_event = assert_cpi_event::<anchor::events::RedemptionClaimed>(&meta_claim);
     assert_eq!(claim_event.caller, ctx.admin.pubkey());
@@ -613,11 +609,11 @@ fn test_withdraw_fees_succeeds_from_closed_pool() {
     );
 
     // Setup pool state with accrued fees and Closed status
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.status = anchor::PoolStatus::Closed as u8;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_status(anchor::PoolStatus::Closed)
+        .inject(&mut ctx.svm);
 
     // Set up mock $PST in pool's pst vault
     inject_token_account(
@@ -659,11 +655,11 @@ fn test_withdraw_fees_fails_when_yield_venue_insolvent() {
     let (pool_pst_vault, _) = pool_pst_vault_pda(1);
 
     // Setup pool state with 5,000,000 USDC accrued fees liabilities
-    mutate_pool_state(&mut ctx.svm, 1, |pool| {
-        pool.total_fees_accrued = 5_000_000;
-        pool.total_fees_withdrawn = 0;
-        pool.next_redemption_id = 0;
-    });
+    PrizePoolTestBuilder::from_state(&ctx.svm, 1)
+        .with_fees_accrued(5_000_000)
+        .with_fees_withdrawn(0)
+        .with_next_redemption_id(0)
+        .inject(&mut ctx.svm);
 
     // Inject 5,000,000 PST into vault
     inject_token_account(

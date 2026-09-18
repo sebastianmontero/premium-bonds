@@ -361,7 +361,7 @@ fn test_resize_registry_fails_registry_at_max_size() {
         ResizeRegistryBuilder::new(pool_id, ticket_registry, payer.pubkey()).send(&mut svm, &payer);
     // Since Anchor evaluates realloc before user constraints, growing beyond 10MB
     // fails at the Solana runtime system level with InvalidRealloc rather than RegistryAtMaxSize.
-    assert_error_contains(res, &["RegistryAtMaxSize", "InvalidRealloc"]);
+    assert_instruction_error(res, solana_program::instruction::InstructionError::InvalidRealloc);
 }
 
 #[test]
@@ -385,12 +385,16 @@ fn test_resize_registry_fails_payer_insufficient_funds() {
         .with_current_draw_cycle_id(0)
         .inject(&mut svm);
 
-    // Create a payer with insufficient funds (0 lamports)
+    // Create a payer with enough funds to pay the 5,000 lamport tx fee, but insufficient to pay the realloc rent
     let poor_payer = Keypair::new();
+    svm.airdrop(&poor_payer.pubkey(), 10_000).unwrap();
 
     let res = ResizeRegistryBuilder::new(pool_id, ticket_registry, poor_payer.pubkey())
         .send(&mut svm, &poor_payer);
-    assert_error_contains(res, &["AccountNotFound", "InsufficientFunds"]);
+    assert_system_error(
+        res,
+        solana_program_v2::system_instruction::SystemError::ResultWithNegativeLamports,
+    );
 }
 
 #[test]

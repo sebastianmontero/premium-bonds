@@ -1,9 +1,12 @@
 use {
     crate::common::{
         account_builders::*, constants::*, dispatch::*, injectors::*, pda::*, readers::*, spl::*,
-        vrf::*,
+        state_builders::*, vrf::*,
     },
-    anchor_lang::{solana_program::bpf_loader_upgradeable::UpgradeableLoaderState, Discriminator},
+    anchor_lang::{
+        solana_program::bpf_loader_upgradeable::UpgradeableLoaderState, AccountDeserialize,
+        Discriminator,
+    },
     litesvm::LiteSVM,
     solana_program::pubkey::Pubkey,
     solana_sdk::{
@@ -221,44 +224,20 @@ pub fn setup_e2e() -> E2eContext {
 
     // 3. Create Huma pool_state stub (needs ModeState vec of len 1 at offset 26)
     let huma_pool_state = Keypair::new().pubkey();
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes()); // vec_len = 1
-                                                                       // assets is at 30..46, defaults to 0 for 1:1 conversion
-    svm.set_account(
-        huma_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: huma_pool_state_data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     // 4. Derive pool_authority PDA from mock-huma
     let (huma_pool_authority, _) = huma_pool_authority_pda(&huma_pool_state);
 
     // 5. Create PST mint with pool_authority as mint_authority
     let pst_mint_kp = Keypair::new();
-    {
-        let mut data = vec![0u8; 82];
-        data[0..4].copy_from_slice(&1u32.to_le_bytes()); // COption::Some
-        data[4..36].copy_from_slice(&huma_pool_authority.to_bytes());
-        data[44] = 6; // decimals
-        data[45] = 1; // is_initialized
-        svm.set_account(
-            pst_mint_kp.pubkey(),
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-    }
+    inject_mint_with_authority_and_supply(
+        &mut svm,
+        pst_mint_kp.pubkey(),
+        huma_pool_authority,
+        6,
+        0,
+    );
     let pst_mint = pst_mint_kp.pubkey();
 
     // 6. Create fee wallet (token account for USDC owned by admin)
@@ -402,40 +381,17 @@ pub fn setup_lifecycle_harness() -> LifecycleTestHarness {
     let usdc_mint = create_spl_mint(&mut svm, &admin, &usdc_mint_authority.pubkey(), 6);
 
     let huma_pool_state = Keypair::new().pubkey();
-    let mut huma_pool_state_data = vec![0u8; 512];
-    huma_pool_state_data[26..30].copy_from_slice(&1u32.to_le_bytes());
-    svm.set_account(
-        huma_pool_state,
-        Account {
-            lamports: 1_000_000_000,
-            data: huma_pool_state_data,
-            owner: huma_program_id(),
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_huma_pool_state(&mut svm, huma_pool_state);
 
     let (huma_pool_authority, _) = huma_pool_authority_pda(&huma_pool_state);
     let pst_mint_kp = Keypair::new();
-    {
-        let mut data = vec![0u8; 82];
-        data[0..4].copy_from_slice(&1u32.to_le_bytes());
-        data[4..36].copy_from_slice(&huma_pool_authority.to_bytes());
-        data[44] = 6;
-        data[45] = 1;
-        svm.set_account(
-            pst_mint_kp.pubkey(),
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor_spl::token::ID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
-    }
+    inject_mint_with_authority_and_supply(
+        &mut svm,
+        pst_mint_kp.pubkey(),
+        huma_pool_authority,
+        6,
+        0,
+    );
     let pst_mint = pst_mint_kp.pubkey();
 
     let huma_pool_underlying_token = Keypair::new().pubkey();
@@ -957,3 +913,415 @@ impl Default for RevealFixtureBuilder {
         Self::new()
     }
 }
+
+// ─── Claim Redemption Fixture & Builder ──────────────────────────────────────
+
+pub struct ClaimRedemptionFixture {
+    pub svm: LiteSVM,
+    pub user: Keypair,
+    pub token_mint: Pubkey,
+    pub pst_mint: Pubkey,
+    pub pool_vault: Pubkey,
+    pub user_token_account: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub huma_lender_state: Pubkey,
+    pub pool_id: u32,
+    pub redemption_id: u64,
+}
+
+impl ClaimRedemptionFixture {
+    pub fn builder() -> ClaimRedemptionFixtureBuilder {
+        ClaimRedemptionFixtureBuilder::new()
+    }
+
+    pub fn claim_builder(&self, caller: Pubkey) -> ClaimRedemptionBuilder {
+        ClaimRedemptionBuilder::for_redemption(
+            self.pool_id,
+            self.redemption_id,
+            caller,
+            self.user.pubkey(),
+        )
+        .with_token_mint(self.token_mint)
+        .with_pool_vault_account(self.pool_vault)
+        .with_user_token_account(self.user_token_account)
+        .with_huma_pool_state(self.huma_pool_state)
+        .with_huma_lender_state(self.huma_lender_state)
+    }
+
+    pub fn send_claim(&mut self, caller_kp: &Keypair) -> TxResult {
+        let ix = self.claim_builder(caller_kp.pubkey()).build_ix();
+        send_user_tx(&mut self.svm, caller_kp, ix)
+    }
+}
+
+pub struct ClaimRedemptionFixtureBuilder {
+    pool_id: u32,
+    redemption_id: u64,
+    redemption_amount: u64,
+    redemption_owner: Option<Pubkey>,
+    vault_balance: u64,
+    pool_status: anchor::PoolStatus,
+    settled_huma: Option<(u64, u64)>,
+}
+
+impl ClaimRedemptionFixtureBuilder {
+    pub fn new() -> Self {
+        Self {
+            pool_id: 1,
+            redemption_id: 0,
+            redemption_amount: 1_000_000,
+            redemption_owner: None,
+            vault_balance: 0,
+            pool_status: anchor::PoolStatus::Active,
+            settled_huma: None,
+        }
+    }
+
+    pub fn with_pool_id(mut self, pool_id: u32) -> Self {
+        self.pool_id = pool_id;
+        self
+    }
+
+    pub fn with_redemption(mut self, id: u64, amount: u64, owner: Option<Pubkey>) -> Self {
+        self.redemption_id = id;
+        self.redemption_amount = amount;
+        self.redemption_owner = owner;
+        self
+    }
+
+    pub fn with_redemption_id(mut self, id: u64) -> Self {
+        self.redemption_id = id;
+        self
+    }
+
+    pub fn with_redemption_amount(mut self, amount: u64) -> Self {
+        self.redemption_amount = amount;
+        self
+    }
+
+    pub fn with_redemption_owner(mut self, owner: Pubkey) -> Self {
+        self.redemption_owner = Some(owner);
+        self
+    }
+
+    pub fn with_vault_balance(mut self, amount: u64) -> Self {
+        self.vault_balance = amount;
+        self
+    }
+
+    pub fn with_pool_status(mut self, status: anchor::PoolStatus) -> Self {
+        self.pool_status = status;
+        self
+    }
+
+    pub fn with_settled_huma(mut self, next_request_id: u64, amount_settled: u64) -> Self {
+        self.settled_huma = Some((next_request_id, amount_settled));
+        self
+    }
+
+    pub fn build(self) -> ClaimRedemptionFixture {
+        let mut svm = setup_svm();
+
+        let user = Keypair::new();
+        svm.airdrop(&user.pubkey(), 10_000_000_000).unwrap();
+
+        let token_mint = Keypair::new().pubkey();
+        let pst_mint = Keypair::new().pubkey();
+        inject_mint(&mut svm, token_mint, 6);
+        inject_mint(&mut svm, pst_mint, 6);
+
+        let huma_pool_state = Keypair::new().pubkey();
+        inject_huma_pool_state(&mut svm, huma_pool_state);
+
+        let pool_key = pool_pda(self.pool_id).0;
+
+        PrizePoolTestBuilder::new(self.pool_id)
+            .with_token_mint(token_mint)
+            .with_huma_pool_state(huma_pool_state)
+            .with_status(self.pool_status)
+            .with_frozen(false)
+            .inject(&mut svm);
+
+        let (pool_vault, _) = pool_vault_pda(self.pool_id);
+        inject_token_account(&mut svm, pool_vault, token_mint, pool_key, self.vault_balance);
+
+        let owner = self.redemption_owner.unwrap_or_else(|| user.pubkey());
+
+        inject_pending_redemption(
+            &mut svm,
+            self.pool_id,
+            self.redemption_id,
+            owner,
+            self.redemption_amount,
+            self.redemption_amount,
+        );
+
+        let user_token_account =
+            create_spl_token_account(&mut svm, &user, &token_mint, &user.pubkey());
+
+        let huma_lender_state = Keypair::new().pubkey();
+        if let Some((next_request_id, amount_settled)) = self.settled_huma {
+            inject_lender_state(&mut svm, huma_lender_state, amount_settled);
+            settle_huma_redemption(&mut svm, huma_pool_state, next_request_id);
+        } else {
+            inject_dummy_huma_account(&mut svm, huma_lender_state);
+        }
+
+        ClaimRedemptionFixture {
+            svm,
+            user,
+            token_mint,
+            pst_mint,
+            pool_vault,
+            user_token_account,
+            huma_pool_state,
+            huma_lender_state,
+            pool_id: self.pool_id,
+            redemption_id: self.redemption_id,
+        }
+    }
+}
+
+impl Default for ClaimRedemptionFixtureBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ─── Harvest Fixture & Builder ───────────────────────────────────────────────
+
+pub struct HarvestFixture {
+    pub svm: LiteSVM,
+    pub admin: Keypair,
+    pub crank: Keypair,
+    pub pst_mint: Pubkey,
+    pub ticket_registry: Pubkey,
+    pub huma_pool_state: Pubkey,
+    pub randomness_account: Pubkey,
+    pub pool_id: u32,
+}
+
+impl HarvestFixture {
+    pub fn builder() -> HarvestFixtureBuilder {
+        HarvestFixtureBuilder::new()
+    }
+
+    pub fn harvest_builder(&self, pool_id: u32) -> HarvestYieldAndCommitBuilder {
+        let (pool_key, _) = pool_pda(pool_id);
+        let cycle_id = self
+            .svm
+            .get_account(&pool_key)
+            .and_then(|acc| anchor::PrizePool::try_deserialize(&mut acc.data.as_slice()).ok())
+            .map(|p| p.current_draw_cycle_id)
+            .unwrap_or(0);
+
+        let crank_pubkey = self.crank.pubkey();
+        HarvestYieldAndCommitBuilder::for_pool(pool_id, cycle_id, crank_pubkey)
+            .with_ticket_registry(self.ticket_registry)
+            .with_pst_mint(self.pst_mint)
+            .with_huma_pool_state(self.huma_pool_state)
+            .with_randomness_account(self.randomness_account)
+    }
+
+    pub fn send_harvest(&mut self, pool_id: u32, _cycle_id: u32) -> TxResult {
+        let crank = clone_keypair(&self.crank);
+        let ix = self.harvest_builder(pool_id).build_ix();
+        send_user_tx(&mut self.svm, &crank, ix)
+    }
+}
+
+pub struct HarvestFixtureBuilder {
+    pool_id: u32,
+    status: anchor::PoolStatus,
+    is_frozen: bool,
+    active_tickets: u32,
+    pending_tickets: u32,
+    fee_basis_points: u16,
+    max_yield_basis_points: u16,
+    min_yield_threshold: u64,
+    payout_timelock_seconds: u32,
+    cycle_end_at: i64,
+    prize_tiers: Vec<anchor::PrizeTier>,
+    principal: u64,
+    pst_shares_amount: u64,
+    pst_supply: u64,
+    total_assets: u128,
+}
+
+impl HarvestFixtureBuilder {
+    pub fn new() -> Self {
+        Self {
+            pool_id: 1,
+            status: anchor::PoolStatus::Active,
+            is_frozen: false,
+            active_tickets: 0,
+            pending_tickets: 0,
+            fee_basis_points: 100,
+            max_yield_basis_points: 0,
+            min_yield_threshold: 0,
+            payout_timelock_seconds: 300,
+            cycle_end_at: 0,
+            prize_tiers: vec![anchor::PrizeTier::default_single_winner()],
+            principal: 0,
+            pst_shares_amount: 0,
+            pst_supply: 0,
+            total_assets: 0,
+        }
+    }
+
+    pub fn with_pool_id(mut self, pool_id: u32) -> Self {
+        self.pool_id = pool_id;
+        self
+    }
+
+    pub fn with_status(mut self, status: anchor::PoolStatus, is_frozen: bool) -> Self {
+        self.status = status;
+        self.is_frozen = is_frozen;
+        self
+    }
+
+    pub fn with_frozen(mut self, is_frozen: bool) -> Self {
+        self.is_frozen = is_frozen;
+        self
+    }
+
+    pub fn with_tickets(mut self, active: u32, pending: u32) -> Self {
+        self.active_tickets = active;
+        self.pending_tickets = pending;
+        self
+    }
+
+    pub fn with_simulated_yield(mut self, principal: u64, yield_amount: u64) -> Self {
+        self.principal = principal;
+        self.pst_shares_amount = principal;
+        self.pst_supply = principal;
+        self.total_assets = (principal.saturating_add(yield_amount)) as u128;
+        self
+    }
+
+    pub fn with_insolvency_deficit(mut self, principal: u64, deficit_amount: u64) -> Self {
+        self.principal = principal;
+        self.pst_shares_amount = principal;
+        self.pst_supply = principal;
+        self.total_assets = (principal.saturating_sub(deficit_amount)) as u128;
+        self
+    }
+
+    pub fn with_raw_huma_state(
+        mut self,
+        pst_balance: u64,
+        pst_supply: u64,
+        total_assets: u128,
+        principal: u64,
+    ) -> Self {
+        self.pst_shares_amount = pst_balance;
+        self.pst_supply = pst_supply;
+        self.total_assets = total_assets;
+        self.principal = principal;
+        self
+    }
+
+    pub fn with_circuit_breaker(mut self, max_yield_bps: u16, fee_bps: u16) -> Self {
+        self.max_yield_basis_points = max_yield_bps;
+        self.fee_basis_points = fee_bps;
+        self
+    }
+
+    pub fn with_min_yield_threshold(mut self, min: u64) -> Self {
+        self.min_yield_threshold = min;
+        self
+    }
+
+    pub fn with_payout_timelock_seconds(mut self, secs: u32) -> Self {
+        self.payout_timelock_seconds = secs;
+        self
+    }
+
+    pub fn with_cycle_end_at(mut self, timestamp: i64) -> Self {
+        self.cycle_end_at = timestamp;
+        self
+    }
+
+    pub fn with_prize_tiers(mut self, tiers: Vec<anchor::PrizeTier>) -> Self {
+        self.prize_tiers = tiers;
+        self
+    }
+
+    pub fn build(self) -> HarvestFixture {
+        let GlobalRolesContext {
+            mut svm,
+            admin,
+            crank,
+            ..
+        } = setup_global_roles();
+
+        let token_mint = Keypair::new().pubkey();
+        let pst_mint = Keypair::new().pubkey();
+        inject_mint_with_supply(&mut svm, token_mint, 6, 1_000_000_000_000);
+        inject_mint_with_supply(&mut svm, pst_mint, 6, self.pst_supply);
+
+        let fee_wallet = Keypair::new().pubkey();
+        let ticket_registry = Keypair::new().pubkey();
+        inject_registry(
+            &mut svm,
+            ticket_registry,
+            self.pool_id,
+            1000,
+            self.active_tickets,
+            self.pending_tickets,
+        );
+
+        let pool_key = pool_pda(self.pool_id).0;
+        let (pool_pst_vault, _) = pool_pst_vault_pda(self.pool_id);
+        inject_token_account(
+            &mut svm,
+            pool_pst_vault,
+            pst_mint,
+            pool_key,
+            self.pst_shares_amount,
+        );
+
+        let huma_pool_state = Keypair::new().pubkey();
+        inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, self.total_assets);
+
+        let randomness_account = Keypair::new().pubkey();
+        inject_mock_randomness_account(&mut svm, randomness_account);
+
+        PrizePoolTestBuilder::new(self.pool_id)
+            .with_token_mint(token_mint)
+            .with_ticket_registry(ticket_registry)
+            .with_fee_wallet(fee_wallet)
+            .with_huma_pool_state(huma_pool_state)
+            .with_status(self.status)
+            .with_frozen(self.is_frozen)
+            .with_fee_basis_points(self.fee_basis_points)
+            .with_max_yield_basis_points(self.max_yield_basis_points)
+            .with_min_yield_threshold(self.min_yield_threshold)
+            .with_payout_timelock_seconds(self.payout_timelock_seconds)
+            .with_cycle_end_at(self.cycle_end_at)
+            .with_current_draw_cycle_id(0)
+            .with_prize_tiers(self.prize_tiers)
+            .with_solvency_state(self.principal, 0, 0)
+            .inject(&mut svm);
+
+        warp_to_timestamp(&mut svm, 1_700_001_000);
+
+        HarvestFixture {
+            svm,
+            admin,
+            crank,
+            pst_mint,
+            ticket_registry,
+            huma_pool_state,
+            randomness_account,
+            pool_id: self.pool_id,
+        }
+    }
+}
+
+impl Default for HarvestFixtureBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
