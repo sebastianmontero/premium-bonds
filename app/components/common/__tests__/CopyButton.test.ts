@@ -87,19 +87,17 @@ describe("CopyButton Component Invariant & A11y Suite", () => {
 
   it("should support render prop children for custom content", () => {
     const html = renderWithIntl(
-      React.createElement(
-        CopyButton,
-        {
-          text: "custom-text",
-          showIcon: false,
-        },
-        ({ copied }: { copied: boolean }) =>
+      // eslint-disable-next-line react/no-children-prop
+      React.createElement(CopyButton, {
+        text: "custom-text",
+        showIcon: false,
+        children: ({ copied }: { copied: boolean }) =>
           React.createElement(
             "span",
             { className: "custom-badge" },
             copied ? "Done" : "Click"
-          )
-      )
+          ),
+      })
     );
 
     assert.ok(

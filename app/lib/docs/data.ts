@@ -143,12 +143,12 @@ YieldBonds es un **protocolo de ahorro con premios** creado en la blockchain de 
 
 ## ¿Cómo Funciona?
 
-A diferencia de una lotería tradicional donde el costo del boleto se pierde para siempre, YieldBonds opera con un **Modelo de Ahorro Sin Pérdidas**:
+A diferencia de una lotería tradicional donde el costo del bono se pierde para siempre, YieldBonds opera con un **Modelo de Ahorro Sin Pérdidas**:
 
 1. **Deposita USDC**: Depositas USDC en un fondo de YieldBonds. Cada **1.00 USDC** depositado te otorga **1 Bono de Premio**.
 2. **Genera Rendimiento Real**: Tu capital depositado se canaliza automáticamente a **Huma Finance** para generar rendimiento a través de créditos respaldados por activos del mundo real (RWA).
-3. **Gana Premios**: Todo el rendimiento acumulado en el fondo se agrupa y se distribuye a boletos ganadores mediante sorteos periódicos impulsados por Funciones Aleatorias Verificables (VRF) de Switchboard.
-4. **Auto-Capitalización y Saldo Remanente**: Al ganar, los montos de bonos enteros se auto-capitalizan en nuevos bonos que entran al siguiente sorteo. Las fracciones ($< 1.00$ USDC) se acumulan en tu saldo de ganancias remanentes para desbloquear Bonos de Bonificación o para retiro manual.
+3. **Gana Premios**: Todo el rendimiento acumulado en el fondo se agrupa y se distribuye a bonos ganadores mediante sorteos periódicos impulsados por Funciones Aleatorias Verificables (VRF) de Switchboard.
+4. **Auto-Capitalización y Saldo Restante**: Al ganar, los montos de bonos enteros se auto-capitalizan en nuevos bonos que entran al siguiente sorteo. Las fracciones ($< 1.00$ USDC) se acumulan en tu saldo de ganancias restantes para desbloquear Bonos de Bonificación o para retiro manual.
 5. **Protección del 100% del Principal**: Puedes retirar todo tu depósito inicial de USDC en cualquier momento.
 
 ---
@@ -500,7 +500,7 @@ Todos los depósitos de USDC se agrupan en la cuenta del vault del protocolo y s
 
 ## Garantía de Principal Sin Pérdidas
 
-Dado que solo los *intereses generados* por Huma Finance se cosechan y se colocan en el bote de premios, tu capital inicial depositado nunca se gasta ni se expone a riesgos de sorteo. Al retirar, recibes el 100% de tu USDC depositado.
+Dado que solo los *intereses generados* por Huma Finance se cosechan y se colocan en la bolsa de premios, tu capital inicial depositado nunca se gasta ni se expone a riesgos de sorteo. Al retirar, recibes el 100% de tu USDC depositado.
 
 ---
 
@@ -509,7 +509,7 @@ Dado que solo los *intereses generados* por Huma Finance se cosechan y se coloca
 Al ganar un premio:
 - Los montos enteros de bonos se reinvierten automáticamente en nuevos bonos activos, aumentando la probabilidad del ganador en los sorteos siguientes.
 - Las ganancias fraccionarias ($< 1.00$ USDC) se acumulan de forma segura en \`unclaimed_non_reinvested_winnings\`.
-- Al agregarse el saldo remanente anterior con nuevas ganancias y superar el umbral de 1 dólar, se desbloquean automáticamente **Bonos de Bonificación**.
+- Al agregarse el saldo restante anterior con nuevas ganancias y superar el umbral de 1 dólar, se desbloquean automáticamente **Bonos de Bonificación**.
       `,
     },
   },
@@ -591,19 +591,19 @@ YieldBonds utiliza un registro de bonos zero-copy altamente eficiente para gesti
 
 ## Registro de Bonos y Reasignación Dinámica
 
-Los bonos se registran en la cuenta PDA zero-copy \`TicketRegistry\`. YieldBonds utiliza una cabecera optimizada de 104 bytes con acceso directo a bytes que se redimensiona dinámicamente en bloques de 10 KB, evitando costos elevados de renta inicial mientras soporta millones de boletos activos.
+Los bonos se registran en la cuenta PDA zero-copy \`TicketRegistry\`. YieldBonds utiliza una cabecera optimizada de 104 bytes con acceso directo a bytes que se redimensiona dinámicamente en bloques de 10 KB, evitando costos elevados de renta inicial mientras soporta millones de bonos activos.
 
 ---
 
-## Ganancias Remanentes (Saldo Residual) y Bonos de Bonificación
+## Ganancias Restantes (Saldo Restante) y Bonos de Bonificación
 
 Dado que las asignaciones de premios pueden incluir montos fraccionarios (ej. ganar $14.35 USDC):
 1. **14 Bonos Enteros** se emiten automáticamente y se agregan a tu saldo activo.
-2. **0.35 USDC de Saldo Remanente** se acreditan a tu saldo \`unclaimed_non_reinvested_winnings\`.
-3. Si posteriormente ganas otro premio con $0.70 USDC remanentes, el saldo combinado de $1.05 USDC emite automáticamente **1 Bono de Bonificación**, quedando $0.05 USDC remanentes.
+2. **0.35 USDC de Saldo Restante** se acreditan a tu saldo \`unclaimed_non_reinvested_winnings\`.
+3. Si posteriormente ganas otro premio con $0.70 USDC restantes, el saldo combinado de $1.05 USDC emite automáticamente **1 Bono de Bonificación**, quedando $0.05 USDC restantes.
 
 > [!NOTE]
-> **Enrutamiento Residual Seguro**: Si un fondo está en estado \`Closed\` o el registro alcanza su capacidad máxima, el 100% del premio se destina al saldo remanente para retiro manual instantáneo.
+> **Enrutamiento Residual Seguro**: Si un fondo está en estado \`Closed\` o el registro alcanza su capacidad máxima, el 100% del premio se destina al saldo restante para retiro manual instantáneo.
 
 ---
 
@@ -691,11 +691,11 @@ La transparencia y la equidad criptográfica son fundamentales en YieldBonds. Lo
 \`\`\`
 
 1. **Esperando Rendimiento**: El capital genera intereses durante la duración del ciclo (ej. 168 horas / 7 días).
-2. **Congelación de Cosecha (\`harvest_yield_and_commit\`)**: Se calcula el rendimiento de las acciones $PST de Huma, se fija el bote de premios, se toma la captura del registro y se solicita la semilla VRF.
+2. **Congelación de Cosecha (\`harvest_yield_and_commit\`)**: Se calcula el rendimiento de las acciones $PST de Huma, se fija la bolsa de premios, se toma la captura del registro y se solicita la semilla VRF.
 3. **Resolución VRF**: Los nodos del oráculo Switchboard resuelven la semilla aleatoria de 32 bytes en la blockchain.
-4. **Derivación de Ganadores (\`reveal_and_pick_winners\`)**: El contrato inteligente calcula deterministamente los boletos ganadores mediante la fórmula criptográfica de 44 bytes y los guarda en el \`PayoutRegistry\`.
+4. **Derivación de Ganadores (\`reveal_and_pick_winners\`)**: El contrato inteligente calcula deterministamente los bonos ganadores mediante la fórmula criptográfica de 44 bytes y los guarda en el \`PayoutRegistry\`.
 5. **Bloqueo Temporal de Liquidación**: Se activa una pausa de seguridad obligatoria (defecto: 300 segundos / 5 minutos) que permite la auditoría pública y evita exploits de front-running.
-6. **Crank de Reinversión (\`reinvest_winnings\`)**: Tras expirar el bloqueo, el crank reinvierte los bonos enteros y acredita los saldos remanentes.
+6. **Crank de Reinversión (\`reinvest_winnings\`)**: Tras expirar el bloqueo, el crank reinvierte los bonos enteros y acredita los saldos restantes.
 
 ---
 
@@ -713,7 +713,7 @@ Cualquier persona puede verificar los resultados de los sorteos con nuestra herr
 
 ## Cranks de Operación y Mecanismos de Recuperación
 
-- **\`prepare_draw\`**: Precalcula sumas acumuladas de boletos en registros grandes para mantenerse dentro del límite de 200,000 Unidades de Cómputo (CU) por transacción en Solana.
+- **\`prepare_draw\`**: Precalcula sumas acumuladas de bonos en registros grandes para mantenerse dentro del límite de 200,000 Unidades de Cómputo (CU) por transacción en Solana.
 - **\`crank_rebind_expired_randomness\`**: Si una solicitud del oráculo queda inactiva por $> 1,000$ slots ($\approx 6.6$ minutos), el crank solicita una nueva semilla sin requerir intervención manual del administrador.
 - **Estados del Sorteo**: \`AwaitingYield\`, \`AwaitingRandomness\`, \`Complete\`, \`Skipped\` (acumulación), \`Voided\`, \`ForceUnlocked\`, \`HaltedInsolvent\`, \`HaltedYieldSpike\`.
       `,
@@ -729,7 +729,7 @@ Cualquier persona puede verificar los resultados de los sorteos con nuestra herr
     },
     summary: {
       en: "How yield is calculated, interest distribution math, multi-tier allocations, and pot rollover protection.",
-      es: "Cómo se calcula el rendimiento, matemática de distribución, niveles y protección de acumulación de bote.",
+      es: "Cómo se calcula el rendimiento, matemática de distribución, niveles y protección de acumulación de bolsa.",
     },
     tags: ["yield", "huma", "apy", "math", "prizes", "rollover", "threshold"],
     content: {
@@ -783,7 +783,7 @@ El USDC depositado genera intereses a través de las facilidades de crédito ins
 - **APY de Crédito Huma**: $7.50\\%$ de retorno anual
 - **Rendimiento Semanal Generado**: $\\approx 1,442.30$ USDC
 
-¡Los $1,442.30 USDC generados en un ciclo de 7 días constituyen el bote de premios para el sorteo de ese ciclo!
+¡Los $1,442.30 USDC generados en un ciclo de 7 días constituyen la bolsa de premios para el sorteo de ese ciclo!
 
 ---
 
@@ -799,11 +799,11 @@ Ejemplo de Configuración de 2 Niveles:
 
 ---
 
-## Objetivo Mínimo de Bote y Protección de Acumulación (Rollover)
+## Objetivo Mínimo de Bolsa y Protección de Acumulación (Rollover)
 
 Para proteger a los usuarios de sorteos con rendimientos insignificantes, cada fondo define un \`min_yield_threshold\` (ej. $100.00 USDC):
 - Si el rendimiento cosechado es inferior al umbral, el sorteo se marca como **Omitido (Skipped)**.
-- **100% del Rendimiento se Acumula**: Todo el rendimiento permanece en Huma Finance, sumándose para formar un bote aún mayor en el siguiente ciclo sin arriesgar el capital principal.
+- **100% del Rendimiento se Acumula**: Todo el rendimiento permanece en Huma Finance, sumándose para formar una bolsa aún mayor en el siguiente ciclo sin arriesgar el capital principal.
       `,
     },
   },
@@ -879,7 +879,7 @@ Para salvaguardar el capital de los depositantes, YieldBonds incluye interruptor
 
 - **Pruebas Rigurosas LiteSVM**: La lógica de los contratos inteligentes está respaldada por más de 100 pruebas de integración LiteSVM que cubren desbordamientos matemáticos, reentrancia y casos extremos.
 - **Gobernanza Multisig**: Las operaciones administrativas críticas están protegidas por un **Squads v4 Multisig** que requiere la aprobación de múltiples firmantes independientes.
-- **Riesgo de Fondos de Crédito**: El rendimiento depende de los prestatarios institucionales de Huma Finance. Un menor rendimiento de los portafolios de crédito puede reducir temporalmente el monto del bote de premios.
+- **Riesgo de Fondos de Crédito**: El rendimiento depende de los prestatarios institucionales de Huma Finance. Un menor rendimiento de los portafolios de crédito puede reducir temporalmente el monto de la bolsa de premios.
       `,
     },
   },
@@ -936,12 +936,12 @@ Eliminamos tecnicismos innecesarios en la interfaz de YieldBonds. Esta es nuestr
 | **Sign Transaction** | **Confirmar Acción** | Aprobar la solicitud de transacción dentro de tu extensión de billetera. |
 | **PDA (Program Derived Address)** | **Cuenta del Protocolo / Vault** | Cuenta administrada por contratos inteligentes para almacenar fondos o registros de bonos. |
 | **Blockhash Expired** | **Tiempo de Espera Agotado** | La red estaba ocupada y la ventana de validez caducó. Puedes reintentar con total seguridad. |
-| **Remaining Winnings** | **Saldo Residual (Dust)** | Ganancias fraccionarias ($< 1.00$ USDC) que se acumulan para desbloquear Bonos de Bonificación o para retiro. |
+| **Remaining Winnings** | **Ganancias Restantes / Saldo Restante (Dust)** | Ganancias fraccionarias ($< 1.00$ USDC) que se acumulan para desbloquear Bonos de Bonificación o para retiro. |
 | **Active Bonds** | **Bonos Activos** | Bonos depositados en el fondo con derecho a participar en cada sorteo semanal. |
 | **Pending Bonds** | **Bonos en Espera** | Depósitos del ciclo actual que se activan en la próxima captura de cosecha. |
-| **Bonus Bond** | **Bono de Bonificación** | Un bono completo generado automáticamente de la agregación de saldos residuales. |
+| **Bonus Bond** | **Bono de Bonificación** | Un bono completo generado automáticamente de la agregación de saldos restantes. |
 | **Settlement Timelock** | **Pausa de Verificación** | Pausa de seguridad de 5 minutos tras el sorteo para permitir la auditoría pública antes del pago. |
-| **Draw Target** | **Meta Mínima del Bote** | Rendimiento mínimo para realizar el sorteo; si no se alcanza, el 100% se acumula para el siguiente ciclo. |
+| **Draw Target** | **Meta Mínima de la Bolsa** | Rendimiento mínimo para realizar el sorteo; si no se alcanza, el 100% se acumula para el siguiente ciclo. |
       `,
     },
   },
@@ -1076,13 +1076,13 @@ YieldBonds ofrece orientación contextual e indicadores visuales en toda la apli
 
 ## Componentes e Indicadores Interactivos
 
-- **Tooltips Informativos (\`InteractiveTooltip\`)**: Pasa el cursor o toca el icono ℹ️ junto a APY, TVL y Meta del Bote para ver explicaciones instantáneas en lenguaje sencillo.
+- **Tooltips Informativos (\`InteractiveTooltip\`)**: Pasa el cursor o toca el icono ℹ️ junto a APY, TVL y Meta de la Bolsa para ver explicaciones instantáneas en lenguaje sencillo.
 - **Aviso de SOL Bajo**: Aparece automáticamente cuando tu saldo es $< 0.01$ SOL, recordando recargar gas antes de depositar.
-- **Banner de Ganancias Remanentes (\`UnclaimedBanner\`)**: Muestra tu saldo residual acumulado y te permite retirarlo con un solo clic.
+- **Banner de Ganancias Restantes (\`UnclaimedBanner\`)**: Muestra tu saldo restante acumulado y te permite retirarlo con un solo clic.
 - **Insignia de Bono de Bonificación (\`BonusBondDustBadge\`)**: Muestra cuánto saldo fraccionario está acumulado para desbloquear tu siguiente bono de bonificación.
 - **Estado de Rendimiento Mínimo (\`MinimumYieldStatus\`)**: Barra de progreso visual que indica si el ciclo alcanzó el \`min_yield_threshold\` o se acumulará (rollover).
-- **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de cosecha, cuenta de aleatoriedad Switchboard, boletos bloqueados, bote y timelocks.
-- **Verificador de Equidad Demostrable (\`ProvableFairnessVerifier\`)**: Herramienta matemática para recalcular deterministamente los boletos ganadores a partir de semillas VRF.
+- **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de cosecha, cuenta de aleatoriedad Switchboard, bonos bloqueados, bolsa y bloqueos de tiempo (timelocks).
+- **Verificador de Equidad Demostrable (\`ProvableFairnessVerifier\`)**: Herramienta matemática para recalcular deterministamente los bonos ganadores a partir de semillas VRF.
 - **Registro de Actividad y Filtros (\`ActivityFeed\`)**: Búsqueda en vivo y filtros para depósitos, reclamos y reinversiones automáticas.
 - **Historial de Sorteos (\`DrawTelemetryGrid\`)**: Registro histórico completo de sorteos anteriores con verificación criptográfica de auditoría.
       `,
@@ -1339,14 +1339,14 @@ Yes. Smart contracts are developed with Anchor in Rust, rigorously tested with L
 ### 1. ¿Puedo perder mi depósito inicial?
 **No.** YieldBonds es un protocolo sin pérdidas. Tu depósito principal de USDC permanece protegido en contratos inteligentes no custodiales. Solo los intereses de Huma Finance se otorgan como premios.
 
-### 2. ¿Cómo se eligen los boletos ganadores?
+### 2. ¿Cómo se eligen los bonos ganadores?
 Los ganadores se seleccionan mediante Switchboard On-Demand VRF con una fórmula criptográfica SHA-256 de 44 bytes. Cada sorteo es demostrablemente justo y verificable en cadena.
 
 ### 3. ¿Con qué frecuencia se realizan los sorteos?
 Los sorteos se celebran en ciclos recurrentes (típicamente semanales, 168 horas).
 
 ### 4. ¿Qué sucede cuando gano un premio?
-Los premios en bonos enteros se reinvierten automáticamente como nuevos bonos activos para el siguiente sorteo. Las fracciones ($< 1.00$ USDC) se acumulan en tu saldo remanente para desbloquear Bonos de Bonificación o para retiro manual.
+Los premios en bonos enteros se reinvierten automáticamente como nuevos bonos activos para el siguiente sorteo. Las fracciones ($< 1.00$ USDC) se acumulan en tu saldo restante para desbloquear Bonos de Bonificación o para retiro manual.
 
 ### 5. ¿Cuáles son las comisiones del protocolo?
 YieldBonds no cobra comisiones por depositar o retirar. Solo pagas las comisiones habituales de la red Solana ($< 0.005$ USD). Las comisiones del protocolo se deducen únicamente del rendimiento cosechado antes de repartir los premios.
@@ -1354,14 +1354,14 @@ YieldBonds no cobra comisiones por depositar o retirar. Solo pagas las comisione
 ### 6. ¿Qué es el Bloqueo Temporal de Liquidación (Settlement Timelock)?
 Cada sorteo completado impone una pausa de seguridad de 5 minutos antes del pago para permitir la auditoría pública y proteger contra condiciones de carrera.
 
-### 7. ¿Qué sucede si el bote no alcanza el objetivo mínimo?
-Si el rendimiento cosechado es inferior al \`min_yield_threshold\`, el sorteo se omite y el 100% del rendimiento se acumula en el bote del siguiente ciclo.
+### 7. ¿Qué sucede si la bolsa no alcanza el objetivo mínimo?
+Si el rendimiento cosechado es inferior al \`min_yield_threshold\`, el sorteo se omite y el 100% del rendimiento se acumula en la bolsa del siguiente ciclo.
 
 ### 8. ¿Cómo funcionan los retiros?
 Puedes retirar tus depósitos de USDC en cualquier momento. Si hay liquidez en el vault, se ejecuta al instante. Si los fondos están invertidos en Huma, la redención pendiente se liquida de forma asíncrona.
 
 ### 9. ¿Qué es un Bono de Bonificación?
-Un Bono de Bonificación es un boleto activo adicional emitido automáticamente cuando el saldo residual acumulado supera el umbral de 1.00 USDC.
+Un Bono de Bonificación es un bono activo adicional emitido automáticamente cuando el saldo restante acumulado supera el umbral de 1.00 USDC.
 
 ### 10. ¿Están auditados los contratos inteligentes?
 Sí. Los contratos inteligentes están desarrollados con Anchor en Rust, probados con suites de integración LiteSVM y gobernados por controles multisig Squads v4.
@@ -1512,7 +1512,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "RegistryFull",
     diagnosis: {
       en: "The prize pool ticket registry has reached maximum entry capacity for its current allocated size.",
-      es: "El registro de boletos del fondo ha alcanzado la capacidad máxima para su tamaño actual.",
+      es: "El registro de bonos del fondo ha alcanzado la capacidad máxima para su tamaño actual.",
     },
     solution: {
       en: "Wait for the automated crank to trigger dynamic account resizing (resize_registry).",
@@ -1531,7 +1531,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     solution: {
       en: "Pre-allocate at least REGISTRY_INITIAL_SIZE bytes when initializing the ticket registry.",
-      es: "Preasigna al menos REGISTRY_INITIAL_SIZE bytes al inicializar el registro de boletos.",
+      es: "Preasigna al menos REGISTRY_INITIAL_SIZE bytes al inicializar el registro de bonos.",
     },
     category: "admin",
   },
@@ -1542,7 +1542,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "RegistryAtMaxSize",
     diagnosis: {
       en: "The ticket registry account has reached Solana's maximum 10 MB account size limit.",
-      es: "La cuenta del registro de boletos ha alcanzado el límite máximo de 10 MB en Solana.",
+      es: "La cuenta del registro de bonos ha alcanzado el límite máximo de 10 MB en Solana.",
     },
     solution: {
       en: "The protocol will route new entries to supplementary registries or a new pool tier.",
@@ -1602,11 +1602,11 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InvalidWinnerIndex",
     diagnosis: {
       en: "The derived winner ticket index is out of bounds relative to the locked ticket count.",
-      es: "El índice de boleto ganador derivado está fuera de los límites de boletos bloqueados.",
+      es: "El índice de bono ganador derivado está fuera de los límites de bonos bloqueados.",
     },
     solution: {
       en: "Re-run winner selection with valid locked ticket bounds.",
-      es: "Vuelve a ejecutar la selección de ganadores con límites válidos de boletos.",
+      es: "Vuelve a ejecutar la selección de ganadores con límites válidos de bonos.",
     },
     category: "crank",
   },
@@ -1692,11 +1692,11 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InvalidDrawState",
     diagnosis: {
       en: "The draw cycle has an invalid locked ticket count or prize pot amount.",
-      es: "El ciclo de sorteo tiene una cantidad inválida de boletos bloqueados o bote de premios.",
+      es: "El ciclo de sorteo tiene una cantidad inválida de bonos bloqueados o bolsa de premios.",
     },
     solution: {
       en: "Wait for yield harvest and locked ticket snapshot to complete before revealing winners.",
-      es: "Espera a que se completen la cosecha y la captura de boletos antes de revelar ganadores.",
+      es: "Espera a que se completen la cosecha y la captura de bonos antes de revelar ganadores.",
     },
     category: "anchor",
   },
@@ -1797,7 +1797,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "NoWinningsToClaim",
     diagnosis: {
       en: "User has zero unclaimed non-reinvested winnings (dust balance) to withdraw.",
-      es: "El usuario no tiene ganancias no reinvertidas (saldo residual) para retirar.",
+      es: "El usuario no tiene ganancias no reinvertidas (saldo restante) para retirar.",
     },
     solution: {
       en: "No action required; all prior winnings have already been claimed or compounded into active bonds.",
@@ -1932,7 +1932,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InvalidUserEntryHint",
     diagnosis: {
       en: "The user entry index hint provided to the ticket registry is out of bounds or misaligned.",
-      es: "El índice de entrada de usuario proporcionado al registro de boletos no es válido.",
+      es: "El índice de entrada de usuario proporcionado al registro de bonos no es válido.",
     },
     solution: {
       en: "Re-fetch the user's latest ticket registry index from the chain before submitting transaction.",
@@ -1947,11 +1947,11 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InsufficientPendingTickets",
     diagnosis: {
       en: "User has fewer pending tickets than requested for sale or cancellation.",
-      es: "El usuario tiene menos boletos pendientes que los solicitados para venta o cancelación.",
+      es: "El usuario tiene menos bonos pendientes que los solicitados para venta o cancelación.",
     },
     solution: {
       en: "Check your pending ticket balance and adjust the requested amount.",
-      es: "Verifica tu saldo de boletos pendientes y ajusta la cantidad solicitada.",
+      es: "Verifica tu saldo de bonos pendientes y ajusta la cantidad solicitada.",
     },
     category: "anchor",
   },
@@ -1962,7 +1962,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InsufficientActiveTickets",
     diagnosis: {
       en: "User has fewer active tickets than requested for bond redemption.",
-      es: "El usuario tiene menos boletos activos que los solicitados para redención.",
+      es: "El usuario tiene menos bonos activos que los solicitados para redención.",
     },
     solution: {
       en: "Check your active bond balance on the dashboard and enter an amount within your balance.",
@@ -2056,7 +2056,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     solution: {
       en: "You can still withdraw deposits and claim remaining dust winnings; new deposits are disallowed.",
-      es: "Aún puedes retirar depósitos y reclamar ganancias remanentes; no se permiten nuevos depósitos.",
+      es: "Aún puedes retirar depósitos y reclamar ganancias restantes; no se permiten nuevos depósitos.",
     },
     category: "anchor",
   },
@@ -2195,7 +2195,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     },
     solution: {
       en: "Pass the exact winner public key matching the deterministic ticket derivation.",
-      es: "Envía la clave pública exacta del ganador que corresponde a la derivación del boleto.",
+      es: "Envía la clave pública exacta del ganador que corresponde a la derivación del bono.",
     },
     category: "crank",
   },
@@ -2282,11 +2282,11 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     name: "InvalidRegistryState",
     summary: {
       en: "Ticket registry buffer layout is invalid.",
-      es: "La estructura del registro de boletos es inválida.",
+      es: "La estructura del registro de bonos es inválida.",
     },
     diagnosis: {
       en: "Ticket registry buffer byte range is out of bounds or memory alignment is violated.",
-      es: "El rango de bytes del registro de boletos está fuera de límites o desalineado.",
+      es: "El rango de bytes del registro de bonos está fuera de límites o desalineado.",
     },
     solution: {
       en: "Resize registry account to accommodate all active depositors.",

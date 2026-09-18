@@ -171,7 +171,7 @@ export function formatLocalizedActivityDescription(
 
   // Verb & phrase replacements
   result = result.replace(/\bDeposited\b/gi, "Depositó");
-  result = result.replace(/\bSold\b/gi, "Vendido");
+  result = result.replace(/\bSold\b/gi, "Vendió");
   result = result.replace(/\bWon\b/gi, "Ganó");
   result = result.replace(/\bAuto-reinvested\b/gi, "Auto-reinvertido");
   result = result.replace(
@@ -180,7 +180,7 @@ export function formatLocalizedActivityDescription(
   );
   result = result.replace(
     /\bClaimed accumulated dust winnings of\b/gi,
-    "Reclamó ganancias residuales acumuladas de"
+    "Reclamó ganancias restantes acumuladas de"
   );
   result = result.replace(
     /\bClaimed settled redemption of\b/gi,
@@ -188,7 +188,7 @@ export function formatLocalizedActivityDescription(
   );
   result = result.replace(
     /\bClaimed settled bond principal of\b/gi,
-    "Reclamó principal de bonos liquidado de"
+    "Reclamó capital de bonos liquidado de"
   );
   result = result.replace(
     /\bClaimed settled fees of\b/gi,
@@ -199,7 +199,7 @@ export function formatLocalizedActivityDescription(
     "Reclamó ganancias de premios liquidadas de"
   );
   result = result.replace(/\bClaimed settled\b/gi, "Reclamó liquidación de");
-  result = result.replace(/\bbond principal\b/gi, "principal de bonos");
+  result = result.replace(/\bbond principal\b/gi, "capital de bonos");
   result = result.replace(/\bprize winnings\b/gi, "ganancias de premios");
   result = result.replace(/\bfees\b/gi, "comisiones");
   result = result.replace(
@@ -214,17 +214,17 @@ export function formatLocalizedActivityDescription(
   result = result.replace(/\bPending settle\b/gi, "Pendiente de liquidación");
   result = result.replace(/\bfrom\b/gi, "de");
   result = result.replace(/\bwinnings\b/gi, "ganancias");
-  result = result.replace(/\bprior dust\b/gi, "residual anterior");
-  result = result.replace(/\baccumulated dust\b/gi, "residual acumulado");
+  result = result.replace(/\bprior dust\b/gi, "saldo restante anterior");
+  result = result.replace(/\baccumulated dust\b/gi, "saldo restante acumulado");
   result = result.replace(/\btickets\b/gi, "bonos");
   result = result.replace(/\bticket\b/gi, "bono");
   result = result.replace(/\bbonds\b/gi, "bonos");
   result = result.replace(/\bbond\b/gi, "bono");
   result = result.replace(/\bDraw #/gi, "Sorteo #");
-  result = result.replace(/\bdust\b/gi, "residual");
+  result = result.replace(/\bdust\b/gi, "saldo restante");
   result = result.replace(/\bConsolation\b/gi, "Consolación");
   result = result.replace(/\bRunner-up\b/gi, "Segundo Lugar");
-  result = result.replace(/\bJackpot\b/gi, "Premio Mayor");
+  result = result.replace(/\bJackpot\b/gi, "Gran Premio");
 
   return result;
 }

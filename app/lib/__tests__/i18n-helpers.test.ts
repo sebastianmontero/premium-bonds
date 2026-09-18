@@ -354,5 +354,45 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       assert.ok(result.includes("Depositó"));
       assert.ok(result.includes("bonos"));
     });
+
+    it("should translate updated financial and status terms if locale is 'es'", () => {
+      const sellText = "Sold 1 bond (5.00 USDC) · Pending settle";
+      const sellResult = formatLocalizedActivityDescription(sellText, "es");
+      assert.ok(sellResult.includes("Vendió"));
+      assert.ok(sellResult.includes("Pendiente de liquidación"));
+
+      const claimText =
+        "Claimed settled bond principal of 30.00 USDC to wallet";
+      const claimResult = formatLocalizedActivityDescription(claimText, "es");
+      assert.ok(claimResult.includes("capital de bonos"));
+
+      const jackpotText = "Won 100.00 USDC Jackpot";
+      const jackpotResult = formatLocalizedActivityDescription(
+        jackpotText,
+        "es"
+      );
+      assert.ok(jackpotResult.includes("Gran Premio"));
+    });
+
+    it("should translate dust and remainder terminology if locale is 'es'", () => {
+      const dustClaimText =
+        "Claimed accumulated dust winnings of 0.45 USDC to wallet";
+      const dustResult = formatLocalizedActivityDescription(
+        dustClaimText,
+        "es"
+      );
+      assert.ok(
+        dustResult.includes("Reclamó ganancias restantes acumuladas de")
+      );
+      assert.ok(dustResult.includes("a la billetera"));
+
+      const autoDustText =
+        "Auto-reinvested 1 bond from 1.00 USDC (prior dust: 0.50 USDC)";
+      const autoDustResult = formatLocalizedActivityDescription(
+        autoDustText,
+        "es"
+      );
+      assert.ok(autoDustResult.includes("saldo restante anterior"));
+    });
   });
 });
