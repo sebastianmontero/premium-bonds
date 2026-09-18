@@ -93,6 +93,11 @@ export function createOptimisticActivity(
       ? Number(params.amountUsdc)
       : params.amountUsdc;
 
+  const bonds = "bonds" in params ? params.bonds : undefined;
+  const cycleId = "cycleId" in params ? params.cycleId : undefined;
+  const redemptionType =
+    "redemptionType" in params ? params.redemptionType : undefined;
+
   return {
     id:
       params.customId ??
@@ -102,6 +107,12 @@ export function createOptimisticActivity(
     description: formatActivityDescription(params),
     amount: numAmount,
     txSignature: params.txSignature,
+    metadata: {
+      bonds,
+      cycleId,
+      redemptionType,
+      amountUsdc: numAmount,
+    },
   };
 }
 

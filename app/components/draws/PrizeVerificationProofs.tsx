@@ -29,6 +29,7 @@ function ProofCodeCard({
   explorerLabel = "Solscan",
 }: ProofCodeCardProps) {
   const t = useTranslations("PrizeDetails");
+  const tCommon = useTranslations("Common");
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -107,7 +108,9 @@ function ProofCodeCard({
                 href={explorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label={`View on ${explorerLabel} (opens in new tab)`}
+                aria-label={tCommon("explorer.viewOnExplorerGeneric", {
+                  provider: explorerLabel,
+                })}
                 className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
               >
                 <svg

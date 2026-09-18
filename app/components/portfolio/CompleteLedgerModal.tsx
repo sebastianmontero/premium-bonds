@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from "react";
 import type { PrizeHistoryEntry, DrawDisplayConfig } from "@/app/types";
 import {
   formatTokenAmount,
-  tierLabel,
   tierBadgeClass,
   formatLocalDate,
   formatTicketNumber,
@@ -18,6 +17,7 @@ import { PaginationControls } from "./PaginationControls";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { useTranslations, useFormatter } from "next-intl";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
 import { RemainingWinningsBadge } from "@/app/components/common/RemainingWinningsBadge";
@@ -69,6 +69,7 @@ export default function CompleteLedgerModal({
   entries: fallbackEntries = [],
 }: CompleteLedgerModalProps) {
   const t = useTranslations("Ledger");
+  const getTierLabel = useTierLabel();
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
   const modalRef = useRef<HTMLDivElement>(null);
@@ -269,7 +270,7 @@ export default function CompleteLedgerModal({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close modal"
+            aria-label={t("close")}
             className="rounded-lg p-1.5 text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/5 transition cursor-pointer"
           >
             <svg
@@ -587,7 +588,7 @@ export default function CompleteLedgerModal({
                           </div>
                         </div>
                         <span className={tierBadgeClass(entry.tierIndex)}>
-                          {tierLabel(entry.tierIndex)}
+                          {getTierLabel(entry.tierIndex)}
                         </span>
                       </div>
 
@@ -894,7 +895,7 @@ export default function CompleteLedgerModal({
                           {/* Tier Badge */}
                           <td className="py-3 px-3 whitespace-nowrap">
                             <span className={tierBadgeClass(entry.tierIndex)}>
-                              {tierLabel(entry.tierIndex)}
+                              {getTierLabel(entry.tierIndex)}
                             </span>
                           </td>
 

@@ -32,6 +32,7 @@ export function WithdrawModal({
   onWithdraw,
 }: WithdrawModalProps) {
   const t = useTranslations("Modals");
+  const tPools = useTranslations("Pools");
   const [ticketAmount, setTicketAmount] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const runner = useTransactionRunner();
@@ -106,7 +107,11 @@ export function WithdrawModal({
           title={t("withdrawTitle")}
           customSuccessMessage={
             runner.stage === "success"
-              ? `Your ${parsedTickets.toLocaleString("en-US")} bonds have been burned. Redemption request for ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol} is now pending settlement.`
+              ? t("withdrawSuccessDesc", {
+                  bonds: parsedTickets,
+                  amount: formatTokenAmount(withdrawValue, pool.tokenDecimals),
+                  symbol: pool.tokenSymbol,
+                })
               : undefined
           }
           error={runner.error}
@@ -150,7 +155,7 @@ export function WithdrawModal({
                   {t("withdrawTitle")}
                 </h2>
                 <p className="text-xs text-on-surface-variant">
-                  Initiate Huma redemption to sell bonds
+                  {tPools("initiateHumaRedemption")}
                 </p>
               </div>
             </div>
@@ -193,11 +198,10 @@ export function WithdrawModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-tertiary">
-                  Draw in progress!
+                  {tPools("drawInProgressTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  The pool is temporarily frozen to pick winners. Please check
-                  back in a few minutes.
+                  {tPools("drawInProgressWithdrawDesc")}
                 </p>
               </div>
             </div>
@@ -221,11 +225,10 @@ export function WithdrawModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-amber-200">
-                  Pool is paused
+                  {tPools("poolPausedTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  Withdrawals are temporarily halted while the emergency pause
-                  is active.
+                  {tPools("poolPausedWithdrawDesc")}
                 </p>
               </div>
             </div>
@@ -249,11 +252,10 @@ export function WithdrawModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-on-surface">
-                  Pool is closed (sunset)
+                  {tPools("poolClosedSunsetTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  You may withdraw 100% of your deposited bond principal without
-                  penalty.
+                  {tPools("poolClosedSunsetDesc")}
                 </p>
               </div>
             </div>
@@ -273,9 +275,11 @@ export function WithdrawModal({
                 {pool.tokenSymbol}
               </p>
               <p className="text-[10px] text-on-surface-variant">
-                {maxTickets.toLocaleString("en-US")} bonds (
-                {userTickets.activeTicketsCount} active ·{" "}
-                {userTickets.pendingTicketsCount} pending)
+                {tPools("bondsBalanceSummary", {
+                  count: maxTickets,
+                  active: userTickets.activeTicketsCount,
+                  pending: userTickets.pendingTicketsCount,
+                })}
               </p>
             </div>
           </div>
@@ -341,14 +345,10 @@ export function WithdrawModal({
               </svg>
               <div className="space-y-0.5">
                 <p className="text-xs font-semibold text-amber-300">
-                  Asynchronous Redemption
+                  {tPools("asyncRedemptionTitle")}
                 </p>
                 <p className="text-[11px] text-amber-200/70 leading-normal">
-                  Withdrawing initiates a Huma Finance redemption request. This
-                  process is asynchronous. Once requested, your tickets are
-                  burned immediately, and your funds will settle. You will need
-                  to claim the settled USDC from the pending redemptions panel
-                  once complete.
+                  {tPools("asyncRedemptionDesc")}
                 </p>
               </div>
             </div>
@@ -358,20 +358,20 @@ export function WithdrawModal({
           {parsedTickets > 0 && (
             <div className="space-y-2 rounded-xl bg-surface-container/40 px-4 py-3 text-xs">
               <div className="flex justify-between text-on-surface-variant">
-                <span>Tickets to sell</span>
+                <span>{tPools("bondsToSell")}</span>
                 <span className="font-semibold text-on-surface">
                   {parsedTickets}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant">
-                <span>You receive</span>
+                <span>{tPools("youReceive")}</span>
                 <span className="font-mono font-semibold text-on-surface">
                   {formatTokenAmount(withdrawValue, pool.tokenDecimals)}{" "}
                   {pool.tokenSymbol}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant">
-                <span>Remaining tickets</span>
+                <span>{tPools("remainingBonds")}</span>
                 <span className="font-mono text-on-surface">
                   {(maxTickets - parsedTickets).toLocaleString("en-US")}
                 </span>
@@ -389,14 +389,22 @@ export function WithdrawModal({
             className="w-full rounded-xl bg-error/95 px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-error cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {pool.isFrozenForDraw
-              ? "Pool Frozen — Try Later"
+              ? tPools("drawInProgress")
               : pool.status === "Paused"
-                ? "Pool Paused"
-                : parsedTickets > maxTickets
-                  ? "Exceeds Balance"
-                  : parsedTickets > 0
-                    ? `Request Withdrawal — ${formatTokenAmount(withdrawValue, pool.tokenDecimals)} ${pool.tokenSymbol}`
-                    : t("enterAmount")}
+                ? tPools("statusPaused")
+                : pool.status === "Closed"
+                  ? tPools("statusClosed")
+                  : parsedTickets > maxTickets
+                    ? t("exceedsBalance")
+                    : parsedTickets > 0
+                      ? t("confirmWithdrawAmount", {
+                          amount: formatTokenAmount(
+                            withdrawValue,
+                            pool.tokenDecimals
+                          ),
+                          symbol: pool.tokenSymbol,
+                        })
+                      : t("enterAmount")}
           </button>
         </div>
       )}

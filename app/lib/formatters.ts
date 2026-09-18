@@ -361,24 +361,41 @@ export function formatTierPayoutAmount(
   return formatLiveYieldMetric(amount, tokenSymbol, "", precision);
 }
 
+export type TierTranslationKey = "grand" | "runnerUp" | "consolation" | "tierN";
+export type TierTranslationFn = (
+  key: TierTranslationKey,
+  values?: { tier: number }
+) => string;
+
 /**
- * Resolves localized tier label consistently across PoolCard and PrizeTiersModal.
+ * Resolves localized tier label consistently across PoolCard, PrizeTiersModal, and winner tables.
  */
 export function getLocalizedTierLabel(
   tierIndex: number,
-  totalTiersCount: number,
-  t: (key: string, values?: Record<string, string | number | Date>) => string
+  t: TierTranslationFn,
+  totalTiersCount: number = 3
 ): string {
+  if (!Number.isFinite(tierIndex) || tierIndex < 0) {
+    return "";
+  }
+  const safeTotal =
+    Number.isFinite(totalTiersCount) && totalTiersCount > 0
+      ? Math.floor(totalTiersCount)
+      : 3;
+
+  if (tierIndex >= safeTotal) {
+    return t("tierN", { tier: tierIndex + 1 });
+  }
+
   switch (tierIndex) {
     case 0:
       return t("grand");
     case 1:
       return t("runnerUp");
     default:
-      if (totalTiersCount <= 3) {
-        return t("consolation");
-      }
-      return t("tierN", { tier: tierIndex + 1 });
+      return safeTotal <= 3
+        ? t("consolation")
+        : t("tierN", { tier: tierIndex + 1 });
   }
 }
 
@@ -443,7 +460,10 @@ export function formatCurrencyAmount(
   return isUsd ? `$${formatted}` : `${formatted} ${tokenSymbol}`;
 }
 
-/** Map tier index to a human label. */
+/**
+ * @deprecated Use useTierLabel() React hook or getLocalizedTierLabel() for localized tier names.
+ * Map tier index to a human label (English fallback).
+ */
 export function tierLabel(tierIndex: number): string {
   switch (tierIndex) {
     case 0:

@@ -44,17 +44,17 @@ export function VrfSeedBadge({
 
   const alignClass =
     tooltipAlign === "left"
-      ? "left-0"
+      ? "start-0"
       : tooltipAlign === "right"
-        ? "right-0"
-        : "left-1/2 -translate-x-1/2";
+        ? "end-0"
+        : "start-1/2 -translate-x-1/2";
 
   return (
     <button
       type="button"
       data-prevent-row-click="true"
       onClick={handleCopy}
-      aria-label={`Copy VRF Randomness Seed ${seedHex}`}
+      aria-label={t("copyVrfAriaLabel", { seed: seedHex })}
       title={t("copyVrfTitle")}
       className={`inline-flex items-center gap-1.5 text-[10px] leading-tight font-mono text-on-surface-variant/60 hover:text-primary hover:border-primary/30 bg-surface-container/50 hover:bg-surface-container/80 border border-surface-bright/10 px-2 py-0.5 rounded-lg transition-all duration-200 relative group/vrf cursor-pointer select-none shrink-0 align-middle focus-visible:ring-1 focus-visible:ring-primary outline-none hover:z-50 focus-within:z-50 ${className}`}
     >

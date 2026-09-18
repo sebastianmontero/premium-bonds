@@ -87,7 +87,7 @@ export function PortfolioHeroRow({
             </p>
             <InteractiveTooltip
               content={t("totalPortfolioValueTooltip")}
-              ariaLabel="Portfolio Value Details"
+              ariaLabel={t("totalPortfolioValueAria")}
               align="left"
             >
               <InfoIcon />
@@ -105,7 +105,7 @@ export function PortfolioHeroRow({
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5 relative z-10">
           <InteractiveTooltip
             content={t("bondsInvestedTooltip")}
-            ariaLabel="Bonds Principal Status"
+            ariaLabel={t("bondsInvestedAria")}
             align="left"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
@@ -119,7 +119,7 @@ export function PortfolioHeroRow({
           {redeemingAmount > 0 && (
             <InteractiveTooltip
               content={t("redeemingTooltip")}
-              ariaLabel="Redeeming Principal Status"
+              ariaLabel={t("redeemingAria")}
               align="left"
             >
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-secondary/20 bg-secondary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-secondary/40 hover:bg-secondary/20 transition-all">
@@ -134,7 +134,7 @@ export function PortfolioHeroRow({
           {unclaimedAmount > 0 && (
             <InteractiveTooltip
               content={t("unclaimedDustTooltip")}
-              ariaLabel="Unclaimed Remaining Status"
+              ariaLabel={t("unclaimedDustAria")}
               align="left"
             >
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] leading-tight text-amber-300 backdrop-blur-sm cursor-help hover:border-amber-500/45 hover:bg-amber-500/20 transition-all">
@@ -172,7 +172,7 @@ export function PortfolioHeroRow({
             </p>
             <InteractiveTooltip
               content={t("bondsInfoTooltip")}
-              ariaLabel="Bonds Information"
+              ariaLabel={t("bondsInfoAria")}
               align="left"
             >
               <InfoIcon />
@@ -187,7 +187,7 @@ export function PortfolioHeroRow({
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           <InteractiveTooltip
             content={t("activeBondsTooltip", { cycleId })}
-            ariaLabel="Active Bonds Status"
+            ariaLabel={t("activeBondsAria")}
             align="left"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-secondary/20 bg-secondary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-secondary/40 hover:bg-secondary/20 transition-all">
@@ -200,7 +200,7 @@ export function PortfolioHeroRow({
 
           <InteractiveTooltip
             content={t("pendingBondsTooltip", { nextCycleId })}
-            ariaLabel="Pending Bonds Status"
+            ariaLabel={t("pendingBondsAria")}
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
               <span className="font-mono font-medium text-on-surface">
@@ -236,7 +236,7 @@ export function PortfolioHeroRow({
             </p>
             <InteractiveTooltip
               content={t("lifetimeWinningsTooltip")}
-              ariaLabel="Lifetime Winnings Information"
+              ariaLabel={t("lifetimeWinningsAria")}
               align="left"
             >
               <InfoIcon />
@@ -254,7 +254,7 @@ export function PortfolioHeroRow({
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           <InteractiveTooltip
             content={t("reinvestedWinningsTooltip")}
-            ariaLabel="Reinvested Winnings Status"
+            ariaLabel={t("reinvestedWinningsAria")}
             align="left"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-tertiary/20 bg-tertiary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-tertiary/40 hover:bg-tertiary/20 transition-all">
@@ -267,7 +267,7 @@ export function PortfolioHeroRow({
 
           <InteractiveTooltip
             content={t("nonReinvestedWinningsTooltip")}
-            ariaLabel="Remaining Winnings Status"
+            ariaLabel={t("remainingWinningsAria")}
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-white/25 hover:bg-white/[0.08] transition-all">
               <span className="font-mono font-medium text-on-surface">
@@ -302,7 +302,7 @@ export function PortfolioHeroRow({
             </p>
             <InteractiveTooltip
               content={t("annualDrawEntriesTooltip")}
-              ariaLabel="Annual Draw Entries Information"
+              ariaLabel={t("annualDrawEntriesAria")}
               align="left"
             >
               <InfoIcon />
@@ -320,7 +320,7 @@ export function PortfolioHeroRow({
               tickets: totalTickets,
               draws: drawsPerYear,
             })}
-            ariaLabel="Annual Draw Calculation"
+            ariaLabel={t("annualDrawCalcAria")}
             align="left"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-secondary/20 bg-secondary/10 px-1.5 py-0.5 text-[11px] leading-tight text-on-surface-variant backdrop-blur-sm cursor-help hover:border-secondary/40 hover:bg-secondary/20 transition-all">
@@ -335,7 +335,7 @@ export function PortfolioHeroRow({
 
           <InteractiveTooltip
             content={t("neverExpireTooltip")}
-            ariaLabel="Perpetual Draw Eligibility"
+            ariaLabel={t("perpetualEligibilityAria")}
             align="right"
           >
             <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[11px] leading-tight text-primary backdrop-blur-sm cursor-help hover:border-primary/45 hover:bg-primary/20 transition-all">

@@ -78,14 +78,17 @@
     "howItWorks": "Cómo Funciona",
     "prizes": "Premios",
     "docs": "Documentación",
-    "github": "GitHub"
+    "github": "GitHub",
+    "twitter": "X (anteriormente Twitter)",
+    "discord": "Comunidad de Discord"
   },
   "Wallet": {
     "connectWallet": "Conectar Billetera",
     "connecting": "Conectando…",
     "disconnect": "Desconectar",
     "selectWallet": "Seleccionar Billetera",
-    "availableBalance": "Saldo Disponible"
+    "availableBalance": "Saldo Disponible",
+    "copyAddress": "Copiar Dirección"
   },
   "Sidebar": {
     "dashboard": "Panel de Control",
@@ -137,7 +140,16 @@
     "networkMainnet": "Solana Mainnet",
     "networkDevnet": "Devnet",
     "networkTestnet": "Testnet",
-    "networkLocalnet": "Localnet"
+    "networkLocalnet": "Localnet",
+    "loadingPoolState": "Cargando estado del fondo",
+    "crankReinvestModalTitle": "Ejecutar Reinversión de Premios",
+    "crankReinvestSuccessMsg": "¡Las ganancias del sorteo se reinvirtieron exitosamente!",
+    "claimWinningsModalTitle": "Reclamar Ganancias Restantes",
+    "claimWinningsSuccessMsg": "Se reclamaron las ganancias restantes acumuladas de ${amount} {symbol}.",
+    "claimRedemptionModalTitle": "Reclamar Redención Liquidada",
+    "claimRedemptionBondPrincipalSuccess": "Se reclamó exitosamente el capital de bonos liquidado de ${amount} {symbol} a la billetera.",
+    "claimRedemptionFeesSuccess": "Se reclamaron exitosamente las comisiones liquidadas de ${amount} {symbol} a la billetera.",
+    "claimRedemptionPrizesSuccess": "Se reclamaron exitosamente las ganancias del premio liquidadas de ${amount} {symbol} a la billetera."
   },
   "Pools": {
     "activePool": "Fondo Activo",
@@ -214,7 +226,31 @@
     "prizePotTargetMet": "Meta del Sorteo Alcanzada (Listo)",
     "noMinimumTarget": "Sin Meta Mínima (Sorteo en Cada Ciclo)",
     "drawTargetTooltipLabel": "Información de la meta del sorteo",
-    "drawTargetProgressSr": "Progreso de la meta del sorteo: {current} de {target} ({percent}%)"
+    "drawTargetProgressSr": "Progreso de la meta del sorteo: {current} de {target} ({percent}%)",
+    "statusActive": "Activo",
+    "statusPaused": "Pausado",
+    "statusClosed": "Cerrado",
+    "drawInProgressTitle": "¡Sorteo en progreso!",
+    "drawInProgressDesc": "El fondo está temporalmente congelado para seleccionar ganadores. Los depósitos están pausados hasta que finalice el sorteo.",
+    "drawInProgressWithdrawDesc": "El fondo está temporalmente congelado para seleccionar ganadores. Por favor vuelve a consultar en unos minutos.",
+    "poolPausedTitle": "El fondo está pausado",
+    "poolPausedDepositDesc": "Los depósitos están pausados temporalmente mientras la pausa de emergencia esté activa.",
+    "poolPausedWithdrawDesc": "Los retiros están pausados temporalmente mientras la pausa de emergencia esté activa.",
+    "poolClosedTitle": "El fondo está cerrado",
+    "poolClosedDepositDesc": "Este fondo está cerrado permanentemente. Nuevos depósitos de bonos están desactivados.",
+    "poolClosedSunsetTitle": "Fondo cerrado (en liquidación)",
+    "poolClosedSunsetDesc": "Puedes retirar el 100% de tu capital de bonos depositado sin penalización.",
+    "emergencyPauseActiveNotice": "Pausa de emergencia activa. Los depósitos y retiros están pausados temporalmente.",
+    "poolClosedSunsetNotice": "Fondo cerrado (en liquidación). Puedes retirar el 100% de tu capital de bonos restante.",
+    "diagnosticDetails": "Detalles de Diagnóstico",
+    "expandDetails": "Expandir ▾",
+    "bondsBalanceSummary": "{count, plural, =1 {1 bono} other {# bonos}} ({active} activos · {pending} pendientes)",
+    "asyncRedemptionTitle": "Redención Asincrónica",
+    "asyncRedemptionDesc": "El retiro inicia una solicitud de redención en Huma Finance. Este proceso es asincrónico. Al solicitarlo, tus bonos se queman de inmediato y tus fondos se liquidarán. Deberás reclamar el USDC liquidado desde el panel de redenciones pendientes una vez completado.",
+    "bondsToSell": "Bonos a vender",
+    "youReceive": "Recibes",
+    "remainingBonds": "Bonos restantes",
+    "initiateHumaRedemption": "Iniciar redención en Huma para vender bonos"
   },
   "Modals": {
     "depositTitle": "Depositar Fondos",
@@ -259,6 +295,10 @@
     "withdrawAnytimeText": "Retira todo tu depósito en cualquier momento sin penalizaciones.",
     "confirmDeposit": "Confirmar Depósito",
     "confirmWithdraw": "Confirmar Retiro",
+    "confirmWithdrawAmount": "Solicitar Retiro — {amount} {symbol}",
+    "exceedsBalance": "Excede el Saldo",
+    "depositSuccessDesc": "¡Compró exitosamente {bonds, plural, =1 {1 bono} other {# bonos}} por {amount} {symbol}!",
+    "withdrawSuccessDesc": "Tus {bonds, plural, =1 {1 bono ha} other {# bonos han}} sido quemados. La solicitud de redención por {amount} {symbol} ahora está pendiente de liquidación.",
     "max": "MÁX",
     "cancel": "Cancelar",
     "editAmount": "Editar cantidad",
@@ -270,7 +310,12 @@
     "completeActivityTitle": "Historial Completo de Actividad",
     "completeLedgerTitle": "Historial Completo de Premios",
     "share": "Compartir Premio",
-    "copy": "Copiar"
+    "copy": "Copiar",
+    "diagnoseInDocs": "Diagnosticar en la documentación →",
+    "txCancelledTitle": "Transacción Cancelada",
+    "txCancelledDesc": "Cancelaste la solicitud de transacción en tu billetera.",
+    "dismissAlert": "Descartar alerta",
+    "retryTransaction": "Reintentar Transacción"
   },
   "Portfolio": {
     "bondsTitle": "Bonos",
@@ -304,7 +349,20 @@
     "nonReinvestedWinningsTooltip": "Premios menores a $5.00 guardados como saldo restante, disponibles para reclamar o agrupar.",
     "annualDrawEntriesTooltip": "Número total de oportunidades de sorteo en las que participarán tus bonos durante 12 meses.",
     "bondsTimesDrawsTooltip": "Calculado a partir de tus {tickets} bonos participando en {draws} sorteos anuales.",
-    "neverExpireTooltip": "A diferencia de las loterías tradicionales, tus bonos permanecen activos para cada sorteo indefinidamente."
+    "neverExpireTooltip": "A diferencia de las loterías tradicionales, tus bonos permanecen activos para cada sorteo indefinidamente.",
+    "totalPortfolioValueAria": "Detalles del valor del portafolio",
+    "bondsInvestedAria": "Estado del principal de bonos",
+    "redeemingAria": "Estado del principal en redención",
+    "unclaimedDustAria": "Estado de ganancias restantes no reclamadas",
+    "bondsInfoAria": "Información de bonos",
+    "activeBondsAria": "Estado de bonos activos",
+    "pendingBondsAria": "Estado de bonos pendientes",
+    "lifetimeWinningsAria": "Información de ganancias históricas",
+    "reinvestedWinningsAria": "Estado de ganancias reinvertidas",
+    "remainingWinningsAria": "Estado de ganancias restantes",
+    "annualDrawEntriesAria": "Información de participaciones en sorteos anuales",
+    "annualDrawCalcAria": "Cálculo de sorteos anuales",
+    "perpetualEligibilityAria": "Elegibilidad perpetua para sorteos"
   },
   "Activity": {
     "title": "Historial de Actividad",
@@ -334,7 +392,20 @@
     "scanningOlder": "Escaneando Transacciones Más Antiguas...",
     "loadMore": "Cargar Más Actividad Histórica ↓",
     "auditLogFooter": "Registro de Auditoría del Protocolo YieldBonds v1.0",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "filterTypeLabel": "Filtrar actividad por tipo",
+    "activitiesLoaded": "{count, plural, =1 {1 actividad cargada} other {# actividades cargadas}}",
+    "descriptions": {
+      "deposit": "Depositó {amount} USDC → +{bonds, plural, =1 {1 bono} other {# bonos}}",
+      "withdraw": "Vendió {bonds, plural, =1 {1 bono} other {# bonos}} ({amount} USDC) · Pendiente de liquidación",
+      "autoReinvest": "Sorteo #{cycleId} reinvertido: +{bonds, plural, =1 {1 bono} other {# bonos}} de {amount} USDC",
+      "win": "Reclamó ganancias acumuladas de {amount} USDC · Pendiente de liquidación",
+      "claimedBondPrincipal": "Reclamó principal de bonos liquidado de {amount} USDC a la billetera",
+      "claimedFees": "Reclamó comisiones liquidadas de {amount} USDC a la billetera",
+      "claimedPrizeWinnings": "Reclamó ganancias de premios liquidadas de {amount} USDC a la billetera",
+      "claimedRedemption": "Reclamó redención liquidada de {amount} USDC a la billetera",
+      "generic": "{type}: {amount} USDC"
+    }
   },
   "Ledger": {
     "title": "Historial de Premios",
@@ -400,7 +471,14 @@
     "noDrawsSub": "Ningún registro histórico de premios coincidió con sus criterios de búsqueda o filtros.",
     "cryptographicLedgersFooter": "Libros Criptográficos YieldBonds v1.0",
     "clear": "Limpiar",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "filterStatusLabel": "Filtrar historial por estado",
+    "filterTierLabel": "Filtrar historial por nivel",
+    "closeModal": "Cerrar modal",
+    "prizesRevoked": "Premios Revocados",
+    "copyVrfAriaLabel": "Copiar semilla de aleatoriedad VRF {seed}",
+    "shareTemplateCopied": "¡Plantilla para compartir copiada al portapapeles!",
+    "shareTemplateText": "¡Acabo de revisar mi ciclo de sorteo #{cycleId} en YieldBonds - gané ${amount} {symbol} con VRF demostrablemente justo en Solana! 🏆"
   },
   "PrizeDetails": {
     "title": "Detalles del Premio — Sorteo #{drawCycleId} — Bono {ticket}",
@@ -450,7 +528,8 @@
     "shareWin": "Compartir Premio",
     "copy": "Copiar",
     "copied": "Copiado",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "perBondSuffix": "{amount} {symbol} / bono"
   },
   "Redemptions": {
     "title": "Redenciones Pendientes",
@@ -465,7 +544,8 @@
     "simulateSettled": "Simular Liquidado",
     "claimUSDC": "Reclamar USDC",
     "claiming": "Reclamando...",
-    "requested": "Solicitado"
+    "requested": "Solicitado",
+    "simulateSettledTitle": "Simular liquidación con rendimiento en Huma Finance"
   },
   "Pagination": {
     "showing": "Mostrando",
@@ -508,7 +588,6 @@
     "statusHaltedYieldSpike": "Pausado: Pico de Rendimiento",
     "ariaFilterStatus": "Filtrar sorteos por estado",
     "clear": "Limpiar",
-
     "noDrawsFound": "No se Encontraron Sorteos",
     "noDrawsSub": "Ningún sorteo coincide con los criterios de filtro actuales.",
     "colDraw": "Ciclo",
@@ -575,7 +654,9 @@
     "oracleAccountLabel": "Cuenta del Oráculo",
     "derivationFormulaLabel": "Algoritmo de Derivación de Ganadores en Cadena",
     "derivationFormulaExplanation": "El hash SHA-256 se calcula en la cadena de bloques. Los primeros 8 bytes (entero de 64 bits little-endian) módulo los {tickets} bonos bloqueados determinan el índice exacto del bono ganador sin posibilidad de manipulación o anticipación.",
-    "cryptographicProofFooter": "100% No Custodial • Verificable en Solana • Pruebas VRF SHA-256",
+    "bonusBondCount": "+{count, plural, =1 {1 bono} other {# bonos}}",
+    "bonusDustTitle": "+{amount} {symbol} de saldo residual anterior usado",
+    "bonusDustAria": "Reinversión de {bonds, plural, =1 {1 bono} other {# bonos}} usando {amount} {symbol} de saldo residual anterior",
     "bonusBondWithDust": "+bono",
     "bonusBondUnlocked": "Bono Adicional por Saldo Acumulado",
     "bonusBondDustNotice": "Se combinó ${priorDust} {symbol} de ganancias restantes previas para comprar un bono adicional.",
@@ -608,6 +689,86 @@
     "haltedYieldSpikeTitle": "Disyuntor de Seguridad: Pool Pausado (Pico de Rendimiento Anómalo)",
     "haltedYieldSpikeDesc": "El disyuntor de emergencia se activó debido a un pico de rendimiento anómalo que superó los umbrales de riesgo del protocolo. Las operaciones se encuentran en pausa para proteger contra manipulación económica.",
     "explorerLink": "Ver en Solana Explorer",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "cycleLabel": "Ciclo #{cycleId}",
+    "bondsCount": "{count, plural, =1 {1 bono} other {# bonos}}",
+    "perBondSuffix": "{amount} {symbol} / bono",
+    "copyFormula": "Copiar Fórmula"
+  },
+  "Common": {
+    "tiers": {
+      "grand": "Gran Premio",
+      "runnerUp": "Segundo Lugar",
+      "consolation": "Consolación",
+      "tierN": "Nivel {tier}"
+    },
+    "actions": {
+      "close": "Cerrar",
+      "cancel": "Cancelar",
+      "clear": "Limpiar",
+      "copy": "Copiar",
+      "copied": "¡Copiado!",
+      "retry": "Reintentar",
+      "retryTransaction": "Reintentar Transacción",
+      "dismiss": "Descartar",
+      "dismissAlert": "Descartar alerta",
+      "refresh": "Actualizar",
+      "expand": "Expandir ▾",
+      "collapse": "Colapsar ▴"
+    },
+    "explorer": {
+      "copyTxSignature": "Copiar firma de transacción",
+      "copyAddress": "Copiar dirección",
+      "viewTxOnExplorer": "Ver tx {signature} en {provider}",
+      "viewAddressOnExplorer": "Ver dirección {address} en {provider}",
+      "viewOnExplorerGeneric": "Ver en {provider} (abre en una nueva pestaña)",
+      "viewOnSolscan": "Ver en Solscan: {signature} ↗"
+    },
+    "aria": {
+      "breadcrumb": "Ruta de navegación",
+      "loading": "Cargando...",
+      "closeModal": "Cerrar modal",
+      "paginationNav": "Navegación de paginación",
+      "pageOf": "Página {current} de {total}",
+      "itemsPerPage": "Elementos por página",
+      "goToPreviousPage": "Ir a la página anterior",
+      "goToNextPage": "Ir a la página siguiente",
+      "goToPage": "Ir a la página {page}"
+    }
+  },
+  "Docs": {
+    "helpCenterBadge": "Centro de Ayuda y Documentación",
+    "headerTitle": "¿Cómo podemos ayudarte hoy?",
+    "explore": "Explorar",
+    "popularArticlesTitle": "Artículos Populares y Guías Rápidas",
+    "gettingStartedTag": "🚀 Primeros Pasos",
+    "gettingStartedTitle": "Configurar Billetera Solana",
+    "gettingStartedDesc": "Guía paso a paso para instalar y proteger tu billetera.",
+    "mechanicsTag": "⚙️ Mecánica del Protocolo",
+    "mechanicsTitle": "Flujo de Rendimiento de Huma Finance",
+    "mechanicsDesc": "Cómo los depósitos generan intereses sin riesgo para los sorteos semanales.",
+    "troubleshootingTag": "🛠️ Solución de Problemas",
+    "troubleshootingTitle": "Decodificador de Errores de Autoservicio",
+    "troubleshootingDesc": "Busca códigos de error o hashes para obtener asesoramiento de resolución paso a paso.",
+    "docsMenu": "Menú de Documentación",
+    "docsIndex": "Índice de Documentación",
+    "browseTopics": "Explorar Temas ☰",
+    "closeMenu": "Cerrar Menú ✕",
+    "breadcrumbDocs": "Documentación",
+    "previousArticle": "Anterior",
+    "nextArticle": "Siguiente",
+    "searchPlaceholder": "Buscar documentación o código de error... (Ctrl + K)",
+    "noResults": "No se encontraron artículos ni códigos de error coincidentes.",
+    "errorDecoderTitle": "Herramienta de Consulta de Errores Solana & Anchor",
+    "errorDecoderSubtitle": "Busca un código de error decimal (6020), hexadecimal (0x1784) o palabra clave para obtener una explicación clara.",
+    "searchErrorPlaceholder": "Buscar código o palabra clave (ej. 4001, 0x1, 6044, 0x179c, Timelock)...",
+    "commonPresets": "Accesos Rápidos:",
+    "matchingErrors": "Errores coincidentes ({count})",
+    "noMatchingErrors": "No se encontró ningún código de error coincidente en el índice.",
+    "codeLabel": "Código {code}",
+    "diagnosisLabel": "Diagnóstico: ",
+    "resolutionLabel": "Solución: ",
+    "stepDiagnosis": "1. Qué Sucedió (Diagnóstico)",
+    "stepResolution": "2. Cómo Resolverlo (Paso a Paso)"
   }
 }

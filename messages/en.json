@@ -78,14 +78,17 @@
     "howItWorks": "How It Works",
     "prizes": "Prizes",
     "docs": "Docs",
-    "github": "GitHub"
+    "github": "GitHub",
+    "twitter": "X (formerly Twitter)",
+    "discord": "Discord Community"
   },
   "Wallet": {
     "connectWallet": "Connect Wallet",
     "connecting": "Connecting…",
     "disconnect": "Disconnect",
     "selectWallet": "Select Wallet",
-    "availableBalance": "Available Balance"
+    "availableBalance": "Available Balance",
+    "copyAddress": "Copy Address"
   },
   "Sidebar": {
     "dashboard": "Dashboard",
@@ -137,7 +140,16 @@
     "networkMainnet": "Solana Mainnet",
     "networkDevnet": "Devnet",
     "networkTestnet": "Testnet",
-    "networkLocalnet": "Localnet"
+    "networkLocalnet": "Localnet",
+    "loadingPoolState": "Loading pool state",
+    "crankReinvestModalTitle": "Run Reinvestment Crank",
+    "crankReinvestSuccessMsg": "Prize draw winnings successfully reinvested!",
+    "claimWinningsModalTitle": "Claim Remaining Winnings",
+    "claimWinningsSuccessMsg": "Claimed accumulated remaining winnings of ${amount} {symbol}.",
+    "claimRedemptionModalTitle": "Claim Settled Redemption",
+    "claimRedemptionBondPrincipalSuccess": "Successfully claimed settled bond principal of ${amount} {symbol} to wallet.",
+    "claimRedemptionFeesSuccess": "Successfully claimed settled fees of ${amount} {symbol} to wallet.",
+    "claimRedemptionPrizesSuccess": "Successfully claimed settled prize winnings of ${amount} {symbol} to wallet."
   },
   "Pools": {
     "activePool": "Active Pool",
@@ -214,7 +226,31 @@
     "prizePotTargetMet": "Draw Target Met (Draw Ready)",
     "noMinimumTarget": "No Minimum Target (Every Cycle Draws)",
     "drawTargetTooltipLabel": "Draw target information",
-    "drawTargetProgressSr": "Draw target progress: {current} of {target} ({percent}%)"
+    "drawTargetProgressSr": "Draw target progress: {current} of {target} ({percent}%)",
+    "statusActive": "Active",
+    "statusPaused": "Paused",
+    "statusClosed": "Closed",
+    "drawInProgressTitle": "Draw in progress!",
+    "drawInProgressDesc": "The pool is temporarily frozen to pick winners. Deposits are paused until the draw completes.",
+    "drawInProgressWithdrawDesc": "The pool is temporarily frozen to pick winners. Please check back in a few minutes.",
+    "poolPausedTitle": "Pool is paused",
+    "poolPausedDepositDesc": "Deposits are temporarily halted while the emergency pause is active.",
+    "poolPausedWithdrawDesc": "Withdrawals are temporarily halted while the emergency pause is active.",
+    "poolClosedTitle": "Pool is closed",
+    "poolClosedDepositDesc": "This pool is permanently closed. New bond deposits are disabled.",
+    "poolClosedSunsetTitle": "Pool is closed (sunset)",
+    "poolClosedSunsetDesc": "You may withdraw 100% of your deposited bond principal without penalty.",
+    "emergencyPauseActiveNotice": "Emergency pause active. Deposits and withdrawals are temporarily halted.",
+    "poolClosedSunsetNotice": "Pool closed (sunset). You may withdraw 100% of your remaining bond principal.",
+    "diagnosticDetails": "Diagnostic Details",
+    "expandDetails": "Expand ▾",
+    "bondsBalanceSummary": "{count, plural, =1 {1 bond} other {# bonds}} ({active} active · {pending} pending)",
+    "asyncRedemptionTitle": "Asynchronous Redemption",
+    "asyncRedemptionDesc": "Withdrawing initiates a Huma Finance redemption request. This process is asynchronous. Once requested, your tickets are burned immediately, and your funds will settle. You will need to claim the settled USDC from the pending redemptions panel once complete.",
+    "bondsToSell": "Bonds to sell",
+    "youReceive": "You receive",
+    "remainingBonds": "Remaining bonds",
+    "initiateHumaRedemption": "Initiate Huma redemption to sell bonds"
   },
   "Modals": {
     "depositTitle": "Deposit Funds",
@@ -259,6 +295,10 @@
     "withdrawAnytimeText": "Withdraw your full deposit anytime with zero penalties.",
     "confirmDeposit": "Confirm Deposit",
     "confirmWithdraw": "Confirm Withdraw",
+    "confirmWithdrawAmount": "Request Withdrawal — {amount} {symbol}",
+    "exceedsBalance": "Exceeds Balance",
+    "depositSuccessDesc": "Successfully purchased {bonds, plural, =1 {1 bond} other {# bonds}} for {amount} {symbol}!",
+    "withdrawSuccessDesc": "Your {bonds, plural, =1 {1 bond has} other {# bonds have}} been burned. Redemption request for {amount} {symbol} is now pending settlement.",
     "max": "MAX",
     "cancel": "Cancel",
     "editAmount": "Edit Amount",
@@ -270,7 +310,12 @@
     "completeActivityTitle": "Complete Activity Feed",
     "completeLedgerTitle": "Complete Prize History Ledger",
     "share": "Share Win",
-    "copy": "Copy"
+    "copy": "Copy",
+    "diagnoseInDocs": "Diagnose in Docs →",
+    "txCancelledTitle": "Transaction Cancelled",
+    "txCancelledDesc": "You cancelled the transaction request in your wallet.",
+    "dismissAlert": "Dismiss alert",
+    "retryTransaction": "Retry Transaction"
   },
   "Portfolio": {
     "bondsTitle": "Bonds",
@@ -304,7 +349,20 @@
     "nonReinvestedWinningsTooltip": "Winnings under $5.00 held as remaining balance, eligible for manual claim or future bond pooling.",
     "annualDrawEntriesTooltip": "Total number of draw chances your bonds will participate in over a 12-month period.",
     "bondsTimesDrawsTooltip": "Calculated from your {tickets} bonds entering {draws} draws per year.",
-    "neverExpireTooltip": "Unlike traditional lotteries, your bonds remain active and eligible for every draw indefinitely."
+    "neverExpireTooltip": "Unlike traditional lotteries, your bonds remain active and eligible for every draw indefinitely.",
+    "totalPortfolioValueAria": "Portfolio Value Details",
+    "bondsInvestedAria": "Bonds Principal Status",
+    "redeemingAria": "Redeeming Principal Status",
+    "unclaimedDustAria": "Unclaimed Remaining Status",
+    "bondsInfoAria": "Bonds Information",
+    "activeBondsAria": "Active Bonds Status",
+    "pendingBondsAria": "Pending Bonds Status",
+    "lifetimeWinningsAria": "Lifetime Winnings Information",
+    "reinvestedWinningsAria": "Reinvested Winnings Status",
+    "remainingWinningsAria": "Remaining Winnings Status",
+    "annualDrawEntriesAria": "Annual Draw Entries Information",
+    "annualDrawCalcAria": "Annual Draw Calculation",
+    "perpetualEligibilityAria": "Perpetual Draw Eligibility"
   },
   "Activity": {
     "title": "Activity Feed",
@@ -334,7 +392,20 @@
     "scanningOlder": "Scanning Older Transactions...",
     "loadMore": "Load More Historical Activity ↓",
     "auditLogFooter": "YieldBonds Protocol Audit Log v1.0",
-    "close": "Close"
+    "close": "Close",
+    "filterTypeLabel": "Filter activity by type",
+    "activitiesLoaded": "{count, plural, =1 {1 activity loaded} other {# activities loaded}}",
+    "descriptions": {
+      "deposit": "Deposited {amount} USDC → +{bonds, plural, =1 {1 ticket} other {# tickets}}",
+      "withdraw": "Sold {bonds, plural, =1 {1 bond} other {# bonds}} ({amount} USDC) · Pending settle",
+      "autoReinvest": "Draw #{cycleId} reinvested: +{bonds, plural, =1 {1 ticket} other {# tickets}} from {amount} USDC",
+      "win": "Claimed accumulated winnings of {amount} USDC · Pending settle",
+      "claimedBondPrincipal": "Claimed settled bond principal of {amount} USDC to wallet",
+      "claimedFees": "Claimed settled fees of {amount} USDC to wallet",
+      "claimedPrizeWinnings": "Claimed settled prize winnings of {amount} USDC to wallet",
+      "claimedRedemption": "Claimed settled redemption of {amount} USDC to wallet",
+      "generic": "{type}: {amount} USDC"
+    }
   },
   "Ledger": {
     "title": "Prize History Ledger",
@@ -400,7 +471,14 @@
     "noDrawsSub": "No historical prize records matched your current search criteria or filter options.",
     "cryptographicLedgersFooter": "YieldBonds Cryptographic Ledgers v1.0",
     "clear": "Clear",
-    "close": "Close"
+    "close": "Close",
+    "filterStatusLabel": "Filter ledger by status",
+    "filterTierLabel": "Filter ledger by tier",
+    "closeModal": "Close modal",
+    "prizesRevoked": "Prizes Revoked",
+    "copyVrfAriaLabel": "Copy VRF Randomness Seed {seed}",
+    "shareTemplateCopied": "Copied share template to clipboard!",
+    "shareTemplateText": "Just checked my YieldBonds draw cycle #{cycleId} - won ${amount} {symbol} with provably fair VRF on Solana! 🏆"
   },
   "PrizeDetails": {
     "title": "Draw #{drawCycleId} Prize Details — Bond {ticket}",
@@ -450,7 +528,8 @@
     "shareWin": "Share Win",
     "copy": "Copy",
     "copied": "Copied",
-    "close": "Close"
+    "close": "Close",
+    "perBondSuffix": "{amount} {symbol} / bond"
   },
   "Redemptions": {
     "title": "Pending Redemptions",
@@ -465,7 +544,8 @@
     "simulateSettled": "Simulate Settled",
     "claimUSDC": "Claim USDC",
     "claiming": "Claiming...",
-    "requested": "Requested"
+    "requested": "Requested",
+    "simulateSettledTitle": "Simulate yield-bearing settlement in Huma Finance"
   },
   "Pagination": {
     "showing": "Showing",
@@ -508,7 +588,6 @@
     "statusHaltedYieldSpike": "Halted: Yield Spike",
     "ariaFilterStatus": "Filter draws by status",
     "clear": "Clear",
-
     "noDrawsFound": "No Draw Cycles Found",
     "noDrawsSub": "No draws match your current filter criteria.",
     "colDraw": "Cycle",
@@ -575,7 +654,9 @@
     "oracleAccountLabel": "Oracle Account",
     "derivationFormulaLabel": "On-Chain Winner Derivation Algorithm",
     "derivationFormulaExplanation": "The SHA-256 hash is computed on-chain. The first 8 bytes (little-endian 64-bit integer) modulo the {tickets} locked bonds determines the precise winning bond index without any possibility of frontrunning or manipulation.",
-    "cryptographicProofFooter": "100% Non-Custodial • Verifiable On Solana • SHA-256 VRF Proofs",
+    "bonusBondCount": "+{count, plural, =1 {1 bond} other {# bonds}}",
+    "bonusDustTitle": "+{amount} {symbol} prior remaining balance used",
+    "bonusDustAria": "Reinvested {bonds, plural, =1 {1 bond} other {# bonds}} using {amount} {symbol} prior remaining balance",
     "bonusBondWithDust": "+bonus",
     "bonusBondUnlocked": "Bonus Bond via Prior Balance",
     "bonusBondDustNotice": "Combined ${priorDust} {symbol} of previous remaining winnings to purchase an extra bond.",
@@ -608,6 +689,86 @@
     "haltedYieldSpikeTitle": "Circuit Breaker: Pool Halted (Yield Spike Ceiling)",
     "haltedYieldSpikeDesc": "The emergency circuit breaker tripped due to an anomalous yield velocity spike exceeding protocol risk thresholds. Operations are paused to protect against economic manipulation.",
     "explorerLink": "View on Solana Explorer",
-    "close": "Close"
+    "close": "Close",
+    "cycleLabel": "Cycle #{cycleId}",
+    "bondsCount": "{count, plural, =1 {1 bond} other {# bonds}}",
+    "perBondSuffix": "{amount} {symbol} / bond",
+    "copyFormula": "Copy Formula"
+  },
+  "Common": {
+    "tiers": {
+      "grand": "Grand Prize",
+      "runnerUp": "Runner-up",
+      "consolation": "Consolation",
+      "tierN": "Tier {tier}"
+    },
+    "actions": {
+      "close": "Close",
+      "cancel": "Cancel",
+      "clear": "Clear",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "retry": "Retry",
+      "retryTransaction": "Retry Transaction",
+      "dismiss": "Dismiss",
+      "dismissAlert": "Dismiss alert",
+      "refresh": "Refresh",
+      "expand": "Expand ▾",
+      "collapse": "Collapse ▴"
+    },
+    "explorer": {
+      "copyTxSignature": "Copy transaction signature",
+      "copyAddress": "Copy address",
+      "viewTxOnExplorer": "View tx {signature} on {provider}",
+      "viewAddressOnExplorer": "View address {address} on {provider}",
+      "viewOnExplorerGeneric": "View on {provider} (opens in new tab)",
+      "viewOnSolscan": "View on Solscan: {signature} ↗"
+    },
+    "aria": {
+      "breadcrumb": "Breadcrumb",
+      "loading": "Loading...",
+      "closeModal": "Close modal",
+      "paginationNav": "Pagination Navigation",
+      "pageOf": "Page {current} of {total}",
+      "itemsPerPage": "Items per page",
+      "goToPreviousPage": "Go to previous page",
+      "goToNextPage": "Go to next page",
+      "goToPage": "Go to page {page}"
+    }
+  },
+  "Docs": {
+    "helpCenterBadge": "Help Center & Documentation",
+    "headerTitle": "How can we help you today?",
+    "explore": "Explore",
+    "popularArticlesTitle": "Popular Articles & Quick Guides",
+    "gettingStartedTag": "🚀 Getting Started",
+    "gettingStartedTitle": "Setting Up Phantom / Solflare",
+    "gettingStartedDesc": "Step-by-step guide to installing and securing your wallet.",
+    "mechanicsTag": "⚙️ Protocol Mechanics",
+    "mechanicsTitle": "Huma Finance Yield Flow",
+    "mechanicsDesc": "How deposits generate zero-loss interest for weekly prize draws.",
+    "troubleshootingTag": "🛠️ Troubleshooting",
+    "troubleshootingTitle": "Self-Service Error Decoder",
+    "troubleshootingDesc": "Lookup error codes or hashes to get step-by-step resolution advice.",
+    "docsMenu": "Documentation Menu",
+    "docsIndex": "Documentation Index",
+    "browseTopics": "Browse Topics ☰",
+    "closeMenu": "Close Menu ✕",
+    "breadcrumbDocs": "Docs",
+    "previousArticle": "Previous",
+    "nextArticle": "Next",
+    "searchPlaceholder": "Search documentation or error code... (Cmd + K)",
+    "noResults": "No matching articles or error codes found.",
+    "errorDecoderTitle": "Solana & Anchor Error Decoder Tool",
+    "errorDecoderSubtitle": "Lookup an error code (6020), hex code (0x1784), or keyword to get a plain-English explanation.",
+    "searchErrorPlaceholder": "Search code or keyword (e.g. 4001, 0x1, 6044, 0x179c, Timelock)...",
+    "commonPresets": "Common Presets:",
+    "matchingErrors": "Matching Errors ({count})",
+    "noMatchingErrors": "No matching error codes found in index.",
+    "codeLabel": "Code {code}",
+    "diagnosisLabel": "Diagnosis: ",
+    "resolutionLabel": "Resolution: ",
+    "stepDiagnosis": "1. What Happened (Diagnosis)",
+    "stepResolution": "2. How to Fix It (Step-by-Step Resolution)"
   }
 }

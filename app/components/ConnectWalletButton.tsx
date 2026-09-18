@@ -14,6 +14,7 @@ export function ConnectWalletButton() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("Wallet");
+  const tCommon = useTranslations("Common");
 
   const address = wallet?.account.address.toString();
   const truncated = address
@@ -52,7 +53,7 @@ export function ConnectWalletButton() {
           className="flex items-center gap-2.5 rounded-xl bg-surface-container-high px-3.5 py-2 text-sm font-medium text-on-surface ghost-border transition hover:bg-surface-container-highest cursor-pointer"
         >
           {/* Balance pill on sm+ screens */}
-          <span className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary border-r border-outline-variant/30 pe-2.5">
+          <span className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary border-e border-outline-variant/30 pe-2.5">
             {isBalanceLoading ? (
               <span className="h-3.5 w-12 animate-pulse rounded bg-surface-container-highest inline-block" />
             ) : (
@@ -67,7 +68,7 @@ export function ConnectWalletButton() {
         </button>
 
         {isOpen && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl glass shadow-ambient p-2.5">
+          <div className="absolute end-0 top-full z-50 mt-2 w-64 rounded-xl glass shadow-ambient p-2.5">
             {/* Available Balance Row */}
             <div className="px-3 py-2 rounded-lg bg-surface-container/60 mb-2">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
@@ -87,7 +88,8 @@ export function ConnectWalletButton() {
               <button
                 onClick={handleCopy}
                 className="shrink-0 p-1 hover:text-primary transition-colors cursor-pointer"
-                title="Copy Address"
+                title={tCommon("explorer.copyAddress")}
+                aria-label={tCommon("explorer.copyAddress")}
               >
                 {copied ? (
                   <svg
@@ -134,7 +136,7 @@ export function ConnectWalletButton() {
                 disconnect();
                 setIsOpen(false);
               }}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm text-error hover:bg-surface-container-highest transition cursor-pointer"
+              className="w-full rounded-lg px-3 py-2 text-start text-sm text-error hover:bg-surface-container-highest transition cursor-pointer"
             >
               {t("disconnect")}
             </button>
@@ -155,7 +157,7 @@ export function ConnectWalletButton() {
       </button>
 
       {isOpen && connectors.length > 0 && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl glass shadow-ambient p-2">
+        <div className="absolute end-0 top-full z-50 mt-2 w-64 rounded-xl glass shadow-ambient p-2">
           <p className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-on-surface-variant">
             {t("selectWallet")}
           </p>

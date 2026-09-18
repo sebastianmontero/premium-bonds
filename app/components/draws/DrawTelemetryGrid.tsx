@@ -61,7 +61,7 @@ export function DrawTelemetryGrid({
           {t("participatingBonds")}
         </p>
         <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-          {draw.lockedTicketCount.toLocaleString("en-US")} bonds
+          {t("bondsCount", { count: draw.lockedTicketCount })}
         </p>
       </div>
 

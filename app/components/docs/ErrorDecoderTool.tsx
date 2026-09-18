@@ -2,16 +2,13 @@
 
 import React, { useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   ERROR_LOOKUP_ITEMS,
   ErrorLookupItem,
   normalizeSearchText,
   SupportedLocale,
 } from "@/app/lib/docs/data";
-
-interface ErrorDecoderToolProps {
-  locale?: string;
-}
 
 const FEATURED_ERROR_PRESETS = [
   "4001",
@@ -26,14 +23,18 @@ const FEATURED_ERROR_PRESETS = [
   "6058",
 ];
 
-export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
+export function ErrorDecoderTool() {
+  const currentLocale = useLocale();
+  const targetLocale = (
+    currentLocale === "es" ? "es" : "en"
+  ) as SupportedLocale;
+  const t = useTranslations("Docs");
+
   const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<ErrorLookupItem | null>(
     null
   );
-
-  const targetLocale = (locale === "es" ? "es" : "en") as SupportedLocale;
 
   // Derive selection from URL search params (e.g. ?code=6044 or ?q=6044)
   const urlParam = searchParams.get("code") || searchParams.get("q");
@@ -101,14 +102,10 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
         <div>
           <h3 className="font-display text-lg font-bold text-on-surface flex items-center gap-2">
             <span>🛠️</span>
-            {locale === "es"
-              ? "Herramienta de Consulta de Errores Solana & Anchor"
-              : "Solana & Anchor Error Decoder Tool"}
+            {t("errorDecoderTitle")}
           </h3>
           <p className="text-sm text-on-surface-variant">
-            {locale === "es"
-              ? "Busca un código de error decimal (6020), hexadecimal (0x1784) o nombre de error para obtener una explicación clara."
-              : "Lookup an error code (6020), hex code (0x1784), or keyword to get a plain-English explanation."}
+            {t("errorDecoderSubtitle")}
           </p>
         </div>
       </div>
@@ -124,18 +121,14 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
               setSelectedPreset(null);
             }
           }}
-          placeholder={
-            locale === "es"
-              ? "Buscar código o palabra clave (ej. 4001, 0x1, 6044, 0x179c, Timelock)..."
-              : "Search code or keyword (e.g. 4001, 0x1, 6044, 0x179c, Timelock)..."
-          }
-          className="w-full rounded-xl bg-surface-container-high border border-outline-variant/30 py-2.5 pl-4 pr-10 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
+          placeholder={t("searchErrorPlaceholder")}
+          className="w-full rounded-xl bg-surface-container-high border border-outline-variant/30 py-2.5 ps-4 pe-10 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
         />
         {searchTerm && (
           <button
             type="button"
             onClick={() => setSearchTerm("")}
-            className="absolute right-3 text-xs text-on-surface-variant hover:text-on-surface cursor-pointer px-1 py-0.5 rounded bg-surface-container"
+            className="absolute end-3 text-xs text-on-surface-variant hover:text-on-surface cursor-pointer px-1 py-0.5 rounded bg-surface-container"
           >
             ✕
           </button>
@@ -145,7 +138,7 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
       {/* Common Presets Buttons */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold text-on-surface-variant/70">
-          {locale === "es" ? "Accesos Rápidos:" : "Common Presets:"}
+          {t("commonPresets")}
         </span>
         {featuredItems.map((item) => (
           <button
@@ -169,19 +162,15 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
       {searchTerm.trim().length > 0 && (
         <div className="space-y-3 animate-fade-in">
           <div className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/70">
-            {locale === "es"
-              ? `Resultados encontrados (${filteredErrors.length})`
-              : `Matching Errors (${filteredErrors.length})`}
+            {t("matchingErrors", { count: filteredErrors.length })}
           </div>
 
           {filteredErrors.length === 0 ? (
             <div className="rounded-xl bg-surface-container/60 border border-outline-variant/20 p-6 text-center text-sm text-on-surface-variant">
-              {locale === "es"
-                ? "No se encontró ningún código de error que coincida con tu búsqueda."
-                : "No matching error codes found in index."}
+              {t("noMatchingErrors")}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 max-h-[28rem] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-3 max-h-[28rem] overflow-y-auto pe-1">
               {filteredErrors.map((item) => (
                 <div
                   key={item.code}
@@ -190,7 +179,7 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
                   <div className="flex items-center justify-between gap-2 border-b border-outline-variant/15 pb-2">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
-                        Code {item.code}
+                        {t("codeLabel", { code: item.code })}
                         {item.hexCode ? ` (${item.hexCode})` : ""}
                       </span>
                       <h4 className="font-mono text-sm font-bold text-on-surface">
@@ -205,13 +194,13 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
                   <div className="space-y-1.5 text-xs">
                     <p className="text-on-surface-variant">
                       <strong className="text-amber-300">
-                        {locale === "es" ? "Diagnóstico: " : "Diagnosis: "}
+                        {t("diagnosisLabel")}
                       </strong>
                       {item.diagnosis[targetLocale] || item.diagnosis.en}
                     </p>
                     <p className="text-on-surface-variant">
                       <strong className="text-emerald-300">
-                        {locale === "es" ? "Solución: " : "Resolution: "}
+                        {t("resolutionLabel")}
                       </strong>
                       {item.solution[targetLocale] || item.solution.en}
                     </p>
@@ -230,7 +219,7 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono font-bold uppercase tracking-wider text-primary">
-                  Code {activeDisplayItem.code}
+                  {t("codeLabel", { code: activeDisplayItem.code })}
                 </span>
                 {activeDisplayItem.hexCode && (
                   <span className="text-xs font-mono text-on-surface-variant/70">
@@ -251,11 +240,9 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
             <div>
               <h5 className="font-semibold text-on-surface flex items-center gap-1.5 text-xs sm:text-sm text-amber-300">
                 <span>⚠️</span>
-                {locale === "es"
-                  ? "1. Qué Sucedió (Diagnóstico)"
-                  : "1. What Happened (Diagnosis)"}
+                {t("stepDiagnosis")}
               </h5>
-              <p className="mt-1 text-on-surface-variant leading-relaxed pl-5">
+              <p className="mt-1 text-on-surface-variant leading-relaxed ps-5">
                 {activeDisplayItem.diagnosis[targetLocale] ||
                   activeDisplayItem.diagnosis.en}
               </p>
@@ -264,11 +251,9 @@ export function ErrorDecoderTool({ locale = "en" }: ErrorDecoderToolProps) {
             <div>
               <h5 className="font-semibold text-on-surface flex items-center gap-1.5 text-xs sm:text-sm text-emerald-300">
                 <span>👉</span>
-                {locale === "es"
-                  ? "2. Cómo Resolverlo (Paso a Paso)"
-                  : "2. How to Fix It (Step-by-Step Resolution)"}
+                {t("stepResolution")}
               </h5>
-              <p className="mt-1 text-on-surface-variant leading-relaxed pl-5 font-medium">
+              <p className="mt-1 text-on-surface-variant leading-relaxed ps-5 font-medium">
                 {activeDisplayItem.solution[targetLocale] ||
                   activeDisplayItem.solution.en}
               </p>

@@ -40,6 +40,7 @@ export function PaginationControls({
   className = "",
 }: PaginationControlsProps) {
   const t = useTranslations("Pagination");
+  const tCommon = useTranslations("Common.aria");
   // Clamped page number ensuring no out-of-bounds rendering
   const safeTotalPages = Math.max(1, totalPages);
   const safeCurrentPage = Math.max(1, Math.min(currentPage, safeTotalPages));
@@ -79,7 +80,7 @@ export function PaginationControls({
 
   return (
     <nav
-      aria-label="Pagination Navigation"
+      aria-label={tCommon("paginationNav")}
       className={`flex flex-col sm:flex-row items-center justify-between gap-3 px-1 py-2 ${className}`}
     >
       {/* Item range summary & Live Region */}
@@ -100,7 +101,10 @@ export function PaginationControls({
           {t("entries")}
         </span>
         <span aria-live="polite" className="sr-only">
-          Page {safeCurrentPage} of {safeTotalPages}
+          {tCommon("pageOf", {
+            current: safeCurrentPage,
+            total: safeTotalPages,
+          })}
         </span>
       </div>
 
@@ -111,7 +115,7 @@ export function PaginationControls({
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-on-surface-variant">
             <CustomSelect
               id="page-size-select"
-              ariaLabel="Items per page"
+              ariaLabel={tCommon("itemsPerPage")}
               value={pageSize}
               onChange={(val) => onPageSizeChange(val)}
               options={pageSizeOptions.map((opt) => ({
@@ -128,11 +132,11 @@ export function PaginationControls({
           <button
             onClick={() => onPageChange(safeCurrentPage - 1)}
             disabled={safeCurrentPage <= 1}
-            aria-label="Go to previous page"
+            aria-label={tCommon("goToPreviousPage")}
             className="rounded-lg border border-surface-bright/10 bg-surface-container/30 px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
           >
             <svg
-              className="w-3.5 h-3.5"
+              className="w-3.5 h-3.5 rtl:rotate-180"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -168,7 +172,7 @@ export function PaginationControls({
                     key={page}
                     onClick={() => onPageChange(page)}
                     aria-current={isCurrent ? "page" : undefined}
-                    aria-label={`Go to page ${page}`}
+                    aria-label={tCommon("goToPage", { page })}
                     className={`rounded-lg px-3 py-1.5 text-xs font-mono font-semibold transition cursor-pointer ${
                       isCurrent
                         ? "bg-primary text-on-primary shadow-sm"
@@ -191,12 +195,12 @@ export function PaginationControls({
           <button
             onClick={() => onPageChange(safeCurrentPage + 1)}
             disabled={safeCurrentPage >= safeTotalPages}
-            aria-label="Go to next page"
+            aria-label={tCommon("goToNextPage")}
             className="rounded-lg border border-surface-bright/10 bg-surface-container/30 px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
           >
             <span className="hidden sm:inline">{t("next")}</span>
             <svg
-              className="w-3.5 h-3.5"
+              className="w-3.5 h-3.5 rtl:rotate-180"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

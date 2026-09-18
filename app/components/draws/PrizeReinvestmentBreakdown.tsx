@@ -121,7 +121,10 @@ export function PrizeReinvestmentBreakdown({
           </span>
           <span>•</span>
           <span>
-            {formatTokenAmount(bondPrice, tokenDecimals)} {tokenSymbol} / bond
+            {t("perBondSuffix", {
+              amount: formatTokenAmount(bondPrice, tokenDecimals),
+              symbol: tokenSymbol,
+            })}
           </span>
         </div>
       </div>

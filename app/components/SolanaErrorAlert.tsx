@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import {
   ParsedTransactionError,
   TransactionError,
@@ -23,6 +24,9 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
   onRetry,
   className = "",
 }) => {
+  const tModals = useTranslations("Modals");
+  const tCommon = useTranslations("Common.actions");
+
   const parsed: ParsedTransactionError | null = error
     ? parseTransactionError(error)
     : null;
@@ -33,7 +37,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
   if (parsed.isCancellation) {
     return (
       <div
-        className={`group relative overflow-hidden rounded-xl bg-surface-container-highest/95 backdrop-blur-xl border border-surface-bright/50 border-l-4 border-l-surface-variant p-3.5 text-xs text-on-surface flex flex-col gap-2.5 animate-fade-in shadow-ambient ${className}`}
+        className={`group relative overflow-hidden rounded-xl bg-surface-container-highest/95 backdrop-blur-xl border border-surface-bright/50 border-s-4 border-s-surface-variant p-3.5 text-xs text-on-surface flex flex-col gap-2.5 animate-fade-in shadow-ambient ${className}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -57,11 +61,10 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
             </div>
             <div className="space-y-0.5">
               <h4 className="font-semibold text-xs text-on-surface">
-                Transaction Cancelled
+                {tModals("txCancelledTitle")}
               </h4>
               <p className="text-on-surface-variant text-xs leading-relaxed">
-                {parsed.message ||
-                  "You cancelled the transaction request in your wallet."}
+                {parsed.message || tModals("txCancelledDesc")}
               </p>
             </div>
           </div>
@@ -70,9 +73,9 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
             <button
               type="button"
               onClick={onDismiss}
-              aria-label="Dismiss alert"
+              aria-label={tCommon("dismissAlert")}
               className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition cursor-pointer"
-              title="Dismiss"
+              title={tCommon("dismiss")}
             >
               <span
                 aria-hidden="true"
@@ -93,7 +96,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
   return (
     <div
       role="alert"
-      className={`rounded-xl border border-l-4 p-4 text-xs flex flex-col gap-2.5 animate-fade-in backdrop-blur-md bg-surface-container-highest/95 text-on-surface ${theme.borderColor} ${theme.accentBorder} ${className}`}
+      className={`rounded-xl border border-s-4 p-4 text-xs flex flex-col gap-2.5 animate-fade-in backdrop-blur-md bg-surface-container-highest/95 text-on-surface ${theme.borderColor} ${theme.accentBorder} ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -116,9 +119,9 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
           <button
             type="button"
             onClick={onDismiss}
-            aria-label="Dismiss alert"
+            aria-label={tCommon("dismissAlert")}
             className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/10 transition cursor-pointer shrink-0"
-            title="Dismiss"
+            title={tCommon("dismiss")}
           >
             <span
               aria-hidden="true"
@@ -137,7 +140,7 @@ export const SolanaErrorAlert: React.FC<SolanaErrorAlertProps> = ({
             onClick={onRetry}
             className="px-3 py-1.5 rounded-lg bg-surface-container-highest/80 hover:bg-surface-container-highest text-on-surface font-semibold text-xs transition cursor-pointer shadow-sm border border-white/10"
           >
-            🔄 Retry Transaction
+            🔄 {tCommon("retryTransaction")}
           </button>
         </div>
       )}

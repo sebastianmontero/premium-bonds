@@ -98,6 +98,8 @@ export default function DashboardPage() {
     prependLocal,
   } = useActivityFeed(isConnected ? userAddress : undefined, poolId);
 
+  const tDashboard = useTranslations("Dashboard");
+
   // Display skeleton loaders during connecting status to eliminate FOEC
   const isInitialLoading = status === "connecting";
 
@@ -358,8 +360,8 @@ export default function DashboardPage() {
       if (crankingCycles[key]) return;
 
       setCrankingCycles((prev) => ({ ...prev, [key]: true }));
-      setActionModalTitle("Run Reinvestment Crank");
-      setActionSuccessMsg("Prize draw winnings successfully reinvested!");
+      setActionModalTitle(tDashboard("crankReinvestModalTitle"));
+      setActionSuccessMsg(tDashboard("crankReinvestSuccessMsg"));
 
       const breakdown = calculateReinvestmentBreakdown(
         entry.amount,
@@ -453,6 +455,7 @@ export default function DashboardPage() {
       rollbackOptimisticPrize,
       setActionModalTitle,
       setActionSuccessMsg,
+      tDashboard,
     ]
   );
 
@@ -460,9 +463,12 @@ export default function DashboardPage() {
     if (activeUnclaimedWinnings === 0) return;
 
     const claimAmount = activeUnclaimedWinnings;
-    setActionModalTitle("Claim Remaining Winnings");
+    setActionModalTitle(tDashboard("claimWinningsModalTitle"));
     setActionSuccessMsg(
-      `Claimed accumulated remaining winnings of $${formatTokenAmount(claimAmount, poolTokenDecimals)} USDC.`
+      tDashboard("claimWinningsSuccessMsg", {
+        amount: formatTokenAmount(claimAmount, poolTokenDecimals),
+        symbol: poolTokenSymbol,
+      })
     );
 
     try {
@@ -504,15 +510,23 @@ export default function DashboardPage() {
     if (!redemption) return;
     setClaimingRedemptionId(id);
 
-    setActionModalTitle("Claim Settled Redemption");
+    const amountFormatted = formatTokenAmount(redemption.amount, 6);
+    setActionModalTitle(tDashboard("claimRedemptionModalTitle"));
     setActionSuccessMsg(
-      `Successfully claimed settled ${
-        redemption.type === "bond_sale"
-          ? "bond principal"
-          : redemption.type === "fee_withdrawal"
-            ? "fees"
-            : "prize winnings"
-      } of $${formatTokenAmount(redemption.amount, 6)} USDC to wallet.`
+      redemption.type === "bond_sale"
+        ? tDashboard("claimRedemptionBondPrincipalSuccess", {
+            amount: amountFormatted,
+            symbol: poolTokenSymbol,
+          })
+        : redemption.type === "fee_withdrawal"
+          ? tDashboard("claimRedemptionFeesSuccess", {
+              amount: amountFormatted,
+              symbol: poolTokenSymbol,
+            })
+          : tDashboard("claimRedemptionPrizesSuccess", {
+              amount: amountFormatted,
+              symbol: poolTokenSymbol,
+            })
     );
 
     try {

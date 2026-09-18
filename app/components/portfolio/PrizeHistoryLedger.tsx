@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import {
   formatTokenAmount,
-  tierLabel,
   tierBadgeClass,
   formatLocalDate,
   formatTicketNumber,
@@ -15,6 +14,7 @@ import {
   getEffectivePrizeDust,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
@@ -61,6 +61,7 @@ export function PrizeHistoryLedger({
   isLoading = false,
 }: PrizeHistoryLedgerProps) {
   const t = useTranslations("Ledger");
+  const getTierLabel = useTierLabel();
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
 
@@ -366,7 +367,7 @@ export function PrizeHistoryLedger({
                       </div>
                     </div>
                     <span className={tierBadgeClass(entry.tierIndex)}>
-                      {tierLabel(entry.tierIndex)}
+                      {getTierLabel(entry.tierIndex)}
                     </span>
                   </div>
 
@@ -687,7 +688,7 @@ export function PrizeHistoryLedger({
                       {/* Tier Badge */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <span className={tierBadgeClass(entry.tierIndex)}>
-                          {tierLabel(entry.tierIndex)}
+                          {getTierLabel(entry.tierIndex)}
                         </span>
                       </td>
 

@@ -9,13 +9,13 @@ import { YieldBreakdownTooltip } from "./YieldBreakdownTooltip";
 import { MinimumYieldStatus } from "./MinimumYieldStatus";
 import {
   formatCurrencyAmount,
-  getLocalizedTierLabel,
   formatApy,
   DEFAULT_APY,
   formatCycleFrequency,
 } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { Link } from "@/i18n/routing";
 
 interface PoolCardProps {
@@ -45,6 +45,7 @@ export function PoolCard({
   onWithdraw,
 }: PoolCardProps) {
   const t = useTranslations("Pools");
+  const getTierLabel = useTierLabel();
   const [showAllTiersModal, setShowAllTiersModal] = useState(false);
 
   const isFrozen = pool.isFrozenForDraw;
@@ -110,7 +111,11 @@ export function PoolCard({
           }`}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-current" />
-          {pool.status}
+          {pool.status === "Active"
+            ? t("statusActive")
+            : pool.status === "Paused"
+              ? t("statusPaused")
+              : t("statusClosed")}
         </span>
       </div>
 
@@ -257,7 +262,7 @@ export function PoolCard({
                   pool={pool}
                   tier={tier}
                   tierIndex={i}
-                  tierLabel={getLocalizedTierLabel(i, activeTiers.length, t)}
+                  tierLabel={getTierLabel(i, activeTiers.length)}
                 />
               ))}
             </div>
@@ -288,10 +293,7 @@ export function PoolCard({
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
           </svg>
-          <span>
-            Emergency pause active. Deposits and withdrawals are temporarily
-            halted.
-          </span>
+          <span>{t("emergencyPauseActiveNotice")}</span>
         </div>
       )}
       {pool.status === "Closed" && (
@@ -309,10 +311,7 @@ export function PoolCard({
               d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <span>
-            Pool closed (sunset). You may withdraw 100% of your remaining bond
-            principal.
-          </span>
+          <span>{t("poolClosedSunsetNotice")}</span>
         </div>
       )}
 

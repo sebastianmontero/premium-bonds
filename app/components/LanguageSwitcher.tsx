@@ -35,11 +35,12 @@ export function LanguageSwitcher() {
   }, []);
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
+    <div className="relative inline-block text-start" ref={dropdownRef}>
       <button
         type="button"
         onClick={toggleDropdown}
         className="inline-flex items-center gap-1.5 rounded-xl bg-surface-container-high/60 px-3 py-1.5 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container-high hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
+        aria-label={t("selectLanguage")}
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
@@ -63,7 +64,7 @@ export function LanguageSwitcher() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-32 origin-top-right rounded-xl glass bg-surface-container/95 py-1.5 shadow-xl ring-1 ring-white/10 z-50 animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute end-0 mt-2 w-32 origin-top-right rtl:origin-top-left rounded-xl glass bg-surface-container/95 py-1.5 shadow-xl ring-1 ring-white/10 z-50 animate-in fade-in zoom-in-95 duration-150">
           <button
             onClick={() => handleSelectLanguage("en")}
             className={`flex w-full items-center justify-between px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${

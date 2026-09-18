@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { getExplorerUrl, truncateSignature } from "@/app/lib/errors";
 
+import { useTranslations } from "next-intl";
+
 interface TxExplorerLinkProps {
   signature?: string;
   cluster?: "devnet" | "mainnet-beta" | "testnet" | "localnet";
@@ -20,12 +22,14 @@ export function TxExplorerLink({
   variant = "badge",
   className = "",
 }: TxExplorerLinkProps) {
+  const t = useTranslations("Common.explorer");
   const [copied, setCopied] = useState(false);
 
   if (!signature) return null;
 
   const url = getExplorerUrl(signature, cluster, provider);
   const truncated = truncateSignature(signature);
+  const providerName = provider === "solscan" ? "Solscan" : "Solana Explorer";
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -48,7 +52,7 @@ export function TxExplorerLink({
         href={url}
         target="_blank"
         rel="noreferrer"
-        title={`View tx ${signature} on ${provider === "solscan" ? "Solscan" : "Solana Explorer"}`}
+        title={t("viewTxOnExplorer", { signature, provider: providerName })}
         className="inline-flex items-center gap-1 font-mono text-[11px] text-primary/80 hover:text-primary transition hover:underline bg-primary/5 hover:bg-primary/10 px-2 py-0.5 rounded border border-primary/15 shrink-0"
       >
         <span>{variant === "compact" ? "Tx ↗" : `${truncated} ↗`}</span>
@@ -58,7 +62,8 @@ export function TxExplorerLink({
         <button
           type="button"
           onClick={handleCopy}
-          title="Copy transaction signature"
+          title={t("copyTxSignature")}
+          aria-label={t("copyTxSignature")}
           className="p-0.5 rounded text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-bright/10 transition cursor-pointer text-[10px]"
         >
           {copied ? (

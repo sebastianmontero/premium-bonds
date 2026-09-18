@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
 import {
   ParsedTransactionError,
@@ -26,7 +26,6 @@ export function TransactionErrorDetails({
   className = "",
 }: TransactionErrorDetailsProps) {
   const t = useTranslations("Modals");
-  const locale = useLocale();
   const [copied, setCopied] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
 
@@ -93,11 +92,7 @@ export function TransactionErrorDetails({
             className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline bg-surface-container-high px-3 py-1.5 rounded-lg border border-outline-variant/30"
           >
             <span>🛠️</span>
-            <span>
-              {locale === "es"
-                ? "Diagnosticar en la documentación →"
-                : "Diagnose in Docs →"}
-            </span>
+            <span>{t("diagnoseInDocs")}</span>
           </Link>
         )}
       </div>
@@ -124,7 +119,7 @@ export function TransactionErrorDetails({
 
       {/* Execution logs expanded drawer */}
       {showLogs && error.logs && error.logs.length > 0 && (
-        <div className="w-full p-2.5 rounded-xl bg-black/50 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto text-on-surface-variant text-left break-all border border-white/10 shadow-inner">
+        <div className="w-full p-2.5 rounded-xl bg-black/50 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto text-on-surface-variant text-start break-all border border-white/10 shadow-inner">
           <p className="font-semibold text-on-surface border-b border-white/10 pb-1 mb-1">
             {t("executionLogsTitle")}
           </p>

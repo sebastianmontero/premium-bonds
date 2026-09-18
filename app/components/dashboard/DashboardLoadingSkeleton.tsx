@@ -1,13 +1,16 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 
 export function DashboardLoadingSkeleton() {
+  const t = useTranslations("Dashboard");
+
   return (
     <div
       className="space-y-6 animate-pulse"
       aria-busy="true"
-      aria-label="Loading pool state"
+      aria-label={t("loadingPoolState")}
     >
       {/* ── 1. Hero Row Skeleton (4 metric cards) ────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

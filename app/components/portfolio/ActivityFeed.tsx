@@ -1,117 +1,16 @@
 "use client";
 
-import type { ActivityEntry, ActivityType } from "@/app/types";
+import type { ActivityEntry } from "@/app/types";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
-import { useTranslations, useLocale, useFormatter } from "next-intl";
-import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
+import { useTranslations, useFormatter } from "next-intl";
+import { renderLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 import { formatLocalDate } from "@/app/lib/formatters";
+import { dotColor, typeIcon } from "./activity-utils";
 
 interface ActivityFeedProps {
   entries: ActivityEntry[];
   onViewCompleteFeed?: () => void;
   isLoading?: boolean;
-}
-
-function dotColor(type: ActivityType): string {
-  switch (type) {
-    case "deposit":
-      return "bg-primary shadow-[0_0_8px_rgba(79,140,255,0.5)]";
-    case "withdraw":
-      return "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]";
-    case "win":
-      return "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]";
-    case "auto-reinvest":
-      return "bg-tertiary shadow-[0_0_8px_rgba(167,139,250,0.5)]";
-    case "claim-redemption":
-      return "bg-secondary shadow-[0_0_8px_rgba(56,189,248,0.5)]";
-  }
-}
-
-function typeIcon(type: ActivityType) {
-  switch (type) {
-    case "deposit":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-primary"
-        >
-          <path d="M12 5v14M19 12l-7 7-7-7" />
-        </svg>
-      );
-    case "win":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-secondary"
-        >
-          <circle cx="12" cy="8" r="7" />
-          <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-        </svg>
-      );
-    case "auto-reinvest":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-tertiary"
-        >
-          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-          <polyline points="21 3 21 8 16 8" />
-        </svg>
-      );
-    case "withdraw":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-amber-400"
-        >
-          <path d="M12 19V5M5 12l7-7 7 7" />
-        </svg>
-      );
-    case "claim-redemption":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-secondary"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      );
-  }
 }
 
 export function ActivityFeed({
@@ -120,7 +19,6 @@ export function ActivityFeed({
   isLoading = false,
 }: ActivityFeedProps) {
   const t = useTranslations("Activity");
-  const locale = useLocale();
   const format = useFormatter();
 
   const formatFeedDate = (isoDate: string): string => {
@@ -180,7 +78,7 @@ export function ActivityFeed({
           </p>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-0 scroll-smooth">
+        <div className="flex-1 min-h-0 overflow-y-auto pe-1 space-y-0 scroll-smooth">
           {previewEntries.map((entry) => (
             <div key={entry.id} className="timeline-item py-3">
               {/* Timeline dot */}
@@ -198,10 +96,7 @@ export function ActivityFeed({
                       {formatFeedDate(entry.date)}
                     </p>
                     <p className="text-sm text-on-surface mt-0.5 leading-relaxed">
-                      {formatLocalizedActivityDescription(
-                        entry.description,
-                        locale
-                      )}
+                      {renderLocalizedActivityDescription(entry, t)}
                     </p>
                   </div>
                 </div>

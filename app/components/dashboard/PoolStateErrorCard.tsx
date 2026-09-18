@@ -61,8 +61,8 @@ export function PoolStateErrorCard({
       {error && (
         <details className="text-xs text-on-surface-variant border border-outline-variant/10 rounded-xl bg-surface-container-lowest/60 overflow-hidden">
           <summary className="cursor-pointer px-3 py-2 font-medium hover:text-on-surface transition select-none flex items-center justify-between">
-            <span>Diagnostic Details</span>
-            <span className="text-[10px] opacity-70">Expand ▾</span>
+            <span>{t("diagnosticDetails")}</span>
+            <span className="text-[10px] opacity-70">{t("expandDetails")}</span>
           </summary>
           <pre className="p-3 text-[11px] font-mono text-error/90 whitespace-pre-wrap break-all border-t border-outline-variant/10 bg-surface-container-lowest">
             {error}

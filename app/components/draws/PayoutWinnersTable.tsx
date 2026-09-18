@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react";
 import {
   formatTokenAmount,
-  tierLabel,
   tierBadgeClass,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -15,6 +14,7 @@ import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -55,6 +55,7 @@ export function PayoutWinnersTable({
   const [tierFilter, setTierFilter] = useState("all");
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
+  const getTierLabel = useTierLabel();
 
   const effectivePool =
     pool ?? (isFrozenForDraw !== undefined ? { isFrozenForDraw } : null);
@@ -104,7 +105,7 @@ export function PayoutWinnersTable({
       const matchesSearch =
         searchTerm === "" ||
         w.winnerAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        tierLabel(w.tierIndex)
+        getTierLabel(w.tierIndex)
           .toLowerCase()
           .includes(searchTerm.toLowerCase()) ||
         (w.winningTicketIndex !== undefined &&
@@ -112,7 +113,7 @@ export function PayoutWinnersTable({
 
       return matchesSearch;
     });
-  }, [winners, searchTerm, tierFilter, connectedUserAddress]);
+  }, [winners, searchTerm, tierFilter, connectedUserAddress, getTierLabel]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col space-y-3">
@@ -157,10 +158,10 @@ export function PayoutWinnersTable({
                 placeholder={t("searchWinnerPlaceholder")}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
+                className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 ps-9 pe-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
               />
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
+                className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -192,7 +193,7 @@ export function PayoutWinnersTable({
                   value={tierFilter}
                   onChange={(val) => setTierFilter(val)}
                   options={tierOptions}
-                  ariaLabel="Filter winners by tier"
+                  ariaLabel={tLedger("filterTierLabel")}
                 />
               </div>
             </div>
@@ -223,7 +224,7 @@ export function PayoutWinnersTable({
                 aria-label={t("payoutRegistryRosterTitle", {
                   count: winners.length,
                 })}
-                className="w-full min-w-[650px] text-left text-xs border-separate border-spacing-0"
+                className="w-full min-w-[650px] text-start text-xs border-separate border-spacing-0"
               >
                 <thead>
                   <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
@@ -247,7 +248,7 @@ export function PayoutWinnersTable({
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 text-right whitespace-nowrap"
+                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 text-end whitespace-nowrap"
                     >
                       {t("amountWonColumn")}
                     </th>
@@ -259,7 +260,7 @@ export function PayoutWinnersTable({
                     </th>
                     <th
                       scope="col"
-                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 text-right whitespace-nowrap"
+                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 text-end whitespace-nowrap"
                     >
                       {t("actionsColumn")}
                     </th>
@@ -289,12 +290,12 @@ export function PayoutWinnersTable({
                         <td
                           className={`py-3 px-4 border-b border-surface-bright/5 whitespace-nowrap ${
                             isConnectedWinner
-                              ? "relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-r-full before:bg-primary"
+                              ? "relative before:absolute before:start-0 before:top-2 before:bottom-2 before:w-1 before:rounded-e-full before:bg-primary"
                               : ""
                           }`}
                         >
                           <span className={tierBadgeClass(winner.tierIndex)}>
-                            {tierLabel(winner.tierIndex)}
+                            {getTierLabel(winner.tierIndex)}
                           </span>
                         </td>
 
@@ -338,7 +339,7 @@ export function PayoutWinnersTable({
                         </td>
 
                         {/* Amount Won & Reinvested Bonds */}
-                        <td className="py-3 px-4 border-b border-surface-bright/5 text-right whitespace-nowrap">
+                        <td className="py-3 px-4 border-b border-surface-bright/5 text-end whitespace-nowrap">
                           <p
                             className={`font-mono text-xs font-bold ${
                               isVoided
@@ -412,7 +413,7 @@ export function PayoutWinnersTable({
                         </td>
 
                         {/* Actions / Crank Trigger & View Details Button */}
-                        <td className="py-3 px-4 border-b border-surface-bright/5 text-right whitespace-nowrap">
+                        <td className="py-3 px-4 border-b border-surface-bright/5 text-end whitespace-nowrap">
                           <div className="inline-flex items-center justify-end gap-2">
                             <WinnerCrankActionButton
                               winnerIndex={winner.winnerIndex}

@@ -7,6 +7,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { GlobalRealtimePushSync } from "@/app/components/realtime/GlobalRealtimePushSync";
+import { HtmlLangDirSync } from "@/app/components/common/HtmlLangDirSync";
 
 type SupportedLocale = (typeof routing.locales)[number];
 
@@ -25,6 +26,7 @@ export async function generateMetadata({
   }
 
   const t = await getTranslations({ locale, namespace: "Metadata" });
+  const isDefaultLocale = locale === routing.defaultLocale;
 
   return {
     title: t("title"),
@@ -35,11 +37,11 @@ export async function generateMetadata({
       apple: "/icon.svg",
     },
     alternates: {
-      canonical: `/${locale}`,
+      canonical: isDefaultLocale ? "/" : `/${locale}`,
       languages: {
-        en: "/en",
+        en: "/",
         es: "/es",
-        "x-default": "/en",
+        "x-default": "/",
       },
     },
   };
@@ -63,6 +65,7 @@ export default async function LocaleLayout({
 
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
+      <HtmlLangDirSync />
       <GlobalRealtimePushSync />
       {children}
     </NextIntlClientProvider>

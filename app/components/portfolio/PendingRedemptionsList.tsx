@@ -214,7 +214,7 @@ export function PendingRedemptionsList({
                               onSimulateSettlement(item.redemptionId)
                             }
                             className="rounded-lg border border-amber-500/30 hover:border-amber-500/60 bg-amber-500/5 px-2.5 py-1.5 text-[11px] font-medium text-amber-300 transition cursor-pointer hover:bg-amber-500/10"
-                            title="Simulate yield-bearing settlement in Huma Finance"
+                            title={t("simulateSettledTitle")}
                           >
                             {t("simulateSettled")}
                           </button>

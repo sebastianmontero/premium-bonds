@@ -9,7 +9,15 @@ import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { getQueryClient } from "@/app/lib/get-query-client";
 import { bondsKeys } from "@/app/lib/query-keys";
 
-export default async function Home() {
+import { setRequestLocale } from "next-intl/server";
+
+export default async function Home({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  setRequestLocale(locale);
   const queryClient = getQueryClient();
 
   try {

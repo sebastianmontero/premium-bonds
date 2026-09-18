@@ -1,13 +1,13 @@
 "use client";
 
 import React from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { DocArticle, DOC_ARTICLES } from "@/app/lib/docs/data";
 import { Link } from "@/i18n/routing";
 import { ErrorDecoderTool } from "./ErrorDecoderTool";
 
 interface DocArticleViewerProps {
   article: DocArticle;
-  locale: string;
 }
 
 /**
@@ -107,13 +107,15 @@ function renderInline(text: string): React.ReactNode[] {
   return nodes;
 }
 
-export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
+export function DocArticleViewer({ article }: DocArticleViewerProps) {
+  const locale = useLocale();
+  const t = useTranslations("Docs");
   const targetLocale = (locale === "es" ? "es" : "en") as "en" | "es";
   const title = article.title[targetLocale] || article.title.en;
   const categoryTitle =
     article.categoryTitle?.[targetLocale] ||
     article.categoryTitle?.en ||
-    "Documentation";
+    t("breadcrumbDocs");
   const rawContent = article.content[targetLocale] || article.content.en;
 
   // Navigation indices
@@ -272,7 +274,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
               key={`table-${idx}`}
               className="my-5 overflow-x-auto rounded-xl border border-outline-variant/20 bg-surface-container-high/40 shadow-inner"
             >
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-start text-sm">
                 <thead className="bg-surface-container-high text-on-surface font-semibold border-b border-outline-variant/20 text-xs sm:text-sm">
                   <tr>
                     {headerCols.map((col, hIdx) => (
@@ -358,7 +360,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
         blocks.push(
           <ul
             key={`ul-${idx}`}
-            className="my-3 space-y-2 pl-6 list-disc text-sm sm:text-base text-on-surface-variant"
+            className="my-3 space-y-2 ps-6 list-disc text-sm sm:text-base text-on-surface-variant"
           >
             {listItems.map((item, lIdx) => (
               <li key={lIdx} className="leading-relaxed">
@@ -381,7 +383,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
         blocks.push(
           <ol
             key={`ol-${idx}`}
-            className="my-3 space-y-2 pl-6 list-decimal text-sm sm:text-base text-on-surface-variant"
+            className="my-3 space-y-2 ps-6 list-decimal text-sm sm:text-base text-on-surface-variant"
           >
             {listItems.map((item, lIdx) => (
               <li key={lIdx} className="leading-relaxed">
@@ -413,7 +415,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
       {/* Breadcrumb Header */}
       <nav className="flex items-center gap-2 text-sm text-on-surface-variant/70 mb-4">
         <Link href="/docs" className="hover:text-on-surface transition">
-          Docs
+          {t("breadcrumbDocs")}
         </Link>
         <span>/</span>
         <span>{categoryTitle}</span>
@@ -426,9 +428,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
         {renderFormattedBlocks(rawContent)}
 
         {/* Embedded Interactive Error Decoder for common-errors page */}
-        {article.slug === "common-errors" && (
-          <ErrorDecoderTool locale={locale} />
-        )}
+        {article.slug === "common-errors" && <ErrorDecoderTool />}
       </div>
 
       {/* Previous / Next Article Links */}
@@ -439,7 +439,7 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
             className="group rounded-2xl bg-surface-container-low border border-outline-variant/20 p-4 hover:border-primary/50 transition flex flex-col justify-between"
           >
             <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/60">
-              ← {locale === "es" ? "Anterior" : "Previous"}
+              ← {t("previousArticle")}
             </span>
             <span className="text-base font-bold text-on-surface group-hover:text-primary transition mt-1">
               {prevArticle.title[targetLocale] || prevArticle.title.en}
@@ -452,10 +452,10 @@ export function DocArticleViewer({ article, locale }: DocArticleViewerProps) {
         {nextArticle ? (
           <Link
             href={`/docs/${nextArticle.categorySlug}/${nextArticle.slug}`}
-            className="group rounded-2xl bg-surface-container-low border border-outline-variant/20 p-4 hover:border-primary/50 transition flex flex-col items-end text-right justify-between"
+            className="group rounded-2xl bg-surface-container-low border border-outline-variant/20 p-4 hover:border-primary/50 transition flex flex-col items-end text-end justify-between"
           >
             <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/60">
-              {locale === "es" ? "Siguiente" : "Next"} →
+              {t("nextArticle")} →
             </span>
             <span className="text-base font-bold text-on-surface group-hover:text-primary transition mt-1">
               {nextArticle.title[targetLocale] || nextArticle.title.en}

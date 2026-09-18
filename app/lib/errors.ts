@@ -109,7 +109,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-purple-500/30",
         bgBadgeColor: "bg-purple-500/10",
         titleColor: "text-purple-300",
-        accentBorder: "border-l-purple-400",
+        accentBorder: "border-s-purple-400",
         ringBorder: "border-purple-500/30",
       };
     case "blockhash_expired":
@@ -118,7 +118,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-sky-500/30",
         bgBadgeColor: "bg-sky-500/10",
         titleColor: "text-sky-300",
-        accentBorder: "border-l-sky-400",
+        accentBorder: "border-s-sky-400",
         ringBorder: "border-sky-500/30",
       };
     case "insufficient_sol":
@@ -128,7 +128,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-amber-500/30",
         bgBadgeColor: "bg-amber-500/10",
         titleColor: "text-amber-300",
-        accentBorder: "border-l-amber-400",
+        accentBorder: "border-s-amber-400",
         ringBorder: "border-amber-500/30",
       };
     case "network_rpc":
@@ -137,7 +137,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-amber-500/30",
         bgBadgeColor: "bg-amber-500/10",
         titleColor: "text-amber-300",
-        accentBorder: "border-l-amber-400",
+        accentBorder: "border-s-amber-400",
         ringBorder: "border-amber-500/30",
       };
     case "duplicate_transaction":
@@ -146,7 +146,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-sky-500/30",
         bgBadgeColor: "bg-sky-500/10",
         titleColor: "text-sky-300",
-        accentBorder: "border-l-sky-400",
+        accentBorder: "border-s-sky-400",
         ringBorder: "border-sky-500/30",
       };
     case "wallet_cancellation":
@@ -155,7 +155,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-surface-bright/50",
         bgBadgeColor: "bg-surface-variant/20",
         titleColor: "text-on-surface",
-        accentBorder: "border-l-surface-variant",
+        accentBorder: "border-s-surface-variant",
         ringBorder: "border-surface-variant/30",
       };
     default:
@@ -164,7 +164,7 @@ export function getErrorCategoryTheme(
         borderColor: "border-error/30",
         bgBadgeColor: "bg-error/10",
         titleColor: "text-red-400",
-        accentBorder: "border-l-error",
+        accentBorder: "border-s-error",
         ringBorder: "border-error/30",
       };
   }

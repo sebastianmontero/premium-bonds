@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { getAccountExplorerUrl, truncateAddress } from "@/app/lib/errors";
 
+import { useTranslations } from "next-intl";
+
 interface AccountExplorerLinkProps {
   address?: string;
   label?: string;
@@ -22,12 +24,14 @@ export function AccountExplorerLink({
   showExplorer = true,
   className = "",
 }: AccountExplorerLinkProps) {
+  const t = useTranslations("Common.explorer");
   const [copied, setCopied] = useState(false);
 
   if (!address) return null;
 
   const url = getAccountExplorerUrl(address, cluster, provider);
   const displayLabel = label || truncateAddress(address);
+  const providerName = provider === "solscan" ? "Solscan" : "Solana Explorer";
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -49,7 +53,10 @@ export function AccountExplorerLink({
           href={url}
           target="_blank"
           rel="noreferrer"
-          title={`View address ${address} on ${provider === "solscan" ? "Solscan" : "Solana Explorer"}`}
+          title={t("viewAddressOnExplorer", {
+            address,
+            provider: providerName,
+          })}
           className="inline-flex items-center gap-1 font-mono text-xs text-primary/80 hover:text-primary transition hover:underline bg-primary/5 hover:bg-primary/10 px-2 py-0.5 rounded-md border border-primary/15 shrink-0"
         >
           <span>{displayLabel}</span>
@@ -77,7 +84,8 @@ export function AccountExplorerLink({
         <button
           type="button"
           onClick={handleCopy}
-          title="Copy address"
+          title={t("copyAddress")}
+          aria-label={t("copyAddress")}
           className="p-1 rounded-md text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-bright/10 transition cursor-pointer text-xs"
         >
           {copied ? (

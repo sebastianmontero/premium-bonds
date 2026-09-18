@@ -76,7 +76,7 @@ export function Footer() {
               target="_blank"
               rel="noreferrer"
               className="text-on-surface-variant hover:text-on-surface transition-colors"
-              aria-label="X / Twitter"
+              aria-label={t("twitter")}
             >
               <svg
                 width="18"
@@ -92,7 +92,7 @@ export function Footer() {
               target="_blank"
               rel="noreferrer"
               className="text-on-surface-variant hover:text-on-surface transition-colors"
-              aria-label="Discord"
+              aria-label={t("discord")}
             >
               <svg
                 width="20"

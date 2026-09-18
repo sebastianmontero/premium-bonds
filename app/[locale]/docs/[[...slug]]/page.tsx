@@ -1,5 +1,5 @@
 import React from "react";
-import { setRequestLocale } from "next-intl/server";
+import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Navbar } from "@/app/components/Navbar";
 import { Footer } from "@/app/components/Footer";
 import { DocsSearch } from "@/app/components/docs/DocsSearch";
@@ -19,6 +19,7 @@ type PageProps = {
 export default async function DocsPage({ params }: PageProps) {
   const { locale, slug } = await params;
   setRequestLocale(locale);
+  const t = await getTranslations({ locale, namespace: "Docs" });
 
   // If slug has category and article, render article view
   const categorySlug = slug?.[0];
@@ -53,21 +54,15 @@ export default async function DocsPage({ params }: PageProps) {
         <div className="mb-8 flex flex-col items-center text-center space-y-4">
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-semibold text-primary">
             <span>📚</span>
-            <span>
-              {locale === "es"
-                ? "Centro de Ayuda y Documentación"
-                : "Help Center & Documentation"}
-            </span>
+            <span>{t("helpCenterBadge")}</span>
           </div>
 
           <h1 className="font-display text-3xl md:text-5xl font-extrabold tracking-tight text-on-surface max-w-2xl">
-            {locale === "es"
-              ? "¿Cómo podemos ayudarte hoy?"
-              : "How can we help you today?"}
+            {t("headerTitle")}
           </h1>
 
           <div className="w-full flex justify-center pt-2">
-            <DocsSearch locale={locale} />
+            <DocsSearch />
           </div>
         </div>
 
@@ -109,7 +104,7 @@ export default async function DocsPage({ params }: PageProps) {
                     </div>
 
                     <div className="mt-6 flex items-center gap-1 text-sm font-semibold text-primary group-hover:underline">
-                      <span>{locale === "es" ? "Explorar" : "Explore"}</span>
+                      <span>{t("explore")}</span>
                       <span>→</span>
                     </div>
                   </Link>
@@ -121,9 +116,7 @@ export default async function DocsPage({ params }: PageProps) {
             <div className="rounded-2xl bg-surface-container-low/50 border border-outline-variant/20 p-6 md:p-8 space-y-6">
               <h2 className="font-display text-xl font-bold text-on-surface flex items-center gap-2">
                 <span>🔥</span>
-                {locale === "es"
-                  ? "Artículos Populares y Guías Rápidas"
-                  : "Popular Articles & Quick Guides"}
+                {t("popularArticlesTitle")}
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -132,17 +125,13 @@ export default async function DocsPage({ params }: PageProps) {
                   className="rounded-xl bg-surface-container-high/60 p-4 border border-outline-variant/20 hover:border-primary/40 transition"
                 >
                   <span className="text-xs sm:text-sm font-bold text-primary block mb-1">
-                    🚀 Getting Started
+                    {t("gettingStartedTag")}
                   </span>
                   <h4 className="font-semibold text-sm sm:text-base text-on-surface">
-                    {locale === "es"
-                      ? "Configurar Billetera Solana"
-                      : "Setting Up Phantom / Solflare"}
+                    {t("gettingStartedTitle")}
                   </h4>
                   <p className="text-sm text-on-surface-variant mt-1 line-clamp-2">
-                    {locale === "es"
-                      ? "Guía para instalar tu billetera y mantener tus fondos seguros."
-                      : "Step-by-step guide to installing and securing your wallet."}
+                    {t("gettingStartedDesc")}
                   </p>
                 </Link>
 
@@ -151,17 +140,13 @@ export default async function DocsPage({ params }: PageProps) {
                   className="rounded-xl bg-surface-container-high/60 p-4 border border-outline-variant/20 hover:border-primary/40 transition"
                 >
                   <span className="text-xs sm:text-sm font-bold text-primary block mb-1">
-                    ⚙️ Protocol Mechanics
+                    {t("mechanicsTag")}
                   </span>
                   <h4 className="font-semibold text-sm sm:text-base text-on-surface">
-                    {locale === "es"
-                      ? "Generación de Rendimiento Huma"
-                      : "Huma Finance Yield Flow"}
+                    {t("mechanicsTitle")}
                   </h4>
                   <p className="text-sm text-on-surface-variant mt-1 line-clamp-2">
-                    {locale === "es"
-                      ? "Cómo los depósitos generan intereses para los botes de premios sin riesgo."
-                      : "How deposits generate zero-loss interest for weekly prize draws."}
+                    {t("mechanicsDesc")}
                   </p>
                 </Link>
 
@@ -170,17 +155,13 @@ export default async function DocsPage({ params }: PageProps) {
                   className="rounded-xl bg-surface-container-high/60 p-4 border border-outline-variant/20 hover:border-primary/40 transition"
                 >
                   <span className="text-xs sm:text-sm font-bold text-primary block mb-1">
-                    🛠️ Troubleshooting
+                    {t("troubleshootingTag")}
                   </span>
                   <h4 className="font-semibold text-sm sm:text-base text-on-surface">
-                    {locale === "es"
-                      ? "Decodificador de Errores"
-                      : "Self-Service Error Decoder"}
+                    {t("troubleshootingTitle")}
                   </h4>
                   <p className="text-sm text-on-surface-variant mt-1 line-clamp-2">
-                    {locale === "es"
-                      ? "Busca códigos de error de Solscan para encontrar soluciones."
-                      : "Lookup error codes or hashes to get step-by-step resolution advice."}
+                    {t("troubleshootingDesc")}
                   </p>
                 </Link>
               </div>
@@ -191,9 +172,8 @@ export default async function DocsPage({ params }: PageProps) {
             <DocsSidebar
               currentCategorySlug={currentArticle.categorySlug}
               currentArticleSlug={currentArticle.slug}
-              locale={locale}
             />
-            <DocArticleViewer article={currentArticle} locale={locale} />
+            <DocArticleViewer article={currentArticle} />
           </div>
         ) : null}
       </main>

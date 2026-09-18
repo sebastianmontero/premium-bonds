@@ -22,7 +22,7 @@ export function DrawSkippedAuditView({ draw }: DrawSkippedAuditViewProps) {
       : t("skippedExplanation");
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pr-1">
+    <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pe-1">
       {/* ── 1. Hero Reassurance & Rollover Banner ──────────────────────── */}
       <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-surface-container/60 to-surface-container/30 p-5 sm:p-6 shadow-sm">
         <div className="flex items-start gap-4">
@@ -108,7 +108,7 @@ export function DrawSkippedAuditView({ draw }: DrawSkippedAuditViewProps) {
             {t("tabAuditTrail")}
           </h5>
           <span className="text-[11px] font-mono text-on-surface-variant/60">
-            Cycle #{draw.cycleId}
+            {t("cycleLabel", { cycleId: draw.cycleId })}
           </span>
         </div>
 

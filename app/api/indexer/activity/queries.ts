@@ -108,6 +108,13 @@ export async function fetchKeysetActivity(
     }),
     amount: Number(r.amount_usdc),
     txSignature: r.signature,
+    metadata: {
+      bonds: r.bonds,
+      cycleId: r.cycle_id,
+      amountUsdc: Number(r.amount_usdc),
+      redemptionType:
+        r.activity_type === "claim-redemption" ? "prize_claim" : undefined,
+    },
   }));
 
   const lastRow = pagedRows[pagedRows.length - 1];

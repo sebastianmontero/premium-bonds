@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import {
   searchDocArticles,
   searchErrorLookupItems,
@@ -9,7 +10,7 @@ import {
 import { Link, useRouter } from "@/i18n/routing";
 
 interface DocsSearchProps {
-  locale: string;
+  locale?: string;
 }
 
 type SearchItem =
@@ -33,7 +34,10 @@ type SearchItem =
       href: string;
     };
 
-export function DocsSearch({ locale }: DocsSearchProps) {
+export function DocsSearch({ locale: propLocale }: DocsSearchProps) {
+  const currentLocale = useLocale();
+  const locale = propLocale || currentLocale;
+  const t = useTranslations("Docs");
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -51,7 +55,7 @@ export function DocsSearch({ locale }: DocsSearchProps) {
         const categoryTitle =
           article.categoryTitle?.[locale as "en" | "es"] ||
           cat?.title[locale as "en" | "es"] ||
-          "Documentation";
+          t("breadcrumbDocs");
         const title = article.title[locale as "en" | "es"] || article.title.en;
         const summary =
           article.summary[locale as "en" | "es"] || article.summary.en;
@@ -86,7 +90,7 @@ export function DocsSearch({ locale }: DocsSearchProps) {
       });
 
     return [...articleMatches, ...errorMatches];
-  }, [query, locale]);
+  }, [query, locale, t]);
 
   const showDropdown = isOpen && query.trim().length > 0;
 
@@ -152,15 +156,10 @@ export function DocsSearch({ locale }: DocsSearchProps) {
     }
   };
 
-  const placeholderText =
-    locale === "es"
-      ? "Buscar documentación o código de error... (Ctrl + K)"
-      : "Search documentation or error code... (Cmd + K)";
-
   return (
     <div ref={searchRef} className="relative w-full max-w-xl">
       <div className="relative flex items-center">
-        <span className="absolute left-3.5 text-on-surface-variant/60 pointer-events-none">
+        <span className="absolute start-3.5 text-on-surface-variant/60 pointer-events-none">
           🔍
         </span>
         <input
@@ -170,10 +169,10 @@ export function DocsSearch({ locale }: DocsSearchProps) {
           onChange={handleQueryChange}
           onFocus={() => query.trim() && setIsOpen(true)}
           onKeyDown={handleInputKeyDown}
-          placeholder={placeholderText}
-          className="w-full rounded-xl bg-surface-container-high/80 border border-outline-variant/30 py-2.5 pl-10 pr-16 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
+          placeholder={t("searchPlaceholder")}
+          className="w-full rounded-xl bg-surface-container-high/80 border border-outline-variant/30 py-2.5 ps-10 pe-16 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
         />
-        <div className="absolute right-3 hidden md:flex items-center gap-1">
+        <div className="absolute end-3 hidden md:flex items-center gap-1">
           <kbd className="rounded border border-outline-variant/30 bg-surface-container px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant">
             ⌘K
           </kbd>
@@ -182,12 +181,10 @@ export function DocsSearch({ locale }: DocsSearchProps) {
 
       {/* Autocomplete Dropdown */}
       {showDropdown && (
-        <div className="absolute left-0 right-0 top-full mt-2 z-50 rounded-2xl bg-surface-container-high border border-outline-variant/30 shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-96 overflow-y-auto">
+        <div className="absolute inset-x-0 top-full mt-2 z-50 rounded-2xl bg-surface-container-high border border-outline-variant/30 shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in max-h-96 overflow-y-auto">
           {results.length === 0 ? (
             <div className="p-4 text-center text-sm text-on-surface-variant">
-              {locale === "es"
-                ? "No se encontraron resultados."
-                : "No matching articles or error codes found."}
+              {t("noResults")}
             </div>
           ) : (
             <div className="p-2 space-y-1">
@@ -205,13 +202,13 @@ export function DocsSearch({ locale }: DocsSearchProps) {
                       }}
                       className={`block rounded-xl p-3 transition ${
                         isSelected
-                          ? "bg-primary/15 border-l-4 border-primary pl-4"
+                          ? "bg-primary/15 border-s-4 border-primary ps-4"
                           : "hover:bg-surface-container-highest/60"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-bold text-sm text-primary">
-                          🛠️ Error {item.code}: {item.name}
+                          🛠️ {t("codeLabel", { code: item.code })}: {item.name}
                         </span>
                         <span className="rounded-md bg-surface-container px-2 py-0.5 text-[10px] font-medium text-amber-300 border border-amber-500/20 shrink-0 capitalize">
                           {item.category}
@@ -234,7 +231,7 @@ export function DocsSearch({ locale }: DocsSearchProps) {
                     }}
                     className={`block rounded-xl p-3 transition ${
                       isSelected
-                        ? "bg-primary/15 border-l-4 border-primary pl-4"
+                        ? "bg-primary/15 border-s-4 border-primary ps-4"
                         : "hover:bg-surface-container-highest/60"
                     }`}
                   >

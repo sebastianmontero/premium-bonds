@@ -1,6 +1,8 @@
 import { Inter, Space_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./components/providers";
+import { getLocale } from "next-intl/server";
+import { routing } from "@/i18n/routing";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -19,13 +21,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export default function RootLayout({
+const RTL_LOCALES = new Set(["ar", "he", "fa"]);
+
+type SupportedLocale = (typeof routing.locales)[number];
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  let locale: SupportedLocale = routing.defaultLocale;
+  try {
+    const rawLocale = await getLocale();
+    if ((routing.locales as readonly string[]).includes(rawLocale)) {
+      locale = rawLocale as SupportedLocale;
+    }
+  } catch {
+    // Fallback if called outside request context
+  }
+  const dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
+
   return (
-    <html className="dark" suppressHydrationWarning>
+    <html lang={locale} dir={dir} className="dark" suppressHydrationWarning>
       <body
         suppressHydrationWarning
         className={`${inter.variable} ${spaceGrotesk.variable} ${geistMono.variable}`}

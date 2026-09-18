@@ -231,22 +231,22 @@ describe("Tier Payout & BPS Math Verification Suite", () => {
     };
 
     assert.strictEqual(
-      getLocalizedTierLabel(0, 3, t),
+      getLocalizedTierLabel(0, t as any, 3),
       "Grand",
       "Tier 0 should be Grand"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(1, 3, t),
+      getLocalizedTierLabel(1, t as any, 3),
       "Runner-up",
       "Tier 1 should be Runner-up"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(2, 3, t),
+      getLocalizedTierLabel(2, t as any, 3),
       "Consolation",
       "Tier 2 in 3-tier pool should be Consolation"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(2, 5, t),
+      getLocalizedTierLabel(2, t as any, 5),
       "Tier 3",
       "Tier 2 in 5-tier pool should be Tier 3"
     );

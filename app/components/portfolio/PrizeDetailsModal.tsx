@@ -4,12 +4,12 @@ import React, { useState, useEffect, useRef } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
-  tierLabel,
   tierBadgeClass,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { resolvePrizeBreakdown } from "@/app/lib/draw-helpers";
@@ -56,6 +56,7 @@ export default function PrizeDetailsModal({
 
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
+  const getTierLabel = useTierLabel();
   const format = useFormatter();
 
   const effectiveBondPrice = ticketPrice ?? bondPrice;
@@ -154,10 +155,14 @@ export default function PrizeDetailsModal({
   };
 
   const handleShare = async () => {
-    const text = `Just checked my YieldBonds draw cycle #${entry.drawCycleId} - my bond ${formatTicketNumber(entry.winningTicket)} won ${formatTokenAmount(entry.amount, tokenDecimals)} ${tokenSymbol}! 🚀 Verification verified by VRF seed. Join the pool at premiumbonds.sol`;
+    const text = tLedger("shareTemplateText", {
+      cycleId: entry.drawCycleId,
+      amount: formatTokenAmount(entry.amount, tokenDecimals),
+      symbol: tokenSymbol,
+    });
     try {
       await navigator.clipboard.writeText(text);
-      setShareStatus("Copied share template to clipboard!");
+      setShareStatus(tLedger("shareTemplateCopied"));
       setTimeout(() => setShareStatus(null), 3000);
     } catch {
       // Fallback
@@ -262,7 +267,7 @@ export default function PrizeDetailsModal({
               </p>
               <div className="mt-1">
                 <span className={tierBadgeClass(entry.tierIndex)}>
-                  {tierLabel(entry.tierIndex)}
+                  {getTierLabel(entry.tierIndex)}
                 </span>
               </div>
             </div>
@@ -316,7 +321,7 @@ export default function PrizeDetailsModal({
               <div className="mt-1">
                 {isVoided ? (
                   <span className="font-mono text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 inline-block">
-                    Prizes Revoked
+                    {tLedger("prizesRevoked")}
                   </span>
                 ) : crankingCycles[
                     `${entry.drawCycleId}-${entry.winnerIndex}`

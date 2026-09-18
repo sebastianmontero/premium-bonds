@@ -197,6 +197,13 @@ export type ActivityType =
   | "auto-reinvest"
   | "claim-redemption";
 
+export interface ActivityMetadata {
+  bonds?: number | null;
+  cycleId?: number | null;
+  redemptionType?: "bond_sale" | "fee_withdrawal" | "prize_claim";
+  amountUsdc?: number;
+}
+
 /** A single entry in the Activity Feed */
 export interface ActivityEntry {
   id: string;
@@ -205,6 +212,7 @@ export interface ActivityEntry {
   description: string; // human-readable summary
   amount?: number; // base units, optional
   txSignature?: string; // Solana transaction signature (base58)
+  metadata?: ActivityMetadata;
 }
 
 export type RedemptionStatus = "settling" | "ready" | "claimed";

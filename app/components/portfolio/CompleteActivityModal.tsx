@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import type { ActivityEntry, ActivityType } from "@/app/types";
+import type { ActivityEntry } from "@/app/types";
 import { PaginationControls } from "./PaginationControls";
 import { TxExplorerLink } from "@/app/components/common/TxExplorerLink";
-import { useTranslations, useLocale, useFormatter } from "next-intl";
-import { formatLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
+import { useTranslations, useFormatter } from "next-intl";
+import { renderLocalizedActivityDescription } from "@/app/lib/i18n-helpers";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { formatLocalDate } from "@/app/lib/formatters";
+import { dotColor, typeIcon } from "./activity-utils";
 import {
   useActivityFeed,
   type ScanProgress,
@@ -30,108 +31,6 @@ interface CompleteActivityModalProps {
   ) => Promise<void>;
 }
 
-function dotColor(type: ActivityType): string {
-  switch (type) {
-    case "deposit":
-      return "border-primary";
-    case "win":
-      return "border-secondary";
-    case "auto-reinvest":
-      return "border-tertiary";
-    case "withdraw":
-      return "border-error";
-    case "claim-redemption":
-      return "border-primary-dim";
-  }
-}
-
-function typeIcon(type: ActivityType) {
-  switch (type) {
-    case "deposit":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-primary"
-        >
-          <path d="M12 5v14M19 12l-7 7-7-7" />
-        </svg>
-      );
-    case "win":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-secondary"
-        >
-          <circle cx="12" cy="8" r="7" />
-          <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-        </svg>
-      );
-    case "auto-reinvest":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-tertiary"
-        >
-          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-          <polyline points="21 3 21 8 16 8" />
-        </svg>
-      );
-    case "withdraw":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-error"
-        >
-          <path d="M12 19V5M5 12l7-7 7 7" />
-        </svg>
-      );
-    case "claim-redemption":
-      return (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-primary-dim"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      );
-  }
-}
-
 export default function CompleteActivityModal({
   userAddress,
   poolId = 1,
@@ -141,7 +40,6 @@ export default function CompleteActivityModal({
   isLoading: initialLoading = false,
 }: CompleteActivityModalProps) {
   const t = useTranslations("Activity");
-  const locale = useLocale();
   const format = useFormatter();
   const modalRef = useRef<HTMLDivElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
@@ -285,7 +183,7 @@ export default function CompleteActivityModal({
         {!isLoading &&
           (effectiveEntries.length === 0
             ? t("noRecordsFound")
-            : `${effectiveEntries.length} activities loaded`)}
+            : t("activitiesLoaded", { count: effectiveEntries.length }))}
       </div>
 
       {/* Backdrop */}
@@ -346,10 +244,10 @@ export default function CompleteActivityModal({
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-9 pr-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 ps-9 pe-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
+              className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -380,7 +278,7 @@ export default function CompleteActivityModal({
                 { value: "withdraw", label: t("withdrawals") },
                 { value: "claim-redemption", label: t("redemptions") },
               ]}
-              ariaLabel="Filter activity by type"
+              ariaLabel={t("filterTypeLabel")}
               className="w-full sm:w-56"
             />
             {(searchTerm || typeFilter !== "all") && (
@@ -463,10 +361,7 @@ export default function CompleteActivityModal({
                       <div className="mt-0.5">{typeIcon(entry.type)}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-on-surface font-medium leading-snug">
-                          {formatLocalizedActivityDescription(
-                            entry.description,
-                            locale
-                          )}
+                          {renderLocalizedActivityDescription(entry, t)}
                         </p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span

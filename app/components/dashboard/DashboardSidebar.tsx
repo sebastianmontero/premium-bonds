@@ -53,7 +53,7 @@ export function DashboardSidebar() {
   return (
     <>
       {/* ── Desktop Sidebar ─────────────────────────────────────────────── */}
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-60 flex-col gap-6 border-r border-outline-variant/10 bg-surface-container-lowest px-4 py-6 lg:flex">
+      <aside className="fixed start-0 top-0 z-40 hidden h-screen w-60 flex-col gap-6 border-e border-outline-variant/10 bg-surface-container-lowest px-4 py-6 lg:flex">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 px-2 group">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
@@ -113,7 +113,7 @@ export function DashboardSidebar() {
       </aside>
 
       {/* ── Mobile Bottom Tab Bar ───────────────────────────────────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-outline-variant/10 bg-surface-container-lowest px-2 py-2 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-outline-variant/10 bg-surface-container-lowest px-2 py-2 lg:hidden">
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.endsWith(item.href);

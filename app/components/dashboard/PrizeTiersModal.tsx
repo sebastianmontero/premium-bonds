@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef } from "react";
 import type { PoolInfo } from "@/app/types";
 import {
   calculateTierPayout,
-  getLocalizedTierLabel,
   formatTierPayoutAmount,
   DEFAULT_LIVE_YIELD_PRECISION,
   getLiveYieldFormatter,
@@ -12,6 +11,7 @@ import {
 } from "@/app/lib/formatters";
 import { safeSetElementText } from "@/app/lib/dom-utils";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { LiveYieldTicker } from "./LiveYieldTicker";
 import { useTranslations } from "next-intl";
 
@@ -29,6 +29,7 @@ export function PrizeTiersModal({
   onDeposit,
 }: PrizeTiersModalProps) {
   const t = useTranslations("Pools");
+  const getTierLabel = useTierLabel();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -225,7 +226,7 @@ export function PrizeTiersModal({
           <button
             onClick={onClose}
             className="rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition cursor-pointer"
-            aria-label="Close"
+            aria-label={t("close")}
           >
             <svg
               width="18"
@@ -276,7 +277,7 @@ export function PrizeTiersModal({
                     key={idx}
                     style={{ width: `${tierSharePct}%` }}
                     className={`h-full ${bgClass} transition-all`}
-                    title={`${getLocalizedTierLabel(idx, activeTiers.length, t)}: ${tierSharePct.toFixed(1)}%`}
+                    title={`${getTierLabel(idx, activeTiers.length)}: ${tierSharePct.toFixed(1)}%`}
                   />
                 );
               })}
@@ -355,11 +356,7 @@ export function PrizeTiersModal({
                         <TierBadge
                           tierIndex={i}
                           totalTiers={activeTiers.length}
-                          label={getLocalizedTierLabel(
-                            i,
-                            activeTiers.length,
-                            t
-                          )}
+                          label={getTierLabel(i, activeTiers.length)}
                         />
                       </td>
                       <td className="py-3 px-4 text-right font-mono text-primary font-semibold whitespace-nowrap">
@@ -465,7 +462,7 @@ export function PrizeTiersModal({
                     <TierBadge
                       tierIndex={i}
                       totalTiers={activeTiers.length}
-                      label={getLocalizedTierLabel(i, activeTiers.length, t)}
+                      label={getTierLabel(i, activeTiers.length)}
                     />
                     <span className="font-mono text-xs font-bold text-primary">
                       {basisPointsPct}% {t("shareColumn")}

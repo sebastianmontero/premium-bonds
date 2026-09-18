@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import type { DrawWinnerRecord, DrawDisplayConfig } from "@/app/types";
 import {
   formatTokenAmount,
-  tierLabel,
   tierBadgeClass,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -14,6 +13,7 @@ import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import {
   resolvePrizeBreakdown,
   formatWinnerShareMessage,
@@ -53,6 +53,8 @@ export function DrawWinnerDetailView({
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
+  const tCommon = useTranslations("Common.aria");
+  const getTierLabel = useTierLabel();
 
   const tokenDecimals = config?.tokenDecimals ?? 6;
   const tokenSymbol = config?.tokenSymbol ?? "USDC";
@@ -132,7 +134,7 @@ export function DrawWinnerDetailView({
           </button>
 
           <nav
-            aria-label="Breadcrumb"
+            aria-label={tCommon("breadcrumb")}
             className="flex items-center gap-1.5 text-xs text-on-surface-variant font-medium"
           >
             <button
@@ -192,7 +194,7 @@ export function DrawWinnerDetailView({
             </p>
             <div className="mt-1">
               <span className={tierBadgeClass(winner.tierIndex)}>
-                {tierLabel(winner.tierIndex)}
+                {getTierLabel(winner.tierIndex)}
               </span>
             </div>
           </div>

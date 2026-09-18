@@ -31,6 +31,7 @@ export function DepositModal({
   onDeposit,
 }: DepositModalProps) {
   const t = useTranslations("Modals");
+  const tPools = useTranslations("Pools");
   const [inputValue, setInputValue] = useState("");
   const [activeInput, setActiveInput] = useState<"token" | "ticket">("token");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -126,7 +127,11 @@ export function DepositModal({
           title={t("depositHeader", { symbol: pool.tokenSymbol })}
           customSuccessMessage={
             runner.stage === "success"
-              ? `Successfully purchased ${parsedTickets.toLocaleString("en-US")} bonds for ${formatTokenAmount(totalCostBase, pool.tokenDecimals)} ${pool.tokenSymbol}!`
+              ? t("depositSuccessDesc", {
+                  bonds: parsedTickets,
+                  amount: formatTokenAmount(totalCostBase, pool.tokenDecimals),
+                  symbol: pool.tokenSymbol,
+                })
               : undefined
           }
           error={runner.error}
@@ -203,11 +208,10 @@ export function DepositModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-tertiary">
-                  Draw in progress!
+                  {tPools("drawInProgressTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  The pool is temporarily frozen to pick winners. Deposits are
-                  paused until the draw completes.
+                  {tPools("drawInProgressDesc")}
                 </p>
               </div>
             </div>
@@ -231,11 +235,10 @@ export function DepositModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-amber-200">
-                  Pool is paused
+                  {tPools("poolPausedTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  Deposits are temporarily halted while the emergency pause is
-                  active.
+                  {tPools("poolPausedDepositDesc")}
                 </p>
               </div>
             </div>
@@ -259,11 +262,10 @@ export function DepositModal({
               </svg>
               <div>
                 <p className="text-sm font-semibold text-on-surface">
-                  Pool is closed
+                  {tPools("poolClosedTitle")}
                 </p>
                 <p className="text-xs text-on-surface-variant mt-0.5">
-                  This pool is permanently closed. New bond deposits are
-                  disabled.
+                  {tPools("poolClosedDepositDesc")}
                 </p>
               </div>
             </div>
@@ -450,11 +452,11 @@ export function DepositModal({
             className="w-full btn-gradient rounded-xl py-3.5 text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {pool.isFrozenForDraw
-              ? "Pool Frozen During Draw"
+              ? tPools("drawInProgress")
               : pool.status === "Paused"
-                ? "Pool Paused"
+                ? tPools("statusPaused")
                 : pool.status === "Closed"
-                  ? "Pool Closed"
+                  ? tPools("statusClosed")
                   : totalCostBase > walletBalance
                     ? t("insufficientBalance")
                     : parsedTickets > 0

@@ -26,7 +26,7 @@ export function DrawStatusAuditView({
   const isAwaitingRandomness = draw.status === "AwaitingRandomness";
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pr-1">
+    <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-y-auto pe-1">
       {/* ── 1. Status Specific Hero Diagnostic / Progress Card ──────── */}
       {isForceUnlocked && (
         <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-surface-container/60 to-surface-container/30 p-5 sm:p-6 shadow-sm">
@@ -147,7 +147,7 @@ export function DrawStatusAuditView({
             {t("tabAuditTrail")}
           </h5>
           <span className="text-[11px] font-mono text-on-surface-variant/60">
-            Cycle #{draw.cycleId}
+            {t("cycleLabel", { cycleId: draw.cycleId })}
           </span>
         </div>
 

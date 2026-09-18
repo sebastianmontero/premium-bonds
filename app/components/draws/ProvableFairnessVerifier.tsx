@@ -120,7 +120,7 @@ export function ProvableFairnessVerifier({
             onClick={handleCopyFormula}
             className="text-[10px] text-primary hover:underline cursor-pointer flex items-center gap-1"
           >
-            {copiedFormula ? "Copied!" : "Copy Formula"}
+            {copiedFormula ? t("copied") : t("copyFormula")}
           </button>
         </div>
         <pre className="text-[11px] font-mono text-tertiary-bright p-2 rounded-md bg-surface-container/30 overflow-x-auto">
