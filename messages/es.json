@@ -693,7 +693,8 @@
     "cycleLabel": "Ciclo #{cycleId}",
     "bondsCount": "{count, plural, =1 {1 bono} other {# bonos}}",
     "perBondSuffix": "{amount} {symbol} / bono",
-    "copyFormula": "Copiar Fórmula"
+    "copyFormula": "Copiar Fórmula",
+    "cryptographicProofFooter": "Pruebas Criptográficas YieldBonds v1.0"
   },
   "Common": {
     "tiers": {

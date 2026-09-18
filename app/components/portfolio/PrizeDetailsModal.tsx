@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
@@ -10,6 +10,8 @@ import {
 } from "@/app/lib/formatters";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useTierLabel } from "@/app/hooks/useTierLabel";
+import { useClipboard } from "@/app/hooks/useClipboard";
+import { CopyButton } from "@/app/components/common/CopyButton";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { resolvePrizeBreakdown } from "@/app/lib/draw-helpers";
@@ -48,8 +50,9 @@ export default function PrizeDetailsModal({
   onSimulateCrank,
   crankingCycles = {},
 }: PrizeDetailsModalProps) {
-  const [copiedBond, setCopiedBond] = useState(false);
-  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const { copied: isShareCopied, copy: copyShare } = useClipboard({
+    timeoutMs: 3000,
+  });
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const lastActiveElementRef = useRef<HTMLElement | null>(null);
@@ -135,23 +138,7 @@ export default function PrizeDetailsModal({
   if (!isOpen || !entry) return null;
 
   const handleClose = () => {
-    setCopiedBond(false);
-    setShareStatus(null);
     onClose();
-  };
-
-  const handleCopyBond = async () => {
-    if (entry.winningTicket) {
-      try {
-        await navigator.clipboard.writeText(
-          formatTicketNumber(entry.winningTicket)
-        );
-        setCopiedBond(true);
-        setTimeout(() => setCopiedBond(false), 2000);
-      } catch {
-        // Fallback
-      }
-    }
   };
 
   const handleShare = async () => {
@@ -160,13 +147,7 @@ export default function PrizeDetailsModal({
       amount: formatTokenAmount(entry.amount, tokenDecimals),
       symbol: tokenSymbol,
     });
-    try {
-      await navigator.clipboard.writeText(text);
-      setShareStatus(tLedger("shareTemplateCopied"));
-      setTimeout(() => setShareStatus(null), 3000);
-    } catch {
-      // Fallback
-    }
+    await copyShare(text);
   };
 
   const formattedDate = formatLocalDate(
@@ -175,8 +156,12 @@ export default function PrizeDetailsModal({
     format.dateTime
   );
 
-  const formattedTicket = formatTicketNumber(entry.winningTicket);
-  const modalTitle = entry.winningTicket
+  const hasWinningTicket =
+    entry.winningTicket !== undefined && entry.winningTicket !== null;
+  const formattedTicket = hasWinningTicket
+    ? formatTicketNumber(entry.winningTicket)
+    : "";
+  const modalTitle = hasWinningTicket
     ? t("title", {
         drawCycleId: entry.drawCycleId,
         ticket: formattedTicket,
@@ -290,27 +275,27 @@ export default function PrizeDetailsModal({
 
             {/* Winning Bond */}
             <div className="flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">
-                  {t("winningTicket")}
-                </p>
-                {entry.winningTicket && (
-                  <button
-                    onClick={handleCopyBond}
-                    className="text-[10px] text-on-surface-variant hover:text-primary transition cursor-pointer"
-                  >
-                    {copiedBond ? t("copied") : t("copy")}
-                  </button>
-                )}
-              </div>
-              <p className="text-base sm:text-lg font-bold font-mono text-on-surface mt-0.5 flex items-center gap-1.5 truncate">
-                <span aria-hidden="true">🎫</span>
-                <span>
-                  {entry.winningTicket
-                    ? formatTicketNumber(entry.winningTicket)
-                    : "—"}
-                </span>
+              <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+                {t("winningTicket")}
               </p>
+              <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                <p className="text-base sm:text-lg font-bold font-mono text-on-surface flex items-center gap-1.5 truncate">
+                  <span aria-hidden="true">🎫</span>
+                  <span>
+                    {entry.winningTicket !== undefined &&
+                    entry.winningTicket !== null
+                      ? formatTicketNumber(entry.winningTicket)
+                      : "—"}
+                  </span>
+                </p>
+                {entry.winningTicket !== undefined &&
+                  entry.winningTicket !== null && (
+                    <CopyButton
+                      text={formatTicketNumber(entry.winningTicket)}
+                      ariaLabel={`${t("copy")} ${t("winningTicket")}`}
+                    />
+                  )}
+              </div>
             </div>
 
             {/* Verification Status */}
@@ -458,9 +443,9 @@ export default function PrizeDetailsModal({
                 {t("shareWin")}
               </button>
 
-              {shareStatus && (
+              {isShareCopied && (
                 <div className="absolute right-0 top-full mt-1.5 z-10 whitespace-nowrap bg-emerald-500 text-surface-container text-[10px] font-bold px-2 py-0.5 rounded shadow-lg">
-                  {shareStatus}
+                  {tLedger("shareTemplateCopied")}
                 </div>
               )}
             </div>

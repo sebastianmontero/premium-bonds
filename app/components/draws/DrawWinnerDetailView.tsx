@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import type { DrawWinnerRecord, DrawDisplayConfig } from "@/app/types";
 import {
   formatTokenAmount,
@@ -14,6 +14,8 @@ import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useTierLabel } from "@/app/hooks/useTierLabel";
+import { useClipboard } from "@/app/hooks/useClipboard";
+import { CopyButton } from "@/app/components/common/CopyButton";
 import {
   resolvePrizeBreakdown,
   formatWinnerShareMessage,
@@ -49,8 +51,9 @@ export function DrawWinnerDetailView({
   onCrank,
   isCranking = false,
 }: DrawWinnerDetailViewProps) {
-  const [copiedBond, setCopiedBond] = useState(false);
-  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const { copied: isShareCopied, copy: copyShare } = useClipboard({
+    timeoutMs: 3000,
+  });
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
   const tCommon = useTranslations("Common.aria");
@@ -67,20 +70,6 @@ export function DrawWinnerDetailView({
     !!connectedUserAddress &&
     winner.winnerAddress.toLowerCase() === connectedUserAddress.toLowerCase();
 
-  const handleCopyBond = async () => {
-    if (winner.winningTicketIndex !== undefined) {
-      try {
-        await navigator.clipboard.writeText(
-          formatTicketNumber(winner.winningTicketIndex)
-        );
-        setCopiedBond(true);
-        setTimeout(() => setCopiedBond(false), 2000);
-      } catch {
-        // Fallback
-      }
-    }
-  };
-
   const handleShare = async () => {
     const text = formatWinnerShareMessage(
       cycleId,
@@ -88,13 +77,7 @@ export function DrawWinnerDetailView({
       tokenDecimals,
       tokenSymbol
     );
-    try {
-      await navigator.clipboard.writeText(text);
-      setShareStatus(t("copiedShareLink"));
-      setTimeout(() => setShareStatus(null), 3000);
-    } catch {
-      // Fallback
-    }
+    await copyShare(text);
   };
 
   const breakdown = resolvePrizeBreakdown({
@@ -178,7 +161,9 @@ export function DrawWinnerDetailView({
               className="inline-flex items-center gap-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/30 px-3 py-1 text-xs font-semibold text-primary transition cursor-pointer"
             >
               <span aria-hidden="true">📢</span>
-              <span>{shareStatus ?? t("shareWin")}</span>
+              <span>
+                {isShareCopied ? t("copiedShareLink") : t("shareWin")}
+              </span>
             </button>
           )}
         </div>
@@ -218,28 +203,27 @@ export function DrawWinnerDetailView({
 
           {/* Winning Bond */}
           <div className="flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">
-                {t("winningBondColumn")}
-              </p>
-              {winner.winningTicketIndex !== undefined && (
-                <button
-                  type="button"
-                  onClick={handleCopyBond}
-                  className="text-[10px] text-on-surface-variant hover:text-primary transition cursor-pointer"
-                >
-                  {copiedBond ? t("copied") : t("copy")}
-                </button>
-              )}
-            </div>
-            <p className="text-base sm:text-lg font-bold font-mono text-on-surface mt-0.5 flex items-center gap-1.5 truncate">
-              <span aria-hidden="true">🎫</span>
-              <span>
-                {winner.winningTicketIndex !== undefined
-                  ? formatTicketNumber(winner.winningTicketIndex)
-                  : "—"}
-              </span>
+            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
+              {t("winningBondColumn")}
             </p>
+            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+              <p className="text-base sm:text-lg font-bold font-mono text-on-surface flex items-center gap-1.5 truncate">
+                <span aria-hidden="true">🎫</span>
+                <span>
+                  {winner.winningTicketIndex !== undefined &&
+                  winner.winningTicketIndex !== null
+                    ? formatTicketNumber(winner.winningTicketIndex)
+                    : "—"}
+                </span>
+              </p>
+              {winner.winningTicketIndex !== undefined &&
+                winner.winningTicketIndex !== null && (
+                  <CopyButton
+                    text={formatTicketNumber(winner.winningTicketIndex)}
+                    ariaLabel={`${t("copy")} ${t("winningBondColumn")}`}
+                  />
+                )}
+            </div>
           </div>
 
           {/* Status */}

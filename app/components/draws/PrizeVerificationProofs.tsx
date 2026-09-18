@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React from "react";
 import { useTranslations } from "next-intl";
 import { getExplorerUrl } from "@/app/lib/errors";
+import { CopyButton } from "@/app/components/common/CopyButton";
 
 export interface PrizeVerificationProofsProps {
   vrfSeed?: string | null;
@@ -30,28 +31,6 @@ function ProofCodeCard({
 }: ProofCodeCardProps) {
   const t = useTranslations("PrizeDetails");
   const tCommon = useTranslations("Common");
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isPending || isVoidedNotice) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback
-    }
-  };
 
   return (
     <div className="space-y-1">
@@ -59,50 +38,14 @@ function ProofCodeCard({
         <span>{label}</span>
         {!isPending && !isVoidedNotice && (
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleCopy}
-              aria-label={copied ? t("copied") : `${t("copy")} ${label}`}
-              className="flex items-center gap-1 hover:text-primary transition cursor-pointer"
-            >
-              {copied ? (
-                <>
-                  <svg
-                    className="w-3.5 h-3.5 text-emerald-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                  <span className="text-emerald-400">{t("copied")}</span>
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="w-3.5 h-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-                    />
-                  </svg>
-                  <span>{t("copy")}</span>
-                </>
-              )}
-            </button>
+            <CopyButton
+              text={value}
+              label={t("copy")}
+              copiedLabel={t("copied")}
+              ariaLabel={`${t("copy")} ${label}`}
+              className="flex items-center gap-1 hover:text-primary transition cursor-pointer text-[10px]"
+              iconClassName="w-3.5 h-3.5"
+            />
             {explorerUrl && (
               <a
                 href={explorerUrl}

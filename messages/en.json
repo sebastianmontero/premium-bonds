@@ -693,7 +693,8 @@
     "cycleLabel": "Cycle #{cycleId}",
     "bondsCount": "{count, plural, =1 {1 bond} other {# bonds}}",
     "perBondSuffix": "{amount} {symbol} / bond",
-    "copyFormula": "Copy Formula"
+    "copyFormula": "Copy Formula",
+    "cryptographicProofFooter": "YieldBonds Cryptographic Proofs v1.0"
   },
   "Common": {
     "tiers": {

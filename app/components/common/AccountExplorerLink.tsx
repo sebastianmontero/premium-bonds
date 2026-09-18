@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { getAccountExplorerUrl, truncateAddress } from "@/app/lib/errors";
-
+import { CopyButton } from "@/app/components/common/CopyButton";
 import { useTranslations } from "next-intl";
 
 interface AccountExplorerLinkProps {
@@ -25,23 +25,12 @@ export function AccountExplorerLink({
   className = "",
 }: AccountExplorerLinkProps) {
   const t = useTranslations("Common.explorer");
-  const [copied, setCopied] = useState(false);
 
   if (!address) return null;
 
   const url = getAccountExplorerUrl(address, cluster, provider);
   const displayLabel = label || truncateAddress(address);
   const providerName = provider === "solscan" ? "Solscan" : "Solana Explorer";
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  };
 
   return (
     <div
@@ -81,31 +70,13 @@ export function AccountExplorerLink({
       )}
 
       {showCopy && (
-        <button
-          type="button"
-          onClick={handleCopy}
+        <CopyButton
+          text={address}
+          ariaLabel={t("copyAddress")}
           title={t("copyAddress")}
-          aria-label={t("copyAddress")}
-          className="p-1 rounded-md text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-bright/10 transition cursor-pointer text-xs"
-        >
-          {copied ? (
-            <span className="text-emerald-400 font-bold text-[10px]">✓</span>
-          ) : (
-            <svg
-              className="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-              />
-            </svg>
-          )}
-        </button>
+          className="p-1 rounded-md text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-bright/10 transition cursor-pointer text-xs shrink-0 inline-flex items-center"
+          iconClassName="w-3 h-3"
+        />
       )}
     </div>
   );

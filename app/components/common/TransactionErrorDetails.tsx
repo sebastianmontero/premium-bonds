@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
+import { useClipboard } from "@/app/hooks/useClipboard";
 import {
   ParsedTransactionError,
   getErrorCategoryTheme,
@@ -26,12 +27,12 @@ export function TransactionErrorDetails({
   className = "",
 }: TransactionErrorDetailsProps) {
   const t = useTranslations("Modals");
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useClipboard({ timeoutMs: 2000 });
   const [showLogs, setShowLogs] = useState(false);
 
   const theme = getErrorCategoryTheme(error.category);
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     const details = [
       error.title ? `Title: ${error.title}` : "",
       `Message: ${error.message}`,
@@ -44,9 +45,7 @@ export function TransactionErrorDetails({
       .join("\n");
 
     if (details) {
-      navigator.clipboard.writeText(details);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await copy(details);
     }
   };
 

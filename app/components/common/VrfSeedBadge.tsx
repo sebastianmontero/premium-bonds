@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useTranslations } from "next-intl";
+import { useClipboard } from "@/app/hooks/useClipboard";
 
 interface VrfSeedBadgeProps {
   seedHex?: string;
@@ -22,17 +23,17 @@ export function VrfSeedBadge({
   tooltipPlacement = "bottom",
   tooltipAlign = "center",
 }: VrfSeedBadgeProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useClipboard({ timeoutMs: 2000 });
   const t = useTranslations("Ledger");
 
   if (!seedHex || /^(?:0x)?0+$/i.test(seedHex.trim())) return null;
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    navigator.clipboard.writeText(seedHex);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (seedHex) {
+      await copy(seedHex);
+    }
   };
 
   const truncated = `${seedHex.slice(0, 8)}...${seedHex.slice(-6)}`;

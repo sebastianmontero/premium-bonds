@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
+import { CopyButton } from "@/app/components/common/CopyButton";
 import {
   hasDrawVrfRandomness,
   getNoRandomnessExplanationKey,
@@ -17,7 +18,6 @@ interface ProvableFairnessVerifierProps {
 export function ProvableFairnessVerifier({
   draw,
 }: ProvableFairnessVerifierProps) {
-  const [copiedFormula, setCopiedFormula] = useState(false);
   const t = useTranslations("DrawInspector");
 
   const hasRandomness = hasDrawVrfRandomness(draw);
@@ -36,12 +36,6 @@ export function ProvableFairnessVerifier({
   }
 
   const formulaText = `u64::from_le_bytes(SHA-256(seed || tier_idx || slot_in_tier || cycle_id)[0..8]) % ${draw.lockedTicketCount}`;
-
-  const handleCopyFormula = () => {
-    navigator.clipboard.writeText(formulaText);
-    setCopiedFormula(true);
-    setTimeout(() => setCopiedFormula(false), 2000);
-  };
 
   return (
     <div className="space-y-4 p-4 rounded-xl bg-surface-container/20 border border-surface-bright/10 text-xs">
@@ -116,12 +110,14 @@ export function ProvableFairnessVerifier({
           <span className="text-[10px] uppercase font-semibold text-on-surface-variant">
             {t("derivationFormulaLabel")}
           </span>
-          <button
-            onClick={handleCopyFormula}
+          <CopyButton
+            text={formulaText}
+            label={t("copyFormula")}
+            copiedLabel={t("copied")}
+            showIcon={false}
+            ariaLabel={t("copyFormula")}
             className="text-[10px] text-primary hover:underline cursor-pointer flex items-center gap-1"
-          >
-            {copiedFormula ? t("copied") : t("copyFormula")}
-          </button>
+          />
         </div>
         <pre className="text-[11px] font-mono text-tertiary-bright p-2 rounded-md bg-surface-container/30 overflow-x-auto">
           {formulaText}
