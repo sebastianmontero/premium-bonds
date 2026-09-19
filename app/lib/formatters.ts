@@ -291,19 +291,208 @@ export function formatLiveYieldMetric(
   return `${prefix}${formatted} ${tokenSymbol}`;
 }
 
+export interface TokenFormattingConfig {
+  readonly symbol: string;
+  readonly defaultDecimals: number;
+  readonly displayDecimals: number;
+  readonly isFiatPrefix: boolean;
+  readonly dustThresholdUi: number;
+  readonly defaultPayoutThresholdUi: number;
+}
+
+export const TOKEN_FORMATTING_CONFIGS: Record<string, TokenFormattingConfig> = {
+  USDC: {
+    symbol: "USDC",
+    defaultDecimals: 6,
+    displayDecimals: 2,
+    isFiatPrefix: true,
+    dustThresholdUi: 0.01,
+    defaultPayoutThresholdUi: 10.0,
+  },
+  SOL: {
+    symbol: "SOL",
+    defaultDecimals: 9,
+    displayDecimals: 4,
+    isFiatPrefix: false,
+    dustThresholdUi: 0.0001,
+    defaultPayoutThresholdUi: 0.05,
+  },
+  WBTC: {
+    symbol: "WBTC",
+    defaultDecimals: 8,
+    displayDecimals: 6,
+    isFiatPrefix: false,
+    dustThresholdUi: 0.00001,
+    defaultPayoutThresholdUi: 0.0005,
+  },
+};
+
+export function getTokenFormattingConfig(
+  symbol: string = "USDC"
+): TokenFormattingConfig {
+  const upper = (symbol || "USDC").toUpperCase();
+  return (
+    TOKEN_FORMATTING_CONFIGS[upper] ?? {
+      symbol: upper,
+      defaultDecimals: 6,
+      displayDecimals: 2,
+      isFiatPrefix: false,
+      dustThresholdUi: 0.01,
+      defaultPayoutThresholdUi: 10.0,
+    }
+  );
+}
+
+export function toSafeBigInt(amount: bigint | number | string): bigint {
+  if (typeof amount === "bigint") return amount;
+  if (typeof amount === "number") {
+    if (!Number.isFinite(amount)) return 0n;
+    return BigInt(Math.trunc(amount));
+  }
+  try {
+    const clean = amount.trim().replace(/,/g, "");
+    if (!clean) return 0n;
+    const integerPart = clean.split(".")[0];
+    if (!integerPart || integerPart === "-" || integerPart === "+") return 0n;
+    return BigInt(integerPart);
+  } catch {
+    return 0n;
+  }
+}
+
+export interface FormatBalanceOptions {
+  decimals?: number;
+  tokenSymbol?: string;
+  displayDecimals?: number;
+  roundingMode?: "trunc" | "ceil";
+}
+
+export interface FormattedBalanceResult {
+  /** Truncated display string (e.g. "9.99" or "< 0.01") */
+  display: string;
+  /** Formatted with currency prefix/suffix (e.g. "$9.99 USDC" or "< $0.01 USDC" or "0.0543 SOL") */
+  displayWithCurrency: string;
+  /** Full precision string without scientific notation (e.g. "9.996000") */
+  full: string;
+  /** Full precision string with symbol (e.g. "9.996000 USDC") */
+  fullWithCurrency: string;
+  /** Whether the balance is non-zero but below the minimum display threshold */
+  isBelowThreshold: boolean;
+  /** Backwards-compatible alias for USD */
+  isSubCent: boolean;
+  /** Whether the balance is strictly zero */
+  isZero: boolean;
+  /** Raw base units as BigInt */
+  rawBaseUnits: bigint;
+}
+
+/**
+ * Pure deterministic BigInt division & balance formatting engine.
+ * Guarantees INV-FORMAT-002: DisplayAmount <= OnChainAmount.
+ */
+export function formatBalanceAmount(
+  amountBase: bigint | number | string,
+  optionsOrDecimals?: FormatBalanceOptions | number,
+  legacyTokenSymbol?: string,
+  legacyDisplayDecimals?: number
+): FormattedBalanceResult {
+  const options: FormatBalanceOptions =
+    typeof optionsOrDecimals === "object"
+      ? optionsOrDecimals
+      : {
+          decimals: optionsOrDecimals,
+          tokenSymbol: legacyTokenSymbol,
+          displayDecimals: legacyDisplayDecimals,
+        };
+
+  const config = getTokenFormattingConfig(options.tokenSymbol);
+  const decimals = options.decimals ?? config.defaultDecimals;
+  const displayDecimals = options.displayDecimals ?? config.displayDecimals;
+  const roundingMode = options.roundingMode ?? "trunc";
+
+  let raw = toSafeBigInt(amountBase);
+  if (raw < 0n) raw = 0n;
+
+  const isZero = raw === 0n;
+  const divisor = 10n ** BigInt(decimals);
+
+  // 1. Full precision string (pure BigInt, zero IEEE-754 precision loss)
+  const fullWhole = raw / divisor;
+  const fullFrac =
+    decimals > 0 ? (raw % divisor).toString().padStart(decimals, "0") : "";
+  const full =
+    decimals > 0
+      ? `${fullWhole.toLocaleString("en-US")}.${fullFrac}`
+      : fullWhole.toLocaleString("en-US");
+  const fullWithCurrency = `${full} ${config.symbol}`;
+
+  // 2. Truncation and Sub-Threshold Evaluation
+  let display = "";
+  let isBelowThreshold = false;
+
+  if (isZero) {
+    display = displayDecimals > 0 ? `0.${"0".repeat(displayDecimals)}` : "0";
+  } else if (decimals >= displayDecimals) {
+    const scaleDiff = decimals - displayDecimals;
+    const thresholdBase = 10n ** BigInt(scaleDiff);
+
+    if (raw < thresholdBase && roundingMode === "trunc") {
+      isBelowThreshold = true;
+      const subThresholdVal =
+        displayDecimals > 0 ? `0.${"0".repeat(displayDecimals - 1)}1` : "1";
+      display = `< ${subThresholdVal}`;
+    } else {
+      const scaled = raw / thresholdBase;
+      const wholePart = scaled / 10n ** BigInt(displayDecimals);
+      const fracPart =
+        displayDecimals > 0
+          ? (scaled % 10n ** BigInt(displayDecimals))
+              .toString()
+              .padStart(displayDecimals, "0")
+          : "";
+      display =
+        displayDecimals > 0
+          ? `${wholePart.toLocaleString("en-US")}.${fracPart}`
+          : wholePart.toLocaleString("en-US");
+    }
+  } else {
+    // decimals < displayDecimals (e.g. 0-decimal token with displayDecimals=2)
+    const wholePart = raw;
+    display =
+      displayDecimals > 0
+        ? `${wholePart.toLocaleString("en-US")}.${"0".repeat(displayDecimals)}`
+        : wholePart.toLocaleString("en-US");
+  }
+
+  // 3. Display with Currency Prefix/Suffix
+  let displayWithCurrency = "";
+  if (config.isFiatPrefix) {
+    if (isBelowThreshold) {
+      displayWithCurrency = `< $${display.replace("< ", "")} ${config.symbol}`;
+    } else {
+      displayWithCurrency = `$${display} ${config.symbol}`;
+    }
+  } else {
+    displayWithCurrency = `${display} ${config.symbol}`;
+  }
+
+  return {
+    display,
+    displayWithCurrency,
+    full,
+    fullWithCurrency,
+    isBelowThreshold,
+    isSubCent: isBelowThreshold,
+    isZero,
+    rawBaseUnits: raw,
+  };
+}
+
 /**
  * Returns token-aware threshold UI amount for estimated tier payout display.
  */
 export function getPoolPayoutThresholdUi(tokenSymbol: string = "USDC"): number {
-  switch (tokenSymbol.toUpperCase()) {
-    case "SOL":
-      return 0.05;
-    case "WBTC":
-      return 0.0005;
-    case "USDC":
-    default:
-      return DEFAULT_TIER_PAYOUT_THRESHOLD_USD;
-  }
+  return getTokenFormattingConfig(tokenSymbol).defaultPayoutThresholdUi;
 }
 
 export interface TierPayoutBreakdown {
@@ -409,13 +598,30 @@ export function hoursFromNow(hours: number): number {
   return Math.floor(Date.now() / 1000) + hours * 3600;
 }
 
+export interface FormatTokenOptions {
+  decimals?: number;
+  minFractionDigits?: number;
+  maxFractionDigits?: number;
+}
+
 /** Format base-unit amount to human-readable string with commas. */
 export function formatTokenAmount(
-  amount: number,
-  decimals: number = USDC_DECIMALS,
+  amount: number | bigint,
+  decimalsOrOptions?: number | FormatTokenOptions,
   minFractionDigits: number = 2,
   maxFractionDigits?: number
 ): string {
+  const options: FormatTokenOptions =
+    typeof decimalsOrOptions === "object"
+      ? decimalsOrOptions
+      : {
+          decimals: decimalsOrOptions,
+          minFractionDigits,
+          maxFractionDigits,
+        };
+
+  const decimals = options.decimals ?? USDC_DECIMALS;
+  const minFrac = options.minFractionDigits ?? 2;
   const numAmount = typeof amount === "number" ? amount : Number(amount);
   if (!Number.isFinite(numAmount)) {
     if (process.env.NODE_ENV === "development") {
@@ -427,13 +633,11 @@ export function formatTokenAmount(
   const safeAmount = Number.isFinite(numAmount) ? numAmount : 0;
 
   const finalMax =
-    maxFractionDigits ??
-    (minFractionDigits < 2
-      ? minFractionDigits
-      : Math.max(minFractionDigits, 6));
+    options.maxFractionDigits ??
+    (minFrac < 2 ? minFrac : Math.max(minFrac, 6));
 
   return (safeAmount / 10 ** decimals).toLocaleString("en-US", {
-    minimumFractionDigits: minFractionDigits,
+    minimumFractionDigits: minFrac,
     maximumFractionDigits: finalMax,
   });
 }
@@ -444,20 +648,28 @@ export function formatTokenAmount(
  * - For non-USDC (e.g. SOL): "0.05 SOL" or "1.50 WBTC"
  */
 export function formatCurrencyAmount(
-  amountBase: number,
+  amountBase: number | bigint,
   tokenSymbol: string = "USDC",
   decimals: number = USDC_DECIMALS,
   minFractionDigits: number = 2,
   maxFractionDigits?: number
 ): string {
   const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
+  const num = typeof amountBase === "bigint" ? Number(amountBase) : amountBase;
+  const isNegative = num < 0;
+  const absVal = Math.abs(num);
   const formatted = formatTokenAmount(
-    amountBase,
+    absVal,
     decimals,
     minFractionDigits,
     maxFractionDigits
   );
-  return isUsd ? `$${formatted}` : `${formatted} ${tokenSymbol}`;
+  if (isUsd) {
+    return isNegative ? `-$${formatted}` : `$${formatted}`;
+  }
+  return isNegative
+    ? `-${formatted} ${tokenSymbol}`
+    : `${formatted} ${tokenSymbol}`;
 }
 
 /**

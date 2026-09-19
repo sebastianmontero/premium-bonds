@@ -88,7 +88,10 @@
     "disconnect": "Desconectar",
     "selectWallet": "Seleccionar Billetera",
     "availableBalance": "Saldo Disponible",
-    "copyAddress": "Copiar Dirección"
+    "copyAddress": "Copiar Dirección",
+    "wallet": "Billetera",
+    "balanceAriaLabel": "Saldo disponible: {display}, exacto: {full}",
+    "exactBalanceTooltip": "Saldo exacto: {full}"
   },
   "Sidebar": {
     "dashboard": "Panel de Control",
@@ -300,6 +303,10 @@
     "depositSuccessDesc": "¡Compraste exitosamente {bonds, plural, =1 {1 bono} other {# bonos}} por {amount} {symbol}!",
     "withdrawSuccessDesc": "{bonds, plural, =1 {Tu bono ha sido quemado} other {Tus # bonos han sido quemados}}. La solicitud de redención por {amount} {symbol} ahora está pendiente de liquidación.",
     "max": "MÁX",
+    "wallet": "Billetera",
+    "maxPurchasableTooltip": "Comprar {tickets, plural, =1 {1 bono} other {# bonos}} por {amount} {symbol}",
+    "remainderLabel": "Sobrante en billetera",
+    "remainderDesc": "{amount} {symbol} permanece en la billetera",
     "cancel": "Cancelar",
     "editAmount": "Editar cantidad",
     "close": "Cerrar",

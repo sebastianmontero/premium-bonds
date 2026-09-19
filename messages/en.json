@@ -88,7 +88,10 @@
     "disconnect": "Disconnect",
     "selectWallet": "Select Wallet",
     "availableBalance": "Available Balance",
-    "copyAddress": "Copy Address"
+    "copyAddress": "Copy Address",
+    "wallet": "Wallet",
+    "balanceAriaLabel": "Available balance: {display}, exact: {full}",
+    "exactBalanceTooltip": "Exact balance: {full}"
   },
   "Sidebar": {
     "dashboard": "Dashboard",
@@ -300,6 +303,10 @@
     "depositSuccessDesc": "Successfully purchased {bonds, plural, =1 {1 bond} other {# bonds}} for {amount} {symbol}!",
     "withdrawSuccessDesc": "Your {bonds, plural, =1 {1 bond has} other {# bonds have}} been burned. Redemption request for {amount} {symbol} is now pending settlement.",
     "max": "MAX",
+    "wallet": "Wallet",
+    "maxPurchasableTooltip": "Purchase {tickets, plural, =1 {1 bond} other {# bonds}} for {amount} {symbol}",
+    "remainderLabel": "Wallet Remainder",
+    "remainderDesc": "{amount} {symbol} stays in wallet",
     "cancel": "Cancel",
     "editAmount": "Edit Amount",
     "close": "Close",

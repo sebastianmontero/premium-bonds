@@ -3,14 +3,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWalletConnection, useSolanaClient } from "@solana/react-hooks";
 import { USDC_MINT, fetchUserAtaBalance } from "../lib/bonds-sdk";
-import { formatTokenAmount, USDC_DECIMALS } from "../lib/formatters";
+import {
+  formatBalanceAmount,
+  USDC_DECIMALS,
+  type FormattedBalanceResult,
+} from "../lib/formatters";
 import { bondsKeys } from "../lib/query-keys";
 
 export interface UseUserTokenBalanceResult {
   /** Raw base units balance (e.g. lamports/micro-USDC) */
   balance: number;
-  /** Formatted human-readable string formatted with explicit en-US decimals */
+  /** Formatted human-readable string formatted with explicit en-US decimals (floored display) */
   formattedBalance: string;
+  /** Structured formatted balance object */
+  formatted: FormattedBalanceResult;
+  /** Full precision string without truncation (e.g. "9.996000") */
+  fullBalance: string;
+  /** Display string with currency (e.g. "$9.99 USDC" or "< $0.01 USDC") */
+  displayWithCurrency: string;
   /** Whether the initial token balance query is resolving */
   isLoading: boolean;
   /** Trigger a fresh RPC query for token balance */
@@ -23,10 +33,12 @@ export interface UseUserTokenBalanceResult {
  *
  * @param mintAddress - Token mint address (defaults to USDC).
  * @param decimals - Token decimals (defaults to 6).
+ * @param tokenSymbol - Token symbol (defaults to USDC).
  */
 export function useUserTokenBalance(
   mintAddress: string = USDC_MINT,
-  decimals: number = USDC_DECIMALS
+  decimals: number = USDC_DECIMALS,
+  tokenSymbol: string = "USDC"
 ): UseUserTokenBalanceResult {
   const client = useSolanaClient();
   const { wallet, status } = useWalletConnection();
@@ -46,11 +58,17 @@ export function useUserTokenBalance(
   });
 
   const balance = data ?? 0;
-  const formattedBalance = formatTokenAmount(balance, decimals, 2, 2);
+  const formatted = formatBalanceAmount(balance, {
+    decimals,
+    tokenSymbol,
+  });
 
   return {
     balance,
-    formattedBalance,
+    formattedBalance: formatted.display,
+    formatted,
+    fullBalance: formatted.full,
+    displayWithCurrency: formatted.displayWithCurrency,
     isLoading: isConnected ? isLoading : false,
     refetch,
   };

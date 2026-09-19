@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatTokenAmount, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
@@ -59,6 +59,16 @@ export function DepositModal({
   });
 
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
+  const maxTickets = Math.floor(walletBalance / pool.bondPrice);
+  const maxSpendableBase = maxTickets * pool.bondPrice;
+  const maxSpendableFormatted = formatTokenAmount(
+    maxSpendableBase,
+    pool.tokenDecimals
+  );
+  const walletFormatted = formatBalanceAmount(walletBalance, {
+    decimals: pool.tokenDecimals,
+    tokenSymbol: pool.tokenSymbol,
+  });
 
   // Derive both values from the single source of truth
   let tokenDisplay = "";
@@ -291,23 +301,31 @@ export function DepositModal({
                 <label className="text-xs font-medium text-on-surface-variant">
                   {t("amountLabel", { symbol: pool.tokenSymbol })}
                 </label>
-                <button
-                  type="button"
-                  disabled={pool.isFrozenForDraw}
-                  onClick={() => {
-                    const maxTokens = walletBalance / 10 ** pool.tokenDecimals;
-                    setActiveInput("token");
-                    setInputValue(
-                      String(
-                        Math.floor(maxTokens / bondPriceHuman) * bondPriceHuman
-                      )
-                    );
-                  }}
-                  className="text-[10px] font-semibold text-primary hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {t("max")}:{" "}
-                  {formatTokenAmount(walletBalance, pool.tokenDecimals)}
-                </button>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span
+                    className="text-on-surface-variant cursor-help"
+                    title={walletFormatted.fullWithCurrency}
+                  >
+                    {t("wallet")}: {walletFormatted.displayWithCurrency}
+                  </span>
+                  <span className="text-outline-variant/50">·</span>
+                  <button
+                    type="button"
+                    disabled={pool.isFrozenForDraw || maxTickets === 0}
+                    onClick={() => {
+                      setActiveInput("token");
+                      setInputValue(String(maxTickets * bondPriceHuman));
+                    }}
+                    className="font-semibold text-primary hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={t("maxPurchasableTooltip", {
+                      tickets: maxTickets,
+                      amount: maxSpendableFormatted,
+                      symbol: pool.tokenSymbol,
+                    })}
+                  >
+                    {t("max")}: {maxSpendableFormatted}
+                  </button>
+                </div>
               </div>
               <input
                 ref={inputRef}
@@ -418,6 +436,27 @@ export function DepositModal({
                   {pool.tokenSymbol}
                 </span>
               </div>
+
+              {/* Remainder feedback if token input exceeds totalCostBase */}
+              {activeInput === "token" &&
+                Number(inputValue) > parsedTickets * bondPriceHuman && (
+                  <div className="flex justify-between text-on-surface-variant/80 text-[11px] pt-1 border-t border-outline-variant/15">
+                    <span>{t("remainderLabel")}</span>
+                    <span className="font-mono">
+                      {t("remainderDesc", {
+                        amount: formatTokenAmount(
+                          Math.round(
+                            (Number(inputValue) -
+                              parsedTickets * bondPriceHuman) *
+                              10 ** pool.tokenDecimals
+                          ),
+                          pool.tokenDecimals
+                        ),
+                        symbol: pool.tokenSymbol,
+                      })}
+                    </span>
+                  </div>
+                )}
 
               {/* Centralized Fee Summary */}
               <TransactionFeeSummary isFirstDeposit={isFirstDeposit} />

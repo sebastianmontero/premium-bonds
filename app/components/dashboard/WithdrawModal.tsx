@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatTokenAmount, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
 import {
@@ -62,6 +62,13 @@ export function WithdrawModal({
     userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
   const parsedTickets = parseInt(ticketAmount, 10) || 0;
   const withdrawValue = parsedTickets * pool.bondPrice;
+  const bondBalanceFormatted = formatBalanceAmount(
+    maxTickets * pool.bondPrice,
+    {
+      decimals: pool.tokenDecimals,
+      tokenSymbol: pool.tokenSymbol,
+    }
+  );
   const canWithdraw =
     parsedTickets > 0 &&
     parsedTickets <= maxTickets &&
@@ -267,12 +274,11 @@ export function WithdrawModal({
               {t("availableBalance")}
             </span>
             <div className="text-right">
-              <p className="font-display text-lg font-bold text-on-surface">
-                {formatTokenAmount(
-                  maxTickets * pool.bondPrice,
-                  pool.tokenDecimals
-                )}{" "}
-                {pool.tokenSymbol}
+              <p
+                className="font-display text-lg font-bold text-on-surface cursor-help"
+                title={bondBalanceFormatted.fullWithCurrency}
+              >
+                {bondBalanceFormatted.displayWithCurrency}
               </p>
               <p className="text-[10px] text-on-surface-variant">
                 {tPools("bondsBalanceSummary", {

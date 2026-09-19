@@ -9,7 +9,7 @@ import { CopyButton } from "@/app/components/common/CopyButton";
 export function ConnectWalletButton() {
   const { connectors, connect, disconnect, wallet, status } =
     useWalletConnection();
-  const { formattedBalance, isLoading: isBalanceLoading } =
+  const { formatted, isLoading: isBalanceLoading } =
     useUserTokenBalance();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -42,11 +42,18 @@ export function ConnectWalletButton() {
           className="flex items-center gap-2.5 rounded-xl bg-surface-container-high px-3.5 py-2 text-sm font-medium text-on-surface ghost-border transition hover:bg-surface-container-highest cursor-pointer"
         >
           {/* Balance pill on sm+ screens */}
-          <span className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary border-e border-outline-variant/30 pe-2.5">
+          <span
+            className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary border-e border-outline-variant/30 pe-2.5 cursor-help"
+            title={formatted.fullWithCurrency}
+            aria-label={t("balanceAriaLabel", {
+              display: formatted.displayWithCurrency,
+              full: formatted.fullWithCurrency,
+            })}
+          >
             {isBalanceLoading ? (
               <span className="h-3.5 w-12 animate-pulse rounded bg-surface-container-highest inline-block" />
             ) : (
-              `$${formattedBalance} USDC`
+              formatted.displayWithCurrency
             )}
           </span>
 
@@ -63,11 +70,14 @@ export function ConnectWalletButton() {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
                 {t("availableBalance")}
               </p>
-              <p className="font-mono text-base font-bold text-on-surface mt-0.5">
-                ${formattedBalance}{" "}
-                <span className="text-xs font-normal text-on-surface-variant">
-                  USDC
-                </span>
+              <p
+                className="font-mono text-base font-bold text-on-surface mt-0.5 cursor-help"
+                title={formatted.fullWithCurrency}
+              >
+                {formatted.displayWithCurrency}
+              </p>
+              <p className="text-[11px] font-mono text-on-surface-variant/70 mt-0.5">
+                ({formatted.fullWithCurrency})
               </p>
             </div>
 
