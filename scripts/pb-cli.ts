@@ -1,6 +1,7 @@
 import {
   createSolanaRpc,
   address,
+  Address,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
@@ -111,6 +112,10 @@ import {
   PrizeTierInput,
   DEFAULT_PRIZE_TIERS,
   calculateAvailableFees,
+  buildClaimRedemptionInstruction,
+  buildClaimRedemptionInstructions,
+  HumaPoolAddresses,
+  findAtaAddress,
 } from "../app/lib/bonds-sdk";
 
 // Switchboard On-Demand binary account layout constants
@@ -260,6 +265,37 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     examples: [
       "npm run pb-cli reinvest -- --pool 1",
       "npm run pb-cli reinvest -- --winner 0",
+    ],
+  },
+  "claim-redemption": {
+    command: "claim-redemption",
+    category: "Crank & Operations",
+    summary: "Claim settled USDC redemptions for users",
+    description:
+      "Claim settled USDC redemptions from Huma for a specific redemption ID or all settled redemptions in a pool (optionally filtered by user).",
+    requiresSigner: true,
+    positionalArgs: "[redemptionId]",
+    options: [
+      {
+        flag: "--id <number>",
+        description:
+          "Specific redemption ID to claim (default: all settled redemptions)",
+      },
+      {
+        flag: "--user <pubkey>",
+        description: "Filter redemptions by user public key address",
+      },
+      {
+        flag: "--limit <number>",
+        description: "Maximum number of redemptions to claim in one execution",
+      },
+    ],
+    examples: [
+      "npm run pb-cli claim-redemption -- --pool 1",
+      "npm run pb-cli claim-redemption -- --id 1",
+      "npm run pb-cli claim-redemption -- --user <USER_PUBKEY>",
+      "npm run pb-cli claim-redemption 1",
+      "npm run pb-cli claim-redemption -- --limit 5 --dry-run",
     ],
   },
 
@@ -952,6 +988,8 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     ],
   },
 };
+
+COMMAND_REGISTRY["claim-redemptions"] = COMMAND_REGISTRY["claim-redemption"];
 
 export function resolveHelpRequest(args: string[]): {
   isHelp: boolean;
@@ -1719,6 +1757,356 @@ export async function executeReinvest({
     );
   }
   console.log("Reinvestment process completed successfully!");
+}
+
+export interface ValidatedClaimRedemptionArgs {
+  poolId: number;
+  redemptionId?: bigint;
+  userAddress?: Address;
+  limit?: number;
+}
+
+export function parseClaimRedemptionArgs(params: {
+  poolId?: number;
+  redemptionId?: bigint | number | string;
+  user?: Address | string;
+  limit?: number | string;
+}): ValidatedClaimRedemptionArgs {
+  const poolId = params.poolId ?? 1;
+  if (!Number.isInteger(poolId) || poolId < 1) {
+    throw new CliArgumentError(
+      `Invalid pool ID: "${params.poolId}". Must be a positive integer.`
+    );
+  }
+
+  let parsedRedemptionId: bigint | undefined;
+  if (params.redemptionId !== undefined && params.redemptionId !== "") {
+    const str = String(params.redemptionId).trim();
+    if (!/^\d+$/.test(str)) {
+      throw new CliArgumentError(
+        `Invalid redemption ID: "${params.redemptionId}". Must be a non-negative integer.`
+      );
+    }
+    parsedRedemptionId = BigInt(str);
+  }
+
+  let parsedUser: Address | undefined;
+  if (params.user) {
+    try {
+      parsedUser = address(String(params.user).trim());
+    } catch {
+      throw new CliArgumentError(
+        `Invalid user public key address: "${params.user}".`
+      );
+    }
+  }
+
+  let parsedLimit: number | undefined;
+  if (params.limit !== undefined && params.limit !== "") {
+    const l = Number(params.limit);
+    if (!Number.isInteger(l) || l < 1) {
+      throw new CliArgumentError(
+        `Invalid limit: "${params.limit}". Must be a positive integer.`
+      );
+    }
+    parsedLimit = l;
+  }
+
+  return {
+    poolId,
+    redemptionId: parsedRedemptionId,
+    userAddress: parsedUser,
+    limit: parsedLimit,
+  };
+}
+
+export interface ExecuteClaimRedemptionParams {
+  poolId?: number;
+  redemptionId?: bigint | number | string;
+  user?: Address | string;
+  limit?: number | string;
+  dryRun?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export interface ClaimRedemptionSummary {
+  totalFound: number;
+  settledCount: number;
+  skippedUnsettled: number;
+  claimedCount: number;
+  failedCount: number;
+  signatures: string[];
+}
+
+export async function executeClaimRedemption({
+  poolId = 1,
+  redemptionId,
+  user,
+  limit,
+  dryRun = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteClaimRedemptionParams): Promise<ClaimRedemptionSummary> {
+  const validated = parseClaimRedemptionArgs({
+    poolId,
+    redemptionId,
+    user,
+    limit,
+  });
+
+  const isDevnet = rpcUrl.includes("devnet") || rpcUrl.includes("api.devnet");
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+  const stateAddresses = loadAddresses(isDevnet);
+
+  const poolPda = await findPrizePoolPda(validated.poolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc || !poolAcc.value) {
+    throw new Error(
+      `PrizePool account for pool ${validated.poolId} not found on-chain.`
+    );
+  }
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
+  const poolState = parsePrizePool(poolBytes);
+
+  if (poolState.status === "Paused") {
+    throw new Error(
+      "Pool is paused. Cannot claim redemptions while pool is paused."
+    );
+  }
+
+  const humaPoolAuth = await findHumaPoolAuthorityPda(
+    address(poolState.humaPoolState)
+  );
+  const humaPoolUnderlyingToken = address(
+    stateAddresses.humaPoolUnderlying ||
+      stateAddresses.humaPoolUnderlyingToken ||
+      stateAddresses.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+      (await findAtaAddress(humaPoolAuth, poolState.tokenMint))
+  );
+  const resolveAddr = (v?: string) => (v ? address(v) : undefined);
+  const humaAddresses: HumaPoolAddresses = {
+    poolState: address(poolState.humaPoolState),
+    config: resolveAddr(
+      stateAddresses.humaConfig || stateAddresses.NEXT_PUBLIC_HUMA_CONFIG
+    ),
+    poolConfig: resolveAddr(
+      stateAddresses.humaPoolConfig ||
+        stateAddresses.NEXT_PUBLIC_HUMA_POOL_CONFIG
+    ),
+    modeConfig: resolveAddr(
+      stateAddresses.humaModeConfig ||
+        stateAddresses.NEXT_PUBLIC_HUMA_MODE_CONFIG
+    ),
+    lenderState: resolveAddr(
+      stateAddresses.humaLenderState ||
+        stateAddresses.NEXT_PUBLIC_HUMA_LENDER_STATE
+    ),
+    poolUnderlyingToken: humaPoolUnderlyingToken,
+  };
+
+  let humaNextRequestId: bigint | null = null;
+  try {
+    const humaAcc = await rpc
+      .getAccountInfo(address(poolState.humaPoolState), { encoding: "base64" })
+      .send();
+    if (humaAcc?.value?.data?.[0]) {
+      const rawBytes = new Uint8Array(
+        base64Encoder.encode(humaAcc.value.data[0])
+      );
+      const humaState = parseMockHumaPoolState(rawBytes);
+      humaNextRequestId = humaState.nextRequestId;
+    }
+  } catch {
+    // If unable to query Huma pool state, proceed with humaNextRequestId = null
+  }
+
+  let candidates: {
+    pubkey: Address;
+    state: ReturnType<typeof parsePendingRedemption>;
+  }[] = [];
+  let totalFound = 0;
+  let settledCount = 0;
+  let skippedUnsettled = 0;
+
+  if (validated.redemptionId !== undefined) {
+    const redemptionPda = await findPendingRedemptionPda(
+      validated.poolId,
+      validated.redemptionId
+    );
+    const acc = await rpc
+      .getAccountInfo(redemptionPda, { encoding: "base64" })
+      .send();
+    if (!acc || !acc.value) {
+      throw new Error(
+        `No PendingRedemption account found for ID ${validated.redemptionId} in pool ${validated.poolId}.`
+      );
+    }
+    const bytes = new Uint8Array(base64Encoder.encode(acc.value.data[0]));
+    const state = parsePendingRedemption(bytes);
+
+    if (validated.userAddress && state.user !== validated.userAddress) {
+      throw new Error(
+        `Pending redemption ID ${validated.redemptionId} beneficiary (${state.user}) does not match requested user (${validated.userAddress}).`
+      );
+    }
+
+    if (
+      humaNextRequestId !== null &&
+      state.humaRequestId >= humaNextRequestId
+    ) {
+      throw new Error(
+        `Pending redemption ID ${state.redemptionId} (Huma Request ID: ${state.humaRequestId}) has not yet been settled by Huma (current queue nextRequestId: ${humaNextRequestId}). Cannot claim an unsettled redemption.`
+      );
+    }
+
+    candidates = [{ pubkey: redemptionPda, state }];
+    totalFound = 1;
+    settledCount = 1;
+    skippedUnsettled = 0;
+  } else {
+    console.log(
+      `Fetching Pending Redemptions for Pool ${validated.poolId}${
+        validated.userAddress
+          ? ` filtered by User: ${validated.userAddress}`
+          : ""
+      }...`
+    );
+    const filters = getPendingRedemptionFilters({
+      poolId: validated.poolId,
+      user: validated.userAddress,
+    });
+    const accounts = await rpc
+      .getProgramAccounts(PROGRAM_ID, {
+        filters,
+        encoding: "base64",
+      })
+      .send();
+
+    const parsedRedemptions = accounts.map((acc) => {
+      const bytes = new Uint8Array(base64Encoder.encode(acc.account.data[0]));
+      const state = parsePendingRedemption(bytes);
+      return { pubkey: acc.pubkey, state };
+    });
+
+    parsedRedemptions.sort((a, b) => {
+      if (a.state.redemptionId < b.state.redemptionId) return -1;
+      if (a.state.redemptionId > b.state.redemptionId) return 1;
+      return 0;
+    });
+
+    totalFound = parsedRedemptions.length;
+    let settledCandidates = parsedRedemptions;
+    if (humaNextRequestId !== null) {
+      settledCandidates = parsedRedemptions.filter(
+        (r) => r.state.humaRequestId < humaNextRequestId!
+      );
+      skippedUnsettled = parsedRedemptions.length - settledCandidates.length;
+      if (skippedUnsettled > 0) {
+        console.log(
+          `Notice: Skipped ${skippedUnsettled} unsettled redemption(s) (Huma nextRequestId: ${humaNextRequestId}).`
+        );
+      }
+    }
+    settledCount = settledCandidates.length;
+
+    if (
+      validated.limit !== undefined &&
+      settledCandidates.length > validated.limit
+    ) {
+      candidates = settledCandidates.slice(0, validated.limit);
+    } else {
+      candidates = settledCandidates;
+    }
+  }
+
+  const signatures: string[] = [];
+  let claimedCount = 0;
+  let failedCount = 0;
+  let lastError: Error | null = null;
+
+  if (candidates.length === 0) {
+    console.log(
+      `No settled pending redemptions found to claim for pool ${validated.poolId}.`
+    );
+  } else {
+    console.log(
+      `Processing ${candidates.length} claimable redemption(s) for pool ${validated.poolId}...`
+    );
+    for (const candidate of candidates) {
+      const { state, pubkey } = candidate;
+      console.log(
+        `\n[Redemption ID ${state.redemptionId}] Beneficiary: ${state.user}, Amount: ${formatAmount(state.amount)} USDC, Huma Request ID: ${state.humaRequestId}`
+      );
+
+      if (dryRun) {
+        console.log(
+          `  [DRY RUN] Would execute claim_redemption for redemption ID ${state.redemptionId} (${pubkey})`
+        );
+        claimedCount++;
+        continue;
+      }
+
+      try {
+        const claimIxs = await buildClaimRedemptionInstructions({
+          crank: signer,
+          beneficiary: state.user,
+          poolId: validated.poolId,
+          redemptionId: state.redemptionId,
+          tokenMint: poolState.tokenMint,
+          humaAddresses,
+          redemptionType: state.redemptionType,
+          feeWallet: poolState.feeWallet,
+        });
+
+        const cuLimitIx = createSetComputeUnitLimitInstruction(200_000);
+        const sig = await sendTx(rpc, [cuLimitIx, ...claimIxs], signer);
+        signatures.push(sig);
+        claimedCount++;
+        console.log(
+          `  ✓ Successfully claimed redemption ID ${state.redemptionId}. Signature: ${sig}`
+        );
+      } catch (err: any) {
+        failedCount++;
+        lastError = err instanceof Error ? err : new Error(String(err));
+        console.error(
+          `  ✗ Failed to claim redemption ID ${state.redemptionId}: ${lastError.message}`
+        );
+        printErrorDetails(err, `Claim Redemption ID ${state.redemptionId}`);
+      }
+    }
+  }
+
+  console.log(`
+Claim Summary (Pool ${validated.poolId}):
+  Total Found:          ${totalFound}
+  Settled (Eligible):   ${settledCount}
+  Skipped Unsettled:    ${skippedUnsettled}
+  Successfully Claimed: ${claimedCount}
+  Failed:               ${failedCount}
+`);
+
+  if (validated.redemptionId !== undefined && failedCount > 0 && lastError) {
+    throw lastError;
+  }
+
+  if (failedCount > 0) {
+    throw new Error(
+      `claim-redemption completed with ${failedCount} failure(s).`
+    );
+  }
+
+  return {
+    totalFound,
+    settledCount,
+    skippedUnsettled,
+    claimedCount,
+    failedCount,
+    signatures,
+  };
 }
 
 // ─── Admin Action Handlers ───────────────────────────────────────────────────
@@ -3224,7 +3612,11 @@ Redemption Queue Status:
 // ─── Main CLI Logic ──────────────────────────────────────────────────────────
 
 async function main() {
-  const args = process.argv.slice(2);
+  const args = process.argv
+    .slice(2)
+    .map((arg, idx) =>
+      idx === 0 && arg === "claim-redemptions" ? "claim-redemption" : arg
+    );
   const helpReq = resolveHelpRequest(args);
   if (helpReq.isHelp) {
     if (helpReq.command) {
@@ -3649,6 +4041,23 @@ async function main() {
         poolId,
         cycleId,
         winnerOption,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "claim-redemption": {
+      const redemptionId = options["--id"] || positionals[0];
+      const user = options["--user"];
+      const limit = options["--limit"];
+      const dryRun = options["--dry-run"] === "true";
+      await executeClaimRedemption({
+        poolId,
+        redemptionId,
+        user,
+        limit,
+        dryRun,
         rpcUrl,
         signer: signer!,
       });

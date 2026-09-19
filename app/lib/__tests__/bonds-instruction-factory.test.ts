@@ -4,14 +4,24 @@ import { address, AccountRole } from "@solana/kit";
 import {
   buildBuyBondsInstruction,
   buildClaimRedemptionInstruction,
+  buildClaimRedemptionInstructions,
   buildReinvestWinningsInstruction,
   buildClaimNonReinvestedWinningsInstruction,
   buildSellBondsInstruction,
 } from "../bonds-instruction-factory";
 import {
+  findAtaAddress,
+  createAssociatedTokenIdempotentInstruction,
+  RedemptionType,
+  TOKEN_PROGRAM_ID,
+  ATA_PROGRAM_ID,
+  SYSTEM_PROGRAM_ID,
+} from "../bonds-sdk";
+import {
   buildMockPrizePoolEncoded,
   buildMockTicketRegistryEncoded,
   MockRpcBuilder,
+  TEST_ADDRESSES,
 } from "../test-harness";
 
 const BUY_BONDS_HUMA_POOL_STATE_INDEX = 11;
@@ -282,5 +292,100 @@ test("bonds-instruction-factory: builds sell bonds instruction with positional r
     remainingAccount.role,
     AccountRole.WRITABLE,
     "Remaining account for last registry user swap must be writable"
+  );
+});
+
+test("bonds-sdk: createAssociatedTokenIdempotentInstruction generates correct layout", () => {
+  const payer = TEST_ADDRESSES.USER;
+  const owner = TEST_ADDRESSES.USER_2;
+  const mint = TEST_ADDRESSES.MINT;
+  const ata = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+  const ix = createAssociatedTokenIdempotentInstruction({
+    payer,
+    owner,
+    mint,
+    ata,
+  });
+
+  assert.equal(ix.programAddress, ATA_PROGRAM_ID);
+  assert.deepEqual(Array.from(ix.data || []), [1]);
+  assert.equal(ix.accounts?.length, 6);
+  assert.equal(ix.accounts[0].address, payer);
+  assert.equal(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+  assert.equal(ix.accounts[1].address, ata);
+  assert.equal(ix.accounts[1].role, AccountRole.WRITABLE);
+  assert.equal(ix.accounts[2].address, owner);
+  assert.equal(ix.accounts[2].role, AccountRole.READONLY);
+  assert.equal(ix.accounts[3].address, mint);
+  assert.equal(ix.accounts[3].role, AccountRole.READONLY);
+  assert.equal(ix.accounts[4].address, SYSTEM_PROGRAM_ID);
+  assert.equal(ix.accounts[4].role, AccountRole.READONLY);
+  assert.equal(ix.accounts[5].address, TOKEN_PROGRAM_ID);
+  assert.equal(ix.accounts[5].role, AccountRole.READONLY);
+});
+
+test("bonds-sdk: findAtaAddress supports standard SPL and custom token programs", async () => {
+  const owner = TEST_ADDRESSES.USER;
+  const mint = TEST_ADDRESSES.MINT;
+  const token2022 = address("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+  const defaultAta = await findAtaAddress(owner, mint);
+  const splAta = await findAtaAddress(owner, mint, TOKEN_PROGRAM_ID);
+  const token2022Ata = await findAtaAddress(owner, mint, token2022);
+
+  assert.equal(defaultAta, splAta, "Default tokenProgram must match TOKEN_PROGRAM_ID");
+  assert.notEqual(splAta, token2022Ata, "Token-2022 ATA must have distinct derived address");
+});
+
+test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWithdrawal to feeWallet with 1 instruction", async () => {
+  const crank = TEST_ADDRESSES.USER;
+  const feeWallet = TEST_ADDRESSES.ADMIN;
+
+  const ixs = await buildClaimRedemptionInstructions({
+    poolId: 1,
+    caller: crank,
+    beneficiary: crank,
+    redemptionId: 4,
+    redemptionType: RedemptionType.FeeWithdrawal,
+    feeWallet,
+  });
+
+  assert.equal(ixs.length, 1, "FeeWithdrawal should produce exactly 1 instruction (claim only)");
+  const claimIx = ixs[0];
+  assert.equal(claimIx.accounts?.length, 19);
+  // beneficiaryTokenAccount is at account index 6
+  assert.equal(
+    claimIx.accounts?.[6].address,
+    feeWallet,
+    "Claim instruction must route destination to pool.feeWallet"
+  );
+});
+
+test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idempotent ATA creation for user redemptions", async () => {
+  const crank = TEST_ADDRESSES.USER;
+  const user = TEST_ADDRESSES.USER_2;
+
+  const ixs = await buildClaimRedemptionInstructions({
+    poolId: 1,
+    caller: crank,
+    beneficiary: user,
+    redemptionId: 1,
+    redemptionType: RedemptionType.BondSale,
+  });
+
+  assert.equal(ixs.length, 2, "BondSale should produce 2 instructions (create ATA + claim)");
+  const [createAtaIx, claimIx] = ixs;
+
+  assert.equal(createAtaIx.programAddress, ATA_PROGRAM_ID);
+  assert.deepEqual(Array.from(createAtaIx.data || []), [1]);
+  assert.equal(createAtaIx.accounts?.[0].address, crank, "Payer of ATA creation must be crank");
+  assert.equal(createAtaIx.accounts?.[2].address, user, "Owner of ATA must be beneficiary user");
+
+  const expectedAta = createAtaIx.accounts?.[1].address;
+  assert.equal(
+    claimIx.accounts?.[6].address,
+    expectedAta,
+    "Claim instruction must disburse funds into derived user ATA"
   );
 });

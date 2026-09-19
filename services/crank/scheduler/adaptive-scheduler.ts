@@ -247,6 +247,18 @@ export class AdaptiveCrankScheduler {
       }
     }
 
+    if (this.context.enableAutoDisburse) {
+      const disburseDecision = this.disburseSentinel.evaluate(
+        snapshot,
+        this.context
+      );
+      if (disburseDecision.shouldExecute) {
+        console.log(
+          `[AdaptiveCrankScheduler] [Pool #${poolId}] Sentinel [${this.disburseSentinel.name}]: ${disburseDecision.reason}`
+        );
+      }
+    }
+
     return (
       snapshot.state === "PREPARE_BATCHING" ||
       snapshot.state === "READY_TO_DRAW" ||

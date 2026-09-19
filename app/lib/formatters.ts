@@ -633,8 +633,7 @@ export function formatTokenAmount(
   const safeAmount = Number.isFinite(numAmount) ? numAmount : 0;
 
   const finalMax =
-    options.maxFractionDigits ??
-    (minFrac < 2 ? minFrac : Math.max(minFrac, 6));
+    options.maxFractionDigits ?? (minFrac < 2 ? minFrac : Math.max(minFrac, 6));
 
   return (safeAmount / 10 ** decimals).toLocaleString("en-US", {
     minimumFractionDigits: minFrac,

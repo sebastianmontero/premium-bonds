@@ -11,7 +11,7 @@ import { bondsKeys } from "../lib/query-keys";
 import {
   buildBuyBondsInstruction,
   buildSellBondsInstruction,
-  buildClaimRedemptionInstruction,
+  buildClaimRedemptionInstructions,
   buildReinvestWinningsInstruction,
   buildClaimNonReinvestedWinningsInstruction,
 } from "../lib/bonds-instruction-factory";
@@ -179,21 +179,16 @@ export function useBondsContract(poolId: number = 1) {
     async (redemptionId: number) => {
       if (!userAddress) throw new Error("Wallet not connected");
 
-      const userAta = await import("../lib/bonds-sdk").then((m) =>
-        m.findAtaAddress(userAddress, m.USDC_MINT)
-      );
-
-      const ix = await buildClaimRedemptionInstruction({
+      const ixs = await buildClaimRedemptionInstructions({
         poolId,
         userAddress: address(userAddress),
         redemptionId,
-        userTokenAccount: userAta,
         humaPoolState: pool?.humaPoolState
           ? address(pool.humaPoolState)
           : undefined,
       });
 
-      const sig = await send({ instructions: [ix] });
+      const sig = await send({ instructions: ixs });
       return sig.toString();
     },
     [userAddress, pool, poolId, send]

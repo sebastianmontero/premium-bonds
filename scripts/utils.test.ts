@@ -18,7 +18,18 @@ import {
   getCycleFrequency,
   formatCycleFrequency,
 } from "../app/lib/formatters";
-import { COMMAND_REGISTRY } from "./pb-cli";
+import {
+  COMMAND_REGISTRY,
+  parseClaimRedemptionArgs,
+  CliArgumentError,
+} from "./pb-cli";
+import { address } from "@solana/kit";
+import {
+  buildClaimRedemptionInstructions,
+  RedemptionType,
+  ATA_PROGRAM_ID,
+} from "../app/lib/bonds-sdk";
+import { TEST_ADDRESSES } from "../app/lib/test-harness";
 
 describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
   describe("Anchor Error Decoding", () => {
@@ -562,6 +573,241 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       const stringified = safeStringify(rpcErr);
       assert.ok(stringified.includes("-32603"));
       assert.ok(stringified.includes("Internal error"));
+    });
+  });
+
+  describe("claim-redemption CLI Command & Validation", () => {
+    describe("Metadata & Options Invariant", () => {
+      it("should register claim-redemption with correct metadata and options", () => {
+        const meta = COMMAND_REGISTRY["claim-redemption"];
+        assert.ok(
+          meta,
+          "claim-redemption must be registered in COMMAND_REGISTRY"
+        );
+        assert.strictEqual(meta.command, "claim-redemption");
+        assert.strictEqual(meta.category, "Crank & Operations");
+        assert.strictEqual(meta.requiresSigner, true);
+        assert.strictEqual(meta.positionalArgs, "[redemptionId]");
+
+        const flags = meta.options?.map((o) => o.flag.split(" ")[0]);
+        assert.ok(flags?.includes("--id"), "Must include --id flag");
+        assert.ok(flags?.includes("--user"), "Must include --user flag");
+        assert.ok(flags?.includes("--limit"), "Must include --limit flag");
+      });
+
+      it("should support claim-redemptions alias in COMMAND_REGISTRY", () => {
+        assert.strictEqual(
+          COMMAND_REGISTRY["claim-redemptions"],
+          COMMAND_REGISTRY["claim-redemption"],
+          "claim-redemptions alias must map to claim-redemption metadata"
+        );
+      });
+    });
+
+    describe("Pure Argument Validation (parseClaimRedemptionArgs)", () => {
+      it("should parse valid arguments with defaults", () => {
+        const res = parseClaimRedemptionArgs({});
+        assert.strictEqual(res.poolId, 1);
+        assert.strictEqual(res.redemptionId, undefined);
+        assert.strictEqual(res.userAddress, undefined);
+        assert.strictEqual(res.limit, undefined);
+      });
+
+      it("should parse valid custom inputs correctly", () => {
+        const dummyUser = "11111111111111111111111111111111";
+        const res = parseClaimRedemptionArgs({
+          poolId: 2,
+          redemptionId: "42",
+          user: dummyUser,
+          limit: "10",
+        });
+        assert.strictEqual(res.poolId, 2);
+        assert.strictEqual(res.redemptionId, 42n);
+        assert.strictEqual(res.userAddress, address(dummyUser));
+        assert.strictEqual(res.limit, 10);
+      });
+
+      it("should accept BigInt and number types directly", () => {
+        const res = parseClaimRedemptionArgs({
+          poolId: 1,
+          redemptionId: 100n,
+          limit: 5,
+        });
+        assert.strictEqual(res.redemptionId, 100n);
+        assert.strictEqual(res.limit, 5);
+      });
+
+      it("should reject invalid pool IDs with CliArgumentError", () => {
+        assert.throws(
+          () => parseClaimRedemptionArgs({ poolId: 0 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid pool ID")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ poolId: -1 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid pool ID")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ poolId: 1.5 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid pool ID")
+        );
+      });
+
+      it("should reject invalid redemption IDs with CliArgumentError", () => {
+        assert.throws(
+          () => parseClaimRedemptionArgs({ redemptionId: "abc" }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid redemption ID")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ redemptionId: "-5" }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid redemption ID")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ redemptionId: "12.34" }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid redemption ID")
+        );
+      });
+
+      it("should reject invalid user addresses with CliArgumentError", () => {
+        assert.throws(
+          () => parseClaimRedemptionArgs({ user: "invalid-user-pubkey" }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid user public key address")
+        );
+      });
+
+      it("should reject invalid limits with CliArgumentError", () => {
+        assert.throws(
+          () => parseClaimRedemptionArgs({ limit: 0 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid limit")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ limit: -1 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid limit")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ limit: "not-a-number" }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid limit")
+        );
+        assert.throws(
+          () => parseClaimRedemptionArgs({ limit: 2.5 }),
+          (err: any) =>
+            err instanceof CliArgumentError &&
+            err.message.includes("Invalid limit")
+        );
+      });
+    });
+
+    describe("Queue Settlement Filtering Invariant", () => {
+      it("should correctly discriminate settled vs unsettled redemptions against nextRequestId", () => {
+        const nextRequestId = 10n;
+        const mockRedemptions = [
+          { redemptionId: 1n, humaRequestId: 5n, status: "settled" },
+          { redemptionId: 2n, humaRequestId: 9n, status: "settled" },
+          { redemptionId: 3n, humaRequestId: 10n, status: "unsettled" },
+          { redemptionId: 4n, humaRequestId: 11n, status: "unsettled" },
+        ];
+
+        const settled = mockRedemptions.filter(
+          (r) => r.humaRequestId < nextRequestId
+        );
+        const unsettled = mockRedemptions.filter(
+          (r) => r.humaRequestId >= nextRequestId
+        );
+
+        assert.strictEqual(settled.length, 2);
+        assert.deepStrictEqual(
+          settled.map((r) => r.redemptionId),
+          [1n, 2n]
+        );
+        assert.strictEqual(unsettled.length, 2);
+        assert.deepStrictEqual(
+          unsettled.map((r) => r.redemptionId),
+          [3n, 4n]
+        );
+      });
+    });
+
+    describe("CLI Claim Redemption Instruction Building", () => {
+      it("should route fee withdrawal claim to pool fee_wallet without prepending ATA creation", async () => {
+        const crank = TEST_ADDRESSES.USER;
+        const adminBeneficiary = TEST_ADDRESSES.USER_2;
+        const feeWallet = TEST_ADDRESSES.ADMIN;
+        const tokenMint = TEST_ADDRESSES.MINT;
+
+        const ixs = await buildClaimRedemptionInstructions({
+          crank,
+          beneficiary: adminBeneficiary,
+          poolId: 1,
+          redemptionId: 4n,
+          tokenMint,
+          humaAddresses: {
+            poolState: TEST_ADDRESSES.HUMA_POOL,
+          },
+          redemptionType: RedemptionType.FeeWithdrawal,
+          feeWallet,
+        });
+
+        assert.strictEqual(
+          ixs.length,
+          1,
+          "FeeWithdrawal claim should not prepend ATA creation"
+        );
+        assert.strictEqual(
+          ixs[0].accounts?.[6].address,
+          feeWallet,
+          "beneficiaryTokenAccount must be feeWallet"
+        );
+      });
+
+      it("should derive user ATA and prepend idempotent ATA creation for user redemptions", async () => {
+        const crank = TEST_ADDRESSES.USER;
+        const user = TEST_ADDRESSES.USER_2;
+        const tokenMint = TEST_ADDRESSES.MINT;
+
+        const ixs = await buildClaimRedemptionInstructions({
+          crank,
+          beneficiary: user,
+          poolId: 1,
+          redemptionId: 1n,
+          tokenMint,
+          humaAddresses: {
+            poolState: TEST_ADDRESSES.HUMA_POOL,
+          },
+          redemptionType: RedemptionType.BondSale,
+        });
+
+        assert.strictEqual(
+          ixs.length,
+          2,
+          "BondSale claim should prepend createAssociatedTokenIdempotentInstruction"
+        );
+        assert.strictEqual(ixs[0].programAddress, ATA_PROGRAM_ID);
+        assert.deepStrictEqual(Array.from(ixs[0].data || []), [1]);
+        assert.strictEqual(
+          ixs[1].accounts?.[6].address,
+          ixs[0].accounts?.[1].address,
+          "beneficiaryTokenAccount in claim must match created ATA"
+        );
+      });
     });
   });
 });

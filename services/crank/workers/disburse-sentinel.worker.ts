@@ -1,8 +1,9 @@
 import { Address, address, Instruction } from "@solana/kit";
 import {
-  buildClaimRedemptionInstruction,
+  buildClaimRedemptionInstructions,
   SYSTEM_PROGRAM_ID,
   HumaPoolAddresses,
+  RedemptionType,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankDecision,
@@ -14,6 +15,7 @@ export interface PendingRedemptionCandidate {
   redemptionId: bigint;
   user: Address;
   humaRequestId: bigint;
+  redemptionType?: RedemptionType;
 }
 
 export class DisburseSentinelWorker {
@@ -83,19 +85,21 @@ export class DisburseSentinelWorker {
 
     const tokenMint = address(snapshot.pool.tokenMint);
 
-    const ix = await buildClaimRedemptionInstruction({
+    return buildClaimRedemptionInstructions({
       crank: context.signer,
       beneficiary: candidate.user,
       poolId: snapshot.poolId,
       redemptionId: candidate.redemptionId,
       tokenMint,
       humaAddresses: defaultHumaAddresses,
+      redemptionType: candidate.redemptionType,
+      feeWallet: snapshot.pool.feeWallet
+        ? address(snapshot.pool.feeWallet)
+        : undefined,
     });
-
-    return [ix];
   }
 
   getComputeUnitLimit(): number {
-    return 150_000;
+    return 200_000;
   }
 }

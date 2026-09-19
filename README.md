@@ -180,6 +180,7 @@ A utility crank CLI to manage the draw cycle, query on-chain state, and trigger 
 - **`prepare-draw`**: Prepares ticket checkpoints for the draw cycle in batches.
 - **`reveal`**: Submits the random seed and picks winners. On localnet, automatically mocks resolved randomness on the Switchboard account.
 - **`reinvest`**: Reinvests draw winnings for winners back into principal.
+- **`claim-redemption [id]`**: Claims settled USDC redemptions from Huma for a specific redemption ID or all settled redemptions in a pool (optionally filtered by user).
 - **`query-config`**: Displays the on-chain `GlobalConfig` state.
 - **`query-pool`**: Displays the current `PrizePool` details, vault balances, and parameters.
 - **`query-draw`**: Displays the target/current `DrawCycle` state, including status and locked ticket counts.
@@ -202,9 +203,11 @@ Specify options after `--` when running via `npm run`:
 | `--seed <hex>`        | 32-byte hex seed for the `reveal` command | Randomly generated              |
 | `--cycle <number>`    | Targeted Draw Cycle ID                    | `pool's currentDrawCycleId - 1` |
 | `--winner <idx/addr>` | Target winner to reinvest                 | All unprocessed winners         |
+| `--id <number>`       | Target redemption ID to claim or query    | None                            |
+| `--limit <number>`    | Maximum number of items to process        | None                            |
 | `--max-bonds <num>`   | Max bonds to purchase in one transaction  | `1000`                          |
 | `--batch-size <num>`  | Max users to process per `prepare-draw`   | `1000`                          |
-| `--user <pubkey>`     | Filter query commands by user address     | None                            |
+| `--user <pubkey>`     | Filter query and claim commands by user   | None                            |
 
 ### Examples
 

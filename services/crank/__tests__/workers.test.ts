@@ -9,6 +9,7 @@ import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
 import { MockVrfProvider } from "../vrf/randomness-provider";
+import { RedemptionType, ATA_PROGRAM_ID } from "@/app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
   toPoolId,
@@ -241,10 +242,44 @@ describe("Strategy Workers Unit Tests", () => {
       redemptionId: 1n,
       user: mockAddress,
       humaRequestId: 5n,
+      redemptionType: RedemptionType.BondSale,
     };
 
     const decision = sentinel.evaluate(snapshot, ctx, candidate);
     assert.strictEqual(decision.shouldExecute, true);
     assert.match(decision.reason, /Claiming settled redemption #1/);
+    assert.strictEqual(sentinel.getComputeUnitLimit(), 200_000);
+
+    // Test BondSale buildInstructions (prepends idempotent ATA creation)
+    const bondSaleIxs = await sentinel.buildInstructions(
+      snapshot,
+      ctx,
+      candidate
+    );
+    assert.strictEqual(bondSaleIxs.length, 2);
+    assert.strictEqual(bondSaleIxs[0].programAddress, ATA_PROGRAM_ID);
+
+    // Test FeeWithdrawal buildInstructions (routes directly to feeWallet)
+    const feeWallet = TEST_ADDRESSES.ADMIN;
+    const feeSnapshot = {
+      ...snapshot,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        feeWallet,
+      }),
+    };
+    const feeCandidate = {
+      redemptionId: 4n,
+      user: mockAddress,
+      humaRequestId: 10n,
+      redemptionType: RedemptionType.FeeWithdrawal,
+    };
+    const feeIxs = await sentinel.buildInstructions(
+      feeSnapshot,
+      ctx,
+      feeCandidate
+    );
+    assert.strictEqual(feeIxs.length, 1);
+    assert.strictEqual(feeIxs[0].accounts?.[6].address, feeWallet);
   });
 });

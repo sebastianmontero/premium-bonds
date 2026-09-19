@@ -9,7 +9,6 @@ import {
 import {
   getBuyBondsInstructionAsync,
   getSellBondsInstructionAsync,
-  getClaimRedemptionInstructionAsync,
   getReinvestWinningsInstructionAsync,
   getClaimNonReinvestedWinningsInstructionAsync,
 } from "./generated/yield-bonds/src/generated/instructions";
@@ -26,6 +25,9 @@ import {
   parsePrizePool,
   decodeAccountBase64Data,
   elevateSignerRole,
+  buildClaimRedemptionInstruction as sdkBuildClaimRedemptionInstruction,
+  buildClaimRedemptionInstructions as sdkBuildClaimRedemptionInstructions,
+  RedemptionType,
   USDC_MINT,
   TOKEN_PROGRAM_ID,
   HUMA_CONFIG,
@@ -44,7 +46,7 @@ import {
 } from "./ticket-registry-helpers";
 import type { PoolId } from "./query-keys";
 
-export { elevateSignerRole };
+export { elevateSignerRole, RedemptionType };
 
 export async function buildBuyBondsInstruction(params: {
   poolId: PoolId;
@@ -184,40 +186,80 @@ export async function buildSellBondsInstruction(params: {
   );
 }
 
-export async function buildClaimRedemptionInstruction(params: {
+export interface ClaimRedemptionFactoryParams {
   poolId: PoolId;
-  userAddress: Address;
+  caller?: Address;
+  userAddress?: Address;
+  beneficiary?: Address;
   redemptionId: number | bigint;
-  userTokenAccount: Address;
+  beneficiaryTokenAccount?: Address;
+  userTokenAccount?: Address;
   humaPoolState?: Address;
-}): Promise<Instruction> {
+  redemptionType?: RedemptionType;
+  feeWallet?: Address;
+  tokenProgram?: Address;
+}
+
+export async function buildClaimRedemptionInstruction(
+  params: ClaimRedemptionFactoryParams
+): Promise<Instruction> {
+  const caller = params.caller ?? params.userAddress;
+  if (!caller) throw new Error("Caller or userAddress is required");
+  const beneficiary = params.beneficiary ?? params.userAddress ?? caller;
   const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
-  const pool = await findPrizePoolPda(params.poolId);
-  const pendingRedemption = await findPendingRedemptionPda(
-    params.poolId,
-    BigInt(params.redemptionId)
-  );
-  const poolVaultAccount = await findPoolVaultPda(params.poolId);
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(targetHumaPoolState);
+  const beneficiaryTokenAccount =
+    params.beneficiaryTokenAccount ?? params.userTokenAccount;
 
-  const ix = await getClaimRedemptionInstructionAsync({
-    caller: params.userAddress as unknown as TransactionSigner,
-    beneficiary: params.userAddress,
-    pool,
-    pendingRedemption,
+  return sdkBuildClaimRedemptionInstruction({
+    crank: caller,
+    beneficiary,
+    poolId: params.poolId,
+    redemptionId: params.redemptionId,
     tokenMint: USDC_MINT,
-    poolVaultAccount,
-    beneficiaryTokenAccount: params.userTokenAccount,
-    humaConfig: HUMA_CONFIG,
-    humaPoolConfig: HUMA_POOL_CONFIG,
-    humaPoolState: targetHumaPoolState,
-    humaModeConfig: HUMA_MODE_CONFIG,
-    humaLenderState: HUMA_LENDER_STATE,
-    humaPoolAuthority,
-    humaPoolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
+    humaAddresses: {
+      poolState: targetHumaPoolState,
+      config: HUMA_CONFIG,
+      poolConfig: HUMA_POOL_CONFIG,
+      modeConfig: HUMA_MODE_CONFIG,
+      lenderState: HUMA_LENDER_STATE,
+      poolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
+    },
+    redemptionType: params.redemptionType,
+    feeWallet: params.feeWallet,
+    beneficiaryTokenAccount,
+    tokenProgram: params.tokenProgram || TOKEN_PROGRAM_ID,
   });
+}
 
-  return elevateSignerRole(ix, params.userAddress);
+export async function buildClaimRedemptionInstructions(
+  params: ClaimRedemptionFactoryParams
+): Promise<Instruction[]> {
+  const caller = params.caller ?? params.userAddress;
+  if (!caller) throw new Error("Caller or userAddress is required");
+  const beneficiary = params.beneficiary ?? params.userAddress ?? caller;
+  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
+  const beneficiaryTokenAccount =
+    params.beneficiaryTokenAccount ?? params.userTokenAccount;
+
+  return sdkBuildClaimRedemptionInstructions({
+    crank: caller,
+    beneficiary,
+    poolId: params.poolId,
+    redemptionId: params.redemptionId,
+    tokenMint: USDC_MINT,
+    humaAddresses: {
+      poolState: targetHumaPoolState,
+      config: HUMA_CONFIG,
+      poolConfig: HUMA_POOL_CONFIG,
+      modeConfig: HUMA_MODE_CONFIG,
+      lenderState: HUMA_LENDER_STATE,
+      poolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
+    },
+    redemptionType: params.redemptionType,
+    feeWallet: params.feeWallet,
+    beneficiaryTokenAccount,
+    tokenProgram: params.tokenProgram || TOKEN_PROGRAM_ID,
+  });
 }
 
 export async function buildReinvestWinningsInstruction(params: {

@@ -15,6 +15,7 @@ import {
   getBase64Encoder,
   lamports,
   TransactionSigner,
+  type KeyPairSigner,
   Instruction,
   type Base58EncodedBytes,
 } from "@solana/kit";
@@ -63,7 +64,11 @@ export type {
 
 import { MOCK_HUMA_PROGRAM_ADDRESS } from "./generated/mock-huma/src/generated";
 
-import { DrawStatus, PoolStatus } from "./generated/yield-bonds/src/generated";
+import {
+  RedemptionType,
+  DrawStatus,
+  PoolStatus,
+} from "./generated/yield-bonds/src/generated";
 import { DEFAULT_APY, DEFAULT_APY_BPS, bpsToRate } from "./formatters";
 import {
   UNASSIGNED_REGISTRY_INDEX,
@@ -470,17 +475,44 @@ export async function findEventAuthorityPda(): Promise<Address> {
 
 export async function findAtaAddress(
   owner: string,
-  mint: string
+  mint: string,
+  tokenProgram: Address = TOKEN_PROGRAM_ID
 ): Promise<Address> {
   const [addr] = await getProgramDerivedAddress({
     programAddress: ATA_PROGRAM_ID,
     seeds: [
       base58Encoder.encode(address(owner)),
-      base58Encoder.encode(TOKEN_PROGRAM_ID),
+      base58Encoder.encode(address(tokenProgram)),
       base58Encoder.encode(address(mint)),
     ],
   });
   return addr;
+}
+
+export function createAssociatedTokenIdempotentInstruction(params: {
+  payer: Address | KeyPairSigner | TransactionSigner;
+  owner: Address;
+  mint: Address;
+  ata: Address;
+  tokenProgram?: Address;
+}): Instruction {
+  const payerAddress =
+    typeof params.payer === "string" ? params.payer : params.payer.address;
+  return {
+    programAddress: ATA_PROGRAM_ID,
+    accounts: [
+      { address: payerAddress, role: AccountRole.WRITABLE_SIGNER },
+      { address: params.ata, role: AccountRole.WRITABLE },
+      { address: params.owner, role: AccountRole.READONLY },
+      { address: params.mint, role: AccountRole.READONLY },
+      { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY },
+      {
+        address: params.tokenProgram || TOKEN_PROGRAM_ID,
+        role: AccountRole.READONLY,
+      },
+    ],
+    data: new Uint8Array([1]),
+  };
 }
 
 /**
@@ -1935,17 +1967,21 @@ export interface HumaPoolAddresses {
 }
 
 export interface BuildClaimRedemptionParams {
-  crank: Address | TransactionSigner;
+  crank: Address | KeyPairSigner | TransactionSigner;
   beneficiary: Address;
   poolId: number;
   redemptionId: bigint | number;
   tokenMint: Address;
   humaAddresses: HumaPoolAddresses;
+  redemptionType?: RedemptionType;
+  feeWallet?: Address;
+  beneficiaryTokenAccount?: Address;
+  tokenProgram?: Address;
 }
 
 export function elevateSignerRole(
   instruction: Instruction,
-  signerAddressOrSigner: Address | TransactionSigner
+  signerAddressOrSigner: Address | TransactionSigner | KeyPairSigner
 ): Instruction {
   const signerAddress =
     typeof signerAddressOrSigner === "string"
@@ -1970,10 +2006,12 @@ export async function buildClaimRedemptionInstruction(
     params.poolId,
     BigInt(params.redemptionId)
   );
-  const beneficiaryTokenAccount = await findAtaAddress(
-    params.beneficiary,
-    params.tokenMint
-  );
+  const tokenProgram = params.tokenProgram || TOKEN_PROGRAM_ID;
+  const beneficiaryTokenAccount =
+    params.beneficiaryTokenAccount ??
+    (params.redemptionType === RedemptionType.FeeWithdrawal && params.feeWallet
+      ? params.feeWallet
+      : await findAtaAddress(params.beneficiary, params.tokenMint, tokenProgram));
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
     params.humaAddresses.poolState
   );
@@ -1995,10 +2033,51 @@ export async function buildClaimRedemptionInstruction(
     humaPoolAuthority,
     humaPoolUnderlyingToken:
       params.humaAddresses.poolUnderlyingToken || poolVaultAccount,
+    tokenProgram,
     eventAuthority,
   });
 
   return elevateSignerRole(ix, params.crank);
+}
+
+export async function buildClaimRedemptionInstructions(
+  params: BuildClaimRedemptionParams
+): Promise<Instruction[]> {
+  const instructions: Instruction[] = [];
+  const tokenProgram = params.tokenProgram || TOKEN_PROGRAM_ID;
+
+  let beneficiaryTokenAccount: Address;
+  if (params.beneficiaryTokenAccount) {
+    beneficiaryTokenAccount = params.beneficiaryTokenAccount;
+  } else if (
+    params.redemptionType === RedemptionType.FeeWithdrawal &&
+    params.feeWallet
+  ) {
+    beneficiaryTokenAccount = params.feeWallet;
+  } else {
+    beneficiaryTokenAccount = await findAtaAddress(
+      params.beneficiary,
+      params.tokenMint,
+      tokenProgram
+    );
+    const createAtaIx = createAssociatedTokenIdempotentInstruction({
+      payer: params.crank,
+      owner: params.beneficiary,
+      mint: params.tokenMint,
+      ata: beneficiaryTokenAccount,
+      tokenProgram,
+    });
+    instructions.push(createAtaIx);
+  }
+
+  const claimIx = await buildClaimRedemptionInstruction({
+    ...params,
+    beneficiaryTokenAccount,
+    tokenProgram,
+  });
+  instructions.push(claimIx);
+
+  return instructions;
 }
 
 export async function buildPackedReinvestWinningsInstructions(params: {

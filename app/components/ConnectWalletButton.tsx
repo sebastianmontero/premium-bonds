@@ -9,8 +9,7 @@ import { CopyButton } from "@/app/components/common/CopyButton";
 export function ConnectWalletButton() {
   const { connectors, connect, disconnect, wallet, status } =
     useWalletConnection();
-  const { formatted, isLoading: isBalanceLoading } =
-    useUserTokenBalance();
+  const { formatted, isLoading: isBalanceLoading } = useUserTokenBalance();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("Wallet");

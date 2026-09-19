@@ -8,7 +8,10 @@ import {
 } from "@solana/react-hooks";
 import { address, signature as toSignature, type Address } from "@solana/kit";
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
-import { buildClaimRedemptionInstruction } from "@/app/lib/bonds-instruction-factory";
+import {
+  buildClaimRedemptionInstructions,
+  type RedemptionType,
+} from "@/app/lib/bonds-instruction-factory";
 import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
 import { usePrizePool } from "../queries/usePrizePool";
 
@@ -16,7 +19,9 @@ import type { PendingRedemption } from "@/app/types";
 
 export interface ClaimRedemptionParams {
   redemptionId: number | bigint;
-  userTokenAccount: Address;
+  userTokenAccount?: Address;
+  redemptionType?: RedemptionType;
+  feeWallet?: Address;
 }
 
 export function useClaimRedemption(poolId: PoolId = 1) {
@@ -32,20 +37,24 @@ export function useClaimRedemption(poolId: PoolId = 1) {
     mutationFn: async ({
       redemptionId,
       userTokenAccount,
+      redemptionType,
+      feeWallet,
     }: ClaimRedemptionParams) => {
       if (!userAddress) throw new Error("Wallet not connected");
 
-      const ix = await buildClaimRedemptionInstruction({
+      const ixs = await buildClaimRedemptionInstructions({
         poolId,
         userAddress: address(userAddress),
         redemptionId,
         userTokenAccount,
+        redemptionType,
+        feeWallet,
         humaPoolState: poolData?.humaPoolState
           ? address(poolData.humaPoolState)
           : undefined,
       });
 
-      const signature = await send({ instructions: [ix] });
+      const signature = await send({ instructions: ixs });
       await pollSignatureConfirmation(rpc, toSignature(signature.toString()), {
         timeoutMs: 60_000,
       });
