@@ -334,8 +334,16 @@ test("bonds-sdk: findAtaAddress supports standard SPL and custom token programs"
   const splAta = await findAtaAddress(owner, mint, TOKEN_PROGRAM_ID);
   const token2022Ata = await findAtaAddress(owner, mint, token2022);
 
-  assert.equal(defaultAta, splAta, "Default tokenProgram must match TOKEN_PROGRAM_ID");
-  assert.notEqual(splAta, token2022Ata, "Token-2022 ATA must have distinct derived address");
+  assert.equal(
+    defaultAta,
+    splAta,
+    "Default tokenProgram must match TOKEN_PROGRAM_ID"
+  );
+  assert.notEqual(
+    splAta,
+    token2022Ata,
+    "Token-2022 ATA must have distinct derived address"
+  );
 });
 
 test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWithdrawal to feeWallet with 1 instruction", async () => {
@@ -351,7 +359,11 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
     feeWallet,
   });
 
-  assert.equal(ixs.length, 1, "FeeWithdrawal should produce exactly 1 instruction (claim only)");
+  assert.equal(
+    ixs.length,
+    1,
+    "FeeWithdrawal should produce exactly 1 instruction (claim only)"
+  );
   const claimIx = ixs[0];
   assert.equal(claimIx.accounts?.length, 19);
   // beneficiaryTokenAccount is at account index 6
@@ -374,13 +386,25 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idemp
     redemptionType: RedemptionType.BondSale,
   });
 
-  assert.equal(ixs.length, 2, "BondSale should produce 2 instructions (create ATA + claim)");
+  assert.equal(
+    ixs.length,
+    2,
+    "BondSale should produce 2 instructions (create ATA + claim)"
+  );
   const [createAtaIx, claimIx] = ixs;
 
   assert.equal(createAtaIx.programAddress, ATA_PROGRAM_ID);
   assert.deepEqual(Array.from(createAtaIx.data || []), [1]);
-  assert.equal(createAtaIx.accounts?.[0].address, crank, "Payer of ATA creation must be crank");
-  assert.equal(createAtaIx.accounts?.[2].address, user, "Owner of ATA must be beneficiary user");
+  assert.equal(
+    createAtaIx.accounts?.[0].address,
+    crank,
+    "Payer of ATA creation must be crank"
+  );
+  assert.equal(
+    createAtaIx.accounts?.[2].address,
+    user,
+    "Owner of ATA must be beneficiary user"
+  );
 
   const expectedAta = createAtaIx.accounts?.[1].address;
   assert.equal(

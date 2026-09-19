@@ -61,6 +61,7 @@ import {
   findPayoutRegistryPda,
   parsePrizePool,
   parseGlobalConfig,
+  GlobalConfig,
   parseDrawCycle,
   parsePayoutRegistry,
   PayoutRegistryStatus,
@@ -2160,19 +2161,22 @@ export async function executeInitGlobal({
   console.log(`✓ Global config initialized successfully! Tx: ${sig}`);
 }
 
-export async function getGlobalAdmin(rpc: SolanaRpc): Promise<Address> {
+export async function getGlobalConfig(rpc: SolanaRpc): Promise<GlobalConfig> {
   const configPda = await findGlobalConfigPda();
   const acc = await rpc
     .getAccountInfo(configPda, { encoding: "base64" })
     .send();
   if (!acc || !acc.value) {
     throw new Error(
-      `GlobalConfig account not found at ${configPda}. Run 'init-global' first.`
+      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
     );
   }
   const bytes = new Uint8Array(getBase64Encoder().encode(acc.value.data[0]));
-  const state = parseGlobalConfig(bytes);
-  return state.admin;
+  return parseGlobalConfig(bytes);
+}
+
+export async function getGlobalAdmin(rpc: SolanaRpc): Promise<Address> {
+  return (await getGlobalConfig(rpc)).admin;
 }
 
 export interface ExecuteUpdateGlobalConfigParams {
@@ -2191,21 +2195,7 @@ export async function executeUpdateGlobalConfig({
   mode = { kind: "direct" },
 }: ExecuteUpdateGlobalConfigParams) {
   const rpc = createSolanaRpc(rpcUrl);
-  const base64Encoder = getBase64Encoder();
-  const configPda = await findGlobalConfigPda();
-
-  const acc = await rpc
-    .getAccountInfo(configPda, { encoding: "base64" })
-    .send();
-  if (!acc || !acc.value) {
-    throw new Error(
-      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
-    );
-  }
-
-  const state = parseGlobalConfig(
-    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
-  );
+  const state = await getGlobalConfig(rpc);
 
   if (!guardianAccount && !jobsAccount) {
     throw new Error(
@@ -2256,21 +2246,7 @@ export async function executeNominateAdmin({
   }
 
   const rpc = createSolanaRpc(rpcUrl);
-  const base64Encoder = getBase64Encoder();
-  const configPda = await findGlobalConfigPda();
-
-  const acc = await rpc
-    .getAccountInfo(configPda, { encoding: "base64" })
-    .send();
-  if (!acc || !acc.value) {
-    throw new Error(
-      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
-    );
-  }
-
-  const state = parseGlobalConfig(
-    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
-  );
+  const state = await getGlobalConfig(rpc);
 
   console.log(`Nominating Admin:
   Current Admin: ${state.admin}
@@ -2304,21 +2280,7 @@ export async function executeCancelAdminNomination({
   mode = { kind: "direct" },
 }: ExecuteCancelAdminNominationParams) {
   const rpc = createSolanaRpc(rpcUrl);
-  const base64Encoder = getBase64Encoder();
-  const configPda = await findGlobalConfigPda();
-
-  const acc = await rpc
-    .getAccountInfo(configPda, { encoding: "base64" })
-    .send();
-  if (!acc || !acc.value) {
-    throw new Error(
-      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
-    );
-  }
-
-  const state = parseGlobalConfig(
-    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
-  );
+  const state = await getGlobalConfig(rpc);
 
   console.log(`Cancelling Admin Nomination:
   Current Admin: ${state.admin}
@@ -2351,21 +2313,7 @@ export async function executeAcceptAdmin({
   mode = { kind: "direct" },
 }: ExecuteAcceptAdminParams) {
   const rpc = createSolanaRpc(rpcUrl);
-  const base64Encoder = getBase64Encoder();
-  const configPda = await findGlobalConfigPda();
-
-  const acc = await rpc
-    .getAccountInfo(configPda, { encoding: "base64" })
-    .send();
-  if (!acc || !acc.value) {
-    throw new Error(
-      `GlobalConfig account does not exist at ${configPda}. Run 'init-global' first.`
-    );
-  }
-
-  const state = parseGlobalConfig(
-    new Uint8Array(base64Encoder.encode(acc.value.data[0]))
-  );
+  const state = await getGlobalConfig(rpc);
 
   console.log(`Accepting Admin Role:
   Previous Admin: ${state.admin}
@@ -3082,23 +3030,18 @@ export async function executePausePool({
   mode = { kind: "direct" },
 }: ExecutePausePoolParams) {
   const rpc = createSolanaRpc(rpcUrl);
-  console.log(`Executing emergency pause for Pool ${poolId}...`);
+  const cfg = await getGlobalConfig(rpc);
+  const expectedAuthorities: readonly Address[] = [cfg.admin, cfg.guardian];
 
-  const configPda = await findGlobalConfigPda();
-  const acc = await rpc
-    .getAccountInfo(configPda, { encoding: "base64" })
-    .send();
-  let expectedAdmin = signer.address;
-  if (acc && acc.value) {
-    const bytes = new Uint8Array(getBase64Encoder().encode(acc.value.data[0]));
-    const cfg = parseGlobalConfig(bytes);
-    expectedAdmin = cfg.admin;
-  }
+  const isGuardian = signer.address === cfg.guardian;
+  console.log(
+    `Executing emergency pause for Pool ${poolId} (acting as ${isGuardian ? "Guardian" : "Admin"}: ${signer.address})...`
+  );
 
   await dispatchAdminInstruction({
     rpc,
     signer,
-    expectedAdmin,
+    expectedAuthority: expectedAuthorities,
     mode,
     commandName: "pause-pool",
     builder: async (auth) => {

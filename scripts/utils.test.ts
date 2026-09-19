@@ -810,4 +810,264 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       });
     });
   });
+
+  describe("dispatchAdminInstruction Multi-Authority & Guardian Suite", () => {
+    const createMockRpc = () => {
+      return {
+        getLatestBlockhash: () => ({
+          send: async () => ({
+            value: {
+              blockhash: "4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM",
+              lastValidBlockHeight: 100n,
+            },
+          }),
+        }),
+        sendTransaction: () => ({
+          send: async () =>
+            "mock_tx_signature_11111111111111111111111111111111111111111111",
+        }),
+        getSignatureStatuses: () => ({
+          send: async () => ({
+            value: [{ confirmationStatus: "confirmed", err: null }],
+          }),
+        }),
+        getAccountInfo: () => ({
+          send: async () => ({ value: null }),
+        }),
+      } as unknown as any;
+    };
+
+    const dummyBuilder = async () => ({
+      programAddress: address("11111111111111111111111111111111"),
+      accounts: [],
+      data: new Uint8Array([0]),
+    });
+
+    it("1. Guardian Direct Execution: should succeed when signer matches guardian in expectedAuthority array", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const admin = (await generateKeyPairSigner()).address;
+      const guardian = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.doesNotReject(async () => {
+        await dispatchAdminInstruction({
+          rpc,
+          signer: guardian,
+          expectedAuthority: [admin, guardian.address],
+          mode: { kind: "direct" },
+          commandName: "pause-pool",
+          builder: dummyBuilder,
+        });
+      });
+    });
+
+    it("2. Admin Direct Execution: should succeed when signer matches admin in expectedAuthority array", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const admin = await generateKeyPairSigner();
+      const guardian = (await generateKeyPairSigner()).address;
+      const rpc = createMockRpc();
+
+      await assert.doesNotReject(async () => {
+        await dispatchAdminInstruction({
+          rpc,
+          signer: admin,
+          expectedAuthority: [admin.address, guardian],
+          mode: { kind: "direct" },
+          commandName: "pause-pool",
+          builder: dummyBuilder,
+        });
+      });
+    });
+
+    it("3. Unauthorized Signer Rejection: should reject with formatted error containing all expected authorities", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const admin = (await generateKeyPairSigner()).address;
+      const guardian = (await generateKeyPairSigner()).address;
+      const unauthorizedSigner = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer: unauthorizedSigner,
+            expectedAuthority: [admin, guardian],
+            mode: { kind: "direct" },
+            commandName: "pause-pool",
+            builder: dummyBuilder,
+          });
+        },
+        {
+          message: `Direct signer ${unauthorizedSigner.address} does not match expected on-chain authority ${admin} or ${guardian}.`,
+        }
+      );
+    });
+
+    it("4. Authority Deduplication in Error: should deduplicate duplicate authorities in formatted error", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const sharedAuthority = (await generateKeyPairSigner()).address;
+      const unauthorizedSigner = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer: unauthorizedSigner,
+            expectedAuthority: [sharedAuthority, sharedAuthority],
+            mode: { kind: "direct" },
+            commandName: "pause-pool",
+            builder: dummyBuilder,
+          });
+        },
+        {
+          message: `Direct signer ${unauthorizedSigner.address} does not match expected on-chain authority ${sharedAuthority}.`,
+        }
+      );
+    });
+
+    it("5. Squads Propose Authority Validation: should validate multisig vault PDA against expected authorities", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { findMultisigVaultPda } = await import("../app/lib/squads-sdk");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const multisig = (await generateKeyPairSigner()).address;
+      const vaultPda = await findMultisigVaultPda(multisig, 0);
+      const wrongMultisig = (await generateKeyPairSigner()).address;
+      const wrongVaultPda = await findMultisigVaultPda(wrongMultisig, 0);
+      const signer = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer,
+            expectedAuthority: [vaultPda],
+            mode: {
+              kind: "propose",
+              multisig: wrongMultisig,
+              vaultIndex: 0,
+              autoApprove: true,
+            },
+            commandName: "pause-pool",
+            builder: dummyBuilder,
+          });
+        },
+        {
+          message: `Squads Vault PDA ${wrongVaultPda} (index 0) does not match expected on-chain authority ${vaultPda}.`,
+        }
+      );
+    });
+
+    it("6. Missing Authority Error Guard: should throw descriptive error when neither expectedAuthority nor expectedAdmin is passed", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const signer = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer,
+            mode: { kind: "direct" },
+            commandName: "test-cmd",
+            builder: dummyBuilder,
+          } as any);
+        },
+        {
+          message:
+            "dispatchAdminInstruction requires 'expectedAuthority' to be specified for command 'test-cmd'.",
+        }
+      );
+    });
+
+    it("7. Empty Array Error Guard: should throw descriptive error when empty expectedAuthority array is passed", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const signer = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer,
+            expectedAuthority: [],
+            mode: { kind: "direct" },
+            commandName: "test-cmd",
+            builder: dummyBuilder,
+          });
+        },
+        {
+          message:
+            "dispatchAdminInstruction requires at least one expected authority for command 'test-cmd'.",
+        }
+      );
+    });
+
+    it("8. Backwards-Compatible expectedAdmin Support: should support legacy expectedAdmin parameter", async () => {
+      const { generateKeyPairSigner } = await import("@solana/kit");
+      const { dispatchAdminInstruction } = await import("./squads-cli-utils");
+
+      const admin = await generateKeyPairSigner();
+      const rpc = createMockRpc();
+
+      await assert.doesNotReject(async () => {
+        await dispatchAdminInstruction({
+          rpc,
+          signer: admin,
+          expectedAdmin: admin.address,
+          mode: { kind: "direct" },
+          commandName: "legacy-cmd",
+          builder: dummyBuilder,
+        });
+      });
+
+      const unauthorized = await generateKeyPairSigner();
+      await assert.rejects(
+        async () => {
+          await dispatchAdminInstruction({
+            rpc,
+            signer: unauthorized,
+            expectedAdmin: admin.address,
+            mode: { kind: "direct" },
+            commandName: "legacy-cmd",
+            builder: dummyBuilder,
+          });
+        },
+        {
+          message: `Direct signer ${unauthorized.address} does not match expected on-chain authority ${admin.address}.`,
+        }
+      );
+    });
+
+    it("9. GlobalConfig RPC Helpers: getGlobalConfig throws if account not found and getGlobalAdmin derives admin", async () => {
+      const { getGlobalConfig, getGlobalAdmin } = await import("./pb-cli");
+      const missingRpc = {
+        getAccountInfo: () => ({
+          send: async () => ({ value: null }),
+        }),
+      } as unknown as any;
+
+      await assert.rejects(async () => {
+        await getGlobalConfig(missingRpc);
+      }, /GlobalConfig account does not exist at .*\. Run 'init-global' first\./);
+
+      await assert.rejects(async () => {
+        await getGlobalAdmin(missingRpc);
+      }, /GlobalConfig account does not exist at .*\. Run 'init-global' first\./);
+    });
+  });
 });

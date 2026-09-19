@@ -19,6 +19,7 @@ import {
   compileTransaction,
   getBase64EncodedWireTransaction,
   AccountRole,
+  TransactionSigner,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -171,7 +172,10 @@ export type AdminInstructionBuilder = (
 export interface AdminDispatchParams {
   rpc: SolanaRpc;
   signer: KeyPairSigner;
-  expectedAdmin: Address;
+  /** Expected authorized address or list of allowed addresses (e.g. [admin, guardian]) */
+  expectedAuthority?: Address | readonly Address[];
+  /** @deprecated Use `expectedAuthority` instead. */
+  expectedAdmin?: Address | readonly Address[];
   builder: AdminInstructionBuilder;
   mode: AdminExecutionMode;
   commandName: string;
@@ -222,15 +226,24 @@ export async function getClusterTimestamp(rpc: SolanaRpc): Promise<bigint> {
 export async function dispatchAdminInstruction(
   params: AdminDispatchParams
 ): Promise<void> {
-  const {
-    rpc,
-    signer,
-    expectedAdmin,
-    builder,
-    mode,
-    commandName,
-    preflightCheck,
-  } = params;
+  const { rpc, signer, builder, mode, commandName, preflightCheck } = params;
+
+  const rawExpected = params.expectedAuthority ?? params.expectedAdmin;
+  if (!rawExpected) {
+    throw new Error(
+      `dispatchAdminInstruction requires 'expectedAuthority' to be specified for command '${commandName}'.`
+    );
+  }
+  const allowedAuthorities: readonly Address[] = Array.isArray(rawExpected)
+    ? rawExpected
+    : [rawExpected];
+  if (allowedAuthorities.length === 0) {
+    throw new Error(
+      `dispatchAdminInstruction requires at least one expected authority for command '${commandName}'.`
+    );
+  }
+  const uniqueAuthorities = Array.from(new Set(allowedAuthorities));
+  const expectedStr = uniqueAuthorities.join(" or ");
 
   let effectiveAuthority: Address;
   let authoritySigner: TransactionSigner;
@@ -238,22 +251,12 @@ export async function dispatchAdminInstruction(
   if (mode.kind === "direct") {
     effectiveAuthority = signer.address;
     authoritySigner = signer;
-    if (effectiveAuthority !== expectedAdmin) {
-      throw new Error(
-        `Direct signer ${effectiveAuthority} does not match expected on-chain authority ${expectedAdmin}.`
-      );
-    }
   } else if (mode.kind === "propose" || mode.kind === "export") {
     effectiveAuthority = await findMultisigVaultPda(
       mode.multisig,
       mode.vaultIndex
     );
     authoritySigner = createNoopSigner(effectiveAuthority);
-    if (effectiveAuthority !== expectedAdmin) {
-      throw new Error(
-        `Squads Vault PDA ${effectiveAuthority} (index ${mode.vaultIndex}) does not match expected on-chain authority ${expectedAdmin}.`
-      );
-    }
   } else {
     // dry-run
     effectiveAuthority = mode.multisig
@@ -262,6 +265,21 @@ export async function dispatchAdminInstruction(
     authoritySigner = mode.multisig
       ? createNoopSigner(effectiveAuthority)
       : signer;
+  }
+
+  if (
+    mode.kind !== "dry-run" &&
+    !uniqueAuthorities.includes(effectiveAuthority)
+  ) {
+    if (mode.kind === "direct") {
+      throw new Error(
+        `Direct signer ${effectiveAuthority} does not match expected on-chain authority ${expectedStr}.`
+      );
+    } else {
+      throw new Error(
+        `Squads Vault PDA ${effectiveAuthority} (index ${mode.vaultIndex}) does not match expected on-chain authority ${expectedStr}.`
+      );
+    }
   }
 
   // Preflight validation hook

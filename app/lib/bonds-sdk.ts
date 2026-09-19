@@ -2011,7 +2011,11 @@ export async function buildClaimRedemptionInstruction(
     params.beneficiaryTokenAccount ??
     (params.redemptionType === RedemptionType.FeeWithdrawal && params.feeWallet
       ? params.feeWallet
-      : await findAtaAddress(params.beneficiary, params.tokenMint, tokenProgram));
+      : await findAtaAddress(
+          params.beneficiary,
+          params.tokenMint,
+          tokenProgram
+        ));
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
     params.humaAddresses.poolState
   );
