@@ -62,6 +62,11 @@ export function useReinvestWinnings(poolId: PoolId = 1) {
           queryKey: bondsKeys.userPosition(poolId, userAddress),
         });
       }
+      if (userAddress) {
+        queryClient.invalidateQueries({
+          queryKey: bondsKeys.userBalances(userAddress),
+        });
+      }
       queryClient.invalidateQueries({
         queryKey: bondsKeys.drawDetails(poolId, variables.cycleId),
       });

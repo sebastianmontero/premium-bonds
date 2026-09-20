@@ -60,7 +60,7 @@ export function useSellBonds(poolId: PoolId = 1) {
           queryKey: bondsKeys.userRedemptions(poolId, userAddress),
         });
         queryClient.invalidateQueries({
-          queryKey: bondsKeys.userTokenBalance(userAddress),
+          queryKey: bondsKeys.userBalances(userAddress),
         });
         queryClient.invalidateQueries({
           queryKey: bondsKeys.poolState(poolId),

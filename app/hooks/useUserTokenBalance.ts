@@ -1,17 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useWalletConnection, useSolanaClient } from "@solana/react-hooks";
-import { USDC_MINT, fetchUserAtaBalance } from "../lib/bonds-sdk";
-import {
-  formatBalanceAmount,
-  USDC_DECIMALS,
-  type FormattedBalanceResult,
-} from "../lib/formatters";
-import { bondsKeys } from "../lib/query-keys";
+import { USDC_MINT } from "../lib/bonds-sdk";
+import { USDC_DECIMALS, type FormattedBalanceResult } from "../lib/formatters";
+import { useUserBalances } from "./useUserBalances";
 
 export interface UseUserTokenBalanceResult {
-  /** Raw base units balance (e.g. lamports/micro-USDC) */
+  /** Raw base units balance as bigint */
+  raw: bigint;
+  /** Raw base units balance (e.g. lamports/micro-USDC) - Deprecated compatibility property */
   balance: number;
   /** Formatted human-readable string formatted with explicit en-US decimals (floored display) */
   formattedBalance: string;
@@ -23,13 +19,17 @@ export interface UseUserTokenBalanceResult {
   displayWithCurrency: string;
   /** Whether the initial token balance query is resolving */
   isLoading: boolean;
+  /** Whether query is actively fetching in background */
+  isFetching: boolean;
+  /** Whether the query failed with an error */
+  isError: boolean;
   /** Trigger a fresh RPC query for token balance */
   refetch: () => Promise<unknown>;
 }
 
 /**
- * Custom React hook that retrieves and tracks a user's token balance (ATA) on Solana via TanStack Query.
- * Automatically invalidates on wallet account changes and query cache invalidations.
+ * Backward-compatible adapter hook that retrieves and tracks a user's token balance (ATA) on Solana.
+ * Routes through the unified useUserBalances hook with real-time WebSocket sync.
  *
  * @param mintAddress - Token mint address (defaults to USDC).
  * @param decimals - Token decimals (defaults to 6).
@@ -40,36 +40,22 @@ export function useUserTokenBalance(
   decimals: number = USDC_DECIMALS,
   tokenSymbol: string = "USDC"
 ): UseUserTokenBalanceResult {
-  const client = useSolanaClient();
-  const { wallet, status } = useWalletConnection();
-
-  const userAddress = wallet?.account.address.toString();
-  const isConnected = status === "connected" && !!userAddress;
-
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: bondsKeys.userTokenBalance(userAddress, mintAddress),
-    enabled: isConnected,
-    queryFn: async () => {
-      if (!userAddress) return 0;
-      const rpc = client.runtime.rpc;
-      return await fetchUserAtaBalance(rpc, userAddress, mintAddress);
-    },
-    staleTime: 10_000,
-  });
-
-  const balance = data ?? 0;
-  const formatted = formatBalanceAmount(balance, {
+  const { usdc, isLoading, isFetching, isError, refetch } = useUserBalances({
+    mintAddress,
     decimals,
     tokenSymbol,
   });
 
   return {
-    balance,
-    formattedBalance: formatted.display,
-    formatted,
-    fullBalance: formatted.full,
-    displayWithCurrency: formatted.displayWithCurrency,
-    isLoading: isConnected ? isLoading : false,
+    raw: usdc.raw,
+    balance: Number(usdc.raw), // Deprecated compatibility property
+    formattedBalance: usdc.formatted.display,
+    formatted: usdc.formatted,
+    fullBalance: usdc.formatted.full,
+    displayWithCurrency: usdc.formatted.displayWithCurrency,
+    isLoading,
+    isFetching,
+    isError,
     refetch,
   };
 }

@@ -167,15 +167,46 @@ const textEncoder = new TextEncoder();
 const base58Encoder = getBase58Encoder();
 const base64Encoder = getBase64Encoder();
 
+export interface UserRawBalances {
+  solLamports: bigint;
+  tokenBaseUnits: bigint;
+  slot: bigint;
+}
+
+/**
+ * Safely extracts and base64-decodes account data bytes from RPC account responses.
+ */
 export function decodeAccountBase64Data(
-  account:
-    | { data: [string, string] }
-    | { data?: [string, string] }
-    | null
-    | undefined
+  account?: { data?: [string, string] | string | Uint8Array | null } | null
 ): Uint8Array | null {
-  if (!account?.data?.[0]) return null;
-  return new Uint8Array(base64Encoder.encode(account.data[0]));
+  if (!account || !account.data) return null;
+  const rawData = account.data;
+  if (rawData instanceof Uint8Array) return rawData;
+  const base64Str = Array.isArray(rawData)
+    ? rawData[0]
+    : typeof rawData === "string"
+      ? rawData
+      : null;
+  if (!base64Str) return null;
+  try {
+    return new Uint8Array(base64Encoder.encode(base64Str));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parses SPL Token Account layout (SPL Token & Token-2022).
+ * Offset 64..72 stores the 64-bit little-endian token amount.
+ */
+export function parseTokenAccountBalance(data: Uint8Array): bigint {
+  if (!data || data.byteLength < 72) return 0n;
+  try {
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    return view.getBigUint64(64, true);
+  } catch {
+    return 0n;
+  }
 }
 
 export interface FetchBatchedBondsParams {
@@ -552,6 +583,44 @@ export async function fetchUserAtaBalance(
   }
 }
 
+/**
+ * Fetches user SOL and SPL token raw balances in a single batched RPC request with slot context.
+ * Allows errors to propagate so TanStack Query handles retries and surfaces genuine error states.
+ */
+export async function fetchUserBalances(
+  rpc: SolanaRpc,
+  userAddress: Address | string,
+  mintAddress: Address | string = USDC_MINT,
+  signal?: AbortSignal
+): Promise<UserRawBalances> {
+  const user = address(userAddress);
+  const userAta = await findAtaAddress(
+    userAddress.toString(),
+    mintAddress.toString()
+  );
+
+  const res = await rpc
+    .getMultipleAccounts([user, userAta], {
+      encoding: "base64",
+      commitment: "confirmed",
+    })
+    .send({ abortSignal: signal });
+
+  const slot = BigInt(res.context?.slot ?? 0n);
+  const solAccount = res.value?.[0];
+  const ataAccount = res.value?.[1];
+
+  const solLamports = solAccount?.lamports ? BigInt(solAccount.lamports) : 0n;
+  const ataBytes = decodeAccountBase64Data(ataAccount);
+  const tokenBaseUnits = ataBytes ? parseTokenAccountBalance(ataBytes) : 0n;
+
+  return {
+    solLamports,
+    tokenBaseUnits,
+    slot,
+  };
+}
+
 // ─── Codama Account Decoders ─────────────────────────────────────────────────
 
 function mockAccount(data: Uint8Array) {
@@ -879,12 +948,6 @@ export function calculateSettlementAmounts(
     matchedCount,
     exactUsdcOwed: totalUsdcOwed,
   };
-}
-
-export function parseTokenAccountBalance(data: Uint8Array): bigint {
-  if (data.byteLength < 72) return 0n;
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  return view.getBigUint64(64, true);
 }
 
 export function parseMintSupply(data: Uint8Array): bigint {

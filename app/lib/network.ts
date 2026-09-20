@@ -127,6 +127,32 @@ export function resolveClientSolanaRpcUrl(customRpc?: string | null): string {
 }
 
 /**
+ * Resolves client-safe Solana WebSocket URL.
+ * Hierarchy: explicit argument > NEXT_PUBLIC_SOLANA_WS_URL > inferred from RPC URL (https -> wss, http -> ws with 8899 -> 8900 fallback for localnet).
+ */
+export function resolveClientSolanaWebSocketUrl(
+  customWs?: string | null
+): string {
+  const sanitizedCustom = sanitizeEnvValue(customWs);
+  if (sanitizedCustom) return sanitizedCustom;
+
+  const envWs = sanitizeEnvValue(process.env.NEXT_PUBLIC_SOLANA_WS_URL);
+  if (envWs) return envWs;
+
+  const rpcUrl = resolveClientSolanaRpcUrl();
+  try {
+    const parsed = new URL(rpcUrl);
+    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    if (parsed.port === "8899") {
+      parsed.port = "8900";
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "ws://127.0.0.1:8900";
+  }
+}
+
+/**
  * Resolves server-side Solana RPC URL (for webhooks, indexers, crank service, CLI scripts).
  * Hierarchy: explicit argument > SOLANA_RPC_URL (private backend) > NEXT_PUBLIC_SOLANA_RPC_URL (public client) > default localnet.
  */

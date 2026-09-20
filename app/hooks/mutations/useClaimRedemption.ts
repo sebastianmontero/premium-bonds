@@ -68,7 +68,7 @@ export function useClaimRedemption(poolId: PoolId = 1) {
           (old || []).filter((r) => r.redemptionId !== idStr)
         );
         queryClient.invalidateQueries({
-          queryKey: bondsKeys.userTokenBalance(userAddress),
+          queryKey: bondsKeys.userBalances(userAddress),
         });
       }
     },

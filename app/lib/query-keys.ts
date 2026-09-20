@@ -67,14 +67,17 @@ export const bondsKeys = {
     filters: Partial<PrizeLedgerFilters>
   ) => [...bondsKeys.userPrizeLedgerRoot(poolId, address), filters] as const,
 
-  // Token Balances
-  tokenBalances: () => [...bondsKeys.all, "token-balances"] as const,
+  // Unified Balances Hierarchy
+  balances: () => [...bondsKeys.all, "balances"] as const,
+  userBalances: (address?: Address | string) =>
+    address
+      ? ([...bondsKeys.balances(), "user", String(address)] as const)
+      : ([...bondsKeys.balances(), "user"] as const),
+  userAssetBalances: (address?: Address | string, mint?: Address | string) =>
+    mint
+      ? ([...bondsKeys.userBalances(address), "asset", String(mint)] as const)
+      : bondsKeys.userBalances(address),
+  // Backward compatibility alias for mutations and legacy callers
   userTokenBalance: (address?: Address | string, mint?: Address | string) =>
-    [
-      ...bondsKeys.tokenBalances(),
-      {
-        address: address ? String(address) : null,
-        mint: mint ? String(mint) : null,
-      },
-    ] as const,
+    bondsKeys.userAssetBalances(address, mint),
 } as const;
