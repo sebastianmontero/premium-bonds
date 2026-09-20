@@ -5,15 +5,17 @@ import type { PoolInfo } from "@/app/types";
 import {
   calculateTierPayout,
   formatTierPayoutAmount,
-  DEFAULT_LIVE_YIELD_PRECISION,
   getLiveYieldFormatter,
+  DEFAULT_LIVE_YIELD_PRECISION,
   formatCycleFrequency,
   getTierTheme,
+  getTokenFormattingConfig,
 } from "@/app/lib/formatters";
 import { safeSetElementText } from "@/app/lib/dom-utils";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
 import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { LiveYieldTicker } from "./LiveYieldTicker";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import { useTranslations } from "next-intl";
 
 interface PrizeTiersModalProps {
@@ -88,9 +90,12 @@ export function PrizeTiersModal({
   const footerTotalSpanRef = useRef<HTMLSpanElement | null>(null);
   const mobileFooterTotalSpanRef = useRef<HTMLSpanElement | null>(null);
 
+  const tokenConfig = getTokenFormattingConfig(tokenSymbol);
+  const displayDecimals = tokenConfig.displayDecimals;
+
   const numberFormatter = useMemo(
-    () => getLiveYieldFormatter(DEFAULT_LIVE_YIELD_PRECISION),
-    []
+    () => getLiveYieldFormatter(displayDecimals),
+    [displayDecimals]
   );
 
   const precomputedTiers = useMemo(
@@ -277,7 +282,17 @@ export function PrizeTiersModal({
               })}
             </div>
             <div className="flex items-center justify-between text-[10px] text-on-surface-variant px-0.5">
-              <span>{t("potDistributionLabel")}</span>
+              <span>
+                {activeTiers.length > 0 && activeTiers[0].basisPoints > 0
+                  ? t("grandPrizeSpotlight", {
+                      percent: (
+                        (activeTiers[0].basisPoints *
+                          activeTiers[0].numWinners) /
+                        100
+                      ).toLocaleString("en-US", { maximumFractionDigits: 1 }),
+                    })
+                  : t("potDistributionLabel")}
+              </span>
               <span className="font-mono text-primary font-semibold">
                 {totalSharePctFormatted}% {t("allocated")}
               </span>
@@ -294,7 +309,7 @@ export function PrizeTiersModal({
                 <tr className="border-b border-surface-container-high/40 bg-surface-container/60 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
                   <th
                     scope="col"
-                    className="py-3 px-2.5 sm:px-3.5 min-w-[125px]"
+                    className="py-3 px-2.5 sm:px-3.5 w-28 min-w-[110px]"
                   >
                     {t("tierColumn")}
                   </th>
@@ -327,12 +342,12 @@ export function PrizeTiersModal({
                   const initialWinnerFormatted = formatTierPayoutAmount(
                     breakdown.payoutPerWinnerUi,
                     tokenSymbol,
-                    DEFAULT_LIVE_YIELD_PRECISION
+                    displayDecimals
                   );
                   const initialTotalFormatted = formatTierPayoutAmount(
                     breakdown.totalTierShareUi,
                     tokenSymbol,
-                    DEFAULT_LIVE_YIELD_PRECISION
+                    displayDecimals
                   );
 
                   return (
@@ -344,16 +359,7 @@ export function PrizeTiersModal({
                         scope="row"
                         className="py-3 px-2.5 sm:px-3.5 font-semibold text-left"
                       >
-                        <TierBadge
-                          tierIndex={i}
-                          label={getTierLabel(i, { format: "rank" })}
-                          subtitle={
-                            i === 0
-                              ? getTierLabel(0, { format: "short" })
-                              : undefined
-                          }
-                          stacked={true}
-                        />
+                        <TierBadge tierIndex={i} />
                       </th>
                       <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono text-primary font-semibold whitespace-nowrap">
                         {basisPointsPct}%
@@ -422,7 +428,7 @@ export function PrizeTiersModal({
                       {formatTierPayoutAmount(
                         baseUi,
                         tokenSymbol,
-                        DEFAULT_LIVE_YIELD_PRECISION
+                        displayDecimals
                       )}
                     </span>
                     <span className="sr-only">
@@ -430,7 +436,7 @@ export function PrizeTiersModal({
                       {formatTierPayoutAmount(
                         baseUi,
                         tokenSymbol,
-                        DEFAULT_LIVE_YIELD_PRECISION
+                        displayDecimals
                       )}
                     </span>
                   </td>
@@ -450,12 +456,12 @@ export function PrizeTiersModal({
               const initialWinnerFormatted = formatTierPayoutAmount(
                 breakdown.payoutPerWinnerUi,
                 tokenSymbol,
-                DEFAULT_LIVE_YIELD_PRECISION
+                displayDecimals
               );
               const initialTotalFormatted = formatTierPayoutAmount(
                 breakdown.totalTierShareUi,
                 tokenSymbol,
-                DEFAULT_LIVE_YIELD_PRECISION
+                displayDecimals
               );
 
               return (
@@ -464,16 +470,7 @@ export function PrizeTiersModal({
                   className="rounded-xl border border-surface-container-high/50 bg-surface-container/40 p-3.5 space-y-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <TierBadge
-                      tierIndex={i}
-                      label={getTierLabel(i, { format: "rank" })}
-                      subtitle={
-                        i === 0
-                          ? getTierLabel(0, { format: "short" })
-                          : undefined
-                      }
-                      stacked={false}
-                    />
+                    <TierBadge tierIndex={i} />
                     <span className="font-mono text-xs font-bold text-primary ml-auto">
                       {basisPointsPct}% {t("allocated")}
                     </span>
@@ -541,19 +538,11 @@ export function PrizeTiersModal({
               </div>
               <span className="font-mono text-sm font-bold text-gradient">
                 <span ref={mobileFooterTotalSpanRef} aria-hidden="true">
-                  {formatTierPayoutAmount(
-                    baseUi,
-                    tokenSymbol,
-                    DEFAULT_LIVE_YIELD_PRECISION
-                  )}
+                  {formatTierPayoutAmount(baseUi, tokenSymbol, displayDecimals)}
                 </span>
                 <span className="sr-only">
                   {t("totalSummaryLabel")}:{" "}
-                  {formatTierPayoutAmount(
-                    baseUi,
-                    tokenSymbol,
-                    DEFAULT_LIVE_YIELD_PRECISION
-                  )}
+                  {formatTierPayoutAmount(baseUi, tokenSymbol, displayDecimals)}
                 </span>
               </span>
             </div>
@@ -584,46 +573,6 @@ export function PrizeTiersModal({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-interface TierBadgeProps {
-  tierIndex: number;
-  label: string;
-  subtitle?: string;
-  stacked?: boolean;
-}
-
-function TierBadge({
-  tierIndex,
-  label,
-  subtitle,
-  stacked = false,
-}: TierBadgeProps) {
-  const theme = getTierTheme(tierIndex);
-
-  return (
-    <div
-      className={`inline-flex ${
-        stacked
-          ? "flex-col items-start gap-0.5"
-          : "flex-wrap items-center gap-2"
-      }`}
-    >
-      <span
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${theme.badgeStyles}`}
-      >
-        <span className="w-4 text-center shrink-0" aria-hidden="true">
-          {theme.icon}
-        </span>
-        <span>{label}</span>
-      </span>
-      {subtitle && (
-        <span className="text-[11px] font-semibold text-amber-300/90 tracking-tight pl-0.5">
-          {subtitle}
-        </span>
-      )}
     </div>
   );
 }

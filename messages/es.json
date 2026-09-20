@@ -198,6 +198,7 @@
     "winnersCount": "×{count} {count, plural, =1 {ganador} other {ganadores}}",
     "belowThresholdNote": "Los pagos estimados se muestran una vez que la bolsa de premios alcance {threshold} {symbol}.",
     "potDistributionLabel": "Distribución de Premios",
+    "grandPrizeSpotlight": "El Nivel 1 otorga el Gran Premio ({percent}% del rendimiento distribuible)",
     "allocated": "Asignado",
     "totalSummaryLabel": "Total del Sorteo",
     "winnersShort": "ganadores",

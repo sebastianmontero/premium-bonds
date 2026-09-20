@@ -73,7 +73,14 @@ export async function fetchPaginatedWinners(
     const cleanNumeric = term.replace(/^#/, "").trim();
     const num = Number(cleanNumeric);
 
-    if (!isNaN(num) && cleanNumeric !== "") {
+    if (term === "grand" || term === "grand prize" || term === "tier 1") {
+      conditions.push(sql`w.tier_index = 0`);
+    } else if (/^tier\s*\d+$/.test(term)) {
+      const tierNum = parseInt(term.replace("tier", "").trim(), 10);
+      if (!isNaN(tierNum) && tierNum > 0) {
+        conditions.push(sql`w.tier_index = ${tierNum - 1}`);
+      }
+    } else if (!isNaN(num) && cleanNumeric !== "") {
       conditions.push(
         sql`(w.cycle_id = ${num} OR w.winning_ticket_idx = ${num} OR w.claim_signature ILIKE ${term + "%"})`
       );

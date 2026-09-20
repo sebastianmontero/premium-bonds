@@ -15,7 +15,6 @@ import {
 } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
-import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { Link } from "@/i18n/routing";
 
 interface PoolCardProps {
@@ -45,7 +44,6 @@ export function PoolCard({
   onWithdraw,
 }: PoolCardProps) {
   const t = useTranslations("Pools");
-  const getTierLabel = useTierLabel();
   const [showAllTiersModal, setShowAllTiersModal] = useState(false);
 
   const isFrozen = pool.isFrozenForDraw;
@@ -262,7 +260,6 @@ export function PoolCard({
                   pool={pool}
                   tier={tier}
                   tierIndex={i}
-                  tierLabel={getTierLabel(i, { format: "full" })}
                 />
               ))}
             </div>

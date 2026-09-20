@@ -8,11 +8,10 @@ import type {
 } from "@/app/types";
 import {
   formatTokenAmount,
-  tierBadgeClass,
-  tierColor,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import {
   getPayoutTimelockState,
   getEffectivePrizeDust,
@@ -491,7 +490,7 @@ export default function CompleteLedgerModal({
                           <div className="h-4 w-24 rounded skeleton-box" />
                         </td>
                         <td className="py-3 px-3">
-                          <div className="h-5 w-20 rounded-full skeleton-box" />
+                          <div className="h-5 w-24 rounded-full skeleton-box" />
                         </td>
                         <td className="py-3 px-3 text-right">
                           <div className="h-4 w-24 rounded skeleton-box ml-auto" />
@@ -602,9 +601,7 @@ export default function CompleteLedgerModal({
                             </p>
                           </div>
                         </div>
-                        <span className={tierBadgeClass(entry.tierIndex)}>
-                          {getTierLabel(entry.tierIndex)}
-                        </span>
+                        <TierBadge tierIndex={entry.tierIndex} />
                       </div>
 
                       {/* Tier 2: Amount Won & Status Metrics */}
@@ -614,7 +611,7 @@ export default function CompleteLedgerModal({
                             {t("amountWon")}
                           </p>
                           <p
-                            className={`font-mono text-sm font-bold mt-0.5 ${tierColor(entry.tierIndex)}`}
+                            className={`font-mono text-sm font-bold mt-0.5 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
                           >
                             {formatTokenAmount(entry.amount, effectiveDecimals)}{" "}
                             <span className="text-[10px] text-on-surface-variant/60 font-normal">
@@ -813,7 +810,7 @@ export default function CompleteLedgerModal({
                       </th>
                       <th
                         scope="col"
-                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 whitespace-nowrap"
+                        className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-3 w-28 min-w-[110px] whitespace-nowrap"
                       >
                         {t("tier")}
                       </th>
@@ -858,12 +855,41 @@ export default function CompleteLedgerModal({
                         entry.status === "processing" &&
                         entryTimelock.isTimelocked;
                       const hasCrankAction =
-                        entry.status === "processing" && !isEntryTimelocked;
+                        entry.status === "processing" &&
+                        (!!onSimulateCrank || !!crankPrizeMutation);
 
                       return (
                         <tr
                           key={`${entry.drawCycleId}-${entry.winnerIndex}`}
-                          className="hover:bg-surface-container/40 transition-colors group focus-within:bg-surface-container/40"
+                          onClick={(e) => {
+                            if (
+                              (e.target as HTMLElement).closest(
+                                "button, a, [data-prevent-row-click]"
+                              )
+                            ) {
+                              return;
+                            }
+                            onViewDetails(entry);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              if (
+                                (e.target as HTMLElement).closest(
+                                  "button, a, [data-prevent-row-click]"
+                                )
+                              ) {
+                                return;
+                              }
+                              e.preventDefault();
+                              onViewDetails(entry);
+                            }
+                          }}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={t("viewPrizeDetailsAria", {
+                            drawCycleId: entry.drawCycleId,
+                          })}
+                          className="hover:bg-surface-container/40 transition-colors cursor-pointer group focus-visible:bg-surface-container/40 outline-none"
                         >
                           {/* Draw ID */}
                           <td className="py-3 px-3 whitespace-nowrap">
@@ -905,14 +931,18 @@ export default function CompleteLedgerModal({
 
                           {/* Tier Badge */}
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <span className={tierBadgeClass(entry.tierIndex)}>
-                              {getTierLabel(entry.tierIndex)}
-                            </span>
+                            <TierBadge tierIndex={entry.tierIndex} />
                           </td>
 
                           {/* Amount Won */}
                           <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
-                            <span className={tierColor(entry.tierIndex)}>
+                            <span
+                              className={
+                                entry.tierIndex === 0
+                                  ? "text-amber-400"
+                                  : "text-on-surface"
+                              }
+                            >
                               {formatTokenAmount(
                                 entry.amount,
                                 effectiveDecimals

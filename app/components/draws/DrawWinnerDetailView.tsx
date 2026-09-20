@@ -2,18 +2,14 @@
 
 import React from "react";
 import type { DrawWinnerRecord, DrawDisplayConfig } from "@/app/types";
-import {
-  formatTokenAmount,
-  tierBadgeClass,
-  formatTicketNumber,
-} from "@/app/lib/formatters";
+import { formatTokenAmount, formatTicketNumber } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
-import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { useClipboard } from "@/app/hooks/useClipboard";
 import { CopyButton } from "@/app/components/common/CopyButton";
 import {
@@ -57,7 +53,6 @@ export function DrawWinnerDetailView({
   const t = useTranslations("DrawInspector");
   const tLedger = useTranslations("Ledger");
   const tCommon = useTranslations("Common.aria");
-  const getTierLabel = useTierLabel();
 
   const tokenDecimals = config?.tokenDecimals ?? 6;
   const tokenSymbol = config?.tokenSymbol ?? "USDC";
@@ -178,9 +173,7 @@ export function DrawWinnerDetailView({
               {t("tierColumn")}
             </p>
             <div className="mt-1">
-              <span className={tierBadgeClass(winner.tierIndex)}>
-                {getTierLabel(winner.tierIndex)}
-              </span>
+              <TierBadge tierIndex={winner.tierIndex} size="md" format="full" />
             </div>
           </div>
 

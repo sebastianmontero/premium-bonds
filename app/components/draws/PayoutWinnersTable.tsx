@@ -1,11 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import {
-  formatTokenAmount,
-  tierBadgeClass,
-  formatTicketNumber,
-} from "@/app/lib/formatters";
+import { formatTokenAmount, formatTicketNumber } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { CustomSelect } from "@/app/components/common/CustomSelect";
@@ -234,7 +231,7 @@ export function PayoutWinnersTable({
                   <tr className="bg-[#12141F] text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
                     <th
                       scope="col"
-                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 whitespace-nowrap"
+                      className="sticky top-0 z-10 bg-[#12141F] border-b border-surface-bright/10 py-3 px-4 w-28 min-w-[110px] whitespace-nowrap"
                     >
                       {t("tierColumn")}
                     </th>
@@ -298,9 +295,7 @@ export function PayoutWinnersTable({
                               : ""
                           }`}
                         >
-                          <span className={tierBadgeClass(winner.tierIndex)}>
-                            {getTierLabel(winner.tierIndex)}
-                          </span>
+                          <TierBadge tierIndex={winner.tierIndex} />
                         </td>
 
                         {/* Winner Address */}

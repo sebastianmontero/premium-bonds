@@ -631,7 +631,7 @@ export const TIER_THEMES: Record<number, TierThemeConfig> = {
     icon: "🏆",
     badgeStyles:
       "bg-amber-500/10 border-amber-500/30 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]",
-    textClass: "text-amber-300",
+    textClass: "text-amber-400",
     barClass: "bg-amber-400",
   },
   1: {
@@ -650,12 +650,16 @@ export const TIER_THEMES: Record<number, TierThemeConfig> = {
 
 export const DEFAULT_TIER_THEME: TierThemeConfig = {
   icon: "🏅",
-  badgeStyles: "bg-primary/10 border-primary/25 text-primary",
+  badgeStyles:
+    "bg-surface-variant border-outline-variant/30 text-on-surface-variant",
   textClass: "text-on-surface-variant",
   barClass: "bg-primary/70",
 };
 
 export function getTierTheme(tierIndex: number): TierThemeConfig {
+  if (!Number.isFinite(tierIndex) || tierIndex < 0) {
+    return DEFAULT_TIER_THEME;
+  }
   return TIER_THEMES[tierIndex] ?? DEFAULT_TIER_THEME;
 }
 
@@ -744,30 +748,7 @@ export function formatCurrencyAmount(
 
 /** Map tier index to a Tailwind color class. */
 export function tierColor(tierIndex: number): string {
-  switch (tierIndex) {
-    case 0:
-      return "text-amber-400";
-    case 1:
-      return "text-secondary";
-    case 2:
-      return "text-tertiary";
-    default:
-      return "text-on-surface-variant";
-  }
-}
-
-/** Map tier index to a badge background class. */
-export function tierBadgeClass(tierIndex: number): string {
-  switch (tierIndex) {
-    case 0:
-      return "inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-300 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.15)]";
-    case 1:
-      return "inline-flex items-center gap-1 border border-secondary/30 bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary rounded-full";
-    case 2:
-      return "inline-flex items-center gap-1 border border-tertiary/30 bg-tertiary/10 px-2.5 py-0.5 text-xs font-semibold text-tertiary rounded-full";
-    default:
-      return "inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant px-2.5 py-0.5 text-xs font-medium text-on-surface-variant rounded-full";
-  }
+  return getTierTheme(tierIndex).textClass;
 }
 
 /**

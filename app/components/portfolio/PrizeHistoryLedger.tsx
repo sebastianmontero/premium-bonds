@@ -3,11 +3,10 @@
 import { useMemo } from "react";
 import {
   formatTokenAmount,
-  tierBadgeClass,
-  tierColor,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import {
   getPayoutTimelockState,
   getClaimWinningsCapability,
@@ -15,7 +14,6 @@ import {
   getEffectivePrizeDust,
 } from "@/app/lib/draw-helpers";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
-import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
 import { VrfSeedBadge } from "@/app/components/common/VrfSeedBadge";
 import { BonusBondDustBadge } from "@/app/components/common/BonusBondDustBadge";
@@ -62,7 +60,6 @@ export function PrizeHistoryLedger({
   isLoading = false,
 }: PrizeHistoryLedgerProps) {
   const t = useTranslations("Ledger");
-  const getTierLabel = useTierLabel();
   const format = useFormatter();
   const { now } = useClusterTime({ tick: true });
 
@@ -367,9 +364,7 @@ export function PrizeHistoryLedger({
                         </p>
                       </div>
                     </div>
-                    <span className={tierBadgeClass(entry.tierIndex)}>
-                      {getTierLabel(entry.tierIndex)}
-                    </span>
+                    <TierBadge tierIndex={entry.tierIndex} />
                   </div>
 
                   {/* Tier 2: Amount Won & Status Metrics */}
@@ -379,7 +374,7 @@ export function PrizeHistoryLedger({
                         {t("amountWon")}
                       </p>
                       <p
-                        className={`font-mono text-sm font-bold mt-0.5 ${tierColor(entry.tierIndex)}`}
+                        className={`font-mono text-sm font-bold mt-0.5 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
                       >
                         {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                         <span className="text-[10px] text-on-surface-variant/60 font-normal">
@@ -577,7 +572,10 @@ export function PrizeHistoryLedger({
                   <th scope="col" className="py-3 px-3 whitespace-nowrap">
                     {t("date")}
                   </th>
-                  <th scope="col" className="py-3 px-3 whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="py-3 px-3 w-28 min-w-[110px] whitespace-nowrap"
+                  >
                     {t("tier")}
                   </th>
                   <th
@@ -684,14 +682,18 @@ export function PrizeHistoryLedger({
 
                       {/* Tier Badge */}
                       <td className="py-3 px-3 whitespace-nowrap">
-                        <span className={tierBadgeClass(entry.tierIndex)}>
-                          {getTierLabel(entry.tierIndex)}
-                        </span>
+                        <TierBadge tierIndex={entry.tierIndex} />
                       </td>
 
                       {/* Amount Won */}
                       <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
-                        <span className={tierColor(entry.tierIndex)}>
+                        <span
+                          className={
+                            entry.tierIndex === 0
+                              ? "text-amber-400"
+                              : "text-on-surface"
+                          }
+                        >
                           {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                           <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
                             {tokenSymbol}

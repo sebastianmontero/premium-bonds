@@ -1,7 +1,7 @@
 "use client";
 
-import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
-import { useTierLabel } from "@/app/hooks/useTierLabel";
+import { formatTokenAmount } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import type { RecentWinner } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
@@ -16,7 +16,6 @@ export function RecentWinnersTicker({
   tokenDecimals,
 }: RecentWinnersTickerProps) {
   const t = useTranslations("RecentWinners");
-  const getTierLabel = useTierLabel();
 
   if (winners.length === 0) return null;
 
@@ -60,48 +59,35 @@ export function RecentWinnersTicker({
         {/* Right fade */}
         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-surface-container-high/70 to-transparent" />
 
-        <div className="flex animate-marquee w-max gap-6 px-4">
-          {items.map((winner, i) => (
-            <div
-              key={`${winner.address}-${i}`}
-              className="flex shrink-0 items-center gap-3 rounded-lg bg-surface-container/60 px-4 py-2"
-            >
-              {/* Trophy badge */}
-              <span className={`text-sm ${tierColor(winner.tierIndex)}`}>
-                {winner.tierIndex === 0
-                  ? "🏆"
-                  : winner.tierIndex === 1
-                    ? "🥈"
-                    : winner.tierIndex === 2
-                      ? "🥉"
-                      : "🎖️"}
-              </span>
-
-              {/* Address */}
-              <span className="font-mono text-xs text-on-surface-variant">
-                {winner.address}
-              </span>
-
-              {/* Amount */}
-              <span className="font-mono text-xs font-semibold text-amber-300">
-                +{formatTokenAmount(winner.amount, tokenDecimals)}{" "}
-                {winner.tokenSymbol}
-              </span>
-
-              {/* Tier pill */}
-              <span
-                className={`pill text-[10px] ${
-                  winner.tierIndex === 0
-                    ? "pill-warning"
-                    : winner.tierIndex === 1
-                      ? "pill-info"
-                      : "pill-success"
-                }`}
+        <div className="flex animate-marquee w-max gap-6 px-4 hover:[animation-play-state:paused] focus-within:[animation-play-state:paused] motion-reduce:[animation-play-state:paused]">
+          {items.map((winner, i) => {
+            const isDuplicate = i >= winners.length;
+            return (
+              <div
+                key={`${winner.address}-${i}`}
+                aria-hidden={isDuplicate ? "true" : undefined}
+                className="flex shrink-0 items-center gap-3 rounded-lg bg-surface-container/60 px-4 py-2"
               >
-                {getTierLabel(winner.tierIndex, { format: "short" })}
-              </span>
-            </div>
-          ))}
+                {/* Tier badge */}
+                <TierBadge
+                  tierIndex={winner.tierIndex}
+                  size="xs"
+                  className="shrink-0"
+                />
+
+                {/* Address */}
+                <span className="font-mono text-xs text-on-surface-variant">
+                  {winner.address}
+                </span>
+
+                {/* Amount */}
+                <span className="font-mono text-xs font-semibold text-amber-300">
+                  +{formatTokenAmount(winner.amount, tokenDecimals)}{" "}
+                  {winner.tokenSymbol}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

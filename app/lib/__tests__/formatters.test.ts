@@ -17,6 +17,7 @@ import {
   getTierTheme,
   DEFAULT_TIER_THEME,
   TIER_THEMES,
+  tierColor,
   type TierTranslationFn,
 } from "../formatters";
 
@@ -283,6 +284,24 @@ describe("Currency & Token Formatters Unit Tests", () => {
 
       const theme99 = getTierTheme(99);
       assert.deepStrictEqual(theme99, DEFAULT_TIER_THEME);
+    });
+
+    it("should handle negative, NaN, and non-finite tier indices gracefully", () => {
+      assert.deepStrictEqual(getTierTheme(-1), DEFAULT_TIER_THEME);
+      assert.deepStrictEqual(getTierTheme(-100), DEFAULT_TIER_THEME);
+      assert.deepStrictEqual(getTierTheme(NaN), DEFAULT_TIER_THEME);
+      assert.deepStrictEqual(getTierTheme(Infinity), DEFAULT_TIER_THEME);
+      assert.deepStrictEqual(getTierTheme(-Infinity), DEFAULT_TIER_THEME);
+    });
+
+    it("should delegate tierColor directly to getTierTheme textClass", () => {
+      assert.strictEqual(tierColor(0), "text-amber-400");
+      assert.strictEqual(tierColor(1), "text-secondary");
+      assert.strictEqual(tierColor(2), "text-tertiary");
+      assert.strictEqual(tierColor(3), "text-on-surface-variant");
+      assert.strictEqual(tierColor(99), "text-on-surface-variant");
+      assert.strictEqual(tierColor(-1), "text-on-surface-variant");
+      assert.strictEqual(tierColor(NaN), "text-on-surface-variant");
     });
   });
 

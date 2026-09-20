@@ -4,12 +4,11 @@ import React, { useEffect, useRef } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
   formatTokenAmount,
-  tierBadgeClass,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
+import { TierBadge } from "@/app/components/common/TierBadge";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
-import { useTierLabel } from "@/app/hooks/useTierLabel";
 import { useClipboard } from "@/app/hooks/useClipboard";
 import { CopyButton } from "@/app/components/common/CopyButton";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
@@ -59,7 +58,6 @@ export default function PrizeDetailsModal({
 
   const t = useTranslations("PrizeDetails");
   const tLedger = useTranslations("Ledger");
-  const getTierLabel = useTierLabel();
   const format = useFormatter();
 
   const effectiveBondPrice = ticketPrice ?? bondPrice;
@@ -251,9 +249,11 @@ export default function PrizeDetailsModal({
                 {t("tierWon")}
               </p>
               <div className="mt-1">
-                <span className={tierBadgeClass(entry.tierIndex)}>
-                  {getTierLabel(entry.tierIndex)}
-                </span>
+                <TierBadge
+                  tierIndex={entry.tierIndex}
+                  size="md"
+                  format="full"
+                />
               </div>
             </div>
 
