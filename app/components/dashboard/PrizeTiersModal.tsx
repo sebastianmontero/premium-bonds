@@ -8,6 +8,7 @@ import {
   DEFAULT_LIVE_YIELD_PRECISION,
   getLiveYieldFormatter,
   formatCycleFrequency,
+  getTierTheme,
 } from "@/app/lib/formatters";
 import { safeSetElementText } from "@/app/lib/dom-utils";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
@@ -180,7 +181,7 @@ export function PrizeTiersModal({
 
       {/* ── Modal Dialog Container ──────────────────────────────────── */}
       <div
-        className="relative w-full max-w-2xl rounded-2xl border border-surface-container-high/60 bg-[#0F111A]/95 p-6 shadow-2xl z-10 overflow-hidden flex flex-col max-h-[88vh] space-y-4 animate-scale-in"
+        className="relative w-full max-w-4xl rounded-2xl border border-surface-container-high/60 bg-[#0F111A]/95 p-4 sm:p-5 shadow-2xl z-10 overflow-hidden flex flex-col max-h-[88vh] space-y-4 animate-scale-in"
         role="dialog"
         aria-modal="true"
         aria-labelledby="prize-tiers-modal-title"
@@ -264,19 +265,12 @@ export function PrizeTiersModal({
             <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container-high/60 flex gap-0.5">
               {activeTiers.map((tier, idx) => {
                 const tierSharePct = (tier.basisPoints * tier.numWinners) / 100;
-                const bgClass =
-                  idx === 0
-                    ? "bg-amber-400"
-                    : idx === 1
-                      ? "bg-secondary"
-                      : idx === 2
-                        ? "bg-tertiary"
-                        : "bg-primary/70";
+                const theme = getTierTheme(idx);
                 return (
                   <div
                     key={idx}
                     style={{ width: `${tierSharePct}%` }}
-                    className={`h-full ${bgClass} transition-all`}
+                    className={`h-full ${theme.barClass} transition-all`}
                     title={`${getTierLabel(idx, { format: "full" })}: ${tierSharePct.toFixed(1)}%`}
                   />
                 );
@@ -293,39 +287,33 @@ export function PrizeTiersModal({
 
         {/* ── Content Area: Desktop Table & Mobile Cards ─────────────── */}
         <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-          {/* Desktop Table View (>= sm) */}
-          <div className="hidden sm:block overflow-x-auto rounded-xl border border-surface-container-high/40 bg-surface-container/30">
+          {/* Desktop Table View (>= md) */}
+          <div className="hidden md:block overflow-x-auto rounded-xl border border-surface-container-high/40 bg-surface-container/30">
             <table className="w-full min-w-[560px] text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-surface-container-high/40 bg-surface-container/60 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px]">
                   <th
                     scope="col"
-                    className="py-3 px-4 min-w-[155px] whitespace-nowrap"
+                    className="py-3 px-2.5 sm:px-3.5 min-w-[125px]"
                   >
                     {t("tierColumn")}
                   </th>
                   <th
                     scope="col"
-                    className="py-3 px-4 text-right w-[85px] whitespace-nowrap"
+                    className="py-3 px-2.5 sm:px-3.5 text-right w-[85px]"
                   >
                     {t("shareColumn")}
                   </th>
                   <th
                     scope="col"
-                    className="py-3 px-4 text-center w-[90px] whitespace-nowrap"
+                    className="py-3 px-2.5 sm:px-3.5 text-center w-[90px]"
                   >
                     {t("winnersColumn")}
                   </th>
-                  <th
-                    scope="col"
-                    className="py-3 px-4 text-right whitespace-nowrap"
-                  >
+                  <th scope="col" className="py-3 px-2.5 sm:px-3.5 text-right">
                     {t("estPerWinnerColumn")}
                   </th>
-                  <th
-                    scope="col"
-                    className="py-3 px-4 text-right whitespace-nowrap"
-                  >
+                  <th scope="col" className="py-3 px-2.5 sm:px-3.5 text-right">
                     {t("totalTierShareColumn")}
                   </th>
                 </tr>
@@ -352,21 +340,30 @@ export function PrizeTiersModal({
                       key={i}
                       className="hover:bg-surface-container-high/30 transition-colors"
                     >
-                      <td className="py-3 px-4 font-semibold whitespace-nowrap">
+                      <th
+                        scope="row"
+                        className="py-3 px-2.5 sm:px-3.5 font-semibold text-left"
+                      >
                         <TierBadge
                           tierIndex={i}
-                          label={getTierLabel(i, { format: "full" })}
+                          label={getTierLabel(i, { format: "rank" })}
+                          subtitle={
+                            i === 0
+                              ? getTierLabel(0, { format: "short" })
+                              : undefined
+                          }
+                          stacked={true}
                         />
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-primary font-semibold whitespace-nowrap">
+                      </th>
+                      <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono text-primary font-semibold whitespace-nowrap">
                         {basisPointsPct}%
                       </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                      <td className="py-3 px-2.5 sm:px-3.5 text-center whitespace-nowrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-surface-container-high/60 font-mono text-xs text-on-surface-variant font-medium whitespace-nowrap">
                           ×{tier.numWinners}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold tabular-nums whitespace-nowrap text-on-surface">
+                      <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono font-bold tabular-nums whitespace-nowrap text-on-surface">
                         <span
                           ref={(el) => {
                             desktopWinnerSpanRefs.current[i] = el;
@@ -379,7 +376,7 @@ export function PrizeTiersModal({
                           {t("estPerWinnerColumn")}: {initialWinnerFormatted}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap text-on-surface-variant">
+                      <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono tabular-nums whitespace-nowrap text-on-surface-variant">
                         <span
                           ref={(el) => {
                             desktopTotalSpanRefs.current[i] = el;
@@ -399,19 +396,28 @@ export function PrizeTiersModal({
               {/* Summary Totals Footer Row */}
               <tfoot className="border-t-2 border-surface-container-high/60 bg-surface-container/60 font-semibold text-xs text-on-surface">
                 <tr>
-                  <td className="py-3 px-4 text-on-surface whitespace-nowrap">
-                    {t("totalSummaryLabel")}
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono text-primary font-bold whitespace-nowrap">
+                  <th
+                    scope="row"
+                    className="py-3 px-2.5 sm:px-3.5 text-left whitespace-nowrap"
+                  >
+                    <div className="font-semibold text-on-surface">
+                      {t("totalSummaryLabel")}
+                    </div>
+                    <div className="text-[10px] text-on-surface-variant font-normal">
+                      {t("distributedAcrossTiers")}
+                    </div>
+                  </th>
+                  <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono text-primary font-bold whitespace-nowrap">
                     {totalSharePctFormatted}%
                   </td>
-                  <td className="py-3 px-4 text-center font-mono text-on-surface whitespace-nowrap">
+                  <td className="py-3 px-2.5 sm:px-3.5 text-center font-mono text-on-surface whitespace-nowrap">
                     {totalWinnersCount} {t("winnersShort")}
                   </td>
-                  <td className="py-3 px-4 text-right text-on-surface-variant text-[11px] font-normal whitespace-nowrap">
-                    {t("distributedAcrossTiers")}
+                  <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono text-on-surface-variant/40 whitespace-nowrap">
+                    <span aria-hidden="true">—</span>
+                    <span className="sr-only">{t("notApplicable")}</span>
                   </td>
-                  <td className="py-3 px-4 text-right font-mono font-bold text-gradient whitespace-nowrap">
+                  <td className="py-3 px-2.5 sm:px-3.5 text-right font-mono font-bold text-gradient whitespace-nowrap">
                     <span ref={footerTotalSpanRef} aria-hidden="true">
                       {formatTierPayoutAmount(
                         baseUi,
@@ -433,8 +439,8 @@ export function PrizeTiersModal({
             </table>
           </div>
 
-          {/* Mobile Stacked Card View (< sm) */}
-          <div className="block sm:hidden space-y-2.5">
+          {/* Mobile Stacked Card View (< md) */}
+          <div className="block md:hidden space-y-2.5">
             {activeTiers.map((tier, i) => {
               const basisPointsPct = (tier.basisPoints / 100).toLocaleString(
                 "en-US",
@@ -457,13 +463,19 @@ export function PrizeTiersModal({
                   key={i}
                   className="rounded-xl border border-surface-container-high/50 bg-surface-container/40 p-3.5 space-y-2"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <TierBadge
                       tierIndex={i}
-                      label={getTierLabel(i, { format: "full" })}
+                      label={getTierLabel(i, { format: "rank" })}
+                      subtitle={
+                        i === 0
+                          ? getTierLabel(0, { format: "short" })
+                          : undefined
+                      }
+                      stacked={false}
                     />
-                    <span className="font-mono text-xs font-bold text-primary">
-                      {basisPointsPct}% {t("shareColumn")}
+                    <span className="font-mono text-xs font-bold text-primary ml-auto">
+                      {basisPointsPct}% {t("allocated")}
                     </span>
                   </div>
 
@@ -576,37 +588,42 @@ export function PrizeTiersModal({
   );
 }
 
-function TierBadge({ tierIndex, label }: { tierIndex: number; label: string }) {
-  if (tierIndex === 0) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 text-xs font-bold text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)] whitespace-nowrap shrink-0">
-        <span>🏆</span>
-        <span>{label}</span>
-      </span>
-    );
-  }
+interface TierBadgeProps {
+  tierIndex: number;
+  label: string;
+  subtitle?: string;
+  stacked?: boolean;
+}
 
-  if (tierIndex === 1) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/10 border border-secondary/30 px-2.5 py-1 text-xs font-bold text-secondary whitespace-nowrap shrink-0">
-        <span>🥈</span>
-        <span>{label}</span>
-      </span>
-    );
-  }
-
-  if (tierIndex === 2) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-tertiary/10 border border-tertiary/30 px-2.5 py-1 text-xs font-semibold text-tertiary whitespace-nowrap shrink-0">
-        <span>🥉</span>
-        <span>{label}</span>
-      </span>
-    );
-  }
+function TierBadge({
+  tierIndex,
+  label,
+  subtitle,
+  stacked = false,
+}: TierBadgeProps) {
+  const theme = getTierTheme(tierIndex);
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container-high border border-surface-container-highest px-2.5 py-1 text-xs font-medium text-on-surface-variant whitespace-nowrap shrink-0">
-      <span>{label}</span>
-    </span>
+    <div
+      className={`inline-flex ${
+        stacked
+          ? "flex-col items-start gap-0.5"
+          : "flex-wrap items-center gap-2"
+      }`}
+    >
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold whitespace-nowrap ${theme.badgeStyles}`}
+      >
+        <span className="w-4 text-center shrink-0" aria-hidden="true">
+          {theme.icon}
+        </span>
+        <span>{label}</span>
+      </span>
+      {subtitle && (
+        <span className="text-[11px] font-semibold text-amber-300/90 tracking-tight pl-0.5">
+          {subtitle}
+        </span>
+      )}
+    </div>
   );
 }

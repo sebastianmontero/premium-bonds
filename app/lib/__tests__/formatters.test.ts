@@ -13,6 +13,10 @@ import {
   formatTicketNumber,
   sanitizeTicketNumber,
   getLocalizedTierLabel,
+  getLocalizedTierParts,
+  getTierTheme,
+  DEFAULT_TIER_THEME,
+  TIER_THEMES,
   type TierTranslationFn,
 } from "../formatters";
 
@@ -149,7 +153,7 @@ describe("Currency & Token Formatters Unit Tests", () => {
     });
   });
 
-  describe("getLocalizedTierLabel Unit Tests", () => {
+  describe("getLocalizedTierLabel & getLocalizedTierParts Unit Tests", () => {
     const mockTierTranslator: TierTranslationFn = (key, values) => {
       if (key === "grand") return "Grand Prize";
       if (key === "tierWithTitle")
@@ -158,7 +162,46 @@ describe("Currency & Token Formatters Unit Tests", () => {
       return key;
     };
 
+    it("should decompose tier parts correctly with getLocalizedTierParts", () => {
+      // Tier 0 (Grand Prize)
+      const tier0Parts = getLocalizedTierParts(0, mockTierTranslator);
+      assert.deepStrictEqual(tier0Parts, {
+        rank: "Tier 1",
+        title: "Grand Prize",
+        compound: "Tier 1 · Grand Prize",
+      });
+
+      // Tier 1..4
+      const tier1Parts = getLocalizedTierParts(1, mockTierTranslator);
+      assert.deepStrictEqual(tier1Parts, {
+        rank: "Tier 2",
+        compound: "Tier 2",
+      });
+
+      // Invalid/negative
+      assert.deepStrictEqual(getLocalizedTierParts(-1, mockTierTranslator), {
+        rank: "",
+        compound: "",
+      });
+      assert.deepStrictEqual(getLocalizedTierParts(NaN, mockTierTranslator), {
+        rank: "",
+        compound: "",
+      });
+    });
+
     it("should return Grand Prize variants for index 0 based on format option", () => {
+      assert.strictEqual(
+        getLocalizedTierLabel(0, mockTierTranslator, { format: "rank" }),
+        "Tier 1"
+      );
+      assert.strictEqual(
+        getLocalizedTierLabel(0, mockTierTranslator, { format: "tierOnly" }),
+        "Tier 1"
+      );
+      assert.strictEqual(
+        getLocalizedTierLabel(0, mockTierTranslator, { format: "title" }),
+        "Grand Prize"
+      );
       assert.strictEqual(
         getLocalizedTierLabel(0, mockTierTranslator, { format: "short" }),
         "Grand Prize"
@@ -177,6 +220,18 @@ describe("Currency & Token Formatters Unit Tests", () => {
     it("should return uniform Tier K labels for indices 1..9 regardless of format option", () => {
       for (let i = 1; i < 10; i++) {
         const expected = `Tier ${i + 1}`;
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator, { format: "rank" }),
+          expected
+        );
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator, { format: "tierOnly" }),
+          expected
+        );
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator, { format: "title" }),
+          expected
+        );
         assert.strictEqual(
           getLocalizedTierLabel(i, mockTierTranslator, { format: "short" }),
           expected
@@ -204,6 +259,30 @@ describe("Currency & Token Formatters Unit Tests", () => {
         getLocalizedTierLabel(-Infinity, mockTierTranslator),
         ""
       );
+    });
+  });
+
+  describe("Tier Themes (getTierTheme)", () => {
+    it("should return specific themes for tiers 0, 1, and 2", () => {
+      assert.strictEqual(getTierTheme(0).icon, "🏆");
+      assert.strictEqual(getTierTheme(1).icon, "🥈");
+      assert.strictEqual(getTierTheme(2).icon, "🥉");
+      assert.strictEqual(getTierTheme(0).barClass, "bg-amber-400");
+      assert.strictEqual(getTierTheme(1).barClass, "bg-secondary");
+      assert.strictEqual(getTierTheme(2).barClass, "bg-tertiary");
+      assert.deepStrictEqual(getTierTheme(0), TIER_THEMES[0]);
+      assert.deepStrictEqual(getTierTheme(1), TIER_THEMES[1]);
+      assert.deepStrictEqual(getTierTheme(2), TIER_THEMES[2]);
+    });
+
+    it("should fallback gracefully for tier 3+ or unknown tiers", () => {
+      const theme3 = getTierTheme(3);
+      assert.strictEqual(theme3.icon, "🏅");
+      assert.strictEqual(theme3.barClass, "bg-primary/70");
+      assert.deepStrictEqual(theme3, DEFAULT_TIER_THEME);
+
+      const theme99 = getTierTheme(99);
+      assert.deepStrictEqual(theme99, DEFAULT_TIER_THEME);
     });
   });
 

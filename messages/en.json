@@ -202,6 +202,7 @@
     "totalSummaryLabel": "Total Draw Allocation",
     "winnersShort": "winners",
     "distributedAcrossTiers": "Across all tiers",
+    "notApplicable": "N/A",
     "depositToEnterCta": "Deposit",
     "close": "Close",
     "perWinner": "per winner",

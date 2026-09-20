@@ -550,10 +550,16 @@ export function formatTierPayoutAmount(
   return formatLiveYieldMetric(amount, tokenSymbol, "", precision);
 }
 
-export type TierLabelFormat = "short" | "full";
+export type TierLabelFormat = "full" | "rank" | "title" | "short" | "tierOnly";
 
 export interface LocalizedTierLabelOptions {
   format?: TierLabelFormat;
+}
+
+export interface LocalizedTierParts {
+  rank: string;
+  title?: string;
+  compound: string;
 }
 
 export type TierTranslationFn = (
@@ -562,29 +568,95 @@ export type TierTranslationFn = (
 ) => string;
 
 /**
+ * Pure domain decomposition for prize tiers into rank, honorary title, and compound string.
+ */
+export function getLocalizedTierParts(
+  tierIndex: number,
+  t: TierTranslationFn
+): LocalizedTierParts {
+  if (!Number.isFinite(tierIndex) || tierIndex < 0) {
+    return { rank: "", compound: "" };
+  }
+  const tierNum = Math.floor(tierIndex) + 1;
+  const rank = t("tierN", { tier: tierNum });
+
+  if (tierIndex === 0) {
+    const title = t("grand");
+    return {
+      rank,
+      title,
+      compound: t("tierWithTitle", { tier: 1, title }),
+    };
+  }
+
+  return { rank, compound: rank };
+}
+
+/**
  * Resolves localized tier label consistently across PoolCard, PrizeTiersModal, and winner tables.
- * - Tier 0 (Tier 1): "Grand Prize" (short) or "Tier 1 · Grand Prize" (full)
- * - Tier k (Tier k+1): "Tier {k+1}" across both formats
+ * - "rank" (or "tierOnly"): Always "Tier {N}" (e.g. "Tier 1", "Tier 2")
+ * - "title" (or "short"): Honorary title if available ("Grand Prize"), otherwise "Tier {N}"
+ * - "full": Compound label ("Tier 1 · Grand Prize" or "Tier {N}")
  */
 export function getLocalizedTierLabel(
   tierIndex: number,
   t: TierTranslationFn,
   options?: LocalizedTierLabelOptions
 ): string {
-  if (!Number.isFinite(tierIndex) || tierIndex < 0) {
-    return "";
-  }
-  const tierNum = Math.floor(tierIndex) + 1;
+  const parts = getLocalizedTierParts(tierIndex, t);
   const format = options?.format ?? "full";
 
-  if (tierIndex === 0) {
-    if (format === "full") {
-      return t("tierWithTitle", { tier: 1, title: t("grand") });
-    }
-    return t("grand");
+  switch (format) {
+    case "rank":
+    case "tierOnly":
+      return parts.rank;
+    case "title":
+    case "short":
+      return parts.title ?? parts.rank;
+    case "full":
+    default:
+      return parts.compound;
   }
+}
 
-  return t("tierN", { tier: tierNum });
+export interface TierThemeConfig {
+  icon: string;
+  badgeStyles: string;
+  textClass: string;
+  barClass: string;
+}
+
+export const TIER_THEMES: Record<number, TierThemeConfig> = {
+  0: {
+    icon: "🏆",
+    badgeStyles:
+      "bg-amber-500/10 border-amber-500/30 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]",
+    textClass: "text-amber-300",
+    barClass: "bg-amber-400",
+  },
+  1: {
+    icon: "🥈",
+    badgeStyles: "bg-secondary/10 border-secondary/30 text-secondary",
+    textClass: "text-secondary",
+    barClass: "bg-secondary",
+  },
+  2: {
+    icon: "🥉",
+    badgeStyles: "bg-tertiary/10 border-tertiary/30 text-tertiary",
+    textClass: "text-tertiary",
+    barClass: "bg-tertiary",
+  },
+};
+
+export const DEFAULT_TIER_THEME: TierThemeConfig = {
+  icon: "🏅",
+  badgeStyles: "bg-primary/10 border-primary/25 text-primary",
+  textClass: "text-on-surface-variant",
+  barClass: "bg-primary/70",
+};
+
+export function getTierTheme(tierIndex: number): TierThemeConfig {
+  return TIER_THEMES[tierIndex] ?? DEFAULT_TIER_THEME;
 }
 
 /** Convert a human-readable USDC amount to on-chain base units. */
