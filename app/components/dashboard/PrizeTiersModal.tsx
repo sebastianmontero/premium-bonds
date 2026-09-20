@@ -576,13 +576,7 @@ export function PrizeTiersModal({
   );
 }
 
-function TierBadge({
-  tierIndex,
-  label,
-}: {
-  tierIndex: number;
-  label: string;
-}) {
+function TierBadge({ tierIndex, label }: { tierIndex: number; label: string }) {
   if (tierIndex === 0) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 text-xs font-bold text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)] whitespace-nowrap shrink-0">

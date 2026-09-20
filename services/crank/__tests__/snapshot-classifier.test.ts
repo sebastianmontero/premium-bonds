@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyPoolState } from "../state/snapshot-classifier";
-import { PoolStateSnapshot } from "../types";
+import { PoolStateSnapshot, toDrawCycleId } from "../types";
 import { DrawStatus } from "../../../app/lib/bonds-sdk";
 import {
   buildMockPrizePool,
@@ -252,5 +252,78 @@ describe("Snapshot Classifier", () => {
       "CIRCUIT_BREAKER_HALTED",
       "Pool must classify as CIRCUIT_BREAKER_HALTED when drawCycle status is HaltedInsolvent"
     );
+  });
+
+  it("should prioritize REINVESTMENT_PENDING over YIELD_HARVEST_READY when harvest is due but winners remain unprocessed", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 0,
+      currentCycleEndAt: 1000n, // Harvest is due!
+      payoutTimelockSeconds: 300,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const payoutRegistry = buildMockPayoutRegistry({
+      revealedAt: 500n, // Timelock ready at 800n
+      winners: [
+        {
+          winner: mockPoolAddress,
+          amountOwed: 50_000_000n,
+          bondsBought: 10,
+          processed: 0,
+          tierIndex: 0,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+        {
+          winner: mockRegistryAddress,
+          amountOwed: 25_000_000n,
+          bondsBought: 5,
+          processed: 0,
+          tierIndex: 1,
+          version: 1,
+          padding: new Uint8Array(1),
+          reserved: new Uint8Array(8),
+        },
+      ],
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      payoutRegistryAddress: mockPoolAddress,
+      payoutRegistry,
+      currentSlot: 500n,
+      currentTimestamp: 1500n, // Both timelock ready (1500 >= 800) and harvest due (1500 >= 1000)
+    });
+
+    assertSnapshotState(
+      snapshot,
+      "REINVESTMENT_PENDING",
+      "Pending reinvestments must take priority over new yield harvest to prevent winner starvation"
+    );
+    assert.strictEqual(
+      snapshot.unprocessedWinners.length,
+      2,
+      "Should have 2 unprocessed winners"
+    );
+  });
+});
+
+describe("toDrawCycleId Validation", () => {
+  it("should accept valid non-negative integers", () => {
+    assert.strictEqual(toDrawCycleId(0), 0);
+    assert.strictEqual(toDrawCycleId(1), 1);
+    assert.strictEqual(toDrawCycleId(100), 100);
+  });
+
+  it("should throw RangeError for negative numbers or non-integers", () => {
+    assert.throws(() => toDrawCycleId(-1), RangeError);
+    assert.throws(() => toDrawCycleId(-10), RangeError);
+    assert.throws(() => toDrawCycleId(1.5), RangeError);
+    assert.throws(() => toDrawCycleId(NaN), RangeError);
   });
 });

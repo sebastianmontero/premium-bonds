@@ -1842,47 +1842,37 @@ export async function resolveWinnerAddress(
   );
 }
 
+export interface HumaStateAddresses {
+  humaProgram?: Address | string;
+  humaConfig?: Address | string;
+  humaPoolConfig?: Address | string;
+  humaPoolState?: Address | string;
+  humaModeConfig?: Address | string;
+  humaModeMint?: Address | string;
+  humaLenderState?: Address | string;
+  humaLenderModeToken?: Address | string;
+}
+
 export async function buildInitializeHumaLenderInstruction(params: {
-  admin: Address | TransactionSigner;
+  admin: TransactionSigner;
   poolId: number;
-  humaStateAddresses?: Record<string, string | undefined>;
+  humaStateAddresses?: HumaStateAddresses;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
   const addrs = params.humaStateAddresses ?? {};
 
-  const humaConfig =
-    addrs.humaConfig || addrs.NEXT_PUBLIC_HUMA_CONFIG || SYSTEM_PROGRAM_ID;
-  const humaPoolConfig =
-    addrs.humaPoolConfig ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
-    SYSTEM_PROGRAM_ID;
-  const humaPoolState =
-    addrs.humaPoolState ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_STATE ||
-    SYSTEM_PROGRAM_ID;
-  const humaModeConfig =
-    addrs.humaModeConfig ||
-    addrs.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
-    SYSTEM_PROGRAM_ID;
-  const humaModeMint =
-    addrs.humaModeMint ||
-    addrs.NEXT_PUBLIC_HUMA_MODE_MINT ||
-    addrs.pstMint ||
-    addrs.NEXT_PUBLIC_PST_MINT ||
-    SYSTEM_PROGRAM_ID;
-  const humaLenderState =
-    addrs.humaLenderState ||
-    addrs.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-    SYSTEM_PROGRAM_ID;
-  const humaLenderModeToken =
-    addrs.humaLenderModeToken ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-    addrs.humaPoolModeToken ||
-    poolPstVault;
+  const humaConfig = addrs.humaConfig || SYSTEM_PROGRAM_ID;
+  const humaPoolConfig = addrs.humaPoolConfig || SYSTEM_PROGRAM_ID;
+  const humaPoolState = addrs.humaPoolState || SYSTEM_PROGRAM_ID;
+  const humaModeConfig = addrs.humaModeConfig || SYSTEM_PROGRAM_ID;
+  const humaModeMint = addrs.humaModeMint || SYSTEM_PROGRAM_ID;
+  const humaLenderState = addrs.humaLenderState || SYSTEM_PROGRAM_ID;
+  const humaLenderModeToken = addrs.humaLenderModeToken || poolPstVault;
 
   return getInitializeHumaLenderInstructionAsync({
-    admin: params.admin as TransactionSigner,
+    admin: params.admin,
+    humaProgram: addrs.humaProgram ? address(addrs.humaProgram) : undefined,
     pool,
     poolPstVault,
     humaConfig: address(humaConfig),

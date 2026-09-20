@@ -16,6 +16,11 @@ export function toPoolId(id: number): PoolId {
 }
 
 export function toDrawCycleId(id: number): DrawCycleId {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new RangeError(
+      `Invalid DrawCycleId: ${id}. Must be a non-negative integer.`
+    );
+  }
   return id as DrawCycleId;
 }
 

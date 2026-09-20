@@ -1,4 +1,43 @@
+import * as fs from "fs";
+import * as path from "path";
 import { resolveSolanaRpcUrl } from "../../app/lib/network";
+import { readEnvFile } from "../../scripts/env-utils";
+
+let isEnvLoaded = false;
+
+export function ensureEnvLoaded(): void {
+  if (isEnvLoaded) return;
+  const envLocal = path.resolve(process.cwd(), ".env.local");
+  if (!fs.existsSync(envLocal)) {
+    isEnvLoaded = true;
+    return;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (typeof (process as any).loadEnvFile === "function") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (process as any).loadEnvFile(envLocal);
+      isEnvLoaded = true;
+      return;
+    } catch (err) {
+      console.warn("[CrankConfig] Warning: process.loadEnvFile failed:", err);
+    }
+  }
+  try {
+    const parsed = readEnvFile(envLocal);
+    for (const [key, val] of Object.entries(parsed)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[CrankConfig] Warning: Failed fallback parsing of .env.local:",
+      err
+    );
+  }
+  isEnvLoaded = true;
+}
 
 export interface CrankConfig {
   rpcUrl: string;
@@ -23,6 +62,7 @@ export interface CrankConfig {
 }
 
 export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
+  ensureEnvLoaded();
   const rpcUrl = resolveSolanaRpcUrl(overrides?.rpcUrl);
 
   const wsUrl =

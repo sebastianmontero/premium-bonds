@@ -44,12 +44,16 @@ export async function fetchPoolStateSnapshot(
   const pool = getPrizePoolDecoder().decode(poolBytes);
   const ticketRegistryAddress = address(pool.ticketRegistry);
 
-  const currentCycleId = pool.currentDrawCycleId;
-  const currentDrawCyclePda = await findDrawCyclePda(poolId, currentCycleId);
-  const currentPayoutPda = await findPayoutRegistryPda(poolId, currentCycleId);
+  // In YieldBonds, currentDrawCycleId increments at harvest time (becoming N+1).
+  // Therefore, once the pool has started, the latest active or completed draw cycle is ALWAYS currentDrawCycleId - 1.
+  const latestCycleId =
+    pool.currentDrawCycleId > 0 ? pool.currentDrawCycleId - 1 : 0;
+
+  const currentDrawCyclePda = await findDrawCyclePda(poolId, latestCycleId);
+  const currentPayoutPda = await findPayoutRegistryPda(poolId, latestCycleId);
   const prevPayoutPda =
-    currentCycleId > 1
-      ? await findPayoutRegistryPda(poolId, currentCycleId - 1)
+    latestCycleId > 0
+      ? await findPayoutRegistryPda(poolId, latestCycleId - 1)
       : null;
 
   // 2. Batched fetch for associated accounts and slot/blocktime

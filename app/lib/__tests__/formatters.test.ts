@@ -196,7 +196,10 @@ describe("Currency & Token Formatters Unit Tests", () => {
       assert.strictEqual(getLocalizedTierLabel(-1, mockTierTranslator), "");
       assert.strictEqual(getLocalizedTierLabel(-100, mockTierTranslator), "");
       assert.strictEqual(getLocalizedTierLabel(NaN, mockTierTranslator), "");
-      assert.strictEqual(getLocalizedTierLabel(Infinity, mockTierTranslator), "");
+      assert.strictEqual(
+        getLocalizedTierLabel(Infinity, mockTierTranslator),
+        ""
+      );
       assert.strictEqual(
         getLocalizedTierLabel(-Infinity, mockTierTranslator),
         ""

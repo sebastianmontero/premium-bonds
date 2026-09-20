@@ -55,5 +55,6 @@ anchor/mutants.out*/
 # localnet orchestration ignores
 scripts/*-key.json
 scripts/localnet-state/
+scripts/devnet-state/
 .surfpool/
 anchor/show_output.txt

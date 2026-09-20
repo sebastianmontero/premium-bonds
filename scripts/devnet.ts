@@ -1,19 +1,11 @@
 import {
   createSolanaRpc,
   address,
-  KeyPairSigner,
   AccountRole,
-  getProgramDerivedAddress,
-  createTransactionMessage,
-  setTransactionMessageFeePayerSigner,
-  setTransactionMessageLifetimeUsingBlockhash,
-  appendTransactionMessageInstruction,
-  signTransactionMessageWithSigners,
-  getBase64EncodedWireTransaction,
   getBase58Decoder,
   getBase58Encoder,
 } from "@solana/kit";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
@@ -22,22 +14,23 @@ import {
   loadKeypair,
   sendTx,
   updateFileContent,
-  safeStringify,
   upsertEnvFile,
   readEnvFile,
 } from "./utils";
 import {
+  findGlobalConfigPda,
+  findPrizePoolPda,
+  findPoolVaultAccountPda,
+  findPoolPstVaultPda,
   findHumaPoolAuthorityPda,
   findAtaAddress,
   buildInitializeGlobalInstruction,
-  getInitializeGlobalInstructionDataEncoder,
-  getCreatePoolInstructionDataEncoder,
-  getSetPrizeTiersInstructionDataEncoder,
+  buildCreatePoolInstruction,
+  buildInitializeHumaLenderInstruction,
   getSimulateYieldInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
   getCreateLenderAccountsV2InstructionDataEncoder,
-  formatPrizeTiersForEncoder,
   PrizeTierInput,
 } from "../app/lib/bonds-sdk";
 
@@ -59,13 +52,7 @@ function printUsage() {
     "  deploy                Checks/generates keypairs, syncs IDs, compiles, and deploys programs to devnet"
   );
   console.log(
-    "  init                  Runs on-chain initialization sequence on devnet"
-  );
-  console.log(
-    "  airdrop               Airdrops USDC and PST to the specified address"
-  );
-  console.log(
-    "  sync                  Reads on-chain account state and syncs to devnet-state.json and constants"
+    "  init [keypair]        Runs on-chain initialization sequence on devnet"
   );
   console.log(
     "  fund <wallet> <amount> Funds a wallet with SOL (airdrop) and Mock USDC"
@@ -74,11 +61,6 @@ function printUsage() {
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
   );
   console.log("  settle [count]        Settles pending redemptions on devnet");
-}
-
-function getInstructionDiscriminator(name: string): Uint8Array {
-  const hash = crypto.createHash("sha256").update(`global:${name}`).digest();
-  return new Uint8Array(hash.slice(0, 8));
 }
 
 function serializeSimulateYieldData(yieldAmount: bigint): Uint8Array {
@@ -93,38 +75,6 @@ function serializeInitializeMockPoolState(): Uint8Array {
   return getInitializeMockPoolStateInstructionDataEncoder().encode({});
 }
 
-function serializeInitializeGlobalData(): Uint8Array {
-  return getInitializeGlobalInstructionDataEncoder().encode({});
-}
-
-function serializeCreatePoolData(
-  poolId: number,
-  bondPrice: bigint,
-  stakeCycleDurationHrs: bigint,
-  feeBasisPoints: number,
-  minYieldThreshold: bigint = 0n,
-  maxYieldBasisPoints: number = 0,
-  payoutTimelockSeconds: number = 300,
-  prizeTiers?: PrizeTierInput[]
-): Uint8Array {
-  return getCreatePoolInstructionDataEncoder().encode({
-    poolId,
-    bondPrice,
-    stakeCycleDurationHrs,
-    feeBasisPoints,
-    minYieldThreshold,
-    maxYieldBasisPoints,
-    payoutTimelockSeconds,
-    prizeTiers: formatPrizeTiersForEncoder(prizeTiers),
-  });
-}
-
-function serializeSetPrizeTiersData(tiers: PrizeTierInput[]): Uint8Array {
-  return getSetPrizeTiersInstructionDataEncoder().encode({
-    tiers: formatPrizeTiersForEncoder(tiers),
-  });
-}
-
 async function handleDeploy() {
   console.log("Checking deploy keypairs...");
   const deployDir = path.resolve(__dirname, "..", "anchor", "target", "deploy");
@@ -137,24 +87,40 @@ async function handleDeploy() {
 
   if (!fs.existsSync(anchorKeyPath)) {
     console.log("Generating new deploy keypair for YieldBonds program...");
-    execSync(`solana-keygen new -o ${anchorKeyPath} --no-passphrase`, {
-      stdio: "inherit",
-    });
+    execFileSync(
+      "solana-keygen",
+      ["new", "-o", anchorKeyPath, "--no-passphrase"],
+      {
+        stdio: "inherit",
+      }
+    );
   }
 
   if (!fs.existsSync(mockHumaKeyPath)) {
     console.log("Generating new deploy keypair for Mock Huma program...");
-    execSync(`solana-keygen new -o ${mockHumaKeyPath} --no-passphrase`, {
-      stdio: "inherit",
-    });
+    execFileSync(
+      "solana-keygen",
+      ["new", "-o", mockHumaKeyPath, "--no-passphrase"],
+      {
+        stdio: "inherit",
+      }
+    );
   }
 
-  const anchorAddress = execSync(`solana address -k ${anchorKeyPath}`)
-    .toString()
-    .trim();
-  const mockHumaAddress = execSync(`solana address -k ${mockHumaKeyPath}`)
-    .toString()
-    .trim();
+  const anchorAddress = execFileSync(
+    "solana",
+    ["address", "-k", anchorKeyPath],
+    {
+      encoding: "utf-8",
+    }
+  ).trim();
+  const mockHumaAddress = execFileSync(
+    "solana",
+    ["address", "-k", mockHumaKeyPath],
+    {
+      encoding: "utf-8",
+    }
+  ).trim();
 
   console.log(`Program IDs:
   anchor: ${anchorAddress}
@@ -164,9 +130,10 @@ async function handleDeploy() {
   console.log(
     "Syncing Program IDs in Cargo & Anchor.toml using anchor keys sync..."
   );
-  execSync("NO_DNA=1 anchor keys sync", {
+  execFileSync("anchor", ["keys", "sync"], {
     cwd: path.resolve(__dirname, "..", "anchor"),
     stdio: "inherit",
+    env: { ...process.env, NO_DNA: "1" },
   });
 
   console.log(
@@ -214,26 +181,31 @@ async function handleDeploy() {
   );
 
   console.log("Compiling contracts...");
-  execSync("NO_DNA=1 anchor build", {
+  execFileSync("anchor", ["build"], {
     cwd: path.resolve(__dirname, "..", "anchor"),
     stdio: "inherit",
+    env: { ...process.env, NO_DNA: "1" },
   });
 
   console.log("Deploying Mock Huma program to Devnet...");
-  execSync(
-    `NO_DNA=1 anchor deploy --provider.cluster devnet --program-name mock_huma`,
+  execFileSync(
+    "anchor",
+    ["deploy", "--provider.cluster", "devnet", "--program-name", "mock_huma"],
     {
       cwd: path.resolve(__dirname, "..", "anchor"),
       stdio: "inherit",
+      env: { ...process.env, NO_DNA: "1" },
     }
   );
 
   console.log("Deploying main YieldBonds program to Devnet...");
-  execSync(
-    `NO_DNA=1 anchor deploy --provider.cluster devnet --program-name anchor`,
+  execFileSync(
+    "anchor",
+    ["deploy", "--provider.cluster", "devnet", "--program-name", "anchor"],
     {
       cwd: path.resolve(__dirname, "..", "anchor"),
       stdio: "inherit",
+      env: { ...process.env, NO_DNA: "1" },
     }
   );
 
@@ -281,127 +253,106 @@ async function handleInit(args: string[]) {
   const anchorKeyPath = path.resolve(deployDir, "anchor-keypair.json");
   const mockHumaKeyPath = path.resolve(deployDir, "mock_huma-keypair.json");
 
-  const anchorProgramId = execSync(`solana address -k ${anchorKeyPath}`)
-    .toString()
-    .trim();
-  const mockHumaProgramId = execSync(`solana address -k ${mockHumaKeyPath}`)
-    .toString()
-    .trim();
+  let anchorProgramId = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos";
+  if (fs.existsSync(anchorKeyPath)) {
+    anchorProgramId = execFileSync("solana", ["address", "-k", anchorKeyPath], {
+      encoding: "utf-8",
+    }).trim();
+  }
+  let mockHumaProgramId = "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw";
+  if (fs.existsSync(mockHumaKeyPath)) {
+    mockHumaProgramId = execFileSync(
+      "solana",
+      ["address", "-k", mockHumaKeyPath],
+      {
+        encoding: "utf-8",
+      }
+    ).trim();
+  }
 
   // Create mock Huma state accounts
   console.log("Deriving Huma accounts...");
-  // Since we don't have Keypair.generate in @solana/kit, generate via crypto and load or create a raw keypair
-  const humaPoolStateKeypair = crypto.generateKeyPairSync("ed25519");
-  const pkcs8 = humaPoolStateKeypair.privateKey.export({
-    format: "der",
-    type: "pkcs8",
-  });
-  const secretKeyBytes = pkcs8.subarray(16, 48);
-  const spki = humaPoolStateKeypair.publicKey.export({
-    format: "der",
-    type: "spki",
-  });
-  const publicKeyBytes = spki.subarray(12, 44);
-  const derivedSecretKey = new Uint8Array(64);
-  derivedSecretKey.set(secretKeyBytes);
-  derivedSecretKey.set(publicKeyBytes, 32);
-  const humaPoolStateSigner = await loadKeypair(
-    path.resolve(STATE_DIR, "huma-pool-state-key.json")
-  ).catch(async () => {
-    const filePath = path.resolve(STATE_DIR, "huma-pool-state-key.json");
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify(Array.from(derivedSecretKey)),
-      "utf-8"
-    );
-    return await loadKeypair(filePath);
-  });
+  const humaPoolStateKeyPath = path.resolve(
+    STATE_DIR,
+    "huma-pool-state-key.json"
+  );
+  const humaPoolStateSigner = await loadKeypair(humaPoolStateKeyPath).catch(
+    async () => {
+      const bytes = crypto.randomBytes(64);
+      fs.writeFileSync(
+        humaPoolStateKeyPath,
+        JSON.stringify(Array.from(bytes)),
+        "utf-8"
+      );
+      return await loadKeypair(humaPoolStateKeyPath);
+    }
+  );
 
   console.log(`Huma Pool State address: ${humaPoolStateSigner.address}`);
 
   // Call initialize_mock_pool_state on mock_huma program
-  console.log("Initializing Huma mock pool state on-chain...");
-  const initHumaIx = {
-    programAddress: address(mockHumaProgramId),
-    accounts: [
-      {
-        address: humaPoolStateSigner.address,
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: humaPoolStateSigner,
-      },
-      {
-        address: address(adminAddress),
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: adminSigner,
-      },
-      {
-        address: address("11111111111111111111111111111111"),
-        role: AccountRole.READONLY,
-      },
-    ],
-    data: serializeInitializeMockPoolState(),
-  };
-
-  // We define a multi-signing sendTx function:
-  const sendMultiSignedTx = async (
-    ix: Parameters<typeof appendTransactionMessageInstruction>[0],
-    signers: KeyPairSigner[]
-  ) => {
-    const { value: blockhash } = await rpc.getLatestBlockhash().send();
-    const message = setTransactionMessageLifetimeUsingBlockhash(
-      blockhash,
-      setTransactionMessageFeePayerSigner(
-        signers[0],
-        appendTransactionMessageInstruction(
-          ix,
-          createTransactionMessage({ version: 0 })
-        )
-      )
-    );
-    // Sign with all signers
-    const signedTx = await signTransactionMessageWithSigners(message);
-    const wireTx = getBase64EncodedWireTransaction(signedTx);
-    const signature = await rpc
-      .sendTransaction(wireTx, { encoding: "base64" })
-      .send();
-    console.log(`Transaction sent: ${signature}. Confirming...`);
-    // Wait for confirmation
-    for (let i = 0; i < 15; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const status = await rpc.getSignatureStatuses([signature]).send();
-      if (status?.value?.[0]) {
-        if (status.value[0].err) {
-          throw new Error(
-            `Transaction failed: ${safeStringify(status.value[0].err)}`
-          );
-        }
-        console.log("Confirmed!");
-        return signature;
-      }
-    }
-    throw new Error("Confirmation timed out");
-  };
-
-  console.log("Sending initialize mock pool state tx...");
-  await sendMultiSignedTx(initHumaIx, [adminSigner, humaPoolStateSigner]);
+  const humaPoolStateInfo = await rpc
+    .getAccountInfo(humaPoolStateSigner.address)
+    .send();
+  if (!humaPoolStateInfo?.value) {
+    console.log("Initializing Huma mock pool state on-chain...");
+    const initHumaIx = {
+      programAddress: address(mockHumaProgramId),
+      accounts: [
+        {
+          address: humaPoolStateSigner.address,
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: humaPoolStateSigner,
+        },
+        {
+          address: address(adminAddress),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: adminSigner,
+        },
+        {
+          address: address("11111111111111111111111111111111"),
+          role: AccountRole.READONLY,
+        },
+      ],
+      data: serializeInitializeMockPoolState(),
+    };
+    await sendTx(rpc, initHumaIx, [adminSigner, humaPoolStateSigner]);
+  } else {
+    console.log("Huma mock pool state already initialized on-chain.");
+  }
 
   // Create mock USDC Mint if not specified
   let usdcMintStr = process.env.NEXT_PUBLIC_USDC_MINT;
   if (!usdcMintStr) {
     console.log("Creating new Mock USDC Mint on-chain...");
-    // We can shell out to spl-token command to make it simple and bulletproof!
     const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
     if (!fs.existsSync(usdcKeyPath)) {
-      execSync(`solana-keygen new -o ${usdcKeyPath} --no-passphrase`);
+      execFileSync(
+        "solana-keygen",
+        ["new", "-o", usdcKeyPath, "--no-passphrase"],
+        {
+          stdio: "inherit",
+        }
+      );
     }
-    usdcMintStr = execSync(`solana address -k ${usdcKeyPath}`)
-      .toString()
-      .trim();
+    usdcMintStr = execFileSync("solana", ["address", "-k", usdcKeyPath], {
+      encoding: "utf-8",
+    }).trim();
     console.log(`Derived Mock USDC Address: ${usdcMintStr}`);
 
     try {
-      execSync(
-        `spl-token create-mint ${usdcKeyPath} --decimals 6 --fee-payer ${keypairPath}`,
+      execFileSync(
+        "spl-token",
+        [
+          "create-mint",
+          usdcKeyPath,
+          "--decimals",
+          "6",
+          "--fee-payer",
+          keypairPath,
+          "--url",
+          DEVNET_RPC_URL,
+        ],
         { stdio: "inherit" }
       );
       console.log("USDC Mint created successfully on-chain!");
@@ -422,19 +373,35 @@ async function handleInit(args: string[]) {
   console.log("Creating Huma Mock PST Mint on-chain...");
   const pstKeyPath = path.resolve(STATE_DIR, "pst-mint.json");
   if (!fs.existsSync(pstKeyPath)) {
-    execSync(`solana-keygen new -o ${pstKeyPath} --no-passphrase`);
-  }
-  const pstMintStr = execSync(`solana address -k ${pstKeyPath}`)
-    .toString()
-    .trim();
-  console.log(`Mock PST Address: ${pstMintStr}`);
-
-  try {
-    execSync(
-      `spl-token create-mint ${pstKeyPath} --decimals 6 --mint-authority ${poolAuthority} --fee-payer ${keypairPath}`,
+    execFileSync(
+      "solana-keygen",
+      ["new", "-o", pstKeyPath, "--no-passphrase"],
       {
         stdio: "inherit",
       }
+    );
+  }
+  const pstMintStr = execFileSync("solana", ["address", "-k", pstKeyPath], {
+    encoding: "utf-8",
+  }).trim();
+  console.log(`Mock PST Address: ${pstMintStr}`);
+
+  try {
+    execFileSync(
+      "spl-token",
+      [
+        "create-mint",
+        pstKeyPath,
+        "--decimals",
+        "6",
+        "--mint-authority",
+        poolAuthority,
+        "--fee-payer",
+        keypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+      ],
+      { stdio: "inherit" }
     );
     console.log("PST Mint created successfully!");
   } catch {
@@ -446,218 +413,302 @@ async function handleInit(args: string[]) {
   const humaPoolUnderlying = await findAtaAddress(poolAuthority, usdcMintStr);
   console.log(`Huma Pool Underlying ATA: ${humaPoolUnderlying}`);
   try {
-    execSync(
-      `spl-token create-address ${usdcMintStr} --owner ${poolAuthority} --fee-payer ${keypairPath}`,
+    execFileSync(
+      "spl-token",
+      [
+        "create-address",
+        usdcMintStr,
+        "--owner",
+        poolAuthority,
+        "--fee-payer",
+        keypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+      ],
       { stdio: "inherit" }
     );
-  } catch {}
+  } catch {
+    console.warn(
+      "Huma Pool Underlying token account creation skipped or already exists."
+    );
+  }
 
   // Create Huma Pool Mode Token account owned by pool_authority
   console.log("Creating Huma Pool Mode Token Account...");
   const humaPoolModeToken = await findAtaAddress(poolAuthority, pstMintStr);
   console.log(`Huma Pool Mode Token ATA: ${humaPoolModeToken}`);
   try {
-    execSync(
-      `spl-token create-address ${pstMintStr} --owner ${poolAuthority} --fee-payer ${keypairPath}`,
+    execFileSync(
+      "spl-token",
+      [
+        "create-address",
+        pstMintStr,
+        "--owner",
+        poolAuthority,
+        "--fee-payer",
+        keypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+      ],
       { stdio: "inherit" }
     );
-  } catch {}
+  } catch {
+    console.warn(
+      "Huma Pool Mode Token account creation skipped or already exists."
+    );
+  }
 
   // Create Admin Fee Wallet (Associated USDC Token Account for Admin)
   console.log("Creating Admin Fee Wallet...");
   const feeWallet = await findAtaAddress(adminAddress, usdcMintStr);
   console.log(`Admin Fee Wallet: ${feeWallet}`);
   try {
-    execSync(
-      `spl-token create-account ${usdcMintStr} --fee-payer ${keypairPath}`,
+    execFileSync(
+      "spl-token",
+      [
+        "create-account",
+        usdcMintStr,
+        "--fee-payer",
+        keypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+      ],
       { stdio: "inherit" }
     );
-  } catch {}
+  } catch {
+    console.warn("Admin Fee Wallet creation skipped or already exists.");
+  }
 
   // Create Huma Lender State account
   console.log("Creating Huma Lender State account...");
-  const humaLenderStateSigner = await loadKeypair(
-    path.resolve(STATE_DIR, "huma-lender-state-key.json")
-  ).catch(async () => {
-    const filePath = path.resolve(STATE_DIR, "huma-lender-state-key.json");
-    const bytes = crypto.randomBytes(64); // Since it's a mock state account we can generate randomly
-    fs.writeFileSync(filePath, JSON.stringify(Array.from(bytes)), "utf-8");
-    return await loadKeypair(filePath);
-  });
+  const humaLenderStateKeyPath = path.resolve(
+    STATE_DIR,
+    "huma-lender-state-key.json"
+  );
+  const humaLenderStateSigner = await loadKeypair(humaLenderStateKeyPath).catch(
+    async () => {
+      const bytes = crypto.randomBytes(64);
+      fs.writeFileSync(
+        humaLenderStateKeyPath,
+        JSON.stringify(Array.from(bytes)),
+        "utf-8"
+      );
+      return await loadKeypair(humaLenderStateKeyPath);
+    }
+  );
 
   // Call create_lender_accounts_v2 on mock_huma program
-  console.log("Initializing Huma lender accounts on-chain...");
-  const initLenderIx = {
-    programAddress: address(mockHumaProgramId),
-    accounts: [
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER }, // lender
-      { address: address(adminAddress), role: AccountRole.READONLY }, // huma_config
-      { address: address(adminAddress), role: AccountRole.READONLY }, // pool_config
-      {
-        address: address(humaPoolStateSigner.address),
-        role: AccountRole.READONLY,
-      },
-      { address: address(adminAddress), role: AccountRole.READONLY }, // mode_config
-      { address: address(pstMintStr), role: AccountRole.READONLY }, // mode_mint
-      {
-        address: address(humaLenderStateSigner.address),
-        role: AccountRole.WRITABLE_SIGNER,
-      },
-      { address: address(adminAddress), role: AccountRole.WRITABLE }, // lender_mode_token
-      {
-        address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-        role: AccountRole.READONLY,
-      },
-      {
-        address: address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
-        role: AccountRole.READONLY,
-      },
-      {
-        address: address("11111111111111111111111111111111"),
-        role: AccountRole.READONLY,
-      },
-    ],
-    data: getCreateLenderAccountsV2InstructionDataEncoder().encode({}),
-  };
-  await sendMultiSignedTx(initLenderIx, [adminSigner, humaLenderStateSigner]);
+  const humaLenderStateInfo = await rpc
+    .getAccountInfo(humaLenderStateSigner.address)
+    .send();
+  if (!humaLenderStateInfo?.value) {
+    console.log("Initializing Huma lender accounts on-chain...");
+    const initLenderIx = {
+      programAddress: address(mockHumaProgramId),
+      accounts: [
+        {
+          address: address(adminAddress),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: adminSigner,
+        },
+        {
+          address: address(adminAddress),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: adminSigner,
+        }, // lender
+        { address: address(adminAddress), role: AccountRole.READONLY }, // huma_config
+        { address: address(adminAddress), role: AccountRole.READONLY }, // pool_config
+        {
+          address: address(humaPoolStateSigner.address),
+          role: AccountRole.READONLY,
+        },
+        { address: address(adminAddress), role: AccountRole.READONLY }, // mode_config
+        { address: address(pstMintStr), role: AccountRole.READONLY }, // mode_mint
+        {
+          address: address(humaLenderStateSigner.address),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: humaLenderStateSigner,
+        },
+        { address: address(adminAddress), role: AccountRole.WRITABLE }, // lender_mode_token
+        {
+          address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+          role: AccountRole.READONLY,
+        },
+        {
+          address: address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
+          role: AccountRole.READONLY,
+        },
+        {
+          address: address("11111111111111111111111111111111"),
+          role: AccountRole.READONLY,
+        },
+      ],
+      data: getCreateLenderAccountsV2InstructionDataEncoder().encode({}),
+    };
+    await sendTx(rpc, initLenderIx, [adminSigner, humaLenderStateSigner]);
+  } else {
+    console.log("Huma lender accounts already initialized on-chain.");
+  }
+
+  // Derive Prize Pool 1 PDAs
+  const poolId = 1;
+  const [poolAddress] = await findPrizePoolPda(poolId);
+  const [poolVaultAddress] = await findPoolVaultAccountPda(poolId);
+  const [poolPstVaultAddress] = await findPoolPstVaultPda(poolId);
+  const poolInfo = await rpc.getAccountInfo(poolAddress).send();
 
   // Create Ticket Registry
   console.log("Allocating Ticket Registry account...");
-  const ticketRegistrySigner = await loadKeypair(
-    path.resolve(STATE_DIR, "ticket-registry-key.json")
-  ).catch(async () => {
-    const filePath = path.resolve(STATE_DIR, "ticket-registry-key.json");
-    const bytes = crypto.randomBytes(64);
-    fs.writeFileSync(filePath, JSON.stringify(Array.from(bytes)), "utf-8");
-    return await loadKeypair(filePath);
-  });
+  const ticketRegistryKeyPath = path.resolve(
+    STATE_DIR,
+    "ticket-registry-key.json"
+  );
+  let ticketRegistrySigner = await loadKeypair(ticketRegistryKeyPath).catch(
+    async () => {
+      const bytes = crypto.randomBytes(64);
+      fs.writeFileSync(
+        ticketRegistryKeyPath,
+        JSON.stringify(Array.from(bytes)),
+        "utf-8"
+      );
+      return await loadKeypair(ticketRegistryKeyPath);
+    }
+  );
 
-  const ticketRegistryAddress = ticketRegistrySigner.address;
+  let ticketRegistryAddress = ticketRegistrySigner.address;
   console.log(`Ticket Registry address: ${ticketRegistryAddress}`);
 
-  // Create Ticket Registry System Account with owner set to YieldBonds program
-  const space = 262248;
-  const rentExempt = await rpc
-    .getMinimumBalanceForRentExemption(BigInt(space))
+  let ticketRegistryInfo = await rpc
+    .getAccountInfo(ticketRegistryAddress, { encoding: "base64" })
     .send();
-  console.log(
-    `Required rent exemption for Ticket Registry: ${Number(rentExempt) / 1_000_000_000} SOL`
-  );
 
-  // Construct System Program CreateAccount instruction
-  const createAccountData = new Uint8Array(4 + 8 + 8 + 32);
-  const createAccountView = new DataView(createAccountData.buffer);
-  createAccountView.setUint32(0, 0, true); // SystemProgram::CreateAccount instruction index
-  createAccountView.setBigUint64(4, rentExempt, true);
-  createAccountView.setBigUint64(12, BigInt(space), true);
-  const base58 = getBase58Encoder();
-  createAccountData.set(base58.encode(address(anchorProgramId)), 20);
+  // If ticket registry account exists on-chain but pool is not yet initialized, verify discriminator is all zeros
+  if (ticketRegistryInfo?.value && !poolInfo?.value) {
+    const rawData = Array.isArray(ticketRegistryInfo.value.data)
+      ? Buffer.from(ticketRegistryInfo.value.data[0], "base64")
+      : Buffer.from(ticketRegistryInfo.value.data as any);
+    const isZeroed = rawData.subarray(0, 8).every((b: number) => b === 0);
+    if (!isZeroed) {
+      console.warn(
+        "⚠️  Existing Ticket Registry account has non-zero discriminator from a prior run. Regenerating fresh keypair..."
+      );
+      const newBytes = crypto.randomBytes(64);
+      fs.writeFileSync(
+        ticketRegistryKeyPath,
+        JSON.stringify(Array.from(newBytes)),
+        "utf-8"
+      );
+      ticketRegistrySigner = await loadKeypair(ticketRegistryKeyPath);
+      ticketRegistryAddress = ticketRegistrySigner.address;
+      console.log(`New Ticket Registry address: ${ticketRegistryAddress}`);
+      ticketRegistryInfo = await rpc
+        .getAccountInfo(ticketRegistryAddress, { encoding: "base64" })
+        .send();
+    }
+  }
 
-  const createAccountIx = {
-    programAddress: address("11111111111111111111111111111111"),
-    accounts: [
-      {
-        address: address(adminAddress),
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: adminSigner,
-      },
-      {
-        address: address(ticketRegistryAddress),
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: ticketRegistrySigner,
-      },
-    ],
-    data: createAccountData,
-  };
-  console.log(
-    "Sending System CreateAccount transaction for Ticket Registry..."
-  );
-  await sendMultiSignedTx(createAccountIx, [adminSigner, ticketRegistrySigner]);
+  if (!ticketRegistryInfo?.value) {
+    const space = 262248;
+    const rentExempt = await rpc
+      .getMinimumBalanceForRentExemption(BigInt(space))
+      .send();
+    console.log(
+      `Required rent exemption for Ticket Registry: ${Number(rentExempt) / 1_000_000_000} SOL`
+    );
+
+    const createAccountData = new Uint8Array(4 + 8 + 8 + 32);
+    const createAccountView = new DataView(createAccountData.buffer);
+    createAccountView.setUint32(0, 0, true); // SystemProgram::CreateAccount instruction index
+    createAccountView.setBigUint64(4, rentExempt, true);
+    createAccountView.setBigUint64(12, BigInt(space), true);
+    const base58 = getBase58Encoder();
+    createAccountData.set(base58.encode(address(anchorProgramId)), 20);
+
+    const createAccountIx = {
+      programAddress: address("11111111111111111111111111111111"),
+      accounts: [
+        {
+          address: address(adminAddress),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: adminSigner,
+        },
+        {
+          address: address(ticketRegistryAddress),
+          role: AccountRole.WRITABLE_SIGNER,
+          signer: ticketRegistrySigner,
+        },
+      ],
+      data: createAccountData,
+    };
+    console.log(
+      "Sending System CreateAccount transaction for Ticket Registry..."
+    );
+    await sendTx(rpc, createAccountIx, [adminSigner, ticketRegistrySigner]);
+  } else {
+    console.log("Ticket Registry account already allocated on-chain.");
+  }
 
   // Initialize Global Config
-  console.log("Initializing YieldBonds GlobalConfig...");
-  const initGlobalIx = await buildInitializeGlobalInstruction({
-    authority: adminSigner,
-    admin: address(adminAddress),
-    jobsAccount: address(adminAddress),
-  });
-  await sendTx(rpc, initGlobalIx, adminSigner);
+  const [globalConfigAddress] = await findGlobalConfigPda();
+  const globalConfigInfo = await rpc.getAccountInfo(globalConfigAddress).send();
+  if (!globalConfigInfo?.value) {
+    console.log("Initializing YieldBonds GlobalConfig...");
+    const initGlobalIx = await buildInitializeGlobalInstruction({
+      authority: adminSigner,
+      admin: address(adminAddress),
+      jobsAccount: address(adminAddress),
+    });
+    await sendTx(rpc, initGlobalIx, adminSigner);
+  } else {
+    console.log("GlobalConfig already initialized on-chain.");
+  }
 
   // Initialize Prize Pool 1
-  console.log("Creating Prize Pool 1...");
-  const poolId = 1;
-  const poolIdBytes = new Uint8Array(4);
-  new DataView(poolIdBytes.buffer).setUint32(0, poolId, true);
-  const [poolAddress] = await getProgramDerivedAddress({
-    programAddress: address(anchorProgramId),
-    seeds: [new TextEncoder().encode("prize_pool"), poolIdBytes],
-  });
-  const [poolVaultAddress] = await getProgramDerivedAddress({
-    programAddress: address(anchorProgramId),
-    seeds: [new TextEncoder().encode("pool_vault"), poolIdBytes],
-  });
-  const [poolPstVaultAddress] = await getProgramDerivedAddress({
-    programAddress: address(anchorProgramId),
-    seeds: [new TextEncoder().encode("pool_pst"), poolIdBytes],
-  });
-
-  const prizeTiers = [
+  const prizeTiers: PrizeTierInput[] = [
     { basisPoints: 5000, numWinners: 1 }, // Grand prize: 50%
     { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% (15% each)
     { basisPoints: 400, numWinners: 5 }, // Consolation: 20% (4% each)
   ];
 
-  const createPoolIx = {
-    programAddress: address(anchorProgramId),
-    accounts: [
-      { address: globalConfigAddress, role: AccountRole.READONLY },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-      { address: poolAddress, role: AccountRole.WRITABLE },
-      { address: address(ticketRegistryAddress), role: AccountRole.WRITABLE },
-      { address: address(usdcMintStr), role: AccountRole.READONLY },
-      { address: address(pstMintStr), role: AccountRole.READONLY },
-      { address: poolVaultAddress, role: AccountRole.WRITABLE },
-      { address: poolPstVaultAddress, role: AccountRole.WRITABLE },
-      { address: address(feeWallet), role: AccountRole.READONLY },
-      {
-        address: address("11111111111111111111111111111111"),
-        role: AccountRole.READONLY,
-      },
-      {
-        address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-        role: AccountRole.READONLY,
-      },
-      {
-        address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-        role: AccountRole.READONLY,
-      },
-    ],
-    data: serializeCreatePoolData(
+  if (!poolInfo?.value) {
+    console.log("Creating Prize Pool 1 via SDK builder...");
+    const createPoolIx = await buildCreatePoolInstruction({
+      admin: adminSigner,
       poolId,
-      1_000_000n, // bond price = 1 USDC
-      24n, // stake duration = 24 hrs
-      100, // fee = 1%
-      0n, // min_yield_threshold = 0
-      0, // max_yield_basis_points = 0
-      300, // payout_timelock_seconds = 300
-      prizeTiers
-    ),
-  };
-  await sendTx(rpc, createPoolIx, adminSigner);
+      bondPrice: 1_000_000n, // 1 USDC
+      stakeCycleDurationHrs: 24n,
+      feeBasisPoints: 100, // 1%
+      minYieldThreshold: 0n,
+      maxYieldBasisPoints: 0,
+      payoutTimelockSeconds: 300,
+      prizeTiers,
+      tokenMint: address(usdcMintStr),
+      pstMint: address(pstMintStr),
+      ticketRegistry: address(ticketRegistryAddress),
+      feeWallet: address(feeWallet),
+      humaPoolState: address(humaPoolStateSigner.address),
+    });
+    await sendTx(rpc, createPoolIx, adminSigner);
+  } else {
+    console.log("Prize Pool 1 already initialized on-chain.");
+  }
 
-  // Set Prize Tiers
-  console.log("Setting prize tiers...");
-  const setTiersIx = {
-    programAddress: address(anchorProgramId),
-    accounts: [
-      { address: globalConfigAddress, role: AccountRole.READONLY },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
-      { address: poolAddress, role: AccountRole.WRITABLE },
-    ],
-    data: serializeSetPrizeTiersData(prizeTiers),
-  };
-  await sendTx(rpc, setTiersIx, adminSigner);
+  console.log("Initializing Huma lender account on YieldBonds program...");
+  const initHumaLenderIx = await buildInitializeHumaLenderInstruction({
+    admin: adminSigner,
+    poolId,
+    humaStateAddresses: {
+      humaProgram: mockHumaProgramId,
+      humaConfig: mockHumaProgramId,
+      humaPoolConfig: mockHumaProgramId,
+      humaPoolState: humaPoolStateSigner.address,
+      humaModeConfig: mockHumaProgramId,
+      humaModeMint: pstMintStr,
+      humaLenderState: humaLenderStateSigner.address,
+      humaLenderModeToken: poolPstVaultAddress,
+    },
+  });
+  await sendTx(rpc, initHumaLenderIx, adminSigner);
 
   // Write addresses configuration files
   const addressesJson = {
@@ -724,11 +775,12 @@ async function handleFund(args: string[]) {
   }
 
   console.log(`Requesting Devnet SOL airdrop for ${walletStr}...`);
-  // Shell out to solana airdrop
   try {
-    execSync(`solana airdrop ${amount} ${walletStr} --url ${DEVNET_RPC_URL}`, {
-      stdio: "inherit",
-    });
+    execFileSync(
+      "solana",
+      ["airdrop", String(amount), walletStr, "--url", DEVNET_RPC_URL],
+      { stdio: "inherit" }
+    );
   } catch {
     console.warn(
       "Airdrop rate-limited. Please request SOL manually via devnet faucet if needed."
@@ -752,18 +804,36 @@ async function handleFund(args: string[]) {
 
   // Create recipient ATA
   try {
-    execSync(
-      `spl-token create-account ${usdcMintStr} --owner ${walletStr} --url ${DEVNET_RPC_URL}`,
+    execFileSync(
+      "spl-token",
+      [
+        "create-account",
+        usdcMintStr,
+        "--owner",
+        walletStr,
+        "--url",
+        DEVNET_RPC_URL,
+      ],
       { stdio: "inherit" }
     );
-  } catch {}
+  } catch {
+    console.warn("Recipient USDC account creation skipped or already exists.");
+  }
 
   // Mint USDC
-  execSync(
-    `spl-token mint ${usdcMintStr} ${amount} ${walletStr} --mint-authority ${mintKeyPath} --url ${DEVNET_RPC_URL}`,
-    {
-      stdio: "inherit",
-    }
+  execFileSync(
+    "spl-token",
+    [
+      "mint",
+      usdcMintStr,
+      String(amount),
+      walletStr,
+      "--mint-authority",
+      mintKeyPath,
+      "--url",
+      DEVNET_RPC_URL,
+    ],
+    { stdio: "inherit" }
   );
   console.log("Mock USDC minted successfully!");
 }
@@ -811,7 +881,11 @@ async function handleYield(args: string[]) {
     programAddress: address(humaProgramId),
     accounts: [
       { address: address(humaPoolState), role: AccountRole.WRITABLE },
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: address(adminAddress),
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: adminSigner,
+      },
     ],
     data: serializeSimulateYieldData(yieldAmountMicroUsdc),
   };
@@ -853,15 +927,6 @@ async function handleSettle(args: string[]) {
     throw new Error("Missing required configuration variables in .env.local");
   }
 
-  const adminAddress = adminAddressMatch[1].trim();
-  const humaProgramId = humaProgramIdMatch[1].trim();
-  const humaPoolState = humaPoolStateMatch[1].trim();
-  const lenderState = lenderStateMatch[1].trim();
-  const usdcMint = usdcMintMatch[1].trim();
-  const pstMint = pstMintMatch[1].trim();
-  const humaPoolUnderlying = humaPoolUnderlyingMatch[1].trim();
-  const humaPoolModeToken = humaPoolModeTokenMatch[1].trim();
-
   // Load admin keypair
   const keypairPath = path.resolve(
     process.env.HOME || "",
@@ -878,7 +943,11 @@ async function handleSettle(args: string[]) {
   const settleIx = {
     programAddress: address(humaProgramId),
     accounts: [
-      { address: address(adminAddress), role: AccountRole.WRITABLE_SIGNER }, // lender/signer
+      {
+        address: address(adminAddress),
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: adminSigner,
+      }, // lender/signer
       { address: address(adminAddress), role: AccountRole.READONLY }, // mock config
       { address: address(adminAddress), role: AccountRole.READONLY }, // pool config
       { address: address(humaPoolState), role: AccountRole.WRITABLE },
@@ -902,11 +971,23 @@ async function handleSettle(args: string[]) {
   const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
   if (fs.existsSync(usdcKeyPath)) {
     try {
-      execSync(
-        `spl-token mint ${usdcMint} 1000000 ${humaPoolUnderlying} --mint-authority ${usdcKeyPath} --url ${DEVNET_RPC_URL}`,
+      execFileSync(
+        "spl-token",
+        [
+          "mint",
+          usdcMint,
+          "1000000",
+          humaPoolUnderlying,
+          "--mint-authority",
+          usdcKeyPath,
+          "--url",
+          DEVNET_RPC_URL,
+        ],
         { stdio: "inherit" }
       );
-    } catch {}
+    } catch {
+      console.warn("Could not pre-fund mock Huma pool underlying vault.");
+    }
   }
 
   await sendTx(rpc, settleIx, adminSigner);

@@ -85,12 +85,15 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
 
   // 2. Frozen for Draw (Drawing in progress)
   if (pool.isFrozenForDraw === 1) {
+    const activeFrozenCycleId = toDrawCycleId(
+      drawCycle?.cycleId ?? Math.max(0, pool.currentDrawCycleId - 1)
+    );
     // Check batch preparation progress
     if (ticketRegistry.drawPreparedUpTo < ticketRegistry.userCount) {
       return {
         ...base,
         state: "PREPARE_BATCHING",
-        cycleId: currentCycleId,
+        cycleId: activeFrozenCycleId,
         cursor: ticketRegistry.drawPreparedUpTo,
         total: ticketRegistry.userCount,
       };
@@ -103,7 +106,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
         return {
           ...base,
           state: "VRF_EXPIRED",
-          cycleId: currentCycleId,
+          cycleId: activeFrozenCycleId,
           staleRandomness: drawCycle.randomnessAccount as Address,
           elapsedSlots,
         };
@@ -112,7 +115,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
       return {
         ...base,
         state: "READY_TO_DRAW",
-        cycleId: currentCycleId,
+        cycleId: activeFrozenCycleId,
         randomnessAccount: drawCycle.randomnessAccount as Address,
       };
     }
@@ -121,25 +124,14 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
       return {
         ...base,
         state: "DRAW_SKIPPED",
-        cycleId: currentCycleId,
+        cycleId: activeFrozenCycleId,
         reason: "Draw skipped during harvest",
       };
     }
   }
 
-  // 3. Not Frozen for Draw: Check if yield harvest is due
-  if (
-    currentTimestamp >= BigInt(pool.currentCycleEndAt) &&
-    pool.status === PoolStatus.Active
-  ) {
-    return {
-      ...base,
-      state: "YIELD_HARVEST_READY",
-      currentCycleId,
-    };
-  }
-
-  // 4. Check for Pending Reinvestments from previous/current payout registry
+  // 3. PRIORITY INVERSION: Check for Pending Reinvestments from previous/current payout registry
+  // Must drain all pending winners BEFORE triggering next harvest to avoid AwaitingRandomnessFreeze
   if (
     payoutRegistry &&
     payoutRegistryAddress &&
@@ -170,11 +162,12 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     }
 
     if (unprocessedWinners.length > 0) {
+      const payoutCycleId = toDrawCycleId(payoutRegistry.cycleId);
       if (currentTimestamp < BigInt(timelockReadyAt)) {
         return {
           ...base,
           state: "TIMELOCK_WAITING",
-          cycleId: currentCycleId,
+          cycleId: payoutCycleId,
           readyAt: timelockReadyAt,
         };
       }
@@ -182,12 +175,24 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
       return {
         ...base,
         state: "REINVESTMENT_PENDING",
-        cycleId: currentCycleId,
+        cycleId: payoutCycleId,
         payoutRegistryAddress,
         payoutRegistry,
         unprocessedWinners,
       };
     }
+  }
+
+  // 4. Yield Harvest Ready (only when previous draw payouts are resolved)
+  if (
+    currentTimestamp >= BigInt(pool.currentCycleEndAt) &&
+    pool.status === PoolStatus.Active
+  ) {
+    return {
+      ...base,
+      state: "YIELD_HARVEST_READY",
+      currentCycleId,
+    };
   }
 
   // 5. Default IDLE state

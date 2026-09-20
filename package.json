@@ -11,6 +11,7 @@
     "scan:i18n": "tsx scripts/scan-unlocalized.ts",
     "localnet": "tsx scripts/localnet.ts",
     "devnet": "tsx scripts/devnet.ts",
+    "devnet:vercel-sync": "tsx scripts/sync-vercel-envs.ts",
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
     "db:generate": "drizzle-kit generate",

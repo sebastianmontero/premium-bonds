@@ -691,9 +691,7 @@ export function PrizeHistoryLedger({
 
                       {/* Amount Won */}
                       <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
-                        <span
-                          className={tierColor(entry.tierIndex)}
-                        >
+                        <span className={tierColor(entry.tierIndex)}>
                           {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                           <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
                             {tokenSymbol}

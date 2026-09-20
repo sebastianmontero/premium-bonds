@@ -912,9 +912,7 @@ export default function CompleteLedgerModal({
 
                           {/* Amount Won */}
                           <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
-                            <span
-                              className={tierColor(entry.tierIndex)}
-                            >
+                            <span className={tierColor(entry.tierIndex)}>
                               {formatTokenAmount(
                                 entry.amount,
                                 effectiveDecimals
