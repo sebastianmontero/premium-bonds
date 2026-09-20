@@ -28,12 +28,18 @@ describe("GET /api/indexer/winners Route Handler", () => {
     await assertErrorResponse(res, 400);
   });
 
-  it("should reject invalid tier filter with 400 Bad Request", async () => {
-    const req = createApiRequest(
-      `/api/indexer/winners?user=${validUser}&tier=mythic`
+  it("should reject invalid tierIndex filter with 400 Bad Request", async () => {
+    const reqInvalidString = createApiRequest(
+      `/api/indexer/winners?user=${validUser}&tierIndex=mythic`
     );
-    const res = await GET(req);
-    await assertErrorResponse(res, 400);
+    const resInvalidString = await GET(reqInvalidString);
+    await assertErrorResponse(resInvalidString, 400);
+
+    const reqOutOfBounds = createApiRequest(
+      `/api/indexer/winners?user=${validUser}&tierIndex=10`
+    );
+    const resOutOfBounds = await GET(reqOutOfBounds);
+    await assertErrorResponse(resOutOfBounds, 400);
   });
 
   it("should successfully fetch winners for user with private cache header and structured envelope", async () => {
@@ -64,9 +70,9 @@ describe("GET /api/indexer/winners Route Handler", () => {
     await assertSuccessResponse(res, 200);
   });
 
-  it("should accept valid status, tier, and search filters", async () => {
+  it("should accept valid status, tierIndex, and search filters", async () => {
     const req = createApiRequest(
-      `/api/indexer/winners?user=${validUser}&status=processing&tier=grand&search=%231`
+      `/api/indexer/winners?user=${validUser}&status=processing&tierIndex=0&search=%231`
     );
     const res = await GET(req);
     await assertSuccessResponse(res, 200);

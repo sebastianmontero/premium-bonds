@@ -152,87 +152,54 @@ describe("Currency & Token Formatters Unit Tests", () => {
   describe("getLocalizedTierLabel Unit Tests", () => {
     const mockTierTranslator: TierTranslationFn = (key, values) => {
       if (key === "grand") return "Grand Prize";
-      if (key === "runnerUp") return "Runner-up";
-      if (key === "consolation") return "Consolation";
+      if (key === "tierWithTitle")
+        return `Tier ${values?.tier} · ${values?.title}`;
       if (key === "tierN") return `Tier ${values?.tier}`;
       return key;
     };
 
-    it("should return correct labels for standard 3-tier structure", () => {
+    it("should return Grand Prize variants for index 0 based on format option", () => {
       assert.strictEqual(
-        getLocalizedTierLabel(0, mockTierTranslator, 3),
+        getLocalizedTierLabel(0, mockTierTranslator, { format: "short" }),
         "Grand Prize"
       );
       assert.strictEqual(
-        getLocalizedTierLabel(1, mockTierTranslator, 3),
-        "Runner-up"
+        getLocalizedTierLabel(0, mockTierTranslator, { format: "full" }),
+        "Tier 1 · Grand Prize"
       );
+      // Default should be full
       assert.strictEqual(
-        getLocalizedTierLabel(2, mockTierTranslator, 3),
-        "Consolation"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(3, mockTierTranslator, 3),
-        "Tier 4"
+        getLocalizedTierLabel(0, mockTierTranslator),
+        "Tier 1 · Grand Prize"
       );
     });
 
-    it("should return correct labels for multi-tier structures (> 3 tiers)", () => {
-      assert.strictEqual(
-        getLocalizedTierLabel(0, mockTierTranslator, 5),
-        "Grand Prize"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(1, mockTierTranslator, 5),
-        "Runner-up"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(2, mockTierTranslator, 5),
-        "Tier 3"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(3, mockTierTranslator, 5),
-        "Tier 4"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(4, mockTierTranslator, 5),
-        "Tier 5"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(5, mockTierTranslator, 5),
-        "Tier 6"
-      );
+    it("should return uniform Tier K labels for indices 1..9 regardless of format option", () => {
+      for (let i = 1; i < 10; i++) {
+        const expected = `Tier ${i + 1}`;
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator, { format: "short" }),
+          expected
+        );
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator, { format: "full" }),
+          expected
+        );
+        assert.strictEqual(
+          getLocalizedTierLabel(i, mockTierTranslator),
+          expected
+        );
+      }
     });
 
     it("should return empty string for negative or non-finite tier indices", () => {
-      assert.strictEqual(getLocalizedTierLabel(-1, mockTierTranslator, 3), "");
+      assert.strictEqual(getLocalizedTierLabel(-1, mockTierTranslator), "");
+      assert.strictEqual(getLocalizedTierLabel(-100, mockTierTranslator), "");
+      assert.strictEqual(getLocalizedTierLabel(NaN, mockTierTranslator), "");
+      assert.strictEqual(getLocalizedTierLabel(Infinity, mockTierTranslator), "");
       assert.strictEqual(
-        getLocalizedTierLabel(-100, mockTierTranslator, 3),
+        getLocalizedTierLabel(-Infinity, mockTierTranslator),
         ""
-      );
-      assert.strictEqual(getLocalizedTierLabel(NaN, mockTierTranslator, 3), "");
-      assert.strictEqual(
-        getLocalizedTierLabel(Infinity, mockTierTranslator, 3),
-        ""
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(-Infinity, mockTierTranslator, 3),
-        ""
-      );
-    });
-
-    it("should safely default totalTiersCount when 0, negative, or non-finite", () => {
-      assert.strictEqual(
-        getLocalizedTierLabel(0, mockTierTranslator, 0),
-        "Grand Prize"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(1, mockTierTranslator, -5),
-        "Runner-up"
-      );
-      assert.strictEqual(
-        getLocalizedTierLabel(2, mockTierTranslator, NaN),
-        "Consolation"
       );
     });
   });

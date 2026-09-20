@@ -76,7 +76,7 @@ describe("Indexer Contracts & Keyset Cursor Suite", () => {
         assert.strictEqual(parsed.page, 1);
         assert.strictEqual(parsed.pageSize, 10);
         assert.strictEqual(parsed.status, "all");
-        assert.strictEqual(parsed.tier, "all");
+        assert.strictEqual(parsed.tierIndex, undefined);
         assert.strictEqual(parsed.search, undefined);
       });
 
@@ -89,18 +89,39 @@ describe("Indexer Contracts & Keyset Cursor Suite", () => {
         });
       });
 
-      it("should accept valid status, tier, and page filters", () => {
+      it("should accept valid status, tierIndex, and page filters", () => {
         const parsed = PrizeLedgerFilterSchema.parse({
           user: "5xYz1234MockAddress5678901234567890",
           status: "processing",
-          tier: "grand",
+          tierIndex: "0",
           page: "3",
           search: " winning ",
         });
         assert.strictEqual(parsed.status, "processing");
-        assert.strictEqual(parsed.tier, "grand");
+        assert.strictEqual(parsed.tierIndex, 0);
         assert.strictEqual(parsed.page, 3);
         assert.strictEqual(parsed.search, "winning");
+      });
+
+      it("should handle tierIndex boundary values and aliases", () => {
+        const minTier = PrizeLedgerFilterSchema.parse({ tierIndex: 0 });
+        assert.strictEqual(minTier.tierIndex, 0);
+
+        const maxTier = PrizeLedgerFilterSchema.parse({ tierIndex: "9" });
+        assert.strictEqual(maxTier.tierIndex, 9);
+
+        const allTier = PrizeLedgerFilterSchema.parse({ tierIndex: "all" });
+        assert.strictEqual(allTier.tierIndex, undefined);
+
+        const emptyTier = PrizeLedgerFilterSchema.parse({ tierIndex: "" });
+        assert.strictEqual(emptyTier.tierIndex, undefined);
+
+        assert.throws(() => {
+          PrizeLedgerFilterSchema.parse({ tierIndex: 10 });
+        });
+        assert.throws(() => {
+          PrizeLedgerFilterSchema.parse({ tierIndex: -1 });
+        });
       });
     });
 

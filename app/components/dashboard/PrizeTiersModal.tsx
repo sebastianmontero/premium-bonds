@@ -277,7 +277,7 @@ export function PrizeTiersModal({
                     key={idx}
                     style={{ width: `${tierSharePct}%` }}
                     className={`h-full ${bgClass} transition-all`}
-                    title={`${getTierLabel(idx, activeTiers.length)}: ${tierSharePct.toFixed(1)}%`}
+                    title={`${getTierLabel(idx, { format: "full" })}: ${tierSharePct.toFixed(1)}%`}
                   />
                 );
               })}
@@ -355,8 +355,7 @@ export function PrizeTiersModal({
                       <td className="py-3 px-4 font-semibold whitespace-nowrap">
                         <TierBadge
                           tierIndex={i}
-                          totalTiers={activeTiers.length}
-                          label={getTierLabel(i, activeTiers.length)}
+                          label={getTierLabel(i, { format: "full" })}
                         />
                       </td>
                       <td className="py-3 px-4 text-right font-mono text-primary font-semibold whitespace-nowrap">
@@ -461,8 +460,7 @@ export function PrizeTiersModal({
                   <div className="flex items-center justify-between">
                     <TierBadge
                       tierIndex={i}
-                      totalTiers={activeTiers.length}
-                      label={getTierLabel(i, activeTiers.length)}
+                      label={getTierLabel(i, { format: "full" })}
                     />
                     <span className="font-mono text-xs font-bold text-primary">
                       {basisPointsPct}% {t("shareColumn")}
@@ -580,11 +578,9 @@ export function PrizeTiersModal({
 
 function TierBadge({
   tierIndex,
-  totalTiers,
   label,
 }: {
   tierIndex: number;
-  totalTiers: number;
   label: string;
 }) {
   if (tierIndex === 0) {
@@ -605,7 +601,7 @@ function TierBadge({
     );
   }
 
-  if (tierIndex === 2 && totalTiers >= 3) {
+  if (tierIndex === 2) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-lg bg-tertiary/10 border border-tertiary/30 px-2.5 py-1 text-xs font-semibold text-tertiary whitespace-nowrap shrink-0">
         <span>🥉</span>
@@ -616,9 +612,6 @@ function TierBadge({
 
   return (
     <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container-high border border-surface-container-highest px-2.5 py-1 text-xs font-medium text-on-surface-variant whitespace-nowrap shrink-0">
-      <span className="text-[10px] font-mono text-primary font-bold">
-        #{tierIndex + 1}
-      </span>
       <span>{label}</span>
     </span>
   );

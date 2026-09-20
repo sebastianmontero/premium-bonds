@@ -61,12 +61,11 @@ export async function fetchPaginatedWinners(
     conditions.push(sql`w.processed = true`);
   }
 
-  if (filters.tier === "grand") {
-    conditions.push(sql`w.tier_index = 0`);
-  } else if (filters.tier === "runnerup") {
-    conditions.push(sql`w.tier_index = 1`);
-  } else if (filters.tier === "consolation") {
-    conditions.push(sql`w.tier_index >= 2`);
+  if (
+    typeof filters.tierIndex === "number" &&
+    Number.isInteger(filters.tierIndex)
+  ) {
+    conditions.push(sql`w.tier_index = ${filters.tierIndex}`);
   }
 
   if (filters.search) {

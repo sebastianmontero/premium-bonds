@@ -115,10 +115,7 @@
   },
   "RecentWinners": {
     "title": "Recent Winners",
-    "viewAllDraws": "View All Draws",
-    "grand": "Grand",
-    "runnerUp": "Runner-up",
-    "consolation": "Consolation"
+    "viewAllDraws": "View All Draws"
   },
   "Unclaimed": {
     "title": "You have accumulated remaining winnings!",
@@ -190,10 +187,6 @@
     "principalProtectionNotice": "Never lose your principal. Withdraw anytime.",
     "bondPrice": "Bond Price",
     "prizeTiers": "Prize Tiers",
-    "grand": "Grand",
-    "runnerUp": "Runner-up",
-    "consolation": "Consolation",
-    "tierN": "Tier {tier}",
     "drawInProgress": "Draw in progress",
     "viewMoreTiers": "+{count} more",
     "allPrizeTiersTitle": "All Prize Tiers ({count})",
@@ -473,9 +466,6 @@
     "searchPlaceholder": "Search Draw # or Bond...",
     "allStatuses": "All Statuses",
     "allTiers": "All Tiers",
-    "grandPrize": "Grand Prize",
-    "runnerUp": "Runner-up",
-    "consolation": "Consolation",
     "matchingEntries": "Matching Entries:",
     "totalFilteredValue": "Total Filtered Value:",
     "drawHistoryAudit": "Draw History Audit",
@@ -710,10 +700,11 @@
   },
   "Common": {
     "tiers": {
+      "tierN": "Tier {tier}",
       "grand": "Grand Prize",
-      "runnerUp": "Runner-up",
-      "consolation": "Consolation",
-      "tierN": "Tier {tier}"
+      "tierWithTitle": "Tier {tier} · {title}",
+      "allTiers": "All Tiers",
+      "filterTierLabel": "Filter by prize tier"
     },
     "actions": {
       "close": "Close",

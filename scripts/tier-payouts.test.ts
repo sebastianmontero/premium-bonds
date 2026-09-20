@@ -215,9 +215,8 @@ describe("Tier Payout & BPS Math Verification Suite", () => {
 
   it("Vector 7: Localized Tier Label Resolution", () => {
     const mockTranslations: Record<string, string> = {
-      grand: "Grand",
-      runnerUp: "Runner-up",
-      consolation: "Consolation",
+      grand: "Grand Prize",
+      tierWithTitle: "Tier {tier} · {title}",
       tierN: "Tier {tier}",
     };
     const t = (key: string, values?: Record<string, any>) => {
@@ -231,24 +230,29 @@ describe("Tier Payout & BPS Math Verification Suite", () => {
     };
 
     assert.strictEqual(
-      getLocalizedTierLabel(0, t as any, 3),
-      "Grand",
-      "Tier 0 should be Grand"
+      getLocalizedTierLabel(0, t as any, { format: "short" }),
+      "Grand Prize",
+      "Tier 0 short should be Grand Prize"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(1, t as any, 3),
-      "Runner-up",
-      "Tier 1 should be Runner-up"
+      getLocalizedTierLabel(0, t as any, { format: "full" }),
+      "Tier 1 · Grand Prize",
+      "Tier 0 full should be Tier 1 · Grand Prize"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(2, t as any, 3),
-      "Consolation",
-      "Tier 2 in 3-tier pool should be Consolation"
+      getLocalizedTierLabel(1, t as any),
+      "Tier 2",
+      "Tier 1 should be Tier 2"
     );
     assert.strictEqual(
-      getLocalizedTierLabel(2, t as any, 5),
+      getLocalizedTierLabel(2, t as any),
       "Tier 3",
-      "Tier 2 in 5-tier pool should be Tier 3"
+      "Tier 2 should be Tier 3"
+    );
+    assert.strictEqual(
+      getLocalizedTierLabel(3, t as any),
+      "Tier 4",
+      "Tier 3 should be Tier 4"
     );
   });
 

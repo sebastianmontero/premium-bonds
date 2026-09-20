@@ -176,7 +176,7 @@ export type PrizeStatus = "processing" | "reinvested";
 export interface PrizeHistoryEntry {
   drawCycleId: number;
   date: string; // ISO date string
-  tierIndex: number; // 0 = Grand Prize, 1 = Runner-up, 2 = Consolation
+  tierIndex: number; // 0-based tier index: 0 = Tier 1 (Grand Prize), 1 = Tier 2, etc.
   amount: number; // base units (total amount won in this draw)
   winnerIndex: number; // index in PayoutRegistry.winners[] — needed for crank
   status: PrizeStatus;

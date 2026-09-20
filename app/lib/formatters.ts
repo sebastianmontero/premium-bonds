@@ -550,42 +550,41 @@ export function formatTierPayoutAmount(
   return formatLiveYieldMetric(amount, tokenSymbol, "", precision);
 }
 
-export type TierTranslationKey = "grand" | "runnerUp" | "consolation" | "tierN";
+export type TierLabelFormat = "short" | "full";
+
+export interface LocalizedTierLabelOptions {
+  format?: TierLabelFormat;
+}
+
 export type TierTranslationFn = (
-  key: TierTranslationKey,
-  values?: { tier: number }
+  key: string,
+  values?: Record<string, string | number>
 ) => string;
 
 /**
  * Resolves localized tier label consistently across PoolCard, PrizeTiersModal, and winner tables.
+ * - Tier 0 (Tier 1): "Grand Prize" (short) or "Tier 1 · Grand Prize" (full)
+ * - Tier k (Tier k+1): "Tier {k+1}" across both formats
  */
 export function getLocalizedTierLabel(
   tierIndex: number,
   t: TierTranslationFn,
-  totalTiersCount: number = 3
+  options?: LocalizedTierLabelOptions
 ): string {
   if (!Number.isFinite(tierIndex) || tierIndex < 0) {
     return "";
   }
-  const safeTotal =
-    Number.isFinite(totalTiersCount) && totalTiersCount > 0
-      ? Math.floor(totalTiersCount)
-      : 3;
+  const tierNum = Math.floor(tierIndex) + 1;
+  const format = options?.format ?? "full";
 
-  if (tierIndex >= safeTotal) {
-    return t("tierN", { tier: tierIndex + 1 });
+  if (tierIndex === 0) {
+    if (format === "full") {
+      return t("tierWithTitle", { tier: 1, title: t("grand") });
+    }
+    return t("grand");
   }
 
-  switch (tierIndex) {
-    case 0:
-      return t("grand");
-    case 1:
-      return t("runnerUp");
-    default:
-      return safeTotal <= 3
-        ? t("consolation")
-        : t("tierN", { tier: tierIndex + 1 });
-  }
+  return t("tierN", { tier: tierNum });
 }
 
 /** Convert a human-readable USDC amount to on-chain base units. */
@@ -671,21 +670,6 @@ export function formatCurrencyAmount(
     : `${formatted} ${tokenSymbol}`;
 }
 
-/**
- * @deprecated Use useTierLabel() React hook or getLocalizedTierLabel() for localized tier names.
- * Map tier index to a human label (English fallback).
- */
-export function tierLabel(tierIndex: number): string {
-  switch (tierIndex) {
-    case 0:
-      return "Grand Prize";
-    case 1:
-      return "Runner-up";
-    default:
-      return "Consolation";
-  }
-}
-
 /** Map tier index to a Tailwind color class. */
 export function tierColor(tierIndex: number): string {
   switch (tierIndex) {
@@ -693,8 +677,10 @@ export function tierColor(tierIndex: number): string {
       return "text-amber-400";
     case 1:
       return "text-secondary";
-    default:
+    case 2:
       return "text-tertiary";
+    default:
+      return "text-on-surface-variant";
   }
 }
 
@@ -705,6 +691,8 @@ export function tierBadgeClass(tierIndex: number): string {
       return "inline-flex items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-300 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.15)]";
     case 1:
       return "inline-flex items-center gap-1 border border-secondary/30 bg-secondary/10 px-2.5 py-0.5 text-xs font-semibold text-secondary rounded-full";
+    case 2:
+      return "inline-flex items-center gap-1 border border-tertiary/30 bg-tertiary/10 px-2.5 py-0.5 text-xs font-semibold text-tertiary rounded-full";
     default:
       return "inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant px-2.5 py-0.5 text-xs font-medium text-on-surface-variant rounded-full";
   }

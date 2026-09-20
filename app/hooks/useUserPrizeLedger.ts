@@ -17,7 +17,7 @@ export interface UseUserPrizeLedgerOptions {
   page?: number;
   pageSize?: number;
   status?: string;
-  tier?: string;
+  tierIndex?: number | string;
   search?: string;
   enabled?: boolean;
 }
@@ -51,15 +51,20 @@ export function useUserPrizeLedger({
   page = 1,
   pageSize = 10,
   status = "all",
-  tier = "all",
+  tierIndex,
   search = "",
   enabled = true,
 }: UseUserPrizeLedgerOptions): UserPrizeLedgerResult {
+  const normalizedTierIndex =
+    tierIndex === "all" || tierIndex === "" || tierIndex === undefined
+      ? undefined
+      : Number(tierIndex);
+
   const currentFilters: Partial<PrizeLedgerFilters> = {
     page,
     pageSize,
     status: status as PrizeLedgerFilters["status"],
-    tier: tier as PrizeLedgerFilters["tier"],
+    tierIndex: normalizedTierIndex,
     search: search.trim() || undefined,
   };
 
@@ -90,7 +95,9 @@ export function useUserPrizeLedger({
       url.searchParams.set("page", String(page));
       url.searchParams.set("pageSize", String(pageSize));
       if (status && status !== "all") url.searchParams.set("status", status);
-      if (tier && tier !== "all") url.searchParams.set("tier", tier);
+      if (normalizedTierIndex !== undefined && !isNaN(normalizedTierIndex)) {
+        url.searchParams.set("tierIndex", String(normalizedTierIndex));
+      }
       if (search.trim()) url.searchParams.set("search", search.trim());
 
       const res = await fetch(url.toString(), { cache: "no-store" });
@@ -125,7 +132,7 @@ export function useUserPrizeLedger({
         | Partial<PrizeLedgerFilters>
         | undefined;
       const filtersUnchanged =
-        prevFilters?.tier === currentFilters.tier &&
+        prevFilters?.tierIndex === currentFilters.tierIndex &&
         prevFilters?.status === currentFilters.status &&
         prevFilters?.search === currentFilters.search;
 

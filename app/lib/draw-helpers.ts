@@ -1121,7 +1121,7 @@ export function getCrankActionCapability(params: {
 /**
  * Canonical comparator for PrizeHistoryEntry:
  * 1. Draw cycle descending (newest draw first)
- * 2. Tier with biggest prizes first (Tier 0 Grand Prize > Tier 1 Runner-up > Tier 2 Consolation)
+ * 2. Tier with biggest prizes first (Tier 0 Grand Prize > Tier 1 > Tier 2...)
  * 3. Prize amount descending (biggest amount first)
  * 4. Winner index ascending (deterministic tie-breaker)
  */

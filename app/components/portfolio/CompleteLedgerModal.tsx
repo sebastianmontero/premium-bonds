@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import type { PrizeHistoryEntry, DrawDisplayConfig } from "@/app/types";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import type {
+  PrizeHistoryEntry,
+  DrawDisplayConfig,
+  PoolInfo,
+} from "@/app/types";
 import {
   formatTokenAmount,
   tierBadgeClass,
+  tierColor,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -39,7 +44,10 @@ export interface CompleteLedgerModalProps {
   ticketPrice?: number;
   payoutTimelockSeconds?: number;
   unclaimedDust?: number;
-  pool?: { isFrozenForDraw?: boolean } | null;
+  pool?:
+    | PoolInfo
+    | { isFrozenForDraw?: boolean; prizeTiers?: PoolInfo["prizeTiers"] }
+    | null;
   isFrozenForDraw?: boolean;
   onSimulateCrank?: (drawCycleId: number, winnerIndex: number) => void;
   onViewDetails: (entry: PrizeHistoryEntry) => void;
@@ -114,7 +122,7 @@ export default function CompleteLedgerModal({
     page: currentPage,
     pageSize,
     status: statusFilter,
-    tier: tierFilter,
+    tierIndex: tierFilter === "all" ? undefined : Number(tierFilter),
     search: debouncedSearchTerm,
     enabled: isOpen && Boolean(userAddress),
   });
@@ -131,6 +139,18 @@ export default function CompleteLedgerModal({
     ? Number(aggregates.totalFilteredValue)
     : displayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
   const isLoading = initialLoading || (Boolean(userAddress) && isQueryLoading);
+
+  const tierOptions = useMemo(() => {
+    const opts = [{ value: "all", label: t("allTiers") }];
+    const count = pool?.prizeTiers?.length ?? 3;
+    for (let i = 0; i < count; i++) {
+      opts.push({
+        value: String(i),
+        label: getTierLabel(i, { format: "full" }),
+      });
+    }
+    return opts;
+  }, [pool?.prizeTiers, getTierLabel, t]);
 
   const formatDateOnly = (isoDate: string): string => {
     return formatLocalDate(
@@ -347,12 +367,7 @@ export default function CompleteLedgerModal({
                 setTierFilter(val);
                 setCurrentPage(1);
               }}
-              options={[
-                { value: "all", label: t("allTiers") },
-                { value: "grand", label: t("grandPrize") },
-                { value: "runnerup", label: t("runnerUp") },
-                { value: "consolation", label: t("consolation") },
-              ]}
+              options={tierOptions}
               ariaLabel="Filter ledger by tier"
               className="w-full"
             />
@@ -599,11 +614,7 @@ export default function CompleteLedgerModal({
                             {t("amountWon")}
                           </p>
                           <p
-                            className={`font-mono text-sm font-bold mt-0.5 ${
-                              entry.tierIndex === 0
-                                ? "text-amber-400"
-                                : "text-on-surface"
-                            }`}
+                            className={`font-mono text-sm font-bold mt-0.5 ${tierColor(entry.tierIndex)}`}
                           >
                             {formatTokenAmount(entry.amount, effectiveDecimals)}{" "}
                             <span className="text-[10px] text-on-surface-variant/60 font-normal">
@@ -902,11 +913,7 @@ export default function CompleteLedgerModal({
                           {/* Amount Won */}
                           <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
                             <span
-                              className={
-                                entry.tierIndex === 0
-                                  ? "text-amber-400"
-                                  : "text-on-surface"
-                              }
+                              className={tierColor(entry.tierIndex)}
                             >
                               {formatTokenAmount(
                                 entry.amount,

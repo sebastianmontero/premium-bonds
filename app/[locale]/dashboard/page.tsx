@@ -138,7 +138,7 @@ export default function DashboardPage() {
         page: 1,
         pageSize: 10,
         status: "all",
-        tier: "all",
+        tierIndex: undefined,
         search: "",
       }),
       queryFn: async () => {

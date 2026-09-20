@@ -1,6 +1,7 @@
 "use client";
 
 import { formatTokenAmount, tierColor } from "@/app/lib/formatters";
+import { useTierLabel } from "@/app/hooks/useTierLabel";
 import type { RecentWinner } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
@@ -15,23 +16,12 @@ export function RecentWinnersTicker({
   tokenDecimals,
 }: RecentWinnersTickerProps) {
   const t = useTranslations("RecentWinners");
+  const getTierLabel = useTierLabel();
 
   if (winners.length === 0) return null;
 
   // Duplicate the list so the marquee loops seamlessly
   const items = [...winners, ...winners];
-
-  const getTierLabel = (tierIndex: number) => {
-    switch (tierIndex) {
-      case 0:
-        return t("grand");
-      case 1:
-        return t("runnerUp");
-      case 2:
-      default:
-        return t("consolation");
-    }
-  };
 
   return (
     <div className="space-y-3">
@@ -82,7 +72,9 @@ export function RecentWinnersTicker({
                   ? "🏆"
                   : winner.tierIndex === 1
                     ? "🥈"
-                    : "🎖️"}
+                    : winner.tierIndex === 2
+                      ? "🥉"
+                      : "🎖️"}
               </span>
 
               {/* Address */}
@@ -106,7 +98,7 @@ export function RecentWinnersTicker({
                       : "pill-success"
                 }`}
               >
-                {getTierLabel(winner.tierIndex)}
+                {getTierLabel(winner.tierIndex, { format: "short" })}
               </span>
             </div>
           ))}

@@ -262,7 +262,7 @@ export function PoolCard({
                   pool={pool}
                   tier={tier}
                   tierIndex={i}
-                  tierLabel={getTierLabel(i, activeTiers.length)}
+                  tierLabel={getTierLabel(i, { format: "full" })}
                 />
               ))}
             </div>

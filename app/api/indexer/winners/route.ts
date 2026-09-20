@@ -30,7 +30,7 @@ export async function GET(
     page: searchParams.get("page") || 1,
     pageSize: searchParams.get("pageSize") || searchParams.get("limit") || 10,
     status: searchParams.get("status") || "all",
-    tier: searchParams.get("tier") || "all",
+    tierIndex: searchParams.get("tierIndex") ?? undefined,
     search: searchParams.get("search") || undefined,
   };
 

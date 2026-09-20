@@ -73,7 +73,11 @@ export const PrizeLedgerFilterSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
   status: z.enum(["all", "processing", "reinvested"]).default("all"),
-  tier: z.enum(["all", "grand", "runnerup", "consolation"]).default("all"),
+  tierIndex: z
+    .preprocess(
+      (val) => (val === "all" || val === "" || val === undefined ? undefined : val),
+      z.coerce.number().int().min(0).max(9).optional()
+    ),
   search: z.string().trim().optional(),
 });
 

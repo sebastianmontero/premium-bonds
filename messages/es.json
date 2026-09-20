@@ -115,10 +115,7 @@
   },
   "RecentWinners": {
     "title": "Ganadores Recientes",
-    "viewAllDraws": "Ver Todos los Sorteos",
-    "grand": "Gran Premio",
-    "runnerUp": "Segundo Lugar",
-    "consolation": "Consolación"
+    "viewAllDraws": "Ver Todos los Sorteos"
   },
   "Unclaimed": {
     "title": "¡Tienes ganancias acumuladas restantes!",
@@ -190,10 +187,6 @@
     "principalProtectionNotice": "Nunca pierdes tu capital. Retira en cualquier momento.",
     "bondPrice": "Precio del Bono",
     "prizeTiers": "Niveles de Premios",
-    "grand": "Gran Premio",
-    "runnerUp": "Segundo Lugar",
-    "consolation": "Consolación",
-    "tierN": "Nivel {tier}",
     "drawInProgress": "Sorteo en progreso",
     "viewMoreTiers": "+{count} más",
     "allPrizeTiersTitle": "Todos los Niveles de Premios ({count})",
@@ -473,9 +466,6 @@
     "searchPlaceholder": "Buscar Sorteo # o Bono...",
     "allStatuses": "Todos los Estados",
     "allTiers": "Todos los Niveles",
-    "grandPrize": "Gran Premio",
-    "runnerUp": "Segundo Lugar",
-    "consolation": "Consolación",
     "matchingEntries": "Entradas Coincidentes:",
     "totalFilteredValue": "Valor Total Filtrado:",
     "drawHistoryAudit": "Auditoría de Historial de Sorteos",
@@ -710,10 +700,11 @@
   },
   "Common": {
     "tiers": {
+      "tierN": "Nivel {tier}",
       "grand": "Gran Premio",
-      "runnerUp": "Segundo Lugar",
-      "consolation": "Consolación",
-      "tierN": "Nivel {tier}"
+      "tierWithTitle": "Nivel {tier} · {title}",
+      "allTiers": "Todos los Niveles",
+      "filterTierLabel": "Filtrar por nivel de premio"
     },
     "actions": {
       "close": "Cerrar",

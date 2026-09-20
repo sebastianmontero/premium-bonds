@@ -70,20 +70,24 @@ export function PayoutWinnersTable({
   }, [winners, connectedUserAddress]);
 
   const tierOptions = useMemo(() => {
-    const opts = [
-      { value: "all", label: tLedger("allTiers") },
-      { value: "grand", label: tLedger("grandPrize") },
-      { value: "runnerup", label: tLedger("runnerUp") },
-      { value: "consolation", label: tLedger("consolation") },
-    ];
+    const options = [{ value: "all", label: tLedger("allTiers") }];
     if (connectedUserWinsCount > 0) {
-      opts.splice(1, 0, {
+      options.push({
         value: "mine",
         label: t("myWinningsFilter", { count: connectedUserWinsCount }),
       });
     }
-    return opts;
-  }, [connectedUserWinsCount, t, tLedger]);
+    const distinctTiers = Array.from(
+      new Set(winners.map((w) => w.tierIndex))
+    ).sort((a, b) => a - b);
+    for (const tIdx of distinctTiers) {
+      options.push({
+        value: String(tIdx),
+        label: getTierLabel(tIdx, { format: "full" }),
+      });
+    }
+    return options;
+  }, [winners, connectedUserWinsCount, getTierLabel, t, tLedger]);
 
   const filteredWinners = useMemo(() => {
     return winners.filter((w) => {
@@ -95,9 +99,9 @@ export function PayoutWinnersTable({
       const matchesTier =
         tierFilter === "all" ||
         (tierFilter === "mine" && isUser) ||
-        (tierFilter === "grand" && w.tierIndex === 0) ||
-        (tierFilter === "runnerup" && w.tierIndex === 1) ||
-        (tierFilter === "consolation" && w.tierIndex >= 2);
+        (tierFilter !== "all" &&
+          tierFilter !== "mine" &&
+          w.tierIndex === Number(tierFilter));
 
       if (!matchesTier) return false;
 
@@ -105,7 +109,7 @@ export function PayoutWinnersTable({
       const matchesSearch =
         searchTerm === "" ||
         w.winnerAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        getTierLabel(w.tierIndex)
+        getTierLabel(w.tierIndex, { format: "full" })
           .toLowerCase()
           .includes(searchTerm.toLowerCase()) ||
         (w.winningTicketIndex !== undefined &&

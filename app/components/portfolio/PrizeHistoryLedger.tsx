@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
   formatTokenAmount,
   tierBadgeClass,
+  tierColor,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -378,11 +379,7 @@ export function PrizeHistoryLedger({
                         {t("amountWon")}
                       </p>
                       <p
-                        className={`font-mono text-sm font-bold mt-0.5 ${
-                          entry.tierIndex === 0
-                            ? "text-amber-400"
-                            : "text-on-surface"
-                        }`}
+                        className={`font-mono text-sm font-bold mt-0.5 ${tierColor(entry.tierIndex)}`}
                       >
                         {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                         <span className="text-[10px] text-on-surface-variant/60 font-normal">
@@ -695,11 +692,7 @@ export function PrizeHistoryLedger({
                       {/* Amount Won */}
                       <td className="py-3 px-3 whitespace-nowrap text-right font-mono font-bold">
                         <span
-                          className={
-                            entry.tierIndex === 0
-                              ? "text-amber-400"
-                              : "text-on-surface"
-                          }
+                          className={tierColor(entry.tierIndex)}
                         >
                           {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
                           <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
