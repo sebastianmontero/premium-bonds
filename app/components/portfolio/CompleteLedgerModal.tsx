@@ -7,7 +7,7 @@ import type {
   PoolInfo,
 } from "@/app/types";
 import {
-  formatTokenAmount,
+  formatCurrency,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -405,8 +405,10 @@ export default function CompleteLedgerModal({
                 <span className="inline-block h-3.5 w-20 rounded bg-surface-bright/10 animate-pulse align-middle" />
               ) : (
                 <span className="font-mono text-primary font-bold">
-                  {formatTokenAmount(totalValue, effectiveDecimals)}{" "}
-                  {effectiveSymbol}
+                  {formatCurrency(totalValue, {
+                    tokenSymbol: effectiveSymbol,
+                    decimals: effectiveDecimals,
+                  })}
                 </span>
               )}
             </div>
@@ -613,10 +615,10 @@ export default function CompleteLedgerModal({
                           <p
                             className={`font-mono text-sm font-bold mt-0.5 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
                           >
-                            {formatTokenAmount(entry.amount, effectiveDecimals)}{" "}
-                            <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                              {effectiveSymbol}
-                            </span>
+                            {formatCurrency(entry.amount, {
+                              tokenSymbol: effectiveSymbol,
+                              decimals: effectiveDecimals,
+                            })}
                           </p>
                         </div>
 
@@ -943,13 +945,10 @@ export default function CompleteLedgerModal({
                                   : "text-on-surface"
                               }
                             >
-                              {formatTokenAmount(
-                                entry.amount,
-                                effectiveDecimals
-                              )}{" "}
-                              <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
-                                {effectiveSymbol}
-                              </span>
+                              {formatCurrency(entry.amount, {
+                                tokenSymbol: effectiveSymbol,
+                                decimals: effectiveDecimals,
+                              })}
                             </span>
                           </td>
 

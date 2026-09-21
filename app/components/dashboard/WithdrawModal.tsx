@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
-import { formatTokenAmount, formatBalanceAmount } from "@/app/lib/formatters";
+import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
 import {
@@ -116,8 +116,9 @@ export function WithdrawModal({
             runner.stage === "success"
               ? t("withdrawSuccessDesc", {
                   bonds: parsedTickets,
-                  amount: formatTokenAmount(withdrawValue, pool.tokenDecimals),
-                  symbol: pool.tokenSymbol,
+                  amount: formatCurrency(withdrawValue, pool, {
+                    style: "withSymbol",
+                  }),
                 })
               : undefined
           }
@@ -372,8 +373,9 @@ export function WithdrawModal({
               <div className="flex justify-between text-on-surface-variant">
                 <span>{tPools("youReceive")}</span>
                 <span className="font-mono font-semibold text-on-surface">
-                  {formatTokenAmount(withdrawValue, pool.tokenDecimals)}{" "}
-                  {pool.tokenSymbol}
+                  {formatCurrency(withdrawValue, pool, {
+                    style: "withSymbol",
+                  })}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant">
@@ -404,11 +406,9 @@ export function WithdrawModal({
                     ? t("exceedsBalance")
                     : parsedTickets > 0
                       ? t("confirmWithdrawAmount", {
-                          amount: formatTokenAmount(
-                            withdrawValue,
-                            pool.tokenDecimals
-                          ),
-                          symbol: pool.tokenSymbol,
+                          amount: formatCurrency(withdrawValue, pool, {
+                            style: "withSymbol",
+                          }),
                         })
                       : t("enterAmount")}
           </button>

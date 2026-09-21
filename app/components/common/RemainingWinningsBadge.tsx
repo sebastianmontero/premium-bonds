@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { useTranslations } from "next-intl";
 
 export interface RemainingWinningsBadgeProps {
@@ -36,8 +36,14 @@ export function RemainingWinningsBadge({
         ? "right-0"
         : "left-1/2 -translate-x-1/2";
 
-  const formattedBondPrice = formatTokenAmount(bondPrice, tokenDecimals);
-  const formattedAmount = formatTokenAmount(amount, tokenDecimals);
+  const formattedBondPrice = formatCurrency(bondPrice, {
+    tokenSymbol,
+    decimals: tokenDecimals,
+  });
+  const formattedAmount = formatCurrency(amount, {
+    tokenSymbol,
+    decimals: tokenDecimals,
+  });
 
   return (
     <div
@@ -46,7 +52,7 @@ export function RemainingWinningsBadge({
       onClick={(e) => e.stopPropagation()}
     >
       <span className="inline-flex items-center gap-1 border border-outline-variant/30 bg-surface-variant/40 px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant rounded-md cursor-help whitespace-nowrap">
-        ${formattedAmount} {t("remainingBadgeLabel")}
+        {formattedAmount} {t("remainingBadgeLabel")}
       </span>
       <div
         role="tooltip"
@@ -57,7 +63,6 @@ export function RemainingWinningsBadge({
         </strong>
         {t("remainingWinningsDesc", {
           bondPrice: formattedBondPrice,
-          symbol: tokenSymbol,
         })}
       </div>
     </div>

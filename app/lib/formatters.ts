@@ -284,11 +284,12 @@ export function formatLiveYieldMetric(
   precision: number = DEFAULT_LIVE_YIELD_PRECISION
 ): string {
   const safeAmount = Number.isFinite(amountUi) ? amountUi : 0;
+  const config = getTokenFormattingConfig(tokenSymbol);
   const formatted = getLiveYieldFormatter(precision).format(safeAmount);
-  if (tokenSymbol.toUpperCase() === "USDC") {
+  if (config.isFiatPrefix) {
     return `${prefix}$${formatted}`;
   }
-  return `${prefix}${formatted} ${tokenSymbol}`;
+  return `${prefix}${formatted} ${config.symbol}`;
 }
 
 export interface TokenFormattingConfig {
@@ -352,19 +353,296 @@ export function toSafeBigInt(amount: bigint | number | string): bigint {
   try {
     const clean = amount.trim().replace(/,/g, "");
     if (!clean) return 0n;
-    const integerPart = clean.split(".")[0];
-    if (!integerPart || integerPart === "-" || integerPart === "+") return 0n;
-    return BigInt(integerPart);
+    const isNeg = clean.startsWith("-");
+    const digitsOnly = clean.replace(/^[+-]/, "");
+    const integerPart = digitsOnly.split(".")[0];
+    if (!integerPart) return 0n;
+    const val = BigInt(integerPart);
+    return isNeg ? -val : val;
   } catch {
     return 0n;
   }
+}
+
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+
+export function getCachedNumberFormatter(
+  minFractionDigits: number,
+  maxFractionDigits: number,
+  locale: string = "en-US"
+): Intl.NumberFormat {
+  const key = `${locale}:${minFractionDigits}:${maxFractionDigits}`;
+  let fmt = numberFormatCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: minFractionDigits,
+      maximumFractionDigits: maxFractionDigits,
+    });
+    numberFormatCache.set(key, fmt);
+  }
+  return fmt;
+}
+
+/**
+ * Internal BigInt formatting kernel shared by formatCurrency and formatBalanceAmount.
+ * Ensures numerical precision safety, negative modulo safety, and strict rounding/truncation.
+ */
+export function formatBaseUnitsToString(
+  absRaw: bigint,
+  decimals: number,
+  minFractionDigits: number,
+  maxFractionDigits: number,
+  roundingMode: "round" | "trunc" = "round"
+): string {
+  const minDigits = Math.max(0, minFractionDigits);
+  const maxDigits = Math.max(minDigits, maxFractionDigits);
+
+  if (decimals === 0) {
+    const wholeStr = absRaw.toLocaleString("en-US");
+    if (minDigits > 0) {
+      return `${wholeStr}.${"0".repeat(minDigits)}`;
+    }
+    return wholeStr;
+  }
+
+  if (decimals >= maxDigits) {
+    const scaleDiff = decimals - maxDigits;
+    let scaled: bigint;
+    if (roundingMode === "round" && scaleDiff > 0) {
+      const half = 10n ** BigInt(scaleDiff) / 2n;
+      scaled = (absRaw + half) / 10n ** BigInt(scaleDiff);
+    } else if (scaleDiff > 0) {
+      scaled = absRaw / 10n ** BigInt(scaleDiff);
+    } else {
+      scaled = absRaw;
+    }
+
+    const divisor = 10n ** BigInt(maxDigits);
+    const wholePart = maxDigits > 0 ? scaled / divisor : scaled;
+    let fracPart =
+      maxDigits > 0
+        ? (scaled % divisor).toString().padStart(maxDigits, "0")
+        : "";
+
+    if (maxDigits > minDigits) {
+      // Trim trailing zeros down to at least minDigits
+      fracPart = fracPart.replace(/0+$/, "");
+      if (fracPart.length < minDigits) {
+        fracPart = fracPart.padEnd(minDigits, "0");
+      }
+    }
+
+    const wholeStr = wholePart.toLocaleString("en-US");
+    return fracPart.length > 0 ? `${wholeStr}.${fracPart}` : wholeStr;
+  } else {
+    // decimals < maxDigits
+    const divisor = 10n ** BigInt(decimals);
+    const wholePart = absRaw / divisor;
+    let fracPart =
+      decimals > 0 ? (absRaw % divisor).toString().padStart(decimals, "0") : "";
+
+    if (fracPart.length < minDigits) {
+      fracPart = fracPart.padEnd(minDigits, "0");
+    }
+
+    const wholeStr = wholePart.toLocaleString("en-US");
+    return fracPart.length > 0 ? `${wholeStr}.${fracPart}` : wholeStr;
+  }
+}
+
+export type SupportedTokenSymbol = "USDC" | "SOL" | "WBTC";
+export type CurrencyDisplayStyle = "standard" | "withSymbol" | "numericOnly";
+
+export interface CurrencyTokenInfo {
+  tokenSymbol?: string;
+  tokenDecimals?: number;
+}
+
+export interface FormatCurrencyOptions {
+  /** Token symbol (defaults to "USDC") */
+  tokenSymbol?: SupportedTokenSymbol | (string & {});
+  /** Decimals for base-to-UI conversion. If omitted, looked up from TOKEN_FORMATTING_CONFIGS (defaults to 6 for USDC) */
+  decimals?: number;
+  /** Minimum fraction digits (defaults to config.displayDecimals, e.g. 2 for USDC, 4 for SOL) */
+  minFractionDigits?: number;
+  /** Maximum fraction digits (defaults to Math.max(minFractionDigits, config.displayDecimals)) */
+  maxFractionDigits?: number;
+  /** Display style:
+   * - "standard": "$1,234.56" for USD, "1,234.56 SOL" for non-USD
+   * - "withSymbol": "$1,234.56 USDC" for USD, "1,234.56 SOL" for non-USD
+   * - "numericOnly": "1,234.56" (no currency symbol or ticker)
+   */
+  style?: CurrencyDisplayStyle;
+  /** Optional decoration sign (+ for deltas, ~ for estimates). Negative signs are handled intrinsically ("-$5.00" or "~-$5.00"). */
+  prefix?: "+" | "~" | (string & {});
+  /** Rounding mode: "round" (half-up) or "trunc" (strict floor truncation for balances to satisfy INV-FORMAT-002) */
+  roundingMode?: "round" | "trunc";
+  /** Fallback string when amount is null, undefined, or NaN (defaults to "—") */
+  fallback?: string;
+}
+
+export function formatCurrency(
+  amountBase: bigint | number | string | null | undefined,
+  pool: CurrencyTokenInfo | null | undefined,
+  overrides?: Omit<FormatCurrencyOptions, "tokenSymbol" | "decimals">
+): string;
+
+export function formatCurrency(
+  amountBase: bigint | number | string | null | undefined,
+  options?: FormatCurrencyOptions
+): string;
+
+export function formatCurrency(
+  amountBase: bigint | number | string | null | undefined,
+  poolOrOptions?: CurrencyTokenInfo | FormatCurrencyOptions | null,
+  overrides?: Omit<FormatCurrencyOptions, "tokenSymbol" | "decimals">
+): string {
+  let options: FormatCurrencyOptions = {};
+  if (poolOrOptions) {
+    if ("tokenDecimals" in poolOrOptions || overrides !== undefined) {
+      const pool = poolOrOptions as CurrencyTokenInfo;
+      options = {
+        tokenSymbol: pool.tokenSymbol,
+        decimals: pool.tokenDecimals,
+        ...overrides,
+      };
+    } else {
+      options = poolOrOptions as FormatCurrencyOptions;
+    }
+  } else if (overrides) {
+    options = { ...overrides };
+  }
+
+  const fallback = options.fallback ?? "—";
+
+  if (amountBase === null || amountBase === undefined) {
+    return fallback;
+  }
+  if (typeof amountBase === "number" && Number.isNaN(amountBase)) {
+    return fallback;
+  }
+  if (typeof amountBase === "string" && amountBase.trim() === "") {
+    return fallback;
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    if (typeof amountBase === "number" && !Number.isInteger(amountBase)) {
+      console.warn(
+        `[formatCurrency] Received float number "${amountBase}" as base units. Base units should be integers or BigInt. Use formatUiCurrency if the value is already in UI decimal units.`
+      );
+    }
+  }
+
+  const config = getTokenFormattingConfig(options.tokenSymbol);
+  const decimals = options.decimals ?? config.defaultDecimals;
+  const minDigits = options.minFractionDigits ?? config.displayDecimals;
+  const maxDigits =
+    options.maxFractionDigits ?? Math.max(minDigits, config.displayDecimals);
+  const style = options.style ?? "standard";
+  const prefix = options.prefix ?? "";
+  const roundingMode = options.roundingMode ?? "round";
+
+  const raw = toSafeBigInt(amountBase);
+  const isNegative = raw < 0n;
+  const absRaw = isNegative ? -raw : raw;
+
+  const numericStr = formatBaseUnitsToString(
+    absRaw,
+    decimals,
+    minDigits,
+    maxDigits,
+    roundingMode
+  );
+
+  let prefixPart = "";
+  if (isNegative) {
+    prefixPart = prefix === "~" ? "~-" : "-";
+  } else if (prefix) {
+    prefixPart = prefix;
+  }
+
+  if (style === "numericOnly") {
+    return `${prefixPart}${numericStr}`;
+  }
+
+  if (config.isFiatPrefix) {
+    if (style === "withSymbol") {
+      return `${prefixPart}$${numericStr} ${config.symbol}`;
+    }
+    return `${prefixPart}$${numericStr}`;
+  }
+
+  return `${prefixPart}${numericStr} ${config.symbol}`;
+}
+
+export function createCurrencyFormatter(pool?: CurrencyTokenInfo) {
+  return (
+    amount: bigint | number | string | null | undefined,
+    overrides?: Omit<FormatCurrencyOptions, "tokenSymbol" | "decimals">
+  ) =>
+    pool
+      ? formatCurrency(amount, pool, overrides)
+      : formatCurrency(amount, overrides);
+}
+
+export interface FormatUiCurrencyOptions {
+  tokenSymbol?: SupportedTokenSymbol | (string & {});
+  minFractionDigits?: number;
+  maxFractionDigits?: number;
+  style?: CurrencyDisplayStyle;
+  prefix?: "+" | "~" | (string & {});
+  fallback?: string;
+}
+
+export function formatUiCurrency(
+  amountUi: number | null | undefined,
+  options?: FormatUiCurrencyOptions
+): string {
+  if (
+    amountUi === null ||
+    amountUi === undefined ||
+    !Number.isFinite(amountUi)
+  ) {
+    return options?.fallback ?? "—";
+  }
+  const config = getTokenFormattingConfig(options?.tokenSymbol);
+  const minDigits =
+    options?.minFractionDigits ??
+    (options?.maxFractionDigits !== undefined ? 0 : config.displayDecimals);
+  const maxDigits =
+    options?.maxFractionDigits ?? Math.max(minDigits, config.displayDecimals);
+  const style = options?.style ?? "standard";
+  const prefix = options?.prefix ?? "";
+
+  const isNegative = amountUi < 0;
+  const absVal = Math.abs(amountUi);
+  const fmt = getCachedNumberFormatter(minDigits, maxDigits);
+  const numericStr = fmt.format(absVal);
+
+  let prefixPart = "";
+  if (isNegative) {
+    prefixPart = prefix === "~" ? "~-" : "-";
+  } else if (prefix) {
+    prefixPart = prefix;
+  }
+
+  if (style === "numericOnly") {
+    return `${prefixPart}${numericStr}`;
+  }
+  if (config.isFiatPrefix) {
+    if (style === "withSymbol") {
+      return `${prefixPart}$${numericStr} ${config.symbol}`;
+    }
+    return `${prefixPart}$${numericStr}`;
+  }
+  return `${prefixPart}${numericStr} ${config.symbol}`;
 }
 
 export interface FormatBalanceOptions {
   decimals?: number;
   tokenSymbol?: string;
   displayDecimals?: number;
-  roundingMode?: "trunc" | "ceil";
+  roundingMode?: "trunc" | "round";
 }
 
 export interface FormattedBalanceResult {
@@ -442,26 +720,23 @@ export function formatBalanceAmount(
         displayDecimals > 0 ? `0.${"0".repeat(displayDecimals - 1)}1` : "1";
       display = `< ${subThresholdVal}`;
     } else {
-      const scaled = raw / thresholdBase;
-      const wholePart = scaled / 10n ** BigInt(displayDecimals);
-      const fracPart =
-        displayDecimals > 0
-          ? (scaled % 10n ** BigInt(displayDecimals))
-              .toString()
-              .padStart(displayDecimals, "0")
-          : "";
-      display =
-        displayDecimals > 0
-          ? `${wholePart.toLocaleString("en-US")}.${fracPart}`
-          : wholePart.toLocaleString("en-US");
+      display = formatBaseUnitsToString(
+        raw,
+        decimals,
+        displayDecimals,
+        displayDecimals,
+        roundingMode
+      );
     }
   } else {
     // decimals < displayDecimals (e.g. 0-decimal token with displayDecimals=2)
-    const wholePart = raw;
-    display =
-      displayDecimals > 0
-        ? `${wholePart.toLocaleString("en-US")}.${"0".repeat(displayDecimals)}`
-        : wholePart.toLocaleString("en-US");
+    display = formatBaseUnitsToString(
+      raw,
+      decimals,
+      displayDecimals,
+      displayDecimals,
+      roundingMode
+    );
   }
 
   // 3. Display with Currency Prefix/Suffix
@@ -714,36 +989,6 @@ export function formatTokenAmount(
     minimumFractionDigits: minFrac,
     maximumFractionDigits: finalMax,
   });
-}
-
-/**
- * Formats a token base-unit amount into a currency-aware string.
- * - For USDC (case-insensitive): "$5.00" (minFractionDigits=2) or "$100,000" (minFractionDigits=0)
- * - For non-USDC (e.g. SOL): "0.05 SOL" or "1.50 WBTC"
- */
-export function formatCurrencyAmount(
-  amountBase: number | bigint,
-  tokenSymbol: string = "USDC",
-  decimals: number = USDC_DECIMALS,
-  minFractionDigits: number = 2,
-  maxFractionDigits?: number
-): string {
-  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
-  const num = typeof amountBase === "bigint" ? Number(amountBase) : amountBase;
-  const isNegative = num < 0;
-  const absVal = Math.abs(num);
-  const formatted = formatTokenAmount(
-    absVal,
-    decimals,
-    minFractionDigits,
-    maxFractionDigits
-  );
-  if (isUsd) {
-    return isNegative ? `-$${formatted}` : `$${formatted}`;
-  }
-  return isNegative
-    ? `-${formatted} ${tokenSymbol}`
-    : `${formatted} ${tokenSymbol}`;
 }
 
 /** Map tier index to a Tailwind color class. */

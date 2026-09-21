@@ -1,7 +1,7 @@
 "use client";
 
 import type { PendingRedemption } from "@/app/types";
-import { formatTokenAmount, formatLocalDate } from "@/app/lib/formatters";
+import { formatCurrency, formatLocalDate } from "@/app/lib/formatters";
 import { useCallback, useState, useMemo } from "react";
 import { PaginationControls } from "./PaginationControls";
 import { useTranslations, useFormatter } from "next-intl";
@@ -199,10 +199,10 @@ export function PendingRedemptionsList({
                   <div className="flex items-center justify-between sm:justify-end gap-4 pl-12 sm:pl-0">
                     <div className="text-right">
                       <p className="font-mono text-sm font-semibold text-on-surface">
-                        ${formatTokenAmount(item.amount, tokenDecimals)}
-                      </p>
-                      <p className="text-[10px] text-on-surface-variant">
-                        {tokenSymbol}
+                        {formatCurrency(item.amount, {
+                          tokenSymbol,
+                          decimals: tokenDecimals,
+                        })}
                       </p>
                     </div>
 

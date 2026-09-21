@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useTransition } from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import {
   formatDrawDisplayDate,
   hasDrawVrfRandomness,
@@ -68,7 +68,6 @@ export function DrawHistoryList({
   const [localPageSize, setLocalPageSize] = useState(10);
 
   const t = useTranslations("DrawHistory");
-  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
   const { now } = useClusterTime({ tick: true });
 
   const isControlled = controlledPage !== undefined;
@@ -394,16 +393,10 @@ export function DrawHistoryList({
                       {t("colPrizePot")}
                     </p>
                     <p className="font-mono text-sm font-bold text-on-surface mt-0.5">
-                      {isUsd && "$"}
-                      {formatTokenAmount(
-                        draw.prizePot,
-                        tokenDecimals,
-                        2,
-                        2
-                      )}{" "}
-                      <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                        {tokenSymbol}
-                      </span>
+                      {formatCurrency(draw.prizePot, {
+                        tokenSymbol,
+                        decimals: tokenDecimals,
+                      })}
                     </p>
                   </div>
 
@@ -531,16 +524,10 @@ export function DrawHistoryList({
 
                     {/* Prize Pot */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-right font-mono font-bold text-on-surface">
-                      {isUsd && "$"}
-                      {formatTokenAmount(
-                        draw.prizePot,
-                        tokenDecimals,
-                        2,
-                        2
-                      )}{" "}
-                      <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                        {tokenSymbol}
-                      </span>
+                      {formatCurrency(draw.prizePot, {
+                        tokenSymbol,
+                        decimals: tokenDecimals,
+                      })}
                     </td>
 
                     {/* Participating Bonds */}

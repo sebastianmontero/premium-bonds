@@ -1,6 +1,6 @@
 "use client";
 
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import type { RecentWinner } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -82,8 +82,11 @@ export function RecentWinnersTicker({
 
                 {/* Amount */}
                 <span className="font-mono text-xs font-semibold text-amber-300">
-                  +{formatTokenAmount(winner.amount, tokenDecimals)}{" "}
-                  {winner.tokenSymbol}
+                  {formatCurrency(winner.amount, {
+                    tokenSymbol: winner.tokenSymbol,
+                    decimals: tokenDecimals,
+                    prefix: "+",
+                  })}
                 </span>
               </div>
             );

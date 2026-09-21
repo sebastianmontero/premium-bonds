@@ -1,4 +1,4 @@
-import { formatTokenAmount, USDC_DECIMALS } from "./formatters";
+import { formatCurrency, USDC_DECIMALS } from "./formatters";
 import type { ActivityEntry, ActivityType } from "../types";
 
 export type ActivityFormatParams =
@@ -44,26 +44,20 @@ export type ActivityFormatParams =
 export function formatActivityDescription(
   params: ActivityFormatParams
 ): string {
-  const numAmount =
-    typeof params.amountUsdc === "bigint"
-      ? Number(params.amountUsdc)
-      : params.amountUsdc;
-  const formatted = formatTokenAmount(
-    numAmount,
-    params.decimals ?? USDC_DECIMALS,
-    2,
-    2
-  );
+  const formatted = formatCurrency(params.amountUsdc, {
+    decimals: params.decimals ?? USDC_DECIMALS,
+    style: "standard",
+  });
 
   switch (params.activityType) {
     case "deposit":
-      return `Deposited ${formatted} USDC → +${params.bonds ?? 0} tickets`;
+      return `Deposited ${formatted} → +${params.bonds ?? 0} tickets`;
     case "withdraw":
-      return `Sold ${params.bonds ?? 0} bonds (${formatted} USDC) · Pending settle`;
+      return `Sold ${params.bonds ?? 0} bonds (${formatted}) · Pending settle`;
     case "auto-reinvest":
-      return `Draw #${params.cycleId ?? 0} reinvested: +${params.bonds ?? 0} tickets from ${formatted} USDC`;
+      return `Draw #${params.cycleId ?? 0} reinvested: +${params.bonds ?? 0} tickets from ${formatted}`;
     case "win":
-      return `Claimed accumulated winnings of ${formatted} USDC · Pending settle`;
+      return `Claimed accumulated winnings of ${formatted} · Pending settle`;
     case "claim-redemption": {
       const label =
         params.redemptionType === "bond_sale"
@@ -73,10 +67,10 @@ export function formatActivityDescription(
             : params.redemptionType === "prize_claim"
               ? "prize winnings"
               : "redemption";
-      return `Claimed settled ${label} of ${formatted} USDC to wallet`;
+      return `Claimed settled ${label} of ${formatted} to wallet`;
     }
     default:
-      return `${(params as { activityType: string }).activityType}: ${formatted} USDC`;
+      return `${(params as { activityType: string }).activityType}: ${formatted}`;
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { LiveYieldTicker } from "./LiveYieldTicker";
-import { formatTokenAmount, formatBalanceAmount } from "@/app/lib/formatters";
+import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
@@ -61,10 +61,7 @@ export function DepositModal({
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
   const maxTickets = Math.floor(walletBalance / pool.bondPrice);
   const maxSpendableBase = maxTickets * pool.bondPrice;
-  const maxSpendableFormatted = formatTokenAmount(
-    maxSpendableBase,
-    pool.tokenDecimals
-  );
+  const maxSpendableFormatted = formatCurrency(maxSpendableBase, pool);
   const walletFormatted = formatBalanceAmount(walletBalance, {
     decimals: pool.tokenDecimals,
     tokenSymbol: pool.tokenSymbol,
@@ -139,8 +136,9 @@ export function DepositModal({
             runner.stage === "success"
               ? t("depositSuccessDesc", {
                   bonds: parsedTickets,
-                  amount: formatTokenAmount(totalCostBase, pool.tokenDecimals),
-                  symbol: pool.tokenSymbol,
+                  amount: formatCurrency(totalCostBase, pool, {
+                    style: "withSymbol",
+                  }),
                 })
               : undefined
           }
@@ -320,7 +318,6 @@ export function DepositModal({
                     title={t("maxPurchasableTooltip", {
                       tickets: maxTickets,
                       amount: maxSpendableFormatted,
-                      symbol: pool.tokenSymbol,
                     })}
                   >
                     {t("max")}: {maxSpendableFormatted}
@@ -421,19 +418,14 @@ export function DepositModal({
                 <span>{t("bondPriceLabel")}</span>
                 <span className="font-mono text-on-surface">
                   {t("oneTicket", {
-                    price: formatTokenAmount(
-                      pool.bondPrice,
-                      pool.tokenDecimals
-                    ),
-                    symbol: pool.tokenSymbol,
+                    price: formatCurrency(pool.bondPrice, pool),
                   })}
                 </span>
               </div>
               <div className="flex justify-between text-on-surface-variant">
                 <span>{t("totalCostLabel")}</span>
                 <span className="font-mono font-semibold text-on-surface">
-                  {formatTokenAmount(totalCostBase, pool.tokenDecimals)}{" "}
-                  {pool.tokenSymbol}
+                  {formatCurrency(totalCostBase, pool)}
                 </span>
               </div>
 
@@ -444,15 +436,14 @@ export function DepositModal({
                     <span>{t("remainderLabel")}</span>
                     <span className="font-mono">
                       {t("remainderDesc", {
-                        amount: formatTokenAmount(
+                        amount: formatCurrency(
                           Math.round(
                             (Number(inputValue) -
                               parsedTickets * bondPriceHuman) *
                               10 ** pool.tokenDecimals
                           ),
-                          pool.tokenDecimals
+                          pool
                         ),
-                        symbol: pool.tokenSymbol,
                       })}
                     </span>
                   </div>
@@ -500,11 +491,9 @@ export function DepositModal({
                     ? t("insufficientBalance")
                     : parsedTickets > 0
                       ? t("confirmDepositAmount", {
-                          amount: formatTokenAmount(
-                            totalCostBase,
-                            pool.tokenDecimals
-                          ),
-                          symbol: pool.tokenSymbol,
+                          amount: formatCurrency(totalCostBase, pool, {
+                            style: "withSymbol",
+                          }),
                         })
                       : t("enterAmount")}
           </button>

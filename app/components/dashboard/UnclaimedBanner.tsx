@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
 import { getClaimWinningsCapability } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
@@ -37,7 +37,10 @@ export function UnclaimedBanner({
 
   if (dismissed || totalUnclaimed <= 0) return null;
 
-  const formattedBondPrice = formatTokenAmount(bondPrice, tokenDecimals);
+  const formattedBondPrice = formatCurrency(bondPrice, {
+    tokenSymbol,
+    decimals: tokenDecimals,
+  });
 
   return (
     <div className="relative rounded-2xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-yellow-500/8 to-amber-600/10 px-6 py-4">
@@ -92,7 +95,10 @@ export function UnclaimedBanner({
 
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-amber-200/70">
               <span className="font-mono font-semibold text-amber-300">
-                {formatTokenAmount(totalUnclaimed, tokenDecimals)} {tokenSymbol}
+                {formatCurrency(totalUnclaimed, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                })}
               </span>
               <span>{t("description")}</span>
 
@@ -127,7 +133,6 @@ export function UnclaimedBanner({
                     <p className="text-[11px] leading-relaxed text-on-surface-variant">
                       {t("dustTooltipExplanation", {
                         bondPrice: formattedBondPrice,
-                        symbol: tokenSymbol,
                       })}
                     </p>
                   </div>

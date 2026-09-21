@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { calculateEstimatedSolFee } from "@/app/lib/solana-fees";
+import { formatUiCurrency } from "@/app/lib/formatters";
 
 interface TransactionFeeSummaryProps {
   isFirstDeposit?: boolean;
@@ -29,7 +30,13 @@ export function TransactionFeeSummary({
     >
       <div className="flex justify-between text-on-surface-variant">
         <span>{t("networkFeeLabel")}</span>
-        <span className="font-mono text-on-surface">~{networkFeeSol} SOL</span>
+        <span className="font-mono text-on-surface">
+          {formatUiCurrency(networkFeeSol, {
+            tokenSymbol: "SOL",
+            prefix: "~",
+            maxFractionDigits: 5,
+          })}
+        </span>
       </div>
       {showAccountStorage && (
         <>
@@ -58,13 +65,21 @@ export function TransactionFeeSummary({
               </span>
             </span>
             <span className="font-mono text-on-surface">
-              ~{storageFeeSol.toFixed(5)} SOL
+              {formatUiCurrency(storageFeeSol, {
+                tokenSymbol: "SOL",
+                prefix: "~",
+                maxFractionDigits: 5,
+              })}
             </span>
           </div>
           <div className="flex justify-between font-semibold text-on-surface pt-1">
             <span>{t("totalSolFeeLabel")}</span>
             <span className="font-mono text-primary">
-              ~{totalSolFee.toFixed(6).replace(/0+$/, "")} SOL
+              {formatUiCurrency(totalSolFee, {
+                tokenSymbol: "SOL",
+                prefix: "~",
+                maxFractionDigits: 6,
+              })}
             </span>
           </div>
         </>

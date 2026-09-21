@@ -3,7 +3,7 @@
 import { usePrizePool } from "@/app/hooks/queries/usePrizePool";
 import { LiveYieldTicker } from "./dashboard/LiveYieldTicker";
 import { CountdownTimer } from "./dashboard/CountdownTimer";
-import { formatCurrencyAmount, formatLocalDate } from "@/app/lib/formatters";
+import { formatCurrency, formatLocalDate } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
@@ -19,23 +19,15 @@ export function StatsSection({ pool: initialPool }: StatsSectionProps) {
   const activePool = initialPool ?? fetchedPool;
 
   const formattedTvl = activePool
-    ? formatCurrencyAmount(
-        activePool.totalDepositedPrincipal,
-        activePool.tokenSymbol,
-        activePool.tokenDecimals,
-        0
-      )
+    ? formatCurrency(activePool.totalDepositedPrincipal, activePool, {
+        minFractionDigits: 0,
+        maxFractionDigits: 0,
+      })
     : "$0";
 
   const formattedDistributed =
     activePool && activePool.totalPrizesDistributed !== undefined
-      ? formatCurrencyAmount(
-          activePool.totalPrizesDistributed,
-          activePool.tokenSymbol,
-          activePool.tokenDecimals,
-          2,
-          2
-        )
+      ? formatCurrency(activePool.totalPrizesDistributed, activePool)
       : "--";
 
   const formattedTargetDate =

@@ -13,7 +13,7 @@ import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
   DEFAULT_LIVE_YIELD_PRECISION,
   formatTokenAmount,
-  formatCurrencyAmount,
+  formatCurrency,
   calculateAnnualDrawEntries,
   getCycleFrequency,
   formatCycleFrequency,
@@ -200,22 +200,40 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
 
     it("should format currency amounts token-aware with explicit en-US formatting", () => {
       assert.strictEqual(
-        formatCurrencyAmount(5_000_000, "USDC", 6, 2),
+        formatCurrency(5_000_000, {
+          tokenSymbol: "USDC",
+          decimals: 6,
+          maxFractionDigits: 2,
+        }),
         "$5.00",
         "USDC bond price formatted as $5.00"
       );
       assert.strictEqual(
-        formatCurrencyAmount(100_000_000_000, "USDC", 6, 0),
+        formatCurrency(100_000_000_000, {
+          tokenSymbol: "USDC",
+          decimals: 6,
+          minFractionDigits: 0,
+          maxFractionDigits: 0,
+        }),
         "$100,000",
         "USDC TVL formatted without decimals"
       );
       assert.strictEqual(
-        formatCurrencyAmount(1_000_000, "usdc", 6, 2),
+        formatCurrency(1_000_000, {
+          tokenSymbol: "usdc",
+          decimals: 6,
+          maxFractionDigits: 2,
+        }),
         "$1.00",
         "Case-insensitive USDC formatted"
       );
       assert.strictEqual(
-        formatCurrencyAmount(50_000_000, "SOL", 9, 2),
+        formatCurrency(50_000_000, {
+          tokenSymbol: "SOL",
+          decimals: 9,
+          minFractionDigits: 2,
+          maxFractionDigits: 2,
+        }),
         "0.05 SOL",
         "SOL token formatted with suffix"
       );

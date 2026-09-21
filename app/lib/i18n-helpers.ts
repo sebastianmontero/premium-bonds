@@ -1,5 +1,5 @@
 import type { ActivityEntry } from "@/app/types";
-import { formatTokenAmount, USDC_DECIMALS } from "./formatters";
+import { formatCurrency, USDC_DECIMALS } from "./formatters";
 
 export type ActivityTranslationKey =
   | "descriptions.deposit"
@@ -26,9 +26,9 @@ export function fallbackRegexFormat(
 ): string {
   if (!description) return "";
 
-  // 1. Deposited {amount} USDC → +{bonds} tickets
+  // 1. Deposited {amount} → +{bonds} tickets
   const depMatch = description.match(
-    /Deposited\s+([\d,.]+)\s+USDC\s+→\s+\+(\d+)\s+tickets?/i
+    /Deposited\s+([$\d,.]+)(?:\s+USDC)?\s+→\s+\+(\d+)\s+tickets?/i
   );
   if (depMatch) {
     return t("descriptions.deposit", {
@@ -37,9 +37,9 @@ export function fallbackRegexFormat(
     });
   }
 
-  // 2. Sold {bonds} bonds ({amount} USDC) · Pending settle
+  // 2. Sold {bonds} bonds ({amount}) · Pending settle
   const withMatch = description.match(
-    /Sold\s+(\d+)\s+bonds?\s+\(([\d,.]+)\s+USDC\)\s+·\s+Pending settle/i
+    /Sold\s+(\d+)\s+bonds?\s+\(([$\d,.]+)(?:\s+USDC)?\)\s+·\s+Pending settle/i
   );
   if (withMatch) {
     return t("descriptions.withdraw", {
@@ -48,9 +48,9 @@ export function fallbackRegexFormat(
     });
   }
 
-  // 3. Draw #{cycleId} reinvested: +{bonds} tickets from {amount} USDC
+  // 3. Draw #{cycleId} reinvested: +{bonds} tickets from {amount}
   const reinvMatch = description.match(
-    /Draw\s+#(\d+)\s+reinvested:\s+\+(\d+)\s+tickets?\s+from\s+([\d,.]+)\s+USDC/i
+    /Draw\s+#(\d+)\s+reinvested:\s+\+(\d+)\s+tickets?\s+from\s+([$\d,.]+)(?:\s+USDC)?/i
   );
   if (reinvMatch) {
     return t("descriptions.autoReinvest", {
@@ -60,41 +60,41 @@ export function fallbackRegexFormat(
     });
   }
 
-  // 4. Claimed accumulated winnings of {amount} USDC · Pending settle
+  // 4. Claimed accumulated winnings of {amount} · Pending settle
   const winMatch = description.match(
-    /Claimed\s+accumulated\s+winnings\s+of\s+([\d,.]+)\s+USDC\s+·\s+Pending settle/i
+    /Claimed\s+accumulated\s+winnings\s+of\s+([$\d,.]+)(?:\s+USDC)?\s+·\s+Pending settle/i
   );
   if (winMatch) {
     return t("descriptions.win", { amount: winMatch[1] });
   }
 
-  // 5. Claimed settled bond principal of {amount} USDC to wallet
+  // 5. Claimed settled bond principal of {amount} to wallet
   const claimBpMatch = description.match(
-    /Claimed\s+settled\s+bond\s+principal\s+of\s+([\d,.]+)\s+USDC\s+to\s+wallet/i
+    /Claimed\s+settled\s+bond\s+principal\s+of\s+([$\d,.]+)(?:\s+USDC)?\s+to\s+wallet/i
   );
   if (claimBpMatch) {
     return t("descriptions.claimedBondPrincipal", { amount: claimBpMatch[1] });
   }
 
-  // 6. Claimed settled fees of {amount} USDC to wallet
+  // 6. Claimed settled fees of {amount} to wallet
   const claimFeesMatch = description.match(
-    /Claimed\s+settled\s+fees\s+of\s+([\d,.]+)\s+USDC\s+to\s+wallet/i
+    /Claimed\s+settled\s+fees\s+of\s+([$\d,.]+)(?:\s+USDC)?\s+to\s+wallet/i
   );
   if (claimFeesMatch) {
     return t("descriptions.claimedFees", { amount: claimFeesMatch[1] });
   }
 
-  // 7. Claimed settled prize winnings of {amount} USDC to wallet
+  // 7. Claimed settled prize winnings of {amount} to wallet
   const claimPwMatch = description.match(
-    /Claimed\s+settled\s+prize\s+winnings\s+of\s+([\d,.]+)\s+USDC\s+to\s+wallet/i
+    /Claimed\s+settled\s+prize\s+winnings\s+of\s+([$\d,.]+)(?:\s+USDC)?\s+to\s+wallet/i
   );
   if (claimPwMatch) {
     return t("descriptions.claimedPrizeWinnings", { amount: claimPwMatch[1] });
   }
 
-  // 8. Claimed settled redemption of {amount} USDC to wallet
+  // 8. Claimed settled redemption of {amount} to wallet
   const claimRedMatch = description.match(
-    /Claimed\s+settled\s+redemption\s+of\s+([\d,.]+)\s+USDC\s+to\s+wallet/i
+    /Claimed\s+settled\s+redemption\s+of\s+([$\d,.]+)(?:\s+USDC)?\s+to\s+wallet/i
   );
   if (claimRedMatch) {
     return t("descriptions.claimedRedemption", { amount: claimRedMatch[1] });
@@ -111,7 +111,7 @@ export function renderLocalizedActivityDescription(
   entry: ActivityEntry,
   t: ActivityTranslationFn,
   formatAmount: (base: number) => string = (b) =>
-    formatTokenAmount(b, USDC_DECIMALS, 2, 2)
+    formatCurrency(b, { decimals: USDC_DECIMALS })
 ): string {
   // If structured metadata is available, render via ICU templates
   if (entry.metadata) {

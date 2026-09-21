@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { formatTokenAmount, formatTicketNumber } from "@/app/lib/formatters";
+import { formatCurrency, formatTicketNumber } from "@/app/lib/formatters";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -351,13 +351,10 @@ export function PayoutWinnersTable({
                             }`}
                           >
                             <span className={isVoided ? "line-through" : ""}>
-                              {formatTokenAmount(
-                                winner.amountOwed,
-                                tokenDecimals
-                              )}
-                            </span>{" "}
-                            <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                              {tokenSymbol}
+                              {formatCurrency(winner.amountOwed, {
+                                tokenSymbol,
+                                decimals: tokenDecimals,
+                              })}
                             </span>
                           </p>
                           {!isVoided && (

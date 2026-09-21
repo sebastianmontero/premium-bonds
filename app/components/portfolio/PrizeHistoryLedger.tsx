@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import {
-  formatTokenAmount,
+  formatCurrency,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -126,7 +126,10 @@ export function PrizeHistoryLedger({
                 className="btn-claim rounded-xl px-5 py-2.5 text-sm cursor-pointer animate-yield-pulse"
               >
                 {t("claimAll")} (
-                {formatTokenAmount(unclaimedTotal, tokenDecimals)} {tokenSymbol}
+                {formatCurrency(unclaimedTotal, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                })}
                 )
               </button>
             ) : (
@@ -148,8 +151,11 @@ export function PrizeHistoryLedger({
                     className="rounded-xl px-5 py-2.5 text-sm font-semibold bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 inline-flex items-center justify-center"
                   >
                     {t(claimCapability.buttonLabelKey)} (
-                    {formatTokenAmount(unclaimedTotal, tokenDecimals)}{" "}
-                    {tokenSymbol})
+                    {formatCurrency(unclaimedTotal, {
+                      tokenSymbol,
+                      decimals: tokenDecimals,
+                    })}
+                    )
                   </span>
                 </InteractiveTooltip>
               )
@@ -168,11 +174,10 @@ export function PrizeHistoryLedger({
                   </p>
                   <p className="text-xs text-on-surface-variant leading-relaxed">
                     {t("claimTooltipExplanation", {
-                      bondPrice: formatTokenAmount(
-                        effectiveBondPrice,
-                        tokenDecimals
-                      ),
-                      symbol: tokenSymbol,
+                      bondPrice: formatCurrency(effectiveBondPrice, {
+                        tokenSymbol,
+                        decimals: tokenDecimals,
+                      }),
                     })}
                   </p>
                 </div>
@@ -376,10 +381,10 @@ export function PrizeHistoryLedger({
                       <p
                         className={`font-mono text-sm font-bold mt-0.5 ${entry.tierIndex === 0 ? "text-amber-400" : "text-on-surface"}`}
                       >
-                        {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
-                        <span className="text-[10px] text-on-surface-variant/60 font-normal">
-                          {tokenSymbol}
-                        </span>
+                        {formatCurrency(entry.amount, {
+                          tokenSymbol,
+                          decimals: tokenDecimals,
+                        })}
                       </p>
                     </div>
 
@@ -694,10 +699,10 @@ export function PrizeHistoryLedger({
                               : "text-on-surface"
                           }
                         >
-                          {formatTokenAmount(entry.amount, tokenDecimals)}{" "}
-                          <span className="text-[10px] text-on-surface-variant/60 font-normal ml-0.5">
-                            {tokenSymbol}
-                          </span>
+                          {formatCurrency(entry.amount, {
+                            tokenSymbol,
+                            decimals: tokenDecimals,
+                          })}
                         </span>
                       </td>
 

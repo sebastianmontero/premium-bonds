@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import {
-  formatTokenAmount,
+  formatCurrency,
   SECONDS_PER_YEAR,
   DEFAULT_APY,
   USDC_DECIMALS,
@@ -89,8 +89,16 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
           lastSyncedAt,
         },
         valuesFormatted: {
-          baseUi: `${formatTokenAmount(basePrizePot, tokenDecimals)} USDC`,
-          tvlUi: `${formatTokenAmount(totalDepositedPrincipal, tokenDecimals)} USDC`,
+          baseUi: formatCurrency(basePrizePot, {
+            tokenSymbol: pool?.tokenSymbol ?? "USDC",
+            decimals: tokenDecimals,
+            style: "withSymbol",
+          }),
+          tvlUi: formatCurrency(totalDepositedPrincipal, {
+            tokenSymbol: pool?.tokenSymbol ?? "USDC",
+            decimals: tokenDecimals,
+            style: "withSymbol",
+          }),
           apyPercent: `${(apy * 100).toFixed(2)}%`,
           lastSyncedAt: lastSyncedAt ?? "local (Date.now())",
         },
@@ -117,6 +125,7 @@ export function useLivePrizePot(options: UseLivePrizePotOptions) {
     baseUi,
     tvlUi,
     isDev,
+    pool?.tokenSymbol,
   ]);
 
   const syncTimestamp = lastSyncedAt ?? localSyncTimeRef.current;

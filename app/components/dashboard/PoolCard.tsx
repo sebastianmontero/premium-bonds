@@ -8,7 +8,7 @@ import { TierPrizeTicker } from "./TierPrizeTicker";
 import { YieldBreakdownTooltip } from "./YieldBreakdownTooltip";
 import { MinimumYieldStatus } from "./MinimumYieldStatus";
 import {
-  formatCurrencyAmount,
+  formatCurrency,
   formatApy,
   DEFAULT_APY,
   formatCycleFrequency,
@@ -121,12 +121,10 @@ export function PoolCard({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <StatCell
           label={t("totalDeposited")}
-          value={formatCurrencyAmount(
-            pool.totalDepositedPrincipal,
-            pool.tokenSymbol,
-            pool.tokenDecimals,
-            0
-          )}
+          value={formatCurrency(pool.totalDepositedPrincipal, pool, {
+            minFractionDigits: 0,
+            maxFractionDigits: 0,
+          })}
           accent="text-on-surface"
         />
         <div className="space-y-0.5">
@@ -154,25 +152,14 @@ export function PoolCard({
         />
         <StatCell
           label={t("bondPrice")}
-          value={formatCurrencyAmount(
-            pool.bondPrice,
-            pool.tokenSymbol,
-            pool.tokenDecimals,
-            2
-          )}
+          value={formatCurrency(pool.bondPrice, pool)}
           accent="text-on-surface"
         />
         <StatCell
           label={t("totalPrizesDistributed")}
           value={
             pool.totalPrizesDistributed !== undefined
-              ? formatCurrencyAmount(
-                  pool.totalPrizesDistributed,
-                  pool.tokenSymbol,
-                  pool.tokenDecimals,
-                  2,
-                  2
-                )
+              ? formatCurrency(pool.totalPrizesDistributed, pool)
               : "--"
           }
           accent="text-on-surface"

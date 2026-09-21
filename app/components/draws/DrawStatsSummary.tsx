@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import type { DrawHistoryStats } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -21,7 +21,6 @@ export function DrawStatsSummary({
   isTotalPrizesDistributedLoading,
 }: DrawStatsSummaryProps) {
   const t = useTranslations("DrawHistory");
-  const isUsd = (tokenSymbol || "USDC").toUpperCase() === "USDC";
 
   const totalPrizesLoading = isTotalPrizesDistributedLoading ?? isLoading;
 
@@ -58,16 +57,10 @@ export function DrawStatsSummary({
             <div className="h-9 w-36 rounded-lg skeleton-box mt-1" />
           ) : (
             <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-              {isUsd && "$"}
-              {formatTokenAmount(
-                stats.totalYieldDistributed,
-                tokenDecimals,
-                2,
-                2
-              )}
-              <span className="ms-1.5 text-base font-medium text-on-surface-variant">
-                {tokenSymbol}
-              </span>
+              {formatCurrency(stats.totalYieldDistributed, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              })}
             </p>
           )}
         </div>
@@ -178,11 +171,10 @@ export function DrawStatsSummary({
             <div className="h-9 w-32 rounded-lg skeleton-box mt-1" />
           ) : (
             <p className="font-display text-3xl font-bold tracking-tight text-on-surface">
-              {isUsd && "$"}
-              {formatTokenAmount(stats.averagePrizePot, tokenDecimals, 2, 2)}
-              <span className="ms-1.5 text-base font-medium text-on-surface-variant">
-                {tokenSymbol}
-              </span>
+              {formatCurrency(stats.averagePrizePot, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              })}
             </p>
           )}
         </div>

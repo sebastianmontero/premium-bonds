@@ -1,7 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  formatCurrencyAmount,
+  formatCurrency,
+  formatUiCurrency,
+  createCurrencyFormatter,
+  formatBaseUnitsToString,
   formatTokenAmount,
   formatBalanceAmount,
   toSafeBigInt,
@@ -23,78 +26,250 @@ import {
 } from "../formatters";
 
 describe("Currency & Token Formatters Unit Tests", () => {
-  describe("Historical Prize Payouts (2-decimal precision)", () => {
-    it("should format fractional prize amounts to exact cents with dollar prefix", () => {
+  describe("formatCurrency Core Abstraction", () => {
+    it("should format fractional USDC amounts to exact cents with dollar prefix", () => {
       // 49.50 USDC = 49_500_000 base units (after 1% protocol fee on 50 USDC)
-      const formatted = formatCurrencyAmount(
-        49_500_000,
-        "USDC",
-        USDC_DECIMALS,
-        2,
-        2
-      );
+      const formatted = formatCurrency(49_500_000, {
+        tokenSymbol: "USDC",
+        decimals: USDC_DECIMALS,
+        minFractionDigits: 2,
+        maxFractionDigits: 2,
+      });
       assert.strictEqual(formatted, "$49.50");
     });
 
-    it("should format whole dollar amounts with 2 decimal places when (2, 2) is requested", () => {
-      const formatted = formatCurrencyAmount(
-        50_000_000,
-        "USDC",
-        USDC_DECIMALS,
-        2,
-        2
-      );
+    it("should format whole dollar amounts with 2 decimal places by default for USDC", () => {
+      const formatted = formatCurrency(50_000_000n);
       assert.strictEqual(formatted, "$50.00");
     });
 
-    it("should clamp division fractions in average prize pots to 2 decimals", () => {
-      // 33.333333 USDC from recurring pot division (e.g. 100 / 3)
-      const formatted = formatTokenAmount(33_333_333, USDC_DECIMALS, 2, 2);
-      assert.strictEqual(formatted, "33.33");
+    it("should support direct PoolInfo / CurrencyTokenInfo object via overload", () => {
+      const pool = {
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+      };
+      assert.strictEqual(formatCurrency(1_000_000n, pool), "$1.00");
+      assert.strictEqual(
+        formatCurrency(100_000_000_000n, pool, {
+          minFractionDigits: 0,
+          maxFractionDigits: 0,
+        }),
+        "$100,000"
+      );
     });
 
     it("should format zero base units cleanly with 2 decimals", () => {
-      const formatted = formatCurrencyAmount(0, "USDC", USDC_DECIMALS, 2, 2);
-      assert.strictEqual(formatted, "$0.00");
+      assert.strictEqual(formatCurrency(0), "$0.00");
+      assert.strictEqual(formatCurrency(0n), "$0.00");
+      assert.strictEqual(formatCurrency("0"), "$0.00");
     });
 
     it("should insert comma thousands separators for large prize totals", () => {
       // 1,250,450.50 USDC
-      const formatted = formatCurrencyAmount(
-        1_250_450_500_000,
-        "USDC",
-        USDC_DECIMALS,
-        2,
-        2
-      );
+      const formatted = formatCurrency(1_250_450_500_000n, {
+        tokenSymbol: "USDC",
+        decimals: USDC_DECIMALS,
+      });
       assert.strictEqual(formatted, "$1,250,450.50");
     });
-  });
 
-  describe("TVL & Integer Formatting (0-decimal precision)", () => {
-    it("should format TVL with 0 decimal places when min/max are 0", () => {
+    it("should format TVL with 0 decimal places when requested", () => {
       // 100,000 USDC
-      const formatted = formatCurrencyAmount(
-        100_000_000_000,
-        "USDC",
-        USDC_DECIMALS,
-        0,
-        0
-      );
+      const formatted = formatCurrency(100_000_000_000n, {
+        minFractionDigits: 0,
+        maxFractionDigits: 0,
+      });
       assert.strictEqual(formatted, "$100,000");
     });
 
-    it("should format zero TVL as $0", () => {
-      const formatted = formatCurrencyAmount(0, "USDC", USDC_DECIMALS, 0, 0);
+    it("should format zero TVL as $0 with 0 decimals", () => {
+      const formatted = formatCurrency(0n, {
+        minFractionDigits: 0,
+        maxFractionDigits: 0,
+      });
       assert.strictEqual(formatted, "$0");
+    });
+
+    it("should support display styles: standard, withSymbol, numericOnly", () => {
+      const amount = 1_250_000_000n; // 1,250 USDC
+      assert.strictEqual(
+        formatCurrency(amount, { style: "standard" }),
+        "$1,250.00"
+      );
+      assert.strictEqual(
+        formatCurrency(amount, { style: "withSymbol" }),
+        "$1,250.00 USDC"
+      );
+      assert.strictEqual(
+        formatCurrency(amount, { style: "numericOnly" }),
+        "1,250.00"
+      );
+    });
+
+    it("should format non-USD token amounts with symbol suffix", () => {
+      // 0.05 SOL with 9 decimals = 50_000_000 base units
+      const formatted = formatCurrency(50_000_000n, {
+        tokenSymbol: "SOL",
+        decimals: 9,
+        minFractionDigits: 2,
+        maxFractionDigits: 2,
+      });
+      assert.strictEqual(formatted, "0.05 SOL");
+    });
+
+    it("should format SOL with default 4 display decimals", () => {
+      const formatted = formatCurrency(54_321_000n, {
+        tokenSymbol: "SOL",
+        decimals: 9,
+      });
+      assert.strictEqual(formatted, "0.0543 SOL");
+    });
+
+    it("should position negative signs intrinsically before currency symbol", () => {
+      assert.strictEqual(formatCurrency(-5_000_000n), "-$5.00");
+      assert.strictEqual(
+        formatCurrency(-50_000_000n, {
+          tokenSymbol: "SOL",
+          decimals: 9,
+          minFractionDigits: 2,
+        }),
+        "-0.05 SOL"
+      );
+    });
+
+    it("should guarantee negative modulo safety without corrupting string", () => {
+      const formatted = formatCurrency(-5_000_001n);
+      assert.strictEqual(formatted, "-$5.00");
+      const unrounded = formatCurrency(-5_000_001n, {
+        minFractionDigits: 6,
+        maxFractionDigits: 6,
+      });
+      assert.strictEqual(unrounded, "-$5.000001");
+    });
+
+    it("should handle prefix interactions (+, ~) correctly with positive and negative amounts", () => {
+      assert.strictEqual(formatCurrency(5_000_000n, { prefix: "+" }), "+$5.00");
+      assert.strictEqual(
+        formatCurrency(-5_000_000n, { prefix: "+" }),
+        "-$5.00"
+      );
+      assert.strictEqual(formatCurrency(5_000_000n, { prefix: "~" }), "~$5.00");
+      assert.strictEqual(
+        formatCurrency(-5_000_000n, { prefix: "~" }),
+        "~-$5.00"
+      );
+    });
+
+    it("should respect strict floor truncation mode (roundingMode: 'trunc')", () => {
+      // 9.999999 USDC with trunc -> $9.99
+      assert.strictEqual(
+        formatCurrency(9_999_999n, {
+          roundingMode: "trunc",
+        }),
+        "$9.99"
+      );
+      // 9.999999 USDC with round -> $10.00
+      assert.strictEqual(
+        formatCurrency(9_999_999n, {
+          roundingMode: "round",
+        }),
+        "$10.00"
+      );
+    });
+
+    it("should handle null, undefined, NaN and custom fallbacks gracefully", () => {
+      assert.strictEqual(formatCurrency(null), "—");
+      assert.strictEqual(formatCurrency(undefined), "—");
+      assert.strictEqual(formatCurrency(NaN), "—");
+      assert.strictEqual(formatCurrency(""), "—");
+      assert.strictEqual(formatCurrency(null, { fallback: "N/A" }), "N/A");
+      assert.strictEqual(formatCurrency(undefined, { fallback: "--" }), "--");
+    });
+
+    it("should safely format u64::MAX without overflow or NaN", () => {
+      const u64Max = 18_446_744_073_709_551_615n;
+      const formatted = formatCurrency(u64Max);
+      assert.ok(formatted.startsWith("$18,446,744,073,709.55"));
     });
   });
 
-  describe("Non-USD Tokens", () => {
-    it("should format non-USD token amounts with symbol suffix instead of dollar prefix", () => {
-      // 0.05 SOL with 9 decimals = 50_000_000 base units
-      const formatted = formatCurrencyAmount(50_000_000, "SOL", 9, 2, 2);
-      assert.strictEqual(formatted, "0.05 SOL");
+  describe("createCurrencyFormatter (Bound Helper)", () => {
+    it("should produce a bound formatter for a pool", () => {
+      const pool = { tokenSymbol: "USDC", tokenDecimals: 6 };
+      const fmt = createCurrencyFormatter(pool);
+      assert.strictEqual(fmt(5_000_000n), "$5.00");
+      assert.strictEqual(
+        fmt(100_000_000_000n, { minFractionDigits: 0, maxFractionDigits: 0 }),
+        "$100,000"
+      );
+      assert.strictEqual(fmt(null), "—");
+    });
+
+    it("should work without a pool argument", () => {
+      const fmt = createCurrencyFormatter();
+      assert.strictEqual(fmt(1_000_000n), "$1.00");
+      assert.strictEqual(fmt(null), "—");
+    });
+  });
+
+  describe("formatUiCurrency (Decimal Float Formatter)", () => {
+    it("should format decimal float values for USD and non-USD tokens", () => {
+      assert.strictEqual(formatUiCurrency(1250.5), "$1,250.50");
+      assert.strictEqual(
+        formatUiCurrency(0.005, {
+          tokenSymbol: "SOL",
+          prefix: "~",
+          maxFractionDigits: 5,
+        }),
+        "~0.005 SOL"
+      );
+      assert.strictEqual(
+        formatUiCurrency(100, {
+          tokenSymbol: "USDC",
+          style: "withSymbol",
+        }),
+        "$100.00 USDC"
+      );
+      assert.strictEqual(
+        formatUiCurrency(-25.5, {
+          tokenSymbol: "USDC",
+          prefix: "~",
+        }),
+        "~-$25.50"
+      );
+    });
+
+    it("should handle null, undefined, NaN for formatUiCurrency", () => {
+      assert.strictEqual(formatUiCurrency(null), "—");
+      assert.strictEqual(formatUiCurrency(undefined), "—");
+      assert.strictEqual(formatUiCurrency(NaN), "—");
+      assert.strictEqual(formatUiCurrency(null, { fallback: "Free" }), "Free");
+    });
+  });
+
+  describe("formatBaseUnitsToString (Shared Kernel)", () => {
+    it("should format BigInt base units with exact rounding and precision", () => {
+      assert.strictEqual(
+        formatBaseUnitsToString(49_500_000n, 6, 2, 2, "round"),
+        "49.50"
+      );
+      assert.strictEqual(
+        formatBaseUnitsToString(9_999_999n, 6, 2, 2, "trunc"),
+        "9.99"
+      );
+      assert.strictEqual(
+        formatBaseUnitsToString(100_000_000_000n, 6, 0, 0, "round"),
+        "100,000"
+      );
+      assert.strictEqual(formatBaseUnitsToString(0n, 6, 2, 2, "round"), "0.00");
+    });
+  });
+
+  describe("formatTokenAmount Legacy Helper", () => {
+    it("should clamp division fractions in average prize pots to 2 decimals", () => {
+      // 33.333333 USDC from recurring pot division (e.g. 100 / 3)
+      const formatted = formatTokenAmount(33_333_333, USDC_DECIMALS, 2, 2);
+      assert.strictEqual(formatted, "33.33");
     });
   });
 
@@ -489,17 +664,6 @@ describe("Currency & Token Formatters Unit Tests", () => {
         const result = formatBalanceAmount(-50_000_000, 6, "USDC");
         assert.strictEqual(result.display, "0.00");
         assert.strictEqual(result.isZero, true);
-      });
-
-      it("should format negative amounts with leading minus before currency in formatCurrencyAmount", () => {
-        assert.strictEqual(
-          formatCurrencyAmount(-50_000_000, "USDC", USDC_DECIMALS, 2, 2),
-          "-$50.00"
-        );
-        assert.strictEqual(
-          formatCurrencyAmount(-50_000_000, "SOL", 9, 2, 2),
-          "-0.05 SOL"
-        );
       });
     });
 

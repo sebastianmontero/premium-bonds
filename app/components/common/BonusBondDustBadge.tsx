@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { calculatePriorDustApplied } from "@/app/lib/draw-helpers";
 import { useTranslations } from "next-intl";
 
@@ -38,6 +38,11 @@ export function BonusBondDustBadge({
     usedPriorDust
   );
 
+  const formattedPriorDust = formatCurrency(priorDustApplied, {
+    tokenSymbol,
+    decimals: tokenDecimals,
+  });
+
   const alignClass =
     tooltipAlign === "left"
       ? "start-0"
@@ -60,13 +65,11 @@ export function BonusBondDustBadge({
           <span
             className="inline-flex items-center gap-0.5 border border-tertiary/30 bg-tertiary/15 px-1 py-0.5 text-[9px] font-semibold text-tertiary rounded cursor-help whitespace-nowrap"
             title={tInspector("bonusDustTitle", {
-              amount: formatTokenAmount(priorDustApplied, tokenDecimals),
-              symbol: tokenSymbol,
+              amount: formattedPriorDust,
             })}
             aria-label={tInspector("bonusDustAria", {
               bonds: bondsBought,
-              amount: formatTokenAmount(priorDustApplied, tokenDecimals),
-              symbol: tokenSymbol,
+              amount: formattedPriorDust,
             })}
           >
             <span className="text-tertiary-bright font-bold">
@@ -81,8 +84,7 @@ export function BonusBondDustBadge({
               {tLedger("bonusTicket")}
             </strong>
             {tInspector("bonusBondDustNotice", {
-              priorDust: formatTokenAmount(priorDustApplied, tokenDecimals),
-              symbol: tokenSymbol,
+              priorDust: formattedPriorDust,
             })}
           </div>
         </div>

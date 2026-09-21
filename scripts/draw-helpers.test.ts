@@ -928,7 +928,7 @@ describe("Draw Helpers & SDK Architecture Suite", () => {
     );
     assert.ok(msg.includes("Draw #14"));
     assert.ok(msg.includes("bond #42"));
-    assert.ok(msg.includes("won 25.00 USDC"));
+    assert.ok(msg.includes("won $25.00"));
     assert.ok(msg.includes("/dashboard/draws?cycle=14&winner=0"));
   });
 

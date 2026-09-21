@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import type { DetailedDrawCycle, DrawDisplayConfig } from "@/app/types";
 import { useTranslations } from "next-intl";
@@ -107,7 +107,10 @@ export function DrawStatusAuditView({
             {t("prizePot")}
           </p>
           <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {formatTokenAmount(draw.prizePot, tokenDecimals)} {tokenSymbol}
+            {formatCurrency(draw.prizePot, {
+              tokenSymbol,
+              decimals: tokenDecimals,
+            })}
           </p>
         </div>
 
@@ -134,8 +137,10 @@ export function DrawStatusAuditView({
             {t("protocolFee")}
           </p>
           <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {formatTokenAmount(draw.cycleFeeCollected, tokenDecimals)}{" "}
-            {tokenSymbol}
+            {formatCurrency(draw.cycleFeeCollected, {
+              tokenSymbol,
+              decimals: tokenDecimals,
+            })}
           </p>
         </div>
       </div>

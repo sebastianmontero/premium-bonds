@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { DrawWinnerRecord, DrawDisplayConfig } from "@/app/types";
-import { formatTokenAmount, formatTicketNumber } from "@/app/lib/formatters";
+import { formatCurrency, formatTicketNumber } from "@/app/lib/formatters";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
 import { StatusBadge } from "@/app/components/common/StatusBadge";
@@ -189,8 +189,10 @@ export function DrawWinnerDetailView({
                   : "text-primary"
               }`}
             >
-              {formatTokenAmount(winner.amountOwed, tokenDecimals)}{" "}
-              {tokenSymbol}
+              {formatCurrency(winner.amountOwed, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              })}
             </p>
           </div>
 

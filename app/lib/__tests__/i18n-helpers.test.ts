@@ -22,30 +22,30 @@ function createMockTranslator(): {
     calls.push({ key, values });
     if (key === "descriptions.deposit") {
       const b = values?.bonds ?? 0;
-      return `Deposited ${values?.amount} USDC (${b} bond${b === 1 ? "" : "s"})`;
+      return `Deposited ${values?.amount} (${b} bond${b === 1 ? "" : "s"})`;
     }
     if (key === "descriptions.withdraw") {
       const b = values?.bonds ?? 0;
-      return `Sold ${b} bond${b === 1 ? "" : "s"} (${values?.amount} USDC)`;
+      return `Sold ${b} bond${b === 1 ? "" : "s"} (${values?.amount})`;
     }
     if (key === "descriptions.autoReinvest") {
       const b = values?.bonds ?? 0;
-      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} from ${values?.amount} USDC`;
+      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} from ${values?.amount}`;
     }
     if (key === "descriptions.win") {
-      return `Won ${values?.amount} USDC`;
+      return `Won ${values?.amount}`;
     }
     if (key === "descriptions.claimedBondPrincipal") {
-      return `Claimed settled bond principal of ${values?.amount} USDC to wallet`;
+      return `Claimed settled bond principal of ${values?.amount} to wallet`;
     }
     if (key === "descriptions.claimedFees") {
-      return `Claimed settled fees of ${values?.amount} USDC to wallet`;
+      return `Claimed settled fees of ${values?.amount} to wallet`;
     }
     if (key === "descriptions.claimedPrizeWinnings") {
-      return `Claimed settled prize winnings of ${values?.amount} USDC to wallet`;
+      return `Claimed settled prize winnings of ${values?.amount} to wallet`;
     }
     if (key === "descriptions.claimedRedemption") {
-      return `Claimed settled redemption of ${values?.amount} USDC to wallet`;
+      return `Claimed settled redemption of ${values?.amount} to wallet`;
     }
     return key;
   };
@@ -60,7 +60,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-1",
         type: "deposit",
-        description: "Deposited 5.00 USDC → +1 ticket",
+        description: "Deposited $5.00 → +1 ticket",
         date: new Date().toISOString(),
         metadata: {
           bonds: 1,
@@ -71,8 +71,8 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const result = renderLocalizedActivityDescription(entry, t);
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.deposit");
-      assert.deepStrictEqual(calls[0].values, { amount: "5.00", bonds: 1 });
-      assert.strictEqual(result, "Deposited 5.00 USDC (1 bond)");
+      assert.deepStrictEqual(calls[0].values, { amount: "$5.00", bonds: 1 });
+      assert.strictEqual(result, "Deposited $5.00 (1 bond)");
     });
 
     it("should render deposit with plural bond count", () => {
@@ -80,7 +80,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-2",
         type: "deposit",
-        description: "Deposited 50.00 USDC → +10 tickets",
+        description: "Deposited $50.00 → +10 tickets",
         date: new Date().toISOString(),
         metadata: {
           bonds: 10,
@@ -91,8 +91,8 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const result = renderLocalizedActivityDescription(entry, t);
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.deposit");
-      assert.deepStrictEqual(calls[0].values, { amount: "50.00", bonds: 10 });
-      assert.strictEqual(result, "Deposited 50.00 USDC (10 bonds)");
+      assert.deepStrictEqual(calls[0].values, { amount: "$50.00", bonds: 10 });
+      assert.strictEqual(result, "Deposited $50.00 (10 bonds)");
     });
 
     it("should render withdraw with singular bond count", () => {
@@ -100,7 +100,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-3",
         type: "withdraw",
-        description: "Sold 1 bond (5.00 USDC) · Pending settle",
+        description: "Sold 1 bond ($5.00) · Pending settle",
         date: new Date().toISOString(),
         metadata: {
           bonds: 1,
@@ -111,8 +111,8 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const result = renderLocalizedActivityDescription(entry, t);
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.withdraw");
-      assert.deepStrictEqual(calls[0].values, { amount: "5.00", bonds: 1 });
-      assert.strictEqual(result, "Sold 1 bond (5.00 USDC)");
+      assert.deepStrictEqual(calls[0].values, { amount: "$5.00", bonds: 1 });
+      assert.strictEqual(result, "Sold 1 bond ($5.00)");
     });
 
     it("should render withdraw with plural bond count", () => {
@@ -120,7 +120,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-4",
         type: "withdraw",
-        description: "Sold 3 bonds (15.00 USDC) · Pending settle",
+        description: "Sold 3 bonds ($15.00) · Pending settle",
         date: new Date().toISOString(),
         metadata: {
           bonds: 3,
@@ -131,8 +131,8 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const result = renderLocalizedActivityDescription(entry, t);
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.withdraw");
-      assert.deepStrictEqual(calls[0].values, { amount: "15.00", bonds: 3 });
-      assert.strictEqual(result, "Sold 3 bonds (15.00 USDC)");
+      assert.deepStrictEqual(calls[0].values, { amount: "$15.00", bonds: 3 });
+      assert.strictEqual(result, "Sold 3 bonds ($15.00)");
     });
 
     it("should render auto-reinvest with cycleId and bonds count", () => {
@@ -140,7 +140,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-5",
         type: "auto-reinvest",
-        description: "Draw #42 reinvested: +2 tickets from 10.00 USDC",
+        description: "Draw #42 reinvested: +2 tickets from $10.00",
         date: new Date().toISOString(),
         metadata: {
           cycleId: 42,
@@ -153,14 +153,11 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.autoReinvest");
       assert.deepStrictEqual(calls[0].values, {
-        amount: "10.00",
+        amount: "$10.00",
         bonds: 2,
         cycleId: 42,
       });
-      assert.strictEqual(
-        result,
-        "Draw #42 reinvested: +2 tickets from 10.00 USDC"
-      );
+      assert.strictEqual(result, "Draw #42 reinvested: +2 tickets from $10.00");
     });
 
     it("should render win description with amount", () => {
@@ -168,7 +165,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const entry: ActivityEntry = {
         id: "tx-6",
         type: "win",
-        description: "Won 1,250.00 USDC",
+        description: "Won $1,250.00",
         date: new Date().toISOString(),
         metadata: {
           amountUsdc: 1_250_000_000,
@@ -178,8 +175,8 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       const result = renderLocalizedActivityDescription(entry, t);
       assert.strictEqual(calls.length, 1);
       assert.strictEqual(calls[0].key, "descriptions.win");
-      assert.deepStrictEqual(calls[0].values, { amount: "1,250.00" });
-      assert.strictEqual(result, "Won 1,250.00 USDC");
+      assert.deepStrictEqual(calls[0].values, { amount: "$1,250.00" });
+      assert.strictEqual(result, "Won $1,250.00");
     });
 
     it("should route claim-redemption to specific sub-keys based on redemptionType", () => {
@@ -197,7 +194,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
         t
       );
       assert.strictEqual(calls[0].key, "descriptions.claimedBondPrincipal");
-      assert.deepStrictEqual(calls[0].values, { amount: "50.00" });
+      assert.deepStrictEqual(calls[0].values, { amount: "$50.00" });
 
       // fee_withdrawal
       renderLocalizedActivityDescription(
@@ -211,7 +208,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
         t
       );
       assert.strictEqual(calls[1].key, "descriptions.claimedFees");
-      assert.deepStrictEqual(calls[1].values, { amount: "5.00" });
+      assert.deepStrictEqual(calls[1].values, { amount: "$5.00" });
 
       // prize_claim
       renderLocalizedActivityDescription(
@@ -225,7 +222,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
         t
       );
       assert.strictEqual(calls[2].key, "descriptions.claimedPrizeWinnings");
-      assert.deepStrictEqual(calls[2].values, { amount: "25.00" });
+      assert.deepStrictEqual(calls[2].values, { amount: "$25.00" });
 
       // undefined / other
       renderLocalizedActivityDescription(
@@ -239,7 +236,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
         t
       );
       assert.strictEqual(calls[3].key, "descriptions.claimedRedemption");
-      assert.deepStrictEqual(calls[3].values, { amount: "100.00" });
+      assert.deepStrictEqual(calls[3].values, { amount: "$100.00" });
     });
 
     it("should allow custom formatAmount function injection", () => {

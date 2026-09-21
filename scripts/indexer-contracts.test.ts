@@ -22,7 +22,7 @@ describe("Indexer Contracts & Helpers Suite", () => {
     });
     assert.strictEqual(
       depositDesc,
-      "Deposited 50.00 USDC → +10 tickets",
+      "Deposited $50.00 → +10 tickets",
       "Deposit description format mismatch"
     );
 
@@ -33,7 +33,7 @@ describe("Indexer Contracts & Helpers Suite", () => {
     });
     assert.strictEqual(
       withdrawDesc,
-      "Sold 5 bonds (25.00 USDC) · Pending settle",
+      "Sold 5 bonds ($25.00) · Pending settle",
       "Withdraw description format mismatch"
     );
 
@@ -45,7 +45,7 @@ describe("Indexer Contracts & Helpers Suite", () => {
     });
     assert.strictEqual(
       reinvestDesc,
-      "Draw #3 reinvested: +2 tickets from 10.00 USDC",
+      "Draw #3 reinvested: +2 tickets from $10.00",
       "Auto-reinvest description format mismatch"
     );
   });

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import type { PrizeHistoryEntry } from "@/app/types";
 import {
-  formatTokenAmount,
+  formatCurrency,
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
@@ -142,8 +142,10 @@ export default function PrizeDetailsModal({
   const handleShare = async () => {
     const text = tLedger("shareTemplateText", {
       cycleId: entry.drawCycleId,
-      amount: formatTokenAmount(entry.amount, tokenDecimals),
-      symbol: tokenSymbol,
+      amount: formatCurrency(entry.amount, {
+        tokenSymbol,
+        decimals: tokenDecimals,
+      }),
     });
     await copyShare(text);
   };
@@ -269,7 +271,10 @@ export default function PrizeDetailsModal({
                     : "text-primary"
                 }`}
               >
-                {formatTokenAmount(entry.amount, tokenDecimals)} {tokenSymbol}
+                {formatCurrency(entry.amount, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                })}
               </p>
             </div>
 

@@ -3,7 +3,7 @@
 import React from "react";
 import type { ReinvestmentBreakdown } from "@/app/lib/draw-helpers";
 import type { DrawDisplayConfig } from "@/app/types";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { useTranslations, useFormatter } from "next-intl";
 
 export interface PrizeReinvestmentBreakdownProps {
@@ -63,7 +63,10 @@ export function PrizeReinvestmentBreakdown({
               {t("grossWinnings")}
             </span>
             <span className="font-mono text-on-surface-variant/60 line-through font-semibold">
-              {formatTokenAmount(amountWon, tokenDecimals)} {tokenSymbol}
+              {formatCurrency(amountWon, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              })}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -77,7 +80,10 @@ export function PrizeReinvestmentBreakdown({
               {t("yieldReturnedToReserves")}
             </span>
             <span className="font-mono font-bold text-red-400">
-              {formatTokenAmount(amountWon, tokenDecimals)} {tokenSymbol}
+              {formatCurrency(amountWon, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              })}
             </span>
           </div>
         </div>
@@ -122,8 +128,10 @@ export function PrizeReinvestmentBreakdown({
           <span>•</span>
           <span>
             {t("perBondSuffix", {
-              amount: formatTokenAmount(bondPrice, tokenDecimals),
-              symbol: tokenSymbol,
+              amount: formatCurrency(bondPrice, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+              }),
             })}
           </span>
         </div>
@@ -137,7 +145,10 @@ export function PrizeReinvestmentBreakdown({
             {t("grossWinnings")}
           </span>
           <span className="font-mono font-bold text-on-surface">
-            {formatTokenAmount(amountWon, tokenDecimals)} {tokenSymbol}
+            {formatCurrency(amountWon, {
+              tokenSymbol,
+              decimals: tokenDecimals,
+            })}
           </span>
         </div>
 
@@ -148,8 +159,11 @@ export function PrizeReinvestmentBreakdown({
               <span aria-hidden="true">✨</span> {t("priorDustApplied")}
             </span>
             <span className="font-mono font-bold">
-              +{formatTokenAmount(breakdown.usedPriorDust, tokenDecimals)}{" "}
-              {tokenSymbol}
+              {formatCurrency(breakdown.usedPriorDust, {
+                tokenSymbol,
+                decimals: tokenDecimals,
+                prefix: "+",
+              })}
             </span>
           </div>
         )}
@@ -164,8 +178,11 @@ export function PrizeReinvestmentBreakdown({
             </span>
           </span>
           <span className="font-mono font-bold text-primary">
-            -{formatTokenAmount(totalReinvestedAmount, tokenDecimals)}{" "}
-            {tokenSymbol}
+            {formatCurrency(totalReinvestedAmount, {
+              tokenSymbol,
+              decimals: tokenDecimals,
+              prefix: totalReinvestedAmount > 0 ? "-" : undefined,
+            })}
           </span>
         </div>
 
@@ -180,8 +197,11 @@ export function PrizeReinvestmentBreakdown({
             </span>
           </div>
           <span className="font-mono text-sm font-bold text-emerald-400">
-            +{formatTokenAmount(breakdown.dustAccumulated, tokenDecimals)}{" "}
-            {tokenSymbol}
+            {formatCurrency(breakdown.dustAccumulated, {
+              tokenSymbol,
+              decimals: tokenDecimals,
+              prefix: breakdown.dustAccumulated > 0 ? "+" : undefined,
+            })}
           </span>
         </div>
       </div>
@@ -202,12 +222,14 @@ export function PrizeReinvestmentBreakdown({
             </p>
             <p className="text-on-surface-variant text-[11px] leading-relaxed">
               {t("bonusTicketDesc", {
-                priorDust: formatTokenAmount(
-                  breakdown.usedPriorDust,
-                  tokenDecimals
-                ),
-                winnings: formatTokenAmount(amountWon, tokenDecimals),
-                symbol: tokenSymbol,
+                priorDust: formatCurrency(breakdown.usedPriorDust, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                }),
+                winnings: formatCurrency(amountWon, {
+                  tokenSymbol,
+                  decimals: tokenDecimals,
+                }),
               })}
             </p>
           </div>

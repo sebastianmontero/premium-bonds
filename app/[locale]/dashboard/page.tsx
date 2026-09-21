@@ -31,7 +31,7 @@ import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
 import PrizeDetailsModal from "@/app/components/portfolio/PrizeDetailsModal";
 import CompleteLedgerModal from "@/app/components/portfolio/CompleteLedgerModal";
 import CompleteActivityModal from "@/app/components/portfolio/CompleteActivityModal";
-import { formatTokenAmount } from "@/app/lib/formatters";
+import { formatCurrency } from "@/app/lib/formatters";
 import { PoolStateErrorCard } from "@/app/components/dashboard/PoolStateErrorCard";
 import { PoolStateUninitializedCard } from "@/app/components/dashboard/PoolStateUninitializedCard";
 import { DashboardLoadingSkeleton } from "@/app/components/dashboard/DashboardLoadingSkeleton";
@@ -466,8 +466,9 @@ export default function DashboardPage() {
     setActionModalTitle(tDashboard("claimWinningsModalTitle"));
     setActionSuccessMsg(
       tDashboard("claimWinningsSuccessMsg", {
-        amount: formatTokenAmount(claimAmount, poolTokenDecimals),
-        symbol: poolTokenSymbol,
+        amount: formatCurrency(claimAmount, activePool, {
+          style: "withSymbol",
+        }),
       })
     );
 
@@ -510,22 +511,21 @@ export default function DashboardPage() {
     if (!redemption) return;
     setClaimingRedemptionId(id);
 
-    const amountFormatted = formatTokenAmount(redemption.amount, 6);
+    const amountFormatted = formatCurrency(redemption.amount, activePool, {
+      style: "withSymbol",
+    });
     setActionModalTitle(tDashboard("claimRedemptionModalTitle"));
     setActionSuccessMsg(
       redemption.type === "bond_sale"
         ? tDashboard("claimRedemptionBondPrincipalSuccess", {
             amount: amountFormatted,
-            symbol: poolTokenSymbol,
           })
         : redemption.type === "fee_withdrawal"
           ? tDashboard("claimRedemptionFeesSuccess", {
               amount: amountFormatted,
-              symbol: poolTokenSymbol,
             })
           : tDashboard("claimRedemptionPrizesSuccess", {
               amount: amountFormatted,
-              symbol: poolTokenSymbol,
             })
     );
 

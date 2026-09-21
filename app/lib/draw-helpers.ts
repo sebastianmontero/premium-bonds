@@ -15,7 +15,7 @@ import type {
   DrawStatusCountMap,
   PrizeHistoryEntry,
 } from "../types";
-import { formatTokenAmount, formatTicketNumber } from "./formatters";
+import { formatCurrency, formatTicketNumber } from "./formatters";
 
 /**
  * Single source of truth for canonical draw lifecycle priority order.
@@ -1171,6 +1171,9 @@ export function formatWinnerShareMessage(
 ): string {
   const permalink = buildDrawWinnerPermalink(cycleId, winner.winnerIndex);
   const ticket = formatTicketNumber(winner.winningTicketIndex);
-  const amount = formatTokenAmount(winner.amountOwed, tokenDecimals);
-  return `Checked YieldBonds Draw #${cycleId} - bond ${ticket} won ${amount} ${tokenSymbol}! 🚀 Verified on-chain at ${permalink}`;
+  const amount = formatCurrency(winner.amountOwed, {
+    tokenSymbol,
+    decimals: tokenDecimals,
+  });
+  return `Checked YieldBonds Draw #${cycleId} - bond ${ticket} won ${amount}! 🚀 Verified on-chain at ${permalink}`;
 }

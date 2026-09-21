@@ -18,7 +18,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
         bonds: 5,
         amountUsdc: 50_000_000n,
       });
-      assert.strictEqual(desc, "Deposited 50.00 USDC → +5 tickets");
+      assert.strictEqual(desc, "Deposited $50.00 → +5 tickets");
     });
 
     it("should format withdraw activity description", () => {
@@ -27,7 +27,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
         bonds: 2,
         amountUsdc: 20_000_000,
       });
-      assert.strictEqual(desc, "Sold 2 bonds (20.00 USDC) · Pending settle");
+      assert.strictEqual(desc, "Sold 2 bonds ($20.00) · Pending settle");
     });
 
     it("should format auto-reinvest activity description", () => {
@@ -37,10 +37,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
         amountUsdc: 30_000_000n,
         cycleId: 42,
       });
-      assert.strictEqual(
-        desc,
-        "Draw #42 reinvested: +3 tickets from 30.00 USDC"
-      );
+      assert.strictEqual(desc, "Draw #42 reinvested: +3 tickets from $30.00");
     });
 
     it("should format win activity description", () => {
@@ -50,7 +47,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       });
       assert.strictEqual(
         desc,
-        "Claimed accumulated winnings of 15.50 USDC · Pending settle"
+        "Claimed accumulated winnings of $15.50 · Pending settle"
       );
     });
 
@@ -62,7 +59,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       });
       assert.strictEqual(
         bondSale,
-        "Claimed settled bond principal of 10.00 USDC to wallet"
+        "Claimed settled bond principal of $10.00 to wallet"
       );
 
       const feeWithdrawal = formatActivityDescription({
@@ -72,7 +69,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       });
       assert.strictEqual(
         feeWithdrawal,
-        "Claimed settled fees of 2.50 USDC to wallet"
+        "Claimed settled fees of $2.50 to wallet"
       );
 
       const prizeClaim = formatActivityDescription({
@@ -82,7 +79,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       });
       assert.strictEqual(
         prizeClaim,
-        "Claimed settled prize winnings of 50.00 USDC to wallet"
+        "Claimed settled prize winnings of $50.00 to wallet"
       );
 
       const fallback = formatActivityDescription({
@@ -91,7 +88,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       });
       assert.strictEqual(
         fallback,
-        "Claimed settled redemption of 5.00 USDC to wallet"
+        "Claimed settled redemption of $5.00 to wallet"
       );
     });
   });
@@ -108,10 +105,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       assert.strictEqual(entry.type, "deposit");
       assert.strictEqual(entry.amount, 100_000_000);
       assert.strictEqual(entry.txSignature, "5xYz1234MockSignature5678");
-      assert.strictEqual(
-        entry.description,
-        "Deposited 100.00 USDC → +10 tickets"
-      );
+      assert.strictEqual(entry.description, "Deposited $100.00 → +10 tickets");
       assert.match(entry.id, /^act-deposit-\d+-[a-z0-9]+$/);
       assert.ok(!isNaN(Date.parse(entry.date)));
     });
