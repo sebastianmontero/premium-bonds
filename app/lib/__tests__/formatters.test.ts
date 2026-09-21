@@ -8,6 +8,7 @@ import {
   getTokenFormattingConfig,
   formatLiveYieldMetric,
   getLiveYieldFormatter,
+  formatTierPayoutAmount,
   DEFAULT_LIVE_YIELD_PRECISION,
   USDC_DECIMALS,
   formatTicketNumber,
@@ -124,6 +125,44 @@ describe("Currency & Token Formatters Unit Tests", () => {
       const formatter = getLiveYieldFormatter(6);
       assert.strictEqual(formatter.format(49.5), "49.500000");
       assert.strictEqual(formatter.format(0.000001), "0.000001");
+    });
+  });
+
+  describe("Tier Payout Amount Formatting (formatTierPayoutAmount)", () => {
+    it("should format USDC payout amount with 6 decimals by default", () => {
+      assert.strictEqual(
+        formatTierPayoutAmount(1250.003412, "USDC"),
+        "$1,250.003412"
+      );
+      assert.strictEqual(formatTierPayoutAmount(10, "USDC"), "$10.000000");
+      assert.strictEqual(formatTierPayoutAmount(0.000027, "USDC"), "$0.000027");
+    });
+
+    it("should format non-USD token payout amount with 6 decimals and symbol suffix", () => {
+      assert.strictEqual(
+        formatTierPayoutAmount(12.345678, "SOL"),
+        "12.345678 SOL"
+      );
+      assert.strictEqual(formatTierPayoutAmount(0.05, "SOL"), "0.050000 SOL");
+    });
+
+    it("should respect explicit custom precision parameters", () => {
+      assert.strictEqual(
+        formatTierPayoutAmount(1250.003412, "USDC", 2),
+        "$1,250.00"
+      );
+      assert.strictEqual(
+        formatTierPayoutAmount(1250.003412, "USDC", 4),
+        "$1,250.0034"
+      );
+      assert.strictEqual(
+        formatTierPayoutAmount(12.345678, "SOL", 2),
+        "12.35 SOL"
+      );
+      assert.strictEqual(
+        formatTierPayoutAmount(12.345678, "SOL", 4),
+        "12.3457 SOL"
+      );
     });
   });
 
