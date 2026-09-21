@@ -168,17 +168,17 @@ export function DrawWinnerDetailView({
       <div className="p-3.5 sm:p-4 rounded-xl bg-surface-container/20 border border-surface-bright/10 shrink-0">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {/* Tier */}
-          <div className="flex flex-col justify-between">
+          <div className="flex flex-col justify-between min-w-0">
             <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
               {t("tierColumn")}
             </p>
             <div className="mt-1">
-              <TierBadge tierIndex={winner.tierIndex} size="md" format="full" />
+              <TierBadge tierIndex={winner.tierIndex} size="md" />
             </div>
           </div>
 
           {/* Amount Won */}
-          <div className="flex flex-col justify-between">
+          <div className="flex flex-col justify-between min-w-0">
             <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
               {t("amountWonColumn")}
             </p>
@@ -197,7 +197,7 @@ export function DrawWinnerDetailView({
           </div>
 
           {/* Winning Bond */}
-          <div className="flex flex-col justify-between">
+          <div className="flex flex-col justify-between min-w-0">
             <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
               {t("winningBondColumn")}
             </p>
@@ -222,7 +222,7 @@ export function DrawWinnerDetailView({
           </div>
 
           {/* Status */}
-          <div className="flex flex-col justify-between">
+          <div className="flex flex-col justify-between min-w-0">
             <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
               {t("statusColumn")}
             </p>
