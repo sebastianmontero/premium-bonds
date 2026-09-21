@@ -51,6 +51,8 @@ anchor/timestamp_before
 anchor/cargo_test_output.txt
 anchor/target/
 anchor/mutants.out*/
+anchor/keys/*.json
+!anchor/keys/.gitkeep
 
 # localnet orchestration ignores
 scripts/*-key.json

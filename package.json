@@ -1,8 +1,9 @@
 {
   "name": "solana-temp",
   "scripts": {
-    "build": "npm run codegen && next build",
-    "ci": "npm run codegen && npm run scan:i18n && npm run test && npm run build && npm run lint && npm run format:check",
+    "sync:keys": "tsx scripts/sync-keys.ts",
+    "build": "npm run sync:keys && npm run codegen && next build",
+    "ci": "npm run sync:keys && npm run codegen && npm run scan:i18n && npm run test && npm run build && npm run lint && npm run format:check",
     "codegen": "tsx scripts/generate-client.ts",
     "dev": "next dev",
     "format": "prettier --write .",

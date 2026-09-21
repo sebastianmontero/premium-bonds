@@ -11,6 +11,7 @@ import {
   waitForWebhookEndpoint,
 } from "./webhook-relayer";
 import { sendMockWebhookEvent, sendMockWebhookFixture } from "./mock-webhook";
+import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 
 const TEST_USER = "User111111111111111111111111111111111111111";
 const TEST_ADMIN = "Admin11111111111111111111111111111111111111";
@@ -333,9 +334,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
           fee: 5000n as any,
           preBalances: [1000000000n as any, 50000000n as any],
           postBalances: [999995000n as any, 50000000n as any],
-          logMessages: [
-            "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
-          ],
+          logMessages: [`Program ${PROGRAM_ID} invoke [1]`],
           innerInstructions: [],
         },
       },

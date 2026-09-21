@@ -34,7 +34,7 @@ use anchor_spl::token_interface::{
     self, Burn, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked,
 };
 
-declare_id!("6KZkzJ8iYBHsTg2JynFt6WfT1scUReR3FTyjoE5WVwBj");
+declare_id!("GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA");
 
 /// Seed used to derive the lending market authority PDA (matches real Kamino convention).
 pub const LMA_SEED: &[u8] = b"lma";

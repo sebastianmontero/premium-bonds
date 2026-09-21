@@ -1,4 +1,5 @@
 import { serializeAnchorEvent } from "../app/lib/anchor-event-serializer";
+import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 import type { HeliusTransactionPayload } from "../app/lib/types/webhook";
 
 export interface MockEventOptions {
@@ -25,9 +26,7 @@ export async function sendMockWebhookEvent(
     process.env.HELIUS_WEBHOOK_SECRET ||
     "pb_webhook_secret_local_dev_123";
   const programId =
-    options.programId ||
-    process.env.NEXT_PUBLIC_PROGRAM_ID ||
-    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx";
+    options.programId || process.env.NEXT_PUBLIC_PROGRAM_ID || PROGRAM_ID;
 
   const logString = serializeAnchorEvent(eventType, eventData);
   const sig =

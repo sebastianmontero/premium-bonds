@@ -3,7 +3,7 @@
 //! **⚠️  TEST-ONLY — DO NOT DEPLOY TO ANY NETWORK ⚠️**
 //!
 //! This program impersonates Huma Finance at the same program ID
-//! (`XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw`) so that LiteSVM
+//! (`4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg`) so that LiteSVM
 //! integration tests can exercise the full CPI path through `buy_bonds`,
 //! `sell_bonds`, `claim_prize`, `claim_redemption`, `withdraw_fees`,
 //! and `initialize_huma_lender`.
@@ -38,7 +38,7 @@ use anchor_spl::token_interface::{
     self, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked,
 };
 
-declare_id!("XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw");
+declare_id!("4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg");
 
 /// Seed used to derive the pool authority PDA.
 pub const POOL_AUTHORITY_SEED: &[u8] = b"pool_authority";

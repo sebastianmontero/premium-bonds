@@ -44,6 +44,8 @@ import {
   decodeAccountBase64Data,
   parsePendingRedemption,
   type PendingRedemption,
+  PROGRAM_ID,
+  HUMA_PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
 import {
   TICKET_REGISTRY_DISCRIMINATOR,
@@ -60,8 +62,8 @@ import { runDbCleanCli } from "./db-clean";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";
-const PROGRAM_ID_STR = "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx";
-const MOCK_HUMA_PROGRAM_ID_STR = "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw";
+const PROGRAM_ID_STR = PROGRAM_ID;
+const MOCK_HUMA_PROGRAM_ID_STR = HUMA_PROGRAM_ID;
 const STATE_DIR = path.resolve(__dirname, "localnet-state");
 const DB_DIR = path.resolve(STATE_DIR, "dbs");
 const SNAPSHOT_DIR = path.resolve(STATE_DIR, "snapshots");
@@ -624,6 +626,10 @@ function writeEnvLocal(
   const envPath = path.resolve(process.cwd(), ".env.local");
   const localnetVars: Record<string, string> = {
     NEXT_PUBLIC_ENVIRONMENT: "localnet",
+    NEXT_PUBLIC_PROGRAM_ID: PROGRAM_ID_STR,
+    NEXT_PUBLIC_HUMA_PROGRAM_ID: MOCK_HUMA_PROGRAM_ID_STR,
+    NEXT_PUBLIC_USDC_MINT: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    NEXT_PUBLIC_PST_MINT: addresses.pstMint,
     HELIUS_WEBHOOK_SECRET: "pb_webhook_secret_local_dev_123",
     NEXT_PUBLIC_HUMA_CONFIG: MOCK_HUMA_PROGRAM_ID_STR,
     NEXT_PUBLIC_HUMA_POOL_CONFIG: MOCK_HUMA_PROGRAM_ID_STR,

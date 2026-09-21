@@ -63,7 +63,7 @@ export type ClaimNonReinvestedWinningsInstruction<
   TAccountPoolPstVault extends string | AccountMeta<string> = string,
   TAccountPendingRedemption extends string | AccountMeta<string> = string,
   TAccountHumaProgram extends string | AccountMeta<string> =
-    "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+    "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
   TAccountHumaConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolState extends string | AccountMeta<string> = string,
@@ -80,7 +80,7 @@ export type ClaimNonReinvestedWinningsInstruction<
     "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
+    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -356,7 +356,7 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   // Resolve default values.
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;
+      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
@@ -371,7 +371,7 @@ export async function getClaimNonReinvestedWinningsInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -597,7 +597,7 @@ export function getClaimNonReinvestedWinningsInstruction<
   // Resolve default values.
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;
+      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
@@ -609,7 +609,7 @@ export function getClaimNonReinvestedWinningsInstruction<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");

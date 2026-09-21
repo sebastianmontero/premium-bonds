@@ -64,7 +64,7 @@ export type InitializeGlobalInstruction<
   TAccountJobsAccount extends string | AccountMeta<string> = string,
   TAccountProgramData extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
+    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -224,7 +224,7 @@ export async function getInitializeGlobalInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
@@ -347,7 +347,7 @@ export function getInitializeGlobalInstruction<
   // Resolve default values.
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =

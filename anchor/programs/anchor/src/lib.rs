@@ -16,7 +16,7 @@ pub use error::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx");
+declare_id!("3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos");
 
 /// The YieldBonds smart contract program.
 ///

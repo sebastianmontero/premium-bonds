@@ -27,7 +27,7 @@ describe("Vercel Environment Synchronization Tooling (sync-vercel-envs)", () => 
       NEXT_PUBLIC_SOLANA_RPC_URL: "https://api.devnet.solana.com",
       NEXT_PUBLIC_PROGRAM_ID: "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
       NEXT_PUBLIC_HUMA_PROGRAM_ID:
-        "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+        "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
       NEXT_PUBLIC_USDC_MINT: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       NEXT_PUBLIC_PST_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
       NEXT_PUBLIC_TICKET_REGISTRY:
@@ -36,15 +36,15 @@ describe("Vercel Environment Synchronization Tooling (sync-vercel-envs)", () => 
       NEXT_PUBLIC_FEE_WALLET: "9XJWqjgrmpWhe5FoUUBLwj2ZayqAuUNiAg9TyM213def",
       NEXT_PUBLIC_RANDOMNESS_ACCOUNT:
         "2puduKxvHBpBodjkBsfgeHPkpofDkiQoaaeKFcXcube2",
-      NEXT_PUBLIC_HUMA_CONFIG: "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+      NEXT_PUBLIC_HUMA_CONFIG: "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
       NEXT_PUBLIC_HUMA_POOL_CONFIG:
-        "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+        "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
       NEXT_PUBLIC_HUMA_POOL_STATE:
         "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
       NEXT_PUBLIC_HUMA_MODE_CONFIG:
-        "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+        "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
       NEXT_PUBLIC_HUMA_LENDER_STATE:
-        "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+        "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
       NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN:
         "7FEoVqfhcANGrejxH7SYxuUqGpJKcCdmGk7DoiUZRM8T",
       NEXT_PUBLIC_HUMA_MODE_MINT:

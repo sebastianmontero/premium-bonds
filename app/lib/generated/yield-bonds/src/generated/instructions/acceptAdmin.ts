@@ -62,7 +62,7 @@ export type AcceptAdminInstruction<
   TAccountNewAdmin extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
+    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -174,7 +174,7 @@ export async function getAcceptAdminInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -250,7 +250,7 @@ export function getAcceptAdminInstruction<
   // Resolve default values.
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { parseTransactionError, ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
+import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
@@ -94,9 +95,9 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
   it("should parse hex error code from program logs", () => {
     const parsedByHexLog = parseTransactionError({
       logs: [
-        "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
+        `Program ${PROGRAM_ID} invoke [1]`,
         "Program log: Custom error: 0x1770",
-        "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx failed: custom program error: 0x1770",
+        `Program ${PROGRAM_ID} failed: custom program error: 0x1770`,
       ],
     });
 

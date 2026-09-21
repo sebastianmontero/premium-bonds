@@ -9,6 +9,7 @@ import {
   getErrorCategoryTheme,
   SPL_TOKEN_ERRORS,
 } from "../errors";
+import { PROGRAM_ID } from "../bonds-sdk";
 
 describe("Transaction Error Parser & Sanitization Suite", () => {
   it("should parse Anchor framework error 0xbbd (3005 AccountNotEnoughKeys)", () => {
@@ -75,8 +76,8 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
             error:
               "Transaction simulation failed: Error processing Instruction 1: custom program error: 0xbbd",
             logs: [
-              "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
-              "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx failed: custom program error: 0xbbd",
+              `Program ${PROGRAM_ID} invoke [1]`,
+              `Program ${PROGRAM_ID} failed: custom program error: 0xbbd`,
             ],
           },
         ],
@@ -359,9 +360,9 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       message: "Internal JSON-RPC simulation error",
       data: {
         logs: [
-          "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
+          `Program ${PROGRAM_ID} invoke [1]`,
           "Program log: AnchorError thrown in programs/yield_bonds/src/instructions/claim_redemption.rs:42. Error Code: HumaRedemptionNotSettled. Error Number: 6020. Error Message: Huma redemption request is not yet settled or approved.",
-          "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx failed: custom program error: 0x1784",
+          `Program ${PROGRAM_ID} failed: custom program error: 0x1784`,
         ],
       },
     };

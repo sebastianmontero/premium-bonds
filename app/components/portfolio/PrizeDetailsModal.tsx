@@ -251,10 +251,7 @@ export default function PrizeDetailsModal({
                 {t("tierWon")}
               </p>
               <div className="mt-1">
-                <TierBadge
-                  tierIndex={entry.tierIndex}
-                  size="md"
-                />
+                <TierBadge tierIndex={entry.tierIndex} size="md" />
               </div>
             </div>
 

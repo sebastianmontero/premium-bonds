@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { checkRpcHealth } from "./utils";
 import { resolveSolanaRpcUrl } from "../app/lib/network";
+import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 import type {
   HeliusTransactionPayload,
   WebhookRelayerConfig,
@@ -348,8 +349,7 @@ if (require.main === module) {
   );
   const programId = getArg(
     "--program-id",
-    process.env.NEXT_PUBLIC_PROGRAM_ID ||
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx"
+    process.env.NEXT_PUBLIC_PROGRAM_ID || PROGRAM_ID
   );
   const pollIntervalMs = Number(getArg("--poll-interval", "800"));
   const network = getArg(

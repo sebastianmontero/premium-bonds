@@ -62,7 +62,7 @@ export type InitializeHumaLenderInstruction<
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountPoolPstVault extends string | AccountMeta<string> = string,
   TAccountHumaProgram extends string | AccountMeta<string> =
-    "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw",
+    "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg",
   TAccountHumaConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolConfig extends string | AccountMeta<string> = string,
   TAccountHumaPoolState extends string | AccountMeta<string> = string,
@@ -333,7 +333,7 @@ export async function getInitializeHumaLenderInstructionAsync<
   }
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;
+      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =
@@ -552,7 +552,7 @@ export function getInitializeHumaLenderInstruction<
   // Resolve default values.
   if (!accounts.humaProgram.value) {
     accounts.humaProgram.value =
-      "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw" as Address<"XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw">;
+      "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg" as Address<"4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg">;
   }
   if (!accounts.tokenProgram.value) {
     accounts.tokenProgram.value =

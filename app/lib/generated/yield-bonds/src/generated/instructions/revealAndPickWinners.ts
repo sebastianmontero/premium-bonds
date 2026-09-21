@@ -67,7 +67,7 @@ export type RevealAndPickWinnersInstruction<
     "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> =
-    "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx",
+    "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -240,7 +240,7 @@ export async function getRevealAndPickWinnersInstructionAsync<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -370,7 +370,7 @@ export function getRevealAndPickWinnersInstruction<
   }
   if (!accounts.program.value) {
     accounts.program.value =
-      "CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx" as Address<"CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx">;
+      "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" as Address<"3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");

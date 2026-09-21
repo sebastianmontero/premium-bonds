@@ -28,6 +28,7 @@ import {
   buildClaimRedemptionInstructions,
   RedemptionType,
   ATA_PROGRAM_ID,
+  PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
 import { TEST_ADDRESSES } from "../app/lib/test-harness";
 
@@ -68,9 +69,9 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
         message: "Simulation failed",
         context: {
           logs: [
-            "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx invoke [1]",
+            `Program ${PROGRAM_ID} invoke [1]`,
             "Program log: Instruction: HarvestYieldAndCommit",
-            "Program CRLD15aDrBh12cNn149dAjaqdV2sWkccFM7y1HKqKZx failed: custom program error: 0x1770",
+            `Program ${PROGRAM_ID} failed: custom program error: 0x1770`,
           ],
         },
       };

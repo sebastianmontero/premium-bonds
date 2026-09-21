@@ -1,6 +1,7 @@
 import {
   createSolanaRpc,
   address,
+  Address,
   AccountRole,
   getBase58Decoder,
   getBase58Encoder,
@@ -13,11 +14,20 @@ import {
   checkRpcHealth,
   loadKeypair,
   sendTx,
-  updateFileContent,
   upsertEnvFile,
   readEnvFile,
 } from "./utils";
 import {
+  CANONICAL_KEYPAIRS,
+  ProgramKeypairConfig,
+  resolveProgramKeypairPath,
+  syncKeypairs,
+} from "./sync-keys";
+import {
+  PROGRAM_ID,
+  HUMA_PROGRAM_ID,
+  findProgramDataPda,
+  decodeAccountBase64Data,
   findGlobalConfigPda,
   findPrizePoolPda,
   findPoolVaultAccountPda,
@@ -34,6 +44,55 @@ import {
   PrizeTierInput,
 } from "../app/lib/bonds-sdk";
 
+export interface ProgramDeployConfig extends ProgramKeypairConfig {
+  readonly soPath: string;
+}
+
+const DEVNET_PROGRAM_CONFIGS: readonly ProgramDeployConfig[] = [
+  {
+    name: "mock_huma",
+    filename: "mock_huma-keypair.json",
+    expectedAddress: HUMA_PROGRAM_ID,
+    envVar: "DEVNET_MOCK_HUMA_KEYPAIR",
+    soPath: path.resolve(
+      __dirname,
+      "..",
+      "anchor",
+      "target",
+      "deploy",
+      "mock_huma.so"
+    ),
+  },
+  {
+    name: "mock_kamino",
+    filename: "mock_kamino-keypair.json",
+    expectedAddress: address("GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA"),
+    envVar: "DEVNET_MOCK_KAMINO_KEYPAIR",
+    soPath: path.resolve(
+      __dirname,
+      "..",
+      "anchor",
+      "target",
+      "deploy",
+      "mock_kamino.so"
+    ),
+  },
+  {
+    name: "anchor",
+    filename: "anchor-keypair.json",
+    expectedAddress: PROGRAM_ID,
+    envVar: "DEVNET_ANCHOR_KEYPAIR",
+    soPath: path.resolve(
+      __dirname,
+      "..",
+      "anchor",
+      "target",
+      "deploy",
+      "anchor.so"
+    ),
+  },
+];
+
 function generateRandomAddress(): string {
   const keyPair = crypto.generateKeyPairSync("ed25519");
   const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
@@ -42,14 +101,20 @@ function generateRandomAddress(): string {
 }
 
 // Constants
-const DEVNET_RPC_URL = "https://api.devnet.solana.com";
+const DEVNET_RPC_URL =
+  process.env.SOLANA_RPC_URL ||
+  process.env.DEVNET_RPC_URL ||
+  "https://api.devnet.solana.com";
+const DEPLOY_COMPUTE_UNIT_PRICE =
+  process.env.DEPLOY_COMPUTE_UNIT_PRICE || "1000";
 const STATE_DIR = path.resolve(__dirname, "devnet-state");
 
 function printUsage() {
   console.log("Usage: npm run devnet [command] [args]");
   console.log("Commands:");
+  console.log("  deploy [keypair]      Deploys or upgrades programs to devnet");
   console.log(
-    "  deploy                Checks/generates keypairs, syncs IDs, compiles, and deploys programs to devnet"
+    "  clean-buffers [keypair] Reclaims SOL from aborted deploy buffers on devnet"
   );
   console.log(
     "  init [keypair]        Runs on-chain initialization sequence on devnet"
@@ -75,110 +140,152 @@ function serializeInitializeMockPoolState(): Uint8Array {
   return getInitializeMockPoolStateInstructionDataEncoder().encode({});
 }
 
-async function handleDeploy() {
-  console.log("Checking deploy keypairs...");
-  const deployDir = path.resolve(__dirname, "..", "anchor", "target", "deploy");
-  if (!fs.existsSync(deployDir)) {
-    fs.mkdirSync(deployDir, { recursive: true });
+const PROGRAM_DATA_AUTHORITY_FLAG_OFFSET = 12;
+const PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET = 13;
+const PUBKEY_LENGTH = 32;
+const MIN_PROGRAM_DATA_HEADER_LEN =
+  PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET + PUBKEY_LENGTH;
+
+export async function getProgramDeployStatus(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  programAddress: Address
+): Promise<{ isDeployed: boolean; upgradeAuthority: Address | null }> {
+  const account = await rpc
+    .getAccountInfo(programAddress, { encoding: "base64" })
+    .send();
+  if (!account.value || !account.value.executable) {
+    return { isDeployed: false, upgradeAuthority: null };
   }
 
-  const anchorKeyPath = path.resolve(deployDir, "anchor-keypair.json");
-  const mockHumaKeyPath = path.resolve(deployDir, "mock_huma-keypair.json");
+  const programDataAddress = await findProgramDataPda(programAddress);
+  const dataAccount = await rpc
+    .getAccountInfo(programDataAddress, { encoding: "base64" })
+    .send();
+  if (!dataAccount.value) {
+    return { isDeployed: true, upgradeAuthority: null };
+  }
 
-  if (!fs.existsSync(anchorKeyPath)) {
-    console.log("Generating new deploy keypair for YieldBonds program...");
+  const raw = decodeAccountBase64Data(dataAccount.value);
+  if (!raw || raw.length < MIN_PROGRAM_DATA_HEADER_LEN) {
+    return { isDeployed: true, upgradeAuthority: null };
+  }
+
+  // Verify UpgradeableLoaderState::ProgramData variant tag (3)
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (view.getUint32(0, true) !== 3) {
+    return { isDeployed: true, upgradeAuthority: null };
+  }
+
+  const hasAuthority = raw[PROGRAM_DATA_AUTHORITY_FLAG_OFFSET] === 1;
+  const authority = hasAuthority
+    ? getBase58Decoder().decode(
+        raw.subarray(
+          PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET,
+          PROGRAM_DATA_AUTHORITY_PUBKEY_OFFSET + PUBKEY_LENGTH
+        )
+      )
+    : null;
+
+  return {
+    isDeployed: true,
+    upgradeAuthority: authority ? address(authority) : null,
+  };
+}
+
+async function deployOrUpgradeProgram(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  prog: ProgramDeployConfig,
+  payerKeypairPath: string,
+  payerAddress: Address
+): Promise<void> {
+  const status = await getProgramDeployStatus(rpc, prog.expectedAddress);
+
+  if (status.isDeployed) {
+    if (status.upgradeAuthority === null) {
+      throw new Error(
+        `Program ${prog.name} (${prog.expectedAddress}) is immutable and cannot be upgraded.`
+      );
+    }
+    if (status.upgradeAuthority !== payerAddress) {
+      throw new Error(
+        `Authority mismatch for ${prog.name}!\n` +
+          `On-chain Upgrade Authority: ${status.upgradeAuthority}\n` +
+          `Signer Keypair: ${payerAddress}\n` +
+          `Please use the authorized wallet to perform upgrades.`
+      );
+    }
+
+    console.log(
+      `Program ${prog.name} (${prog.expectedAddress}) is initialized on Devnet. Performing upgrade...`
+    );
     execFileSync(
-      "solana-keygen",
-      ["new", "-o", anchorKeyPath, "--no-passphrase"],
-      {
-        stdio: "inherit",
-      }
+      "solana",
+      [
+        "program",
+        "deploy",
+        prog.soPath,
+        "--program-id",
+        prog.expectedAddress,
+        "--fee-payer",
+        payerKeypairPath,
+        "--upgrade-authority",
+        payerKeypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+        "--with-compute-unit-price",
+        DEPLOY_COMPUTE_UNIT_PRICE,
+      ],
+      { stdio: "inherit" }
+    );
+  } else {
+    console.log(
+      `Program ${prog.name} not found on Devnet. Performing Day-1 initial deployment...`
+    );
+    const keyPath = await resolveProgramKeypairPath(prog);
+
+    execFileSync(
+      "solana",
+      [
+        "program",
+        "deploy",
+        prog.soPath,
+        "--program-id",
+        keyPath,
+        "--fee-payer",
+        payerKeypairPath,
+        "--upgrade-authority",
+        payerKeypairPath,
+        "--url",
+        DEVNET_RPC_URL,
+        "--with-compute-unit-price",
+        DEPLOY_COMPUTE_UNIT_PRICE,
+      ],
+      { stdio: "inherit" }
     );
   }
+}
 
-  if (!fs.existsSync(mockHumaKeyPath)) {
-    console.log("Generating new deploy keypair for Mock Huma program...");
-    execFileSync(
-      "solana-keygen",
-      ["new", "-o", mockHumaKeyPath, "--no-passphrase"],
-      {
-        stdio: "inherit",
-      }
-    );
+async function handleDeploy(args: string[]) {
+  const payerKeypairPath =
+    args[0] ||
+    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  console.log(
+    `Loading fee payer / upgrade authority keypair from ${payerKeypairPath}...`
+  );
+  const payerSigner = await loadKeypair(payerKeypairPath);
+  const payerAddress = payerSigner.address;
+
+  console.log("Verifying Devnet RPC connection...");
+  const isHealthy = await checkRpcHealth(DEVNET_RPC_URL);
+  if (!isHealthy) {
+    console.error("Error: Devnet RPC is not active or reachable.");
+    process.exit(1);
   }
 
-  const anchorAddress = execFileSync(
-    "solana",
-    ["address", "-k", anchorKeyPath],
-    {
-      encoding: "utf-8",
-    }
-  ).trim();
-  const mockHumaAddress = execFileSync(
-    "solana",
-    ["address", "-k", mockHumaKeyPath],
-    {
-      encoding: "utf-8",
-    }
-  ).trim();
+  const rpc = createSolanaRpc(DEVNET_RPC_URL);
 
-  console.log(`Program IDs:
-  anchor: ${anchorAddress}
-  mock_huma: ${mockHumaAddress}
-`);
-
-  console.log(
-    "Syncing Program IDs in Cargo & Anchor.toml using anchor keys sync..."
-  );
-  execFileSync("anchor", ["keys", "sync"], {
-    cwd: path.resolve(__dirname, "..", "anchor"),
-    stdio: "inherit",
-    env: { ...process.env, NO_DNA: "1" },
-  });
-
-  console.log(
-    "Updating program ID references in constants.rs and bonds-sdk.ts..."
-  );
-  const constantsPath = path.resolve(
-    __dirname,
-    "..",
-    "anchor",
-    "programs",
-    "anchor",
-    "src",
-    "constants.rs"
-  );
-  const bondsSdkPath = path.resolve(
-    __dirname,
-    "..",
-    "app",
-    "lib",
-    "bonds-sdk.ts"
-  );
-
-  // Update mock Huma program ID constant in constants.rs
-  const humaConstantRegex =
-    /pub const HUMA_PROGRAM_ID: Pubkey =\s*solana_program::pubkey!\("[^"]+"\);/g;
-  updateFileContent(
-    constantsPath,
-    humaConstantRegex,
-    `pub const HUMA_PROGRAM_ID: Pubkey =\n    solana_program::pubkey!("${mockHumaAddress}");`
-  );
-
-  // Update PROGRAM_ID and HUMA_PROGRAM_ID in bonds-sdk.ts
-  const anchorSdkRegex = /export const PROGRAM_ID = address\(\s*"[^"]+"\s*\);/g;
-  const humaSdkRegex =
-    /export const HUMA_PROGRAM_ID = address\(\s*"[^"]+"\s*\);/g;
-  updateFileContent(
-    bondsSdkPath,
-    anchorSdkRegex,
-    `export const PROGRAM_ID = address(\n  "${anchorAddress}"\n);`
-  );
-  updateFileContent(
-    bondsSdkPath,
-    humaSdkRegex,
-    `export const HUMA_PROGRAM_ID = address(\n  "${mockHumaAddress}"\n);`
-  );
+  console.log("Ensuring keypairs are synchronized...");
+  await syncKeypairs();
 
   console.log("Compiling contracts...");
   execFileSync("anchor", ["build"], {
@@ -187,29 +294,34 @@ async function handleDeploy() {
     env: { ...process.env, NO_DNA: "1" },
   });
 
-  console.log("Deploying Mock Huma program to Devnet...");
-  execFileSync(
-    "anchor",
-    ["deploy", "--provider.cluster", "devnet", "--program-name", "mock_huma"],
-    {
-      cwd: path.resolve(__dirname, "..", "anchor"),
-      stdio: "inherit",
-      env: { ...process.env, NO_DNA: "1" },
-    }
-  );
+  for (const prog of DEVNET_PROGRAM_CONFIGS) {
+    await deployOrUpgradeProgram(rpc, prog, payerKeypairPath, payerAddress);
+  }
 
-  console.log("Deploying main YieldBonds program to Devnet...");
-  execFileSync(
-    "anchor",
-    ["deploy", "--provider.cluster", "devnet", "--program-name", "anchor"],
-    {
-      cwd: path.resolve(__dirname, "..", "anchor"),
-      stdio: "inherit",
-      env: { ...process.env, NO_DNA: "1" },
-    }
-  );
+  console.log("✓ Deployment pipeline completed successfully!");
+}
 
-  console.log("Deployment completed successfully!");
+async function handleCleanBuffers(args: string[]) {
+  const payerKeypairPath =
+    args[0] ||
+    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  console.log(
+    `Reclaiming unused program deploy buffers with fee payer / authority ${payerKeypairPath}...`
+  );
+  execFileSync(
+    "solana",
+    [
+      "program",
+      "close",
+      "--buffers",
+      "--fee-payer",
+      payerKeypairPath,
+      "--url",
+      DEVNET_RPC_URL,
+    ],
+    { stdio: "inherit" }
+  );
+  console.log("✓ Buffer cleanup complete.");
 }
 
 async function handleInit(args: string[]) {
@@ -249,26 +361,8 @@ async function handleInit(args: string[]) {
     fs.mkdirSync(STATE_DIR, { recursive: true });
   }
 
-  const deployDir = path.resolve(__dirname, "..", "anchor", "target", "deploy");
-  const anchorKeyPath = path.resolve(deployDir, "anchor-keypair.json");
-  const mockHumaKeyPath = path.resolve(deployDir, "mock_huma-keypair.json");
-
-  let anchorProgramId = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos";
-  if (fs.existsSync(anchorKeyPath)) {
-    anchorProgramId = execFileSync("solana", ["address", "-k", anchorKeyPath], {
-      encoding: "utf-8",
-    }).trim();
-  }
-  let mockHumaProgramId = "XqwsiCfGf9UBm3vvkCeL9xCqceHDmBP38T3zRzQicBw";
-  if (fs.existsSync(mockHumaKeyPath)) {
-    mockHumaProgramId = execFileSync(
-      "solana",
-      ["address", "-k", mockHumaKeyPath],
-      {
-        encoding: "utf-8",
-      }
-    ).trim();
-  }
+  const anchorProgramId = PROGRAM_ID;
+  const mockHumaProgramId = HUMA_PROGRAM_ID;
 
   // Create mock Huma state accounts
   console.log("Deriving Huma accounts...");
@@ -1014,7 +1108,10 @@ async function main() {
 
   switch (command) {
     case "deploy":
-      await handleDeploy();
+      await handleDeploy(args.slice(1));
+      break;
+    case "clean-buffers":
+      await handleCleanBuffers(args.slice(1));
       break;
     case "init":
       await handleInit(args.slice(1));
@@ -1035,7 +1132,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("Unhandled error in devnet orchestrator:", err);
-  process.exit(1);
-});
+async function run(): Promise<void> {
+  try {
+    await main();
+  } catch (err) {
+    console.error("Unhandled error in devnet orchestrator:", err);
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  void run();
+}

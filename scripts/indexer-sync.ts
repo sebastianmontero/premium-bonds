@@ -13,10 +13,9 @@ import { PayoutHydratorService } from "../app/lib/indexer/payout-hydrator";
 import { SettlementMonitorService } from "../app/lib/indexer/settlement-monitor";
 import { eq } from "drizzle-orm";
 import { resolveSolanaRpcUrl, getNetworkInfo } from "../app/lib/network";
+import { PROGRAM_ID as CANONICAL_PROGRAM_ID } from "../app/lib/bonds-sdk";
 
-const PROGRAM_ID =
-  process.env.NEXT_PUBLIC_PROGRAM_ID ||
-  "H5uC6b7DkE6wY2aP9L6vJ6K8z5Y1a2b3c4d5e6f7g8h9";
+const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID || CANONICAL_PROGRAM_ID;
 const RPC_URL = resolveSolanaRpcUrl();
 const NETWORK = getNetworkInfo().cluster;
 

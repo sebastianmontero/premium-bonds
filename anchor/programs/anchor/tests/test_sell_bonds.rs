@@ -126,6 +126,19 @@ fn test_sell_bonds_fails_pool_frozen() {
 }
 
 #[test]
+fn test_sell_bonds_fails_invalid_huma_program() {
+    let mut ctx = setup_guard(false, 1, 0, &[]);
+    let fake_huma = Keypair::new().pubkey();
+
+    let res = ctx
+        .sell_builder(1, 0)
+        .with_huma_program(fake_huma)
+        .send(&mut ctx.svm, &ctx.user);
+
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintAddress);
+}
+
+#[test]
 fn test_sell_bonds_fails_zero_quantity() {
     let mut ctx = setup_guard(false, 0, 0, &[]);
     let res = send_sell_guard(&mut ctx, 0, 0);

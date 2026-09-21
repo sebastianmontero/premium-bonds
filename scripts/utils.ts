@@ -306,22 +306,6 @@ export async function sendTx(
 }
 
 /**
- * Updates a matching substring in a text file using RegExp.
- */
-export function updateFileContent(
-  filePath: string,
-  regex: RegExp,
-  replacement: string
-) {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`File not found: ${filePath}`);
-  }
-  const content = fs.readFileSync(filePath, "utf-8");
-  const updated = content.replace(regex, replacement);
-  fs.writeFileSync(filePath, updated, "utf-8");
-}
-
-/**
  * Extract all logs array from error or simulation response across @solana/kit and cause chains.
  */
 export function extractAllLogs(err: unknown): string[] {

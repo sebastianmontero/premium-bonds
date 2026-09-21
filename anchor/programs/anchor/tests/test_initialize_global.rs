@@ -199,6 +199,22 @@ fn test_initialize_global_fails_when_signer_is_not_upgrade_authority() {
     assert_custom_error(result, anchor::error::PremiumBondsError::UnauthorizedAdmin);
 }
 
+/// Initializing global configuration on an immutable program (upgrade_authority == None) must fail.
+#[test]
+fn test_initialize_global_fails_when_program_is_immutable() {
+    let mut svm = setup_svm();
+    setup_program_data(&mut svm, None);
+
+    let caller = Keypair::new();
+    svm.airdrop(&caller.pubkey(), 10_000_000_000).unwrap();
+
+    let guardian = Keypair::new().pubkey();
+    let jobs = Keypair::new().pubkey();
+
+    let res = send_initialize_global(&mut svm, &caller, &caller.pubkey(), &guardian, &jobs);
+    assert_custom_error(res, anchor::error::PremiumBondsError::UnauthorizedAdmin);
+}
+
 /// A transaction that omits the authority signature must be rejected.
 #[test]
 fn test_initialize_global_requires_authority_signature() {
