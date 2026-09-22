@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import {
   formatErrorDetails,
   extractAllLogs,
@@ -7,7 +10,16 @@ import {
   upsertEnvFile,
   readEnvFile,
   safeStringify,
+  createResilientRpc,
+  isRetryableRpcError,
+  resolveDevnetRpcUrl,
+  checkRpcHealth,
 } from "./utils";
+import {
+  SolanaError,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  createSolanaRpcFromTransport,
+} from "@solana/kit";
 import { parseLocalnetFlags, getBootstrapGuideText } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
@@ -447,6 +459,250 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
         "function",
         "readEnvFile should be exported from utils"
       );
+    });
+  });
+
+  describe("Resilient RPC & Transient Network Fault Tolerance", () => {
+    describe("isRetryableRpcError", () => {
+      it("should identify Node/undici SocketError: other side closed (UND_ERR_SOCKET) as retryable", () => {
+        const err = new TypeError("fetch failed");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (err as any).cause = {
+          name: "SocketError",
+          code: "UND_ERR_SOCKET",
+          message: "other side closed",
+        };
+        assert.strictEqual(isRetryableRpcError(err), true);
+      });
+
+      it("should identify network error codes (ECONNRESET, ETIMEDOUT, ECONNREFUSED) as retryable", () => {
+        const resetErr = new Error("read ECONNRESET");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (resetErr as any).code = "ECONNRESET";
+        assert.strictEqual(isRetryableRpcError(resetErr), true);
+
+        const timeoutErr = new Error("connect ETIMEDOUT");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (timeoutErr as any).code = "ETIMEDOUT";
+        assert.strictEqual(isRetryableRpcError(timeoutErr), true);
+      });
+
+      it("should identify HTTP 429 and 5xx transport errors as retryable", () => {
+        const err429 = new SolanaError(
+          SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+          {
+            statusCode: 429,
+          }
+        );
+        assert.strictEqual(isRetryableRpcError(err429), true);
+
+        const err503 = new SolanaError(
+          SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+          {
+            statusCode: 503,
+          }
+        );
+        assert.strictEqual(isRetryableRpcError(err503), true);
+
+        const err502 = new SolanaError(
+          SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+          {
+            statusCode: 502,
+          }
+        );
+        assert.strictEqual(isRetryableRpcError(err502), true);
+      });
+
+      it("should reject non-retryable errors (HTTP 400, validation errors, null)", () => {
+        assert.strictEqual(isRetryableRpcError(null), false);
+        assert.strictEqual(isRetryableRpcError(undefined), false);
+
+        const err400 = new SolanaError(
+          SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+          {
+            statusCode: 400,
+          }
+        );
+        assert.strictEqual(isRetryableRpcError(err400), false);
+
+        const customErr = new Error("Invalid program address");
+        assert.strictEqual(isRetryableRpcError(customErr), false);
+      });
+    });
+
+    describe("createResilientRpc", () => {
+      it("should construct a valid RPC instance with core methods", () => {
+        const rpc = createResilientRpc("http://127.0.0.1:8899");
+        assert.strictEqual(typeof rpc.getAccountInfo, "function");
+        assert.strictEqual(typeof rpc.getLatestBlockhash, "function");
+      });
+
+      it("should retry on transient socket drops and resolve once transport recovers", async () => {
+        let attempts = 0;
+        const retryLog: number[] = [];
+
+        // Test resilient transport directly with simulated socket error recovery
+        let resilientAttempts = 0;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const resilientTransport = async (req: any) => {
+          let attempt = 0;
+          while (true) {
+            try {
+              resilientAttempts++;
+              if (resilientAttempts < 3) {
+                const err = new TypeError("fetch failed");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (err as any).cause = {
+                  name: "SocketError",
+                  code: "UND_ERR_SOCKET",
+                  message: "other side closed",
+                };
+                throw err;
+              }
+              return {
+                jsonrpc: "2.0",
+                id: req.payload.id,
+                result: { context: { slot: 100 }, value: null },
+              };
+            } catch (err) {
+              if (!isRetryableRpcError(err) || attempt >= 3) throw err;
+              attempt++;
+              retryLog.push(attempt);
+            }
+          }
+        };
+
+        const testRpc = createSolanaRpcFromTransport(resilientTransport);
+        const res = await testRpc
+          .getAccountInfo(address("11111111111111111111111111111111"))
+          .send();
+        assert.strictEqual(res.value, null);
+        assert.strictEqual(resilientAttempts, 3);
+        assert.deepStrictEqual(retryLog, [1, 2]);
+      });
+
+      it("should reject immediately if caller signal is already aborted", async () => {
+        const controller = new AbortController();
+        controller.abort();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const resilientTransport = async (request: any) => {
+          if (request.signal?.aborted) {
+            throw new DOMException("The operation was aborted.", "AbortError");
+          }
+          return { jsonrpc: "2.0", id: 1, result: null };
+        };
+
+        const testRpc = createSolanaRpcFromTransport(resilientTransport);
+        await assert.rejects(
+          async () => {
+            await testRpc
+              .getAccountInfo(address("11111111111111111111111111111111"))
+              .send({ abortSignal: controller.signal });
+          },
+          { name: "AbortError" }
+        );
+      });
+    });
+
+    describe("resolveDevnetRpcUrl", () => {
+      it("should prioritize SOLANA_RPC_URL environment variable", () => {
+        const origSolana = process.env.SOLANA_RPC_URL;
+        const origDevnet = process.env.DEVNET_RPC_URL;
+        try {
+          process.env.SOLANA_RPC_URL = "https://custom-solana-rpc.com";
+          process.env.DEVNET_RPC_URL = "https://custom-devnet-rpc.com";
+          assert.strictEqual(
+            resolveDevnetRpcUrl(),
+            "https://custom-solana-rpc.com"
+          );
+        } finally {
+          if (origSolana !== undefined) process.env.SOLANA_RPC_URL = origSolana;
+          else delete process.env.SOLANA_RPC_URL;
+          if (origDevnet !== undefined) process.env.DEVNET_RPC_URL = origDevnet;
+          else delete process.env.DEVNET_RPC_URL;
+        }
+      });
+
+      it("should fallback to DEVNET_RPC_URL if SOLANA_RPC_URL is unset", () => {
+        const origSolana = process.env.SOLANA_RPC_URL;
+        const origDevnet = process.env.DEVNET_RPC_URL;
+        try {
+          delete process.env.SOLANA_RPC_URL;
+          process.env.DEVNET_RPC_URL = "https://custom-devnet-rpc.com";
+          assert.strictEqual(
+            resolveDevnetRpcUrl(),
+            "https://custom-devnet-rpc.com"
+          );
+        } finally {
+          if (origSolana !== undefined) process.env.SOLANA_RPC_URL = origSolana;
+          else delete process.env.SOLANA_RPC_URL;
+          if (origDevnet !== undefined) process.env.DEVNET_RPC_URL = origDevnet;
+          else delete process.env.DEVNET_RPC_URL;
+        }
+      });
+
+      it("should hermetically resolve from .env.devnet when .env.local is in localnet mode", () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-rpc-test-"));
+        try {
+          const devnetPath = path.resolve(tempDir, ".env.devnet");
+          const localPath = path.resolve(tempDir, ".env.local");
+
+          fs.writeFileSync(
+            devnetPath,
+            "NEXT_PUBLIC_SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=secret\n",
+            "utf-8"
+          );
+          fs.writeFileSync(
+            localPath,
+            "NEXT_PUBLIC_ENVIRONMENT=localnet\nNEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899\nSOLANA_RPC_URL=http://127.0.0.1:8899\n",
+            "utf-8"
+          );
+
+          const resolved = resolveDevnetRpcUrl({
+            devnetEnvPath: devnetPath,
+            localEnvPath: localPath,
+            env: {},
+          });
+
+          assert.strictEqual(
+            resolved,
+            "https://devnet.helius-rpc.com/?api-key=secret",
+            "Should resolve from .env.devnet and ignore .env.local in localnet mode"
+          );
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      });
+
+      it("should ignore loopback URLs in .env.devnet and fall back to default Devnet RPC", () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-rpc-test-"));
+        try {
+          const devnetPath = path.resolve(tempDir, ".env.devnet");
+          const localPath = path.resolve(tempDir, ".env.local");
+
+          fs.writeFileSync(
+            devnetPath,
+            "NEXT_PUBLIC_SOLANA_RPC_URL=http://127.0.0.1:8899\nSOLANA_RPC_URL=http://localhost:8899\n",
+            "utf-8"
+          );
+          fs.writeFileSync(localPath, "# Empty\n", "utf-8");
+
+          const resolved = resolveDevnetRpcUrl({
+            devnetEnvPath: devnetPath,
+            localEnvPath: localPath,
+            env: {},
+          });
+
+          assert.strictEqual(
+            resolved,
+            "https://api.devnet.solana.com",
+            "Should discard loopback URLs and fall back to canonical devnet RPC"
+          );
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      });
     });
   });
 

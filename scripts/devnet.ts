@@ -16,7 +16,29 @@ import {
   sendTx,
   upsertEnvFile,
   readEnvFile,
+  createResilientRpc,
+  resolveDevnetRpcUrl,
+  printErrorDetails,
 } from "./utils";
+import {
+  DevnetProtocolAccounts,
+  writeDevnetAddresses,
+  readDevnetAddresses,
+  syncDevnetToActiveEnv,
+  PROJECT_ROOT,
+  LOCAL_ENV_PATH,
+  DEVNET_ENV_PATH,
+} from "./devnet-state";
+
+function loadDevnetAccounts(): DevnetProtocolAccounts {
+  const accounts = readDevnetAddresses();
+  if (!accounts || !accounts.adminAddress || !accounts.humaPoolState) {
+    throw new Error(
+      "Devnet accounts not configured. Please run 'npm run devnet init' or 'npm run devnet sync-env'."
+    );
+  }
+  return accounts as DevnetProtocolAccounts;
+}
 import {
   CANONICAL_KEYPAIRS,
   ProgramKeypairConfig,
@@ -101,10 +123,7 @@ function generateRandomAddress(): string {
 }
 
 // Constants
-const DEVNET_RPC_URL =
-  process.env.SOLANA_RPC_URL ||
-  process.env.DEVNET_RPC_URL ||
-  "https://api.devnet.solana.com";
+const DEVNET_RPC_URL = resolveDevnetRpcUrl();
 const DEPLOY_COMPUTE_UNIT_PRICE =
   process.env.DEPLOY_COMPUTE_UNIT_PRICE || "1000";
 const STATE_DIR = path.resolve(__dirname, "devnet-state");
@@ -118,6 +137,9 @@ function printUsage() {
   );
   console.log(
     "  init [keypair]        Runs on-chain initialization sequence on devnet"
+  );
+  console.log(
+    "  sync-env [target]     Synchronizes .env.devnet state and credentials to .env.local"
   );
   console.log(
     "  fund <wallet> <amount> Funds a wallet with SOL (airdrop) and Mock USDC"
@@ -275,15 +297,6 @@ async function handleDeploy(args: string[]) {
   const payerSigner = await loadKeypair(payerKeypairPath);
   const payerAddress = payerSigner.address;
 
-  console.log("Verifying Devnet RPC connection...");
-  const isHealthy = await checkRpcHealth(DEVNET_RPC_URL);
-  if (!isHealthy) {
-    console.error("Error: Devnet RPC is not active or reachable.");
-    process.exit(1);
-  }
-
-  const rpc = createSolanaRpc(DEVNET_RPC_URL);
-
   console.log("Ensuring keypairs are synchronized...");
   await syncKeypairs();
 
@@ -293,6 +306,17 @@ async function handleDeploy(args: string[]) {
     stdio: "inherit",
     env: { ...process.env, NO_DNA: "1" },
   });
+
+  console.log(`Verifying Devnet RPC connection (${DEVNET_RPC_URL})...`);
+  const isHealthy = await checkRpcHealth(DEVNET_RPC_URL);
+  if (!isHealthy) {
+    console.error(
+      `Error: Devnet RPC is not active or reachable at ${DEVNET_RPC_URL}.`
+    );
+    process.exit(1);
+  }
+
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
 
   for (const prog of DEVNET_PROGRAM_CONFIGS) {
     await deployOrUpgradeProgram(rpc, prog, payerKeypairPath, payerAddress);
@@ -343,10 +367,13 @@ async function handleInit(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(DEVNET_RPC_URL);
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
 
   // Ask for Switchboard randomness account
-  const randomnessAddressStr = process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
+  const devnetEnv = readEnvFile(DEVNET_ENV_PATH);
+  const randomnessAddressStr =
+    process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
+    devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
   if (!randomnessAddressStr) {
     console.log(
       "⚠️  Warning: NEXT_PUBLIC_RANDOMNESS_ACCOUNT environment variable is not defined."
@@ -805,48 +832,23 @@ async function handleInit(args: string[]) {
   await sendTx(rpc, initHumaLenderIx, adminSigner);
 
   // Write addresses configuration files
-  const addressesJson = {
-    humaPoolState: humaPoolStateSigner.address,
+  const devnetAccounts: DevnetProtocolAccounts = {
+    programId: anchorProgramId,
+    humaProgramId: mockHumaProgramId,
+    adminAddress,
+    usdcMint: usdcMintStr,
     pstMint: pstMintStr,
     ticketRegistry: ticketRegistryAddress,
+    feeWallet,
+    humaPoolState: humaPoolStateSigner.address,
+    humaLenderState: humaLenderStateSigner.address,
     humaPoolUnderlying,
     humaPoolModeToken,
-    feeWallet,
     humaRedemptionRequest: generateRandomAddress(),
-    humaLenderState: humaLenderStateSigner.address,
-  };
-  fs.writeFileSync(
-    path.resolve(STATE_DIR, "addresses.json"),
-    JSON.stringify(addressesJson, null, 2),
-    "utf-8"
-  );
-
-  // Write .env.local
-  const devnetVars: Record<string, string> = {
-    NEXT_PUBLIC_HUMA_CONFIG: mockHumaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_CONFIG: mockHumaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_STATE: humaPoolStateSigner.address,
-    NEXT_PUBLIC_HUMA_MODE_CONFIG: mockHumaProgramId,
-    NEXT_PUBLIC_HUMA_LENDER_STATE: humaLenderStateSigner.address,
-    NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN: humaPoolUnderlying,
-    NEXT_PUBLIC_HUMA_MODE_MINT: pstMintStr,
-    NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN: humaPoolModeToken,
-    NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST: addressesJson.humaRedemptionRequest,
-    NEXT_PUBLIC_ADMIN_ADDRESS: adminAddress,
-    NEXT_PUBLIC_TICKET_REGISTRY: ticketRegistryAddress,
-    NEXT_PUBLIC_FEE_WALLET: feeWallet,
-    NEXT_PUBLIC_RANDOMNESS_ACCOUNT: randomnessAddressStr || "",
-    NEXT_PUBLIC_ENVIRONMENT: "devnet",
-    NEXT_PUBLIC_SOLANA_RPC_URL: DEVNET_RPC_URL,
-    NEXT_PUBLIC_USDC_MINT: usdcMintStr,
-    NEXT_PUBLIC_PST_MINT: pstMintStr,
-    NEXT_PUBLIC_PROGRAM_ID: anchorProgramId,
-    NEXT_PUBLIC_HUMA_PROGRAM_ID: mockHumaProgramId,
   };
 
-  upsertEnvFile(path.resolve(process.cwd(), ".env.local"), devnetVars, {
-    headerComment: "# Generated by devnet orchestrator",
-  });
+  writeDevnetAddresses(devnetAccounts);
+  syncDevnetToActiveEnv();
 
   console.log("Devnet initialization sequence completed successfully!");
 }
@@ -882,10 +884,10 @@ async function handleFund(args: string[]) {
   }
 
   // Mint USDC
-  const env = readEnvFile(path.resolve(process.cwd(), ".env.local"));
-  const usdcMintStr = env.NEXT_PUBLIC_USDC_MINT;
+  const accounts = loadDevnetAccounts();
+  const usdcMintStr = accounts.usdcMint;
   if (!usdcMintStr) {
-    throw new Error("Mock USDC mint not found in .env.local");
+    throw new Error("Mock USDC mint not found in Devnet protocol accounts");
   }
 
   console.log(`Minting mock USDC using spl-token CLI to ${walletStr}...`);
@@ -948,15 +950,15 @@ async function handleYield(args: string[]) {
   }
 
   const yieldAmountMicroUsdc = BigInt(Math.round(yieldAmountFloat * 1_000_000));
-  const rpc = createSolanaRpc(DEVNET_RPC_URL);
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
 
-  const env = readEnvFile(path.resolve(process.cwd(), ".env.local"));
-  const adminAddress = env.NEXT_PUBLIC_ADMIN_ADDRESS;
-  const humaProgramId = env.NEXT_PUBLIC_HUMA_PROGRAM_ID;
-  const humaPoolState = env.NEXT_PUBLIC_HUMA_POOL_STATE;
+  const accounts = loadDevnetAccounts();
+  const { adminAddress, humaProgramId, humaPoolState } = accounts;
 
   if (!adminAddress || !humaProgramId || !humaPoolState) {
-    throw new Error("Missing required configuration variables in .env.local");
+    throw new Error(
+      "Missing required configuration variables in Devnet protocol accounts"
+    );
   }
 
   // Load admin keypair
@@ -996,17 +998,19 @@ async function handleSettle(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(DEVNET_RPC_URL);
-  const env = readEnvFile(path.resolve(process.cwd(), ".env.local"));
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
+  const accounts = loadDevnetAccounts();
 
-  const adminAddress = env.NEXT_PUBLIC_ADMIN_ADDRESS;
-  const humaProgramId = env.NEXT_PUBLIC_HUMA_PROGRAM_ID;
-  const humaPoolState = env.NEXT_PUBLIC_HUMA_POOL_STATE;
-  const lenderState = env.NEXT_PUBLIC_HUMA_LENDER_STATE;
-  const usdcMint = env.NEXT_PUBLIC_USDC_MINT;
-  const pstMint = env.NEXT_PUBLIC_PST_MINT;
-  const humaPoolUnderlying = env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN;
-  const humaPoolModeToken = env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN;
+  const {
+    adminAddress,
+    humaProgramId,
+    humaPoolState,
+    humaLenderState: lenderState,
+    usdcMint,
+    pstMint,
+    humaPoolUnderlying,
+    humaPoolModeToken,
+  } = accounts;
 
   if (
     !adminAddress ||
@@ -1018,7 +1022,9 @@ async function handleSettle(args: string[]) {
     !humaPoolUnderlying ||
     !humaPoolModeToken
   ) {
-    throw new Error("Missing required configuration variables in .env.local");
+    throw new Error(
+      "Missing required configuration variables in Devnet protocol accounts"
+    );
   }
 
   // Load admin keypair
@@ -1088,6 +1094,26 @@ async function handleSettle(args: string[]) {
   console.log("Redemption requests settled successfully on-chain!");
 }
 
+async function handleSyncEnv(args: string[]) {
+  const targetFile = args[0] || ".env.local";
+  console.log(
+    `Re-synchronizing Devnet configuration from .env.devnet to ${targetFile}...`
+  );
+
+  const devnetVars = syncDevnetToActiveEnv(
+    path.resolve(PROJECT_ROOT, targetFile)
+  );
+
+  console.log(
+    `✓ Successfully synchronized Devnet configuration to ${targetFile}`
+  );
+  if (devnetVars.DATABASE_URL) console.log("  • Preserved DATABASE_URL");
+  if (devnetVars.HELIUS_WEBHOOK_SECRET)
+    console.log("  • Preserved HELIUS_WEBHOOK_SECRET");
+  if (devnetVars.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)
+    console.log("  • Preserved NEXT_PUBLIC_RANDOMNESS_ACCOUNT");
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -1116,6 +1142,9 @@ async function main() {
     case "init":
       await handleInit(args.slice(1));
       break;
+    case "sync-env":
+      await handleSyncEnv(args.slice(1));
+      break;
     case "fund":
       await handleFund(args.slice(1));
       break;
@@ -1136,7 +1165,7 @@ async function run(): Promise<void> {
   try {
     await main();
   } catch (err) {
-    console.error("Unhandled error in devnet orchestrator:", err);
+    printErrorDetails(err, "Devnet Orchestrator");
     process.exit(1);
   }
 }

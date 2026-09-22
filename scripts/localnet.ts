@@ -59,6 +59,7 @@ import {
   listLocalDatabases,
 } from "./localnet-postgres";
 import { runDbCleanCli } from "./db-clean";
+import { safeguardDevnetEnv, LOCAL_ENV_PATH } from "./devnet-state";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";
@@ -623,7 +624,7 @@ function writeEnvLocal(
   adminAddress: string,
   randomnessAddress: string
 ) {
-  const envPath = path.resolve(process.cwd(), ".env.local");
+  const envPath = LOCAL_ENV_PATH;
   const localnetVars: Record<string, string> = {
     NEXT_PUBLIC_ENVIRONMENT: "localnet",
     NEXT_PUBLIC_PROGRAM_ID: PROGRAM_ID_STR,
@@ -1040,6 +1041,7 @@ export function printBootstrapGuide() {
 }
 
 async function handleBootstrap(args: string[] = []) {
+  safeguardDevnetEnv();
   const flags = parseLocalnetFlags(args);
   const context = await injectBaseState({ dbName: flags.dbName });
 
@@ -1056,6 +1058,7 @@ To start with a fresh state, either restart Surfpool or specify a new database u
 }
 
 async function handleInit(args: string[] = []) {
+  safeguardDevnetEnv();
   const flags = parseLocalnetFlags(args);
   console.log("Starting localnet state initialization...");
   const context = await injectBaseState({ dbName: flags.dbName });
@@ -1462,6 +1465,7 @@ function cleanupAndExit(code: number = 0) {
 }
 
 async function handleStart(args: string[] = []) {
+  safeguardDevnetEnv();
   ensureDirsExist();
   const flags = parseLocalnetFlags(args);
 

@@ -1,5 +1,10 @@
 import {
   createSolanaRpc,
+  createDefaultRpcTransport,
+  createSolanaRpcFromTransport,
+  isSolanaError,
+  SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
@@ -13,12 +18,20 @@ import {
   AccountRole,
 } from "@solana/kit";
 import * as fs from "fs";
+import * as path from "path";
 import {
   parseTransactionError,
   getExplorerUrl,
   truncateSignature,
   matchAnchorError,
 } from "../app/lib/errors";
+import { readEnvFile } from "./env-utils";
+import {
+  LOCAL_ENV_PATH,
+  DEVNET_ENV_PATH,
+  DEFAULT_ENV_PATH,
+  isLocalMockUrl,
+} from "./devnet-state";
 export {
   parseEnvLine,
   readEnvFile,
@@ -28,23 +41,259 @@ export {
 } from "./env-utils";
 
 /**
- * Checks if the RPC node at the given URL is healthy.
+ * Detects whether an RPC or network transport error is transient and safe to retry.
  */
-export async function checkRpcHealth(url: string): Promise<boolean> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 1000);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
-      signal: controller.signal,
-    });
-    clearTimeout(id);
-    return res.ok;
-  } catch {
+export function isRetryableRpcError(err: unknown): boolean {
+  if (!err) return false;
+
+  // 1. Solana HTTP Transport errors (429, 408, 5xx)
+  if (isSolanaError(err, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR)) {
+    const status = err.context?.statusCode;
+    if (
+      status === 429 ||
+      status === 408 ||
+      (status !== undefined && status >= 500)
+    ) {
+      return true;
+    }
     return false;
   }
+
+  // 2. Solana JSON-RPC Server errors (node unhealthy, -32005)
+  if (isSolanaError(err, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY)) {
+    return true;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const errObj = err as any;
+  const cause = errObj.cause;
+  const msg = (errObj.message || "").toLowerCase();
+  const causeMsg = (cause?.message || "").toLowerCase();
+  const code = errObj.code || cause?.code;
+
+  // 3. Known network / socket error codes
+  const retryableCodes = new Set([
+    "UND_ERR_SOCKET",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "ENOTFOUND",
+    "EPIPE",
+    "UND_ERR_CONNECT_TIMEOUT",
+    "UND_ERR_HEADERS_TIMEOUT",
+  ]);
+
+  if (code && retryableCodes.has(code)) {
+    return true;
+  }
+
+  // 4. Common transient error messages
+  if (
+    msg.includes("fetch failed") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror")
+  ) {
+    return true;
+  }
+
+  if (
+    causeMsg.includes("other side closed") ||
+    causeMsg.includes("socket hang up") ||
+    causeMsg.includes("econnreset") ||
+    causeMsg.includes("connection reset")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export interface ResilientRpcConfig {
+  readonly maxRetries?: number;
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
+  readonly backoffFactor?: number;
+  readonly jitter?: boolean;
+  readonly onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
+  readonly headers?: Record<string, string>;
+}
+
+/**
+ * Creates a Solana RPC client wrapped with a resilient transport that automatically
+ * retries transient network, socket, rate-limit, and connection-drop errors with exponential backoff.
+ */
+export function createResilientRpc(
+  clusterUrl: string,
+  config?: ResilientRpcConfig
+): ReturnType<typeof createSolanaRpc> {
+  const defaultTransport = createDefaultRpcTransport({
+    url: clusterUrl,
+    headers: config?.headers,
+  });
+
+  const maxRetries = config?.maxRetries ?? 5;
+  const initialDelayMs = config?.initialDelayMs ?? 500;
+  const maxDelayMs = config?.maxDelayMs ?? 8000;
+  const backoffFactor = config?.backoffFactor ?? 2;
+  const useJitter = config?.jitter ?? true;
+
+  const resilientTransport = async (
+    request: Parameters<typeof defaultTransport>[0]
+  ) => {
+    let attempt = 0;
+    while (true) {
+      if (request.signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      try {
+        return await defaultTransport(request);
+      } catch (err) {
+        if (
+          request.signal?.aborted ||
+          !isRetryableRpcError(err) ||
+          attempt >= maxRetries
+        ) {
+          throw err;
+        }
+
+        attempt++;
+        const exponentialDelay = Math.min(
+          maxDelayMs,
+          initialDelayMs * Math.pow(backoffFactor, attempt - 1)
+        );
+        const jitterMs = useJitter ? Math.random() * 250 : 0;
+        const delayMs = exponentialDelay + jitterMs;
+
+        if (config?.onRetry) {
+          config.onRetry(err, attempt, delayMs);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const msg =
+            err instanceof Error
+              ? (err as any).cause?.message || err.message
+              : String(err);
+          console.warn(
+            `[RPC Retry] Transient network error (${msg}) on attempt ${attempt}/${maxRetries}. Retrying in ${Math.round(delayMs)}ms...`
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  };
+
+  return createSolanaRpcFromTransport(resilientTransport);
+}
+
+export interface ResolveDevnetRpcOptions {
+  devnetEnvPath?: string;
+  localEnvPath?: string;
+  defaultEnvPath?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Resolves the Devnet RPC URL respecting CLI env vars, .env.devnet, .env.local, and canonical fallback.
+ */
+export function resolveDevnetRpcUrl(options?: ResolveDevnetRpcOptions): string {
+  const processEnv = options?.env ?? process.env;
+  if (processEnv.SOLANA_RPC_URL && !isLocalMockUrl(processEnv.SOLANA_RPC_URL)) {
+    return processEnv.SOLANA_RPC_URL;
+  }
+  if (processEnv.DEVNET_RPC_URL && !isLocalMockUrl(processEnv.DEVNET_RPC_URL)) {
+    return processEnv.DEVNET_RPC_URL;
+  }
+
+  // 1. Check dedicated .env.devnet profile (Priority source of truth)
+  const devnetPath = options?.devnetEnvPath ?? DEVNET_ENV_PATH;
+  if (fs.existsSync(devnetPath)) {
+    const devnetEnv = readEnvFile(devnetPath);
+    if (devnetEnv.SOLANA_RPC_URL && !isLocalMockUrl(devnetEnv.SOLANA_RPC_URL)) {
+      return devnetEnv.SOLANA_RPC_URL;
+    }
+    if (devnetEnv.DEVNET_RPC_URL && !isLocalMockUrl(devnetEnv.DEVNET_RPC_URL)) {
+      return devnetEnv.DEVNET_RPC_URL;
+    }
+    if (
+      devnetEnv.NEXT_PUBLIC_SOLANA_RPC_URL &&
+      !isLocalMockUrl(devnetEnv.NEXT_PUBLIC_SOLANA_RPC_URL)
+    ) {
+      return devnetEnv.NEXT_PUBLIC_SOLANA_RPC_URL;
+    }
+  }
+
+  // 2. Check active .env.local (ONLY if actively running in devnet mode)
+  const localPath = options?.localEnvPath ?? LOCAL_ENV_PATH;
+  if (fs.existsSync(localPath)) {
+    const localEnv = readEnvFile(localPath);
+    if (localEnv.DEVNET_RPC_URL && !isLocalMockUrl(localEnv.DEVNET_RPC_URL)) {
+      return localEnv.DEVNET_RPC_URL;
+    }
+    if (localEnv.NEXT_PUBLIC_ENVIRONMENT === "devnet") {
+      if (localEnv.SOLANA_RPC_URL && !isLocalMockUrl(localEnv.SOLANA_RPC_URL)) {
+        return localEnv.SOLANA_RPC_URL;
+      }
+      if (
+        localEnv.NEXT_PUBLIC_SOLANA_RPC_URL &&
+        !isLocalMockUrl(localEnv.NEXT_PUBLIC_SOLANA_RPC_URL)
+      ) {
+        return localEnv.NEXT_PUBLIC_SOLANA_RPC_URL;
+      }
+    }
+  }
+
+  // 3. Check generic .env fallback
+  const defaultPath = options?.defaultEnvPath ?? DEFAULT_ENV_PATH;
+  if (fs.existsSync(defaultPath)) {
+    const env = readEnvFile(defaultPath);
+    if (env.DEVNET_RPC_URL && !isLocalMockUrl(env.DEVNET_RPC_URL)) {
+      return env.DEVNET_RPC_URL;
+    }
+    if (env.NEXT_PUBLIC_ENVIRONMENT === "devnet") {
+      if (env.SOLANA_RPC_URL && !isLocalMockUrl(env.SOLANA_RPC_URL)) {
+        return env.SOLANA_RPC_URL;
+      }
+      if (
+        env.NEXT_PUBLIC_SOLANA_RPC_URL &&
+        !isLocalMockUrl(env.NEXT_PUBLIC_SOLANA_RPC_URL)
+      ) {
+        return env.NEXT_PUBLIC_SOLANA_RPC_URL;
+      }
+    }
+  }
+
+  return "https://api.devnet.solana.com";
+}
+
+/**
+ * Checks if the RPC node at the given URL is healthy, with configurable timeout and retry support.
+ */
+export async function checkRpcHealth(
+  url: string,
+  timeoutMs = 5000,
+  maxRetries = 2
+): Promise<boolean> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
+        signal: controller.signal,
+      });
+      clearTimeout(id);
+      if (res.ok) return true;
+    } catch {
+      clearTimeout(id);
+    }
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  return false;
 }
 
 /**
