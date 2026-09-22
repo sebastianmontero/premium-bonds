@@ -533,6 +533,9 @@ Al ganar un premio:
       "registry",
       "dust",
       "bonus bonds",
+      "redemption",
+      "decimals",
+      "huma",
     ],
     content: {
       en: `
@@ -542,11 +545,12 @@ YieldBonds uses an ultra-efficient, zero-copy bond registry model to track prize
 
 ---
 
-## 1 USDC = 1 Prize Bond
+## 1 USDC = 1 Prize Bond & Strict 6-Decimal Standard
 
 - For every **1.00 USDC** you deposit into a pool, you receive **1 Prize Bond**.
+- **6-Decimal Standard (\`InvalidTokenDecimals\` / 6067)**: The protocol strictly enforces that deposit token mints (e.g. USDC) and Huma PST token mints configure exactly 6 decimal places ($1.000000$ base units).
 - **Active vs. Pending Bonds**: Deposits made during an ongoing stake cycle are initially marked as *Pending Bonds*. At the next cycle harvest snapshot, all pending bonds transition into *Active Bonds* and become eligible for draws indefinitely.
-- The more bonds you hold, the higher your statistical probability of winning weekly draws.
+- The more bonds you hold, the higher your statistical probability of winning recurring draws.
 
 ---
 
@@ -568,11 +572,19 @@ Because prize allocations can result in fractional USDC amounts (e.g. winning $1
 
 ---
 
-## Withdrawals & Liquidity Paths
+## Withdrawals & Liquidity Settlement Lifecycle
+
+YieldBonds explicitly discriminates between three redemption sub-types:
+- **BondSale (0)**: Redeeming active principal bonds back into USDC.
+- **PrizeClaim (1)**: Withdrawing accumulated cash winnings from your dust balance.
+- **FeeWithdrawal (2)**: Admin disbursements of accrued protocol yield fees.
+
+### Settlement Liquidity Paths
 
 You can withdraw your USDC deposits at any time:
-1. **Instant Vault Cash**: When idle liquidity is available in the protocol vault, withdrawals execute immediately.
-2. **Queued Huma Redemptions**: If funds are deployed in Huma credit pools, an asynchronous \`PendingRedemption\` request is registered. Once Huma settles liquidity, you claim your USDC directly via the dashboard.
+1. **Instant Vault Cash**: When idle liquidity is available in the pool vault, redemptions settle immediately in a single transaction.
+2. **Queued Huma Redemptions**: When funds are actively deployed in Huma credit facilities, an asynchronous \`PendingRedemption\` request is recorded on-chain. Once Huma processes the liquidation into the vault, users or crank bots claim the settled USDC via \`claim-redemption\`.
+3. **Vault Liquidity Safeguard (\`InsufficientVaultBalance\` / 6066)**: If a claim is attempted before Huma liquidity has arrived in the vault, the smart contract prevents partial execution and awaits complete settlement.
       `,
       es: `
 # Mecánica de Bonos y Depósitos
@@ -581,11 +593,12 @@ YieldBonds utiliza un registro de bonos zero-copy altamente eficiente para gesti
 
 ---
 
-## 1 USDC = 1 Bono de Premio
+## 1 USDC = 1 Bono de Premio y Estándar Estricto de 6 Decimales
 
 - Por cada **1.00 USDC** depositado en el fondo, recibes **1 Bono de Premio**.
+- **Estándar de 6 Decimales (\`InvalidTokenDecimals\` / 6067)**: El protocolo exige estrictamente que tanto el token de depósito (ej. USDC) como el token Huma PST tengan exactamente 6 decimales ($1.000000$ unidades base).
 - **Bonos Activos vs. Pendientes**: Los depósitos realizados durante un ciclo en curso se marcan inicialmente como *Bonos Pendientes*. En la captura del siguiente ciclo, todos los bonos pendientes pasan a ser *Bonos Activos* y participan indefinidamente.
-- Cuantos más bonos poseas, mayor será tu probabilidad estadística de ganar los sorteos semanales.
+- Cuantos más bonos poseas, mayor será tu probabilidad estadística de ganar los sorteos recurrentes.
 
 ---
 
@@ -607,11 +620,19 @@ Dado que las asignaciones de premios pueden incluir montos fraccionarios (ej. ga
 
 ---
 
-## Retiros y Rutas de Liquidez
+## Retiros y Ciclo de Liquidación de Liquidez
+
+YieldBonds diferencia explícitamente tres subtipos de redención:
+- **BondSale (0)**: Redención de bonos de principal activos a USDC.
+- **PrizeClaim (1)**: Retiro de ganancias acumuladas en el saldo restante.
+- **FeeWithdrawal (2)**: Desembolso administrativo de comisiones acumuladas del protocolo.
+
+### Rutas de Liquidación
 
 Puedes retirar tus depósitos de USDC en cualquier momento:
-1. **Liquidez Instantánea en Vault**: Cuando hay liquidez disponible en el vault, los retiros se ejecutan de inmediato.
-2. **Redenciones en Cola de Huma**: Si los fondos están invertidos en Huma, se registra una solicitud asíncrona \`PendingRedemption\`. Una vez que Huma liquida los fondos, reclamas tu USDC directamente en el panel.
+1. **Liquidez Instantánea en Vault**: Cuando hay liquidez disponible en el vault, los retiros se ejecutan de inmediato en una sola transacción.
+2. **Redenciones en Cola de Huma**: Si los fondos están invertidos en Huma, se registra una solicitud asíncrona \`PendingRedemption\`. Una vez que Huma liquida los fondos en el vault, los usuarios o cranks reclaman el USDC mediante \`claim-redemption\`.
+3. **Salvaguarda de Liquidez del Vault (\`InsufficientVaultBalance\` / 6066)**: Si se intenta reclamar antes de que la liquidez de Huma ingrese al vault, el contrato evita ejecuciones incompletas y espera la liquidación total.
       `,
     },
   },
@@ -827,6 +848,9 @@ Para proteger a los usuarios de sorteos con rendimientos insignificantes, cada f
       "circuit breaker",
       "timelock",
       "multisig",
+      "guardian",
+      "panic button",
+      "admin nomination",
     ],
     content: {
       en: `
@@ -836,9 +860,9 @@ While YieldBonds is engineered as a **Zero-Loss** savings protocol, interacting 
 
 ---
 
-## Automated Circuit Breakers
+## Automated Circuit Breakers & Emergency Controls
 
-To safeguard depositor principal, YieldBonds features built-in autonomous circuit breakers in the Anchor smart contract:
+To safeguard depositor principal, YieldBonds features built-in autonomous circuit breakers and role-segregated emergency controls in the Anchor smart contract:
 
 1. **Protocol Solvency Parity (\`YieldVenueInsolvent\`)**:
    If Huma credit reserve balance drops below the total deposited principal book value, the pool is immediately halted to prevent deficit extractions.
@@ -846,13 +870,16 @@ To safeguard depositor principal, YieldBonds features built-in autonomous circui
    If reported single-cycle yield exceeds the configured velocity ceiling (e.g. $> 500$ bps / 5.0% per week), the contract autonomously transitions to \`HaltedYieldSpike\`, emits \`YieldVelocityBreached\`, and pauses the pool. Protocol administrators must audit the venue APY and adjust \`max_yield_basis_points\` before unpausing to prevent an immediate re-halt loop.
 3. **Settlement Timelocks (\`PayoutTimelockActive\`)**:
    Every completed draw enforces a mandatory 5-minute pause prior to payout execution, allowing automated monitoring bots to detect anomalies.
+4. **Guardian Panic Button (\`pause-pool\`)**:
+   A dedicated hot-key Guardian role can instantly pause pool operations (halting deposits, withdrawals, and draws) in emergencies without waiting for multisig voting delays.
 
 ---
 
-## Smart Contract Auditing & Multisig Governance
+## Multi-Tier Governance & Smart Contract Auditing
 
+- **Admin Cold Multisig Requirements**: Sensitive operations — including unpausing pools (\`unpause-pool\`), permanently decommissioning pools (\`close-pool\`), or voiding draw cycles (\`void-draw\`) — strictly require **Squads v4 Multisig** threshold authorization with explicit confirmation flags (\`--confirm\`).
+- **Two-Step Admin Nomination Pattern**: Protocol administrative ownership transfer requires a two-step process: the existing admin nominates a candidate address (\`nominate-admin\`), which must explicitly claim authority via (\`accept-admin\`). Active nominations can be cancelled at any time (\`cancel-admin-nomination\`), eliminating catastrophic key loss risks.
 - **Rigorous In-Process Testing**: Smart contract logic is verified with over 100+ comprehensive LiteSVM integration tests covering edge cases, math overflows, and reentrancy vectors.
-- **Multisig Governance**: Administrative operations (such as fee updates or emergency unpauses) are governed by a **Squads v4 Multisig** requiring multiple independent signer approvals.
 - **Underlying Credit Facility Risk**: Yield is dependent on Huma Finance institutional borrowers. Underperforming credit portfolios may temporarily reduce weekly prize pot sizes.
       `,
       es: `
@@ -862,9 +889,9 @@ Aunque YieldBonds está diseñado como un protocolo de ahorro **Sin Pérdidas**,
 
 ---
 
-## Interruptores de Circuito Autónomos (Circuit Breakers)
+## Interruptores de Circuito Autónomos y Controles de Emergencia
 
-Para salvaguardar el capital de los depositantes, YieldBonds incluye interruptores de circuito automáticos en su contrato Anchor:
+Para salvaguardar el capital de los depositantes, YieldBonds incluye interruptores de circuito automáticos y controles de emergencia con segregación de roles en su contrato Anchor:
 
 1. **Paridad de Solvencia del Protocolo (\`YieldVenueInsolvent\`)**:
    Si el saldo de la reserva de Huma cae por debajo del valor contable del principal depositado, el fondo se detiene de inmediato para evitar extracciones deficitarias.
@@ -872,13 +899,16 @@ Para salvaguardar el capital de los depositantes, YieldBonds incluye interruptor
    Si el rendimiento reportado en un solo ciclo supera el límite de seguridad (ej. $> 500$ bps / 5.0% semanal), el contrato transiciona autónomamente a \`HaltedYieldSpike\`, emite el evento \`YieldVelocityBreached\` y pausa el fondo. Los administradores deben evaluar el APY y ajustar \`max_yield_basis_points\` antes de despausar para evitar un ciclo de bloqueo inmediato.
 3. **Bloqueo Temporal de Liquidación (\`PayoutTimelockActive\`)**:
    Cada sorteo completado impone una pausa obligatoria de 5 minutos antes del desembolso de premios para permitir la auditoría por bots de monitoreo.
+4. **Botón de Pánico del Guardián (\`pause-pool\`)**:
+   Un rol dedicado de Guardián puede pausar instantáneamente las operaciones del fondo (depósitos, retiros y sorteos) ante emergencias sin depender de demoras de votación multisig.
 
 ---
 
-## Auditoría de Contratos y Gobernanza Multisig
+## Gobernanza Multinivel y Auditoría de Contratos
 
+- **Requisitos de Multisig Fría para Administradores**: Las operaciones críticas — como despausar fondos (\`unpause-pool\`), cerrar definitivamente un fondo (\`close-pool\`) o anular sorteos (\`void-draw\`) — requieren estrictamente autorización por umbral en **Squads v4 Multisig** con banderas explícitas de confirmación (\`--confirm\`).
+- **Patrón de Nominación de Administrador en Dos Pasos**: La transferencia de administración requiere dos pasos: el administrador actual nomina una dirección candidata (\`nominate-admin\`), la cual debe aceptar explícitamente el rol (\`accept-admin\`). Las nominaciones pueden cancelarse (\`cancel-admin-nomination\`), evitando la pérdida accidental de control del protocolo.
 - **Pruebas Rigurosas LiteSVM**: La lógica de los contratos inteligentes está respaldada por más de 100 pruebas de integración LiteSVM que cubren desbordamientos matemáticos, reentrancia y casos extremos.
-- **Gobernanza Multisig**: Las operaciones administrativas críticas están protegidas por un **Squads v4 Multisig** que requiere la aprobación de múltiples firmantes independientes.
 - **Riesgo de Fondos de Crédito**: El rendimiento depende de los prestatarios institucionales de Huma Finance. Un menor rendimiento de los portafolios de crédito puede reducir temporalmente el monto de la bolsa de premios.
       `,
     },
@@ -1046,12 +1076,14 @@ Al realizar acciones en YieldBonds (depositar, retirar, reclamar premios), las t
       "badges",
       "inspector",
       "ledger",
+      "modals",
+      "redemptions",
     ],
     content: {
       en: `
 # In-App Tooltips & UI Reference
 
-YieldBonds provides contextual guidance and visual indicators throughout the dApp:
+YieldBonds provides contextual guidance, visual indicators, and telemetry inspection drawers throughout the dApp:
 
 ---
 
@@ -1062,6 +1094,13 @@ YieldBonds provides contextual guidance and visual indicators throughout the dAp
 - **Remaining Winnings Banner & Claim Modal (\`UnclaimedBanner\`)**: Displays your accumulated fractional dust balance and lets you claim it in a single click.
 - **Bonus Bond Dust Badge (\`BonusBondDustBadge\`)**: Displays how much fractional dust is currently contributing toward unlocking your next bonus bond.
 - **Minimum Yield Status (\`MinimumYieldStatus\`)**: Visual progress bar tracking whether the current cycle has reached its \`min_yield_threshold\` or will roll over.
+- **Settlement Timelock Countdown (\`TimelockTooltipContent\`)**: Live countdown timer showing the remaining mandatory 5-minute settlement delay with public verification audit status.
+- **Payout Progress Indicator (\`DrawPayoutProgressBadge\`)**: Visual status badge tracking the completion of winner payouts and automated reinvestment cranks.
+- **Pending Redemptions Tracker (\`PendingRedemptionsList\`)**: Dashboard interface for monitoring asynchronous Huma redemption requests and claiming settled USDC once disbursed.
+- **Prize Tiers Inspector (\`PrizeTiersModal\` & \`PrizeDetailsModal\`)**: Multi-tier breakdown modal showing winner counts, basis points distributions, and calculated prize pots.
+- **Complete Activity & History Drawers (\`CompleteActivityModal\` & \`CompleteLedgerModal\`)**: Full-screen modal drawers for browsing complete portfolio transaction history and historical draw ledgers.
+- **Clipboard Utility (\`CopyButton\`)**: Accessible clipboard copy button with animated confirmation feedback and multi-language toast notifications.
+- **Cluster-Aware Explorer Links (\`TxExplorerLink\` & \`AccountExplorerLink\`)**: Direct links to Solscan / Solana Explorer automatically configured for your active network cluster (Localnet, Devnet, Mainnet).
 - **Draw Cycle Inspector (\`DrawCycleInspectorModal\`)**: Full-screen modal detailing harvest slot, Switchboard randomness account, locked ticket count, prize pot, and payout timelocks.
 - **Provable Fairness Verifier (\`ProvableFairnessVerifier\`)**: In-app mathematical verifier to independently recompute winning ticket numbers from VRF seeds.
 - **Activity Feed & Filter System (\`ActivityFeed\`)**: Live search and event filters across your deposits, claims, and automated reinvestments.
@@ -1070,7 +1109,7 @@ YieldBonds provides contextual guidance and visual indicators throughout the dAp
       es: `
 # Tooltips y Referencia de la Interfaz
 
-YieldBonds ofrece orientación contextual e indicadores visuales en toda la aplicación:
+YieldBonds ofrece orientación contextual, indicadores visuales y paneles de telemetría en toda la aplicación:
 
 ---
 
@@ -1081,6 +1120,13 @@ YieldBonds ofrece orientación contextual e indicadores visuales en toda la apli
 - **Banner de Ganancias Restantes (\`UnclaimedBanner\`)**: Muestra tu saldo restante acumulado y te permite retirarlo con un solo clic.
 - **Insignia de Bono de Bonificación (\`BonusBondDustBadge\`)**: Muestra cuánto saldo fraccionario está acumulado para desbloquear tu siguiente bono de bonificación.
 - **Estado de Rendimiento Mínimo (\`MinimumYieldStatus\`)**: Barra de progreso visual que indica si el ciclo alcanzó el \`min_yield_threshold\` o se acumulará (rollover).
+- **Cuenta Regresiva de Bloqueo (\`TimelockTooltipContent\`)**: Temporizador en vivo que muestra el retraso obligatorio de liquidación de 5 minutos con estado de auditoría pública.
+- **Indicador de Progreso de Pagos (\`DrawPayoutProgressBadge\`)**: Insignia visual que monitorea la finalización de los pagos a ganadores y cranks de reinversión automática.
+- **Rastreador de Redenciones (\`PendingRedemptionsList\`)**: Panel para monitorear solicitudes de redención asíncronas de Huma y reclamar USDC una vez desembolsado.
+- **Inspector de Niveles de Premios (\`PrizeTiersModal\` y \`PrizeDetailsModal\`)**: Modal con desglose de niveles, cantidad de ganadores, puntos básicos y bolsas de premios estimadas.
+- **Paneles de Historial y Registro (\`CompleteActivityModal\` y \`CompleteLedgerModal\`)**: Modales a pantalla completa para explorar el historial completo de transacciones y registros de sorteos.
+- **Utilidad de Portapapeles (\`CopyButton\`)**: Botón accesible de copiado al portapapeles con confirmación animada y notificaciones en varios idiomas.
+- **Enlaces al Explorador (\`TxExplorerLink\` y \`AccountExplorerLink\`)**: Enlaces directos a Solscan / Solana Explorer configurados automáticamente para el clúster activo (Localnet, Devnet, Mainnet).
 - **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de cosecha, cuenta de aleatoriedad Switchboard, bonos bloqueados, bolsa y bloqueos de tiempo (timelocks).
 - **Verificador de Equidad Demostrable (\`ProvableFairnessVerifier\`)**: Herramienta matemática para recalcular deterministamente los bonos ganadores a partir de semillas VRF.
 - **Registro de Actividad y Filtros (\`ActivityFeed\`)**: Búsqueda en vivo y filtros para depósitos, reclamos y reinversiones automáticas.
@@ -1104,8 +1150,8 @@ YieldBonds ofrece orientación contextual e indicadores visuales en toda la apli
       es: "Índice de Errores y Herramienta Decodificadora",
     },
     summary: {
-      en: "Self-service lookup index and decoder tool for all 51 Anchor program error codes (6000-6050) and Solana RPC errors.",
-      es: "Índice de búsqueda y decodificador para los 51 códigos de error de Anchor (6000-6050) y errores RPC de Solana.",
+      en: "Self-service lookup index and decoder tool for all 68 Anchor program error codes (6000-6067) and Solana RPC errors.",
+      es: "Índice de búsqueda y decodificador para los 68 códigos de error de Anchor (6000-6067) y errores RPC de Solana.",
     },
     tags: [
       "errors",
@@ -1118,6 +1164,12 @@ YieldBonds ofrece orientación contextual e indicadores visuales en toda la apli
       "6020",
       "6044",
       "6047",
+      "6066",
+      "0x17b2",
+      "6067",
+      "0x17b3",
+      "vault",
+      "decimals",
     ],
     content: {
       en: `
@@ -1295,8 +1347,8 @@ Para proteger tus activos de sitios web falsos y estafas de phishing, verifica s
       es: "Preguntas Frecuentes (FAQ)",
     },
     summary: {
-      en: "Answers to 10 core questions about deposits, zero-loss safety, auto-reinvestment, timelocks, and withdrawals.",
-      es: "Respuestas a 10 preguntas clave sobre depósitos, seguridad sin pérdidas, auto-reinversión, timelocks y retiros.",
+      en: "Answers to 11 core questions about deposits, zero-loss safety, auto-reinvestment, timelocks, and withdrawals.",
+      es: "Respuestas a 11 preguntas clave sobre depósitos, seguridad sin pérdidas, auto-reinversión, timelocks y retiros.",
     },
     tags: ["faq", "questions", "answers", "general", "no-loss", "safety"],
     content: {
@@ -1325,13 +1377,16 @@ Every completed draw enforces a 5-minute pause before payouts execute to allow o
 If the harvested yield is below the pool's \`min_yield_threshold\`, the draw is skipped and 100% of the yield rolls over into the next cycle's prize pot.
 
 ### 8. How do withdrawals work?
-You can withdraw your USDC deposits at any time. If liquidity is available in the vault, it executes instantly. If funds are deployed in Huma credit facilities, a pending redemption settles asynchronously.
+You can withdraw your USDC deposits at any time. YieldBonds categorizes redemptions into three types: **BondSale** (redeeming active principal bonds), **PrizeClaim** (withdrawing accumulated prize dust), and **FeeWithdrawal** (admin fee distributions). If idle liquidity is in the vault, redemptions settle immediately. When funds are deployed in Huma credit facilities, an asynchronous pending redemption is registered and claimed once funds disburse into the vault.
 
 ### 9. What is a Bonus Bond?
 A Bonus Bond is an additional active ticket automatically minted when accumulated fractional dust crosses the 1.00 USDC bond threshold.
 
 ### 10. Are the smart contracts audited?
 Yes. Smart contracts are developed with Anchor in Rust, rigorously tested with LiteSVM in-process integration suites, and governed by Squads v4 multisig controls.
+
+### 11. What emergency controls exist to protect the protocol?
+YieldBonds implements a two-tier emergency governance model. A dedicated **Guardian** role can trigger an immediate panic pause (\`pause-pool\`) to freeze deposits, withdrawals, and draws without multisig delays. Resuming operations (\`unpause-pool\`), permanently closing a pool (\`close-pool\`), or transferring admin rights (\`nominate-admin\` -> \`accept-admin\`) strictly requires threshold approval via **Squads v4 Multisig** governance with explicit confirmation.
       `,
       es: `
 # Preguntas Frecuentes (FAQ)
@@ -1358,20 +1413,23 @@ Cada sorteo completado impone una pausa de seguridad de 5 minutos antes del pago
 Si el rendimiento cosechado es inferior al \`min_yield_threshold\`, el sorteo se omite y el 100% del rendimiento se acumula en la bolsa del siguiente ciclo.
 
 ### 8. ¿Cómo funcionan los retiros?
-Puedes retirar tus depósitos de USDC en cualquier momento. Si hay liquidez en el vault, se ejecuta al instante. Si los fondos están invertidos en Huma, la redención pendiente se liquida de forma asíncrona.
+Puedes retirar tus depósitos de USDC en cualquier momento. YieldBonds categoriza las redenciones en tres tipos: **BondSale** (redención de bonos de principal activos), **PrizeClaim** (retiro de ganancias acumuladas) y **FeeWithdrawal** (distribución de comisiones de administración). Si hay liquidez disponible en el vault, se ejecutan de inmediato. Si los fondos están invertidos en Huma, se registra una redención pendiente asíncrona que se reclama una vez que los fondos ingresan al vault.
 
 ### 9. ¿Qué es un Bono de Bonificación?
 Un Bono de Bonificación es un bono activo adicional emitido automáticamente cuando el saldo restante acumulado supera el umbral de 1.00 USDC.
 
 ### 10. ¿Están auditados los contratos inteligentes?
 Sí. Los contratos inteligentes están desarrollados con Anchor en Rust, probados con suites de integración LiteSVM y gobernados por controles multisig Squads v4.
+
+### 11. ¿Qué controles de emergencia existen para proteger el protocolo?
+YieldBonds implementa un modelo de gobernanza de emergencia de dos niveles. Un rol dedicado de **Guardián** puede activar una pausa de pánico instantánea (\`pause-pool\`) para congelar depósitos, retiros y sorteos sin demoras de multisig. Reanudar operaciones (\`unpause-pool\`), cerrar definitivamente un fondo (\`close-pool\`) o transferir derechos de administración (\`nominate-admin\` -> \`accept-admin\`) requiere estrictamente la aprobación por umbral mediante gobernanza **Squads v4 Multisig** con confirmación explícita.
       `,
     },
   },
 ];
 
 // =========================================================================
-// Complete 55 Anchor Error Codes (6000-6054) + Standard Solana Errors
+// Complete 68 Anchor Error Codes (6000-6067) + Standard Solana Errors
 // =========================================================================
 export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
   // Standard Solana & Wallet Errors
@@ -1444,7 +1502,7 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     category: "wallet",
   },
 
-  // 51 Anchor Error Codes (6000 to 6050)
+  // 68 Anchor Error Codes (6000 to 6067)
   {
     code: "6000",
     numericCode: 6000,
@@ -2502,6 +2560,44 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
       es: "Especifica un tamaño de lote mayor a cero al invocar prepare-draw.",
     },
     category: "crank",
+  },
+  {
+    code: "6066",
+    numericCode: 6066,
+    hexCode: "0x17b2",
+    name: "InsufficientVaultBalance",
+    summary: {
+      en: "Pool vault liquidity is temporarily insufficient to settle redemption immediately.",
+      es: "La liquidez del vault es temporalmente insuficiente para liquidar la redención de inmediato.",
+    },
+    diagnosis: {
+      en: "Vault balance is insufficient to settle redemption immediately; funds pending disbursement from Huma.",
+      es: "El saldo del vault es insuficiente para liquidar la redención de inmediato; fondos pendientes de desembolso de Huma.",
+    },
+    solution: {
+      en: "Wait for Huma Protocol liquidity settlement to disburse into the vault, then retry.",
+      es: "Espera a que la liquidación de fondos de Huma Protocol ingrese al vault y reintenta.",
+    },
+    category: "anchor",
+  },
+  {
+    code: "6067",
+    numericCode: 6067,
+    hexCode: "0x17b3",
+    name: "InvalidTokenDecimals",
+    summary: {
+      en: "Deposit token mint or Huma PST token mint must configure exactly 6 decimal places.",
+      es: "El token de depósito o el token Huma PST debe tener exactamente 6 decimales.",
+    },
+    diagnosis: {
+      en: "Underlying deposit token mint (e.g. USDC) or Huma PST token mint does not configure exactly 6 decimal places.",
+      es: "El token de depósito subyacente (ej. USDC) o el token Huma PST no tiene configurados exactamente 6 decimales.",
+    },
+    solution: {
+      en: "Ensure both the underlying token mint and Huma PST mint configure exactly 6 decimals.",
+      es: "Asegúrate de que tanto el token subyacente como el token Huma PST configuren exactamente 6 decimales.",
+    },
+    category: "anchor",
   },
 ];
 

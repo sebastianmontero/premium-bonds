@@ -243,9 +243,9 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
   });
 
-  describe("Complete 66 Anchor Error Codes & Hex Parity", () => {
-    it("should contain all 66 Anchor error codes (6000 to 6065)", () => {
-      for (let code = 6000; code <= 6065; code++) {
+  describe("Complete 68 Anchor Error Codes & Hex Parity", () => {
+    it("should contain all 68 Anchor error codes (6000 to 6067)", () => {
+      for (let code = 6000; code <= 6067; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         assert.ok(item, `Error code ${code} must exist in ERROR_LOOKUP_ITEMS`);
         assert.strictEqual(
@@ -257,7 +257,7 @@ describe("Documentation & Help Center Architecture Suite", () => {
     });
 
     it("should have exact hex parity for all Anchor error codes (6000+x = 0x1770+x)", () => {
-      for (let code = 6000; code <= 6065; code++) {
+      for (let code = 6000; code <= 6067; code++) {
         const item = ERROR_LOOKUP_ITEMS.find((e) => e.code === String(code));
         const expectedHex = `0x${code.toString(16)}`;
         assert.strictEqual(
@@ -268,7 +268,7 @@ describe("Documentation & Help Center Architecture Suite", () => {
       }
     });
 
-    it("should assert exact hex parity for newly added errors (6046 = 0x179e, 6063 = 0x17af, 6064 = 0x17b0, 6065 = 0x17b1)", () => {
+    it("should assert exact hex parity for newly added errors (6046 = 0x179e, 6063 = 0x17af, 6064 = 0x17b0, 6065 = 0x17b1, 6066 = 0x17b2, 6067 = 0x17b3)", () => {
       const e6046 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6046");
       assert.ok(e6046);
       assert.strictEqual(e6046.name, "ZeroSharesMinted");
@@ -290,6 +290,22 @@ describe("Documentation & Help Center Architecture Suite", () => {
       assert.strictEqual(e6065.name, "InvalidBatchSize");
       assert.strictEqual(e6065.hexCode, "0x17b1");
       assert.strictEqual(e6065.numericCode, 6065);
+
+      const e6066 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6066");
+      assert.ok(e6066);
+      assert.strictEqual(e6066.name, "InsufficientVaultBalance");
+      assert.strictEqual(e6066.hexCode, "0x17b2");
+      assert.strictEqual(e6066.numericCode, 6066);
+      assert.ok(e6066.summary?.en && e6066.summary.en.length > 0);
+      assert.ok(e6066.summary?.es && e6066.summary.es.length > 0);
+
+      const e6067 = ERROR_LOOKUP_ITEMS.find((e) => e.code === "6067");
+      assert.ok(e6067);
+      assert.strictEqual(e6067.name, "InvalidTokenDecimals");
+      assert.strictEqual(e6067.hexCode, "0x17b3");
+      assert.strictEqual(e6067.numericCode, 6067);
+      assert.ok(e6067.summary?.en && e6067.summary.en.length > 0);
+      assert.ok(e6067.summary?.es && e6067.summary.es.length > 0);
     });
 
     it("should have complete bilingual diagnosis and solution for all error items", () => {
@@ -332,13 +348,31 @@ describe("Documentation & Help Center Architecture Suite", () => {
       const resDec = searchErrorLookupItems("6044");
       assert.ok(resDec.some((e) => e.name === "PayoutTimelockActive"));
 
+      const res6066 = searchErrorLookupItems("6066");
+      assert.ok(res6066.some((e) => e.name === "InsufficientVaultBalance"));
+
+      const res6067 = searchErrorLookupItems("6067");
+      assert.ok(res6067.some((e) => e.name === "InvalidTokenDecimals"));
+
       // By hex
       const resHex = searchErrorLookupItems("0x179c");
       assert.ok(resHex.some((e) => e.code === "6044"));
 
+      const resHex6066 = searchErrorLookupItems("0x17b2");
+      assert.ok(resHex6066.some((e) => e.code === "6066"));
+
+      const resHex6067 = searchErrorLookupItems("0x17b3");
+      assert.ok(resHex6067.some((e) => e.code === "6067"));
+
       // By keyword
       const resKeyword = searchErrorLookupItems("insolvent");
       assert.ok(resKeyword.some((e) => e.code === "6047"));
+
+      const resVault = searchErrorLookupItems("vault");
+      assert.ok(resVault.some((e) => e.code === "6066"));
+
+      const resDecimals = searchErrorLookupItems("decimals");
+      assert.ok(resDecimals.some((e) => e.code === "6067"));
     });
   });
 });
