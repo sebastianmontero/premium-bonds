@@ -4,6 +4,7 @@ import {
   Address,
   AccountRole,
   KeyPairSigner,
+  Instruction,
   getBase58Decoder,
   getBase58Encoder,
 } from "@solana/kit";
@@ -146,6 +147,7 @@ const DEVNET_RPC_URL = resolveDevnetRpcUrl();
 const DEPLOY_COMPUTE_UNIT_PRICE =
   process.env.DEPLOY_COMPUTE_UNIT_PRICE || "1000";
 const STATE_DIR = path.resolve(__dirname, "devnet-state");
+export const DEFAULT_HUMA_VAULT_PREFUND_MICRO_USDC = 1_000_000_000_000n; // 1M USDC
 
 function printUsage() {
   console.log("Usage: npm run devnet [command] [args]");
@@ -851,35 +853,49 @@ async function handleInit(args: string[]) {
 export interface FundInstructionsParams {
   readonly payer: KeyPairSigner;
   readonly recipient: Address;
-  readonly mintAuthority: KeyPairSigner;
+  readonly mintAuthority?: KeyPairSigner;
   readonly usdcMint: Address;
   readonly microUsdcAmount: bigint;
+}
+
+export interface FundInstructionsResult {
+  readonly recipientAta: Address;
+  readonly instructions: readonly Instruction[];
+  readonly signers: readonly [KeyPairSigner, ...KeyPairSigner[]];
 }
 
 /**
  * Builds instructions for idempotently creating recipient ATA and minting mock USDC tokens.
  */
-export async function buildFundInstructions(params: FundInstructionsParams) {
+export async function buildFundInstructions(
+  params: FundInstructionsParams
+): Promise<FundInstructionsResult> {
+  const mintAuthority = params.mintAuthority ?? params.payer;
   const recipientAta = await findAtaAddress(params.recipient, params.usdcMint);
 
   const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
     payer: params.payer,
     owner: params.recipient,
     mint: params.usdcMint,
-    ata: address(recipientAta),
+    ata: recipientAta,
   });
 
   const mintToIx = buildMintToInstruction({
     mint: params.usdcMint,
-    destination: address(recipientAta),
-    authority: params.mintAuthority,
+    destination: recipientAta,
+    authority: mintAuthority,
     amount: params.microUsdcAmount,
   });
 
+  const signers: readonly [KeyPairSigner, ...KeyPairSigner[]] =
+    params.payer.address === mintAuthority.address
+      ? [params.payer]
+      : [params.payer, mintAuthority];
+
   return {
-    recipientAta: address(recipientAta),
+    recipientAta,
     instructions: [recipientAtaIx, mintToIx],
-    signers: [params.payer, params.mintAuthority] as const,
+    signers,
   };
 }
 
@@ -946,19 +962,9 @@ async function handleFund(args: string[]) {
     throw new Error("Mock USDC mint not found in Devnet protocol accounts");
   }
 
-  const mintKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
-  if (!fs.existsSync(mintKeyPath)) {
-    throw new Error(
-      "Mock USDC mint keypair not found in devnet-state directory."
-    );
-  }
-
-  const mintSigner = await loadKeypair(mintKeyPath);
-
   const { recipientAta, instructions, signers } = await buildFundInstructions({
     payer: adminSigner,
     recipient: recipientAddress,
-    mintAuthority: mintSigner,
     usdcMint: address(usdcMintStr),
     microUsdcAmount,
   });
@@ -1090,20 +1096,18 @@ async function handleSettle(args: string[]) {
 
   // Fund Huma Pool Underlying token account with USDC to support disburse transfers if needed
   console.log("Ensuring Mock Huma Pool Vault has underlying funds...");
-  const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
-  if (fs.existsSync(usdcKeyPath)) {
-    try {
-      const usdcSigner = await loadKeypair(usdcKeyPath);
-      const prefundIx = buildMintToInstruction({
-        mint: address(usdcMint),
-        destination: address(humaPoolUnderlying),
-        authority: usdcSigner,
-        amount: 1_000_000_000_000n, // 1M USDC in micro-USDC
-      });
-      await sendTx(rpc, prefundIx, [adminSigner, usdcSigner]);
-    } catch {
-      console.warn("Could not pre-fund mock Huma pool underlying vault.");
-    }
+  try {
+    const prefundIx = buildMintToInstruction({
+      mint: address(usdcMint),
+      destination: address(humaPoolUnderlying),
+      authority: adminSigner,
+      amount: DEFAULT_HUMA_VAULT_PREFUND_MICRO_USDC,
+    });
+    await sendTx(rpc, prefundIx, adminSigner);
+    console.log("✓ Pre-funded mock Huma pool underlying vault.");
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`Could not pre-fund mock Huma pool underlying vault: ${msg}`);
   }
 
   await sendTx(rpc, settleIx, adminSigner);

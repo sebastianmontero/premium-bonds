@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import {
   parseTransactionError,
   matchAnchorError,
+  matchSplTokenError,
   isParsedTransactionError,
   TransactionError,
   sanitizeErrorMessage,
   getErrorCategoryTheme,
   SPL_TOKEN_ERRORS,
+  SplTokenErrorCode,
 } from "../errors";
 import { PROGRAM_ID } from "../bonds-sdk";
 
@@ -242,26 +244,107 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     assert.strictEqual(parsed.title, "Insufficient SOL");
   });
 
-  it("should parse SPL Token insufficient funds (0x3)", () => {
+  it("should disambiguate SPL Token InsufficientFunds (0x1) from System Program (0x1)", () => {
+    const splErr = new Error(
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x1"
+    );
+    const parsed = parseTransactionError(splErr);
+    assert.strictEqual(parsed.layer, "spl");
+    assert.strictEqual(parsed.category, "insufficient_tokens");
+    assert.strictEqual(parsed.code, 1);
+    assert.strictEqual(parsed.title, "Token Error: InsufficientFunds");
+    assert.strictEqual(
+      parsed.message,
+      SPL_TOKEN_ERRORS[SplTokenErrorCode.InsufficientFunds].message
+    );
+  });
+
+  it("should parse exact verbatim devnet logs with OwnerMismatch (0x4)", () => {
+    const logs = [
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+      "Program log: Error: owner does not match",
+      "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x4",
+    ];
+    const rawErr = new Error(
+      "Transaction simulation failed: Error processing Instruction 1: custom program error: 0x4"
+    );
+    const parsed = parseTransactionError(rawErr, logs);
+    assert.strictEqual(parsed.layer, "spl");
+    assert.strictEqual(parsed.category, "spl_token");
+    assert.strictEqual(parsed.code, 4);
+    assert.strictEqual(parsed.title, "Token Error: OwnerMismatch");
+    assert.strictEqual(
+      parsed.message,
+      SPL_TOKEN_ERRORS[SplTokenErrorCode.OwnerMismatch].message
+    );
+    assert.strictEqual(
+      parsed.actionableStep,
+      SPL_TOKEN_ERRORS[SplTokenErrorCode.OwnerMismatch].actionable
+    );
+  });
+
+  it("should parse SPL Token MintMismatch (0x3)", () => {
     const rawErr = new Error(
       "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x3"
     );
     const parsed = parseTransactionError(rawErr);
     assert.strictEqual(parsed.layer, "spl");
-    assert.strictEqual(parsed.category, "insufficient_tokens");
+    assert.strictEqual(parsed.category, "spl_token");
     assert.strictEqual(parsed.code, 3);
-    assert.strictEqual(parsed.title, "Token Error: InsufficientFunds");
-    assert.strictEqual(parsed.message, SPL_TOKEN_ERRORS[3].message);
+    assert.strictEqual(parsed.title, "Token Error: MintMismatch");
+    assert.strictEqual(
+      parsed.message,
+      SPL_TOKEN_ERRORS[SplTokenErrorCode.MintMismatch].message
+    );
   });
 
-  it("should parse SPL Token mint mismatch (0x4)", () => {
-    const rawErr = new Error(
+  it("should support Token-2022 compatibility for errors 0x1, 0x3, and 0x4", () => {
+    const token2022Insufficient = new Error(
+      "Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x1"
+    );
+    const parsedInsufficient = parseTransactionError(token2022Insufficient);
+    assert.strictEqual(parsedInsufficient.layer, "spl");
+    assert.strictEqual(parsedInsufficient.category, "insufficient_tokens");
+    assert.strictEqual(parsedInsufficient.code, 1);
+    assert.strictEqual(
+      parsedInsufficient.title,
+      "Token Error: InsufficientFunds"
+    );
+
+    const token2022MintMismatch = new Error(
+      "Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x3"
+    );
+    const parsedMintMismatch = parseTransactionError(token2022MintMismatch);
+    assert.strictEqual(parsedMintMismatch.layer, "spl");
+    assert.strictEqual(parsedMintMismatch.category, "spl_token");
+    assert.strictEqual(parsedMintMismatch.code, 3);
+    assert.strictEqual(parsedMintMismatch.title, "Token Error: MintMismatch");
+
+    const token2022OwnerMismatch = new Error(
       "Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: 0x4"
     );
-    const parsed = parseTransactionError(rawErr);
-    assert.strictEqual(parsed.layer, "spl");
-    assert.strictEqual(parsed.code, 4);
-    assert.strictEqual(parsed.title, "Token Error: MintMismatch");
+    const parsedOwnerMismatch = parseTransactionError(token2022OwnerMismatch);
+    assert.strictEqual(parsedOwnerMismatch.layer, "spl");
+    assert.strictEqual(parsedOwnerMismatch.category, "spl_token");
+    assert.strictEqual(parsedOwnerMismatch.code, 4);
+    assert.strictEqual(parsedOwnerMismatch.title, "Token Error: OwnerMismatch");
+  });
+
+  it("should support direct object and numeric matching via matchSplTokenError", () => {
+    const matchedNumber = matchSplTokenError(4);
+    assert.ok(matchedNumber !== null);
+    assert.strictEqual(matchedNumber?.code, 4);
+    assert.strictEqual(matchedNumber?.info.name, "OwnerMismatch");
+
+    const matchedInstructionError = matchSplTokenError(
+      'Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: InstructionError: [1, {"Custom": 18}]'
+    );
+    assert.ok(matchedInstructionError !== null);
+    assert.strictEqual(matchedInstructionError?.code, 18);
+    assert.strictEqual(
+      matchedInstructionError?.info.name,
+      "MintDecimalsMismatch"
+    );
   });
 
   it("should parse RPC rate limit 429", () => {
@@ -315,6 +398,10 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     const fundsTheme = getErrorCategoryTheme("insufficient_sol");
     assert.strictEqual(fundsTheme.icon, "⛽");
     assert.strictEqual(fundsTheme.titleColor, "text-amber-300");
+
+    const splTheme = getErrorCategoryTheme("spl_token");
+    assert.strictEqual(splTheme.icon, "🪙");
+    assert.strictEqual(splTheme.titleColor, "text-amber-300");
 
     const contractTheme = getErrorCategoryTheme("anchor_custom");
     assert.strictEqual(contractTheme.icon, "⚠️");

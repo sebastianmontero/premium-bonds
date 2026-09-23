@@ -402,7 +402,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
     });
 
     describe("buildFundInstructions", () => {
-      it("assembles ATA creation and MintTo with admin fee-payer and mint authority signers", async () => {
+      it("assembles ATA creation and MintTo with distinct admin fee-payer and mint authority signers", async () => {
         const adminSigner = await generateKeyPairSigner();
         const mintSigner = await generateKeyPairSigner();
         const recipientSigner = await generateKeyPairSigner();
@@ -421,6 +421,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
           });
 
         assert.strictEqual(instructions.length, 2);
+        assert.strictEqual(signers.length, 2);
         // Fee payer must be first signer in array for sendTx
         assert.strictEqual(signers[0].address, adminSigner.address);
         assert.strictEqual(signers[1].address, mintSigner.address);
@@ -455,6 +456,55 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
         );
         assert.strictEqual(view.getUint8(0), 7); // MintTo opcode
         assert.strictEqual(view.getBigUint64(1, true), microUsdcAmount);
+      });
+
+      it("deduplicates signers when payer and mintAuthority are identical", async () => {
+        const adminSigner = await generateKeyPairSigner();
+        const recipientSigner = await generateKeyPairSigner();
+        const usdcMintSigner = await generateKeyPairSigner();
+        const recipient = recipientSigner.address;
+        const usdcMint = usdcMintSigner.address;
+        const microUsdcAmount = 500_000_000n;
+
+        const { recipientAta, instructions, signers } =
+          await buildFundInstructions({
+            payer: adminSigner,
+            recipient,
+            mintAuthority: adminSigner,
+            usdcMint,
+            microUsdcAmount,
+          });
+
+        assert.strictEqual(instructions.length, 2);
+        assert.strictEqual(signers.length, 1);
+        assert.strictEqual(signers[0].address, adminSigner.address);
+
+        const mintIx = instructions[1];
+        assert.strictEqual(mintIx.accounts?.[2].address, adminSigner.address);
+      });
+
+      it("defaults mintAuthority to payer when omitted and produces single signer", async () => {
+        const adminSigner = await generateKeyPairSigner();
+        const recipientSigner = await generateKeyPairSigner();
+        const usdcMintSigner = await generateKeyPairSigner();
+        const recipient = recipientSigner.address;
+        const usdcMint = usdcMintSigner.address;
+        const microUsdcAmount = 250_000_000n;
+
+        const { recipientAta, instructions, signers } =
+          await buildFundInstructions({
+            payer: adminSigner,
+            recipient,
+            usdcMint,
+            microUsdcAmount,
+          });
+
+        assert.strictEqual(instructions.length, 2);
+        assert.strictEqual(signers.length, 1);
+        assert.strictEqual(signers[0].address, adminSigner.address);
+
+        const mintIx = instructions[1];
+        assert.strictEqual(mintIx.accounts?.[2].address, adminSigner.address);
       });
     });
   });

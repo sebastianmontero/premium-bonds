@@ -82,6 +82,7 @@ export type ErrorCategory =
   | "wallet_cancellation"
   | "insufficient_sol"
   | "insufficient_tokens"
+  | "spl_token"
   | "anchor_custom"
   | "anchor_constraint"
   | "squads_multisig"
@@ -125,6 +126,15 @@ export function getErrorCategoryTheme(
     case "insufficient_tokens":
       return {
         icon: "⛽",
+        borderColor: "border-amber-500/30",
+        bgBadgeColor: "bg-amber-500/10",
+        titleColor: "text-amber-300",
+        accentBorder: "border-s-amber-400",
+        ringBorder: "border-amber-500/30",
+      };
+    case "spl_token":
+      return {
+        icon: "🪙",
         borderColor: "border-amber-500/30",
         bgBadgeColor: "bg-amber-500/10",
         titleColor: "text-amber-300",
@@ -758,41 +768,125 @@ export const ANCHOR_FRAMEWORK_ERRORS: Record<
 };
 
 /**
- * SPL Token Program & Token-2022 Error Codes Map (0x0 - 0x1e)
+ * SPL Token Program & Token-2022 Error Codes Map (0x0 - 0x13)
  */
+export const SplTokenErrorCode = {
+  NotRentExempt: 0,
+  InsufficientFunds: 1,
+  InvalidMint: 2,
+  MintMismatch: 3,
+  OwnerMismatch: 4,
+  FixedSupply: 5,
+  AlreadyInUse: 6,
+  InvalidNumberOfProvidedSigners: 7,
+  InvalidNumberOfRequiredSigners: 8,
+  UninitializedState: 9,
+  NativeNotSupported: 10,
+  NonNativeHasBalance: 11,
+  InvalidInstruction: 12,
+  InvalidState: 13,
+  Overflow: 14,
+  AuthorityTypeNotSupported: 15,
+  MintCannotBeFrozen: 16,
+  AccountFrozen: 17,
+  MintDecimalsMismatch: 18,
+  NonNativeNotSupported: 19,
+} as const;
+
 export const SPL_TOKEN_ERRORS: Record<
   number,
   { name: string; message: string; actionable?: string }
 > = {
-  0: {
+  [SplTokenErrorCode.NotRentExempt]: {
+    name: "NotRentExempt",
+    message: "Lamport balance is below the rent-exempt threshold.",
+    actionable:
+      "Transfer additional SOL to the account to cover minimum rent exemption.",
+  },
+  [SplTokenErrorCode.InsufficientFunds]: {
+    name: "InsufficientFunds",
+    message: "Insufficient token balance to complete this transfer or mint.",
+    actionable: "Deposit additional tokens or lower the transaction amount.",
+  },
+  [SplTokenErrorCode.InvalidMint]: {
+    name: "InvalidMint",
+    message: "The provided token mint account is invalid.",
+  },
+  [SplTokenErrorCode.MintMismatch]: {
+    name: "MintMismatch",
+    message: "Token account is not associated with the specified mint.",
+    actionable:
+      "Verify that your wallet's token account matches the pool's token mint.",
+  },
+  [SplTokenErrorCode.OwnerMismatch]: {
+    name: "OwnerMismatch",
+    message:
+      "The specified owner or authority does not match the token account or mint.",
+    actionable:
+      "Ensure the transaction is signed by the registered mint or account authority.",
+  },
+  [SplTokenErrorCode.FixedSupply]: {
+    name: "FixedSupply",
+    message: "Cannot mint tokens because this mint has a fixed supply.",
+  },
+  [SplTokenErrorCode.AlreadyInUse]: {
     name: "AlreadyInUse",
     message: "Token account is already initialized or in use.",
   },
-  1: {
-    name: "InvalidState",
-    message: "Token account or mint is in an invalid state.",
+  [SplTokenErrorCode.InvalidNumberOfProvidedSigners]: {
+    name: "InvalidNumberOfProvidedSigners",
+    message: "Invalid number of provided signers.",
   },
-  2: {
+  [SplTokenErrorCode.InvalidNumberOfRequiredSigners]: {
+    name: "InvalidNumberOfRequiredSigners",
+    message: "Invalid number of required signers.",
+  },
+  [SplTokenErrorCode.UninitializedState]: {
     name: "UninitializedState",
-    message: "Token account is not initialized.",
+    message: "The token account or mint is not initialized.",
+    actionable:
+      "Initialize the token account or ATA before executing this operation.",
   },
-  3: {
-    name: "InsufficientFunds",
-    message: "Insufficient token balance to complete this transfer.",
-    actionable: "Deposit additional tokens or lower the transaction amount.",
+  [SplTokenErrorCode.NativeNotSupported]: {
+    name: "NativeNotSupported",
+    message: "Instruction does not support native tokens.",
   },
-  4: {
-    name: "MintMismatch",
-    message: "Provided token mint does not match the token account.",
-    actionable: "Ensure your wallet is using the correct token mint.",
+  [SplTokenErrorCode.NonNativeHasBalance]: {
+    name: "NonNativeHasBalance",
+    message: "Non-native account can only be closed if its balance is zero.",
   },
-  5: {
-    name: "UninitializedMint",
-    message: "Token mint account is not initialized.",
+  [SplTokenErrorCode.InvalidInstruction]: {
+    name: "InvalidInstruction",
+    message: "Invalid SPL Token instruction format.",
   },
-  23: {
+  [SplTokenErrorCode.InvalidState]: {
+    name: "InvalidState",
+    message: "Token account state is invalid for the requested operation.",
+  },
+  [SplTokenErrorCode.Overflow]: {
     name: "Overflow",
-    message: "Token calculation overflow occurred.",
+    message: "Token calculation or balance overflow occurred.",
+  },
+  [SplTokenErrorCode.AuthorityTypeNotSupported]: {
+    name: "AuthorityTypeNotSupported",
+    message: "The requested authority type is not supported.",
+  },
+  [SplTokenErrorCode.MintCannotBeFrozen]: {
+    name: "MintCannotBeFrozen",
+    message: "This token mint cannot freeze accounts.",
+  },
+  [SplTokenErrorCode.AccountFrozen]: {
+    name: "AccountFrozen",
+    message:
+      "The token account is frozen and cannot transfer or receive tokens.",
+  },
+  [SplTokenErrorCode.MintDecimalsMismatch]: {
+    name: "MintDecimalsMismatch",
+    message: "Token mint decimals do not match expected decimal places.",
+  },
+  [SplTokenErrorCode.NonNativeNotSupported]: {
+    name: "NonNativeNotSupported",
+    message: "Instruction does not support non-native tokens.",
   },
 };
 
@@ -1201,6 +1295,86 @@ export function matchSquadsError(
   return null;
 }
 
+export const SPL_TOKEN_PROGRAM_ADDRESS =
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+export const TOKEN_2022_PROGRAM_ADDRESS =
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+/**
+ * Matches SPL Token and Token-2022 Program errors from error objects or logs.
+ */
+export function matchSplTokenError(
+  rawLogs: string[] | string | number | unknown
+): {
+  code: number;
+  info: { name: string; message: string; actionable?: string };
+} | null {
+  if (rawLogs === undefined || rawLogs === null) return null;
+  if (typeof rawLogs === "number") {
+    if (SPL_TOKEN_ERRORS[rawLogs]) {
+      return { code: rawLogs, info: SPL_TOKEN_ERRORS[rawLogs] };
+    }
+    return null;
+  }
+
+  const text = Array.isArray(rawLogs)
+    ? rawLogs.join("\n")
+    : typeof rawLogs === "string"
+      ? rawLogs
+      : String(rawLogs);
+
+  // 1. Explicit regex match for Token or Token-2022 program frame failure
+  const tokenFailedMatch = text.match(
+    new RegExp(
+      `(?:Program (?:${SPL_TOKEN_PROGRAM_ADDRESS}|${TOKEN_2022_PROGRAM_ADDRESS}) failed: custom program error: (0x[0-9a-fA-F]+|\\d+))`
+    )
+  );
+  if (tokenFailedMatch) {
+    const val = tokenFailedMatch[1];
+    const decCode = val.startsWith("0x")
+      ? parseInt(val, 16)
+      : parseInt(val, 10);
+    if (SPL_TOKEN_ERRORS[decCode]) {
+      return { code: decCode, info: SPL_TOKEN_ERRORS[decCode] };
+    }
+  }
+
+  // 2. Check for InstructionError or custom program error within Token Program context
+  const hasTokenProgram =
+    text.includes(SPL_TOKEN_PROGRAM_ADDRESS) ||
+    text.includes(TOKEN_2022_PROGRAM_ADDRESS);
+
+  if (hasTokenProgram) {
+    const customMatch =
+      text.match(/custom program error:\s*(0x[0-9a-fA-F]+|\d+)/i) ||
+      text.match(
+        /InstructionError:\s*\[\s*\d+\s*,\s*\{\s*"?Custom"?\s*:\s*(\d+)\s*\}\s*\]/
+      );
+    if (customMatch) {
+      const val = customMatch[1];
+      const decCode = val.startsWith("0x")
+        ? parseInt(val, 16)
+        : parseInt(val, 10);
+      if (SPL_TOKEN_ERRORS[decCode]) {
+        return { code: decCode, info: SPL_TOKEN_ERRORS[decCode] };
+      }
+    }
+
+    for (const [codeStr, info] of Object.entries(SPL_TOKEN_ERRORS)) {
+      const code = Number(codeStr);
+      const hexCode = `0x${code.toString(16)}`;
+      if (
+        text.includes(info.name) ||
+        text.includes(`custom program error: ${hexCode}`)
+      ) {
+        return { code, info };
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Sanitizes raw error strings to remove developer deprecation warnings,
  * internal object instructions, ANSI color codes, stack traces, and raw RPC endpoint URLs.
@@ -1404,13 +1578,54 @@ export function parseTransactionError(
     };
   }
 
-  // 3. Scan logs/messages for System Program Insufficient Funds
+  // 3. Check for SPL Token Program Errors (0x0 - 0x13) - Evaluated BEFORE System Program
+  const splTokenMatch =
+    matchSplTokenError(err) || matchSplTokenError(combinedSearchText);
+
+  let finalSplTokenMatch = splTokenMatch;
+  if (
+    !finalSplTokenMatch &&
+    (combinedSearchText.includes(SPL_TOKEN_PROGRAM_ADDRESS) ||
+      combinedSearchText.includes(TOKEN_2022_PROGRAM_ADDRESS))
+  ) {
+    for (const code of traversal.codes) {
+      const matched = matchSplTokenError(code);
+      if (matched) {
+        finalSplTokenMatch = matched;
+        break;
+      }
+    }
+  }
+
+  if (finalSplTokenMatch) {
+    const isInsufficient =
+      finalSplTokenMatch.code === SplTokenErrorCode.InsufficientFunds;
+    return {
+      isCancellation: false,
+      layer: "spl",
+      category: isInsufficient ? "insufficient_tokens" : "spl_token",
+      title: `Token Error: ${finalSplTokenMatch.info.name}`,
+      message: finalSplTokenMatch.info.message,
+      code: finalSplTokenMatch.code,
+      actionableStep:
+        finalSplTokenMatch.info.actionable ||
+        "Check token balance and account state.",
+      logs,
+      rawError: err,
+    };
+  }
+
+  // 4. Scan logs/messages for System Program Insufficient Funds
   for (const log of [rawMsg, ...logs]) {
     if (
-      log.includes("custom program error: 0x1") ||
-      log.includes("Insufficient funds") ||
+      (log.includes("11111111111111111111111111111111") &&
+        (log.includes("custom program error: 0x1") ||
+          log.includes("custom program error: 1"))) ||
       log.includes("insufficient lamports") ||
-      log.includes("insufficient funds for fee")
+      log.includes("insufficient funds for fee") ||
+      (log.includes("custom program error: 0x1") &&
+        !combinedSearchText.includes(SPL_TOKEN_PROGRAM_ADDRESS) &&
+        !combinedSearchText.includes(TOKEN_2022_PROGRAM_ADDRESS))
     ) {
       return {
         isCancellation: false,
@@ -1421,49 +1636,6 @@ export function parseTransactionError(
           "Your wallet balance is too low to cover network gas fees or account rent.",
         code: "0x1",
         actionableStep: "Add SOL to your wallet to pay for transaction fees.",
-        logs,
-        rawError: err,
-      };
-    }
-  }
-
-  // 3b. Check for SPL Token Program Errors (0x0 - 0x1e)
-  for (const [codeStr, info] of Object.entries(SPL_TOKEN_ERRORS)) {
-    const code = Number(codeStr);
-    const hexCode = `0x${code.toString(16)}`;
-    if (
-      combinedSearchText.includes(
-        `Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: ${hexCode}`
-      ) ||
-      combinedSearchText.includes(
-        `Program TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb failed: custom program error: ${hexCode}`
-      ) ||
-      (combinedSearchText.includes(`custom program error: ${hexCode}`) &&
-        (combinedSearchText.includes("Token") ||
-          combinedSearchText.includes("transfer"))) ||
-      combinedSearchText.includes(
-        `InstructionError: [1, {"Custom":${code}}]`
-      ) ||
-      combinedSearchText.includes(
-        `InstructionError: [0, {"Custom":${code}}]`
-      ) ||
-      (code === 3 &&
-        (combinedSearchText
-          .toLowerCase()
-          .includes("insufficient token balance") ||
-          combinedSearchText
-            .toLowerCase()
-            .includes("insufficient funds for transfer")))
-    ) {
-      return {
-        isCancellation: false,
-        layer: "spl",
-        category: code === 3 ? "insufficient_tokens" : "anchor_custom",
-        title: `Token Error: ${info.name}`,
-        message: info.message,
-        code,
-        actionableStep:
-          info.actionable || "Check token balance and account state.",
         logs,
         rawError: err,
       };
