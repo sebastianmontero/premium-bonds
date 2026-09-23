@@ -6,12 +6,10 @@ import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
-import {
-  TransactionProgressModal,
-  isInFlightStage,
-} from "./TransactionProgressModal";
+import { isInFlightStage } from "./TransactionProgressModal";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
-import { useModalDismissal } from "@/app/hooks/useModalDismissal";
+import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
+import { TransactionProgressView } from "./TransactionProgressView";
 
 interface DepositModalProps {
   pool: PoolInfo;
@@ -50,13 +48,6 @@ export function DepositModal({
       inputRef.current?.focus();
     }, 50);
   }, [runner]);
-
-  const { handleBackdropClick } = useModalDismissal({
-    isOpen: true,
-    isBusy,
-    onClose: handleModalClose,
-    onBack: runner.stage === "error" ? handleBackToForm : undefined,
-  });
 
   const bondPriceHuman = pool.bondPrice / 10 ** pool.tokenDecimals;
   const maxTickets = Math.floor(walletBalance / pool.bondPrice);
@@ -122,15 +113,27 @@ export function DepositModal({
   ]);
 
   return (
-    <div
-      className="modal-backdrop animate-fade-in"
-      onClick={handleBackdropClick}
+    <AdaptiveModal
+      isOpen={true}
+      onClose={handleModalClose}
+      onBack={runner.stage === "error" ? handleBackToForm : undefined}
+      title={t("depositHeader", { symbol: pool.tokenSymbol })}
+      subtitle={t("poolName", { symbol: pool.tokenSymbol })}
+      titleIcon={
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20">
+          <span className="font-display text-sm font-bold text-primary">
+            {pool.tokenSymbol.charAt(0)}
+          </span>
+        </div>
+      }
+      size="sm"
+      isBusy={isBusy}
+      initialFocusRef={runner.stage === null ? inputRef : undefined}
     >
       {runner.stage !== null ? (
-        <TransactionProgressModal
-          isOpen={true}
-          isEmbedded={true}
+        <TransactionProgressView
           stage={runner.stage}
+          showHeading={true}
           title={t("depositHeader", { symbol: pool.tokenSymbol })}
           customSuccessMessage={
             runner.stage === "success"
@@ -150,54 +153,7 @@ export function DepositModal({
           backLabel={t("editAmount")}
         />
       ) : (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="deposit-modal-title"
-          className="w-full max-w-md rounded-2xl glass-strong p-6 space-y-5 shadow-ambient mx-4 relative overflow-hidden animate-scale-in"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* ── Header ─────────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20">
-                <span className="font-display text-base font-bold text-primary">
-                  {pool.tokenSymbol.charAt(0)}
-                </span>
-              </div>
-              <div>
-                <h2
-                  id="deposit-modal-title"
-                  className="font-display text-lg font-bold text-on-surface"
-                >
-                  {t("depositHeader", { symbol: pool.tokenSymbol })}
-                </h2>
-                <p className="text-xs text-on-surface-variant">
-                  {t("poolName", { symbol: pool.tokenSymbol })}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleModalClose}
-              aria-label={t("close")}
-              className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container-highest transition cursor-pointer"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-
+        <div className="space-y-4">
           {/* Frozen Alert */}
           {pool.isFrozenForDraw && (
             <div className="flex items-center gap-3 rounded-xl border border-tertiary/20 bg-tertiary/5 px-4 py-3">
@@ -499,6 +455,6 @@ export function DepositModal({
           </button>
         </div>
       )}
-    </div>
+    </AdaptiveModal>
   );
 }

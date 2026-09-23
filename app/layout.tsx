@@ -1,8 +1,16 @@
+import type { Viewport } from "next";
 import { Inter, Space_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./components/providers";
 import { getLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0c0d18",
+};
 
 const inter = Inter({
   variable: "--font-inter",

@@ -133,7 +133,7 @@ export function PaginationControls({
             onClick={() => onPageChange(safeCurrentPage - 1)}
             disabled={safeCurrentPage <= 1}
             aria-label={tCommon("goToPreviousPage")}
-            className="rounded-lg border border-surface-bright/10 bg-surface-container/30 px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
+            className="min-h-[44px] sm:min-h-[36px] min-w-[44px] sm:min-w-[36px] rounded-lg border border-surface-bright/10 bg-surface-container/30 px-3 sm:px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center justify-center gap-1"
           >
             <svg
               className="w-3.5 h-3.5 rtl:rotate-180"
@@ -173,7 +173,7 @@ export function PaginationControls({
                     onClick={() => onPageChange(page)}
                     aria-current={isCurrent ? "page" : undefined}
                     aria-label={tCommon("goToPage", { page })}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-mono font-semibold transition cursor-pointer ${
+                    className={`min-h-[36px] min-w-[36px] rounded-lg px-3 py-1.5 text-xs font-mono font-semibold transition cursor-pointer ${
                       isCurrent
                         ? "bg-primary text-on-primary shadow-sm"
                         : "bg-surface-container/30 text-on-surface hover:bg-surface-bright/10 border border-surface-bright/10"
@@ -196,7 +196,7 @@ export function PaginationControls({
             onClick={() => onPageChange(safeCurrentPage + 1)}
             disabled={safeCurrentPage >= safeTotalPages}
             aria-label={tCommon("goToNextPage")}
-            className="rounded-lg border border-surface-bright/10 bg-surface-container/30 px-2.5 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center gap-1"
+            className="min-h-[44px] sm:min-h-[36px] min-w-[44px] sm:min-w-[36px] rounded-lg border border-surface-bright/10 bg-surface-container/30 px-3 sm:px-2.5 py-2 sm:py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-bright/10 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer flex items-center justify-center gap-1"
           >
             <span className="hidden sm:inline">{t("next")}</span>
             <svg

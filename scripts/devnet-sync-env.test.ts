@@ -107,7 +107,6 @@ SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=xyz
     );
   });
 
-
   it("3. Clean .env.devnet Syntax & Isolation: should use unprefixed keys and never write on-chain accounts to .env.devnet", () => {
     writeDevnetAddresses(sampleAddresses, addressesPath);
 
@@ -239,7 +238,6 @@ NEXT_PUBLIC_RANDOMNESS_ACCOUNT=SwitchboardAccount123
       "utf-8"
     );
 
-
     // Step 2: Localnet runs safeguard
     safeguardDevnetEnv(activeEnvPath, devnetEnvPath);
 
@@ -370,7 +368,8 @@ MY_CUSTOM_FLAG=true
   });
 
   it("10. Mock Replacement in Profile Salvage & Randomness Account Preservation: should preserve Switchboard account and overwrite stale mock URLs", () => {
-    const { randomnessAccount, ...addressesWithoutRandomness } = sampleAddresses;
+    const { randomnessAccount, ...addressesWithoutRandomness } =
+      sampleAddresses;
     writeDevnetAddresses(addressesWithoutRandomness, addressesPath);
 
     // .env.devnet has a stale local mock DB URL and a valid Switchboard account
@@ -468,4 +467,3 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/local_db
     );
   });
 });
-

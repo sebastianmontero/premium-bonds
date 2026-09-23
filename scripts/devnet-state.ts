@@ -86,7 +86,6 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
   },
 ];
 
-
 /**
  * Reads the public on-chain protocol addresses from scripts/devnet-state/addresses.json.
  */
@@ -319,4 +318,3 @@ export function recordDevnetRandomnessAccount(
     { headerComment: "# Devnet Environment Profile (Auto-synchronized)" }
   );
 }
-

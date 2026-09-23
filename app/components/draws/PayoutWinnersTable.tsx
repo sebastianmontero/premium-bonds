@@ -12,6 +12,7 @@ import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useTierLabel } from "@/app/hooks/useTierLabel";
+import { SearchInput } from "@/app/components/common/SearchInput";
 import type { DrawWinnerRecord } from "@/app/types";
 import { useTranslations } from "next-intl";
 
@@ -153,28 +154,13 @@ export function PayoutWinnersTable({
           {/* Table Filter Toolbar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
             {/* Search Input */}
-            <div className="relative w-full sm:w-64">
-              <input
-                type="text"
-                placeholder={t("searchWinnerPlaceholder")}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 ps-9 pe-4 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
-              />
-              <svg
-                className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-            </div>
+            <SearchInput
+              containerClassName="w-full sm:w-64"
+              placeholder={t("searchWinnerPlaceholder")}
+              value={searchTerm}
+              onChange={setSearchTerm}
+              onClear={() => setSearchTerm("")}
+            />
 
             {/* Tier Filter Dropdown & Clear Action */}
             <div className="flex items-center gap-2 w-full sm:w-auto">

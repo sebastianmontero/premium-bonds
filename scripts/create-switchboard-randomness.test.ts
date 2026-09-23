@@ -53,7 +53,10 @@ describe("Switchboard Randomness Provisioning Suite", () => {
   });
 
   test("loadLegacyKeypair throws descriptive error when file missing", () => {
-    const missingPath = path.join(os.tmpdir(), "non-existent-keypair-12345.json");
+    const missingPath = path.join(
+      os.tmpdir(),
+      "non-existent-keypair-12345.json"
+    );
     assert.throws(
       () => loadLegacyKeypair(missingPath),
       /Keypair file not found at:/

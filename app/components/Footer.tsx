@@ -34,28 +34,28 @@ export function Footer() {
           </div>
 
           {/* Links */}
-          <div className="flex items-center gap-6 text-sm text-on-surface-variant">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm text-on-surface-variant">
             <Link
               href="/#features"
-              className="hover:text-on-surface transition-colors"
+              className="hover:text-on-surface transition-colors py-1"
             >
               {t("features")}
             </Link>
             <Link
               href="/#how-it-works"
-              className="hover:text-on-surface transition-colors"
+              className="hover:text-on-surface transition-colors py-1"
             >
               {t("howItWorks")}
             </Link>
             <Link
               href="/#prizes"
-              className="hover:text-on-surface transition-colors"
+              className="hover:text-on-surface transition-colors py-1"
             >
               {t("prizes")}
             </Link>
             <Link
               href="/docs"
-              className="hover:text-on-surface transition-colors"
+              className="hover:text-on-surface transition-colors py-1"
             >
               {t("docs")}
             </Link>
@@ -63,19 +63,19 @@ export function Footer() {
               href="https://github.com"
               target="_blank"
               rel="noreferrer"
-              className="hover:text-on-surface transition-colors"
+              className="hover:text-on-surface transition-colors py-1"
             >
               {t("github")}
             </a>
           </div>
 
           {/* Social */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <a
               href="https://x.com"
               target="_blank"
               rel="noreferrer"
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
+              className="text-on-surface-variant hover:text-on-surface transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-surface-container-high"
               aria-label={t("twitter")}
             >
               <svg
@@ -91,7 +91,7 @@ export function Footer() {
               href="https://discord.gg"
               target="_blank"
               rel="noreferrer"
-              className="text-on-surface-variant hover:text-on-surface transition-colors"
+              className="text-on-surface-variant hover:text-on-surface transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-surface-container-high"
               aria-label={t("discord")}
             >
               <svg

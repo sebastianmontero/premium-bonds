@@ -31,7 +31,9 @@ export default async function DashboardLayout({
             <DashboardHeader />
 
             {/* Page content */}
-            <main className="px-6 py-6 pb-24 lg:pb-6">{children}</main>
+            <main className="px-4 sm:px-6 py-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-6">
+              {children}
+            </main>
           </div>
         </div>
       </BondsProvider>

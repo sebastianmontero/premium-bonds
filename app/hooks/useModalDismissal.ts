@@ -9,6 +9,8 @@ export interface ModalDismissalOptions {
   onBack?: () => void;
 }
 
+let activeModalCount = 0;
+
 /**
  * Hook to manage modal dismissal rules, backdrop click target guarding,
  * body scroll locking, and keyboard Escape handling across idle, in-flight,
@@ -20,13 +22,18 @@ export function useModalDismissal({
   onClose,
   onBack,
 }: ModalDismissalOptions) {
-  // 1. Lock body scrolling while modal is open
+  // 1. Lock body scrolling while modal is open (reference-counted for stacked modals)
   useEffect(() => {
     if (!isOpen) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    activeModalCount++;
+    if (activeModalCount === 1) {
+      document.body.style.overflow = "hidden";
+    }
     return () => {
-      document.body.style.overflow = originalOverflow;
+      activeModalCount = Math.max(0, activeModalCount - 1);
+      if (activeModalCount === 0) {
+        document.body.style.overflow = "";
+      }
     };
   }, [isOpen]);
 

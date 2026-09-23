@@ -31,7 +31,6 @@ import {
 } from "./devnet-state";
 import { provisionDevnetRandomnessAccount } from "./create-switchboard-randomness";
 
-
 function loadDevnetAccounts(): DevnetProtocolAccounts {
   const accounts = readDevnetAddresses();
   if (!accounts || !accounts.adminAddress || !accounts.humaPoolState) {
@@ -398,7 +397,6 @@ async function handleInit(args: string[]) {
     });
     randomnessAddressStr = result.address;
   }
-
 
   // Create state directory
   if (!fs.existsSync(STATE_DIR)) {
@@ -864,7 +862,6 @@ async function handleInit(args: string[]) {
     humaRedemptionRequest: generateRandomAddress(),
     randomnessAccount: randomnessAddressStr,
   };
-
 
   writeDevnetAddresses(devnetAccounts);
   syncDevnetToActiveEnv();

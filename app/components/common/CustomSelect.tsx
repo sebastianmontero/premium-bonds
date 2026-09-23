@@ -108,7 +108,7 @@ export function CustomSelect<T extends string | number>({
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className="flex w-full items-center justify-between gap-2.5 rounded-xl border border-surface-bright/20 bg-[#08090E]/90 px-3.5 py-2 text-xs font-semibold text-on-surface hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50 cursor-pointer transition-all duration-150 shadow-sm"
+        className="flex w-full items-center justify-between gap-2.5 rounded-xl border border-surface-bright/20 bg-[#08090E]/90 px-3.5 py-2 text-base md:text-xs min-h-[44px] md:min-h-[36px] font-semibold text-on-surface hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50 cursor-pointer transition-all duration-150 shadow-sm"
       >
         <span className="truncate flex items-center gap-1.5">
           {selectedOption?.icon}
@@ -156,7 +156,7 @@ export function CustomSelect<T extends string | number>({
                     setIsOpen(false);
                   }}
                   onMouseEnter={() => setFocusedIndex(idx)}
-                  className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-colors cursor-pointer ${
+                  className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-xs sm:text-sm font-medium transition-colors cursor-pointer ${
                     isSelected
                       ? "bg-primary/15 text-primary font-semibold"
                       : isFocused

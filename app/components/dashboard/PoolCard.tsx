@@ -24,19 +24,6 @@ interface PoolCardProps {
   onWithdraw: () => void;
 }
 
-const TIER_GRID_LAYOUTS: Record<number, string> = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-  4: "grid-cols-2 sm:grid-cols-4",
-  5: "grid-cols-2 sm:grid-cols-5",
-  6: "grid-cols-2 sm:grid-cols-3",
-  7: "grid-cols-2 sm:grid-cols-4",
-  8: "grid-cols-2 sm:grid-cols-4",
-  9: "grid-cols-2 sm:grid-cols-3",
-  10: "grid-cols-2 sm:grid-cols-5",
-};
-
 export function PoolCard({
   pool,
   userTickets,
@@ -207,8 +194,6 @@ export function PoolCard({
         if (activeTiers.length === 0) return null;
 
         const featuredTiers = activeTiers.slice(0, 3);
-        const gridColsClass =
-          TIER_GRID_LAYOUTS[featuredTiers.length] || "grid-cols-3";
 
         return (
           <div className="space-y-2">
@@ -240,13 +225,14 @@ export function PoolCard({
                 </button>
               )}
             </div>
-            <div className={`grid ${gridColsClass} gap-2.5`}>
+            <div className="flex flex-wrap gap-2.5">
               {featuredTiers.map((tier, i) => (
                 <TierPrizeTicker
                   key={i}
                   pool={pool}
                   tier={tier}
                   tierIndex={i}
+                  className="flex-1 min-w-[110px]"
                 />
               ))}
             </div>

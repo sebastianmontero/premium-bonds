@@ -132,10 +132,43 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+
+  /* Breakpoints */
+  --breakpoint-xs: 30rem;
 }
 
 /* ---- Base Layer ---- */
 @layer base {
+  /* Prevent desktop scrollbar layout jump during modal body scroll locking */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /* Eliminate 300ms mobile tap latency */
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  /* Universal iOS Safari Form Auto-Zoom Defense (16px base without !important so text-lg is preserved) */
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 1rem;
+    }
+  }
+
+  /* Suppress WebKit native search cancel button in favor of custom accessible clear button */
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   * {
     border-color: color-mix(in srgb, var(--outline-variant) 20%, transparent);
   }
@@ -650,4 +683,22 @@
       width: 100% !important;
     }
   }
+}
+
+/* Safe-Area Inset Utilities */
+@utility pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+@utility pb-safe-lg {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+@utility pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+@utility px-safe {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
 }

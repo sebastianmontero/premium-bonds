@@ -29,6 +29,7 @@ export function ErrorDecoderTool() {
     currentLocale === "es" ? "es" : "en"
   ) as SupportedLocale;
   const t = useTranslations("Docs");
+  const tCommon = useTranslations("Common.aria");
 
   const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
@@ -122,13 +123,14 @@ export function ErrorDecoderTool() {
             }
           }}
           placeholder={t("searchErrorPlaceholder")}
-          className="w-full rounded-xl bg-surface-container-high border border-outline-variant/30 py-2.5 ps-4 pe-10 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
+          className="w-full rounded-xl bg-surface-container-high border border-outline-variant/30 py-2 ps-4 pe-11 text-base md:text-sm min-h-[44px] md:min-h-[38px] text-on-surface placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 transition shadow-inner"
         />
         {searchTerm && (
           <button
             type="button"
             onClick={() => setSearchTerm("")}
-            className="absolute end-3 text-xs text-on-surface-variant hover:text-on-surface cursor-pointer px-1 py-0.5 rounded bg-surface-container"
+            className="absolute end-1 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] flex items-center justify-center text-xs text-on-surface-variant hover:text-on-surface cursor-pointer"
+            aria-label={tCommon("clearSearch")}
           >
             ✕
           </button>

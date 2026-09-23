@@ -13,6 +13,7 @@ import { CustomSelect } from "@/app/components/common/CustomSelect";
 import { PaginationControls } from "@/app/components/common/PaginationControls";
 import { DrawPayoutProgressBadge } from "@/app/components/draws/DrawPayoutProgressBadge";
 import { useClusterTime } from "@/app/hooks/useOnChainClock";
+import { SearchInput } from "@/app/components/common/SearchInput";
 import type { DrawCycleSummary, DrawStatusCountMap } from "@/app/types";
 import type { PaginationMeta } from "@/app/types/indexer-contracts";
 import { useTranslations } from "next-intl";
@@ -212,29 +213,14 @@ export function DrawHistoryList({
         {/* Filters */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           {/* Search */}
-          <div className="relative flex-1 sm:w-48 md:w-56">
-            <input
-              type="text"
-              placeholder={t("searchPlaceholder")}
-              value={isControlled ? searchInput : localSearchTerm}
-              disabled={isLoading}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full rounded-xl border border-surface-bright/10 bg-[#08090E] py-2 pl-8 pr-3 text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none"
-            />
-            <svg
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-on-surface-variant/40"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-          </div>
+          <SearchInput
+            containerClassName="flex-1 sm:w-48 md:w-56"
+            placeholder={t("searchPlaceholder")}
+            value={isControlled ? searchInput : localSearchTerm}
+            disabled={isLoading}
+            onChange={(val) => handleSearchChange(val)}
+            onClear={() => handleSearchChange("")}
+          />
 
           {/* Status Filter */}
           <div className="w-full sm:w-52 md:w-60">

@@ -113,7 +113,7 @@ export function DashboardSidebar() {
       </aside>
 
       {/* ── Mobile Bottom Tab Bar ───────────────────────────────────────── */}
-      <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-outline-variant/10 bg-surface-container-lowest px-2 py-2 lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-outline-variant/10 bg-surface-container-lowest px-2 py-2 pb-safe lg:hidden">
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.endsWith(item.href);
@@ -121,7 +121,7 @@ export function DashboardSidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center gap-1 rounded-lg px-3 py-1.5 text-[10px] font-medium transition ${
+              className={`flex flex-col items-center justify-center gap-1 rounded-lg px-4 py-1.5 min-h-[44px] text-[10px] font-medium transition ${
                 isActive
                   ? "text-primary"
                   : "text-on-surface-variant hover:text-on-surface"

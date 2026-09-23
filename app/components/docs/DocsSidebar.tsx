@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { DOC_CATEGORIES, DOC_ARTICLES } from "@/app/lib/docs/data";
 import { Link } from "@/i18n/routing";
+import { useModalDismissal } from "@/app/hooks/useModalDismissal";
 
 interface DocsSidebarProps {
   currentCategorySlug?: string;
@@ -18,6 +19,11 @@ export function DocsSidebar({
   const locale = useLocale();
   const t = useTranslations("Docs");
 
+  useModalDismissal({
+    isOpen: mobileOpen,
+    onClose: () => setMobileOpen(false),
+  });
+
   return (
     <>
       {/* Mobile Toggle Button */}
@@ -27,18 +33,27 @@ export function DocsSidebar({
         </span>
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-surface-container-high text-primary hover:bg-surface-container-highest transition cursor-pointer"
+          className="min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg bg-surface-container-high text-primary hover:bg-surface-container-highest transition cursor-pointer flex items-center justify-center"
         >
           {mobileOpen ? t("closeMenu") : t("browseTopics")}
         </button>
       </div>
+
+      {/* Backdrop overlay for mobile */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* Sidebar Container */}
       <aside
         className={`fixed inset-y-0 start-0 z-40 w-72 transform bg-surface-container-lowest/95 backdrop-blur-2xl p-6 transition-transform duration-300 border-e border-outline-variant/15 lg:static lg:w-64 lg:translate-x-0 shrink-0 ${
           mobileOpen
             ? "translate-x-0 shadow-2xl"
-            : "-translate-x-full lg:translate-x-0"
+            : "ltr:-translate-x-full rtl:translate-x-full lg:translate-x-0"
         }`}
       >
         <div className="flex items-center justify-between mb-6 lg:hidden">
@@ -47,7 +62,8 @@ export function DocsSidebar({
           </span>
           <button
             onClick={() => setMobileOpen(false)}
-            className="text-on-surface-variant hover:text-on-surface text-base"
+            aria-label={t("closeMenu")}
+            className="w-11 h-11 flex items-center justify-center text-on-surface-variant hover:text-on-surface text-base rounded-lg hover:bg-surface-container-high transition"
           >
             ✕
           </button>

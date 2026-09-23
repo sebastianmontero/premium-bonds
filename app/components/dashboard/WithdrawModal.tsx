@@ -5,12 +5,10 @@ import { useTranslations } from "next-intl";
 import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
-import {
-  TransactionProgressModal,
-  isInFlightStage,
-} from "./TransactionProgressModal";
+import { isInFlightStage } from "./TransactionProgressModal";
 import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
-import { useModalDismissal } from "@/app/hooks/useModalDismissal";
+import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
+import { TransactionProgressView } from "./TransactionProgressView";
 
 interface WithdrawModalProps {
   pool: PoolInfo;
@@ -50,13 +48,6 @@ export function WithdrawModal({
       inputRef.current?.focus();
     }, 50);
   }, [runner]);
-
-  const { handleBackdropClick } = useModalDismissal({
-    isOpen: true,
-    isBusy,
-    onClose: handleModalClose,
-    onBack: runner.stage === "error" ? handleBackToForm : undefined,
-  });
 
   const maxTickets =
     userTickets.activeTicketsCount + userTickets.pendingTicketsCount;
@@ -102,15 +93,37 @@ export function WithdrawModal({
   ]);
 
   return (
-    <div
-      className="modal-backdrop animate-fade-in"
-      onClick={handleBackdropClick}
+    <AdaptiveModal
+      isOpen={true}
+      onClose={handleModalClose}
+      onBack={runner.stage === "error" ? handleBackToForm : undefined}
+      title={t("withdrawTitle")}
+      subtitle={tPools("initiateHumaRedemption")}
+      titleIcon={
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-error/20 to-secondary/20">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-error"
+          >
+            <path d="M12 5v14M5 12l7 7 7-7" />
+          </svg>
+        </div>
+      }
+      size="sm"
+      isBusy={isBusy}
+      initialFocusRef={runner.stage === null ? inputRef : undefined}
     >
       {runner.stage !== null ? (
-        <TransactionProgressModal
-          isOpen={true}
-          isEmbedded={true}
+        <TransactionProgressView
           stage={runner.stage}
+          showHeading={true}
           title={t("withdrawTitle")}
           customSuccessMessage={
             runner.stage === "success"
@@ -130,64 +143,7 @@ export function WithdrawModal({
           backLabel={t("editAmount")}
         />
       ) : (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="withdraw-modal-title"
-          className="w-full max-w-md rounded-2xl glass-strong p-6 space-y-5 shadow-ambient mx-4 animate-scale-in"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* ── Header ─────────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-error/20 to-secondary/20">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="text-error"
-                >
-                  <path d="M12 5v14M5 12l7 7 7-7" />
-                </svg>
-              </div>
-              <div>
-                <h2
-                  id="withdraw-modal-title"
-                  className="font-display text-lg font-bold text-on-surface"
-                >
-                  {t("withdrawTitle")}
-                </h2>
-                <p className="text-xs text-on-surface-variant">
-                  {tPools("initiateHumaRedemption")}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleModalClose}
-              aria-label={t("close")}
-              className="rounded-lg p-2 text-on-surface-variant hover:bg-surface-container-highest transition cursor-pointer"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-
+        <div className="space-y-4">
           {/* Frozen Alert */}
           {pool.isFrozenForDraw && (
             <div className="flex items-center gap-3 rounded-xl border border-tertiary/20 bg-tertiary/5 px-4 py-3">
@@ -414,6 +370,6 @@ export function WithdrawModal({
           </button>
         </div>
       )}
-    </div>
+    </AdaptiveModal>
   );
 }
