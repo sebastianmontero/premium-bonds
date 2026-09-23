@@ -16,6 +16,9 @@ import {
   KeyPairSigner,
   Instruction,
   AccountRole,
+  Address,
+  address,
+  getBase58Encoder,
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
@@ -768,4 +771,159 @@ export function formatErrorDetails(
  */
 export function printErrorDetails(err: unknown, contextTitle?: string): void {
   console.error(formatErrorDetails(err, contextTitle));
+}
+
+// ─── Native SPL Token Helpers ──────────────────────────────────────────────────
+
+export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
+export const TOKEN_PROGRAM_ID = address(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+);
+export const ATA_PROGRAM_ID = address(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+);
+
+export interface CreateMintOptions {
+  readonly rpc: ReturnType<typeof createSolanaRpc>;
+  readonly payer: KeyPairSigner;
+  readonly mint: KeyPairSigner;
+  readonly decimals: number;
+  readonly mintAuthority: Address;
+  readonly freezeAuthority?: Address;
+}
+
+/**
+ * Builds native SystemProgram.createAccount and TokenProgram.InitializeMint2 instructions.
+ */
+export async function buildCreateMintInstructions(
+  params: CreateMintOptions
+): Promise<Instruction[]> {
+  const space = 82n;
+  const rentExempt = await params.rpc
+    .getMinimumBalanceForRentExemption(space)
+    .send();
+
+  // 1. SystemProgram::CreateAccount (Opcode 0)
+  const createAccountData = new Uint8Array(4 + 8 + 8 + 32);
+  const createView = new DataView(createAccountData.buffer);
+  createView.setUint32(0, 0, true);
+  createView.setBigUint64(4, rentExempt, true);
+  createView.setBigUint64(12, space, true);
+  createAccountData.set(getBase58Encoder().encode(TOKEN_PROGRAM_ID), 20);
+
+  const createAccountIx: Instruction = {
+    programAddress: SYSTEM_PROGRAM_ID,
+    accounts: [
+      {
+        address: params.payer.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.payer,
+      },
+      {
+        address: params.mint.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.mint,
+      },
+    ],
+    data: createAccountData,
+  };
+
+  // 2. TokenProgram::InitializeMint2 (Opcode 20)
+  const initMintData = new Uint8Array(1 + 1 + 32 + 1 + 32);
+  initMintData[0] = 20; // InitializeMint2
+  initMintData[1] = params.decimals;
+  initMintData.set(getBase58Encoder().encode(params.mintAuthority), 2);
+  if (params.freezeAuthority) {
+    initMintData[34] = 1;
+    initMintData.set(getBase58Encoder().encode(params.freezeAuthority), 35);
+  } else {
+    initMintData[34] = 0;
+  }
+
+  const initMintIx: Instruction = {
+    programAddress: TOKEN_PROGRAM_ID,
+    accounts: [{ address: params.mint.address, role: AccountRole.WRITABLE }],
+    data: params.freezeAuthority ? initMintData : initMintData.subarray(0, 35),
+  };
+
+  return [createAccountIx, initMintIx];
+}
+
+export interface EnsureTokenMintParams {
+  readonly payer: KeyPairSigner;
+  readonly mint: KeyPairSigner;
+  readonly decimals: number;
+  readonly mintAuthority: Address;
+  readonly freezeAuthority?: Address;
+  readonly label?: string;
+}
+
+/**
+ * Checks if a token mint exists on-chain and creates it atomically if missing.
+ */
+export async function ensureTokenMintOnChain(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  params: EnsureTokenMintParams
+): Promise<void> {
+  const accountInfo = await rpc.getAccountInfo(params.mint.address).send();
+  if (accountInfo?.value) {
+    console.log(
+      `${params.label || "Token mint"} ${params.mint.address} already exists on-chain.`
+    );
+    return;
+  }
+  console.log(
+    `Creating ${params.label || "token mint"} ${params.mint.address} on-chain...`
+  );
+  try {
+    const ixs = await buildCreateMintInstructions({
+      rpc,
+      payer: params.payer,
+      mint: params.mint,
+      decimals: params.decimals,
+      mintAuthority: params.mintAuthority,
+      freezeAuthority: params.freezeAuthority,
+    });
+    await sendTx(rpc, ixs, [params.payer, params.mint]);
+    console.log(
+      `${params.label || "Token mint"} ${params.mint.address} created successfully on-chain!`
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to create token mint ${params.mint.address}: ${msg}`,
+      { cause: err }
+    );
+  }
+}
+
+export interface MintToParams {
+  readonly mint: Address;
+  readonly destination: Address;
+  readonly authority: KeyPairSigner;
+  readonly amount: bigint;
+}
+
+/**
+ * Builds native SPL Token Program MintTo instruction (Opcode 7).
+ */
+export function buildMintToInstruction(params: MintToParams): Instruction {
+  const data = new Uint8Array(1 + 8);
+  data[0] = 7; // MintTo opcode
+  const view = new DataView(data.buffer);
+  view.setBigUint64(1, params.amount, true);
+
+  return {
+    programAddress: TOKEN_PROGRAM_ID,
+    accounts: [
+      { address: params.mint, role: AccountRole.WRITABLE },
+      { address: params.destination, role: AccountRole.WRITABLE },
+      {
+        address: params.authority.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.authority,
+      },
+    ],
+    data,
+  };
 }

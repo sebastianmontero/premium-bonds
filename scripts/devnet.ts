@@ -21,6 +21,11 @@ import {
   createResilientRpc,
   resolveDevnetRpcUrl,
   printErrorDetails,
+  ensureTokenMintOnChain,
+  buildMintToInstruction,
+  SYSTEM_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  ATA_PROGRAM_ID,
 } from "./utils";
 import {
   DevnetProtocolAccounts,
@@ -55,10 +60,12 @@ import {
   decodeAccountBase64Data,
   findGlobalConfigPda,
   findPrizePoolPda,
-  findPoolVaultAccountPda,
+  findPoolVaultPda,
   findPoolPstVaultPda,
   findHumaPoolAuthorityPda,
   findAtaAddress,
+  createAssociatedTokenIdempotentInstruction,
+  parsePrizePool,
   buildInitializeGlobalInstruction,
   buildCreatePoolInstruction,
   buildInitializeHumaLenderInstruction,
@@ -157,16 +164,40 @@ function printUsage() {
   console.log("  settle [count]        Settles pending redemptions on devnet");
 }
 
-function serializeSimulateYieldData(yieldAmount: bigint): Uint8Array {
-  return getSimulateYieldInstructionDataEncoder().encode({ yieldAmount });
+export interface ExpectedPoolAddresses {
+  readonly tokenMint: Address;
+  readonly ticketRegistry: Address;
+  readonly feeWallet: Address;
 }
 
-function serializeSettleRequestsData(count: number): Uint8Array {
-  return getSettleRequestsInstructionDataEncoder().encode({ count });
-}
-
-function serializeInitializeMockPoolState(): Uint8Array {
-  return getInitializeMockPoolStateInstructionDataEncoder().encode({});
+/**
+ * Reconciles on-chain Prize Pool configuration against expected local addresses.
+ */
+export function reconcilePoolState(
+  onChainPool: {
+    tokenMint: Address;
+    ticketRegistry: Address;
+    feeWallet: Address;
+  },
+  expected: ExpectedPoolAddresses
+): { isMatch: boolean; mismatches: string[] } {
+  const mismatches: string[] = [];
+  if (onChainPool.tokenMint !== expected.tokenMint) {
+    mismatches.push(
+      `tokenMint mismatch: on-chain=${onChainPool.tokenMint} vs local=${expected.tokenMint}`
+    );
+  }
+  if (onChainPool.ticketRegistry !== expected.ticketRegistry) {
+    mismatches.push(
+      `ticketRegistry mismatch: on-chain=${onChainPool.ticketRegistry} vs local=${expected.ticketRegistry}`
+    );
+  }
+  if (onChainPool.feeWallet !== expected.feeWallet) {
+    mismatches.push(
+      `feeWallet mismatch: on-chain=${onChainPool.feeWallet} vs local=${expected.feeWallet}`
+    );
+  }
+  return { isMatch: mismatches.length === 0, mismatches };
 }
 
 const PROGRAM_DATA_AUTHORITY_FLAG_OFFSET = 12;
@@ -441,11 +472,11 @@ async function handleInit(args: string[]) {
           signer: adminSigner,
         },
         {
-          address: address("11111111111111111111111111111111"),
+          address: SYSTEM_PROGRAM_ID,
           role: AccountRole.READONLY,
         },
       ],
-      data: serializeInitializeMockPoolState(),
+      data: getInitializeMockPoolStateInstructionDataEncoder().encode({}),
     };
     await sendTx(rpc, initHumaIx, [adminSigner, humaPoolStateSigner]);
   } else {
@@ -453,45 +484,23 @@ async function handleInit(args: string[]) {
   }
 
   // Create mock USDC Mint if not specified
-  let usdcMintStr = process.env.NEXT_PUBLIC_USDC_MINT;
-  if (!usdcMintStr) {
-    console.log("Creating new Mock USDC Mint on-chain...");
-    const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
-    if (!fs.existsSync(usdcKeyPath)) {
-      execFileSync(
-        "solana-keygen",
-        ["new", "-o", usdcKeyPath, "--no-passphrase"],
-        {
-          stdio: "inherit",
-        }
-      );
-    }
-    usdcMintStr = execFileSync("solana", ["address", "-k", usdcKeyPath], {
-      encoding: "utf-8",
-    }).trim();
-    console.log(`Derived Mock USDC Address: ${usdcMintStr}`);
+  const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
+  const usdcMintSigner = await loadOrGenerateKeypair(usdcKeyPath, {
+    overwriteIfInvalid: true,
+    label: "Mock USDC Mint",
+  });
+  const usdcMintAddress = process.env.NEXT_PUBLIC_USDC_MINT
+    ? address(process.env.NEXT_PUBLIC_USDC_MINT)
+    : usdcMintSigner.address;
 
-    try {
-      execFileSync(
-        "spl-token",
-        [
-          "create-mint",
-          usdcKeyPath,
-          "--decimals",
-          "6",
-          "--fee-payer",
-          keypairPath,
-          "--url",
-          DEVNET_RPC_URL,
-        ],
-        { stdio: "inherit" }
-      );
-      console.log("USDC Mint created successfully on-chain!");
-    } catch {
-      console.warn(
-        "Failed creating USDC mint via spl-token CLI, it might already exist on-chain."
-      );
-    }
+  if (!process.env.NEXT_PUBLIC_USDC_MINT) {
+    await ensureTokenMintOnChain(rpc, {
+      payer: adminSigner,
+      mint: usdcMintSigner,
+      decimals: 6,
+      mintAuthority: adminAddress,
+      label: "Mock USDC Mint",
+    });
   }
 
   // Derive pool authority
@@ -503,112 +512,60 @@ async function handleInit(args: string[]) {
   // Create PST Mint on-chain
   console.log("Creating Huma Mock PST Mint on-chain...");
   const pstKeyPath = path.resolve(STATE_DIR, "pst-mint.json");
-  if (!fs.existsSync(pstKeyPath)) {
-    execFileSync(
-      "solana-keygen",
-      ["new", "-o", pstKeyPath, "--no-passphrase"],
-      {
-        stdio: "inherit",
-      }
-    );
-  }
-  const pstMintStr = execFileSync("solana", ["address", "-k", pstKeyPath], {
-    encoding: "utf-8",
-  }).trim();
-  console.log(`Mock PST Address: ${pstMintStr}`);
+  const pstMintSigner = await loadOrGenerateKeypair(pstKeyPath, {
+    overwriteIfInvalid: true,
+    label: "Mock PST Mint",
+  });
+  const pstMintAddress = pstMintSigner.address;
+  console.log(`Mock PST Address: ${pstMintAddress}`);
 
-  try {
-    execFileSync(
-      "spl-token",
-      [
-        "create-mint",
-        pstKeyPath,
-        "--decimals",
-        "6",
-        "--mint-authority",
-        poolAuthority,
-        "--fee-payer",
-        keypairPath,
-        "--url",
-        DEVNET_RPC_URL,
-      ],
-      { stdio: "inherit" }
-    );
-    console.log("PST Mint created successfully!");
-  } catch {
-    console.warn("PST mint creation failed or already exists.");
-  }
+  await ensureTokenMintOnChain(rpc, {
+    payer: adminSigner,
+    mint: pstMintSigner,
+    decimals: 6,
+    mintAuthority: poolAuthority,
+    label: "Mock PST Mint",
+  });
 
   // Create Huma Pool Underlying token account owned by pool_authority
   console.log("Creating Huma Pool Underlying Token Account...");
-  const humaPoolUnderlying = await findAtaAddress(poolAuthority, usdcMintStr);
+  const humaPoolUnderlying = await findAtaAddress(
+    poolAuthority,
+    usdcMintAddress
+  );
   console.log(`Huma Pool Underlying ATA: ${humaPoolUnderlying}`);
-  try {
-    execFileSync(
-      "spl-token",
-      [
-        "create-address",
-        usdcMintStr,
-        "--owner",
-        poolAuthority,
-        "--fee-payer",
-        keypairPath,
-        "--url",
-        DEVNET_RPC_URL,
-      ],
-      { stdio: "inherit" }
-    );
-  } catch {
-    console.warn(
-      "Huma Pool Underlying token account creation skipped or already exists."
-    );
-  }
 
   // Create Huma Pool Mode Token account owned by pool_authority
   console.log("Creating Huma Pool Mode Token Account...");
-  const humaPoolModeToken = await findAtaAddress(poolAuthority, pstMintStr);
+  const humaPoolModeToken = await findAtaAddress(poolAuthority, pstMintAddress);
   console.log(`Huma Pool Mode Token ATA: ${humaPoolModeToken}`);
-  try {
-    execFileSync(
-      "spl-token",
-      [
-        "create-address",
-        pstMintStr,
-        "--owner",
-        poolAuthority,
-        "--fee-payer",
-        keypairPath,
-        "--url",
-        DEVNET_RPC_URL,
-      ],
-      { stdio: "inherit" }
-    );
-  } catch {
-    console.warn(
-      "Huma Pool Mode Token account creation skipped or already exists."
-    );
-  }
 
   // Create Admin Fee Wallet (Associated USDC Token Account for Admin)
   console.log("Creating Admin Fee Wallet...");
-  const feeWallet = await findAtaAddress(adminAddress, usdcMintStr);
+  const feeWallet = await findAtaAddress(adminAddress, usdcMintAddress);
   console.log(`Admin Fee Wallet: ${feeWallet}`);
-  try {
-    execFileSync(
-      "spl-token",
-      [
-        "create-account",
-        usdcMintStr,
-        "--fee-payer",
-        keypairPath,
-        "--url",
-        DEVNET_RPC_URL,
-      ],
-      { stdio: "inherit" }
-    );
-  } catch {
-    console.warn("Admin Fee Wallet creation skipped or already exists.");
-  }
+
+  // Batch ATA creation in single transaction
+  console.log("Creating ATAs idempotently on-chain...");
+  const underlyingAtaIx = createAssociatedTokenIdempotentInstruction({
+    payer: adminSigner,
+    owner: poolAuthority,
+    mint: usdcMintAddress,
+    ata: address(humaPoolUnderlying),
+  });
+  const modeAtaIx = createAssociatedTokenIdempotentInstruction({
+    payer: adminSigner,
+    owner: poolAuthority,
+    mint: pstMintAddress,
+    ata: address(humaPoolModeToken),
+  });
+  const feeWalletAtaIx = createAssociatedTokenIdempotentInstruction({
+    payer: adminSigner,
+    owner: address(adminAddress),
+    mint: usdcMintAddress,
+    ata: address(feeWallet),
+  });
+  await sendTx(rpc, [underlyingAtaIx, modeAtaIx, feeWalletAtaIx], adminSigner);
 
   // Create Huma Lender State account
   console.log("Creating Huma Lender State account...");
@@ -647,7 +604,7 @@ async function handleInit(args: string[]) {
           role: AccountRole.READONLY,
         },
         { address: address(adminAddress), role: AccountRole.READONLY }, // mode_config
-        { address: address(pstMintStr), role: AccountRole.READONLY }, // mode_mint
+        { address: address(pstMintAddress), role: AccountRole.READONLY }, // mode_mint
         {
           address: address(humaLenderStateSigner.address),
           role: AccountRole.WRITABLE_SIGNER,
@@ -655,15 +612,15 @@ async function handleInit(args: string[]) {
         },
         { address: address(adminAddress), role: AccountRole.WRITABLE }, // lender_mode_token
         {
-          address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+          address: TOKEN_PROGRAM_ID,
           role: AccountRole.READONLY,
         },
         {
-          address: address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
+          address: ATA_PROGRAM_ID,
           role: AccountRole.READONLY,
         },
         {
-          address: address("11111111111111111111111111111111"),
+          address: SYSTEM_PROGRAM_ID,
           role: AccountRole.READONLY,
         },
       ],
@@ -676,10 +633,12 @@ async function handleInit(args: string[]) {
 
   // Derive Prize Pool 1 PDAs
   const poolId = 1;
-  const [poolAddress] = await findPrizePoolPda(poolId);
-  const [poolVaultAddress] = await findPoolVaultAccountPda(poolId);
-  const [poolPstVaultAddress] = await findPoolPstVaultPda(poolId);
-  const poolInfo = await rpc.getAccountInfo(poolAddress).send();
+  const poolAddress = await findPrizePoolPda(poolId);
+  const poolVaultAddress = await findPoolVaultPda(poolId);
+  const poolPstVaultAddress = await findPoolPstVaultPda(poolId);
+  const poolInfo = await rpc
+    .getAccountInfo(poolAddress, { encoding: "base64" })
+    .send();
 
   // Create Ticket Registry
   console.log("Allocating Ticket Registry account...");
@@ -738,7 +697,7 @@ async function handleInit(args: string[]) {
     createAccountData.set(base58.encode(address(anchorProgramId)), 20);
 
     const createAccountIx = {
-      programAddress: address("11111111111111111111111111111111"),
+      programAddress: SYSTEM_PROGRAM_ID,
       accounts: [
         {
           address: address(adminAddress),
@@ -762,7 +721,7 @@ async function handleInit(args: string[]) {
   }
 
   // Initialize Global Config
-  const [globalConfigAddress] = await findGlobalConfigPda();
+  const globalConfigAddress = await findGlobalConfigPda();
   const globalConfigInfo = await rpc.getAccountInfo(globalConfigAddress).send();
   if (!globalConfigInfo?.value) {
     console.log("Initializing YieldBonds GlobalConfig...");
@@ -777,14 +736,19 @@ async function handleInit(args: string[]) {
   }
 
   // Initialize Prize Pool 1
-  const prizeTiers: PrizeTierInput[] = [
-    { basisPoints: 5000, numWinners: 1 }, // Grand prize: 50%
-    { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% (15% each)
-    { basisPoints: 400, numWinners: 5 }, // Consolation: 20% (4% each)
-  ];
+  let canonicalUsdcMint: Address = usdcMintAddress;
+  let canonicalPstMint: Address = pstMintAddress;
+  let canonicalTicketRegistry: Address = ticketRegistryAddress;
+  let canonicalFeeWallet: Address = address(feeWallet);
 
   if (!poolInfo?.value) {
     console.log("Creating Prize Pool 1 via SDK builder...");
+    const prizeTiers: PrizeTierInput[] = [
+      { basisPoints: 5000, numWinners: 1 }, // Grand prize: 50%
+      { basisPoints: 1500, numWinners: 2 }, // Runner-up: 30% (15% each)
+      { basisPoints: 400, numWinners: 5 }, // Consolation: 20% (4% each)
+    ];
+
     const createPoolIx = await buildCreatePoolInstruction({
       admin: adminSigner,
       poolId,
@@ -795,43 +759,76 @@ async function handleInit(args: string[]) {
       maxYieldBasisPoints: 0,
       payoutTimelockSeconds: 300,
       prizeTiers,
-      tokenMint: address(usdcMintStr),
-      pstMint: address(pstMintStr),
-      ticketRegistry: address(ticketRegistryAddress),
+      tokenMint: usdcMintAddress,
+      pstMint: pstMintAddress,
+      ticketRegistry: ticketRegistryAddress,
       feeWallet: address(feeWallet),
-      humaPoolState: address(humaPoolStateSigner.address),
+      humaPoolState: humaPoolStateSigner.address,
     });
     await sendTx(rpc, createPoolIx, adminSigner);
-  } else {
-    console.log("Prize Pool 1 already initialized on-chain.");
-  }
 
-  console.log("Initializing Huma lender account on YieldBonds program...");
-  const initHumaLenderIx = await buildInitializeHumaLenderInstruction({
-    admin: adminSigner,
-    poolId,
-    humaStateAddresses: {
-      humaProgram: mockHumaProgramId,
-      humaConfig: mockHumaProgramId,
-      humaPoolConfig: mockHumaProgramId,
-      humaPoolState: humaPoolStateSigner.address,
-      humaModeConfig: mockHumaProgramId,
-      humaModeMint: pstMintStr,
-      humaLenderState: humaLenderStateSigner.address,
-      humaLenderModeToken: poolPstVaultAddress,
-    },
-  });
-  await sendTx(rpc, initHumaLenderIx, adminSigner);
+    console.log("Initializing Huma lender account on YieldBonds program...");
+    const initHumaLenderIx = await buildInitializeHumaLenderInstruction({
+      admin: adminSigner,
+      poolId,
+      humaStateAddresses: {
+        humaProgram: mockHumaProgramId,
+        humaConfig: mockHumaProgramId,
+        humaPoolConfig: mockHumaProgramId,
+        humaPoolState: humaPoolStateSigner.address,
+        humaModeConfig: mockHumaProgramId,
+        humaModeMint: pstMintAddress,
+        humaLenderState: humaLenderStateSigner.address,
+        humaLenderModeToken: poolPstVaultAddress,
+      },
+    });
+    await sendTx(rpc, initHumaLenderIx, adminSigner);
+  } else {
+    console.log(
+      "Prize Pool 1 already initialized on-chain. Reconciling state..."
+    );
+    const rawData = decodeAccountBase64Data(poolInfo.value);
+    if (rawData) {
+      const onChainPool = parsePrizePool(rawData);
+      const reconciliation = reconcilePoolState(
+        {
+          tokenMint: onChainPool.tokenMint,
+          ticketRegistry: onChainPool.ticketRegistry,
+          feeWallet: onChainPool.feeWallet,
+        },
+        {
+          tokenMint: usdcMintAddress,
+          ticketRegistry: ticketRegistryAddress,
+          feeWallet: address(feeWallet),
+        }
+      );
+
+      if (!reconciliation.isMatch) {
+        console.warn(
+          "⚠️  On-chain Prize Pool 1 addresses differ from local disk state:"
+        );
+        for (const mismatch of reconciliation.mismatches) {
+          console.warn(`    - ${mismatch}`);
+        }
+        console.log(
+          "Adopting canonical on-chain addresses for configuration sync."
+        );
+      }
+      canonicalUsdcMint = onChainPool.tokenMint;
+      canonicalTicketRegistry = onChainPool.ticketRegistry;
+      canonicalFeeWallet = onChainPool.feeWallet;
+    }
+  }
 
   // Write addresses configuration files
   const devnetAccounts: DevnetProtocolAccounts = {
     programId: anchorProgramId,
     humaProgramId: mockHumaProgramId,
     adminAddress,
-    usdcMint: usdcMintStr,
-    pstMint: pstMintStr,
-    ticketRegistry: ticketRegistryAddress,
-    feeWallet,
+    usdcMint: canonicalUsdcMint,
+    pstMint: canonicalPstMint,
+    ticketRegistry: canonicalTicketRegistry,
+    feeWallet: canonicalFeeWallet,
     humaPoolState: humaPoolStateSigner.address,
     humaLenderState: humaLenderStateSigner.address,
     humaPoolUnderlying,
@@ -883,7 +880,7 @@ async function handleFund(args: string[]) {
     throw new Error("Mock USDC mint not found in Devnet protocol accounts");
   }
 
-  console.log(`Minting mock USDC using spl-token CLI to ${walletStr}...`);
+  console.log(`Minting mock USDC natively to ${walletStr}...`);
   const mintKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
   if (!fs.existsSync(mintKeyPath)) {
     throw new Error(
@@ -891,40 +888,28 @@ async function handleFund(args: string[]) {
     );
   }
 
-  // Create recipient ATA
-  try {
-    execFileSync(
-      "spl-token",
-      [
-        "create-account",
-        usdcMintStr,
-        "--owner",
-        walletStr,
-        "--url",
-        DEVNET_RPC_URL,
-      ],
-      { stdio: "inherit" }
-    );
-  } catch {
-    console.warn("Recipient USDC account creation skipped or already exists.");
-  }
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
+  const mintSigner = await loadKeypair(mintKeyPath);
+  const recipientAta = await findAtaAddress(walletStr, usdcMintStr);
+  const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
+    payer: mintSigner,
+    owner: address(walletStr),
+    mint: address(usdcMintStr),
+    ata: address(recipientAta),
+  });
 
-  // Mint USDC
-  execFileSync(
-    "spl-token",
-    [
-      "mint",
-      usdcMintStr,
-      String(amount),
-      walletStr,
-      "--mint-authority",
-      mintKeyPath,
-      "--url",
-      DEVNET_RPC_URL,
-    ],
-    { stdio: "inherit" }
+  const microUsdcAmount = BigInt(Math.round(amount * 1_000_000));
+  const mintToIx = buildMintToInstruction({
+    mint: address(usdcMintStr),
+    destination: address(recipientAta),
+    authority: mintSigner,
+    amount: microUsdcAmount,
+  });
+
+  await sendTx(rpc, [recipientAtaIx, mintToIx], mintSigner);
+  console.log(
+    `Mock USDC (${microUsdcAmount} micro-USDC) minted successfully to ${recipientAta}!`
   );
-  console.log("Mock USDC minted successfully!");
 }
 
 async function handleYield(args: string[]) {
@@ -976,7 +961,9 @@ async function handleYield(args: string[]) {
         signer: adminSigner,
       },
     ],
-    data: serializeSimulateYieldData(yieldAmountMicroUsdc),
+    data: getSimulateYieldInstructionDataEncoder().encode({
+      yieldAmount: yieldAmountMicroUsdc,
+    }),
   };
 
   await sendTx(rpc, yieldIx, adminSigner);
@@ -1052,11 +1039,11 @@ async function handleSettle(args: string[]) {
       { address: address(humaPoolUnderlying), role: AccountRole.WRITABLE },
       { address: address(humaPoolModeToken), role: AccountRole.WRITABLE },
       {
-        address: address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+        address: TOKEN_PROGRAM_ID,
         role: AccountRole.READONLY,
       },
     ],
-    data: serializeSettleRequestsData(count),
+    data: getSettleRequestsInstructionDataEncoder().encode({ count }),
   };
 
   // Fund Huma Pool Underlying token account with USDC to support disburse transfers if needed
@@ -1064,20 +1051,14 @@ async function handleSettle(args: string[]) {
   const usdcKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
   if (fs.existsSync(usdcKeyPath)) {
     try {
-      execFileSync(
-        "spl-token",
-        [
-          "mint",
-          usdcMint,
-          "1000000",
-          humaPoolUnderlying,
-          "--mint-authority",
-          usdcKeyPath,
-          "--url",
-          DEVNET_RPC_URL,
-        ],
-        { stdio: "inherit" }
-      );
+      const usdcSigner = await loadKeypair(usdcKeyPath);
+      const prefundIx = buildMintToInstruction({
+        mint: address(usdcMint),
+        destination: address(humaPoolUnderlying),
+        authority: usdcSigner,
+        amount: 1_000_000_000_000n, // 1M USDC in micro-USDC
+      });
+      await sendTx(rpc, prefundIx, [adminSigner, usdcSigner]);
     } catch {
       console.warn("Could not pre-fund mock Huma pool underlying vault.");
     }
