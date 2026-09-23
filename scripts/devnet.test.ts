@@ -10,10 +10,14 @@ import {
   buildCreateMintInstructions,
   buildMintToInstruction,
   ensureTokenMintOnChain,
+  parseTokenAmount,
+  resolveDefaultKeypairPath,
+  USDC_DECIMALS,
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "./utils";
-import { reconcilePoolState } from "./devnet";
+import { reconcilePoolState, buildFundInstructions } from "./devnet";
+import * as path from "path";
 import {
   findPrizePoolPda,
   findPoolVaultPda,
@@ -310,6 +314,148 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
       assert.strictEqual(ix.accounts[3].address, mint.address);
       assert.strictEqual(ix.accounts[4].address, SYSTEM_PROGRAM_ID);
       assert.strictEqual(ix.accounts[5].address, TOKEN_PROGRAM_ID);
+    });
+  });
+
+  describe("Funding & Token Utilities Suite", () => {
+    describe("parseTokenAmount", () => {
+      it("parses whole integer amounts into micro-units (6 decimals)", () => {
+        assert.strictEqual(parseTokenAmount("1000", 6), 1_000_000_000n);
+        assert.strictEqual(parseTokenAmount("1", 6), 1_000_000n);
+        assert.strictEqual(parseTokenAmount("50", USDC_DECIMALS), 50_000_000n);
+      });
+
+      it("parses fractional decimal amounts accurately without float drift", () => {
+        assert.strictEqual(parseTokenAmount("0.5", 6), 500_000n);
+        assert.strictEqual(parseTokenAmount("0.000001", 6), 1n);
+        assert.strictEqual(parseTokenAmount("123.456789", 6), 123_456_789n);
+        assert.strictEqual(parseTokenAmount("0.1", 6), 100_000n);
+      });
+
+      it("rejects invalid, negative, or over-precise inputs", () => {
+        assert.throws(() => parseTokenAmount("0"), /must be greater than zero/);
+        assert.throws(() => parseTokenAmount("-5"), /Invalid numeric amount/);
+        assert.throws(() => parseTokenAmount("abc"), /Invalid numeric amount/);
+        assert.throws(
+          () => parseTokenAmount("1.1234567", 6),
+          /exceeds maximum precision/
+        );
+        assert.throws(() => parseTokenAmount(""), /Invalid numeric amount/);
+      });
+    });
+
+    describe("resolveDefaultKeypairPath", () => {
+      const origAnchorWallet = process.env.ANCHOR_WALLET;
+      const origSolanaKeypair = process.env.SOLANA_KEYPAIR_PATH;
+
+      it("returns custom path when provided", () => {
+        const custom = "/tmp/my-custom-keypair.json";
+        assert.strictEqual(
+          resolveDefaultKeypairPath(custom),
+          path.resolve(custom)
+        );
+      });
+
+      it("falls back to ANCHOR_WALLET when set", () => {
+        process.env.ANCHOR_WALLET = "/tmp/anchor-wallet.json";
+        delete process.env.SOLANA_KEYPAIR_PATH;
+        assert.strictEqual(
+          resolveDefaultKeypairPath(),
+          path.resolve("/tmp/anchor-wallet.json")
+        );
+        if (origAnchorWallet !== undefined) {
+          process.env.ANCHOR_WALLET = origAnchorWallet;
+        } else {
+          delete process.env.ANCHOR_WALLET;
+        }
+      });
+
+      it("falls back to SOLANA_KEYPAIR_PATH when set and ANCHOR_WALLET is empty", () => {
+        delete process.env.ANCHOR_WALLET;
+        process.env.SOLANA_KEYPAIR_PATH = "/tmp/solana-keypair.json";
+        assert.strictEqual(
+          resolveDefaultKeypairPath(),
+          path.resolve("/tmp/solana-keypair.json")
+        );
+        if (origSolanaKeypair !== undefined) {
+          process.env.SOLANA_KEYPAIR_PATH = origSolanaKeypair;
+        } else {
+          delete process.env.SOLANA_KEYPAIR_PATH;
+        }
+      });
+
+      it("defaults to ~/.config/solana/id.json when no environment variable is set", () => {
+        delete process.env.ANCHOR_WALLET;
+        delete process.env.SOLANA_KEYPAIR_PATH;
+        const expected = path.resolve(
+          process.env.HOME || "",
+          ".config",
+          "solana",
+          "id.json"
+        );
+        assert.strictEqual(resolveDefaultKeypairPath(), expected);
+        if (origAnchorWallet !== undefined)
+          process.env.ANCHOR_WALLET = origAnchorWallet;
+        if (origSolanaKeypair !== undefined)
+          process.env.SOLANA_KEYPAIR_PATH = origSolanaKeypair;
+      });
+    });
+
+    describe("buildFundInstructions", () => {
+      it("assembles ATA creation and MintTo with admin fee-payer and mint authority signers", async () => {
+        const adminSigner = await generateKeyPairSigner();
+        const mintSigner = await generateKeyPairSigner();
+        const recipientSigner = await generateKeyPairSigner();
+        const usdcMintSigner = await generateKeyPairSigner();
+        const recipient = recipientSigner.address;
+        const usdcMint = usdcMintSigner.address;
+        const microUsdcAmount = 1_000_000_000n;
+
+        const { recipientAta, instructions, signers } =
+          await buildFundInstructions({
+            payer: adminSigner,
+            recipient,
+            mintAuthority: mintSigner,
+            usdcMint,
+            microUsdcAmount,
+          });
+
+        assert.strictEqual(instructions.length, 2);
+        // Fee payer must be first signer in array for sendTx
+        assert.strictEqual(signers[0].address, adminSigner.address);
+        assert.strictEqual(signers[1].address, mintSigner.address);
+
+        // Verify ATA instruction payer is adminSigner
+        const ataIx = instructions[0];
+        assert.strictEqual(ataIx.programAddress, ATA_PROGRAM_ID);
+        assert.strictEqual(ataIx.accounts?.[0].address, adminSigner.address);
+        assert.strictEqual(
+          ataIx.accounts?.[0].role,
+          AccountRole.WRITABLE_SIGNER
+        );
+        assert.strictEqual(ataIx.accounts?.[1].address, recipientAta);
+        assert.strictEqual(ataIx.accounts?.[2].address, recipient);
+        assert.strictEqual(ataIx.accounts?.[3].address, usdcMint);
+
+        // Verify MintTo instruction authority and amount
+        const mintIx = instructions[1];
+        assert.strictEqual(mintIx.programAddress, TOKEN_PROGRAM_ID);
+        assert.strictEqual(mintIx.accounts?.[0].address, usdcMint);
+        assert.strictEqual(mintIx.accounts?.[1].address, recipientAta);
+        assert.strictEqual(mintIx.accounts?.[2].address, mintSigner.address);
+        assert.strictEqual(
+          mintIx.accounts?.[2].role,
+          AccountRole.WRITABLE_SIGNER
+        );
+
+        const view = new DataView(
+          mintIx.data!.buffer,
+          mintIx.data!.byteOffset,
+          mintIx.data!.byteLength
+        );
+        assert.strictEqual(view.getUint8(0), 7); // MintTo opcode
+        assert.strictEqual(view.getBigUint64(1, true), microUsdcAmount);
+      });
     });
   });
 });

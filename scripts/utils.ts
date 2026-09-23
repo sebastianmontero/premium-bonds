@@ -471,6 +471,67 @@ export async function verifyAndEnforceRentExemption(
 }
 
 /**
+ * Domain constants for devnet funding and SOL gas limits.
+ */
+export const USDC_DECIMALS = 6;
+export const DEFAULT_DEVNET_AIRDROP_SOL = "1";
+export const MIN_ADMIN_FEE_PAYER_LAMPORTS = 5_000_000n; // 0.005 SOL
+export const RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS = 100_000_000n; // 0.1 SOL
+
+/**
+ * Resolves the fee payer keypair path with standard fallback hierarchy:
+ * customPath -> ANCHOR_WALLET -> SOLANA_KEYPAIR_PATH -> ~/.config/solana/id.json
+ */
+export function resolveDefaultKeypairPath(customPath?: string): string {
+  if (customPath && customPath.trim().length > 0) {
+    return path.resolve(customPath);
+  }
+  if (
+    process.env.ANCHOR_WALLET &&
+    process.env.ANCHOR_WALLET.trim().length > 0
+  ) {
+    return path.resolve(process.env.ANCHOR_WALLET);
+  }
+  if (
+    process.env.SOLANA_KEYPAIR_PATH &&
+    process.env.SOLANA_KEYPAIR_PATH.trim().length > 0
+  ) {
+    return path.resolve(process.env.SOLANA_KEYPAIR_PATH);
+  }
+  return path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+}
+
+/**
+ * Safely parses a human-readable decimal string into base token units (BigInt)
+ * without floating-point precision loss.
+ */
+export function parseTokenAmount(
+  amountStr: string,
+  decimals: number = USDC_DECIMALS
+): bigint {
+  const trimmed = amountStr.trim();
+  if (!trimmed || !/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(
+      `Invalid numeric amount: "${amountStr}". Expected a positive decimal number.`
+    );
+  }
+
+  const [wholeStr, fracStr = ""] = trimmed.split(".");
+  if (fracStr.length > decimals) {
+    throw new Error(
+      `Amount "${amountStr}" exceeds maximum precision of ${decimals} decimal places.`
+    );
+  }
+
+  const paddedFrac = fracStr.padEnd(decimals, "0");
+  const units = BigInt(wholeStr) * 10n ** BigInt(decimals) + BigInt(paddedFrac);
+  if (units <= 0n) {
+    throw new Error("Amount must be greater than zero.");
+  }
+  return units;
+}
+
+/**
  * Loads an existing keypair from the specified JSON file path.
  * Raises a clear error if the file is missing or invalid.
  */

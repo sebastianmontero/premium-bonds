@@ -3,6 +3,7 @@ import {
   address,
   Address,
   AccountRole,
+  KeyPairSigner,
   getBase58Decoder,
   getBase58Encoder,
 } from "@solana/kit";
@@ -28,6 +29,12 @@ import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ATA_PROGRAM_ID,
+  USDC_DECIMALS,
+  DEFAULT_DEVNET_AIRDROP_SOL,
+  MIN_ADMIN_FEE_PAYER_LAMPORTS,
+  RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS,
+  resolveDefaultKeypairPath,
+  parseTokenAmount,
 } from "./utils";
 import {
   DevnetProtocolAccounts,
@@ -158,7 +165,7 @@ function printUsage() {
     "  sync-env [target]     Synchronizes .env.devnet state and credentials to .env.local"
   );
   console.log(
-    "  fund <wallet> <amount> Funds a wallet with SOL (airdrop) and Mock USDC"
+    "  fund <wallet> <amount> [keypair] Funds a wallet with SOL (airdrop) and Mock USDC"
   );
   console.log(
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
@@ -328,9 +335,7 @@ async function deployOrUpgradeProgram(
 }
 
 async function handleDeploy(args: string[]) {
-  const payerKeypairPath =
-    args[0] ||
-    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  const payerKeypairPath = resolveDefaultKeypairPath(args[0]);
   console.log(
     `Loading fee payer / upgrade authority keypair from ${payerKeypairPath}...`
   );
@@ -366,9 +371,7 @@ async function handleDeploy(args: string[]) {
 }
 
 async function handleCleanBuffers(args: string[]) {
-  const payerKeypairPath =
-    args[0] ||
-    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  const payerKeypairPath = resolveDefaultKeypairPath(args[0]);
   console.log(
     `Reclaiming unused program deploy buffers with fee payer / authority ${payerKeypairPath}...`
   );
@@ -391,15 +394,13 @@ async function handleCleanBuffers(args: string[]) {
 async function handleCreateRandomness(args: string[]) {
   const flags = new Set(args.filter((a) => a.startsWith("--")));
   const positionals = args.filter((a) => !a.startsWith("--"));
-  const payerKeypairPath = positionals[0];
+  const payerKeypairPath = resolveDefaultKeypairPath(positionals[0]);
   const forceNew = flags.has("--force");
   await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
 }
 
 async function handleInit(args: string[]) {
-  const keypairPath =
-    args[0] ||
-    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  const keypairPath = resolveDefaultKeypairPath(args[0]);
   console.log(
     `Loading administration authority keypair from ${keypairPath}...`
   );
@@ -847,44 +848,104 @@ async function handleInit(args: string[]) {
   console.log("Devnet initialization sequence completed successfully!");
 }
 
+export interface FundInstructionsParams {
+  readonly payer: KeyPairSigner;
+  readonly recipient: Address;
+  readonly mintAuthority: KeyPairSigner;
+  readonly usdcMint: Address;
+  readonly microUsdcAmount: bigint;
+}
+
+/**
+ * Builds instructions for idempotently creating recipient ATA and minting mock USDC tokens.
+ */
+export async function buildFundInstructions(params: FundInstructionsParams) {
+  const recipientAta = await findAtaAddress(params.recipient, params.usdcMint);
+
+  const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
+    payer: params.payer,
+    owner: params.recipient,
+    mint: params.usdcMint,
+    ata: address(recipientAta),
+  });
+
+  const mintToIx = buildMintToInstruction({
+    mint: params.usdcMint,
+    destination: address(recipientAta),
+    authority: params.mintAuthority,
+    amount: params.microUsdcAmount,
+  });
+
+  return {
+    recipientAta: address(recipientAta),
+    instructions: [recipientAtaIx, mintToIx],
+    signers: [params.payer, params.mintAuthority] as const,
+  };
+}
+
 async function handleFund(args: string[]) {
   if (args.length < 2) {
-    console.error(
-      "Error: Missing arguments. Usage: npm run devnet fund <wallet> <amount>"
+    throw new Error(
+      "Missing arguments. Usage: npm run devnet fund <wallet> <amount> [keypair]"
     );
-    process.exit(1);
   }
 
   const walletStr = args[0];
   const amountStr = args[1];
+  const keypairPath = resolveDefaultKeypairPath(args[2]);
 
-  const amount = parseFloat(amountStr);
-  if (isNaN(amount) || amount <= 0) {
-    console.error("Error: Invalid amount.");
-    process.exit(1);
+  // Validate address and token amount
+  const recipientAddress = address(walletStr);
+  const microUsdcAmount = parseTokenAmount(amountStr, USDC_DECIMALS);
+
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
+  const adminSigner = await loadKeypair(keypairPath);
+
+  // 1. Pre-flight check admin fee payer SOL balance
+  const adminBalance = await rpc.getBalance(adminSigner.address).send();
+  if (adminBalance.value < MIN_ADMIN_FEE_PAYER_LAMPORTS) {
+    throw new Error(
+      `Admin fee payer (${adminSigner.address}) has insufficient SOL (${Number(adminBalance.value) / 1e9} SOL).\n` +
+        `Please fund it: solana airdrop 2 ${adminSigner.address} --url ${DEVNET_RPC_URL}`
+    );
   }
 
-  console.log(`Requesting Devnet SOL airdrop for ${walletStr}...`);
+  // 2. Smart SOL Airdrop for recipient
   try {
-    execFileSync(
-      "solana",
-      ["airdrop", String(amount), walletStr, "--url", DEVNET_RPC_URL],
-      { stdio: "inherit" }
-    );
+    const recipientBalance = await rpc.getBalance(recipientAddress).send();
+    if (recipientBalance.value < RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS) {
+      console.log(
+        `Requesting Devnet SOL airdrop (${DEFAULT_DEVNET_AIRDROP_SOL} SOL) for ${recipientAddress}...`
+      );
+      execFileSync(
+        "solana",
+        [
+          "airdrop",
+          DEFAULT_DEVNET_AIRDROP_SOL,
+          recipientAddress,
+          "--url",
+          DEVNET_RPC_URL,
+        ],
+        { stdio: "inherit" }
+      );
+    } else {
+      console.log(
+        `Recipient already holds ${Number(recipientBalance.value) / 1e9} SOL; skipping SOL faucet airdrop.`
+      );
+    }
   } catch {
     console.warn(
-      "Airdrop rate-limited. Please request SOL manually via devnet faucet if needed."
+      "⚠️  SOL airdrop rate-limited or CLI unavailable. Proceeding with USDC minting..."
     );
   }
 
-  // Mint USDC
+  // 3. Mock USDC Minting
   const accounts = loadDevnetAccounts();
   const usdcMintStr = accounts.usdcMint;
   if (!usdcMintStr) {
     throw new Error("Mock USDC mint not found in Devnet protocol accounts");
   }
 
-  console.log(`Minting mock USDC natively to ${walletStr}...`);
   const mintKeyPath = path.resolve(STATE_DIR, "usdc-mint.json");
   if (!fs.existsSync(mintKeyPath)) {
     throw new Error(
@@ -892,46 +953,34 @@ async function handleFund(args: string[]) {
     );
   }
 
-  const rpc = createResilientRpc(DEVNET_RPC_URL);
   const mintSigner = await loadKeypair(mintKeyPath);
-  const recipientAta = await findAtaAddress(walletStr, usdcMintStr);
-  const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
-    payer: mintSigner,
-    owner: address(walletStr),
-    mint: address(usdcMintStr),
-    ata: address(recipientAta),
+
+  const { recipientAta, instructions, signers } = await buildFundInstructions({
+    payer: adminSigner,
+    recipient: recipientAddress,
+    mintAuthority: mintSigner,
+    usdcMint: address(usdcMintStr),
+    microUsdcAmount,
   });
 
-  const microUsdcAmount = BigInt(Math.round(amount * 1_000_000));
-  const mintToIx = buildMintToInstruction({
-    mint: address(usdcMintStr),
-    destination: address(recipientAta),
-    authority: mintSigner,
-    amount: microUsdcAmount,
-  });
-
-  await sendTx(rpc, [recipientAtaIx, mintToIx], mintSigner);
   console.log(
-    `Mock USDC (${microUsdcAmount} micro-USDC) minted successfully to ${recipientAta}!`
+    `Minting mock USDC natively to ${recipientAddress} (ATA: ${recipientAta})...`
+  );
+  await sendTx(rpc, instructions, signers);
+  console.log(
+    `✓ Successfully minted ${amountStr} USDC (${microUsdcAmount} micro-USDC) to ${recipientAta}!`
   );
 }
 
 async function handleYield(args: string[]) {
   if (args.length < 1) {
-    console.error(
-      "Error: Missing yield amount. Usage: npm run devnet yield <amount_usdc>"
+    throw new Error(
+      "Missing yield amount. Usage: npm run devnet yield <amount_usdc>"
     );
-    process.exit(1);
   }
 
   const amountUsdcStr = args[0];
-  const yieldAmountFloat = parseFloat(amountUsdcStr);
-  if (isNaN(yieldAmountFloat) || yieldAmountFloat < 0) {
-    console.error("Error: Invalid yield amount.");
-    process.exit(1);
-  }
-
-  const yieldAmountMicroUsdc = BigInt(Math.round(yieldAmountFloat * 1_000_000));
+  const yieldAmountMicroUsdc = parseTokenAmount(amountUsdcStr, USDC_DECIMALS);
   const rpc = createResilientRpc(DEVNET_RPC_URL);
 
   const accounts = loadDevnetAccounts();
@@ -944,16 +993,11 @@ async function handleYield(args: string[]) {
   }
 
   // Load admin keypair
-  const keypairPath = path.resolve(
-    process.env.HOME || "",
-    ".config",
-    "solana",
-    "id.json"
-  );
+  const keypairPath = resolveDefaultKeypairPath();
   const adminSigner = await loadKeypair(keypairPath);
 
   console.log(
-    `Sending simulate_yield transaction for ${yieldAmountFloat} USDC...`
+    `Sending simulate_yield transaction for ${amountUsdcStr} USDC...`
   );
   const yieldIx = {
     programAddress: address(humaProgramId),
@@ -978,8 +1022,7 @@ async function handleSettle(args: string[]) {
   const countStr = args[0] || "0";
   const count = parseInt(countStr, 10);
   if (isNaN(count) || count < 0) {
-    console.error("Error: count must be a non-negative integer.");
-    process.exit(1);
+    throw new Error("count must be a non-negative integer.");
   }
 
   const rpc = createResilientRpc(DEVNET_RPC_URL);
@@ -1012,12 +1055,7 @@ async function handleSettle(args: string[]) {
   }
 
   // Load admin keypair
-  const keypairPath = path.resolve(
-    process.env.HOME || "",
-    ".config",
-    "solana",
-    "id.json"
-  );
+  const keypairPath = resolveDefaultKeypairPath();
   const adminSigner = await loadKeypair(keypairPath);
 
   // Derive pool authority
