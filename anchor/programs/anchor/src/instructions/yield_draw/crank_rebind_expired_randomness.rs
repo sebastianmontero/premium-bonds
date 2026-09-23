@@ -63,12 +63,13 @@ pub struct CrankRebindExpiredRandomness<'info> {
     )]
     pub current_randomness_account: UncheckedAccount<'info>,
 
-    /// CHECK: This is the raw new randomness account to be bound to the draw cycle. It is unchecked because it is a Switchboard On-Demand account. We enforce safety by validating that its owner matches the Switchboard On-Demand program ID.
+    /// CHECK: Raw new randomness account to be bound to the draw cycle. Validated to ensure its owner matches an authorized Switchboard On-Demand program ID (Devnet or Mainnet), has valid data length and discriminator, and is distinct from current randomness account.
     #[account(
-        constraint = new_randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount,
+        constraint = crate::utils::is_valid_switchboard_randomness_account(&new_randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount,
         constraint = new_randomness_account.key() != current_draw_cycle.randomness_account @ PremiumBondsError::SameRandomnessAccount
     )]
     pub new_randomness_account: UncheckedAccount<'info>,
+
 
     /// CHECK: The event authority PDA for CPI event emission.
     #[account(seeds = [b"__event_authority"], bump)]

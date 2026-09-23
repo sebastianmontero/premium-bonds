@@ -56,11 +56,12 @@ pub struct RevealAndPickWinners<'info> {
     /// The ticket registry account loader holding all the user entries.
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// CHECK: This is the raw Switchboard On-Demand randomness account. It is unchecked because it belongs to the Switchboard program. We validate it by checking that its owner matches the Switchboard On-Demand program ID and its address matches `current_draw_cycle.randomness_account`. Additionally, in the instruction handler, the account data is parsed and validated using `RandomnessAccountData::parse` to extract the randomness value.
+    /// CHECK: Raw Switchboard On-Demand randomness account. Validated to match an authorized Switchboard On-Demand program ID (Devnet or Mainnet), have correct data length and discriminator, and match `current_draw_cycle.randomness_account`.
     #[account(
-        constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
+        constraint = crate::utils::is_valid_switchboard_randomness_account(&randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub randomness_account: UncheckedAccount<'info>,
+
 
     /// The payout registry account initialized to record the winners of this draw.
     #[account(

@@ -29,6 +29,8 @@ import {
   LOCAL_ENV_PATH,
   DEVNET_ENV_PATH,
 } from "./devnet-state";
+import { provisionDevnetRandomnessAccount } from "./create-switchboard-randomness";
+
 
 function loadDevnetAccounts(): DevnetProtocolAccounts {
   const accounts = readDevnetAddresses();
@@ -136,8 +138,12 @@ function printUsage() {
     "  clean-buffers [keypair] Reclaims SOL from aborted deploy buffers on devnet"
   );
   console.log(
+    "  create-randomness [keypair] [--force] Provisions a Switchboard On-Demand VRF account on devnet (use --force for rebind)"
+  );
+  console.log(
     "  init [keypair]        Runs on-chain initialization sequence on devnet"
   );
+
   console.log(
     "  sync-env [target]     Synchronizes .env.devnet state and credentials to .env.local"
   );
@@ -348,6 +354,14 @@ async function handleCleanBuffers(args: string[]) {
   console.log("✓ Buffer cleanup complete.");
 }
 
+async function handleCreateRandomness(args: string[]) {
+  const flags = new Set(args.filter((a) => a.startsWith("--")));
+  const positionals = args.filter((a) => !a.startsWith("--"));
+  const payerKeypairPath = positionals[0];
+  const forceNew = flags.has("--force");
+  await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
+}
+
 async function handleInit(args: string[]) {
   const keypairPath =
     args[0] ||
@@ -369,19 +383,22 @@ async function handleInit(args: string[]) {
 
   const rpc = createResilientRpc(DEVNET_RPC_URL);
 
-  // Ask for Switchboard randomness account
+  // Switchboard randomness account: auto-provision if missing
   const devnetEnv = readEnvFile(DEVNET_ENV_PATH);
-  const randomnessAddressStr =
+  let randomnessAddressStr =
     process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
     devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
+
   if (!randomnessAddressStr) {
     console.log(
-      "⚠️  Warning: NEXT_PUBLIC_RANDOMNESS_ACCOUNT environment variable is not defined."
+      "ℹ No NEXT_PUBLIC_RANDOMNESS_ACCOUNT configured. Automatically provisioning Switchboard On-Demand VRF account..."
     );
-    console.log(
-      "Ensure you create, fund, and set a Switchboard Randomness account address in your environment."
-    );
+    const result = await provisionDevnetRandomnessAccount({
+      payerKeypairPath: keypairPath,
+    });
+    randomnessAddressStr = result.address;
   }
+
 
   // Create state directory
   if (!fs.existsSync(STATE_DIR)) {
@@ -845,7 +862,9 @@ async function handleInit(args: string[]) {
     humaPoolUnderlying,
     humaPoolModeToken,
     humaRedemptionRequest: generateRandomAddress(),
+    randomnessAccount: randomnessAddressStr,
   };
+
 
   writeDevnetAddresses(devnetAccounts);
   syncDevnetToActiveEnv();
@@ -1139,9 +1158,13 @@ async function main() {
     case "clean-buffers":
       await handleCleanBuffers(args.slice(1));
       break;
+    case "create-randomness":
+      await handleCreateRandomness(args.slice(1));
+      break;
     case "init":
       await handleInit(args.slice(1));
       break;
+
     case "sync-env":
       await handleSyncEnv(args.slice(1));
       break;

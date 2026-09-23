@@ -42,6 +42,7 @@ export interface DevnetProtocolAccounts {
   humaPoolUnderlying: string;
   humaPoolModeToken: string;
   humaRedemptionRequest: string;
+  randomnessAccount?: string;
 }
 
 /**
@@ -64,10 +65,6 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
     isLocalMock: (val) => val === "pb_webhook_secret_local_dev_123",
   },
   {
-    envKey: "NEXT_PUBLIC_RANDOMNESS_ACCOUNT",
-    isLocalMock: (_val, env) => env.NEXT_PUBLIC_ENVIRONMENT !== "devnet",
-  },
-  {
     envKey: "NEXT_PUBLIC_SOLANA_RPC_URL",
     defaultValue: "https://api.devnet.solana.com",
     isLocalMock: isLocalMockUrl,
@@ -88,6 +85,7 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
     isLocalMock: isLocalMockUrl,
   },
 ];
+
 
 /**
  * Reads the public on-chain protocol addresses from scripts/devnet-state/addresses.json.
@@ -231,6 +229,10 @@ export function syncDevnetToActiveEnv(
       addresses.humaRedemptionRequest ||
       devnetEnv.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
       "",
+    NEXT_PUBLIC_RANDOMNESS_ACCOUNT:
+      addresses.randomnessAccount ||
+      devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
+      "",
   };
 
   // Provide implicit devnet context so devnet profile credentials (like Switchboard VRF) are not falsely rejected
@@ -296,3 +298,25 @@ export function syncDevnetToActiveEnv(
 
   return devnetVars;
 }
+
+/**
+ * Records a Switchboard randomness account address to addresses.json and .env.devnet.
+ */
+export function recordDevnetRandomnessAccount(
+  randomnessAddress: string,
+  addressesPath: string = DEVNET_ADDRESSES_PATH,
+  devnetEnvPath: string = DEVNET_ENV_PATH
+): void {
+  const existing = readDevnetAddresses(addressesPath) || {};
+  const updated = {
+    ...existing,
+    randomnessAccount: randomnessAddress,
+  } as DevnetProtocolAccounts;
+  writeDevnetAddresses(updated, addressesPath);
+  upsertEnvFile(
+    devnetEnvPath,
+    { NEXT_PUBLIC_RANDOMNESS_ACCOUNT: randomnessAddress },
+    { headerComment: "# Devnet Environment Profile (Auto-synchronized)" }
+  );
+}
+

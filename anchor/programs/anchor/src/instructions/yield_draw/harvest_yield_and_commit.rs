@@ -103,11 +103,12 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
-    /// CHECK: This is the raw randomness account from Switchboard On-Demand. It is unchecked because it is a foreign account owned by the Switchboard On-Demand program. Safety is guaranteed by the constraint check verifying that its owner matches the Switchboard On-Demand program ID (`switchboard_on_demand::get_switchboard_on_demand_program_id()`). In `reveal_and_pick_winners`, its data is also parsed and validated using `RandomnessAccountData::parse`.
+    /// CHECK: Raw randomness account from Switchboard On-Demand. Validated to ensure its owner matches an authorized Switchboard On-Demand program ID (Devnet or Mainnet), data length is sufficient, and possesses authentic RandomnessAccountData discriminator.
     #[account(
-        constraint = randomness_account.owner.to_bytes() == switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes() @ PremiumBondsError::InvalidRandomnessAccount
+        constraint = crate::utils::is_valid_switchboard_randomness_account(&randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount
     )]
     pub randomness_account: UncheckedAccount<'info>,
+
 
     /// The SPL Token interface for the PST mint/vault.
     pub pst_token_program: Interface<'info, TokenInterface>,

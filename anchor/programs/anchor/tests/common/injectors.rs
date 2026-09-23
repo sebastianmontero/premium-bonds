@@ -306,19 +306,7 @@ pub fn inject_dummy_huma_account(svm: &mut LiteSVM, address: Pubkey) {
 }
 
 pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-    svm.set_account(
-        address,
-        Account {
-            lamports: 1_000_000_000,
-            data: vec![],
-            owner: owner_pubkey,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .unwrap();
+    inject_randomness_account_data(svm, address, 0, 0, [0u8; 32]);
 }
 
 pub fn inject_randomness_account_data(
@@ -328,12 +316,28 @@ pub fn inject_randomness_account_data(
     reveal_slot: u64,
     value: [u8; 32],
 ) {
-    let mut data =
-        vec![
-            0u8;
-            8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>()
-        ];
-    data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
+    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
+    inject_randomness_account_data_with_owner(
+        svm,
+        address,
+        seed_slot,
+        reveal_slot,
+        value,
+        owner_pubkey,
+    );
+}
+
+pub fn inject_randomness_account_data_with_owner(
+    svm: &mut LiteSVM,
+    address: Pubkey,
+    seed_slot: u64,
+    reveal_slot: u64,
+    value: [u8; 32],
+    owner: Pubkey,
+) {
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
     let mut randomness_data: switchboard_on_demand::accounts::RandomnessAccountData =
         bytemuck::Zeroable::zeroed();
     randomness_data.authority = solana_program_v2::pubkey::Pubkey::default();
@@ -347,17 +351,16 @@ pub fn inject_randomness_account_data(
     let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
     data[8..8 + bytes.len()].copy_from_slice(bytes);
 
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
     let account = Account {
         lamports: 1_000_000_000,
         data,
-        owner: owner_pubkey,
+        owner,
         executable: false,
         rent_epoch: 0,
     };
     svm.set_account(address, account).unwrap();
 }
+
 
 pub fn inject_current_slot_randomness(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {
     let clock: solana_sdk::clock::Clock = svm.get_sysvar();

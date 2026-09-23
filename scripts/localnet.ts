@@ -528,6 +528,15 @@ function serializeHumaPoolState(): string {
   return Buffer.from(data).toString("hex");
 }
 
+const SB_RANDOMNESS_DISCRIMINATOR = [10, 66, 229, 135, 220, 239, 217, 114];
+const SB_RANDOMNESS_MIN_DATA_LEN = 408;
+
+function serializeMockRandomnessAccount(): string {
+  const data = new Uint8Array(SB_RANDOMNESS_MIN_DATA_LEN);
+  data.set(SB_RANDOMNESS_DISCRIMINATOR, 0);
+  return Buffer.from(data).toString("hex");
+}
+
 async function ensurePrizeTiersConfigured(
   poolId: number,
   rpc: ReturnType<typeof createSolanaRpc>,
@@ -746,10 +755,11 @@ export async function injectBaseState(options?: {
       : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
   if (!accMap[1]) {
     console.log("Injecting Mock Switchboard Randomness account...");
+    const mockRandomnessData = serializeMockRandomnessAccount();
     await setAccount(
       randomnessSigner.address,
       1_000_000_000,
-      "",
+      mockRandomnessData,
       sbProgramId,
       false
     );

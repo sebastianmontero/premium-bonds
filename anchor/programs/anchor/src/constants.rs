@@ -65,3 +65,21 @@ pub const HUMA_PROGRAM_ID: Pubkey =
 #[cfg(not(feature = "mainnet"))]
 pub const HUMA_PROGRAM_ID: Pubkey =
     solana_program::pubkey!("4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg");
+
+// ─── Switchboard On-Demand Program IDs & Discriminators ──────────────────────
+
+/// Switchboard On-Demand Program ID on Solana Devnet.
+pub const SWITCHBOARD_ON_DEMAND_DEVNET_PID: Pubkey =
+    solana_program::pubkey!("Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2");
+
+/// Switchboard On-Demand Program ID on Solana Mainnet.
+pub const SWITCHBOARD_ON_DEMAND_MAINNET_PID: Pubkey =
+    solana_program::pubkey!("SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv");
+
+/// Switchboard On-Demand RandomnessAccountData 8-byte discriminator.
+pub const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR: [u8; 8] = [10, 66, 229, 135, 220, 239, 217, 114];
+
+/// Minimum required byte length for a valid Switchboard RandomnessAccountData account (8-byte discriminator + struct size = 408 bytes).
+pub const SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN: usize =
+    8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>();
+

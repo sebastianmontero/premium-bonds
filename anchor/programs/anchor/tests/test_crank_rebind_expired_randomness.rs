@@ -170,7 +170,32 @@ fn test_rebind_fails_randomness_not_expired() {
 }
 
 #[test]
-fn test_rebind_fails_invalid_randomness_account() {
+fn test_rebind_succeeds_with_devnet_switchboard_owner() {
+    let harvest_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    ctx.svm.warp_to_slot(expired_slot);
+
+    inject_randomness_account_data_with_owner(
+        &mut ctx.svm,
+        ctx.new_randomness_account,
+        0,
+        0,
+        [0u8; 32],
+        anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+    );
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = send_rebind(&mut ctx, &crank);
+    assert!(
+        res.is_ok(),
+        "Rebind must accept Devnet Switchboard PID: {:?}",
+        res.err()
+    );
+}
+
+#[test]
+fn test_rebind_fails_invalid_randomness_account_owner() {
     let harvest_slot = 0;
     let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
     let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
@@ -183,7 +208,7 @@ fn test_rebind_fails_invalid_randomness_account() {
             ctx.new_randomness_account,
             Account {
                 lamports: 1_000_000_000,
-                data: vec![],
+                data: vec![0u8; 100],
                 owner: Pubkey::default(),
                 executable: false,
                 rent_epoch: 0,
@@ -198,6 +223,69 @@ fn test_rebind_fails_invalid_randomness_account() {
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
+
+#[test]
+fn test_rebind_fails_invalid_randomness_account_discriminator() {
+    let harvest_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+
+    ctx.svm.warp_to_slot(expired_slot);
+
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+    data[0..8].copy_from_slice(&[0u8; 8]); // Corrupted discriminator
+    ctx.svm
+        .set_account(
+            ctx.new_randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
+#[test]
+fn test_rebind_fails_truncated_randomness_account() {
+    let harvest_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+
+    ctx.svm.warp_to_slot(expired_slot);
+
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1]; // Truncated
+    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+    ctx.svm
+        .set_account(
+            ctx.new_randomness_account,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
 
 #[test]
 fn test_crank_rebind_exact_slot_boundary() {

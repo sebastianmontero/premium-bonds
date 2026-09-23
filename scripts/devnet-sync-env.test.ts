@@ -8,8 +8,10 @@ import {
   syncDevnetToActiveEnv,
   writeDevnetAddresses,
   readDevnetAddresses,
+  recordDevnetRandomnessAccount,
   DevnetProtocolAccounts,
 } from "./devnet-state";
+
 import { readEnvFile, upsertEnvFile } from "./env-utils";
 import { PROGRAM_ID, HUMA_PROGRAM_ID } from "../app/lib/bonds-sdk";
 
@@ -45,6 +47,7 @@ describe("Devnet State Persistence & Synchronization (devnet-state)", () => {
     humaPoolUnderlying: "HumaPoolUnderlying11111111111111111111111",
     humaPoolModeToken: "HumaPoolModeToken111111111111111111111111",
     humaRedemptionRequest: "HumaRedemptionReq111111111111111111111111",
+    randomnessAccount: "Randomness1111111111111111111111111111111",
   };
 
   it("1. Strict Guarding: should abort and NOT extract credentials when active env is localnet", () => {
@@ -77,7 +80,6 @@ HELIUS_WEBHOOK_SECRET=my_secret_token
       `NEXT_PUBLIC_ENVIRONMENT=devnet
 DATABASE_URL=postgresql://neon_user:neon_pass@ep-cool-frost.neon.tech/neondb?sslmode=require
 HELIUS_WEBHOOK_SECRET=helius_devnet_secret_abc123
-NEXT_PUBLIC_RANDOMNESS_ACCOUNT=SwitchboardDevnetAcc1111111111111111111
 SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=xyz
 `,
       "utf-8"
@@ -93,10 +95,6 @@ SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=xyz
       "helius_devnet_secret_abc123"
     );
     assert.strictEqual(
-      saved.NEXT_PUBLIC_RANDOMNESS_ACCOUNT,
-      "SwitchboardDevnetAcc1111111111111111111"
-    );
-    assert.strictEqual(
       saved.SOLANA_RPC_URL,
       "https://devnet.helius-rpc.com/?api-key=xyz"
     );
@@ -108,6 +106,7 @@ SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=xyz
       "postgresql://neon_user:neon_pass@ep-cool-frost.neon.tech/neondb?sslmode=require"
     );
   });
+
 
   it("3. Clean .env.devnet Syntax & Isolation: should use unprefixed keys and never write on-chain accounts to .env.devnet", () => {
     writeDevnetAddresses(sampleAddresses, addressesPath);
@@ -221,7 +220,13 @@ DATABASE_URL=postgresql://user:pass@neon.tech/db
   });
 
   it("7. Multi-Cycle Switching Resilience: devnet -> localnet -> devnet -> localnet retains credentials", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    writeDevnetAddresses(
+      {
+        ...sampleAddresses,
+        randomnessAccount: "SwitchboardAccount123",
+      },
+      addressesPath
+    );
 
     // Step 1: Active devnet setup
     fs.writeFileSync(
@@ -233,6 +238,7 @@ NEXT_PUBLIC_RANDOMNESS_ACCOUNT=SwitchboardAccount123
 `,
       "utf-8"
     );
+
 
     // Step 2: Localnet runs safeguard
     safeguardDevnetEnv(activeEnvPath, devnetEnvPath);
@@ -364,7 +370,8 @@ MY_CUSTOM_FLAG=true
   });
 
   it("10. Mock Replacement in Profile Salvage & Randomness Account Preservation: should preserve Switchboard account and overwrite stale mock URLs", () => {
-    writeDevnetAddresses(sampleAddresses, addressesPath);
+    const { randomnessAccount, ...addressesWithoutRandomness } = sampleAddresses;
+    writeDevnetAddresses(addressesWithoutRandomness, addressesPath);
 
     // .env.devnet has a stale local mock DB URL and a valid Switchboard account
     fs.writeFileSync(
@@ -443,4 +450,22 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/local_db
       "Mock RPC URL in .env.devnet must be ignored and fall back to default Devnet RPC"
     );
   });
+
+  it("12. recordDevnetRandomnessAccount updates addresses.json and .env.devnet", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+    fs.writeFileSync(devnetEnvPath, "# Devnet Env\n", "utf-8");
+
+    const newRandomness = "NewRandomnessAccount9999999999999999999999";
+    recordDevnetRandomnessAccount(newRandomness, addressesPath, devnetEnvPath);
+
+    const updatedAddresses = readDevnetAddresses(addressesPath);
+    assert.strictEqual(updatedAddresses?.randomnessAccount, newRandomness);
+
+    const updatedEnv = readEnvFile(devnetEnvPath);
+    assert.strictEqual(
+      updatedEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT,
+      newRandomness
+    );
+  });
 });
+

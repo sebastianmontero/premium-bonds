@@ -6,10 +6,12 @@
 
 use anchor_lang::AccountDeserialize;
 use solana_keypair::Keypair;
+use solana_sdk::account::Account;
 use solana_signer::Signer;
 
 mod common;
 use common::*;
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Guard tests
@@ -436,7 +438,31 @@ fn test_harvest_fails_invalid_mint() {
 }
 
 #[test]
-fn test_harvest_fails_invalid_randomness_account() {
+fn test_harvest_succeeds_with_devnet_switchboard_owner() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
+    let devnet_randomness = Keypair::new().pubkey();
+    inject_randomness_account_data_with_owner(
+        &mut ctx.svm,
+        devnet_randomness,
+        0,
+        0,
+        [0u8; 32],
+        anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+    );
+    ctx.randomness_account = devnet_randomness;
+    let res = ctx.send_harvest(1, 0);
+    assert!(
+        res.is_ok(),
+        "Harvest must accept Devnet Switchboard PID: {:?}",
+        res.err()
+    );
+}
+
+#[test]
+fn test_harvest_fails_invalid_randomness_account_owner() {
     let mut ctx = HarvestFixtureBuilder::new()
         .with_status(anchor::PoolStatus::Active, false)
         .with_cycle_end_at(0)
@@ -448,6 +474,65 @@ fn test_harvest_fails_invalid_randomness_account() {
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
+
+#[test]
+fn test_harvest_fails_invalid_randomness_account_discriminator() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
+    let bad_randomness = Keypair::new().pubkey();
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+    data[0..8].copy_from_slice(&[0u8; 8]); // Corrupted discriminator
+    ctx.svm
+        .set_account(
+            bad_randomness,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    ctx.randomness_account = bad_randomness;
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
+#[test]
+fn test_harvest_fails_truncated_randomness_account() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
+    let truncated_randomness = Keypair::new().pubkey();
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1]; // Truncated
+    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+    ctx.svm
+        .set_account(
+            truncated_randomness,
+            Account {
+                lamports: 1_000_000_000,
+                data,
+                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    ctx.randomness_account = truncated_randomness;
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
 
 #[test]
 fn test_harvest_fails_math_overflow() {
