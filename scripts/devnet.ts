@@ -13,6 +13,8 @@ import * as crypto from "crypto";
 import {
   checkRpcHealth,
   loadKeypair,
+  loadOrGenerateKeypair,
+  generateAndSaveKeypair,
   sendTx,
   upsertEnvFile,
   readEnvFile,
@@ -412,16 +414,9 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "huma-pool-state-key.json"
   );
-  const humaPoolStateSigner = await loadKeypair(humaPoolStateKeyPath).catch(
-    async () => {
-      const bytes = crypto.randomBytes(64);
-      fs.writeFileSync(
-        humaPoolStateKeyPath,
-        JSON.stringify(Array.from(bytes)),
-        "utf-8"
-      );
-      return await loadKeypair(humaPoolStateKeyPath);
-    }
+  const humaPoolStateSigner = await loadOrGenerateKeypair(
+    humaPoolStateKeyPath,
+    { overwriteIfInvalid: true, label: "Huma Pool State" }
   );
 
   console.log(`Huma Pool State address: ${humaPoolStateSigner.address}`);
@@ -621,16 +616,9 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "huma-lender-state-key.json"
   );
-  const humaLenderStateSigner = await loadKeypair(humaLenderStateKeyPath).catch(
-    async () => {
-      const bytes = crypto.randomBytes(64);
-      fs.writeFileSync(
-        humaLenderStateKeyPath,
-        JSON.stringify(Array.from(bytes)),
-        "utf-8"
-      );
-      return await loadKeypair(humaLenderStateKeyPath);
-    }
+  const humaLenderStateSigner = await loadOrGenerateKeypair(
+    humaLenderStateKeyPath,
+    { overwriteIfInvalid: true, label: "Huma Lender State" }
   );
 
   // Call create_lender_accounts_v2 on mock_huma program
@@ -699,16 +687,9 @@ async function handleInit(args: string[]) {
     STATE_DIR,
     "ticket-registry-key.json"
   );
-  let ticketRegistrySigner = await loadKeypair(ticketRegistryKeyPath).catch(
-    async () => {
-      const bytes = crypto.randomBytes(64);
-      fs.writeFileSync(
-        ticketRegistryKeyPath,
-        JSON.stringify(Array.from(bytes)),
-        "utf-8"
-      );
-      return await loadKeypair(ticketRegistryKeyPath);
-    }
+  let ticketRegistrySigner = await loadOrGenerateKeypair(
+    ticketRegistryKeyPath,
+    { overwriteIfInvalid: true, label: "Ticket Registry" }
   );
 
   let ticketRegistryAddress = ticketRegistrySigner.address;
@@ -728,13 +709,9 @@ async function handleInit(args: string[]) {
       console.warn(
         "⚠️  Existing Ticket Registry account has non-zero discriminator from a prior run. Regenerating fresh keypair..."
       );
-      const newBytes = crypto.randomBytes(64);
-      fs.writeFileSync(
-        ticketRegistryKeyPath,
-        JSON.stringify(Array.from(newBytes)),
-        "utf-8"
+      ticketRegistrySigner = await generateAndSaveKeypair(
+        ticketRegistryKeyPath
       );
-      ticketRegistrySigner = await loadKeypair(ticketRegistryKeyPath);
       ticketRegistryAddress = ticketRegistrySigner.address;
       console.log(`New Ticket Registry address: ${ticketRegistryAddress}`);
       ticketRegistryInfo = await rpc

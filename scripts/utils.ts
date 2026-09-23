@@ -19,6 +19,7 @@ import {
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 import {
   parseTransactionError,
   getExplorerUrl,
@@ -404,11 +405,90 @@ export async function loadKeypair(filePath: string): Promise<KeyPairSigner> {
   try {
     const bytes = JSON.parse(content);
     return await createKeyPairSignerFromBytes(new Uint8Array(bytes));
-  } catch {
+  } catch (err) {
     throw new Error(
-      `Failed to parse keypair file at: ${filePath}. Ensure it is a valid JSON byte array.`
+      `Failed to parse keypair file at: ${filePath}. Ensure it is a valid JSON byte array.`,
+      { cause: err }
     );
   }
+}
+
+/**
+ * Generates a valid 64-byte Ed25519 Solana keypair (secret key + public key).
+ */
+export function generateKeypairBytes(): Uint8Array {
+  const keyPair = crypto.generateKeyPairSync("ed25519");
+
+  const pkcs8 = keyPair.privateKey.export({ format: "der", type: "pkcs8" });
+  const secretKeyBytes = pkcs8.subarray(16, 48);
+
+  const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
+  const publicKeyBytes = spki.subarray(12, 44);
+
+  const keypairBytes = new Uint8Array(64);
+  keypairBytes.set(secretKeyBytes);
+  keypairBytes.set(publicKeyBytes, 32);
+
+  return keypairBytes;
+}
+
+/**
+ * Saves a 64-byte Ed25519 keypair to a JSON file securely (0o600 permissions).
+ */
+export function saveKeypairBytes(filePath: string, bytes: Uint8Array): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(Array.from(bytes)), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+}
+
+/**
+ * Generates a fresh valid Ed25519 keypair and writes it to disk.
+ */
+export async function generateAndSaveKeypair(
+  filePath: string
+): Promise<KeyPairSigner> {
+  const bytes = generateKeypairBytes();
+  saveKeypairBytes(filePath, bytes);
+  return await loadKeypair(filePath);
+}
+
+export interface LoadOrGenerateKeypairOptions {
+  overwriteIfInvalid?: boolean;
+  label?: string;
+}
+
+/**
+ * Loads an existing keypair from the specified JSON file path, or generates
+ * a new valid Ed25519 keypair and writes it to disk if it does not exist
+ * or if overwriteIfInvalid is true and the existing file is invalid.
+ */
+export async function loadOrGenerateKeypair(
+  filePath: string,
+  optionsOrLabel?: string | LoadOrGenerateKeypairOptions
+): Promise<KeyPairSigner> {
+  const options: LoadOrGenerateKeypairOptions =
+    typeof optionsOrLabel === "string"
+      ? { label: optionsOrLabel }
+      : (optionsOrLabel ?? {});
+
+  if (fs.existsSync(filePath)) {
+    try {
+      return await loadKeypair(filePath);
+    } catch (err) {
+      if (!options.overwriteIfInvalid) {
+        throw err;
+      }
+      console.warn(
+        `⚠️ Invalid keypair at ${filePath}${options.label ? ` (${options.label})` : ""}. Regenerating fresh valid keypair...`
+      );
+    }
+  } else if (options.label) {
+    console.log(`Generating new ${options.label} keypair at ${filePath}...`);
+  }
+
+  return await generateAndSaveKeypair(filePath);
 }
 
 /**

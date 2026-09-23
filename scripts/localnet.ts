@@ -21,6 +21,7 @@ import {
   safeStringify,
   printErrorDetails,
   upsertEnvFile,
+  loadOrGenerateKeypair,
 } from "./utils";
 import {
   findHumaPoolAuthorityPda,
@@ -355,37 +356,6 @@ function loadOrGenerateAddresses(dbName?: string): LocalnetAddresses {
   }
 
   return addresses as LocalnetAddresses;
-}
-
-async function loadOrGenerateKeypair(
-  keyPath: string,
-  label: string
-): Promise<KeyPairSigner> {
-  if (fs.existsSync(keyPath)) {
-    const bytes = JSON.parse(fs.readFileSync(keyPath, "utf-8"));
-    return await createKeyPairSignerFromBytes(new Uint8Array(bytes));
-  }
-
-  console.log(`Generating new ${label} keypair at ${keyPath}...`);
-  const keyPair = crypto.generateKeyPairSync("ed25519");
-
-  const pkcs8 = keyPair.privateKey.export({ format: "der", type: "pkcs8" });
-  const secretKeyBytes = pkcs8.subarray(16, 48);
-
-  const spki = keyPair.publicKey.export({ format: "der", type: "spki" });
-  const publicKeyBytes = spki.subarray(12, 44);
-
-  const derivedSecretKey = new Uint8Array(64);
-  derivedSecretKey.set(secretKeyBytes);
-  derivedSecretKey.set(publicKeyBytes, 32);
-
-  fs.writeFileSync(
-    keyPath,
-    JSON.stringify(Array.from(derivedSecretKey)),
-    "utf-8"
-  );
-
-  return await createKeyPairSignerFromBytes(derivedSecretKey);
 }
 
 async function loadOrGenerateAdminKey(): Promise<KeyPairSigner> {

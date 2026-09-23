@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,6 +14,11 @@ import {
   isRetryableRpcError,
   resolveDevnetRpcUrl,
   checkRpcHealth,
+  loadKeypair,
+  generateKeypairBytes,
+  saveKeypairBytes,
+  generateAndSaveKeypair,
+  loadOrGenerateKeypair,
 } from "./utils";
 import {
   SolanaError,
@@ -1343,6 +1348,133 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       await assert.rejects(async () => {
         await getGlobalAdmin(missingRpc);
       }, /GlobalConfig account does not exist at .*\. Run 'init-global' first\./);
+    });
+  });
+
+  describe("Keypair Management & Robust Generation Suite", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-keypair-test-"));
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should generate valid 64-byte Ed25519 keypair bytes", async () => {
+      const bytes = generateKeypairBytes();
+      assert.equal(bytes.length, 64);
+      assert.ok(bytes instanceof Uint8Array);
+
+      // Verify it can be loaded into KeyPairSigner
+      const { createKeyPairSignerFromBytes } = await import("@solana/kit");
+      const signer = await createKeyPairSignerFromBytes(bytes);
+      assert.ok(signer.address);
+      assert.equal(typeof signer.address, "string");
+      assert.ok(signer.address.length >= 32);
+    });
+
+    it("should save keypair bytes with 0o600 permissions", async () => {
+      const bytes = generateKeypairBytes();
+      const keyPath = path.join(tempDir, "sub", "test-key.json");
+      saveKeypairBytes(keyPath, bytes);
+
+      assert.ok(fs.existsSync(keyPath));
+      const stat = fs.statSync(keyPath);
+      // Mode on POSIX includes file type, mask with 0o777
+      assert.equal(stat.mode & 0o777, 0o600);
+
+      const loaded = JSON.parse(fs.readFileSync(keyPath, "utf-8"));
+      assert.deepEqual(loaded, Array.from(bytes));
+    });
+
+    it("loadKeypair should reject when file does not exist", async () => {
+      const nonExistentPath = path.join(tempDir, "missing.json");
+      await assert.rejects(
+        async () => {
+          await loadKeypair(nonExistentPath);
+        },
+        {
+          message: `Keypair file not found at: ${nonExistentPath}. Please ensure your authority keypair is generated and placed there.`,
+        }
+      );
+    });
+
+    it("loadKeypair should reject when file contains malformed JSON", async () => {
+      const malformedPath = path.join(tempDir, "malformed.json");
+      fs.writeFileSync(malformedPath, "not-valid-json", "utf-8");
+
+      await assert.rejects(async () => {
+        await loadKeypair(malformedPath);
+      }, /Failed to parse keypair file at: .* Ensure it is a valid JSON byte array\./);
+    });
+
+    it("loadKeypair should reject when file contains invalid keypair bytes (e.g. 64 random bytes)", async () => {
+      const invalidPath = path.join(tempDir, "invalid-bytes.json");
+      // 64 random bytes whose public key half does not match the secret key half
+      const fakeBytes = Array.from(
+        { length: 64 },
+        (_, i) => (i * 7 + 13) % 256
+      );
+      fs.writeFileSync(invalidPath, JSON.stringify(fakeBytes), "utf-8");
+
+      await assert.rejects(
+        async () => {
+          await loadKeypair(invalidPath);
+        },
+        (err: Error) => {
+          assert.match(
+            err.message,
+            /Failed to parse keypair file at: .* Ensure it is a valid JSON byte array\./
+          );
+          assert.ok(err.cause, "Expected error cause to be preserved");
+          return true;
+        }
+      );
+    });
+
+    it("loadOrGenerateKeypair should generate fresh keypair if file is missing", async () => {
+      const keyPath = path.join(tempDir, "new-key.json");
+      const signer = await loadOrGenerateKeypair(keyPath, "new-label");
+
+      assert.ok(fs.existsSync(keyPath));
+      assert.ok(signer.address);
+
+      // Subsequent call should reuse existing keypair
+      const reloaded = await loadOrGenerateKeypair(keyPath, "new-label");
+      assert.equal(reloaded.address, signer.address);
+    });
+
+    it("loadOrGenerateKeypair should fail on corrupt file if overwriteIfInvalid is false", async () => {
+      const corruptPath = path.join(tempDir, "corrupt.json");
+      fs.writeFileSync(corruptPath, JSON.stringify([1, 2, 3]), "utf-8");
+
+      await assert.rejects(async () => {
+        await loadOrGenerateKeypair(corruptPath);
+      }, /Failed to parse keypair file/);
+    });
+
+    it("loadOrGenerateKeypair should overwrite corrupt file if overwriteIfInvalid is true", async () => {
+      const corruptPath = path.join(tempDir, "corrupt-recover.json");
+      // Write 64 random bytes that fail Ed25519 verification
+      fs.writeFileSync(
+        corruptPath,
+        JSON.stringify(Array.from({ length: 64 }, (_, i) => i)),
+        "utf-8"
+      );
+
+      const recoveredSigner = await loadOrGenerateKeypair(corruptPath, {
+        overwriteIfInvalid: true,
+        label: "Recovered Key",
+      });
+
+      assert.ok(recoveredSigner.address);
+      // Verify file is now valid
+      const reloaded = await loadKeypair(corruptPath);
+      assert.equal(reloaded.address, recoveredSigner.address);
     });
   });
 });
