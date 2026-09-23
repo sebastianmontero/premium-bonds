@@ -814,7 +814,7 @@ async function handleInit(args: string[]) {
       admin: adminSigner,
       poolId,
       bondPrice: 1_000_000n, // 1 USDC
-      stakeCycleDurationHrs: 24n,
+      stakeCycleDurationHrs: 6n,
       feeBasisPoints: 100, // 1%
       minYieldThreshold: 0n,
       maxYieldBasisPoints: 0,
