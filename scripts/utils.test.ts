@@ -14,6 +14,11 @@ import {
   isRetryableRpcError,
   resolveDevnetRpcUrl,
   checkRpcHealth,
+  normalizeRpcPayload,
+  fetchAccountInfo,
+  fetchAccountData,
+  decodeAccountBase64Data,
+  parseTokenAccountBalance,
   loadKeypair,
   generateKeypairBytes,
   saveKeypairBytes,
@@ -607,6 +612,190 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           },
           { name: "AbortError" }
         );
+      });
+
+      it("should normalize account query payloads to base64 encoding via transport dependency injection", async () => {
+        let capturedPayload: any = null;
+        const mockTransport = async (req: any) => {
+          capturedPayload = req.payload;
+          return {
+            jsonrpc: "2.0",
+            id: req.payload?.id ?? 1,
+            result: { context: { slot: 100 }, value: null },
+          };
+        };
+
+        const rpc = createResilientRpc("http://mock-rpc", {
+          transport: mockTransport,
+        });
+
+        // 1. getAccountInfo without encoding -> normalizes to base64
+        await rpc
+          .getAccountInfo(address("11111111111111111111111111111111"))
+          .send();
+        assert.strictEqual(capturedPayload.method, "getAccountInfo");
+        assert.strictEqual(capturedPayload.params[1]?.encoding, "base64");
+
+        // 2. getMultipleAccounts without encoding -> normalizes to base64
+        await rpc
+          .getMultipleAccounts([address("11111111111111111111111111111111")])
+          .send();
+        assert.strictEqual(capturedPayload.method, "getMultipleAccounts");
+        assert.strictEqual(capturedPayload.params[1]?.encoding, "base64");
+
+        // 3. getProgramAccounts without encoding -> normalizes to base64
+        await rpc
+          .getProgramAccounts(address("11111111111111111111111111111111"))
+          .send();
+        assert.strictEqual(capturedPayload.method, "getProgramAccounts");
+        assert.strictEqual(capturedPayload.params[1]?.encoding, "base64");
+
+        // 4. getAccountInfo with explicit jsonParsed -> preserves caller encoding
+        await rpc
+          .getAccountInfo(address("11111111111111111111111111111111"), {
+            encoding: "jsonParsed",
+          })
+          .send();
+        assert.strictEqual(capturedPayload.params[1]?.encoding, "jsonParsed");
+
+        // 5. getLatestBlockhash (non-account query) -> untouched
+        await rpc.getLatestBlockhash().send();
+        assert.strictEqual(capturedPayload.method, "getLatestBlockhash");
+        assert.strictEqual(capturedPayload.params[1], undefined);
+      });
+    });
+
+    describe("normalizeRpcPayload Unit Tests", () => {
+      it("should handle null and undefined payloads", () => {
+        assert.strictEqual(normalizeRpcPayload(null), null);
+        assert.strictEqual(normalizeRpcPayload(undefined), undefined);
+      });
+
+      it("should recursively normalize batched JSON-RPC payload arrays", () => {
+        const batch = [
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getAccountInfo",
+            params: [
+              "11111111111111111111111111111111",
+              { commitment: "confirmed" },
+            ],
+          },
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "getLatestBlockhash",
+            params: [{ commitment: "confirmed" }],
+          },
+          {
+            jsonrpc: "2.0",
+            id: 3,
+            method: "getMultipleAccounts",
+            params: [["11111111111111111111111111111111"]],
+          },
+        ];
+
+        const normalized = normalizeRpcPayload(batch);
+        assert.strictEqual(Array.isArray(normalized), true);
+        assert.strictEqual(normalized[0].params[1].encoding, "base64");
+        assert.strictEqual(normalized[0].params[1].commitment, "confirmed");
+        assert.strictEqual(normalized[1].params[0].encoding, undefined);
+        assert.strictEqual(normalized[2].params[1].encoding, "base64");
+      });
+
+      it("should not corrupt empty params arrays", () => {
+        const payload = {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getAccountInfo",
+          params: [],
+        };
+        const normalized = normalizeRpcPayload(payload);
+        assert.deepStrictEqual(normalized.params, []);
+      });
+    });
+
+    describe("fetchAccountInfo and fetchAccountData", () => {
+      it("should fetch account info with base64 encoding and support abortSignal", async () => {
+        let capturedConfig: any = null;
+        let capturedSendOptions: any = null;
+
+        const mockRpc = {
+          getAccountInfo: (addr: any, config: any) => {
+            capturedConfig = config;
+            return {
+              send: async (sendOptions: any) => {
+                capturedSendOptions = sendOptions;
+                return {
+                  context: { slot: 100n },
+                  value: {
+                    data: ["AQIDBA==", "base64"],
+                    executable: false,
+                    lamports: 1000n,
+                    owner: "11111111111111111111111111111111",
+                    rentEpoch: 0n,
+                    space: 4n,
+                  },
+                };
+              },
+            };
+          },
+        } as any;
+
+        const controller = new AbortController();
+        const res = await fetchAccountInfo(
+          mockRpc,
+          "11111111111111111111111111111111",
+          { commitment: "processed" },
+          { abortSignal: controller.signal }
+        );
+
+        assert.strictEqual(capturedConfig.encoding, "base64");
+        assert.strictEqual(capturedConfig.commitment, "processed");
+        assert.strictEqual(capturedSendOptions.abortSignal, controller.signal);
+        assert.strictEqual(res.value?.lamports, 1000n);
+      });
+
+      it("should decode binary account data to Uint8Array via fetchAccountData", async () => {
+        const mockRpc = {
+          getAccountInfo: () => ({
+            send: async () => ({
+              context: { slot: 100n },
+              value: {
+                data: ["AQID", "base64"],
+                executable: false,
+                lamports: 1000n,
+                owner: "11111111111111111111111111111111",
+                rentEpoch: 0n,
+                space: 3n,
+              },
+            }),
+          }),
+        } as any;
+
+        const data = await fetchAccountData(
+          mockRpc,
+          "11111111111111111111111111111111"
+        );
+        assert.deepStrictEqual(data, new Uint8Array([1, 2, 3]));
+      });
+
+      it("should return null from fetchAccountData when account does not exist", async () => {
+        const mockRpc = {
+          getAccountInfo: () => ({
+            send: async () => ({
+              context: { slot: 100n },
+              value: null,
+            }),
+          }),
+        } as any;
+
+        const data = await fetchAccountData(
+          mockRpc,
+          "11111111111111111111111111111111"
+        );
+        assert.strictEqual(data, null);
       });
     });
 

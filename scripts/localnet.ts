@@ -22,6 +22,10 @@ import {
   printErrorDetails,
   upsertEnvFile,
   loadOrGenerateKeypair,
+  createResilientRpc,
+  fetchAccountInfo,
+  fetchAccountData,
+  parseTokenAccountBalance,
 } from "./utils";
 import {
   findHumaPoolAuthorityPda,
@@ -657,7 +661,7 @@ export async function injectBaseState(options?: {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(rpcUrl);
+  const rpc = createResilientRpc(rpcUrl);
 
   // 1. Load or generate admin and randomness keys
   const adminSigner = await loadOrGenerateAdminKey();
@@ -769,9 +773,7 @@ export async function injectBaseState(options?: {
   // 5e. Ticket Registry
   const regAcc = accMap[4];
   const REGISTRY_INITIAL_SIZE = 262248;
-  const regBytes = regAcc?.data?.[0]
-    ? Buffer.from(regAcc.data[0], "base64")
-    : null;
+  const regBytes = regAcc ? decodeAccountBase64Data(regAcc) : null;
   const hasValidRegDiscriminator =
     regBytes &&
     regBytes.length >= 8 &&
@@ -800,7 +802,7 @@ export async function injectBaseState(options?: {
       "Pool exists but Ticket Registry discriminator is uninitialized. Initializing valid header..."
     );
     const poolBytes = poolAcc?.value
-      ? new Uint8Array(Buffer.from(poolAcc.value.data[0], "base64"))
+      ? decodeAccountBase64Data(poolAcc.value)
       : null;
     const parsedPool = poolBytes ? parsePrizePool(poolBytes) : null;
     const poolId = parsedPool ? parsedPool.poolId : 1;
@@ -888,8 +890,8 @@ export async function injectBaseState(options?: {
   const globalConfigAddress = await findGlobalConfigPda();
   let isGlobalInitialized = false;
   try {
-    const acc = await rpc.getAccountInfo(globalConfigAddress).send();
-    if (acc && acc.value) {
+    const acc = await fetchAccountInfo(rpc, globalConfigAddress);
+    if (acc?.value) {
       isGlobalInitialized = true;
     }
   } catch {}
@@ -931,8 +933,8 @@ async function initializePrizePoolOnChain(
 
   let poolInitialized = false;
   try {
-    const acc = await rpc.getAccountInfo(poolAddress).send();
-    if (acc && acc.value) {
+    const acc = await fetchAccountInfo(rpc, poolAddress);
+    if (acc?.value) {
       poolInitialized = true;
     }
   } catch {}
@@ -958,11 +960,8 @@ async function initializePrizePoolOnChain(
     await ensurePrizeTiersConfigured(poolId, rpc, adminSigner);
   } else {
     console.log(`Pool (pool_id: ${poolId}) is already created on-chain.`);
-    const poolAcc = await rpc.getAccountInfo(poolAddress).send();
-    if (poolAcc && poolAcc.value) {
-      const rawData = new Uint8Array(
-        Buffer.from(poolAcc.value.data[0], "base64")
-      );
+    const rawData = await fetchAccountData(rpc, poolAddress);
+    if (rawData) {
       const parsedPool = parsePrizePool(rawData);
       if (parsedPool.prizeTiers.length === 0) {
         console.log(
@@ -1076,7 +1075,7 @@ async function handleFund(args: string[]) {
   }
 
   // Create RPC client
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
   const isRpcsActive = await checkRpcHealth(RPC_URL);
   if (!isRpcsActive) {
     console.error(
@@ -1097,16 +1096,9 @@ async function handleFund(args: string[]) {
   let newAmount = addAmount;
 
   try {
-    const info = await rpc.getAccountInfo(address(usdcAta)).send();
-    if (info && info.value) {
-      const dataBase64 = info.value.data[0];
-      const buffer = Buffer.from(dataBase64, "base64");
-      const view = new DataView(
-        buffer.buffer,
-        buffer.byteOffset,
-        buffer.byteLength
-      );
-      const existingAmount = view.getBigUint64(64, true);
+    const rawBytes = await fetchAccountData(rpc, usdcAta);
+    if (rawBytes) {
+      const existingAmount = parseTokenAccountBalance(rawBytes);
       newAmount = existingAmount + addAmount;
       console.log(
         `ATA already exists. Existing balance: ${Number(existingAmount) / 1_000_000} USDC. New balance: ${Number(newAmount) / 1_000_000} USDC`
@@ -1213,34 +1205,22 @@ async function handleWarp(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
 
   // 2. Fetch current clock state
   let currentBlockTime: number;
   try {
     const clockPda = address("SysvarC1ock11111111111111111111111111111111");
-    const clockAcc = await rpc
-      .getAccountInfo(clockPda, { encoding: "base64" })
-      .send();
-    if (
-      clockAcc &&
-      clockAcc.value &&
-      clockAcc.value.data &&
-      clockAcc.value.data[0]
-    ) {
-      const bytes = new Uint8Array(
-        Buffer.from(clockAcc.value.data[0], "base64")
+    const bytes = await fetchAccountData(rpc, clockPda);
+    if (bytes && bytes.byteLength >= 40) {
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength
       );
-      if (bytes.byteLength >= 40) {
-        const view = new DataView(
-          bytes.buffer,
-          bytes.byteOffset,
-          bytes.byteLength
-        );
-        currentBlockTime = Number(view.getBigInt64(32, true));
-      } else {
-        throw new Error("SysvarClock data too short");
-      }
+      currentBlockTime = Number(view.getBigInt64(32, true));
+    } else if (bytes) {
+      throw new Error("SysvarClock data too short");
     } else {
       throw new Error("SysvarClock account missing");
     }
@@ -1273,9 +1253,9 @@ async function handleWarp(args: string[]) {
       `Fetching PrizePool account state for pool ID ${poolId} (${poolAddress})...`
     );
 
-    let acc;
+    let rawData: Uint8Array | null = null;
     try {
-      acc = await rpc.getAccountInfo(poolAddress).send();
+      rawData = await fetchAccountData(rpc, poolAddress);
     } catch (err) {
       console.error(
         `Error: Failed to fetch account info for PrizePool at address ${poolAddress}:`,
@@ -1284,14 +1264,13 @@ async function handleWarp(args: string[]) {
       process.exit(1);
     }
 
-    if (!acc || !acc.value) {
+    if (!rawData) {
       console.error(
         `Error: PrizePool account for pool ID ${poolId} does not exist at address ${poolAddress}.`
       );
       process.exit(1);
     }
 
-    const rawData = new Uint8Array(Buffer.from(acc.value.data[0], "base64"));
     const parsedPool = parsePrizePool(rawData);
     const currentCycleEndAt = BigInt(parsedPool.currentCycleEndAt);
     if (currentCycleEndAt === 0n) {
@@ -2199,23 +2178,25 @@ async function handleSettle(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
   const addresses = loadOrGenerateAddresses();
 
   console.log(
     `Fetching Huma Pool State account: ${addresses.humaPoolState}...`
   );
-  const poolStateInfo = await rpc
-    .getAccountInfo(address(addresses.humaPoolState))
-    .send();
-  if (!poolStateInfo || !poolStateInfo.value) {
+  const rawBytes = await fetchAccountData(rpc, addresses.humaPoolState);
+  if (!rawBytes) {
     console.error(
       `Error: Huma Pool State account does not exist. Run 'npm run localnet init' first.`
     );
     process.exit(1);
   }
 
-  const rawData = Buffer.from(poolStateInfo.value.data[0], "base64");
+  const rawData = Buffer.from(
+    rawBytes.buffer,
+    rawBytes.byteOffset,
+    rawBytes.byteLength
+  );
 
   if (rawData.length < 30) {
     console.error("Error: Huma Pool State account data is too short.");
@@ -2307,16 +2288,14 @@ async function handleSettle(args: string[]) {
   console.log(
     `Reading escrowed PST from huma_pool_mode_token: ${addresses.humaPoolModeToken}...`
   );
-  const modeTokenInfo = await rpc
-    .getAccountInfo(address(addresses.humaPoolModeToken))
-    .send();
+  const modeTokenBytes = await fetchAccountData(
+    rpc,
+    addresses.humaPoolModeToken
+  );
 
   let escrowedPst = 0n;
-  if (modeTokenInfo?.value) {
-    const modeTokenBuffer = Buffer.from(modeTokenInfo.value.data[0], "base64");
-    if (modeTokenBuffer.length >= 72) {
-      escrowedPst = modeTokenBuffer.readBigUInt64LE(64);
-    }
+  if (modeTokenBytes) {
+    escrowedPst = parseTokenAccountBalance(modeTokenBytes);
   }
 
   let usdcValue = 0n;
@@ -2327,23 +2306,31 @@ async function handleSettle(args: string[]) {
     const endRequestId = next + countBi - 1n;
 
     // 2. Read PST mint supply
-    const pstMintInfo = await rpc
-      .getAccountInfo(address(addresses.pstMint))
-      .send();
-    if (!pstMintInfo?.value) {
+    const pstMintBytes = await fetchAccountData(rpc, addresses.pstMint);
+    if (!pstMintBytes) {
       console.error("Error: PST Mint account does not exist.");
       process.exit(1);
     }
-    const pstMintBuffer = Buffer.from(pstMintInfo.value.data[0], "base64");
+    const pstMintBuffer = Buffer.from(
+      pstMintBytes.buffer,
+      pstMintBytes.byteOffset,
+      pstMintBytes.byteLength
+    );
     const pstSupply = pstMintBuffer.readBigUInt64LE(36);
 
     // 3. Read current total_assets from pool_state (re-read after queue update)
-    const updatedPoolStateInfo = await rpc
-      .getAccountInfo(address(addresses.humaPoolState))
-      .send();
+    const updatedRawBytes = await fetchAccountData(
+      rpc,
+      addresses.humaPoolState
+    );
+    if (!updatedRawBytes) {
+      console.error("Error: Huma Pool State account does not exist.");
+      process.exit(1);
+    }
     const updatedRawData = Buffer.from(
-      updatedPoolStateInfo!.value!.data[0],
-      "base64"
+      updatedRawBytes.buffer,
+      updatedRawBytes.byteOffset,
+      updatedRawBytes.byteLength
     );
     const totalAssetsLow = updatedRawData.readBigUInt64LE(30);
     const totalAssetsHigh = updatedRawData.readBigUInt64LE(38);
@@ -2454,26 +2441,24 @@ async function handleSettle(args: string[]) {
 
   // 7. Read existing owed amount from Huma Lender State and add usdcValue
   let existingOwed = 0n;
-  const lenderStateInfo = await rpc
-    .getAccountInfo(address(addresses.humaLenderState))
-    .send();
-  if (lenderStateInfo?.value) {
-    const buf = Buffer.from(lenderStateInfo.value.data[0], "base64");
-    if (buf.length >= 16) {
-      existingOwed = buf.readBigUInt64LE(8);
-    }
+  const lenderBytes = await fetchAccountData(rpc, addresses.humaLenderState);
+  if (lenderBytes && lenderBytes.byteLength >= 16) {
+    const view = new DataView(
+      lenderBytes.buffer,
+      lenderBytes.byteOffset,
+      lenderBytes.byteLength
+    );
+    existingOwed = view.getBigUint64(8, true);
   }
 
   // 8. Read existing balance from Huma Pool Underlying vault and add usdcValue
   let existingBalance = 0n;
-  const humaUnderlyingInfo = await rpc
-    .getAccountInfo(address(addresses.humaPoolUnderlying))
-    .send();
-  if (humaUnderlyingInfo?.value) {
-    const buf = Buffer.from(humaUnderlyingInfo.value.data[0], "base64");
-    if (buf.length >= 72) {
-      existingBalance = buf.readBigUInt64LE(64);
-    }
+  const humaUnderlyingBytes = await fetchAccountData(
+    rpc,
+    addresses.humaPoolUnderlying
+  );
+  if (humaUnderlyingBytes) {
+    existingBalance = parseTokenAccountBalance(humaUnderlyingBytes);
   }
 
   const newOwed = existingOwed + usdcValue;
@@ -2581,9 +2566,7 @@ async function updateMockHumaTotalAssets(
   newTotalAssets: bigint
 ): Promise<void> {
   console.log(`Fetching Huma Pool State account: ${humaPoolStateAddress}...`);
-  const poolStateInfo = await rpc
-    .getAccountInfo(address(humaPoolStateAddress))
-    .send();
+  const poolStateInfo = await fetchAccountInfo(rpc, humaPoolStateAddress);
   if (!poolStateInfo || !poolStateInfo.value) {
     console.error(
       `Error: Huma Pool State account does not exist. Run 'npm run localnet init' first.`
@@ -2591,11 +2574,17 @@ async function updateMockHumaTotalAssets(
     process.exit(1);
   }
 
-  const rawData = Buffer.from(poolStateInfo.value.data[0], "base64");
-  if (rawData.length < 46) {
+  const rawBytes = decodeAccountBase64Data(poolStateInfo.value);
+  if (!rawBytes || rawBytes.byteLength < 46) {
     console.error("Error: Huma Pool State account data is too short.");
     process.exit(1);
   }
+
+  const rawData = Buffer.from(
+    rawBytes.buffer,
+    rawBytes.byteOffset,
+    rawBytes.byteLength
+  );
 
   // Write new total assets (u128) back to the raw Huma Pool State data buffer at offset 30
   rawData.writeBigUInt64LE(newTotalAssets & 0xffffffffffffffffn, 30);
@@ -2673,7 +2662,7 @@ async function handleYield(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
   const addresses = loadOrGenerateAddresses();
 
   // Derive pool PDAs
@@ -2688,17 +2677,14 @@ async function handleYield(args: string[]) {
   });
 
   console.log(`Fetching PrizePool account: ${poolAddress}...`);
-  const poolInfo = await rpc.getAccountInfo(poolAddress).send();
-  if (!poolInfo || !poolInfo.value) {
+  const poolBuffer = await fetchAccountData(rpc, poolAddress);
+  if (!poolBuffer) {
     console.error(
       `Error: PrizePool account for pool ID ${poolId} does not exist.`
     );
     process.exit(1);
   }
 
-  const poolBuffer = new Uint8Array(
-    Buffer.from(poolInfo.value.data[0], "base64")
-  );
   const parsedPool = parsePrizePool(poolBuffer);
   const bookValue = calculateBookValue(parsedPool);
 
@@ -2833,7 +2819,7 @@ async function handleDeficit(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
   const addresses = loadOrGenerateAddresses();
 
   // Derive pool PDAs
@@ -2848,17 +2834,14 @@ async function handleDeficit(args: string[]) {
   });
 
   console.log(`Fetching PrizePool account: ${poolAddress}...`);
-  const poolInfo = await rpc.getAccountInfo(poolAddress).send();
-  if (!poolInfo || !poolInfo.value) {
+  const poolBuffer = await fetchAccountData(rpc, poolAddress);
+  if (!poolBuffer) {
     console.error(
       `Error: PrizePool account for pool ID ${poolId} does not exist.`
     );
     process.exit(1);
   }
 
-  const poolBuffer = new Uint8Array(
-    Buffer.from(poolInfo.value.data[0], "base64")
-  );
   const parsedPool = parsePrizePool(poolBuffer);
   const bookValue = calculateBookValue(parsedPool);
 
@@ -2965,7 +2948,7 @@ async function handleSetPrizeTiers(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
   const adminSigner = await loadOrGenerateAdminKey();
   await ensurePrizeTiersConfigured(poolId, rpc, adminSigner);
 }
@@ -3023,7 +3006,7 @@ async function handleDraw(args: string[]) {
     process.exit(1);
   }
 
-  const rpc = createSolanaRpc(RPC_URL);
+  const rpc = createResilientRpc(RPC_URL);
 
   if (yieldAmountStr !== undefined) {
     console.log(
@@ -3041,15 +3024,14 @@ async function handleDraw(args: string[]) {
     seeds: [new TextEncoder().encode("prize_pool"), poolIdBytes],
   });
 
-  const poolAcc = await rpc.getAccountInfo(poolAddress).send();
-  if (!poolAcc || !poolAcc.value) {
+  const rawData = await fetchAccountData(rpc, poolAddress);
+  if (!rawData) {
     console.error(
       `Error: PrizePool account for pool ${poolId} does not exist.`
     );
     process.exit(1);
   }
 
-  const rawData = new Uint8Array(Buffer.from(poolAcc.value.data[0], "base64"));
   const parsedPool = parsePrizePool(rawData);
   const currentCycleEndAt = parsedPool.currentCycleEndAt;
   const currentDrawCycleId = parsedPool.currentDrawCycleId;
@@ -3065,28 +3047,16 @@ async function handleDraw(args: string[]) {
   let currentBlockTime: number;
   try {
     const clockPda = address("SysvarC1ock11111111111111111111111111111111");
-    const clockAcc = await rpc
-      .getAccountInfo(clockPda, { encoding: "base64" })
-      .send();
-    if (
-      clockAcc &&
-      clockAcc.value &&
-      clockAcc.value.data &&
-      clockAcc.value.data[0]
-    ) {
-      const bytes = new Uint8Array(
-        Buffer.from(clockAcc.value.data[0], "base64")
+    const bytes = await fetchAccountData(rpc, clockPda);
+    if (bytes && bytes.byteLength >= 40) {
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength
       );
-      if (bytes.byteLength >= 40) {
-        const view = new DataView(
-          bytes.buffer,
-          bytes.byteOffset,
-          bytes.byteLength
-        );
-        currentBlockTime = Number(view.getBigInt64(32, true));
-      } else {
-        throw new Error("SysvarClock data too short");
-      }
+      currentBlockTime = Number(view.getBigInt64(32, true));
+    } else if (bytes) {
+      throw new Error("SysvarClock data too short");
     } else {
       throw new Error("SysvarClock account missing");
     }

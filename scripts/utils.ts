@@ -29,6 +29,11 @@ import {
   truncateSignature,
   matchAnchorError,
 } from "../app/lib/errors";
+import {
+  decodeAccountBase64Data,
+  parseTokenAccountBalance,
+} from "../app/lib/bonds-sdk";
+export { decodeAccountBase64Data, parseTokenAccountBalance };
 import { readEnvFile } from "./env-utils";
 import {
   LOCAL_ENV_PATH,
@@ -113,6 +118,35 @@ export function isRetryableRpcError(err: unknown): boolean {
   return false;
 }
 
+export const ACCOUNT_QUERY_METHODS = new Set([
+  "getAccountInfo",
+  "getMultipleAccounts",
+  "getProgramAccounts",
+]);
+
+/**
+ * Normalizes JSON-RPC request payloads to ensure binary account queries
+ * default to base64 encoding rather than Solana's default base58 (which errors on data >= 128 bytes).
+ */
+export function normalizeRpcPayload(payload: any): any {
+  if (!payload) return payload;
+  if (Array.isArray(payload)) {
+    return payload.map(normalizeRpcPayload);
+  }
+  if (!ACCOUNT_QUERY_METHODS.has(payload.method)) return payload;
+  const params = Array.isArray(payload.params) ? [...payload.params] : [];
+  if (params.length === 0) return payload;
+
+  const config =
+    params[1] && typeof params[1] === "object" ? { ...params[1] } : {};
+  if (!config.encoding) {
+    config.encoding = "base64";
+    params[1] = config;
+    return { ...payload, params };
+  }
+  return payload;
+}
+
 export interface ResilientRpcConfig {
   readonly maxRetries?: number;
   readonly initialDelayMs?: number;
@@ -121,20 +155,24 @@ export interface ResilientRpcConfig {
   readonly jitter?: boolean;
   readonly onRetry?: (error: unknown, attempt: number, delayMs: number) => void;
   readonly headers?: Record<string, string>;
+  readonly transport?: Parameters<typeof createSolanaRpcFromTransport>[0];
 }
 
 /**
  * Creates a Solana RPC client wrapped with a resilient transport that automatically
- * retries transient network, socket, rate-limit, and connection-drop errors with exponential backoff.
+ * normalizes account queries to base64 encoding and retries transient network, socket,
+ * rate-limit, and connection-drop errors with exponential backoff.
  */
 export function createResilientRpc(
   clusterUrl: string,
   config?: ResilientRpcConfig
 ): ReturnType<typeof createSolanaRpc> {
-  const defaultTransport = createDefaultRpcTransport({
-    url: clusterUrl,
-    headers: config?.headers,
-  });
+  const defaultTransport =
+    config?.transport ??
+    createDefaultRpcTransport({
+      url: clusterUrl,
+      headers: config?.headers,
+    });
 
   const maxRetries = config?.maxRetries ?? 5;
   const initialDelayMs = config?.initialDelayMs ?? 500;
@@ -145,16 +183,20 @@ export function createResilientRpc(
   const resilientTransport = async (
     request: Parameters<typeof defaultTransport>[0]
   ) => {
+    const normalizedRequest = {
+      ...request,
+      payload: normalizeRpcPayload(request.payload),
+    };
     let attempt = 0;
     while (true) {
-      if (request.signal?.aborted) {
+      if (normalizedRequest.signal?.aborted) {
         throw new DOMException("The operation was aborted.", "AbortError");
       }
       try {
-        return await defaultTransport(request);
+        return await defaultTransport(normalizedRequest);
       } catch (err) {
         if (
-          request.signal?.aborted ||
+          normalizedRequest.signal?.aborted ||
           !isRetryableRpcError(err) ||
           attempt >= maxRetries
         ) {
@@ -188,6 +230,40 @@ export function createResilientRpc(
   };
 
   return createSolanaRpcFromTransport(resilientTransport);
+}
+
+/**
+ * Standardized wrapper over rpc.getAccountInfo with base64 encoding and abortSignal support.
+ */
+export async function fetchAccountInfo(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountAddress: Address | string,
+  config?: Parameters<ReturnType<typeof createSolanaRpc>["getAccountInfo"]>[1],
+  sendOptions?: Parameters<
+    ReturnType<ReturnType<typeof createSolanaRpc>["getAccountInfo"]>["send"]
+  >[0]
+) {
+  return await rpc
+    .getAccountInfo(address(accountAddress), {
+      encoding: "base64",
+      ...config,
+    })
+    .send(sendOptions);
+}
+
+/**
+ * Standardized helper to fetch and base64-decode binary account data.
+ */
+export async function fetchAccountData(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  accountAddress: Address | string,
+  config?: Parameters<ReturnType<typeof createSolanaRpc>["getAccountInfo"]>[1],
+  sendOptions?: Parameters<
+    ReturnType<ReturnType<typeof createSolanaRpc>["getAccountInfo"]>["send"]
+  >[0]
+): Promise<Uint8Array | null> {
+  const res = await fetchAccountInfo(rpc, accountAddress, config, sendOptions);
+  return decodeAccountBase64Data(res?.value);
 }
 
 export interface ResolveDevnetRpcOptions {
@@ -865,7 +941,7 @@ export async function ensureTokenMintOnChain(
   rpc: ReturnType<typeof createSolanaRpc>,
   params: EnsureTokenMintParams
 ): Promise<void> {
-  const accountInfo = await rpc.getAccountInfo(params.mint.address).send();
+  const accountInfo = await fetchAccountInfo(rpc, params.mint.address);
   if (accountInfo?.value) {
     console.log(
       `${params.label || "Token mint"} ${params.mint.address} already exists on-chain.`

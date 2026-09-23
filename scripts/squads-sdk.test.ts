@@ -26,6 +26,7 @@ import {
   ProposalAccount,
 } from "../app/lib/squads-sdk";
 import { parseTransactionError, matchSquadsError } from "../app/lib/errors";
+import { fetchAccountData, fetchAccountInfo } from "./squads-cli-utils";
 
 describe("7-Vector Squads V4 Multisig SDK Suite", () => {
   it("Vector 1: Deterministic PDA Derivations", async () => {
@@ -502,5 +503,36 @@ describe("7-Vector Squads V4 Multisig SDK Suite", () => {
       vaultPda,
       "Vault PDA must be account key 0 (signer)"
     );
+  });
+
+  it("Vector 8: fetchAccountData correctly decodes base64 RPC data without decoder TypeError", async () => {
+    let capturedConfig: any = null;
+    const mockRpc = {
+      getAccountInfo: (_addr: any, config: any) => {
+        capturedConfig = config;
+        return {
+          send: async () => ({
+            context: { slot: 100n },
+            value: {
+              data: ["AQIDBAUG", "base64"],
+              executable: false,
+              lamports: 50_000_000n,
+              owner: SQUADS_PROGRAM_ADDRESS,
+              rentEpoch: 0n,
+              space: 6n,
+            },
+          }),
+        };
+      },
+    } as any;
+
+    const dummyAddr = address("11111111111111111111111111111111");
+    const accountData = await fetchAccountData(mockRpc, dummyAddr);
+    assert.strictEqual(capturedConfig?.encoding, "base64");
+    assert.ok(accountData instanceof Uint8Array);
+    assert.deepStrictEqual(accountData, new Uint8Array([1, 2, 3, 4, 5, 6]));
+
+    const accountInfo = await fetchAccountInfo(mockRpc, dummyAddr);
+    assert.strictEqual(accountInfo?.value?.lamports, 50_000_000n);
   });
 });

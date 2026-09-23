@@ -155,14 +155,16 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
   });
 
   describe("ensureTokenMintOnChain", () => {
-    it("skips creation if mint already exists on-chain", async () => {
+    it("skips creation if mint already exists on-chain and queries with base64 encoding", async () => {
       const payer = await generateKeyPairSigner();
       const mint = await generateKeyPairSigner();
       let rpcGetCalled = false;
+      let capturedConfig: any = null;
 
       const mockRpc = {
-        getAccountInfo: () => {
+        getAccountInfo: (_addr: any, config: any) => {
           rpcGetCalled = true;
+          capturedConfig = config;
           return {
             send: async () => ({
               value: { lamports: 1_461_600n, owner: TOKEN_PROGRAM_ID },
@@ -180,6 +182,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
       });
 
       assert.strictEqual(rpcGetCalled, true);
+      assert.strictEqual(capturedConfig?.encoding, "base64");
     });
 
     it("wraps failure errors with descriptive diagnostic context", async () => {

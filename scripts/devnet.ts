@@ -23,6 +23,8 @@ import {
   printErrorDetails,
   ensureTokenMintOnChain,
   buildMintToInstruction,
+  fetchAccountInfo,
+  fetchAccountData,
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ATA_PROGRAM_ID,
@@ -453,9 +455,10 @@ async function handleInit(args: string[]) {
   console.log(`Huma Pool State address: ${humaPoolStateSigner.address}`);
 
   // Call initialize_mock_pool_state on mock_huma program
-  const humaPoolStateInfo = await rpc
-    .getAccountInfo(humaPoolStateSigner.address)
-    .send();
+  const humaPoolStateInfo = await fetchAccountInfo(
+    rpc,
+    humaPoolStateSigner.address
+  );
   if (!humaPoolStateInfo?.value) {
     console.log("Initializing Huma mock pool state on-chain...");
     const initHumaIx = {
@@ -579,9 +582,10 @@ async function handleInit(args: string[]) {
   );
 
   // Call create_lender_accounts_v2 on mock_huma program
-  const humaLenderStateInfo = await rpc
-    .getAccountInfo(humaLenderStateSigner.address)
-    .send();
+  const humaLenderStateInfo = await fetchAccountInfo(
+    rpc,
+    humaLenderStateSigner.address
+  );
   if (!humaLenderStateInfo?.value) {
     console.log("Initializing Huma lender accounts on-chain...");
     const initLenderIx = {
@@ -660,10 +664,10 @@ async function handleInit(args: string[]) {
 
   // If ticket registry account exists on-chain but pool is not yet initialized, verify discriminator is all zeros
   if (ticketRegistryInfo?.value && !poolInfo?.value) {
-    const rawData = Array.isArray(ticketRegistryInfo.value.data)
-      ? Buffer.from(ticketRegistryInfo.value.data[0], "base64")
-      : Buffer.from(ticketRegistryInfo.value.data as any);
-    const isZeroed = rawData.subarray(0, 8).every((b: number) => b === 0);
+    const rawData = decodeAccountBase64Data(ticketRegistryInfo.value);
+    const isZeroed = rawData
+      ? rawData.subarray(0, 8).every((b: number) => b === 0)
+      : true;
     if (!isZeroed) {
       console.warn(
         "⚠️  Existing Ticket Registry account has non-zero discriminator from a prior run. Regenerating fresh keypair..."
@@ -722,7 +726,7 @@ async function handleInit(args: string[]) {
 
   // Initialize Global Config
   const globalConfigAddress = await findGlobalConfigPda();
-  const globalConfigInfo = await rpc.getAccountInfo(globalConfigAddress).send();
+  const globalConfigInfo = await fetchAccountInfo(rpc, globalConfigAddress);
   if (!globalConfigInfo?.value) {
     console.log("Initializing YieldBonds GlobalConfig...");
     const initGlobalIx = await buildInitializeGlobalInstruction({

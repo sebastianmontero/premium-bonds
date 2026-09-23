@@ -37,13 +37,18 @@ import {
   buildProposalApproveInstruction,
   buildProposalRejectInstruction,
   buildProposalCancelInstruction,
-  buildVaultTransactionCloseInstruction,
-  buildVaultTransactionExecuteInstruction,
-  exportSquadsTransactionJson,
   createNoopSigner,
   SQUADS_PROGRAM_ADDRESS,
 } from "../app/lib/squads-sdk";
-import { sendTx, safeStringify, printErrorDetails, readEnvFile } from "./utils";
+import {
+  sendTx,
+  safeStringify,
+  printErrorDetails,
+  readEnvFile,
+  fetchAccountInfo,
+  fetchAccountData,
+} from "./utils";
+export { fetchAccountInfo, fetchAccountData };
 import { SolanaRpc } from "../app/lib/bonds-sdk";
 
 // ─── Execution Mode Discriminated Union ────────────────────────────────────────
@@ -187,24 +192,6 @@ export interface AdminDispatchParams {
 }
 
 /**
- * Fetches account data from Solana RPC.
- */
-export async function fetchAccountData(
-  rpc: SolanaRpc,
-  accountAddress: Address
-): Promise<Uint8Array | null> {
-  const res = await rpc
-    .getAccountInfo(accountAddress, { encoding: "base64" })
-    .send();
-  if (!res || !res.value || !res.value.data) {
-    return null;
-  }
-  const base64Data = res.value.data[0];
-  const decoder = getBase64Decoder();
-  return decoder.decode(base64Data);
-}
-
-/**
  * Reads cluster timestamp from Solana RPC sysvar clock or slot time.
  */
 export async function getClusterTimestamp(rpc: SolanaRpc): Promise<bigint> {
@@ -324,7 +311,7 @@ export async function dispatchAdminInstruction(
       }
 
       // Check vault balance for state-allocating operations
-      const vaultData = await rpc.getAccountInfo(effectiveAuthority).send();
+      const vaultData = await fetchAccountInfo(rpc, effectiveAuthority);
       const vaultLamports = vaultData?.value?.lamports ?? 0n;
       if (vaultLamports < 50_000_000n) {
         console.warn(
