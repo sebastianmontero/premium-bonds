@@ -13,6 +13,7 @@
     "localnet": "tsx scripts/localnet.ts",
     "devnet": "tsx scripts/devnet.ts",
     "devnet:sync": "tsx scripts/devnet.ts sync-env",
+    "devnet:crank": "tsx services/crank/index.ts",
     "devnet:vercel-sync": "tsx scripts/sync-vercel-envs.ts",
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",
