@@ -1,31 +1,41 @@
-import { Address, address, Instruction } from "@solana/kit";
+import { address, createSolanaRpc, Instruction } from "@solana/kit";
 import {
   buildClaimRedemptionInstructions,
   SYSTEM_PROGRAM_ID,
   HumaPoolAddresses,
-  RedemptionType,
+  fetchPendingRedemptionCandidates,
+  PendingRedemptionCandidate,
 } from "../../../app/lib/bonds-sdk";
 import {
-  CrankDecision,
   CrankExecutionContext,
   PoolStateSnapshot,
+  ICrankTask,
+  CrankTaskOutcome,
 } from "../types";
 
-export interface PendingRedemptionCandidate {
-  redemptionId: bigint;
-  user: Address;
-  humaRequestId: bigint;
-  redemptionType?: RedemptionType;
+export const MAX_REDEMPTIONS_PER_TX = 3;
+
+interface CandidateCacheEntry {
+  candidates: PendingRedemptionCandidate[];
+  cachedAt: number;
 }
 
-export class DisburseSentinelWorker {
+export class DisburseSentinelWorker implements ICrankTask {
   readonly name = "DisburseSentinelWorker";
+  private candidateCache: Map<number, CandidateCacheEntry> = new Map();
+  private readonly cacheTtlMs = 30_000; // 30s candidate cache
 
-  evaluate(
+  canHandle(snapshot: PoolStateSnapshot): boolean {
+    return (
+      snapshot.state !== "POOL_CLOSED" &&
+      snapshot.state !== "CIRCUIT_BREAKER_HALTED"
+    );
+  }
+
+  async evaluate(
     snapshot: PoolStateSnapshot,
-    context: CrankExecutionContext,
-    candidate?: PendingRedemptionCandidate | null
-  ): CrankDecision {
+    context: CrankExecutionContext
+  ): Promise<CrankTaskOutcome> {
     if (!context.enableAutoDisburse) {
       return {
         shouldExecute: false,
@@ -33,27 +43,80 @@ export class DisburseSentinelWorker {
       };
     }
 
-    if (!candidate) {
+    if (Number(snapshot.pool.totalPendingRedemptions) === 0) {
+      return {
+        shouldExecute: false,
+        reason: "No pending redemptions recorded on-chain for pool",
+      };
+    }
+
+    // Check / fetch candidates
+    const poolId = snapshot.poolId;
+    let candidates = this.getCachedCandidates(poolId);
+
+    if (!candidates) {
+      try {
+        const rpc = createSolanaRpc(context.rpcUrl);
+        candidates = await fetchPendingRedemptionCandidates({
+          rpc,
+          poolId,
+          humaPoolState: snapshot.pool.humaPoolState,
+        });
+        this.candidateCache.set(poolId, {
+          candidates,
+          cachedAt: Date.now(),
+        });
+      } catch (err: unknown) {
+        return {
+          shouldExecute: false,
+          reason: `Failed to fetch pending redemptions: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+
+    if (candidates.length === 0) {
       return {
         shouldExecute: false,
         reason: "No settled redemption requests pending claim",
       };
     }
 
+    // Batch up to MAX_REDEMPTIONS_PER_TX = 3
+    const batch = candidates.slice(0, MAX_REDEMPTIONS_PER_TX);
+    const instructions = await this.buildInstructionsForBatch(
+      snapshot,
+      context,
+      batch
+    );
+
     return {
       shouldExecute: true,
-      reason: `Claiming settled redemption #${candidate.redemptionId} for user ${candidate.user}`,
+      reason: `Claiming batch of ${batch.length} settled redemptions (IDs: [${batch.map((b) => `#${b.redemptionId}`).join(", ")}])`,
+      instructions,
+      computeUnitLimit: this.getComputeUnitLimit(),
       priorityFeeTier: "low",
+      writableAccounts: [snapshot.poolAddress],
     };
   }
 
-  async buildInstructions(
+  private getCachedCandidates(
+    poolId: number
+  ): PendingRedemptionCandidate[] | null {
+    const entry = this.candidateCache.get(poolId);
+    if (!entry) return null;
+    if (Date.now() - entry.cachedAt > this.cacheTtlMs) {
+      this.candidateCache.delete(poolId);
+      return null;
+    }
+    return entry.candidates;
+  }
+
+  async buildInstructionsForBatch(
     snapshot: PoolStateSnapshot,
     context: CrankExecutionContext,
-    candidate: PendingRedemptionCandidate,
-    humaAddresses?: HumaPoolAddresses
+    batch: PendingRedemptionCandidate[]
   ): Promise<Instruction[]> {
-    const defaultHumaAddresses: HumaPoolAddresses = humaAddresses || {
+    const defaultHumaAddresses: HumaPoolAddresses = {
       poolState:
         snapshot.pool.humaPoolState ||
         address(
@@ -84,22 +147,28 @@ export class DisburseSentinelWorker {
     };
 
     const tokenMint = address(snapshot.pool.tokenMint);
+    const instructions: Instruction[] = [];
 
-    return buildClaimRedemptionInstructions({
-      crank: context.signer,
-      beneficiary: candidate.user,
-      poolId: snapshot.poolId,
-      redemptionId: candidate.redemptionId,
-      tokenMint,
-      humaAddresses: defaultHumaAddresses,
-      redemptionType: candidate.redemptionType,
-      feeWallet: snapshot.pool.feeWallet
-        ? address(snapshot.pool.feeWallet)
-        : undefined,
-    });
+    for (const candidate of batch) {
+      const ixs = await buildClaimRedemptionInstructions({
+        crank: context.signer,
+        beneficiary: candidate.user,
+        poolId: snapshot.poolId,
+        redemptionId: candidate.redemptionId,
+        tokenMint,
+        humaAddresses: defaultHumaAddresses,
+        redemptionType: candidate.redemptionType,
+        feeWallet: snapshot.pool.feeWallet
+          ? address(snapshot.pool.feeWallet)
+          : undefined,
+      });
+      instructions.push(...ixs);
+    }
+
+    return instructions;
   }
 
   getComputeUnitLimit(): number {
-    return 200_000;
+    return 800_000;
   }
 }

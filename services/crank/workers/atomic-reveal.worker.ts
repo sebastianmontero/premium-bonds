@@ -1,42 +1,48 @@
-import { Instruction } from "@solana/kit";
 import { buildAtomicRevealAndPickWinnersInstructions } from "../../../app/lib/bonds-sdk";
 import {
-  ICrankWorker,
-  CrankDecision,
   CrankExecutionContext,
   PoolStateSnapshot,
+  ICrankTask,
+  CrankTaskOutcome,
 } from "../types";
 import { IVrfProvider } from "../vrf/randomness-provider";
 
-export class AtomicRevealWorker implements ICrankWorker<
-  Extract<PoolStateSnapshot, { state: "READY_TO_DRAW" }>
-> {
+export class AtomicRevealWorker implements ICrankTask {
   readonly name = "AtomicRevealWorker";
-  readonly targetState = "READY_TO_DRAW" as const;
 
   constructor(private readonly vrfProvider: IVrfProvider) {}
 
-  evaluate(
-    snapshot: Extract<PoolStateSnapshot, { state: "READY_TO_DRAW" }>
-  ): CrankDecision {
-    return {
-      shouldExecute: true,
-      reason: `Cycle #${snapshot.cycleId} prepared and ready for atomic reveal & winner selection`,
-      priorityFeeTier: "high",
-    };
+  canHandle(snapshot: PoolStateSnapshot): boolean {
+    return snapshot.state === "READY_TO_DRAW";
   }
 
-  async buildInstructions(
-    snapshot: Extract<PoolStateSnapshot, { state: "READY_TO_DRAW" }>,
+  async evaluate(
+    snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
-  ): Promise<Instruction[]> {
+  ): Promise<CrankTaskOutcome> {
+    if (snapshot.state !== "READY_TO_DRAW") {
+      return {
+        shouldExecute: false,
+        reason: `State is not READY_TO_DRAW (current: ${snapshot.state})`,
+      };
+    }
+
     const revealResult = await this.vrfProvider.prepareReveal(
       snapshot.randomnessAccount,
-      0n,
+      snapshot.harvestSlot,
       snapshot.currentSlot
     );
 
-    return await buildAtomicRevealAndPickWinnersInstructions({
+    if (!revealResult.ready) {
+      return {
+        shouldExecute: false,
+        reason:
+          revealResult.error ||
+          "Switchboard randomness oracle proof is not yet ready",
+      };
+    }
+
+    const instructions = await buildAtomicRevealAndPickWinnersInstructions({
       crank: context.signer,
       poolId: snapshot.poolId,
       currentDrawCycleId: snapshot.cycleId,
@@ -44,9 +50,22 @@ export class AtomicRevealWorker implements ICrankWorker<
       randomnessAccount: snapshot.randomnessAccount,
       switchboardRevealInstruction: revealResult.revealInstruction,
     });
+
+    return {
+      shouldExecute: true,
+      reason: `Cycle #${snapshot.cycleId} prepared and ready for atomic reveal & winner selection`,
+      instructions,
+      computeUnitLimit: this.getComputeUnitLimit(),
+      priorityFeeTier: "high",
+      writableAccounts: [
+        snapshot.poolAddress,
+        snapshot.ticketRegistryAddress,
+        snapshot.randomnessAccount,
+      ],
+    };
   }
 
   getComputeUnitLimit(): number {
-    return 500_000;
+    return 800_000;
   }
 }

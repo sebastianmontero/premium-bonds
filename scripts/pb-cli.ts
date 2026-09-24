@@ -67,6 +67,8 @@ import {
   PayoutRegistryStatus,
   formatPayoutRegistryStatus,
   isPayoutRegistryVoided,
+  canClosePayoutRegistry,
+  buildCrankClosePayoutRegistryInstruction,
   WINNER_SIZE,
   buildHarvestYieldAndCommitInstruction,
   buildRevealAndPickWinnersInstruction,
@@ -297,6 +299,36 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
       "npm run pb-cli claim-redemption -- --user <USER_PUBKEY>",
       "npm run pb-cli claim-redemption 1",
       "npm run pb-cli claim-redemption -- --limit 5 --dry-run",
+    ],
+  },
+  "close-payout-registry": {
+    command: "close-payout-registry",
+    category: "Crank & Operations",
+    summary:
+      "Manually close a completed or voided payout registry to reclaim rent lamports",
+    description:
+      "Manually close a completed or voided payout registry to reclaim rent lamports.",
+    requiresSigner: true,
+    options: [
+      {
+        flag: "--pool <number>",
+        description: "Target Prize Pool ID (default: 1)",
+      },
+      {
+        flag: "--cycle <number>",
+        description:
+          "Target Draw Cycle ID to close (defaults to latest completed cycle)",
+      },
+      {
+        flag: "--all-eligible",
+        description:
+          "Close all eligible completed or voided payout registries for this pool",
+      },
+    ],
+    examples: [
+      "npm run pb-cli close-payout-registry -- --pool 1 --cycle 0",
+      "npm run pb-cli close-payout-registry -- --pool 1 --all-eligible",
+      "npm run pb-cli close-payout-registry -- --pool 1 --dry-run",
     ],
   },
 
@@ -2108,6 +2140,223 @@ Claim Summary (Pool ${validated.poolId}):
     failedCount,
     signatures,
   };
+}
+
+export interface ExecuteClosePayoutRegistryParams {
+  poolId?: number | string;
+  cycleId?: number | string;
+  allEligible?: boolean;
+  dryRun?: boolean;
+  rpcUrl?: string;
+  signer: KeyPairSigner;
+}
+
+export async function executeClosePayoutRegistry({
+  poolId = 1,
+  cycleId,
+  allEligible = false,
+  dryRun = false,
+  rpcUrl = "http://127.0.0.1:8899",
+  signer,
+}: ExecuteClosePayoutRegistryParams) {
+  const numericPoolId =
+    typeof poolId === "string" ? parseInt(poolId, 10) : poolId;
+  if (isNaN(numericPoolId) || numericPoolId < 1) {
+    throw new CliArgumentError(
+      `Invalid pool ID: "${poolId}". Must be a positive integer.`
+    );
+  }
+
+  const rpc = createSolanaRpc(rpcUrl);
+  const base64Encoder = getBase64Encoder();
+
+  // 1. Fetch GlobalConfig to verify authorization
+  const globalConfigPda = await findGlobalConfigPda();
+  const globalConfigAcc = await rpc
+    .getAccountInfo(globalConfigPda, { encoding: "base64" })
+    .send();
+  if (!globalConfigAcc?.value?.data?.[0]) {
+    throw new Error("GlobalConfig account not found on-chain.");
+  }
+  const globalConfigBytes = new Uint8Array(
+    base64Encoder.encode(globalConfigAcc.value.data[0])
+  );
+  const globalConfig = parseGlobalConfig(globalConfigBytes);
+
+  const signerAddr = signer.address;
+  const isAuthorized =
+    signerAddr === globalConfig.jobsAccount ||
+    signerAddr === globalConfig.admin;
+
+  if (!isAuthorized) {
+    throw new Error(
+      `Signer ${signerAddr} is not authorized to close payout registries. Must be jobsAccount (${globalConfig.jobsAccount}) or admin (${globalConfig.admin}).`
+    );
+  }
+
+  // 2. Fetch PrizePool to determine current draw cycle
+  const poolPda = await findPrizePoolPda(numericPoolId);
+  const poolAcc = await rpc
+    .getAccountInfo(poolPda, { encoding: "base64" })
+    .send();
+  if (!poolAcc?.value?.data?.[0]) {
+    throw new Error(
+      `PrizePool account for pool ${numericPoolId} not found on-chain.`
+    );
+  }
+  const poolBytes = new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]));
+  const poolState = parsePrizePool(poolBytes);
+
+  if (allEligible) {
+    console.log(
+      `Scanning all historical payout registries for pool ${numericPoolId} (up to cycle #${poolState.currentDrawCycleId})...`
+    );
+    const maxCycle = Math.max(0, poolState.currentDrawCycleId);
+    const eligibleCycles: {
+      cycleId: number;
+      pda: Address;
+      lamports: bigint;
+    }[] = [];
+
+    for (let c = 0; c <= maxCycle; c++) {
+      const payoutPda = await findPayoutRegistryPda(numericPoolId, c);
+      try {
+        const pAcc = await rpc
+          .getAccountInfo(payoutPda, { encoding: "base64" })
+          .send();
+        if (pAcc?.value?.data?.[0]) {
+          const payoutBytes = new Uint8Array(
+            base64Encoder.encode(pAcc.value.data[0])
+          );
+          const payout = parsePayoutRegistry(payoutBytes);
+          if (canClosePayoutRegistry(payout)) {
+            eligibleCycles.push({
+              cycleId: c,
+              pda: payoutPda,
+              lamports: BigInt(pAcc.value.lamports || 0),
+            });
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (eligibleCycles.length === 0) {
+      console.log(
+        `No eligible completed or voided payout registries found for pool ${numericPoolId}.`
+      );
+      return;
+    }
+
+    console.log(
+      `Found ${eligibleCycles.length} eligible payout registry(ies) to close: [${eligibleCycles.map((e) => `#${e.cycleId}`).join(", ")}]`
+    );
+
+    // Batch up to 3 close instructions per transaction to strictly respect the 1,232-byte MTU limit
+    const BATCH_SIZE = 3;
+    let totalReclaimed = 0n;
+    for (let i = 0; i < eligibleCycles.length; i += BATCH_SIZE) {
+      const batch = eligibleCycles.slice(i, i + BATCH_SIZE);
+      const instructions: Instruction[] = [];
+      for (const item of batch) {
+        const ix = await buildCrankClosePayoutRegistryInstruction({
+          crank: signer.address,
+          poolId: numericPoolId,
+          cycleId: item.cycleId,
+        });
+        instructions.push(ix);
+      }
+
+      if (dryRun) {
+        const batchLamports = batch.reduce((acc, b) => acc + b.lamports, 0n);
+        console.log(
+          `[DRY RUN] Would close payout registries for cycles [${batch.map((b) => `#${b.cycleId}`).join(", ")}] (reclaiming ~${batchLamports} lamports)`
+        );
+      } else {
+        console.log(
+          `Closing payout registries for cycles [${batch.map((b) => `#${b.cycleId}`).join(", ")}]...`
+        );
+        const sig = await sendTx(rpc, instructions, signer);
+        const batchLamports = batch.reduce((acc, b) => acc + b.lamports, 0n);
+        totalReclaimed += batchLamports;
+        console.log(
+          `Successfully closed cycles [${batch.map((b) => `#${b.cycleId}`).join(", ")}]. Tx: ${sig}`
+        );
+      }
+    }
+
+    if (!dryRun) {
+      console.log(
+        `Sweep complete: reclaimed approximately ${(Number(totalReclaimed) / 1e9).toFixed(5)} SOL.`
+      );
+    }
+    return;
+  }
+
+  // Single cycle closure
+  const targetCycleId =
+    cycleId !== undefined
+      ? typeof cycleId === "string"
+        ? parseInt(cycleId, 10)
+        : cycleId
+      : poolState.currentDrawCycleId > 0
+        ? poolState.currentDrawCycleId - 1
+        : 0;
+
+  if (isNaN(targetCycleId) || targetCycleId < 0) {
+    throw new CliArgumentError(
+      `Invalid cycle ID: "${cycleId}". Must be a non-negative integer.`
+    );
+  }
+
+  const payoutPda = await findPayoutRegistryPda(numericPoolId, targetCycleId);
+  console.log(
+    `Checking Payout Registry #${targetCycleId} for Pool ${numericPoolId} at ${payoutPda}...`
+  );
+
+  const payoutAcc = await rpc
+    .getAccountInfo(payoutPda, { encoding: "base64" })
+    .send();
+  if (!payoutAcc?.value?.data?.[0]) {
+    throw new Error(
+      `Payout Registry account for pool ${numericPoolId} cycle ${targetCycleId} not found on-chain.`
+    );
+  }
+
+  const payoutBytes = new Uint8Array(
+    base64Encoder.encode(payoutAcc.value.data[0])
+  );
+  const payout = parsePayoutRegistry(payoutBytes);
+
+  if (!canClosePayoutRegistry(payout)) {
+    throw new Error(
+      `Cannot close Payout Registry #${targetCycleId}: payouts pending (${payout.payoutsCompleted}/${payout.winnersCount} completed, status: ${formatPayoutRegistryStatus(payout.status)}).`
+    );
+  }
+
+  const lamportsReclaimed = BigInt(payoutAcc.value.lamports || 0);
+
+  if (dryRun) {
+    console.log(
+      `[DRY RUN] Would close Payout Registry #${targetCycleId} for Pool ${numericPoolId} and reclaim ${lamportsReclaimed} lamports (~${(Number(lamportsReclaimed) / 1e9).toFixed(5)} SOL).`
+    );
+    return;
+  }
+
+  console.log(
+    `Closing Payout Registry #${targetCycleId} for Pool ${numericPoolId}...`
+  );
+  const ix = await buildCrankClosePayoutRegistryInstruction({
+    crank: signer.address,
+    poolId: numericPoolId,
+    cycleId: targetCycleId,
+  });
+
+  const sig = await sendTx(rpc, ix, signer);
+  console.log(
+    `Successfully closed Payout Registry #${targetCycleId}. Reclaimed ${lamportsReclaimed} lamports (~${(Number(lamportsReclaimed) / 1e9).toFixed(5)} SOL) to ${signer.address}. Tx: ${sig}`
+  );
 }
 
 // ─── Admin Action Handlers ───────────────────────────────────────────────────
@@ -4000,6 +4249,27 @@ async function main() {
         redemptionId,
         user,
         limit,
+        dryRun,
+        rpcUrl,
+        signer: signer!,
+      });
+      break;
+    }
+
+    case "close-payout-registry": {
+      const cycleId = options["--cycle"]
+        ? parseInt(options["--cycle"], 10)
+        : positionals.length > 0 && !isNaN(parseInt(positionals[0], 10))
+          ? parseInt(positionals[0], 10)
+          : undefined;
+      const allEligible =
+        options["--all-eligible"] === "true" ||
+        options["--all-eligible"] === "";
+      const dryRun = options["--dry-run"] === "true";
+      await executeClosePayoutRegistry({
+        poolId,
+        cycleId,
+        allEligible,
         dryRun,
         rpcUrl,
         signer: signer!,

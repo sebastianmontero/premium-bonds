@@ -17,6 +17,7 @@ export interface IVrfProvider {
   ): Promise<{
     revealInstruction?: Instruction;
     ready: boolean;
+    error?: string;
   }>;
 }
 

@@ -46,6 +46,12 @@ export type PoolStateSnapshot =
       readonly nextDrawAt: UnixTimestamp;
     })
   | (BaseSnapshot & {
+      readonly state: "POOL_PAUSED";
+    })
+  | (BaseSnapshot & {
+      readonly state: "POOL_CLOSED";
+    })
+  | (BaseSnapshot & {
       readonly state: "YIELD_HARVEST_READY";
       readonly currentCycleId: DrawCycleId;
     })
@@ -70,6 +76,7 @@ export type PoolStateSnapshot =
       readonly state: "READY_TO_DRAW";
       readonly cycleId: DrawCycleId;
       readonly randomnessAccount: Address;
+      readonly harvestSlot: bigint;
     })
   | (BaseSnapshot & {
       readonly state: "TIMELOCK_WAITING";
@@ -112,7 +119,33 @@ export interface WorkerExecutionResult {
   readonly reason: string;
   readonly signature?: string;
   readonly computeUnitsUsed?: number;
+  readonly outcome?: "EXECUTED" | "CONCURRENCY_RACE_LOST" | "ERROR";
   readonly error?: Error;
+}
+
+export interface CrankTaskAction {
+  readonly shouldExecute: true;
+  readonly reason: string;
+  readonly instructions: Instruction[];
+  readonly computeUnitLimit: number;
+  readonly priorityFeeTier?: "low" | "medium" | "high" | "urgent";
+  readonly writableAccounts?: Address[];
+}
+
+export interface CrankTaskNoAction {
+  readonly shouldExecute: false;
+  readonly reason: string;
+}
+
+export type CrankTaskOutcome = CrankTaskAction | CrankTaskNoAction;
+
+export interface ICrankTask {
+  readonly name: string;
+  canHandle(snapshot: PoolStateSnapshot): boolean;
+  evaluate(
+    snapshot: PoolStateSnapshot,
+    context: CrankExecutionContext
+  ): Promise<CrankTaskOutcome>;
 }
 
 export interface ICrankWorker<

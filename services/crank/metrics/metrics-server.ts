@@ -12,6 +12,10 @@ export class MetricsServer {
   private txCounters: Map<string, number> = new Map();
   private errorCounters: Map<string, number> = new Map();
   private poolMetrics: Map<number, PoolMetricSnapshot> = new Map();
+  private payoutRegistryClaimable: Map<
+    string,
+    { poolId: number; cycleId: number; claimable: boolean }
+  > = new Map();
   private crankSolBalance = 0;
   private startTime = Date.now();
 
@@ -39,6 +43,15 @@ export class MetricsServer {
       isFrozen,
       status,
     });
+  }
+
+  setPayoutRegistryClaimable(
+    poolId: number,
+    cycleId: number,
+    claimable: boolean
+  ): void {
+    const key = `${poolId}:${cycleId}`;
+    this.payoutRegistryClaimable.set(key, { poolId, cycleId, claimable });
   }
 
   updateSolBalance(balance: number): void {
@@ -102,6 +115,16 @@ export class MetricsServer {
           metricsOutput += `# TYPE yieldbonds_pool_cycle_id gauge\n`;
           for (const [poolId, data] of this.poolMetrics.entries()) {
             metricsOutput += `yieldbonds_pool_cycle_id{pool_id="${poolId}"} ${data.activeCycle}\n`;
+          }
+          metricsOutput += "\n";
+
+          // Payout Registry Claimable Gauges
+          if (this.payoutRegistryClaimable.size > 0) {
+            metricsOutput += `# HELP yieldbonds_crank_payout_registry_claimable Indicates if payout registry can be closed manually to reclaim rent\n`;
+            metricsOutput += `# TYPE yieldbonds_crank_payout_registry_claimable gauge\n`;
+            for (const item of this.payoutRegistryClaimable.values()) {
+              metricsOutput += `yieldbonds_crank_payout_registry_claimable{pool_id="${item.poolId}",cycle_id="${item.cycleId}"} ${item.claimable ? 1 : 0}\n`;
+            }
           }
 
           res.end(metricsOutput);

@@ -805,6 +805,95 @@ export function getPendingRedemptionFilters(
   return filters;
 }
 
+export interface PendingRedemptionCandidate {
+  redemptionId: bigint;
+  user: Address;
+  humaRequestId: bigint;
+  redemptionType?: RedemptionType;
+}
+
+export interface FetchPendingRedemptionCandidatesParams {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc: any;
+  poolId: number;
+  humaPoolState?: Address | string;
+}
+
+export async function fetchPendingRedemptionCandidates(
+  params: FetchPendingRedemptionCandidatesParams
+): Promise<PendingRedemptionCandidate[]> {
+  const { rpc, poolId } = params;
+  const humaPoolAddr = params.humaPoolState
+    ? address(params.humaPoolState)
+    : HUMA_POOL_STATE;
+
+  let nextRequestId = 0n;
+  try {
+    const humaAcc = await rpc
+      .getAccountInfo(humaPoolAddr, { encoding: "base64" })
+      .send();
+    if (humaAcc && humaAcc.value) {
+      const humaBytes = decodeAccountBase64Data(humaAcc.value);
+      if (humaBytes) {
+        const humaInfo = parseMockHumaPoolState(humaBytes);
+        nextRequestId = humaInfo.nextRequestId;
+      }
+    }
+  } catch {
+    // If Huma state fetch fails or mock is unavailable, proceed with 0n
+  }
+
+  const filters = getPendingRedemptionFilters({ poolId });
+  let accounts: readonly {
+    account: { data?: [string, string] | string | Uint8Array | null };
+    pubkey: Address;
+  }[] = [];
+  try {
+    const res = await rpc
+      .getProgramAccounts(PROGRAM_ID, {
+        encoding: "base64",
+        filters,
+      })
+      .send();
+    if (Array.isArray(res)) {
+      accounts = res;
+    }
+  } catch {
+    return [];
+  }
+
+  const candidates: PendingRedemptionCandidate[] = [];
+  for (const acc of accounts) {
+    const dataBytes = decodeAccountBase64Data(acc.account);
+    if (!dataBytes) continue;
+    try {
+      const parsed = parsePendingRedemption(dataBytes);
+      if (
+        parsed.poolId === poolId &&
+        (nextRequestId === 0n || parsed.humaRequestId < nextRequestId)
+      ) {
+        candidates.push({
+          redemptionId: parsed.redemptionId,
+          user: address(parsed.user),
+          humaRequestId: parsed.humaRequestId,
+          redemptionType: parsed.redemptionType,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  candidates.sort((a, b) =>
+    a.redemptionId < b.redemptionId
+      ? -1
+      : a.redemptionId > b.redemptionId
+        ? 1
+        : 0
+  );
+  return candidates;
+}
+
 export interface SettlementRedemptionItem {
   poolId: number;
   humaRequestId: bigint | number;

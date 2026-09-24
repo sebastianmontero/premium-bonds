@@ -77,7 +77,15 @@ export async function fetchPoolStateSnapshot(
   ]);
 
   const currentSlot = BigInt(slotRes);
-  const currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
+  let currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
+  try {
+    const blockTime = await rpc.getBlockTime(currentSlot).send();
+    if (blockTime !== null && blockTime !== undefined) {
+      currentTimestamp = BigInt(blockTime);
+    }
+  } catch {
+    // Fall back to local wallclock time if RPC doesn't support getBlockTime
+  }
 
   // Parse Ticket Registry
   const ticketAcc = accountsRes?.value?.[0];

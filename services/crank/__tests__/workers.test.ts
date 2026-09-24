@@ -37,7 +37,9 @@ function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
 }
 
 describe("Strategy Workers Unit Tests", () => {
-  it("HarvestYieldWorker should evaluate due harvest and report 150k CU", () => {
+  it("HarvestYieldWorker should evaluate due harvest and report 150k CU", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
     const worker = new HarvestYieldWorker(vrf);
 
@@ -51,13 +53,15 @@ describe("Strategy Workers Unit Tests", () => {
       currentTimestamp: toUnixTimestamp(1000),
       state: "YIELD_HARVEST_READY" as const,
       currentCycleId: toDrawCycleId(1),
-      dueTimestamp: toUnixTimestamp(900),
     };
 
-    const decision = worker.evaluate(snapshot);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /ready for yield harvest/);
-    assert.strictEqual(worker.getComputeUnitLimit(), 150_000);
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    if (outcome.shouldExecute) {
+      assert.match(outcome.reason, /ready for yield harvest/);
+      assert.strictEqual(outcome.computeUnitLimit, 150_000);
+      assert.strictEqual(outcome.instructions.length, 1);
+    }
   });
 
   it("PrepareDrawWorker should compute exact batch size and trigger execution", async () => {
@@ -79,13 +83,18 @@ describe("Strategy Workers Unit Tests", () => {
       total: 350,
     };
 
-    const decision = worker.evaluate(snapshot, ctx);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /250 users/);
-    assert.strictEqual(worker.getComputeUnitLimit(snapshot), 100_000);
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    if (outcome.shouldExecute) {
+      assert.match(outcome.reason, /250 users/);
+      assert.strictEqual(outcome.computeUnitLimit, 100_000);
+      assert.strictEqual(outcome.instructions.length, 1);
+    }
   });
 
-  it("RebindRandomnessWorker should trigger rebind on expired VRF", () => {
+  it("RebindRandomnessWorker should trigger rebind on expired VRF", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
     const worker = new RebindRandomnessWorker(vrf);
 
@@ -103,13 +112,18 @@ describe("Strategy Workers Unit Tests", () => {
       elapsedSlots: 1100n,
     };
 
-    const decision = worker.evaluate(snapshot);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /expired after 1100 slots/);
-    assert.strictEqual(worker.getComputeUnitLimit(), 120_000);
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    if (outcome.shouldExecute) {
+      assert.match(outcome.reason, /expired after 1100 slots/);
+      assert.strictEqual(outcome.computeUnitLimit, 120_000);
+      assert.strictEqual(outcome.instructions.length, 1);
+    }
   });
 
-  it("AtomicRevealWorker should evaluate ready draw and report 500k CU", () => {
+  it("AtomicRevealWorker should evaluate ready draw and report 800k CU", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
     const worker = new AtomicRevealWorker(vrf);
 
@@ -124,12 +138,16 @@ describe("Strategy Workers Unit Tests", () => {
       state: "READY_TO_DRAW" as const,
       cycleId: toDrawCycleId(1),
       randomnessAccount: mockAddress,
+      harvestSlot: 100n,
     };
 
-    const decision = worker.evaluate(snapshot);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /ready for atomic reveal/);
-    assert.strictEqual(worker.getComputeUnitLimit(), 500_000);
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    if (outcome.shouldExecute) {
+      assert.match(outcome.reason, /ready for atomic reveal/);
+      assert.strictEqual(outcome.computeUnitLimit, 800_000);
+      assert.strictEqual(outcome.instructions.length, 1);
+    }
   });
 
   it("ReinvestWinningsWorker should cap batch size to maxReinvestBatchSize", async () => {
@@ -164,13 +182,18 @@ describe("Strategy Workers Unit Tests", () => {
       ],
     };
 
-    const decision = worker.evaluate(snapshot, ctx);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /batch of 5 winners/);
-    assert.strictEqual(worker.getComputeUnitLimit(snapshot), 400_000);
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, true);
+    if (outcome.shouldExecute) {
+      assert.match(outcome.reason, /batch of 5 winners/);
+      assert.strictEqual(outcome.computeUnitLimit, 400_000);
+      assert.strictEqual(outcome.instructions.length, 5);
+    }
   });
 
-  it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", () => {
+  it("CapacitySentinelWorker should trigger only above 85% utilization when not frozen", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
     const sentinel = new CapacitySentinelWorker();
 
     const baseSnapshot = {
@@ -192,8 +215,8 @@ describe("Strategy Workers Unit Tests", () => {
         capacity: 100,
       }),
     };
-    const decision80 = sentinel.evaluate(snapshot80);
-    assert.strictEqual(decision80.shouldExecute, false);
+    const outcome80 = await sentinel.evaluate(snapshot80, ctx);
+    assert.strictEqual(outcome80.shouldExecute, false);
 
     // 90% utilization -> should trigger
     const snapshot90 = {
@@ -204,9 +227,12 @@ describe("Strategy Workers Unit Tests", () => {
         capacity: 100,
       }),
     };
-    const decision90 = sentinel.evaluate(snapshot90);
-    assert.strictEqual(decision90.shouldExecute, true);
-    assert.match(decision90.reason, /90.0%/);
+    const outcome90 = await sentinel.evaluate(snapshot90, ctx);
+    assert.strictEqual(outcome90.shouldExecute, true);
+    if (outcome90.shouldExecute) {
+      assert.match(outcome90.reason, /90.0%/);
+      assert.strictEqual(outcome90.computeUnitLimit, 80_000);
+    }
 
     // 90% utilization but pool is frozen -> should NOT trigger
     const snapshotFrozen = {
@@ -217,11 +243,11 @@ describe("Strategy Workers Unit Tests", () => {
         capacity: 100,
       }),
     };
-    const decisionFrozen = sentinel.evaluate(snapshotFrozen);
-    assert.strictEqual(decisionFrozen.shouldExecute, false);
+    const outcomeFrozen = await sentinel.evaluate(snapshotFrozen, ctx);
+    assert.strictEqual(outcomeFrozen.shouldExecute, false);
   });
 
-  it("DisburseSentinelWorker should evaluate settled redemptions", async () => {
+  it("DisburseSentinelWorker should short circuit on zero pending redemptions", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const sentinel = new DisburseSentinelWorker();
@@ -229,7 +255,7 @@ describe("Strategy Workers Unit Tests", () => {
     const snapshot = {
       poolId: toPoolId(1),
       poolAddress: mockAddress,
-      pool: buildMockPrizePool({ tokenMint: mockAddress }),
+      pool: buildMockPrizePool({ totalPendingRedemptions: 0n }),
       ticketRegistryAddress: mockAddress,
       ticketRegistry: buildMockTicketRegistry(),
       currentSlot: 500n,
@@ -238,48 +264,66 @@ describe("Strategy Workers Unit Tests", () => {
       nextDrawAt: toUnixTimestamp(2000),
     };
 
-    const candidate = {
-      redemptionId: 1n,
-      user: mockAddress,
-      humaRequestId: 5n,
-      redemptionType: RedemptionType.BondSale,
-    };
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /No pending redemptions/);
+  });
 
-    const decision = sentinel.evaluate(snapshot, ctx, candidate);
-    assert.strictEqual(decision.shouldExecute, true);
-    assert.match(decision.reason, /Claiming settled redemption #1/);
-    assert.strictEqual(sentinel.getComputeUnitLimit(), 200_000);
+  it("DisburseSentinelWorker batching should cap at MAX_REDEMPTIONS_PER_TX = 3 and include 800k CU limit", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const sentinel = new DisburseSentinelWorker();
 
-    // Test BondSale buildInstructions (prepends idempotent ATA creation)
-    const bondSaleIxs = await sentinel.buildInstructions(
-      snapshot,
-      ctx,
-      candidate
-    );
-    assert.strictEqual(bondSaleIxs.length, 2);
-    assert.strictEqual(bondSaleIxs[0].programAddress, ATA_PROGRAM_ID);
-
-    // Test FeeWithdrawal buildInstructions (routes directly to feeWallet)
-    const feeWallet = TEST_ADDRESSES.ADMIN;
-    const feeSnapshot = {
-      ...snapshot,
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
       pool: buildMockPrizePool({
         tokenMint: mockAddress,
-        feeWallet,
+        totalPendingRedemptions: 5n,
       }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
     };
-    const feeCandidate = {
-      redemptionId: 4n,
-      user: mockAddress,
-      humaRequestId: 10n,
-      redemptionType: RedemptionType.FeeWithdrawal,
-    };
-    const feeIxs = await sentinel.buildInstructions(
-      feeSnapshot,
+
+    const candidates = [
+      {
+        redemptionId: 1n,
+        user: mockAddress,
+        humaRequestId: 1n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 2n,
+        user: mockAddress,
+        humaRequestId: 2n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 3n,
+        user: mockAddress,
+        humaRequestId: 3n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 4n,
+        user: mockAddress,
+        humaRequestId: 4n,
+        redemptionType: RedemptionType.BondSale,
+      },
+    ];
+
+    const ixs = await sentinel.buildInstructionsForBatch(
+      snapshot,
       ctx,
-      feeCandidate
+      candidates.slice(0, 3)
     );
-    assert.strictEqual(feeIxs.length, 1);
-    assert.strictEqual(feeIxs[0].accounts?.[6].address, feeWallet);
+    // Each BondSale redemption has 2 instructions (ATA creation + claim) = 6 instructions
+    assert.strictEqual(ixs.length, 6);
+    assert.strictEqual(ixs[0].programAddress, ATA_PROGRAM_ID);
+    assert.strictEqual(sentinel.getComputeUnitLimit(), 800_000);
   });
 });

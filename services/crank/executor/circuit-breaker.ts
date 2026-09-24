@@ -1,96 +1,187 @@
-import { CrankConfig } from "../config";
-
 export type CircuitBreakerState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export interface CircuitBreakerEvent {
-  poolId: number;
+  poolId?: number;
   type: "TRIP" | "RESET" | "PROBE";
   reason: string;
   timestamp: number;
 }
 
+export type CircuitBreakerListener = (event: CircuitBreakerEvent) => void;
+
+interface BreakerInternalState {
+  state: CircuitBreakerState;
+  consecutiveFailures: number;
+  nextProbeTime: number;
+}
+
 export class CircuitBreaker {
-  private state: CircuitBreakerState = "CLOSED";
-  private consecutiveFailures = 0;
-  private nextProbeTime = 0;
+  private globalState: BreakerInternalState = {
+    state: "CLOSED",
+    consecutiveFailures: 0,
+    nextProbeTime: 0,
+  };
+  private poolStates: Map<number, BreakerInternalState> = new Map();
   private readonly failureThreshold: number;
   private readonly cooldownPeriodMs: number;
+  private listener?: CircuitBreakerListener;
 
   constructor(
-    private readonly config: CrankConfig,
     failureThreshold = 5,
-    cooldownPeriodMs = 60_000
+    cooldownPeriodMs = 60_000,
+    listener?: CircuitBreakerListener
   ) {
     this.failureThreshold = failureThreshold;
     this.cooldownPeriodMs = cooldownPeriodMs;
+    this.listener = listener;
   }
 
-  getState(): CircuitBreakerState {
-    if (this.state === "OPEN" && Date.now() >= this.nextProbeTime) {
-      this.state = "HALF_OPEN";
+  setListener(listener: CircuitBreakerListener): void {
+    this.listener = listener;
+  }
+
+  private getInternalState(poolId?: number): BreakerInternalState {
+    if (poolId === undefined) {
+      return this.globalState;
     }
-    return this.state;
+    let pState = this.poolStates.get(poolId);
+    if (!pState) {
+      pState = {
+        state: "CLOSED",
+        consecutiveFailures: 0,
+        nextProbeTime: 0,
+      };
+      this.poolStates.set(poolId, pState);
+    }
+    return pState;
   }
 
-  canExecute(): boolean {
-    const current = this.getState();
+  getState(poolId?: number): CircuitBreakerState {
+    // Check global state first
+    if (
+      this.globalState.state === "OPEN" &&
+      Date.now() >= this.globalState.nextProbeTime
+    ) {
+      this.globalState.state = "HALF_OPEN";
+      this.emitEvent({
+        type: "PROBE",
+        reason: "Global cooldown elapsed. State is HALF_OPEN",
+        timestamp: Date.now(),
+      });
+    }
+
+    if (poolId === undefined) {
+      return this.globalState.state;
+    }
+
+    // If global breaker is OPEN, pool is also effectively blocked
+    if (this.globalState.state === "OPEN") {
+      return "OPEN";
+    }
+
+    const pState = this.getInternalState(poolId);
+    if (pState.state === "OPEN" && Date.now() >= pState.nextProbeTime) {
+      pState.state = "HALF_OPEN";
+      this.emitEvent({
+        poolId,
+        type: "PROBE",
+        reason: `Pool #${poolId} cooldown elapsed. State is HALF_OPEN`,
+        timestamp: Date.now(),
+      });
+    }
+    return pState.state;
+  }
+
+  canExecute(poolId?: number): boolean {
+    const current = this.getState(poolId);
     return current === "CLOSED" || current === "HALF_OPEN";
   }
 
-  recordSuccess(): void {
-    if (this.state !== "CLOSED") {
-      this.notifyAlert("RESET", "Circuit breaker recovered to CLOSED");
+  recordSuccess(poolId?: number): void {
+    if (poolId === undefined) {
+      if (this.globalState.state !== "CLOSED") {
+        this.emitEvent({
+          type: "RESET",
+          reason: "Global circuit breaker recovered to CLOSED",
+          timestamp: Date.now(),
+        });
+      }
+      this.globalState.consecutiveFailures = 0;
+      this.globalState.state = "CLOSED";
+      return;
     }
-    this.consecutiveFailures = 0;
-    this.state = "CLOSED";
+
+    const pState = this.getInternalState(poolId);
+    if (pState.state !== "CLOSED") {
+      this.emitEvent({
+        poolId,
+        type: "RESET",
+        reason: `Pool #${poolId} circuit breaker recovered to CLOSED`,
+        timestamp: Date.now(),
+      });
+    }
+    pState.consecutiveFailures = 0;
+    pState.state = "CLOSED";
+
+    // If global was HALF_OPEN, recover it too
+    if (this.globalState.state === "HALF_OPEN") {
+      this.globalState.consecutiveFailures = 0;
+      this.globalState.state = "CLOSED";
+    }
   }
 
-  async recordFailure(reason: string, isFatal = false): Promise<void> {
-    this.consecutiveFailures += 1;
+  recordPoolFailure(poolId: number, reason: string, isFatal = false): void {
+    const pState = this.getInternalState(poolId);
+    pState.consecutiveFailures += 1;
 
-    if (isFatal || this.consecutiveFailures >= this.failureThreshold) {
-      this.state = "OPEN";
-      this.nextProbeTime = Date.now() + this.cooldownPeriodMs;
-      await this.notifyAlert(
-        "TRIP",
-        `Circuit breaker tripped to OPEN. Reason: ${reason} (consecutive failures: ${this.consecutiveFailures})`
-      );
+    if (isFatal || pState.consecutiveFailures >= this.failureThreshold) {
+      pState.state = "OPEN";
+      pState.nextProbeTime = Date.now() + this.cooldownPeriodMs;
+      this.emitEvent({
+        poolId,
+        type: "TRIP",
+        reason: `Pool #${poolId} circuit breaker tripped to OPEN. Reason: ${reason} (consecutive failures: ${pState.consecutiveFailures})`,
+        timestamp: Date.now(),
+      });
     }
   }
 
-  private async notifyAlert(
-    event: "TRIP" | "RESET",
-    message: string
-  ): Promise<void> {
-    const timestamp = new Date().toISOString();
-    console.error(`[CircuitBreaker] [${event}] ${timestamp}: ${message}`);
+  recordGlobalFailure(reason: string, isFatal = false): void {
+    this.globalState.consecutiveFailures += 1;
 
-    // Discord Webhook
-    if (this.config.discordWebhookUrl) {
-      try {
-        await fetch(this.config.discordWebhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: `🚨 **[YieldBonds Crank Alert]** ${event}\n> ${message}\n*Time: ${timestamp}*`,
-          }),
-        });
-      } catch {}
+    if (
+      isFatal ||
+      this.globalState.consecutiveFailures >= this.failureThreshold
+    ) {
+      this.globalState.state = "OPEN";
+      this.globalState.nextProbeTime = Date.now() + this.cooldownPeriodMs;
+      this.emitEvent({
+        type: "TRIP",
+        reason: `Global circuit breaker tripped to OPEN. Reason: ${reason} (consecutive failures: ${this.globalState.consecutiveFailures})`,
+        timestamp: Date.now(),
+      });
     }
+  }
 
-    // Telegram Alert
-    if (this.config.telegramBotToken && this.config.telegramChatId) {
+  recordFailure(reason: string, isFatal = false, poolId?: number): void {
+    if (poolId !== undefined) {
+      this.recordPoolFailure(poolId, reason, isFatal);
+    } else {
+      this.recordGlobalFailure(reason, isFatal);
+    }
+  }
+
+  private emitEvent(event: CircuitBreakerEvent): void {
+    const timestamp = new Date(event.timestamp).toISOString();
+    console.error(
+      `[CircuitBreaker] [${event.type}] ${timestamp}: ${event.reason}`
+    );
+    if (this.listener) {
       try {
-        const url = `https://api.telegram.org/bot${this.config.telegramBotToken}/sendMessage`;
-        await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: this.config.telegramChatId,
-            text: `🚨 [YieldBonds Crank] ${event}: ${message}`,
-          }),
-        });
-      } catch {}
+        this.listener(event);
+      } catch {
+        // Suppress listener callback error
+      }
     }
   }
 }

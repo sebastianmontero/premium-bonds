@@ -1,28 +1,42 @@
 import { Instruction } from "@solana/kit";
 import { buildCrankRebindExpiredRandomnessInstruction } from "../../../app/lib/bonds-sdk";
 import {
-  ICrankWorker,
-  CrankDecision,
   CrankExecutionContext,
   PoolStateSnapshot,
+  ICrankTask,
+  CrankTaskOutcome,
 } from "../types";
 import { IVrfProvider } from "../vrf/randomness-provider";
 
-export class RebindRandomnessWorker implements ICrankWorker<
-  Extract<PoolStateSnapshot, { state: "VRF_EXPIRED" }>
-> {
+export class RebindRandomnessWorker implements ICrankTask {
   readonly name = "RebindRandomnessWorker";
-  readonly targetState = "VRF_EXPIRED" as const;
 
   constructor(private readonly vrfProvider: IVrfProvider) {}
 
-  evaluate(
-    snapshot: Extract<PoolStateSnapshot, { state: "VRF_EXPIRED" }>
-  ): CrankDecision {
+  canHandle(snapshot: PoolStateSnapshot): boolean {
+    return snapshot.state === "VRF_EXPIRED";
+  }
+
+  async evaluate(
+    snapshot: PoolStateSnapshot,
+    context: CrankExecutionContext
+  ): Promise<CrankTaskOutcome> {
+    if (snapshot.state !== "VRF_EXPIRED") {
+      return {
+        shouldExecute: false,
+        reason: `State is not VRF_EXPIRED (current: ${snapshot.state})`,
+      };
+    }
+
+    const instructions = await this.buildInstructions(snapshot, context);
+
     return {
       shouldExecute: true,
       reason: `VRF randomness expired after ${snapshot.elapsedSlots} slots. Rebinding fresh randomness account.`,
+      instructions,
+      computeUnitLimit: this.getComputeUnitLimit(),
       priorityFeeTier: "urgent",
+      writableAccounts: [snapshot.poolAddress, snapshot.staleRandomness],
     };
   }
 

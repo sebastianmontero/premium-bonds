@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyPoolState } from "../state/snapshot-classifier";
 import { PoolStateSnapshot, toDrawCycleId } from "../types";
-import { DrawStatus } from "../../../app/lib/bonds-sdk";
+import { DrawStatus, PoolStatus } from "../../../app/lib/bonds-sdk";
 import {
   buildMockPrizePool,
   buildMockTicketRegistry,
@@ -310,6 +310,47 @@ describe("Snapshot Classifier", () => {
       2,
       "Should have 2 unprocessed winners"
     );
+  });
+
+  it("should classify as POOL_PAUSED when pool.status is Paused", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(snapshot, "POOL_PAUSED");
+  });
+
+  it("should classify as POOL_CLOSED when pool.status is Closed and prevent harvest fallthrough", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Closed,
+      currentCycleEndAt: 500n, // Due for harvest
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      currentSlot: 500n,
+      currentTimestamp: 1000n, // Timestamp > cycleEnd
+    });
+
+    assertSnapshotState(snapshot, "POOL_CLOSED");
   });
 });
 

@@ -561,3 +561,46 @@ fn test_vector_18_crank_close_event_payload_parity() {
     assert_eq!(event.rent_reclaimed_lamports, rent_expected);
     assert!(event.timestamp > 0);
 }
+
+#[test]
+fn test_vector_19_zero_winners_active_registry_rejected() {
+    let mut ctx = setup_dynamic_ctx(vec![anchor::PrizeTier::default_single_winner()], 10, 1_000_000);
+    // Inject active payout registry with winners_count = 0 and payouts_completed = 0
+    let (pda, _) = payout_pda(1, 0);
+    let raw_header = anchor::state::PayoutRegistry {
+        pool_id: 1,
+        cycle_id: 0,
+        winners_count: 0,
+        payouts_completed: 0,
+        revealed_at: 100,
+        status: anchor::state::PayoutRegistryStatus::Active as u8,
+        version: 1,
+        _padding: [0; 6],
+        _reserved: [0; 64],
+    };
+    let mut data = anchor::state::PayoutRegistry::DISCRIMINATOR.to_vec();
+    data.extend_from_slice(bytemuck::bytes_of(&raw_header));
+    let space = data.len();
+    let lamports = ctx.svm.minimum_balance_for_rent_exemption(space);
+    ctx.svm.set_account(pda, solana_sdk::account::Account {
+        lamports,
+        data,
+        owner: anchor::ID,
+        executable: false,
+        rent_epoch: 0,
+    }).unwrap();
+
+    let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PayoutsPending);
+}
+
+#[test]
+fn test_vector_20_invalid_cycle_id_pda_mismatch() {
+    let tiers = vec![anchor::PrizeTier::default_single_winner()];
+    let mut ctx = setup_dynamic_ctx(tiers, 10, 1_000_000);
+    send_reveal(&mut ctx, 1, 0, [20u8; 32]).expect("reveal");
+
+    // Attempt to close nonexistent cycle_id 999
+    let res = send_crank_close(&mut ctx.svm, &ctx.crank, 1, 999);
+    assert!(res.is_err(), "Closing nonexistent cycle must fail");
+}

@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { Address, address } from "@solana/kit";
 import { resolveSolanaRpcUrl } from "../../app/lib/network";
 import { readEnvFile } from "../../scripts/env-utils";
 
@@ -51,13 +52,18 @@ export interface CrankConfig {
   enableAutoDisburse: boolean;
   maxPrepareBatchSize: number;
   maxReinvestBatchSize: number;
+  instanceIndex: number;
+  instanceJitterMs: number;
   jitoEnabled: boolean;
   jitoTipLamports: bigint;
+  maxJitoTipLamports: bigint;
   jitoBlockEngineUrl?: string;
   discordWebhookUrl?: string;
   telegramBotToken?: string;
   telegramChatId?: string;
   pagerDutyRoutingKey?: string;
+  pstMint?: Address;
+  humaPoolUnderlyingToken?: Address;
   dryRun: boolean;
 }
 
@@ -71,6 +77,11 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     rpcUrl.replace("http://", "ws://").replace("https://", "wss://");
 
   const rawPoolIds = overrides?.poolIds || parsePoolIds(process.env.POOL_IDS);
+
+  const pstMintStr = process.env.PST_MINT || process.env.NEXT_PUBLIC_PST_MINT;
+  const humaUnderlyingStr =
+    process.env.HUMA_POOL_UNDERLYING_TOKEN ||
+    process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN;
 
   return {
     rpcUrl,
@@ -98,10 +109,19 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     maxReinvestBatchSize:
       overrides?.maxReinvestBatchSize ??
       parseNumber(process.env.MAX_REINVEST_BATCH_SIZE, 5),
+    instanceIndex:
+      overrides?.instanceIndex ??
+      parseNumber(process.env.CRANK_INSTANCE_INDEX, 0),
+    instanceJitterMs:
+      overrides?.instanceJitterMs ??
+      parseNumber(process.env.CRANK_INSTANCE_JITTER_MS, 1200),
     jitoEnabled: overrides?.jitoEnabled ?? process.env.JITO_ENABLED === "true",
     jitoTipLamports:
       overrides?.jitoTipLamports ??
       BigInt(process.env.JITO_TIP_LAMPORTS || "10000"),
+    maxJitoTipLamports:
+      overrides?.maxJitoTipLamports ??
+      BigInt(process.env.MAX_JITO_TIP_LAMPORTS || "100000"),
     jitoBlockEngineUrl:
       overrides?.jitoBlockEngineUrl || process.env.JITO_BLOCK_ENGINE_URL,
     discordWebhookUrl:
@@ -111,6 +131,11 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     telegramChatId: overrides?.telegramChatId || process.env.TELEGRAM_CHAT_ID,
     pagerDutyRoutingKey:
       overrides?.pagerDutyRoutingKey || process.env.PAGERDUTY_ROUTING_KEY,
+    pstMint:
+      overrides?.pstMint || (pstMintStr ? address(pstMintStr) : undefined),
+    humaPoolUnderlyingToken:
+      overrides?.humaPoolUnderlyingToken ||
+      (humaUnderlyingStr ? address(humaUnderlyingStr) : undefined),
     dryRun: overrides?.dryRun ?? process.env.DRY_RUN === "true",
   };
 }

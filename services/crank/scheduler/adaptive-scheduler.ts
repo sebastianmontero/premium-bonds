@@ -1,15 +1,16 @@
-import { createSolanaRpc, KeyPairSigner } from "@solana/kit";
-import { CrankConfig } from "../config";
+import { createSolanaRpc, KeyPairSigner, getBase64Encoder } from "@solana/kit";
 import {
-  CrankExecutionContext,
-  ICrankWorker,
-  PoolStateSnapshot,
-} from "../types";
+  findGlobalConfigPda,
+  parseGlobalConfig,
+  canClosePayoutRegistry,
+} from "../../../app/lib/bonds-sdk";
+import { CrankConfig } from "../config";
+import { CrankExecutionContext, ICrankTask } from "../types";
 import { fetchPoolStateSnapshot } from "../state/snapshot-fetcher";
 import { TransactionExecutor } from "../executor/tx-executor";
 import { CircuitBreaker } from "../executor/circuit-breaker";
+import { AlertNotifier } from "../alerts/alert-notifier";
 import { MetricsServer } from "../metrics/metrics-server";
-import { ILeaderLock } from "../leader/leader-lock";
 import { IVrfProvider, createVrfProvider } from "../vrf/randomness-provider";
 import { HarvestYieldWorker } from "../workers/harvest-yield.worker";
 import { PrepareDrawWorker } from "../workers/prepare-draw.worker";
@@ -25,25 +26,34 @@ export class AdaptiveCrankScheduler {
   private readonly rpc: ReturnType<typeof createSolanaRpc>;
   private readonly executor: TransactionExecutor;
   private readonly breaker: CircuitBreaker;
+  private readonly alertNotifier: AlertNotifier;
   private readonly metrics: MetricsServer;
-  private readonly leaderLock: ILeaderLock;
   private readonly vrfProvider: IVrfProvider;
-  private readonly workers: ICrankWorker<PoolStateSnapshot>[];
-  private readonly capacitySentinel: CapacitySentinelWorker;
-  private readonly disburseSentinel: DisburseSentinelWorker;
+  private readonly tasks: readonly ICrankTask[];
   private readonly context: CrankExecutionContext;
+  private readonly inFlightPools: Set<number> = new Set();
+  private readonly nextEligibleTickMs: Map<number, number> = new Map();
+  private readonly maxConcurrentPools = 3;
 
   constructor(
     private readonly config: CrankConfig,
     private readonly signer: KeyPairSigner,
-    leaderLock: ILeaderLock,
     metrics: MetricsServer
   ) {
     this.rpc = createSolanaRpc(config.rpcUrl);
     this.executor = new TransactionExecutor(this.rpc, config);
-    this.breaker = new CircuitBreaker(config);
+    this.alertNotifier = new AlertNotifier(config);
+    this.breaker = new CircuitBreaker(5, 60_000, (event) => {
+      if (event.type === "TRIP") {
+        this.alertNotifier.notifyAlert(
+          "CIRCUIT_BREAKER_TRIPPED",
+          event.reason,
+          event.poolId,
+          "error"
+        );
+      }
+    });
     this.metrics = metrics;
-    this.leaderLock = leaderLock;
     this.vrfProvider = createVrfProvider(config.rpcUrl);
 
     this.context = {
@@ -56,28 +66,32 @@ export class AdaptiveCrankScheduler {
       jitoEnabled: config.jitoEnabled,
     };
 
-    this.workers = [
-      new HarvestYieldWorker(this.vrfProvider),
+    this.tasks = [
+      new HarvestYieldWorker(this.vrfProvider, config),
       new PrepareDrawWorker(),
       new RebindRandomnessWorker(this.vrfProvider),
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
+      new CapacitySentinelWorker(this.alertNotifier),
+      new DisburseSentinelWorker(),
     ];
-
-    this.capacitySentinel = new CapacitySentinelWorker();
-    this.disburseSentinel = new DisburseSentinelWorker();
   }
 
   async start(): Promise<void> {
     this.isRunning = true;
     console.log(
-      `[AdaptiveCrankScheduler] Started daemon for pools: [${this.config.poolIds.join(", ")}]`
+      `[AdaptiveCrankScheduler] Starting daemon for pools: [${this.config.poolIds.join(", ")}]`
     );
     console.log(
-      `[AdaptiveCrankScheduler] Signer: ${this.signer.address} | RPC: ${this.config.rpcUrl}`
+      `[AdaptiveCrankScheduler] Signer: ${this.signer.address} | Instance Index: ${this.config.instanceIndex}`
     );
 
-    // Initial check on balance
+    // Hard Fail-Fast on Startup: Verify signer is authorized jobsAccount
+    if (!this.config.dryRun) {
+      await this.verifyJobsAccountAuthorization();
+    }
+
+    // Initial balance check
     await this.updateSignerBalance();
 
     this.scheduleNextTick(0);
@@ -89,29 +103,95 @@ export class AdaptiveCrankScheduler {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    await this.leaderLock.release();
     console.log("[AdaptiveCrankScheduler] Daemon stopped.");
   }
 
-  async tickOnce(): Promise<boolean> {
-    let hadActiveWork = false;
-
-    for (const poolId of this.config.poolIds) {
-      try {
-        const poolActive = await this.processPool(poolId);
-        if (poolActive) {
-          hadActiveWork = true;
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[AdaptiveCrankScheduler] Error processing Pool #${poolId}:`,
-          msg
+  private async verifyJobsAccountAuthorization(): Promise<void> {
+    try {
+      const globalConfigPda = await findGlobalConfigPda();
+      const res = await this.rpc
+        .getAccountInfo(globalConfigPda, { encoding: "base64" })
+        .send();
+      if (!res?.value?.data?.[0]) {
+        console.warn(
+          "[AdaptiveCrankScheduler] GlobalConfig account not found on-chain. Proceeding with warning."
         );
-        this.metrics.incrementError("scheduler", "unhandled_pool_error");
+        return;
       }
+      const bytes = new Uint8Array(
+        getBase64Encoder().encode(res.value.data[0])
+      );
+      const parsed = parseGlobalConfig(bytes);
+      if (
+        parsed.jobsAccount !== this.signer.address &&
+        parsed.admin !== this.signer.address
+      ) {
+        throw new Error(
+          `Crank signer ${this.signer.address} is NOT authorized on-chain. Expected jobsAccount: ${parsed.jobsAccount} or admin: ${parsed.admin}.`
+        );
+      }
+      console.log(
+        `[AdaptiveCrankScheduler] Signer verified as authorized on-chain crank authority.`
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes("NOT authorized")) {
+        throw err;
+      }
+      console.warn(
+        `[AdaptiveCrankScheduler] Warning during startup authorization check: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  async tickOnce(): Promise<boolean> {
+    const now = Date.now();
+    const eligiblePools = this.config.poolIds.filter((poolId) => {
+      const nextTick = this.nextEligibleTickMs.get(poolId) || 0;
+      return now >= nextTick && !this.inFlightPools.has(poolId);
+    });
+
+    if (eligiblePools.length === 0) {
+      return false;
     }
 
+    // Apply instance jitter on non-primary replicas before processing
+    if (this.config.instanceIndex > 0 && this.config.instanceJitterMs > 0) {
+      const jitterMs = this.config.instanceIndex * this.config.instanceJitterMs;
+      await new Promise((r) => setTimeout(r, jitterMs));
+    }
+
+    let hadActiveWork = false;
+
+    // Process eligible pools with bounded concurrency (max 3)
+    const queue = [...eligiblePools];
+    const workers = Array.from(
+      { length: Math.min(this.maxConcurrentPools, queue.length) },
+      async () => {
+        while (queue.length > 0) {
+          const poolId = queue.shift();
+          if (poolId === undefined) break;
+
+          this.inFlightPools.add(poolId);
+          try {
+            const poolActive = await this.processPool(poolId);
+            if (poolActive) {
+              hadActiveWork = true;
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(
+              `[AdaptiveCrankScheduler] Error processing Pool #${poolId}:`,
+              msg
+            );
+            this.metrics.incrementError("scheduler", "unhandled_pool_error");
+          } finally {
+            this.inFlightPools.delete(poolId);
+          }
+        }
+      }
+    );
+
+    await Promise.all(workers);
     return hadActiveWork;
   }
 
@@ -120,15 +200,6 @@ export class AdaptiveCrankScheduler {
 
     this.timer = setTimeout(async () => {
       try {
-        const isLeader = await this.leaderLock.acquire();
-        if (!isLeader) {
-          console.log(
-            "[AdaptiveCrankScheduler] Standby instance (not active leader). Skipping tick."
-          );
-          this.scheduleNextTick(this.config.pollIntervalMs);
-          return;
-        }
-
         const hadActiveWork = await this.tickOnce();
         await this.updateSignerBalance();
 
@@ -145,9 +216,9 @@ export class AdaptiveCrankScheduler {
   }
 
   private async processPool(poolId: number): Promise<boolean> {
-    if (!this.breaker.canExecute()) {
+    if (!this.breaker.canExecute(poolId)) {
       console.warn(
-        `[AdaptiveCrankScheduler] Circuit breaker is OPEN. Skipping pool #${poolId}.`
+        `[AdaptiveCrankScheduler] Circuit breaker is OPEN for Pool #${poolId}. Skipping.`
       );
       return false;
     }
@@ -167,99 +238,96 @@ export class AdaptiveCrankScheduler {
       snapshot.state
     );
 
-    // 1. Check Circuit Breaker trigger on on-chain state
-    if (snapshot.state === "CIRCUIT_BREAKER_HALTED") {
-      await this.breaker.recordFailure(
-        `On-chain circuit breaker halted: ${snapshot.reason}`,
-        true
-      );
+    // 1. Passive skips
+    if (snapshot.state === "POOL_CLOSED" || snapshot.state === "POOL_PAUSED") {
       return false;
     }
 
-    // 2. Find matching Strategy Worker
-    const worker = this.workers.find((w) => w.targetState === snapshot.state);
-    if (worker) {
-      const decision = worker.evaluate(snapshot, this.context);
-      if (decision.shouldExecute) {
-        console.log(
-          `[AdaptiveCrankScheduler] [Pool #${poolId}] Worker [${worker.name}] triggered: ${decision.reason}`
-        );
+    // 2. Quarantine permanent halts (1 hour delay)
+    if (snapshot.state === "CIRCUIT_BREAKER_HALTED") {
+      this.breaker.recordPoolFailure(
+        poolId,
+        `On-chain circuit breaker halted: ${snapshot.reason}`,
+        true
+      );
+      this.nextEligibleTickMs.set(poolId, Date.now() + 3_600_000); // 1h quarantine
+      return false;
+    }
 
-        const instructions = await worker.buildInstructions(
-          snapshot,
-          this.context
-        );
-        const cuLimit = worker.getComputeUnitLimit(snapshot);
+    // 3. Timelock waiting buffer (wakeup at readyAt + 2s clock skew safety buffer)
+    if (snapshot.state === "TIMELOCK_WAITING") {
+      const readyAtMs = Number(snapshot.readyAt) * 1000 + 2000;
+      this.nextEligibleTickMs.set(poolId, readyAtMs);
+      return false;
+    }
 
-        const result = await this.executor.executeInstructions(
-          worker.name,
-          instructions,
-          this.signer,
-          {
-            computeUnits: cuLimit,
-            priorityFeeTier: decision.priorityFeeTier,
-            writableAccounts: [
-              snapshot.poolAddress,
-              snapshot.ticketRegistryAddress,
-            ],
-          }
-        );
+    // 4. Telemetry: Check if PayoutRegistry can be closed manually to reclaim rent
+    if (snapshot.state === "REINVESTMENT_PENDING" && snapshot.payoutRegistry) {
+      const claimable = canClosePayoutRegistry(snapshot.payoutRegistry);
+      this.metrics.setPayoutRegistryClaimable(
+        poolId,
+        snapshot.payoutRegistry.cycleId,
+        claimable
+      );
+    }
 
-        if (result.executed) {
+    // 5. Evaluate unified polymorphic tasks
+    let executedAny = false;
+    for (const task of this.tasks) {
+      if (!task.canHandle(snapshot)) {
+        continue;
+      }
+
+      try {
+        const outcome = await task.evaluate(snapshot, this.context);
+        if (outcome.shouldExecute) {
           console.log(
-            `[AdaptiveCrankScheduler] [Pool #${poolId}] ${worker.name} succeeded. Tx: ${result.signature}`
+            `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] triggered: ${outcome.reason}`
           );
-          this.metrics.incrementTx(worker.name, true);
-          this.breaker.recordSuccess();
-          return true;
-        } else {
-          console.error(
-            `[AdaptiveCrankScheduler] [Pool #${poolId}] ${worker.name} failed: ${result.reason}`
+
+          const result = await this.executor.executeInstructions(
+            task.name,
+            outcome.instructions,
+            this.signer,
+            {
+              computeUnits: outcome.computeUnitLimit,
+              priorityFeeTier: outcome.priorityFeeTier,
+              writableAccounts: outcome.writableAccounts,
+            }
           );
-          this.metrics.incrementTx(worker.name, false);
-          await this.breaker.recordFailure(result.reason);
-          return false;
-        }
-      }
-    }
 
-    // 3. Run Housekeeping Sentinels (Capacity & Disburse)
-    const capacityDecision = this.capacitySentinel.evaluate(snapshot);
-    if (capacityDecision.shouldExecute) {
-      console.log(
-        `[AdaptiveCrankScheduler] [Pool #${poolId}] Sentinel [${this.capacitySentinel.name}]: ${capacityDecision.reason}`
-      );
-      const instructions = await this.capacitySentinel.buildInstructions(
-        snapshot,
-        this.context
-      );
-      const res = await this.executor.executeInstructions(
-        this.capacitySentinel.name,
-        instructions,
-        this.signer,
-        {
-          computeUnits: this.capacitySentinel.getComputeUnitLimit(),
-          priorityFeeTier: "low",
+          if (result.executed) {
+            console.log(
+              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} succeeded. Tx: ${result.signature}`
+            );
+            this.metrics.incrementTx(task.name, true);
+            this.breaker.recordSuccess(poolId);
+            executedAny = true;
+          } else if (result.outcome === "CONCURRENCY_RACE_LOST") {
+            console.log(
+              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} benign race lost. State already progressed.`
+            );
+            // Do not trip circuit breaker on benign race
+          } else {
+            console.error(
+              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed: ${result.reason}`
+            );
+            this.metrics.incrementTx(task.name, false);
+            this.breaker.recordPoolFailure(poolId, result.reason);
+          }
         }
-      );
-      if (res.executed) {
-        this.metrics.incrementTx(this.capacitySentinel.name, true);
-      }
-    }
-
-    if (this.context.enableAutoDisburse) {
-      const disburseDecision = this.disburseSentinel.evaluate(
-        snapshot,
-        this.context
-      );
-      if (disburseDecision.shouldExecute) {
-        console.log(
-          `[AdaptiveCrankScheduler] [Pool #${poolId}] Sentinel [${this.disburseSentinel.name}]: ${disburseDecision.reason}`
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] error:`,
+          msg
         );
+        this.breaker.recordPoolFailure(poolId, msg);
       }
     }
 
     return (
+      executedAny ||
       snapshot.state === "PREPARE_BATCHING" ||
       snapshot.state === "READY_TO_DRAW" ||
       snapshot.state === "REINVESTMENT_PENDING" ||
@@ -275,10 +343,8 @@ export class AdaptiveCrankScheduler {
       const sol = Number(balanceRes.value) / 1_000_000_000;
       this.metrics.updateSolBalance(sol);
 
-      if (sol < 0.5 && !this.config.dryRun) {
-        console.warn(
-          `[AdaptiveCrankScheduler] ⚠️ Crank signer SOL balance is low: ${sol.toFixed(4)} SOL`
-        );
+      if (sol < 0.2) {
+        await this.alertNotifier.notifyLowBalance(sol);
       }
     } catch {}
   }

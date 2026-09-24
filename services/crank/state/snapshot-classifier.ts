@@ -64,18 +64,36 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
 
   const currentCycleId = toDrawCycleId(pool.currentDrawCycleId);
 
-  // 1. Check for Circuit Breaker halts or paused pool
+  // 1. Check for Closed or Paused pool
+  if (
+    pool.status === PoolStatus.Closed ||
+    (pool.status as unknown) === "Closed"
+  ) {
+    return {
+      ...base,
+      state: "POOL_CLOSED",
+    };
+  }
+
+  if (
+    pool.status === PoolStatus.Paused ||
+    (pool.status as unknown) === "Paused"
+  ) {
+    return {
+      ...base,
+      state: "POOL_PAUSED",
+    };
+  }
+
+  // 2. Check for Circuit Breaker halts
   if (
     drawCycle?.status === DrawStatus.HaltedInsolvent ||
-    drawCycle?.status === DrawStatus.HaltedYieldSpike ||
-    pool.status === PoolStatus.Paused
+    drawCycle?.status === DrawStatus.HaltedYieldSpike
   ) {
     const reason =
-      drawCycle?.status === DrawStatus.HaltedInsolvent
+      drawCycle.status === DrawStatus.HaltedInsolvent
         ? "HaltedInsolvent"
-        : drawCycle?.status === DrawStatus.HaltedYieldSpike
-          ? "HaltedYieldSpike"
-          : "PoolPaused";
+        : "HaltedYieldSpike";
     return {
       ...base,
       state: "CIRCUIT_BREAKER_HALTED",
@@ -83,7 +101,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
     };
   }
 
-  // 2. Frozen for Draw (Drawing in progress)
+  // 3. Frozen for Draw (Drawing in progress)
   if (pool.isFrozenForDraw === 1) {
     const activeFrozenCycleId = toDrawCycleId(
       drawCycle?.cycleId ?? Math.max(0, pool.currentDrawCycleId - 1)
@@ -117,6 +135,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
         state: "READY_TO_DRAW",
         cycleId: activeFrozenCycleId,
         randomnessAccount: drawCycle.randomnessAccount as Address,
+        harvestSlot: BigInt(drawCycle.harvestSlot),
       };
     }
 
@@ -186,7 +205,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
   // 4. Yield Harvest Ready (only when previous draw payouts are resolved)
   if (
     currentTimestamp >= BigInt(pool.currentCycleEndAt) &&
-    pool.status === PoolStatus.Active
+    (pool.status === PoolStatus.Active || (pool.status as unknown) === "Active")
   ) {
     return {
       ...base,

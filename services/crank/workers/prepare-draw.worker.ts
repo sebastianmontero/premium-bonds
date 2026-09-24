@@ -1,22 +1,30 @@
 import { Instruction } from "@solana/kit";
 import { buildPrepareDrawInstruction } from "../../../app/lib/bonds-sdk";
 import {
-  ICrankWorker,
-  CrankDecision,
   CrankExecutionContext,
   PoolStateSnapshot,
+  ICrankTask,
+  CrankTaskOutcome,
 } from "../types";
 
-export class PrepareDrawWorker implements ICrankWorker<
-  Extract<PoolStateSnapshot, { state: "PREPARE_BATCHING" }>
-> {
+export class PrepareDrawWorker implements ICrankTask {
   readonly name = "PrepareDrawWorker";
-  readonly targetState = "PREPARE_BATCHING" as const;
 
-  evaluate(
-    snapshot: Extract<PoolStateSnapshot, { state: "PREPARE_BATCHING" }>,
+  canHandle(snapshot: PoolStateSnapshot): boolean {
+    return snapshot.state === "PREPARE_BATCHING";
+  }
+
+  async evaluate(
+    snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
-  ): CrankDecision {
+  ): Promise<CrankTaskOutcome> {
+    if (snapshot.state !== "PREPARE_BATCHING") {
+      return {
+        shouldExecute: false,
+        reason: `State is not PREPARE_BATCHING (current: ${snapshot.state})`,
+      };
+    }
+
     const remaining = snapshot.total - snapshot.cursor;
     if (remaining <= 0) {
       return {
@@ -26,10 +34,15 @@ export class PrepareDrawWorker implements ICrankWorker<
     }
 
     const batchSize = Math.min(context.maxPrepareBatchSize, remaining);
+    const instructions = await this.buildInstructions(snapshot, context);
+
     return {
       shouldExecute: true,
       reason: `Preparing batch of ${batchSize} users (${snapshot.cursor}/${snapshot.total})`,
+      instructions,
+      computeUnitLimit: this.getComputeUnitLimit(snapshot),
       priorityFeeTier: "medium",
+      writableAccounts: [snapshot.poolAddress, snapshot.ticketRegistryAddress],
     };
   }
 

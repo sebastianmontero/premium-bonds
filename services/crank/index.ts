@@ -1,6 +1,5 @@
 import { loadConfig } from "./config";
 import { loadSignerKeypair } from "./keypair-manager";
-import { createLeaderLock } from "./leader/leader-lock";
 import { MetricsServer } from "./metrics/metrics-server";
 import { AdaptiveCrankScheduler } from "./scheduler/adaptive-scheduler";
 
@@ -58,7 +57,6 @@ async function main() {
   );
 
   const signer = await loadSignerKeypair(config);
-  const leaderLock = createLeaderLock("local");
   const metrics = new MetricsServer(config.metricsPort);
 
   await metrics.start();
@@ -66,12 +64,7 @@ async function main() {
     `[Telemetry] Prometheus metrics & health server running on port ${config.metricsPort}`
   );
 
-  const scheduler = new AdaptiveCrankScheduler(
-    config,
-    signer,
-    leaderLock,
-    metrics
-  );
+  const scheduler = new AdaptiveCrankScheduler(config, signer, metrics);
 
   if (once) {
     console.log("[Execution Mode] Running single tick sweep (--once)...");

@@ -4,6 +4,7 @@ import {
   createSolanaRpc,
   Instruction,
   TransactionSigner,
+  AccountRole,
   appendTransactionMessageInstructions,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
@@ -11,38 +12,86 @@ import {
   signTransactionMessageWithSigners,
   getBase64EncodedWireTransaction,
 } from "@solana/kit";
-import { parseTransactionError } from "../../../app/lib/errors";
+import {
+  createSetComputeUnitLimitInstruction,
+  createSetComputeUnitPriceInstruction,
+} from "../../../app/lib/bonds-sdk";
+import {
+  parseTransactionError,
+  matchAnchorError,
+} from "../../../app/lib/errors";
 import { CrankConfig } from "../config";
 import { WorkerExecutionResult } from "../types";
 
-export const COMPUTE_BUDGET_PROGRAM_ADDRESS = address(
-  "ComputeBudget111111111111111111111111111111"
-);
+export const JITO_TIP_ACCOUNTS: readonly Address[] = [
+  address("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
+  address("HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe"),
+  address("Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY"),
+  address("ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49"),
+  address("DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh"),
+  address("ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt"),
+  address("DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL"),
+  address("3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT"),
+];
 
-export function createSetComputeUnitLimitInstruction(
-  units: number
-): Instruction {
-  const data = new Uint8Array(5);
-  data[0] = 2; // SetComputeUnitLimit opcode
-  new DataView(data.buffer).setUint32(1, units, true);
+export function getRandomJitoTipAccount(): Address {
+  const idx = Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length);
+  return JITO_TIP_ACCOUNTS[idx];
+}
+
+export function createSystemTransferInstruction(params: {
+  from: Address | TransactionSigner;
+  to: Address;
+  lamports: bigint | number;
+}): Instruction {
+  const fromAddr =
+    typeof params.from === "string" ? params.from : params.from.address;
+  const data = new Uint8Array(12);
+  const view = new DataView(data.buffer);
+  view.setUint32(0, 2, true); // SystemProgram.transfer instruction index = 2
+  view.setBigUint64(4, BigInt(params.lamports), true);
+
   return {
-    programAddress: COMPUTE_BUDGET_PROGRAM_ADDRESS,
-    accounts: [],
+    programAddress: address("11111111111111111111111111111111"),
+    accounts: [
+      { address: fromAddr, role: AccountRole.WRITABLE_SIGNER },
+      { address: params.to, role: AccountRole.WRITABLE },
+    ],
     data,
   };
 }
 
-export function createSetComputeUnitPriceInstruction(
-  microLamports: bigint | number
-): Instruction {
-  const data = new Uint8Array(9);
-  data[0] = 3; // SetComputeUnitPrice opcode
-  new DataView(data.buffer).setBigUint64(1, BigInt(microLamports), true);
-  return {
-    programAddress: COMPUTE_BUDGET_PROGRAM_ADDRESS,
-    accounts: [],
-    data,
-  };
+/**
+ * Known benign concurrency race error codes & messages.
+ * When a competing replica progresses state first, simulation fails with these errors.
+ */
+const BENIGN_RACE_ERROR_CODES = new Set([
+  6008, // AlreadyClaimed
+  6000, // PoolClosed
+  6001, // PoolPaused
+  6003, // InvalidState
+  6021, // DrawAlreadyPrepared
+  6022, // RandomnessAlreadyRevealed
+  6023, // CycleAlreadyHarvested
+  6024, // WinnersAlreadyPicked
+]);
+
+export function isBenignConcurrencyRace(err: unknown): boolean {
+  if (!err) return false;
+  const matched = matchAnchorError(err);
+  if (matched && BENIGN_RACE_ERROR_CODES.has(matched.code)) {
+    return true;
+  }
+  const str = String(err).toLowerCase();
+  return (
+    str.includes("already claimed") ||
+    str.includes("already prepared") ||
+    str.includes("already revealed") ||
+    str.includes("already harvested") ||
+    str.includes("already processed") ||
+    str.includes("0x1778") || // 6008 in hex
+    str.includes("custom program error: 0x1778")
+  );
 }
 
 export class TransactionExecutor {
@@ -107,6 +156,7 @@ export class TransactionExecutor {
         reason: "Simulated in DRY_RUN mode",
         signature: "dry_run_mock_signature",
         computeUnitsUsed: options.computeUnits,
+        outcome: "EXECUTED",
       };
     }
 
@@ -124,6 +174,20 @@ export class TransactionExecutor {
       );
 
       const fullInstructions = [cuLimitIx, cuPriceIx, ...instructions];
+
+      // Jito Tip appending if enabled
+      if (this.config.jitoEnabled) {
+        const rawTip = this.config.jitoTipLamports;
+        const maxTip = this.config.maxJitoTipLamports;
+        const effectiveTip = rawTip > maxTip ? maxTip : rawTip;
+        const tipAccount = getRandomJitoTipAccount();
+        const tipIx = createSystemTransferInstruction({
+          from: signer,
+          to: tipAccount,
+          lamports: effectiveTip,
+        });
+        fullInstructions.push(tipIx);
+      }
 
       const { value: latestBlockhash } = await this.rpc
         .getLatestBlockhash({ commitment: "confirmed" })
@@ -143,21 +207,97 @@ export class TransactionExecutor {
       const signedTx = await signTransactionMessageWithSigners(msg);
       const wireTx = getBase64EncodedWireTransaction(signedTx);
 
-      const signature = await this.rpc
+      // Mandatory Preflight Simulation
+      try {
+        const simRes = await this.rpc
+          .simulateTransaction(wireTx, {
+            encoding: "base64",
+            commitment: "confirmed",
+          })
+          .send();
+
+        if (simRes?.value?.err) {
+          if (isBenignConcurrencyRace(simRes.value.err)) {
+            console.log(
+              `[TxExecutor] [${workerName}] Preflight simulation benign concurrency race lost: state already progressed.`
+            );
+            return {
+              workerName,
+              executed: false,
+              reason: "State already progressed by competing replica",
+              outcome: "CONCURRENCY_RACE_LOST",
+            };
+          }
+
+          const parsed = parseTransactionError(simRes.value.err);
+          throw new Error(
+            `Simulation failed: ${parsed.title} (${parsed.code || "unknown"})`
+          );
+        }
+      } catch (simErr: unknown) {
+        if (isBenignConcurrencyRace(simErr)) {
+          return {
+            workerName,
+            executed: false,
+            reason: "State already progressed by competing replica",
+            outcome: "CONCURRENCY_RACE_LOST",
+          };
+        }
+        throw simErr;
+      }
+
+      // Jito Bundle Submission or RPC Broadcast
+      let signature: string | null = null;
+
+      if (this.config.jitoEnabled && this.config.jitoBlockEngineUrl) {
+        try {
+          await fetch(`${this.config.jitoBlockEngineUrl}/api/v1/bundles`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "sendBundle",
+              params: [[wireTx]],
+            }),
+            signal: AbortSignal.timeout(4000),
+          });
+        } catch {
+          // Fall back to standard RPC broadcast
+        }
+      }
+
+      // Standard Send & Rebroadcast Loop
+      signature = await this.rpc
         .sendTransaction(wireTx, {
           encoding: "base64",
           preflightCommitment: "confirmed",
+          skipPreflight: true,
         })
         .send();
 
-      // Poll confirmation
+      // Poll confirmation for up to 15s with 2s active rebroadcast loop
       let confirmed = false;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const status = await this.rpc.getSignatureStatuses([signature]).send();
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < 15_000) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const status = await this.rpc
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .getSignatureStatuses([signature as any])
+          .send();
         if (status?.value?.[0]) {
           const s = status.value[0];
           if (s.err) {
+            if (isBenignConcurrencyRace(s.err)) {
+              return {
+                workerName,
+                executed: false,
+                reason: "State already progressed on-chain",
+                outcome: "CONCURRENCY_RACE_LOST",
+              };
+            }
             const parsed = parseTransactionError(s.err);
             throw new Error(
               `Transaction reverted on-chain: ${parsed.title} (${parsed.code || "unknown"})`
@@ -171,11 +311,22 @@ export class TransactionExecutor {
             break;
           }
         }
+
+        // Active rebroadcast every 2s
+        if ((Date.now() - startTime) % 2000 < 1000) {
+          this.rpc
+            .sendTransaction(wireTx, {
+              encoding: "base64",
+              skipPreflight: true,
+            })
+            .send()
+            .catch(() => {});
+        }
       }
 
       if (!confirmed) {
         throw new Error(
-          `Transaction confirmation timed out after 12s. Signature: ${signature}`
+          `Transaction confirmation timed out after 15s. Signature: ${signature}`
         );
       }
 
@@ -185,13 +336,24 @@ export class TransactionExecutor {
         reason: "Confirmed successfully",
         signature,
         computeUnitsUsed: options.computeUnits,
+        outcome: "EXECUTED",
       };
     } catch (err: unknown) {
+      if (isBenignConcurrencyRace(err)) {
+        return {
+          workerName,
+          executed: false,
+          reason: "State already progressed by competing replica",
+          outcome: "CONCURRENCY_RACE_LOST",
+        };
+      }
+
       const parsed = parseTransactionError(err);
       return {
         workerName,
         executed: false,
         reason: `Failed to land transaction: ${parsed.title}`,
+        outcome: "ERROR",
         error: err instanceof Error ? err : new Error(String(err)),
       };
     }
