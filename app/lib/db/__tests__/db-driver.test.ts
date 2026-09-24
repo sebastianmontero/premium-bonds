@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   db,
+  getPoolConfig,
   isDatabaseConfigured,
   DatabaseNotConfiguredError,
   closeDatabase,
@@ -46,5 +47,39 @@ describe("Database Driver & Pool Configuration Suite", () => {
         return true;
       }
     );
+  });
+
+  it("should configure local database pool without SSL and with standard timeouts", () => {
+    const localConfig = getPoolConfig(
+      "postgresql://postgres:postgres@127.0.0.1:5432/pb_test"
+    );
+    assert.strictEqual(localConfig.ssl, undefined);
+    assert.strictEqual(localConfig.connectionTimeoutMillis, 5_000);
+    assert.strictEqual(localConfig.statement_timeout, 15_000);
+    assert.strictEqual(localConfig.max, 5);
+  });
+
+  it("should configure remote database pool with SSL and resilient timeouts", () => {
+    const remoteConfig = getPoolConfig(
+      "postgresql://user:pass@ep-remote.aws.neon.tech/pb_test"
+    );
+    assert.deepStrictEqual(remoteConfig.ssl, { rejectUnauthorized: false });
+    assert.strictEqual(remoteConfig.connectionTimeoutMillis, 15_000);
+    assert.strictEqual(remoteConfig.statement_timeout, 15_000);
+  });
+
+  it("should support overriding pool configuration parameters", () => {
+    const customConfig = getPoolConfig(
+      "postgresql://user:pass@ep-remote.aws.neon.tech/pb_test",
+      {
+        max: 1,
+        connectionTimeoutMillis: 30_000,
+        statement_timeout: 60_000,
+      }
+    );
+    assert.strictEqual(customConfig.max, 1);
+    assert.strictEqual(customConfig.connectionTimeoutMillis, 30_000);
+    assert.strictEqual(customConfig.statement_timeout, 60_000);
+    assert.deepStrictEqual(customConfig.ssl, { rejectUnauthorized: false });
   });
 });

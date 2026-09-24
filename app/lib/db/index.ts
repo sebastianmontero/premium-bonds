@@ -46,19 +46,26 @@ export class DatabaseNotConfiguredError extends Error {
  * - Localhost / 127.0.0.1: SSL disabled (plain TCP)
  * - Remote / Cloud endpoints (e.g. Neon): SSL enabled with rejectUnauthorized: false
  */
-export function getPoolConfig(connStr: string): PoolConfig {
+export function getPoolConfig(
+  connStr: string,
+  overrides?: Partial<PoolConfig>
+): PoolConfig {
   const isRemote =
     !connStr.includes("localhost") &&
     !connStr.includes("127.0.0.1") &&
     !connStr.includes("0.0.0.0");
 
+  const defaultConnectionTimeout = isRemote ? 15_000 : 5_000;
+  const defaultStatementTimeout = 15_000;
+
   return {
     connectionString: connStr,
     max: 5,
     idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 500,
-    statement_timeout: 1000,
+    connectionTimeoutMillis: defaultConnectionTimeout,
+    statement_timeout: defaultStatementTimeout,
     ssl: isRemote ? { rejectUnauthorized: false } : undefined,
+    ...overrides,
   };
 }
 

@@ -12,8 +12,12 @@ export async function runMigrations(
   connectionString: string,
   migrationsFolder?: string
 ): Promise<void> {
-  const poolConfig = getPoolConfig(connectionString);
-  const pool = new Pool({ ...poolConfig, max: 1 });
+  const poolConfig = getPoolConfig(connectionString, {
+    max: 1,
+    connectionTimeoutMillis: 30_000,
+    statement_timeout: 60_000,
+  });
+  const pool = new Pool(poolConfig);
   const db = drizzle(pool);
   const folder = migrationsFolder || path.resolve(process.cwd(), "drizzle");
 
