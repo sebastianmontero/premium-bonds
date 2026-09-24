@@ -143,11 +143,13 @@ npm run devnet init [path_to_admin_keypair]
 #### 3. Fund Wallets
 
 ```bash
-npm run devnet fund <wallet_address> <amount>
+npm run devnet fund <wallet_address> <amount> [keypair] [--sol <amount>]
 ```
 
-- Requests a devnet SOL airdrop to the target wallet.
-- Mints the specified amount of mock USDC to the target wallet's ATA using the local USDC mint keypair.
+- Requests a devnet SOL airdrop to the target wallet (up to target SOL balance, default 1.0 SOL).
+- Automatically falls back to transferring SOL directly from the local admin keypair (while retaining a 0.05 SOL safety gas reserve) if the public faucet is rate-limited or unavailable.
+- Atomically bundles native SOL transfer (when needed), ATA idempotent initialization, and Mock USDC token minting in a single transaction.
+- Supports `--sol <amount>` (or `--sol=<amount>`) to customize the target SOL balance, including `--sol 0` for USDC-only minting.
 
 #### 4. Simulate Yield
 

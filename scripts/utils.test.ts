@@ -24,11 +24,15 @@ import {
   saveKeypairBytes,
   generateAndSaveKeypair,
   loadOrGenerateKeypair,
+  buildTransferSolInstruction,
+  SYSTEM_PROGRAM_ID,
 } from "./utils";
 import {
   SolanaError,
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
   createSolanaRpcFromTransport,
+  generateKeyPairSigner,
+  AccountRole,
 } from "@solana/kit";
 import { parseLocalnetFlags, getBootstrapGuideText } from "./localnet";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
@@ -1664,6 +1668,60 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
       // Verify file is now valid
       const reloaded = await loadKeypair(corruptPath);
       assert.equal(reloaded.address, recoveredSigner.address);
+    });
+  });
+
+  describe("buildTransferSolInstruction", () => {
+    it("builds valid native SystemProgram::Transfer instruction (Opcode 2)", async () => {
+      const from = await generateKeyPairSigner();
+      const to = await generateKeyPairSigner();
+      const lamports = 1_500_000_000n; // 1.5 SOL
+
+      const ix = buildTransferSolInstruction({
+        from,
+        to: to.address,
+        lamports,
+      });
+
+      assert.strictEqual(ix.programAddress, SYSTEM_PROGRAM_ID);
+      assert.strictEqual(ix.accounts?.length, 2);
+      assert.strictEqual(ix.accounts[0].address, from.address);
+      assert.strictEqual(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+      assert.strictEqual(ix.accounts[1].address, to.address);
+      assert.strictEqual(ix.accounts[1].role, AccountRole.WRITABLE);
+
+      const view = new DataView(
+        ix.data!.buffer,
+        ix.data!.byteOffset,
+        ix.data!.byteLength
+      );
+      assert.strictEqual(view.getUint32(0, true), 2); // Transfer opcode
+      assert.strictEqual(view.getBigUint64(4, true), lamports);
+    });
+
+    it("rejects non-positive transfer amounts", async () => {
+      const from = await generateKeyPairSigner();
+      const to = await generateKeyPairSigner();
+
+      assert.throws(
+        () =>
+          buildTransferSolInstruction({
+            from,
+            to: to.address,
+            lamports: 0n,
+          }),
+        /Transfer lamports must be greater than zero. Received: 0/
+      );
+
+      assert.throws(
+        () =>
+          buildTransferSolInstruction({
+            from,
+            to: to.address,
+            lamports: -100n,
+          }),
+        /Transfer lamports must be greater than zero. Received: -100/
+      );
     });
   });
 });

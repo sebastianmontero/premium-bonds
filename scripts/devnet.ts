@@ -31,11 +31,17 @@ import {
   TOKEN_PROGRAM_ID,
   ATA_PROGRAM_ID,
   USDC_DECIMALS,
+  SOL_DECIMALS,
+  DEFAULT_TARGET_SOL_LAMPORTS,
+  MIN_ADMIN_RESERVE_LAMPORTS,
+  MIN_TRANSFER_THRESHOLD_LAMPORTS,
+  DEVNET_FAUCET_URLS,
   DEFAULT_DEVNET_AIRDROP_SOL,
   MIN_ADMIN_FEE_PAYER_LAMPORTS,
   RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS,
   resolveDefaultKeypairPath,
   parseTokenAmount,
+  buildTransferSolInstruction,
 } from "./utils";
 import {
   DevnetProtocolAccounts,
@@ -167,7 +173,7 @@ function printUsage() {
     "  sync-env [target]     Synchronizes .env.devnet state and credentials to .env.local"
   );
   console.log(
-    "  fund <wallet> <amount> [keypair] Funds a wallet with SOL (airdrop) and Mock USDC"
+    "  fund <wallet> <amount> [keypair] [--sol <amount>] Funds a wallet with Mock USDC and ensures target SOL balance"
   );
   console.log(
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
@@ -850,12 +856,156 @@ async function handleInit(args: string[]) {
   console.log("Devnet initialization sequence completed successfully!");
 }
 
+export interface FundCliOptions {
+  readonly recipient: Address;
+  readonly microUsdcAmount: bigint;
+  readonly targetSolLamports: bigint;
+  readonly keypairPath?: string;
+}
+
+export function parseFundArgs(args: readonly string[]): FundCliOptions {
+  let solStr: string | undefined;
+  let i = 0;
+  const positionals: string[] = [];
+
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg.startsWith("--sol=")) {
+      solStr = arg.slice("--sol=".length);
+      i++;
+    } else if (arg === "--sol") {
+      if (i + 1 >= args.length) {
+        throw new Error("Missing value for --sol argument.");
+      }
+      solStr = args[i + 1];
+      i += 2;
+    } else {
+      positionals.push(arg);
+      i++;
+    }
+  }
+
+  if (positionals.length < 2) {
+    throw new Error(
+      "Missing required arguments. Usage: npm run devnet fund <wallet> <amount> [keypair] [--sol <amount>]"
+    );
+  }
+
+  const recipient = address(positionals[0]);
+  const microUsdcAmount = parseTokenAmount(positionals[1], USDC_DECIMALS);
+  const keypairPath = positionals[2];
+
+  let targetSolLamports = DEFAULT_TARGET_SOL_LAMPORTS;
+  if (solStr !== undefined) {
+    const trimmedSol = solStr.trim();
+    if (trimmedSol === "0" || trimmedSol === "0.0") {
+      targetSolLamports = 0n;
+    } else {
+      targetSolLamports = parseTokenAmount(trimmedSol, SOL_DECIMALS);
+    }
+  }
+
+  return {
+    recipient,
+    microUsdcAmount,
+    targetSolLamports,
+    keypairPath,
+  };
+}
+
+export interface CalculateFallbackSolParams {
+  readonly recipientBalance: bigint;
+  readonly targetSolLamports: bigint;
+  readonly adminBalance: bigint;
+  readonly minAdminReserveLamports?: bigint;
+  readonly minTransferThresholdLamports?: bigint;
+}
+
+export interface FallbackSolCalculation {
+  readonly neededLamports: bigint;
+  readonly transferSolLamports: bigint;
+  readonly shouldFallbackTransfer: boolean;
+  readonly adminHasShortfall: boolean;
+}
+
+export function calculateFallbackSolTransfer(
+  params: CalculateFallbackSolParams
+): FallbackSolCalculation {
+  const minReserve =
+    params.minAdminReserveLamports ?? MIN_ADMIN_RESERVE_LAMPORTS;
+  const minThreshold =
+    params.minTransferThresholdLamports ?? MIN_TRANSFER_THRESHOLD_LAMPORTS;
+
+  const neededLamports =
+    params.recipientBalance >= params.targetSolLamports
+      ? 0n
+      : params.targetSolLamports - params.recipientBalance;
+
+  if (neededLamports === 0n || neededLamports < minThreshold) {
+    return {
+      neededLamports,
+      transferSolLamports: 0n,
+      shouldFallbackTransfer: false,
+      adminHasShortfall: false,
+    };
+  }
+
+  const availableAdminLamports =
+    params.adminBalance > minReserve ? params.adminBalance - minReserve : 0n;
+
+  if (availableAdminLamports < minThreshold) {
+    return {
+      neededLamports,
+      transferSolLamports: 0n,
+      shouldFallbackTransfer: false,
+      adminHasShortfall: true,
+    };
+  }
+
+  const transferSolLamports =
+    availableAdminLamports >= neededLamports
+      ? neededLamports
+      : availableAdminLamports;
+
+  return {
+    neededLamports,
+    transferSolLamports,
+    shouldFallbackTransfer: true,
+    adminHasShortfall: availableAdminLamports < neededLamports,
+  };
+}
+
+export async function requestDevnetAirdrop(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  recipient: Address,
+  lamports: bigint,
+  timeoutMs = 6000
+): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await rpc
+        .requestAirdrop(recipient, lamports as any, {
+          commitment: "confirmed",
+        })
+        .send({ abortSignal: controller.signal });
+      return true;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return false;
+  }
+}
+
 export interface FundInstructionsParams {
   readonly payer: KeyPairSigner;
   readonly recipient: Address;
   readonly mintAuthority?: KeyPairSigner;
   readonly usdcMint: Address;
   readonly microUsdcAmount: bigint;
+  readonly transferSolLamports?: bigint;
 }
 
 export interface FundInstructionsResult {
@@ -865,7 +1015,7 @@ export interface FundInstructionsResult {
 }
 
 /**
- * Builds instructions for idempotently creating recipient ATA and minting mock USDC tokens.
+ * Builds instructions for idempotently creating recipient ATA, optional native SOL transfer, and minting mock USDC tokens.
  */
 export async function buildFundInstructions(
   params: FundInstructionsParams
@@ -873,12 +1023,25 @@ export async function buildFundInstructions(
   const mintAuthority = params.mintAuthority ?? params.payer;
   const recipientAta = await findAtaAddress(params.recipient, params.usdcMint);
 
+  const instructions: Instruction[] = [];
+
+  if (params.transferSolLamports && params.transferSolLamports > 0n) {
+    instructions.push(
+      buildTransferSolInstruction({
+        from: params.payer,
+        to: params.recipient,
+        lamports: params.transferSolLamports,
+      })
+    );
+  }
+
   const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
     payer: params.payer,
     owner: params.recipient,
     mint: params.usdcMint,
     ata: recipientAta,
   });
+  instructions.push(recipientAtaIx);
 
   const mintToIx = buildMintToInstruction({
     mint: params.usdcMint,
@@ -886,6 +1049,7 @@ export async function buildFundInstructions(
     authority: mintAuthority,
     amount: params.microUsdcAmount,
   });
+  instructions.push(mintToIx);
 
   const signers: readonly [KeyPairSigner, ...KeyPairSigner[]] =
     params.payer.address === mintAuthority.address
@@ -894,68 +1058,107 @@ export async function buildFundInstructions(
 
   return {
     recipientAta,
-    instructions: [recipientAtaIx, mintToIx],
+    instructions,
     signers,
   };
 }
 
 async function handleFund(args: string[]) {
-  if (args.length < 2) {
-    throw new Error(
-      "Missing arguments. Usage: npm run devnet fund <wallet> <amount> [keypair]"
-    );
-  }
-
-  const walletStr = args[0];
-  const amountStr = args[1];
-  const keypairPath = resolveDefaultKeypairPath(args[2]);
-
-  // Validate address and token amount
-  const recipientAddress = address(walletStr);
-  const microUsdcAmount = parseTokenAmount(amountStr, USDC_DECIMALS);
+  const {
+    recipient,
+    microUsdcAmount,
+    targetSolLamports,
+    keypairPath: customKeypairPath,
+  } = parseFundArgs(args);
+  const keypairPath = resolveDefaultKeypairPath(customKeypairPath);
 
   const rpc = createResilientRpc(DEVNET_RPC_URL);
   const adminSigner = await loadKeypair(keypairPath);
 
   // 1. Pre-flight check admin fee payer SOL balance
-  const adminBalance = await rpc.getBalance(adminSigner.address).send();
-  if (adminBalance.value < MIN_ADMIN_FEE_PAYER_LAMPORTS) {
+  const adminBalanceRes = await rpc.getBalance(adminSigner.address).send();
+  const adminBalance = adminBalanceRes.value;
+  if (adminBalance < MIN_ADMIN_FEE_PAYER_LAMPORTS) {
     throw new Error(
-      `Admin fee payer (${adminSigner.address}) has insufficient SOL (${Number(adminBalance.value) / 1e9} SOL).\n` +
+      `Admin fee payer (${adminSigner.address}) has insufficient SOL (${Number(adminBalance) / 1e9} SOL).\n` +
         `Please fund it: solana airdrop 2 ${adminSigner.address} --url ${DEVNET_RPC_URL}`
     );
   }
 
-  // 2. Smart SOL Airdrop for recipient
-  try {
-    const recipientBalance = await rpc.getBalance(recipientAddress).send();
-    if (recipientBalance.value < RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS) {
+  let transferSolLamports: bigint | undefined;
+
+  // 2. SOL Funding Check & Airdrop / Fallback Logic
+  if (targetSolLamports > 0n) {
+    const recipientBalanceRes = await rpc.getBalance(recipient).send();
+    const recipientBalance = recipientBalanceRes.value;
+
+    if (recipientBalance >= targetSolLamports) {
       console.log(
-        `Requesting Devnet SOL airdrop (${DEFAULT_DEVNET_AIRDROP_SOL} SOL) for ${recipientAddress}...`
-      );
-      execFileSync(
-        "solana",
-        [
-          "airdrop",
-          DEFAULT_DEVNET_AIRDROP_SOL,
-          recipientAddress,
-          "--url",
-          DEVNET_RPC_URL,
-        ],
-        { stdio: "inherit" }
+        `Recipient already holds ${Number(recipientBalance) / 1e9} SOL (target: ${Number(targetSolLamports) / 1e9} SOL); skipping SOL funding.`
       );
     } else {
+      const neededLamports = targetSolLamports - recipientBalance;
+      const isSelf = adminSigner.address === recipient;
+
       console.log(
-        `Recipient already holds ${Number(recipientBalance.value) / 1e9} SOL; skipping SOL faucet airdrop.`
+        `Recipient holds ${Number(recipientBalance) / 1e9} SOL (target: ${Number(targetSolLamports) / 1e9} SOL). Requesting airdrop of ${Number(neededLamports) / 1e9} SOL...`
       );
+
+      const airdropSuccess = await requestDevnetAirdrop(
+        rpc,
+        recipient,
+        neededLamports,
+        6000
+      );
+
+      if (airdropSuccess) {
+        console.log(
+          `✓ Devnet SOL faucet airdrop succeeded (${Number(neededLamports) / 1e9} SOL)!`
+        );
+      } else {
+        console.warn(
+          "⚠️  Devnet public faucet airdrop failed or was rate-limited (HTTP 429)."
+        );
+
+        if (isSelf) {
+          console.warn(
+            "Recipient is the admin fee payer; skipping self-transfer fallback."
+          );
+          console.warn(
+            `Please obtain Devnet SOL from one of the following faucets:\n` +
+              DEVNET_FAUCET_URLS.map((url) => `  • ${url}`).join("\n")
+          );
+        } else {
+          const fallback = calculateFallbackSolTransfer({
+            recipientBalance,
+            targetSolLamports,
+            adminBalance,
+          });
+
+          if (fallback.shouldFallbackTransfer) {
+            transferSolLamports = fallback.transferSolLamports;
+            console.log(
+              `✓ Bundling direct SOL fallback transfer of ${Number(transferSolLamports) / 1e9} SOL from admin wallet (${adminSigner.address}) into atomic funding transaction.`
+            );
+          }
+
+          if (fallback.adminHasShortfall) {
+            console.warn(
+              `⚠️  Admin wallet has insufficient SOL to cover full target top-up while preserving the 0.05 SOL gas reserve.`
+            );
+            console.warn(
+              `Please obtain additional Devnet SOL from one of the following faucets:\n` +
+                DEVNET_FAUCET_URLS.map((url) => `  • ${url}`).join("\n")
+            );
+          }
+        }
+      }
     }
-  } catch {
-    console.warn(
-      "⚠️  SOL airdrop rate-limited or CLI unavailable. Proceeding with USDC minting..."
-    );
+  } else {
+    console.log("Target SOL is 0; skipping SOL funding.");
   }
 
-  // 3. Mock USDC Minting
+  // 3. Mock USDC Minting & Atomic Execution
   const accounts = loadDevnetAccounts();
   const usdcMintStr = accounts.usdcMint;
   if (!usdcMintStr) {
@@ -964,17 +1167,18 @@ async function handleFund(args: string[]) {
 
   const { recipientAta, instructions, signers } = await buildFundInstructions({
     payer: adminSigner,
-    recipient: recipientAddress,
+    recipient,
     usdcMint: address(usdcMintStr),
     microUsdcAmount,
+    transferSolLamports,
   });
 
   console.log(
-    `Minting mock USDC natively to ${recipientAddress} (ATA: ${recipientAta})...`
+    `Broadcasting funding transaction to ${recipient} (ATA: ${recipientAta}${transferSolLamports ? `, SOL: ${Number(transferSolLamports) / 1e9} SOL` : ""})...`
   );
   await sendTx(rpc, instructions, signers);
   console.log(
-    `✓ Successfully minted ${amountStr} USDC (${microUsdcAmount} micro-USDC) to ${recipientAta}!`
+    `✓ Successfully funded ${recipient} with ${microUsdcAmount} micro-USDC${transferSolLamports ? ` and ${Number(transferSolLamports) / 1e9} SOL` : ""}!`
   );
 }
 

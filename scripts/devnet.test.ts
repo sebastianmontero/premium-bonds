@@ -13,10 +13,19 @@ import {
   parseTokenAmount,
   resolveDefaultKeypairPath,
   USDC_DECIMALS,
+  SOL_DECIMALS,
+  DEFAULT_TARGET_SOL_LAMPORTS,
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  buildTransferSolInstruction,
 } from "./utils";
-import { reconcilePoolState, buildFundInstructions } from "./devnet";
+import {
+  reconcilePoolState,
+  buildFundInstructions,
+  parseFundArgs,
+  calculateFallbackSolTransfer,
+  requestDevnetAirdrop,
+} from "./devnet";
 import * as path from "path";
 import {
   findPrizePoolPda,
@@ -401,8 +410,242 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
       });
     });
 
+    describe("parseFundArgs", () => {
+      it("parses standard positionals with default 1 SOL target", () => {
+        const wallet = "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW";
+        const result = parseFundArgs([wallet, "1000"]);
+        assert.strictEqual(result.recipient, address(wallet));
+        assert.strictEqual(result.microUsdcAmount, 1_000_000_000n);
+        assert.strictEqual(
+          result.targetSolLamports,
+          DEFAULT_TARGET_SOL_LAMPORTS
+        );
+        assert.strictEqual(result.keypairPath, undefined);
+      });
+
+      it("parses positionals with custom keypair and flag options in various orders", () => {
+        const wallet = "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW";
+        const customKeypair = "/path/to/keypair.json";
+
+        // --sol <amount> at end
+        const r1 = parseFundArgs([
+          wallet,
+          "500",
+          customKeypair,
+          "--sol",
+          "2.5",
+        ]);
+        assert.strictEqual(r1.recipient, address(wallet));
+        assert.strictEqual(r1.microUsdcAmount, 500_000_000n);
+        assert.strictEqual(r1.keypairPath, customKeypair);
+        assert.strictEqual(r1.targetSolLamports, 2_500_000_000n);
+
+        // --sol=<amount> at beginning
+        const r2 = parseFundArgs(["--sol=0.5", wallet, "200"]);
+        assert.strictEqual(r2.recipient, address(wallet));
+        assert.strictEqual(r2.microUsdcAmount, 200_000_000n);
+        assert.strictEqual(r2.targetSolLamports, 500_000_000n);
+        assert.strictEqual(r2.keypairPath, undefined);
+
+        // --sol in middle
+        const r3 = parseFundArgs([wallet, "--sol", "3", "100"]);
+        assert.strictEqual(r3.recipient, address(wallet));
+        assert.strictEqual(r3.microUsdcAmount, 100_000_000n);
+        assert.strictEqual(r3.targetSolLamports, 3_000_000_000n);
+      });
+
+      it("handles zero SOL options (--sol 0 and --sol=0.0) without throwing", () => {
+        const wallet = "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW";
+
+        const r1 = parseFundArgs([wallet, "100", "--sol", "0"]);
+        assert.strictEqual(r1.targetSolLamports, 0n);
+
+        const r2 = parseFundArgs(["--sol=0.0", wallet, "100"]);
+        assert.strictEqual(r2.targetSolLamports, 0n);
+      });
+
+      it("rejects invalid arguments and missing flags", () => {
+        const wallet = "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW";
+
+        assert.throws(
+          () => parseFundArgs([wallet]),
+          /Missing required arguments/
+        );
+        assert.throws(
+          () => parseFundArgs([wallet, "100", "--sol"]),
+          /Missing value for --sol argument/
+        );
+        assert.throws(
+          () => parseFundArgs([wallet, "100", "--sol", "-1"]),
+          /Invalid numeric amount/
+        );
+      });
+    });
+
+    describe("calculateFallbackSolTransfer", () => {
+      const defaultTarget = 1_000_000_000n; // 1.0 SOL
+
+      it("skips transfer if recipient balance already meets or exceeds target", () => {
+        const result = calculateFallbackSolTransfer({
+          recipientBalance: 1_000_000_000n,
+          targetSolLamports: defaultTarget,
+          adminBalance: 5_000_000_000n,
+        });
+
+        assert.strictEqual(result.neededLamports, 0n);
+        assert.strictEqual(result.transferSolLamports, 0n);
+        assert.strictEqual(result.shouldFallbackTransfer, false);
+        assert.strictEqual(result.adminHasShortfall, false);
+      });
+
+      it("calculates dynamic shortfall top-up when admin has ample funds", () => {
+        // Recipient has 0.4 SOL, target is 1.0 SOL -> needed 0.6 SOL
+        const result = calculateFallbackSolTransfer({
+          recipientBalance: 400_000_000n,
+          targetSolLamports: defaultTarget,
+          adminBalance: 2_000_000_000n, // 2.0 SOL (> 0.05 SOL reserve)
+        });
+
+        assert.strictEqual(result.neededLamports, 600_000_000n);
+        assert.strictEqual(result.transferSolLamports, 600_000_000n);
+        assert.strictEqual(result.shouldFallbackTransfer, true);
+        assert.strictEqual(result.adminHasShortfall, false);
+      });
+
+      it("caps transfer at available admin balance above reserve when admin is low", () => {
+        // Admin has 0.25 SOL, reserve is 0.05 SOL -> available 0.20 SOL
+        // Needed is 1.0 SOL -> transfer 0.20 SOL and set adminHasShortfall: true
+        const result = calculateFallbackSolTransfer({
+          recipientBalance: 0n,
+          targetSolLamports: defaultTarget,
+          adminBalance: 250_000_000n,
+        });
+
+        assert.strictEqual(result.neededLamports, 1_000_000_000n);
+        assert.strictEqual(result.transferSolLamports, 200_000_000n);
+        assert.strictEqual(result.shouldFallbackTransfer, true);
+        assert.strictEqual(result.adminHasShortfall, true);
+      });
+
+      it("skips transfer and sets shortfall flag when admin balance is <= reserve", () => {
+        // Admin has 0.04 SOL (below 0.05 SOL reserve)
+        const result = calculateFallbackSolTransfer({
+          recipientBalance: 0n,
+          targetSolLamports: defaultTarget,
+          adminBalance: 40_000_000n,
+        });
+
+        assert.strictEqual(result.neededLamports, 1_000_000_000n);
+        assert.strictEqual(result.transferSolLamports, 0n);
+        assert.strictEqual(result.shouldFallbackTransfer, false);
+        assert.strictEqual(result.adminHasShortfall, true);
+      });
+
+      it("suppresses dust transfers below minimum threshold (0.01 SOL)", () => {
+        // Available above reserve is 5_000_000n (0.005 SOL < 0.01 SOL threshold)
+        const result = calculateFallbackSolTransfer({
+          recipientBalance: 0n,
+          targetSolLamports: defaultTarget,
+          adminBalance: 55_000_000n, // 0.055 SOL
+        });
+
+        assert.strictEqual(result.shouldFallbackTransfer, false);
+        assert.strictEqual(result.transferSolLamports, 0n);
+        assert.strictEqual(result.adminHasShortfall, true);
+      });
+    });
+
+    describe("requestDevnetAirdrop", () => {
+      it("returns true on successful RPC airdrop confirmation", async () => {
+        const mockRpc = {
+          requestAirdrop: () => ({
+            send: async () => "mock_airdrop_tx_sig",
+          }),
+        } as any;
+
+        const success = await requestDevnetAirdrop(
+          mockRpc,
+          address("EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW"),
+          1_000_000_000n,
+          2000
+        );
+
+        assert.strictEqual(success, true);
+      });
+
+      it("returns false when RPC request rejects or times out", async () => {
+        const mockRpc = {
+          requestAirdrop: () => ({
+            send: async () => {
+              throw new Error("HTTP 429: Too Many Requests");
+            },
+          }),
+        } as any;
+
+        const success = await requestDevnetAirdrop(
+          mockRpc,
+          address("EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW"),
+          1_000_000_000n,
+          2000
+        );
+
+        assert.strictEqual(success, false);
+      });
+    });
+
     describe("buildFundInstructions", () => {
-      it("assembles ATA creation and MintTo with distinct admin fee-payer and mint authority signers", async () => {
+      it("bundles native SOL transfer when transferSolLamports is provided", async () => {
+        const adminSigner = await generateKeyPairSigner();
+        const recipientSigner = await generateKeyPairSigner();
+        const usdcMintSigner = await generateKeyPairSigner();
+        const recipient = recipientSigner.address;
+        const usdcMint = usdcMintSigner.address;
+        const microUsdcAmount = 1_000_000_000n;
+        const transferSolLamports = 800_000_000n;
+
+        const { recipientAta, instructions, signers } =
+          await buildFundInstructions({
+            payer: adminSigner,
+            recipient,
+            usdcMint,
+            microUsdcAmount,
+            transferSolLamports,
+          });
+
+        assert.strictEqual(instructions.length, 3);
+        assert.strictEqual(signers.length, 1);
+        assert.strictEqual(signers[0].address, adminSigner.address);
+
+        // Instruction 0: SystemProgram::Transfer
+        const transferIx = instructions[0];
+        assert.strictEqual(transferIx.programAddress, SYSTEM_PROGRAM_ID);
+        assert.strictEqual(
+          transferIx.accounts?.[0].address,
+          adminSigner.address
+        );
+        assert.strictEqual(
+          transferIx.accounts?.[0].role,
+          AccountRole.WRITABLE_SIGNER
+        );
+        assert.strictEqual(transferIx.accounts?.[1].address, recipient);
+        assert.strictEqual(transferIx.accounts?.[1].role, AccountRole.WRITABLE);
+
+        const view = new DataView(
+          transferIx.data!.buffer,
+          transferIx.data!.byteOffset,
+          transferIx.data!.byteLength
+        );
+        assert.strictEqual(view.getUint32(0, true), 2); // Transfer opcode
+        assert.strictEqual(view.getBigUint64(4, true), transferSolLamports);
+
+        // Instruction 1: ATA Idempotent
+        assert.strictEqual(instructions[1].programAddress, ATA_PROGRAM_ID);
+
+        // Instruction 2: MintTo
+        assert.strictEqual(instructions[2].programAddress, TOKEN_PROGRAM_ID);
+      });
+
+      it("assembles ATA creation and MintTo without transfer when transferSolLamports is omitted or zero", async () => {
         const adminSigner = await generateKeyPairSigner();
         const mintSigner = await generateKeyPairSigner();
         const recipientSigner = await generateKeyPairSigner();
@@ -418,6 +661,7 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
             mintAuthority: mintSigner,
             usdcMint,
             microUsdcAmount,
+            transferSolLamports: 0n,
           });
 
         assert.strictEqual(instructions.length, 2);

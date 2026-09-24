@@ -474,6 +474,16 @@ export async function verifyAndEnforceRentExemption(
  * Domain constants for devnet funding and SOL gas limits.
  */
 export const USDC_DECIMALS = 6;
+export const SOL_DECIMALS = 9;
+export const LAMPORTS_PER_SOL = 1_000_000_000n;
+export const DEFAULT_TARGET_SOL_LAMPORTS = 1_000_000_000n; // 1.0 SOL
+export const MIN_ADMIN_RESERVE_LAMPORTS = 50_000_000n; // 0.05 SOL donor safety reserve
+export const MIN_TRANSFER_THRESHOLD_LAMPORTS = 10_000_000n; // 0.01 SOL minimum transfer threshold
+export const DEVNET_FAUCET_URLS = [
+  "https://faucet.solana.com",
+  "https://faucet.quicknode.com/solana/devnet",
+  "https://faucet.helius.dev",
+] as const;
 export const DEFAULT_DEVNET_AIRDROP_SOL = "1";
 export const MIN_ADMIN_FEE_PAYER_LAMPORTS = 5_000_000n; // 0.005 SOL
 export const RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS = 100_000_000n; // 0.1 SOL
@@ -1059,6 +1069,47 @@ export function buildMintToInstruction(params: MintToParams): Instruction {
         address: params.authority.address,
         role: AccountRole.WRITABLE_SIGNER,
         signer: params.authority,
+      },
+    ],
+    data,
+  };
+}
+
+export interface TransferSolParams {
+  readonly from: KeyPairSigner;
+  readonly to: Address;
+  readonly lamports: bigint;
+}
+
+/**
+ * Builds native SystemProgram Transfer instruction (Opcode 2).
+ * Validates that transfer amount is strictly positive to prevent binary wrapping.
+ */
+export function buildTransferSolInstruction(
+  params: TransferSolParams
+): Instruction {
+  if (params.lamports <= 0n) {
+    throw new Error(
+      `Transfer lamports must be greater than zero. Received: ${params.lamports}`
+    );
+  }
+
+  const data = new Uint8Array(4 + 8);
+  const view = new DataView(data.buffer);
+  view.setUint32(0, 2, true); // SystemProgram::Transfer opcode (2)
+  view.setBigUint64(4, params.lamports, true);
+
+  return {
+    programAddress: SYSTEM_PROGRAM_ID,
+    accounts: [
+      {
+        address: params.from.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.from,
+      },
+      {
+        address: params.to,
+        role: AccountRole.WRITABLE,
       },
     ],
     data,
