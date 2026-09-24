@@ -48,6 +48,7 @@ import {
   writeDevnetAddresses,
   readDevnetAddresses,
   syncDevnetToActiveEnv,
+  PRESERVED_CLOUD_VARS,
   PROJECT_ROOT,
   LOCAL_ENV_PATH,
   DEVNET_ENV_PATH,
@@ -1331,11 +1332,14 @@ async function handleSyncEnv(args: string[]) {
   console.log(
     `✓ Successfully synchronized Devnet configuration to ${targetFile}`
   );
-  if (devnetVars.DATABASE_URL) console.log("  • Preserved DATABASE_URL");
-  if (devnetVars.HELIUS_WEBHOOK_SECRET)
-    console.log("  • Preserved HELIUS_WEBHOOK_SECRET");
-  if (devnetVars.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)
+  for (const item of PRESERVED_CLOUD_VARS) {
+    if (devnetVars[item.envKey]) {
+      console.log(`  • Preserved ${item.envKey}`);
+    }
+  }
+  if (devnetVars.NEXT_PUBLIC_RANDOMNESS_ACCOUNT) {
     console.log("  • Preserved NEXT_PUBLIC_RANDOMNESS_ACCOUNT");
+  }
 }
 
 async function main() {

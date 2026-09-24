@@ -12,14 +12,22 @@ fi
 echo "Linking project to Vercel..."
 npx vercel link --yes
 
+add_env() {
+  local key="$1"
+  local val="$2"
+  local env="$3"
+  local type="${4:-config}"
+  echo -n "$val" | npx vercel env add "$key" "$env" --type "$type" --yes || true
+}
+
 echo "Setting up Preview Environment (Devnet)..."
-echo -n "devnet" | npx vercel env add NEXT_PUBLIC_ENVIRONMENT preview || true
-echo -n "https://api.devnet.solana.com" | npx vercel env add NEXT_PUBLIC_SOLANA_RPC_URL preview || true
-echo -n "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" | npx vercel env add NEXT_PUBLIC_PROGRAM_ID preview || true
+add_env NEXT_PUBLIC_ENVIRONMENT "devnet" preview
+add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://api.devnet.solana.com" preview
+add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" preview
 
 echo "Setting up Production Environment (Mainnet)..."
-echo -n "mainnet-beta" | npx vercel env add NEXT_PUBLIC_ENVIRONMENT production || true
-echo -n "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" | npx vercel env add NEXT_PUBLIC_PROGRAM_ID production || true
+add_env NEXT_PUBLIC_ENVIRONMENT "mainnet-beta" production
+add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" production
 
 if [ -z "$HELIUS_API_KEY" ]; then
   read -p "Enter your Helius Mainnet API Key (or press Enter to set a placeholder): " HELIUS_KEY
@@ -30,11 +38,11 @@ else
   HELIUS_KEY="$HELIUS_API_KEY"
 fi
 
-echo -n "https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}" | npx vercel env add NEXT_PUBLIC_SOLANA_RPC_URL production || true
+add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://mainnet.helius-rpc.com/?api-key=${HELIUS_KEY}" production
 
 echo "Setting up Development Environment (Devnet)..."
-echo -n "devnet" | npx vercel env add NEXT_PUBLIC_ENVIRONMENT development || true
-echo -n "https://api.devnet.solana.com" | npx vercel env add NEXT_PUBLIC_SOLANA_RPC_URL development || true
-echo -n "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" | npx vercel env add NEXT_PUBLIC_PROGRAM_ID development || true
+add_env NEXT_PUBLIC_ENVIRONMENT "devnet" development
+add_env NEXT_PUBLIC_SOLANA_RPC_URL "https://api.devnet.solana.com" development
+add_env NEXT_PUBLIC_PROGRAM_ID "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos" development
 
 echo "=== Vercel Environment Setup Complete ==="

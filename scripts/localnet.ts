@@ -64,7 +64,12 @@ import {
   listLocalDatabases,
 } from "./localnet-postgres";
 import { runDbCleanCli } from "./db-clean";
-import { safeguardDevnetEnv, LOCAL_ENV_PATH } from "./devnet-state";
+import {
+  safeguardDevnetEnv,
+  loadLocalnetProfile,
+  LOCAL_ENV_PATH,
+  LOCALNET_ENV_PATH,
+} from "./devnet-state";
 
 // Constants
 const RPC_URL = "http://127.0.0.1:8899";
@@ -607,7 +612,10 @@ function writeEnvLocal(
   adminAddress: string,
   randomnessAddress: string
 ) {
+  safeguardDevnetEnv();
   const envPath = LOCAL_ENV_PATH;
+  const localnetProfile = loadLocalnetProfile();
+
   const localnetVars: Record<string, string> = {
     NEXT_PUBLIC_ENVIRONMENT: "localnet",
     NEXT_PUBLIC_PROGRAM_ID: PROGRAM_ID_STR,
@@ -629,6 +637,7 @@ function writeEnvLocal(
     NEXT_PUBLIC_FEE_WALLET: addresses.feeWallet,
     NEXT_PUBLIC_RANDOMNESS_ACCOUNT: randomnessAddress,
     NEXT_PUBLIC_SOLANA_RPC_URL: "http://127.0.0.1:8899",
+    ...localnetProfile,
   };
 
   upsertEnvFile(envPath, localnetVars, {

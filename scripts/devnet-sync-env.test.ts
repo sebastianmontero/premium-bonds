@@ -5,6 +5,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import {
   safeguardDevnetEnv,
+  safeguardLocalnetEnv,
+  loadLocalnetProfile,
+  isPusherPlaceholder,
   syncDevnetToActiveEnv,
   writeDevnetAddresses,
   readDevnetAddresses,
@@ -19,12 +22,14 @@ describe("Devnet State Persistence & Synchronization (devnet-state)", () => {
   let tempDir: string;
   let activeEnvPath: string;
   let devnetEnvPath: string;
+  let localnetEnvPath: string;
   let addressesPath: string;
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pb-devnet-test-"));
     activeEnvPath = path.resolve(tempDir, ".env.local");
     devnetEnvPath = path.resolve(tempDir, ".env.devnet");
+    localnetEnvPath = path.resolve(tempDir, ".env.localnet");
     addressesPath = path.resolve(tempDir, "addresses.json");
   });
 
@@ -328,13 +333,11 @@ SOLANA_WS_URL=wss://private-ws.helius.xyz/?api-key=secret
     fs.writeFileSync(
       activeEnvPath,
       `# Top Level Comment
-PUSHER_APP_ID=123456
-PUSHER_KEY=pusher_key_abc
-PUSHER_SECRET=pusher_secret_xyz
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
 TELEGRAM_BOT_TOKEN=token123
 # Custom Dev Setting
 MY_CUSTOM_FLAG=true
+ANALYTICS_KEY=analytics_secret_999
 `,
       "utf-8"
     );
@@ -352,15 +355,13 @@ MY_CUSTOM_FLAG=true
     const activeEnv = readEnvFile(activeEnvPath);
 
     // Category C keys preserved
-    assert.strictEqual(activeEnv.PUSHER_APP_ID, "123456");
-    assert.strictEqual(activeEnv.PUSHER_KEY, "pusher_key_abc");
-    assert.strictEqual(activeEnv.PUSHER_SECRET, "pusher_secret_xyz");
     assert.strictEqual(
       activeEnv.DISCORD_WEBHOOK_URL,
       "https://discord.com/api/webhooks/123/abc"
     );
     assert.strictEqual(activeEnv.TELEGRAM_BOT_TOKEN, "token123");
     assert.strictEqual(activeEnv.MY_CUSTOM_FLAG, "true");
+    assert.strictEqual(activeEnv.ANALYTICS_KEY, "analytics_secret_999");
 
     // Comments preserved
     assert.ok(activeContent.includes("# Top Level Comment"));
@@ -465,5 +466,255 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/local_db
       updatedEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT,
       newRandomness
     );
+  });
+
+  it("13. Localnet Pusher Safeguarding: safeguardLocalnetEnv should capture Pusher credentials when active env is localnet", () => {
+    fs.writeFileSync(
+      activeEnvPath,
+      `NEXT_PUBLIC_ENVIRONMENT=localnet
+PUSHER_APP_ID=2190156
+PUSHER_KEY=local_pusher_key_abc
+PUSHER_SECRET=local_pusher_secret_xyz
+PUSHER_CLUSTER=mt1
+NEXT_PUBLIC_PUSHER_KEY=local_pusher_key_abc
+NEXT_PUBLIC_PUSHER_CLUSTER=mt1
+`,
+      "utf-8"
+    );
+
+    const saved = safeguardLocalnetEnv(activeEnvPath, localnetEnvPath);
+    assert.strictEqual(saved.PUSHER_APP_ID, "2190156");
+    assert.strictEqual(saved.PUSHER_KEY, "local_pusher_key_abc");
+    assert.strictEqual(saved.PUSHER_SECRET, "local_pusher_secret_xyz");
+    assert.strictEqual(saved.PUSHER_CLUSTER, "mt1");
+    assert.strictEqual(saved.NEXT_PUBLIC_PUSHER_KEY, "local_pusher_key_abc");
+    assert.strictEqual(saved.NEXT_PUBLIC_PUSHER_CLUSTER, "mt1");
+
+    assert.ok(fs.existsSync(localnetEnvPath));
+    const localProfile = readEnvFile(localnetEnvPath);
+    assert.strictEqual(localProfile.PUSHER_APP_ID, "2190156");
+  });
+
+  it("14. Devnet Pusher Synchronization: syncDevnetToActiveEnv should synchronize Devnet Pusher keys to active env", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+
+    fs.writeFileSync(
+      devnetEnvPath,
+      `PUSHER_APP_ID=2197169
+PUSHER_KEY=devnet_pusher_key_123
+PUSHER_SECRET=devnet_pusher_secret_456
+PUSHER_CLUSTER=us2
+NEXT_PUBLIC_PUSHER_KEY=devnet_pusher_key_123
+NEXT_PUBLIC_PUSHER_CLUSTER=us2
+`,
+      "utf-8"
+    );
+
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    const activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "devnet");
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "2197169");
+    assert.strictEqual(activeEnv.PUSHER_KEY, "devnet_pusher_key_123");
+    assert.strictEqual(activeEnv.PUSHER_SECRET, "devnet_pusher_secret_456");
+    assert.strictEqual(activeEnv.PUSHER_CLUSTER, "us2");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_PUSHER_KEY,
+      "devnet_pusher_key_123"
+    );
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_CLUSTER, "us2");
+  });
+
+  it("15. Cross-Network Isolation & Neutralization: local Pusher keys must not pollute .env.devnet and must neutralize when missing in .env.devnet", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+
+    // Active env has localnet Pusher credentials
+    fs.writeFileSync(
+      activeEnvPath,
+      `NEXT_PUBLIC_ENVIRONMENT=localnet
+PUSHER_APP_ID=2190156
+PUSHER_KEY=local_key_abc
+PUSHER_SECRET=local_secret_xyz
+NEXT_PUBLIC_PUSHER_KEY=local_key_abc
+`,
+      "utf-8"
+    );
+
+    // .env.devnet does NOT have Pusher keys
+    fs.writeFileSync(
+      devnetEnvPath,
+      `DATABASE_URL=postgresql://neon_user:neon_pass@ep-cool.neon.tech/neondb?sslmode=require
+`,
+      "utf-8"
+    );
+
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    const devnetProfile = readEnvFile(devnetEnvPath);
+    const activeEnv = readEnvFile(activeEnvPath);
+
+    // 1. Local Pusher keys were NOT falsely salvaged into .env.devnet
+    assert.strictEqual(devnetProfile.PUSHER_APP_ID, undefined);
+    assert.strictEqual(devnetProfile.PUSHER_KEY, undefined);
+
+    // 2. Pusher keys in active env were neutralized to prevent cross-network broadcast leaks
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "");
+    assert.strictEqual(activeEnv.PUSHER_KEY, "");
+    assert.strictEqual(activeEnv.PUSHER_SECRET, "");
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_KEY, "");
+    assert.strictEqual(activeEnv.PUSHER_CLUSTER, "us2");
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_CLUSTER, "us2");
+  });
+
+  it("16. Bidirectional Multi-Cycle Switching (localnet <-> devnet) retains distinct credentials", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+
+    // Devnet profile has Devnet Pusher App 2197169
+    fs.writeFileSync(
+      devnetEnvPath,
+      `PUSHER_APP_ID=2197169
+PUSHER_KEY=devnet_key
+PUSHER_SECRET=devnet_secret
+NEXT_PUBLIC_PUSHER_KEY=devnet_key
+NEXT_PUBLIC_PUSHER_CLUSTER=us2
+`,
+      "utf-8"
+    );
+
+    // Localnet profile has Localnet Pusher App 2190156
+    fs.writeFileSync(
+      localnetEnvPath,
+      `PUSHER_APP_ID=2190156
+PUSHER_KEY=local_key
+PUSHER_SECRET=local_secret
+NEXT_PUBLIC_PUSHER_KEY=local_key
+NEXT_PUBLIC_PUSHER_CLUSTER=mt1
+`,
+      "utf-8"
+    );
+
+    // Step 1: Start in Localnet mode
+    const localProfile = loadLocalnetProfile(localnetEnvPath);
+    upsertEnvFile(activeEnvPath, {
+      NEXT_PUBLIC_ENVIRONMENT: "localnet",
+      ...localProfile,
+    });
+
+    let activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "2190156");
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_KEY, "local_key");
+
+    // Step 2: Switch to Devnet
+    safeguardLocalnetEnv(activeEnvPath, localnetEnvPath);
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "devnet");
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "2197169");
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_KEY, "devnet_key");
+
+    // Step 3: Switch back to Localnet
+    safeguardDevnetEnv(activeEnvPath, devnetEnvPath);
+    const restoredLocal = loadLocalnetProfile(localnetEnvPath);
+    upsertEnvFile(activeEnvPath, {
+      NEXT_PUBLIC_ENVIRONMENT: "localnet",
+      ...restoredLocal,
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "2190156");
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_PUSHER_KEY, "local_key");
+
+    // Step 4: Verify profiles remained untouched and unpolluted
+    const devnetFinal = readEnvFile(devnetEnvPath);
+    const localnetFinal = readEnvFile(localnetEnvPath);
+    assert.strictEqual(devnetFinal.PUSHER_APP_ID, "2197169");
+    assert.strictEqual(localnetFinal.PUSHER_APP_ID, "2190156");
+  });
+
+  it("17. One-Time Bootstrap Seeding: should auto-seed .env.localnet if missing when active env has local Pusher keys", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+
+    // .env.localnet does NOT exist initially
+    assert.strictEqual(fs.existsSync(localnetEnvPath), false);
+
+    // .env.local has legacy local Pusher setup
+    fs.writeFileSync(
+      activeEnvPath,
+      `NEXT_PUBLIC_ENVIRONMENT=localnet
+PUSHER_APP_ID=2190156
+PUSHER_KEY=legacy_local_key
+PUSHER_SECRET=legacy_local_secret
+NEXT_PUBLIC_PUSHER_KEY=legacy_local_key
+`,
+      "utf-8"
+    );
+
+    fs.writeFileSync(
+      devnetEnvPath,
+      `PUSHER_APP_ID=2197169
+PUSHER_KEY=devnet_cloud_key
+PUSHER_SECRET=devnet_cloud_secret
+NEXT_PUBLIC_PUSHER_KEY=devnet_cloud_key
+`,
+      "utf-8"
+    );
+
+    // Run Devnet sync
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    // .env.localnet should have been bootstrapped with local keys!
+    assert.ok(fs.existsSync(localnetEnvPath));
+    const localnetProfile = readEnvFile(localnetEnvPath);
+    assert.strictEqual(localnetProfile.PUSHER_APP_ID, "2190156");
+    assert.strictEqual(localnetProfile.PUSHER_KEY, "legacy_local_key");
+
+    // .env.local now has devnet keys
+    const activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "devnet");
+    assert.strictEqual(activeEnv.PUSHER_APP_ID, "2197169");
+  });
+
+  it("18. isPusherPlaceholder predicate: detects varied placeholders and handles valid keys", () => {
+    assert.strictEqual(isPusherPlaceholder(undefined), true);
+    assert.strictEqual(isPusherPlaceholder(""), true);
+    assert.strictEqual(isPusherPlaceholder("   "), true);
+    assert.strictEqual(isPusherPlaceholder("your_app_id"), true);
+    assert.strictEqual(isPusherPlaceholder("YOUR_PUSHER_KEY"), true);
+    assert.strictEqual(isPusherPlaceholder("your_secret_abc"), true);
+    assert.strictEqual(isPusherPlaceholder("placeholder_val"), true);
+    assert.strictEqual(isPusherPlaceholder("TODO"), true);
+    assert.strictEqual(isPusherPlaceholder("change_me"), true);
+    assert.strictEqual(isPusherPlaceholder("my_dummy_secret"), true);
+    assert.strictEqual(isPusherPlaceholder("null"), true);
+    assert.strictEqual(isPusherPlaceholder("undefined"), true);
+
+    // Valid keys should evaluate to false
+    assert.strictEqual(isPusherPlaceholder("2190156"), false);
+    assert.strictEqual(isPusherPlaceholder("2197169"), false);
+    assert.strictEqual(isPusherPlaceholder("d7c62a64626829adbc7f"), false);
+    assert.strictEqual(isPusherPlaceholder("4ddd4557bd916c40ee73"), false);
   });
 });

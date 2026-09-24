@@ -10,6 +10,7 @@ export const DEVNET_ADDRESSES_PATH = path.resolve(
   "addresses.json"
 );
 export const DEVNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.devnet");
+export const LOCALNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.localnet");
 export const LOCAL_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.local");
 export const DEFAULT_ENV_PATH = path.resolve(PROJECT_ROOT, ".env");
 
@@ -23,6 +24,23 @@ export function isLocalMockUrl(url: string | undefined): boolean {
     url.includes("127.0.0.1") ||
     url.includes("0.0.0.0") ||
     url.includes("::1")
+  );
+}
+
+/**
+ * Checks whether a Pusher environment variable contains an unconfigured placeholder.
+ */
+export function isPusherPlaceholder(val: string | undefined): boolean {
+  if (!val || val.trim() === "") return true;
+  const lower = val.trim().toLowerCase();
+  return (
+    lower.startsWith("your_") ||
+    lower.startsWith("placeholder") ||
+    lower.includes("dummy") ||
+    lower === "todo" ||
+    lower === "change_me" ||
+    lower === "undefined" ||
+    lower === "null"
   );
 }
 
@@ -55,6 +73,26 @@ export interface PreservedCloudVarConfig {
   readonly isLocalMock: (val: string, env: Record<string, string>) => boolean;
 }
 
+export const PUSHER_VARS: readonly PreservedCloudVarConfig[] = [
+  { envKey: "PUSHER_APP_ID", isLocalMock: (val) => isPusherPlaceholder(val) },
+  { envKey: "PUSHER_KEY", isLocalMock: (val) => isPusherPlaceholder(val) },
+  { envKey: "PUSHER_SECRET", isLocalMock: (val) => isPusherPlaceholder(val) },
+  {
+    envKey: "PUSHER_CLUSTER",
+    defaultValue: "us2",
+    isLocalMock: (val) => !val || isPusherPlaceholder(val),
+  },
+  {
+    envKey: "NEXT_PUBLIC_PUSHER_KEY",
+    isLocalMock: (val) => isPusherPlaceholder(val),
+  },
+  {
+    envKey: "NEXT_PUBLIC_PUSHER_CLUSTER",
+    defaultValue: "us2",
+    isLocalMock: (val) => !val || isPusherPlaceholder(val),
+  },
+];
+
 export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
   {
     envKey: "DATABASE_URL",
@@ -84,6 +122,7 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
     defaultValue: "wss://api.devnet.solana.com",
     isLocalMock: isLocalMockUrl,
   },
+  ...PUSHER_VARS,
 ];
 
 /**
@@ -116,26 +155,44 @@ export function writeDevnetAddresses(
   fs.writeFileSync(filePath, JSON.stringify(addresses, null, 2), "utf-8");
 }
 
-/**
- * Safeguards Devnet credentials from .env.local into .env.devnet before Localnet mutates .env.local.
- * STRICT GUARD: Only runs if .env.local is actively set to NEXT_PUBLIC_ENVIRONMENT=devnet.
- */
-export function safeguardDevnetEnv(
-  activeEnvPath: string = LOCAL_ENV_PATH,
-  devnetEnvPath: string = DEVNET_ENV_PATH
-): Record<string, string> {
-  if (!fs.existsSync(activeEnvPath)) return {};
-  const currentEnv = readEnvFile(activeEnvPath);
+export interface SafeguardProfileOptions {
+  readonly activeEnvPath?: string;
+  readonly profileEnvPath: string;
+  readonly expectedEnvironment: "devnet" | "localnet";
+  readonly varsToPreserve: readonly PreservedCloudVarConfig[];
+  readonly headerComment?: string;
+  readonly logLabel?: string;
+}
 
-  // Strict mode guard: Never extract credentials if .env.local is already in localnet mode.
-  // This prevents Docker container hostnames or local IPs from clobbering Neon cloud credentials.
-  if (currentEnv.NEXT_PUBLIC_ENVIRONMENT !== "devnet") {
+export interface SafeguardEnvOptions {
+  readonly activeEnvPath?: string;
+  readonly profileEnvPath?: string;
+}
+
+export interface SyncDevnetOptions {
+  readonly targetFile?: string;
+  readonly devnetEnvPath?: string;
+  readonly addressesPath?: string;
+  readonly localnetEnvPath?: string;
+}
+
+/**
+ * Core parameterizable safeguarding engine for multi-environment profiles.
+ */
+export function safeguardProfileEnv(
+  options: SafeguardProfileOptions
+): Record<string, string> {
+  const activePath = options.activeEnvPath ?? LOCAL_ENV_PATH;
+  if (!fs.existsSync(activePath)) return {};
+  const currentEnv = readEnvFile(activePath);
+
+  // Strict environment isolation guard: never extract credentials if active env does not match
+  if (currentEnv.NEXT_PUBLIC_ENVIRONMENT !== options.expectedEnvironment) {
     return {};
   }
 
   const updates: Record<string, string> = {};
-
-  for (const item of PRESERVED_CLOUD_VARS) {
+  for (const item of options.varsToPreserve) {
     const val = currentEnv[item.envKey];
     if (val && !item.isLocalMock(val, currentEnv)) {
       updates[item.envKey] = val;
@@ -143,11 +200,12 @@ export function safeguardDevnetEnv(
   }
 
   if (Object.keys(updates).length > 0) {
+    const label = options.logLabel ?? options.expectedEnvironment;
     console.log(
-      `ℹ Safeguarding Devnet cloud credentials into ${path.basename(devnetEnvPath)}...`
+      `ℹ Safeguarding ${label} profile credentials into ${path.basename(options.profileEnvPath)}...`
     );
-    upsertEnvFile(devnetEnvPath, updates, {
-      headerComment: "# Devnet Environment Profile (Auto-synchronized)",
+    upsertEnvFile(options.profileEnvPath, updates, {
+      headerComment: options.headerComment,
     });
   }
 
@@ -155,14 +213,109 @@ export function safeguardDevnetEnv(
 }
 
 /**
+ * Safeguards Devnet credentials from .env.local into .env.devnet before Localnet mutates .env.local.
+ * STRICT GUARD: Only runs if .env.local is actively set to NEXT_PUBLIC_ENVIRONMENT=devnet.
+ */
+export function safeguardDevnetEnv(
+  optionsOrActiveEnvPath?: SafeguardEnvOptions | string,
+  devnetEnvPath?: string
+): Record<string, string> {
+  const activePath =
+    typeof optionsOrActiveEnvPath === "string"
+      ? optionsOrActiveEnvPath
+      : (optionsOrActiveEnvPath?.activeEnvPath ?? LOCAL_ENV_PATH);
+  const profilePath =
+    typeof optionsOrActiveEnvPath === "object"
+      ? (optionsOrActiveEnvPath.profileEnvPath ?? DEVNET_ENV_PATH)
+      : (devnetEnvPath ?? DEVNET_ENV_PATH);
+
+  return safeguardProfileEnv({
+    activeEnvPath: activePath,
+    profileEnvPath: profilePath,
+    expectedEnvironment: "devnet",
+    varsToPreserve: PRESERVED_CLOUD_VARS,
+    headerComment: "# Devnet Environment Profile (Auto-synchronized)",
+    logLabel: "Devnet cloud",
+  });
+}
+
+/**
+ * Safeguards Localnet credentials from .env.local into .env.localnet before Devnet mutates .env.local.
+ * STRICT GUARD: Only runs if .env.local is actively set to NEXT_PUBLIC_ENVIRONMENT=localnet.
+ */
+export function safeguardLocalnetEnv(
+  optionsOrActiveEnvPath?: SafeguardEnvOptions | string,
+  localnetEnvPath?: string
+): Record<string, string> {
+  const activePath =
+    typeof optionsOrActiveEnvPath === "string"
+      ? optionsOrActiveEnvPath
+      : (optionsOrActiveEnvPath?.activeEnvPath ?? LOCAL_ENV_PATH);
+  const profilePath =
+    typeof optionsOrActiveEnvPath === "object"
+      ? (optionsOrActiveEnvPath.profileEnvPath ?? LOCALNET_ENV_PATH)
+      : (localnetEnvPath ?? LOCALNET_ENV_PATH);
+
+  return safeguardProfileEnv({
+    activeEnvPath: activePath,
+    profileEnvPath: profilePath,
+    expectedEnvironment: "localnet",
+    varsToPreserve: PUSHER_VARS,
+    headerComment: "# Localnet Environment Profile (Auto-synchronized)",
+    logLabel: "Localnet profile",
+  });
+}
+
+/**
+ * Loads localnet profile credentials, returning sanitized keys for .env.local.
+ * Neutralizes unconfigured Pusher variables to prevent Devnet credential leakage.
+ */
+export function loadLocalnetProfile(
+  localnetEnvPath: string = LOCALNET_ENV_PATH
+): Record<string, string> {
+  const localProfile = fs.existsSync(localnetEnvPath)
+    ? readEnvFile(localnetEnvPath)
+    : {};
+
+  const result: Record<string, string> = {};
+  for (const item of PUSHER_VARS) {
+    const val = localProfile[item.envKey];
+    if (val && !item.isLocalMock(val, localProfile)) {
+      result[item.envKey] = val;
+    } else {
+      // Explicitly neutralize to prevent lingering Devnet keys
+      result[item.envKey] = item.defaultValue ?? "";
+    }
+  }
+  return result;
+}
+
+/**
  * Assembles the full dictionary of Devnet variables by merging on-chain addresses
  * and .env.devnet cloud credentials, then synchronizes it into the active target environment file.
  */
 export function syncDevnetToActiveEnv(
-  targetFile: string = LOCAL_ENV_PATH,
-  devnetEnvPath: string = DEVNET_ENV_PATH,
-  addressesPath: string = DEVNET_ADDRESSES_PATH
+  optionsOrTargetFile?: SyncDevnetOptions | string,
+  devnetEnvPathArg?: string,
+  addressesPathArg?: string
 ): Record<string, string> {
+  const targetFile =
+    typeof optionsOrTargetFile === "string"
+      ? optionsOrTargetFile
+      : (optionsOrTargetFile?.targetFile ?? LOCAL_ENV_PATH);
+  const devnetEnvPath =
+    typeof optionsOrTargetFile === "object"
+      ? (optionsOrTargetFile.devnetEnvPath ?? DEVNET_ENV_PATH)
+      : (devnetEnvPathArg ?? DEVNET_ENV_PATH);
+  const addressesPath =
+    typeof optionsOrTargetFile === "object"
+      ? (optionsOrTargetFile.addressesPath ?? DEVNET_ADDRESSES_PATH)
+      : (addressesPathArg ?? DEVNET_ADDRESSES_PATH);
+  const localnetEnvPath =
+    typeof optionsOrTargetFile === "object"
+      ? (optionsOrTargetFile.localnetEnvPath ?? LOCALNET_ENV_PATH)
+      : LOCALNET_ENV_PATH;
+
   const addresses = readDevnetAddresses(addressesPath) || {};
   const devnetEnv = fs.existsSync(devnetEnvPath)
     ? readEnvFile(devnetEnvPath)
@@ -170,6 +323,33 @@ export function syncDevnetToActiveEnv(
   const currentTargetEnv = fs.existsSync(targetFile)
     ? readEnvFile(targetFile)
     : {};
+
+  const isActiveDevnet = currentTargetEnv.NEXT_PUBLIC_ENVIRONMENT === "devnet";
+
+  // Automatic initial bootstrap seeding:
+  // If .env.localnet does not exist on disk, but targetFile contains non-mock local Pusher keys
+  // and is not already in devnet mode, seed .env.localnet before applying Devnet variables.
+  if (
+    !fs.existsSync(localnetEnvPath) &&
+    fs.existsSync(targetFile) &&
+    !isActiveDevnet
+  ) {
+    const localPusherKeysToSeed: Record<string, string> = {};
+    for (const item of PUSHER_VARS) {
+      const val = currentTargetEnv[item.envKey];
+      if (val && !item.isLocalMock(val, currentTargetEnv)) {
+        localPusherKeysToSeed[item.envKey] = val;
+      }
+    }
+    if (Object.keys(localPusherKeysToSeed).length > 0) {
+      console.log(
+        `ℹ Bootstrapping initial ${path.basename(localnetEnvPath)} with existing local Pusher configuration...`
+      );
+      upsertEnvFile(localnetEnvPath, localPusherKeysToSeed, {
+        headerComment: "# Localnet Environment Profile (Auto-synchronized)",
+      });
+    }
+  }
 
   // Hierarchical address resolution: addresses.json > .env.devnet > canonical SDK constants
   const programId =
@@ -241,10 +421,12 @@ export function syncDevnetToActiveEnv(
   };
 
   // Declaratively resolve all Category A cloud variables uniformly:
-  // Priority: .env.devnet (non-mock) > non-mock edit in active target > canonical default
+  // Priority: .env.devnet (non-mock) > non-mock edit in active target (ONLY IF active env is devnet) > canonical default
   for (const item of PRESERVED_CLOUD_VARS) {
     const profileVal = devnetEnv[item.envKey];
-    const activeVal = currentTargetEnv[item.envKey];
+    const activeVal = isActiveDevnet
+      ? currentTargetEnv[item.envKey]
+      : undefined;
     const isNonMockProfile =
       profileVal && !item.isLocalMock(profileVal, devnetContext);
     const isNonMockActive =
@@ -253,7 +435,7 @@ export function syncDevnetToActiveEnv(
       (isNonMockProfile ? profileVal : undefined) ||
       (isNonMockActive ? activeVal : undefined) ||
       item.defaultValue;
-    if (resolved) {
+    if (resolved !== undefined) {
       devnetVars[item.envKey] = resolved;
     }
   }
@@ -268,26 +450,38 @@ export function syncDevnetToActiveEnv(
     devnetVars.DATABASE_URL = "";
   }
 
-  // Profile Isolation: If any non-mock cloud credentials were salvaged from active env that were missing
-  // or mock in .env.devnet, persist ONLY those Category A variables into .env.devnet. Never write on-chain accounts to .env.devnet!
-  const cloudUpdatesToPersist: Record<string, string> = {};
-  for (const item of PRESERVED_CLOUD_VARS) {
-    const val = devnetVars[item.envKey];
-    const profileVal = devnetEnv[item.envKey];
-    const isProfileMockOrMissing =
-      !profileVal || item.isLocalMock(profileVal, devnetContext);
-    if (
-      val &&
-      isProfileMockOrMissing &&
-      (!item.defaultValue || val !== item.defaultValue)
-    ) {
-      cloudUpdatesToPersist[item.envKey] = val;
+  // Prevent cross-network Pusher broadcast pollution:
+  // If .env.devnet contains no non-mock Pusher keys, neutralize Pusher keys so localnet credentials
+  // never linger in .env.local while executing in Devnet mode.
+  for (const item of PUSHER_VARS) {
+    if (devnetVars[item.envKey] === undefined) {
+      devnetVars[item.envKey] = item.defaultValue ?? "";
     }
   }
-  if (Object.keys(cloudUpdatesToPersist).length > 0) {
-    upsertEnvFile(devnetEnvPath, cloudUpdatesToPersist, {
-      headerComment: "# Devnet Environment Profile (Auto-synchronized)",
-    });
+
+  // Profile Isolation: If any non-mock cloud credentials were salvaged from active env that were missing
+  // or mock in .env.devnet, persist ONLY those Category A variables into .env.devnet.
+  // STRICT GUARD: Only salvage if active env was already in devnet mode!
+  const cloudUpdatesToPersist: Record<string, string> = {};
+  if (isActiveDevnet) {
+    for (const item of PRESERVED_CLOUD_VARS) {
+      const val = devnetVars[item.envKey];
+      const profileVal = devnetEnv[item.envKey];
+      const isProfileMockOrMissing =
+        !profileVal || item.isLocalMock(profileVal, devnetContext);
+      if (
+        val &&
+        isProfileMockOrMissing &&
+        (!item.defaultValue || val !== item.defaultValue)
+      ) {
+        cloudUpdatesToPersist[item.envKey] = val;
+      }
+    }
+    if (Object.keys(cloudUpdatesToPersist).length > 0) {
+      upsertEnvFile(devnetEnvPath, cloudUpdatesToPersist, {
+        headerComment: "# Devnet Environment Profile (Auto-synchronized)",
+      });
+    }
   }
 
   // Apply to active target (.env.local) non-destructively preserving Category C keys
