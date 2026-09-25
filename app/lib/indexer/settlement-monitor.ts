@@ -7,7 +7,10 @@ import {
 } from "../realtime/server";
 import { createSolanaRpc, address, type Address } from "@solana/kit";
 import { decodeAccountBase64Data, parseMockHumaPoolState } from "../bonds-sdk";
-import type { HeliusTransactionPayload } from "../types/webhook";
+import {
+  extractTransactionAccountKeys,
+  type RawSolanaTransactionPayload,
+} from "../types/webhook";
 
 export const DEFAULT_POOL_ID = 1;
 
@@ -21,45 +24,18 @@ export interface HumaSettlementCheckResult {
 }
 
 /**
- * Checks whether a Helius transaction payload interacts with the Huma Pool State account.
- * Compatible with localnet simulated payloads, local relayer RPC captures, and live Helius Enhanced Webhooks.
+ * Checks whether a transaction payload interacts with the Huma Pool State account.
+ * Compatible with standard Solana JSON-RPC transactions, v0 Versioned Transactions (ALTs),
+ * local relayer RPC captures, and simulated payloads.
  */
 export function isHumaSettlementTx(
-  tx: HeliusTransactionPayload,
+  tx: RawSolanaTransactionPayload | Record<string, unknown>,
   humaPoolStateAddress?: string | Address
 ): boolean {
-  if (!humaPoolStateAddress) return false;
+  if (!humaPoolStateAddress || !tx) return false;
   const target = humaPoolStateAddress.toString();
-
-  // 1. Check meta.accountKeys (Simulated localnet & standard RPC format)
-  if (tx.meta?.accountKeys?.some((key) => key.toString() === target)) {
-    return true;
-  }
-
-  // 2. Check meta.loadedAddresses (Solana v0 Versioned Transactions / ALTs)
-  if (tx.meta?.loadedAddresses) {
-    const writable = tx.meta.loadedAddresses.writable || [];
-    const readonly = tx.meta.loadedAddresses.readonly || [];
-    if (
-      writable.some((k) => k.toString() === target) ||
-      readonly.some((k) => k.toString() === target)
-    ) {
-      return true;
-    }
-  }
-
-  // 3. Check top-level accountData (Live Helius Enhanced Webhook format)
-  if (Array.isArray(tx.accountData)) {
-    return tx.accountData.some((item) => {
-      if (typeof item === "string") return item === target;
-      if (item && typeof item === "object" && "account" in item) {
-        return (item as { account: string }).account === target;
-      }
-      return false;
-    });
-  }
-
-  return false;
+  const accounts = extractTransactionAccountKeys(tx);
+  return accounts.includes(target);
 }
 
 export class SettlementMonitorService {

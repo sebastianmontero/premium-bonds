@@ -1077,8 +1077,21 @@ function decodeEventData(
  * Anchor emits events as `Program data: <base64>` log entries (emit!)
  * and as inner instructions (emit_cpi!).
  */
+export interface ParsableInnerInstruction {
+  data?: string | Uint8Array | null;
+}
+
+export interface ParsableInnerInstructionSet {
+  instructions?: ParsableInnerInstruction[] | null;
+}
+
+export interface ParsableTransactionMeta {
+  logMessages?: string[] | null;
+  innerInstructions?: (ParsableInnerInstructionSet | Record<string, unknown>)[] | null;
+}
+
 export function parseEventsFromTxMeta(
-  meta: Record<string, unknown> | null | undefined
+  meta: ParsableTransactionMeta | null | undefined
 ): ParsedProgramEvent[] {
   const events: ParsedProgramEvent[] = [];
   if (!meta) return events;

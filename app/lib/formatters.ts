@@ -6,7 +6,9 @@ import type {
 } from "../types";
 
 export const USDC_DECIMALS = 6;
-export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const USDC_MINT =
+  process.env.NEXT_PUBLIC_USDC_MINT ||
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const DEFAULT_LIVE_YIELD_PRECISION = 6;
 export const SECONDS_PER_YEAR = 365.25 * 86400; // 31,557,600
 export const BPS_DENOMINATOR = 10_000;

@@ -1,10 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { isTimingSafeAuthorized } from "../app/lib/webhook-auth";
 import {
-  isTimingSafeAuthorized,
-  isSuccessfulHeliusTransaction,
-} from "../app/lib/webhook-auth";
-import type { HeliusTransactionPayload } from "../app/lib/types/webhook";
+  extractTransactionSignature,
+  isEnhancedWebhookPayload,
+  isValidRawSolanaTransaction,
+  type RawSolanaTransactionPayload,
+} from "../app/lib/types/webhook";
 
 describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
   it("should evaluate timing-safe authorization tokens correctly", () => {
@@ -46,8 +48,9 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
     );
   });
 
-  it("should filter failed, reverted, and malformed transactions cleanly", () => {
-    const samplePayload: HeliusTransactionPayload[] = [
+  it("should filter failed, reverted, and malformed transactions cleanly across payload variants", () => {
+    const samplePayload: RawSolanaTransactionPayload[] = [
+      // 1. Relayer / flat payload format
       {
         signature: "sig1",
         slot: 100,
@@ -55,48 +58,114 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
         err: null,
         meta: { err: null },
       },
+      // 2. Canonical Solana JSON-RPC format (Helius Raw Webhook)
       {
-        signature: "sig2",
         slot: 101,
-        timestamp: 1001,
+        blockTime: 1001,
+        transaction: {
+          signatures: ["sig_canonical_2"],
+        },
+        err: null,
+        meta: { err: null },
+      },
+      // 3. Reverted at root
+      {
+        signature: "sig_err_root",
+        slot: 102,
+        timestamp: 1002,
         err: { InstructionError: [0, "Custom"] },
         meta: { err: null },
       },
+      // 4. Reverted in metadata
       {
-        signature: "sig3",
-        slot: 102,
-        timestamp: 1002,
+        transaction: { signatures: ["sig_err_meta"] },
+        slot: 103,
+        timestamp: 1003,
         err: null,
         meta: { err: { InstructionError: [1, "Custom"] } },
       },
+      // 5. TransactionFailed error
       {
-        signature: "sig4",
-        slot: 103,
-        timestamp: 1003,
+        signature: "sig_failed",
+        slot: 104,
+        timestamp: 1004,
         transactionError: "TransactionFailed",
         meta: { err: null },
       },
-      { signature: "", slot: 104, timestamp: 1004, err: null },
+      // 6. Empty / missing signature
+      { signature: "", slot: 105, timestamp: 1005, err: null, meta: { err: null } },
+      // 7. Missing meta (Enhanced payload)
       {
-        signature: "sig5",
-        slot: 105,
-        timestamp: 1005,
+        signature: "sig_enhanced",
+        slot: 106,
+        timestamp: 1006,
+        err: null,
+        meta: null,
+      },
+      // 8. Signatures array format
+      {
+        signatures: ["sig_arr_8"],
+        slot: 107,
+        timestamp: 1007,
         err: null,
         meta: { err: null },
       },
     ];
 
-    const validTransactions = samplePayload.filter(
-      isSuccessfulHeliusTransaction
-    );
+    const validTransactions = samplePayload.filter(isValidRawSolanaTransaction);
 
     assert.strictEqual(
       validTransactions.length,
-      2,
-      "Expected exactly 2 valid successful transactions"
+      3,
+      "Expected exactly 3 valid successful transactions (flat sig1, canonical sig_canonical_2, array sig_arr_8)"
     );
-    assert.strictEqual(validTransactions[0].signature, "sig1");
-    assert.strictEqual(validTransactions[1].signature, "sig5");
+    assert.strictEqual(extractTransactionSignature(validTransactions[0]), "sig1");
+    assert.strictEqual(
+      extractTransactionSignature(validTransactions[1]),
+      "sig_canonical_2"
+    );
+    assert.strictEqual(
+      extractTransactionSignature(validTransactions[2]),
+      "sig_arr_8"
+    );
+  });
+
+  it("should accurately detect Helius Enhanced Webhook format via isEnhancedWebhookPayload", () => {
+    assert.strictEqual(
+      isEnhancedWebhookPayload({
+        signature: "sig1",
+        type: "UNKNOWN",
+        instructions: [{ programId: "1111" }],
+        meta: null,
+      }),
+      true,
+      "Enhanced payload with instructions and null meta must return true"
+    );
+
+    assert.strictEqual(
+      isEnhancedWebhookPayload({
+        signature: "sig2",
+        tokenTransfers: [],
+        meta: null,
+      }),
+      true,
+      "Enhanced payload with tokenTransfers and null meta must return true"
+    );
+
+    assert.strictEqual(
+      isEnhancedWebhookPayload({
+        transaction: { signatures: ["sig3"] },
+        meta: { err: null, logMessages: [] },
+      }),
+      false,
+      "Raw payload with meta must return false"
+    );
+
+    assert.strictEqual(
+      isEnhancedWebhookPayload([]),
+      false,
+      "Empty array must return false"
+    );
   });
 
   it("should invalidate pool stats and pool info caches upon encountering terminal draw events", async () => {

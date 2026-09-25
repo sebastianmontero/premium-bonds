@@ -17,11 +17,13 @@ import {
   isHumaSettlementTx,
   DEFAULT_POOL_ID,
 } from "@/app/lib/indexer/settlement-monitor";
-import type { HeliusTransactionPayload } from "@/app/lib/types/webhook";
 import {
-  isTimingSafeAuthorized,
-  isSuccessfulHeliusTransaction,
-} from "@/app/lib/webhook-auth";
+  extractTransactionSignature,
+  isEnhancedWebhookPayload,
+  isValidRawSolanaTransaction,
+  type RawSolanaTransactionPayload,
+} from "@/app/lib/types/webhook";
+import { isTimingSafeAuthorized } from "@/app/lib/webhook-auth";
 import { resolveSolanaRpcUrl, getNetworkInfo } from "@/app/lib/network";
 import { createSolanaRpc } from "@solana/kit";
 import { PayoutHydratorService } from "@/app/lib/indexer/payout-hydrator";
@@ -65,28 +67,44 @@ export async function POST(req: NextRequest) {
 
   try {
     const payload = await req.json();
-    const transactions: HeliusTransactionPayload[] = Array.isArray(payload)
+    const transactions: RawSolanaTransactionPayload[] = Array.isArray(payload)
       ? payload
       : [payload];
     const network = getNetworkInfo().cluster;
 
-    // Strictly filter out null signatures and reverted/failed transactions
-    const validTransactions = transactions.filter(
-      isSuccessfulHeliusTransaction
-    );
+    // 1. Fail-fast guard against Helius Enhanced Webhook format (missing meta/logs)
+    if (transactions.some(isEnhancedWebhookPayload)) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid webhook payload format. Premium Bonds requires Raw transactions (webhookType: 'raw'). " +
+            "Please edit your webhook in the Helius Dashboard (https://dashboard.helius.dev/webhooks) and set Webhook Type to 'Raw'.",
+        },
+        { status: 400 }
+      );
+    }
 
-    const batch: IngestTransactionItem[] = validTransactions.map((tx) => ({
-      context: {
-        signature: tx.signature,
-        slot: Number(tx.slot || 0),
-        blockTime: Number(tx.timestamp || Math.floor(Date.now() / 1000)),
-        network,
-      },
-      events: parseEventsFromTxMeta({
-        logMessages: tx.meta?.logMessages || tx.logs || [],
-        innerInstructions: tx.meta?.innerInstructions || [],
-      }),
-    }));
+    // 2. Filter valid, non-reverted raw transactions
+    const validTransactions = transactions.filter(isValidRawSolanaTransaction);
+
+    // 3. Map to IngestTransactionItem using native in-memory tx.meta parsing
+    const batch: IngestTransactionItem[] = validTransactions.map((tx) => {
+      const signature = extractTransactionSignature(tx) ?? "unknown";
+      const slot = Number(tx.slot || 0);
+      const blockTime = Number(
+        tx.blockTime || tx.timestamp || Math.floor(Date.now() / 1000)
+      );
+
+      return {
+        context: {
+          signature,
+          slot,
+          blockTime,
+          network,
+        },
+        events: parseEventsFromTxMeta(tx.meta),
+      };
+    });
 
     const ingestResult = await ingestTransactionBatch(batch, {
       updateLatestCursor: true,

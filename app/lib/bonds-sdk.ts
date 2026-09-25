@@ -117,8 +117,12 @@ export type {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const PROGRAM_ID = ANCHOR_PROGRAM_ADDRESS;
-export const HUMA_PROGRAM_ID = MOCK_HUMA_PROGRAM_ADDRESS;
+export const PROGRAM_ID = address(
+  process.env.NEXT_PUBLIC_PROGRAM_ID || ANCHOR_PROGRAM_ADDRESS
+);
+export const HUMA_PROGRAM_ID = address(
+  process.env.NEXT_PUBLIC_HUMA_PROGRAM_ID || MOCK_HUMA_PROGRAM_ADDRESS
+);
 export const SYSTEM_PROGRAM_ID = address("11111111111111111111111111111111");
 export const TOKEN_PROGRAM_ID = address(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -127,7 +131,8 @@ export const ATA_PROGRAM_ID = address(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
 export const USDC_MINT = address(
-  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  process.env.NEXT_PUBLIC_USDC_MINT ||
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
 export const REGISTRY_INITIAL_SIZE = 262_248n;
 

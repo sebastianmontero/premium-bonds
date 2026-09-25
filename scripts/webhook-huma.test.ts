@@ -8,6 +8,44 @@ const TARGET_HUMA_POOL = "HumaPoo111111111111111111111111111111111111";
 const OTHER_ACCOUNT = "OtherAcc11111111111111111111111111111111111";
 
 describe("isHumaSettlementTx Unit Tests", () => {
+  it("should match when target address is in transaction.message.accountKeys (canonical Solana JSON-RPC format)", () => {
+    // String array format
+    const txRpcStrings: HeliusTransactionPayload = {
+      slot: 100,
+      timestamp: 1700000000,
+      transaction: {
+        signatures: ["tx_rpc_str_1"],
+        message: {
+          accountKeys: [OTHER_ACCOUNT, TARGET_HUMA_POOL],
+        },
+      },
+      meta: {
+        err: null,
+      },
+    };
+    assert.strictEqual(isHumaSettlementTx(txRpcStrings, TARGET_HUMA_POOL), true);
+    assert.strictEqual(isHumaSettlementTx(txRpcStrings, address(TARGET_HUMA_POOL)), true);
+
+    // Object array format ({ pubkey: string })
+    const txRpcObjects: HeliusTransactionPayload = {
+      slot: 100,
+      timestamp: 1700000000,
+      transaction: {
+        signatures: ["tx_rpc_obj_1"],
+        message: {
+          accountKeys: [
+            { pubkey: OTHER_ACCOUNT },
+            { pubkey: TARGET_HUMA_POOL },
+          ],
+        },
+      },
+      meta: {
+        err: null,
+      },
+    };
+    assert.strictEqual(isHumaSettlementTx(txRpcObjects, TARGET_HUMA_POOL), true);
+  });
+
   it("should match when target address is in meta.accountKeys (string array)", () => {
     const tx: HeliusTransactionPayload = {
       signature: "tx_meta_str_1",
