@@ -18,6 +18,7 @@ import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   buildTransferSolInstruction,
+  buildCreateAccountInstruction,
 } from "./utils";
 import {
   reconcilePoolState,
@@ -25,6 +26,9 @@ import {
   parseFundArgs,
   calculateFallbackSolTransfer,
   requestDevnetAirdrop,
+  parseSettleArgs,
+  ensureHumaLenderStateOnChain,
+  HUMA_LENDER_STATE_SPACE,
 } from "./devnet";
 import * as path from "path";
 import {
@@ -749,6 +753,132 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
 
         const mintIx = instructions[1];
         assert.strictEqual(mintIx.accounts?.[2].address, adminSigner.address);
+      });
+    });
+
+    describe("buildCreateAccountInstruction", () => {
+      it("creates a valid SystemProgram::CreateAccount instruction", async () => {
+        const payer = await generateKeyPairSigner();
+        const newAccount = await generateKeyPairSigner();
+        const ownerProgramId = address(
+          "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+        );
+        const lamports = 1_000_000n;
+        const space = 64n;
+
+        const ix = buildCreateAccountInstruction({
+          payer,
+          newAccount,
+          lamports,
+          space,
+          ownerProgramId,
+        });
+
+        assert.strictEqual(ix.programAddress, SYSTEM_PROGRAM_ID);
+        assert.strictEqual(ix.accounts?.length, 2);
+        assert.strictEqual(ix.accounts[0].address, payer.address);
+        assert.strictEqual(ix.accounts[0].role, AccountRole.WRITABLE_SIGNER);
+        assert.strictEqual(ix.accounts[1].address, newAccount.address);
+        assert.strictEqual(ix.accounts[1].role, AccountRole.WRITABLE_SIGNER);
+
+        const view = new DataView(
+          ix.data!.buffer,
+          ix.data!.byteOffset,
+          ix.data!.byteLength
+        );
+        assert.strictEqual(view.getUint32(0, true), 0); // opcode 0
+        assert.strictEqual(view.getBigUint64(4, true), lamports);
+        assert.strictEqual(view.getBigUint64(12, true), space);
+        assert.deepStrictEqual(
+          ix.data!.subarray(20, 52),
+          getBase58Encoder().encode(ownerProgramId)
+        );
+      });
+    });
+
+    describe("parseSettleArgs", () => {
+      it("parses empty args with default count 0", () => {
+        const res = parseSettleArgs([]);
+        assert.strictEqual(res.count, 0);
+      });
+
+      it("parses positional count", () => {
+        const res = parseSettleArgs(["5"]);
+        assert.strictEqual(res.count, 5);
+      });
+
+      it("parses --count flag", () => {
+        const res = parseSettleArgs(["--count", "3"]);
+        assert.strictEqual(res.count, 3);
+      });
+
+      it("parses --count= flag", () => {
+        const res = parseSettleArgs(["--count=7"]);
+        assert.strictEqual(res.count, 7);
+      });
+
+      it("parses -c shorthand flag", () => {
+        const res = parseSettleArgs(["-c", "2"]);
+        assert.strictEqual(res.count, 2);
+      });
+
+      it("throws on missing value for --count", () => {
+        assert.throws(() => parseSettleArgs(["--count"]), {
+          message: "Missing value for --count argument.",
+        });
+      });
+
+      it("throws on negative or non-numeric count", () => {
+        assert.throws(() => parseSettleArgs(["-5"]), {
+          message: "count must be a non-negative integer.",
+        });
+        assert.throws(() => parseSettleArgs(["abc"]), {
+          message: "count must be a non-negative integer.",
+        });
+      });
+    });
+
+    describe("ensureHumaLenderStateOnChain", () => {
+      it("skips allocation if account already exists with valid owner and space", async () => {
+        const payer = await generateKeyPairSigner();
+        const lenderStateSigner = await generateKeyPairSigner();
+        const humaProgramId = address(
+          "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
+        );
+
+        let getAccountInfoCalled = false;
+        let getRentCalled = false;
+
+        const dummy64BytesBase64 = Buffer.alloc(64).toString("base64");
+        const mockRpc = {
+          getAccountInfo: (addr: Address) => {
+            getAccountInfoCalled = true;
+            return {
+              send: async () => ({
+                value: {
+                  owner: humaProgramId,
+                  data: [dummy64BytesBase64, "base64"],
+                  lamports: 1_000_000n,
+                  space: 64n,
+                },
+              }),
+            };
+          },
+          getMinimumBalanceForRentExemption: () => {
+            getRentCalled = true;
+            return { send: async () => 1_000_000n };
+          },
+        } as any;
+
+        await ensureHumaLenderStateOnChain({
+          rpc: mockRpc,
+          payer,
+          lenderStateSigner,
+          humaProgramId,
+        });
+
+        assert.strictEqual(getAccountInfoCalled, true);
+        assert.strictEqual(getRentCalled, false); // skipped because already exists and valid
       });
     });
   });

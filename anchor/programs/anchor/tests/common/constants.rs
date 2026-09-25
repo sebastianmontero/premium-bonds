@@ -32,5 +32,5 @@ pub const TEST_SLOT_OFFSET_RANDOMNESS_EXPIRED: u64 =
 
 // ─── Discriminators & Tags ──────────────────────────────────────────────────
 
-pub const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR: [u8; 8] = [10, 66, 229, 135, 220, 239, 217, 114];
 pub const ANCHOR_EVENT_IX_TAG: [u8; 8] = [0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d];
+

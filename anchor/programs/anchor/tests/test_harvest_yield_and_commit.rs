@@ -6,6 +6,7 @@
 
 use anchor_lang::AccountDeserialize;
 use solana_keypair::Keypair;
+use solana_program::pubkey::Pubkey;
 use solana_sdk::account::Account;
 use solana_signer::Signer;
 
@@ -438,26 +439,42 @@ fn test_harvest_fails_invalid_mint() {
 }
 
 #[test]
-fn test_harvest_succeeds_with_devnet_switchboard_owner() {
+fn test_harvest_succeeds_with_configured_switchboard_owner() {
     let mut ctx = HarvestFixtureBuilder::new()
         .with_status(anchor::PoolStatus::Active, false)
         .with_cycle_end_at(0)
         .build();
-    let devnet_randomness = Keypair::new().pubkey();
+    let configured_randomness = Keypair::new().pubkey();
     inject_randomness_account_data_with_owner(
         &mut ctx.svm,
-        devnet_randomness,
+        configured_randomness,
         0,
         0,
         [0u8; 32],
-        anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
     );
-    ctx.randomness_account = devnet_randomness;
+    ctx.randomness_account = configured_randomness;
     let res = ctx.send_harvest(1, 0);
     assert!(
         res.is_ok(),
-        "Harvest must accept Devnet Switchboard PID: {:?}",
+        "Harvest must accept configured Switchboard PID: {:?}",
         res.err()
+    );
+}
+
+#[test]
+fn test_harvest_fails_unconfigured_switchboard_owner() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
+    let unconfigured_randomness = Keypair::new().pubkey();
+    inject_unconfigured_randomness_account(&mut ctx.svm, unconfigured_randomness);
+    ctx.randomness_account = unconfigured_randomness;
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
 
@@ -467,7 +484,13 @@ fn test_harvest_fails_invalid_randomness_account_owner() {
         .with_status(anchor::PoolStatus::Active, false)
         .with_cycle_end_at(0)
         .build();
-    ctx.randomness_account = Keypair::new().pubkey();
+    let foreign_randomness = Keypair::new().pubkey();
+    inject_foreign_owner_randomness_account(
+        &mut ctx.svm,
+        foreign_randomness,
+        Pubkey::default(),
+    );
+    ctx.randomness_account = foreign_randomness;
     let res = ctx.send_harvest(1, 0);
     assert_custom_error(
         res,
@@ -482,20 +505,7 @@ fn test_harvest_fails_invalid_randomness_account_discriminator() {
         .with_cycle_end_at(0)
         .build();
     let bad_randomness = Keypair::new().pubkey();
-    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
-    data[0..8].copy_from_slice(&[0u8; 8]); // Corrupted discriminator
-    ctx.svm
-        .set_account(
-            bad_randomness,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_corrupted_randomness_discriminator(&mut ctx.svm, bad_randomness);
     ctx.randomness_account = bad_randomness;
     let res = ctx.send_harvest(1, 0);
     assert_custom_error(
@@ -511,20 +521,7 @@ fn test_harvest_fails_truncated_randomness_account() {
         .with_cycle_end_at(0)
         .build();
     let truncated_randomness = Keypair::new().pubkey();
-    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1]; // Truncated
-    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
-    ctx.svm
-        .set_account(
-            truncated_randomness,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_truncated_randomness_account(&mut ctx.svm, truncated_randomness);
     ctx.randomness_account = truncated_randomness;
     let res = ctx.send_harvest(1, 0);
     assert_custom_error(
@@ -532,6 +529,23 @@ fn test_harvest_fails_truncated_randomness_account() {
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
+
+#[test]
+fn test_harvest_fails_zero_byte_randomness_account() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_status(anchor::PoolStatus::Active, false)
+        .with_cycle_end_at(0)
+        .build();
+    let zero_byte_randomness = Keypair::new().pubkey();
+    inject_zero_byte_randomness_account(&mut ctx.svm, zero_byte_randomness);
+    ctx.randomness_account = zero_byte_randomness;
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
 
 
 #[test]

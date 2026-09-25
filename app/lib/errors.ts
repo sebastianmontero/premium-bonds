@@ -657,6 +657,13 @@ export const ANCHOR_FRAMEWORK_ERRORS: Record<
     name: "ConstraintAccountIsHeader",
     message: "Account is header constraint check failed.",
   },
+  2040: {
+    name: "ConstraintDuplicateMutableAccount",
+    message:
+      "Multiple mutable account arguments refer to the exact same account.",
+    actionable:
+      "Ensure distinct mutable accounts are provided to the instruction.",
+  },
 
   // Require Errors (2500-2506)
   2500: {
@@ -890,6 +897,63 @@ export const SPL_TOKEN_ERRORS: Record<
   },
 };
 
+/**
+ * Safely converts arbitrary error codes (number, bigint, decimal string, hex string)
+ * into a valid number within JavaScript safe integer range, preventing silent truncation.
+ */
+export function toNumericCode(code: unknown): number | null {
+  if (typeof code === "number") {
+    return Number.isFinite(code) ? code : null;
+  }
+  if (typeof code === "bigint") {
+    if (
+      code >= BigInt(Number.MIN_SAFE_INTEGER) &&
+      code <= BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      return Number(code);
+    }
+    return null;
+  }
+  if (typeof code === "string") {
+    const trimmed = code.trim();
+    if (/^0x[0-9a-fA-F]+$/i.test(trimmed)) {
+      const parsed = parseInt(trimmed, 16);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    if (/^-?\d+$/.test(trimmed)) {
+      const parsed = parseInt(trimmed, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Safely serializes arbitrary error objects containing BigInt values, Error instances, or circular references.
+ */
+export function safeJsonStringify(value: unknown, space?: number): string {
+  try {
+    const seen = new WeakSet();
+    return JSON.stringify(
+      value,
+      (_, v) => {
+        if (typeof v === "bigint") return v.toString();
+        if (v instanceof Error) {
+          return { name: v.name, message: v.message, cause: v.cause, ...v };
+        }
+        if (typeof v === "object" && v !== null) {
+          if (seen.has(v)) return "[Circular]";
+          seen.add(v);
+        }
+        return v;
+      },
+      space
+    );
+  } catch {
+    return String(value);
+  }
+}
+
 export interface ErrorTraversalResult {
   messages: string[];
   logs: string[];
@@ -930,14 +994,21 @@ export function traverseErrorGraph(
     const o = node as Record<string, unknown>;
     if (typeof o.message === "string") result.messages.push(o.message);
     if (typeof o.name === "string") result.messages.push(o.name);
-    if (typeof o.code === "number" || typeof o.code === "string") {
-      result.codes.push(o.code);
+    if (
+      typeof o.code === "number" ||
+      typeof o.code === "string" ||
+      typeof o.code === "bigint"
+    ) {
+      const num = toNumericCode(o.code);
+      result.codes.push(num ?? (o.code as string));
     }
     if (o.Custom !== undefined) {
-      result.codes.push(o.Custom as number | string);
+      const num = toNumericCode(o.Custom);
+      result.codes.push(num ?? (o.Custom as number | string));
     }
     if (o.custom !== undefined) {
-      result.codes.push(o.custom as number | string);
+      const num = toNumericCode(o.custom);
+      result.codes.push(num ?? (o.custom as number | string));
     }
     if (o.InstructionError !== undefined) {
       visit(o.InstructionError, depth + 1);
@@ -955,10 +1026,12 @@ export function traverseErrorGraph(
         }
       }
       if (ctx.code !== undefined) {
-        result.codes.push(ctx.code as number | string);
+        const num = toNumericCode(ctx.code);
+        result.codes.push(num ?? (ctx.code as number | string));
       }
       if (ctx.__code !== undefined) {
-        result.codes.push(ctx.__code as number | string);
+        const num = toNumericCode(ctx.__code);
+        result.codes.push(num ?? (ctx.__code as number | string));
       }
     }
     if (o.data && typeof o.data === "object") {
@@ -996,7 +1069,7 @@ export function traverseErrorGraph(
         result.planErrorMessage =
           typeof errRecord.message === "string"
             ? errRecord.message
-            : JSON.stringify(err);
+            : safeJsonStringify(err);
       }
     }
 
@@ -1061,10 +1134,64 @@ export function matchAnchorError(input: unknown): {
 } | null {
   if (!input) return null;
 
-  // 1. Direct object inspection (e.g. err.context?.code, err.cause?.context?.code, err.code, err.Custom)
+  let text = "";
+  if (typeof input === "string") {
+    text = input;
+  } else {
+    text = safeJsonStringify(input) + " " + String(input);
+  }
+
+  // 1. Explicit Anchor error log pattern matching (handles cross-program error disambiguation)
+  // Matches:
+  // - AnchorError caused by account: <account>. Error Code: <Name>. Error Number: <code>. Error Message: <Msg>.
+  // - AnchorError thrown in <file>:<line>. Error Code: <Name>. Error Number: <code>. Error Message: <Msg>.
+  // - AnchorError Error Code: <Name>. Error Number: <code>. Error Message: <Msg>.
+  const explicitAnchorLogMatch = text.match(
+    /AnchorError\s+(?:(?:caused by account:\s*([^\s.]+)|thrown in [^:]+:\d+)\.\s*)?Error Code:\s*([A-Za-z0-9_]+)\.\s*Error Number:\s*(\d+)\.\s*Error Message:\s*([^"\n\r]+)/
+  );
+
+  if (explicitAnchorLogMatch) {
+    const accountName = explicitAnchorLogMatch[1]?.trim();
+    const errorCodeName = explicitAnchorLogMatch[2]?.trim();
+    const decCode = parseInt(explicitAnchorLogMatch[3], 10);
+    const rawErrorMessage = explicitAnchorLogMatch[4]?.trim();
+
+    // If this code & name match YieldBonds' custom catalog, return enriched catalog entry
+    if (ANCHOR_CUSTOM_ERRORS[decCode]?.name === errorCodeName) {
+      return {
+        code: decCode,
+        info: ANCHOR_CUSTOM_ERRORS[decCode],
+        isFramework: false,
+      };
+    }
+
+    // If this matches Anchor framework errors, return framework catalog entry
+    if (ANCHOR_FRAMEWORK_ERRORS[decCode]?.name === errorCodeName) {
+      return {
+        code: decCode,
+        info: ANCHOR_FRAMEWORK_ERRORS[decCode],
+        isFramework: true,
+      };
+    }
+
+    // Otherwise, return the exact emitting program's error (e.g. Mock Huma, external CPI)
+    return {
+      code: decCode,
+      info: {
+        name: errorCodeName,
+        message: rawErrorMessage,
+        actionable: accountName
+          ? `Check and verify account: ${accountName}`
+          : undefined,
+      },
+      isFramework: false,
+    };
+  }
+
+  // 2. Direct object inspection (e.g. err.context?.code, err.cause?.context?.code, err.code, err.Custom)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const errObj = input as any;
-  const directCode =
+  const rawDirectCode =
     errObj?.context?.code ??
     errObj?.cause?.context?.code ??
     errObj?.code ??
@@ -1072,9 +1199,11 @@ export function matchAnchorError(input: unknown): {
     errObj?.custom ??
     errObj?.InstructionError?.[1]?.Custom ??
     errObj?.InstructionError?.[1]?.custom ??
-    (typeof input === "number" ? input : null);
+    (typeof input === "number" || typeof input === "bigint" ? input : null);
 
-  if (typeof directCode === "number") {
+  const directCode = toNumericCode(rawDirectCode);
+
+  if (directCode !== null) {
     if (ANCHOR_CUSTOM_ERRORS[directCode]) {
       return {
         code: directCode,
@@ -1091,18 +1220,7 @@ export function matchAnchorError(input: unknown): {
     }
   }
 
-  let text = "";
-  if (typeof input === "string") {
-    text = input;
-  } else {
-    try {
-      text = JSON.stringify(input) + " " + String(input);
-    } catch {
-      text = String(input);
-    }
-  }
-
-  // 2. Hex or decimal error pattern matching in string/logs
+  // 3. Hex or decimal error pattern matching in string/logs
   const match =
     text.match(/"Custom"\s*:\s*(\d+)/i) ||
     text.match(/Custom\s*:\s*(\d+)/i) ||
@@ -1132,7 +1250,7 @@ export function matchAnchorError(input: unknown): {
     }
   }
 
-  // 3. Name or error string matching
+  // 4. Name or error string matching
   for (const [codeStr, info] of Object.entries(ANCHOR_CUSTOM_ERRORS)) {
     const code = Number(codeStr);
     const hexCode = `0x${code.toString(16)}`;
@@ -1248,9 +1366,10 @@ export function matchSquadsError(
   info: { name: string; message: string; actionable?: string };
 } | null {
   if (rawLogs === undefined || rawLogs === null) return null;
-  if (typeof rawLogs === "number") {
-    if (SQUADS_CUSTOM_ERRORS[rawLogs]) {
-      return { code: rawLogs, info: SQUADS_CUSTOM_ERRORS[rawLogs] };
+  const directCode = toNumericCode(rawLogs);
+  if (directCode !== null) {
+    if (SQUADS_CUSTOM_ERRORS[directCode]) {
+      return { code: directCode, info: SQUADS_CUSTOM_ERRORS[directCode] };
     }
     return null;
   }
@@ -1258,7 +1377,7 @@ export function matchSquadsError(
     ? rawLogs.join("\n")
     : typeof rawLogs === "string"
       ? rawLogs
-      : String(rawLogs);
+      : safeJsonStringify(rawLogs);
 
   // 1. Explicit regex match for Squads program frame
   const squadsFailedMatch = text.match(
@@ -1310,9 +1429,10 @@ export function matchSplTokenError(
   info: { name: string; message: string; actionable?: string };
 } | null {
   if (rawLogs === undefined || rawLogs === null) return null;
-  if (typeof rawLogs === "number") {
-    if (SPL_TOKEN_ERRORS[rawLogs]) {
-      return { code: rawLogs, info: SPL_TOKEN_ERRORS[rawLogs] };
+  const directCode = toNumericCode(rawLogs);
+  if (directCode !== null) {
+    if (SPL_TOKEN_ERRORS[directCode]) {
+      return { code: directCode, info: SPL_TOKEN_ERRORS[directCode] };
     }
     return null;
   }
@@ -1321,7 +1441,7 @@ export function matchSplTokenError(
     ? rawLogs.join("\n")
     : typeof rawLogs === "string"
       ? rawLogs
-      : String(rawLogs);
+      : safeJsonStringify(rawLogs);
 
   // 1. Explicit regex match for Token or Token-2022 program frame failure
   const tokenFailedMatch = text.match(
@@ -1806,6 +1926,8 @@ export function parseTransactionError(
       !isGenericBoilerplate(String(errorObj.cause.message))
     ) {
       displayMsg = String(errorObj.cause.message);
+    } else if (err && typeof err === "object" && Object.keys(err).length > 0) {
+      displayMsg = safeJsonStringify(err);
     }
   }
   const sanitized = sanitizeErrorMessage(displayMsg);

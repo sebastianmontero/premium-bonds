@@ -103,7 +103,7 @@ pub struct HarvestYieldAndCommit<'info> {
     )]
     pub huma_pool_state: UncheckedAccount<'info>,
 
-    /// CHECK: Raw randomness account from Switchboard On-Demand. Validated to ensure its owner matches an authorized Switchboard On-Demand program ID (Devnet or Mainnet), data length is sufficient, and possesses authentic RandomnessAccountData discriminator.
+    /// CHECK: Raw randomness account from Switchboard On-Demand. Validated to ensure its owner matches the authorized Switchboard On-Demand program ID for the compiled target network (compile-time gated), data length is sufficient, and possesses authentic RandomnessAccountData discriminator.
     #[account(
         constraint = crate::utils::is_valid_switchboard_randomness_account(&randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount
     )]

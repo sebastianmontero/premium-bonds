@@ -93,7 +93,13 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
         meta: { err: null },
       },
       // 6. Empty / missing signature
-      { signature: "", slot: 105, timestamp: 1005, err: null, meta: { err: null } },
+      {
+        signature: "",
+        slot: 105,
+        timestamp: 1005,
+        err: null,
+        meta: { err: null },
+      },
       // 7. Missing meta (Enhanced payload)
       {
         signature: "sig_enhanced",
@@ -119,7 +125,10 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
       3,
       "Expected exactly 3 valid successful transactions (flat sig1, canonical sig_canonical_2, array sig_arr_8)"
     );
-    assert.strictEqual(extractTransactionSignature(validTransactions[0]), "sig1");
+    assert.strictEqual(
+      extractTransactionSignature(validTransactions[0]),
+      "sig1"
+    );
     assert.strictEqual(
       extractTransactionSignature(validTransactions[1]),
       "sig_canonical_2"

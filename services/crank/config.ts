@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import { Address, address } from "@solana/kit";
-import { resolveSolanaRpcUrl } from "../../app/lib/network";
+import { resolveSolanaRpcUrl, resolveNetwork } from "../../app/lib/network";
 import { readEnvFile } from "../../scripts/env-utils";
 
 let isEnvLoaded = false;
@@ -65,6 +66,7 @@ export interface CrankConfig {
   pstMint?: Address;
   humaPoolUnderlyingToken?: Address;
   dryRun: boolean;
+  allowNonJobsSigner?: boolean;
 }
 
 export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
@@ -83,13 +85,22 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     process.env.HUMA_POOL_UNDERLYING_TOKEN ||
     process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN;
 
+  const network = resolveNetwork(process.env.NEXT_PUBLIC_ENVIRONMENT, rpcUrl);
+  const devKeypair = path.resolve(
+    os.homedir(),
+    ".config/solana/crank-keypair-dev.json"
+  );
+  const keypairPath =
+    overrides?.keypairPath ||
+    process.env.KEYPAIR_PATH ||
+    (network.cluster === "devnet" && fs.existsSync(devKeypair)
+      ? devKeypair
+      : process.env.ANCHOR_WALLET);
+
   return {
     rpcUrl,
     wsUrl,
-    keypairPath:
-      overrides?.keypairPath ||
-      process.env.KEYPAIR_PATH ||
-      process.env.ANCHOR_WALLET,
+    keypairPath,
     keypairSecret: overrides?.keypairSecret || process.env.JOBS_KEYPAIR_SECRET,
     poolIds: rawPoolIds.length > 0 ? rawPoolIds : [1],
     pollIntervalMs:
@@ -137,6 +148,9 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
       overrides?.humaPoolUnderlyingToken ||
       (humaUnderlyingStr ? address(humaUnderlyingStr) : undefined),
     dryRun: overrides?.dryRun ?? process.env.DRY_RUN === "true",
+    allowNonJobsSigner:
+      overrides?.allowNonJobsSigner ??
+      process.env.ALLOW_NON_JOBS_SIGNER === "true",
   };
 }
 

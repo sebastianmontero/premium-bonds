@@ -29,11 +29,13 @@ export class AdaptiveCrankScheduler {
   private readonly alertNotifier: AlertNotifier;
   private readonly metrics: MetricsServer;
   private readonly vrfProvider: IVrfProvider;
-  private readonly tasks: readonly ICrankTask[];
+  private tasks: readonly ICrankTask[];
+  private readonly disburseWorker: DisburseSentinelWorker;
   private readonly context: CrankExecutionContext;
   private readonly inFlightPools: Set<number> = new Set();
   private readonly nextEligibleTickMs: Map<number, number> = new Map();
   private readonly maxConcurrentPools = 3;
+  private authorizationVerified = false;
 
   constructor(
     private readonly config: CrankConfig,
@@ -59,6 +61,7 @@ export class AdaptiveCrankScheduler {
     this.context = {
       signer: this.signer,
       rpcUrl: config.rpcUrl,
+      config: this.config,
       maxPrepareBatchSize: config.maxPrepareBatchSize,
       maxReinvestBatchSize: config.maxReinvestBatchSize,
       enableAutoDisburse: config.enableAutoDisburse,
@@ -66,6 +69,7 @@ export class AdaptiveCrankScheduler {
       jitoEnabled: config.jitoEnabled,
     };
 
+    this.disburseWorker = new DisburseSentinelWorker();
     this.tasks = [
       new HarvestYieldWorker(this.vrfProvider, config),
       new PrepareDrawWorker(),
@@ -73,7 +77,7 @@ export class AdaptiveCrankScheduler {
       new AtomicRevealWorker(this.vrfProvider),
       new ReinvestWinningsWorker(),
       new CapacitySentinelWorker(this.alertNotifier),
-      new DisburseSentinelWorker(),
+      this.disburseWorker,
     ];
   }
 
@@ -89,6 +93,7 @@ export class AdaptiveCrankScheduler {
     // Hard Fail-Fast on Startup: Verify signer is authorized jobsAccount
     if (!this.config.dryRun) {
       await this.verifyJobsAccountAuthorization();
+      this.authorizationVerified = true;
     }
 
     // Initial balance check
@@ -107,6 +112,7 @@ export class AdaptiveCrankScheduler {
   }
 
   private async verifyJobsAccountAuthorization(): Promise<void> {
+    let globalConfigBytes: Uint8Array | null = null;
     try {
       const globalConfigPda = await findGlobalConfigPda();
       const res = await this.rpc
@@ -118,32 +124,47 @@ export class AdaptiveCrankScheduler {
         );
         return;
       }
-      const bytes = new Uint8Array(
+      globalConfigBytes = new Uint8Array(
         getBase64Encoder().encode(res.value.data[0])
       );
-      const parsed = parseGlobalConfig(bytes);
-      if (
-        parsed.jobsAccount !== this.signer.address &&
-        parsed.admin !== this.signer.address
-      ) {
-        throw new Error(
-          `Crank signer ${this.signer.address} is NOT authorized on-chain. Expected jobsAccount: ${parsed.jobsAccount} or admin: ${parsed.admin}.`
-        );
-      }
-      console.log(
-        `[AdaptiveCrankScheduler] Signer verified as authorized on-chain crank authority.`
-      );
     } catch (err: unknown) {
-      if (err instanceof Error && err.message.includes("NOT authorized")) {
-        throw err;
-      }
       console.warn(
-        `[AdaptiveCrankScheduler] Warning during startup authorization check: ${err instanceof Error ? err.message : String(err)}`
+        `[AdaptiveCrankScheduler] Warning during startup authorization check RPC fetch: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
+    }
+
+    if (!globalConfigBytes) return;
+    const parsed = parseGlobalConfig(globalConfigBytes);
+    if (parsed.jobsAccount !== this.signer.address) {
+      if (this.config.allowNonJobsSigner) {
+        console.warn(
+          `[AdaptiveCrankScheduler] Warning: Signer ${this.signer.address} does not match on-chain jobsAccount (${parsed.jobsAccount}). ` +
+            `HarvestYieldWorker will be disabled, but remaining 6 permissionless crank tasks will run.`
+        );
+        this.tasks = this.tasks.filter((t) => t.name !== "HarvestYieldWorker");
+        return;
+      }
+
+      throw new Error(
+        `Unauthorized Crank Signer: Active signer ${this.signer.address} does not match on-chain jobsAccount (${parsed.jobsAccount}). ` +
+          `Harvest instructions strictly require the designated jobsAccount keypair. ` +
+          `Either provide KEYPAIR_PATH=~/.config/solana/crank-keypair-dev.json or update on-chain globalConfig via: ` +
+          `npx tsx scripts/pb-cli.ts admin update-global --jobs-account ${this.signer.address}`
       );
     }
+
+    console.log(
+      `[AdaptiveCrankScheduler] Signer verified as authorized on-chain jobsAccount (${parsed.jobsAccount}).`
+    );
   }
 
   async tickOnce(): Promise<boolean> {
+    if (!this.config.dryRun && !this.authorizationVerified) {
+      await this.verifyJobsAccountAuthorization();
+      this.authorizationVerified = true;
+    }
+
     const now = Date.now();
     const eligiblePools = this.config.poolIds.filter((poolId) => {
       const nextTick = this.nextEligibleTickMs.get(poolId) || 0;
@@ -300,17 +321,25 @@ export class AdaptiveCrankScheduler {
             console.log(
               `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} succeeded. Tx: ${result.signature}`
             );
+            if (task.name === "DisburseSentinelWorker") {
+              this.disburseWorker.invalidateCandidateCache(poolId);
+            }
             this.metrics.incrementTx(task.name, true);
             this.breaker.recordSuccess(poolId);
             executedAny = true;
-          } else if (result.outcome === "CONCURRENCY_RACE_LOST") {
+          } else if (result.outcome.status === "CONCURRENCY_RACE_LOST") {
             console.log(
               `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} benign race lost. State already progressed.`
             );
             // Do not trip circuit breaker on benign race
           } else {
+            const actionable =
+              result.outcome.status === "ERROR" &&
+              result.outcome.parsedError?.actionableStep
+                ? ` | Action: ${result.outcome.parsedError.actionableStep}`
+                : "";
             console.error(
-              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed: ${result.reason}`
+              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed: ${result.reason}${actionable}`
             );
             this.metrics.incrementTx(task.name, false);
             this.breaker.recordPoolFailure(poolId, result.reason);

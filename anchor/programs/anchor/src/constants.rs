@@ -76,10 +76,27 @@ pub const SWITCHBOARD_ON_DEMAND_DEVNET_PID: Pubkey =
 pub const SWITCHBOARD_ON_DEMAND_MAINNET_PID: Pubkey =
     solana_program::pubkey!("SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv");
 
+/// Active Switchboard On-Demand Program ID for the target network.
+#[cfg(feature = "mainnet")]
+pub const SWITCHBOARD_ON_DEMAND_PID: Pubkey = SWITCHBOARD_ON_DEMAND_MAINNET_PID;
+
+/// Active Switchboard On-Demand Program ID for the target network.
+#[cfg(not(feature = "mainnet"))]
+pub const SWITCHBOARD_ON_DEMAND_PID: Pubkey = SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+
+/// Switchboard On-Demand Program ID for the opposing (unconfigured) network (used for negative verification).
+#[cfg(feature = "mainnet")]
+pub const UNCONFIGURED_SWITCHBOARD_ON_DEMAND_PID: Pubkey = SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+
+/// Switchboard On-Demand Program ID for the opposing (unconfigured) network (used for negative verification).
+#[cfg(not(feature = "mainnet"))]
+pub const UNCONFIGURED_SWITCHBOARD_ON_DEMAND_PID: Pubkey = SWITCHBOARD_ON_DEMAND_MAINNET_PID;
+
 /// Switchboard On-Demand RandomnessAccountData 8-byte discriminator.
 pub const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR: [u8; 8] = [10, 66, 229, 135, 220, 239, 217, 114];
 
 /// Minimum required byte length for a valid Switchboard RandomnessAccountData account (8-byte discriminator + struct size = 408 bytes).
 pub const SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN: usize =
     8 + std::mem::size_of::<switchboard_on_demand::accounts::RandomnessAccountData>();
+
 

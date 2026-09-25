@@ -443,19 +443,7 @@ impl DrawCycleTestBuilder {
 
     pub fn with_mock_randomness(mut self, svm: &mut LiteSVM) -> Self {
         let rand_pk = Pubkey::new_unique();
-        let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-        let owner_pubkey = Pubkey::new_from_array(owner_bytes);
-        svm.set_account(
-            rand_pk,
-            Account {
-                lamports: 1_000_000_000,
-                data: vec![0u8; 1000],
-                owner: owner_pubkey,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+        crate::common::injectors::inject_mock_randomness_account(svm, rand_pk);
         self.cycle.randomness_account = rand_pk;
         self
     }

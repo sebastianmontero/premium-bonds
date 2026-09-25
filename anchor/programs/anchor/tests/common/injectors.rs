@@ -305,6 +305,20 @@ pub fn inject_dummy_huma_account(svm: &mut LiteSVM, address: Pubkey) {
     .unwrap();
 }
 
+fn inject_raw_account(svm: &mut LiteSVM, address: Pubkey, owner: Pubkey, data: Vec<u8>) {
+    svm.set_account(
+        address,
+        Account {
+            lamports: 1_000_000_000,
+            data,
+            owner,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .unwrap();
+}
+
 pub fn inject_mock_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
     inject_randomness_account_data(svm, address, 0, 0, [0u8; 32]);
 }
@@ -316,15 +330,13 @@ pub fn inject_randomness_account_data(
     reveal_slot: u64,
     value: [u8; 32],
 ) {
-    let owner_bytes = switchboard_on_demand::get_switchboard_on_demand_program_id().to_bytes();
-    let owner_pubkey = Pubkey::new_from_array(owner_bytes);
     inject_randomness_account_data_with_owner(
         svm,
         address,
         seed_slot,
         reveal_slot,
         value,
-        owner_pubkey,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
     );
 }
 
@@ -351,15 +363,47 @@ pub fn inject_randomness_account_data_with_owner(
     let bytes: &[u8] = bytemuck::bytes_of(&randomness_data);
     data[8..8 + bytes.len()].copy_from_slice(bytes);
 
-    let account = Account {
-        lamports: 1_000_000_000,
-        data,
-        owner,
-        executable: false,
-        rent_epoch: 0,
-    };
-    svm.set_account(address, account).unwrap();
+    inject_raw_account(svm, address, owner, data);
 }
+
+pub fn inject_corrupted_randomness_discriminator(svm: &mut LiteSVM, address: Pubkey) {
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+    data[0..8].copy_from_slice(&[0xff; 8]); // Explicit invalid discriminator
+    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, data);
+}
+
+pub fn inject_truncated_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
+    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1];
+    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, data);
+}
+
+pub fn inject_zero_byte_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
+    inject_raw_account(svm, address, anchor::constants::SWITCHBOARD_ON_DEMAND_PID, vec![]);
+}
+
+pub fn inject_unconfigured_randomness_account(svm: &mut LiteSVM, address: Pubkey) {
+    inject_randomness_account_data_with_owner(
+        svm,
+        address,
+        0,
+        0,
+        [0u8; 32],
+        anchor::constants::UNCONFIGURED_SWITCHBOARD_ON_DEMAND_PID,
+    );
+}
+
+pub fn inject_foreign_owner_randomness_account(svm: &mut LiteSVM, address: Pubkey, foreign_owner: Pubkey) {
+    inject_randomness_account_data_with_owner(
+        svm,
+        address,
+        0,
+        0,
+        [0u8; 32],
+        foreign_owner,
+    );
+}
+
 
 
 pub fn inject_current_slot_randomness(svm: &mut LiteSVM, address: Pubkey, value: [u8; 32]) {

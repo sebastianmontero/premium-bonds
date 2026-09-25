@@ -484,9 +484,25 @@ export const DEVNET_FAUCET_URLS = [
   "https://faucet.quicknode.com/solana/devnet",
   "https://faucet.helius.dev",
 ] as const;
-export const DEFAULT_DEVNET_AIRDROP_SOL = "1";
 export const MIN_ADMIN_FEE_PAYER_LAMPORTS = 5_000_000n; // 0.005 SOL
 export const RECIPIENT_AIRDROP_THRESHOLD_LAMPORTS = 100_000_000n; // 0.1 SOL
+
+export const SWITCHBOARD_ON_DEMAND_DEVNET_PID =
+  "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2" as const;
+export const SWITCHBOARD_ON_DEMAND_MAINNET_PID =
+  "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv" as const;
+export const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR = [
+  10, 66, 229, 135, 220, 239, 217, 114,
+] as const;
+
+export function resolveSwitchboardProgramId(): string {
+  const isMainnet =
+    process.env.SB_ENV === "mainnet" ||
+    process.env.NEXT_PUBLIC_ENVIRONMENT === "mainnet";
+  return isMainnet
+    ? SWITCHBOARD_ON_DEMAND_MAINNET_PID
+    : SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+}
 
 /**
  * Resolves the fee payer keypair path with standard fallback hierarchy:
@@ -930,6 +946,45 @@ export const ATA_PROGRAM_ID = address(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
 
+export interface BuildCreateAccountParams {
+  readonly payer: KeyPairSigner;
+  readonly newAccount: KeyPairSigner;
+  readonly lamports: bigint;
+  readonly space: bigint;
+  readonly ownerProgramId: Address;
+}
+
+/**
+ * Builds native SystemProgram CreateAccount instruction (Opcode 0).
+ */
+export function buildCreateAccountInstruction(
+  params: BuildCreateAccountParams
+): Instruction {
+  const data = new Uint8Array(4 + 8 + 8 + 32);
+  const view = new DataView(data.buffer);
+  view.setUint32(0, 0, true); // SystemProgram::CreateAccount opcode (0)
+  view.setBigUint64(4, params.lamports, true);
+  view.setBigUint64(12, params.space, true);
+  data.set(getBase58Encoder().encode(params.ownerProgramId), 20);
+
+  return {
+    programAddress: SYSTEM_PROGRAM_ID,
+    accounts: [
+      {
+        address: params.payer.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.payer,
+      },
+      {
+        address: params.newAccount.address,
+        role: AccountRole.WRITABLE_SIGNER,
+        signer: params.newAccount,
+      },
+    ],
+    data,
+  };
+}
+
 export interface CreateMintOptions {
   readonly rpc: ReturnType<typeof createSolanaRpc>;
   readonly payer: KeyPairSigner;
@@ -951,29 +1006,13 @@ export async function buildCreateMintInstructions(
     .send();
 
   // 1. SystemProgram::CreateAccount (Opcode 0)
-  const createAccountData = new Uint8Array(4 + 8 + 8 + 32);
-  const createView = new DataView(createAccountData.buffer);
-  createView.setUint32(0, 0, true);
-  createView.setBigUint64(4, rentExempt, true);
-  createView.setBigUint64(12, space, true);
-  createAccountData.set(getBase58Encoder().encode(TOKEN_PROGRAM_ID), 20);
-
-  const createAccountIx: Instruction = {
-    programAddress: SYSTEM_PROGRAM_ID,
-    accounts: [
-      {
-        address: params.payer.address,
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: params.payer,
-      },
-      {
-        address: params.mint.address,
-        role: AccountRole.WRITABLE_SIGNER,
-        signer: params.mint,
-      },
-    ],
-    data: createAccountData,
-  };
+  const createAccountIx = buildCreateAccountInstruction({
+    payer: params.payer,
+    newAccount: params.mint,
+    lamports: rentExempt,
+    space,
+    ownerProgramId: TOKEN_PROGRAM_ID,
+  });
 
   // 2. TokenProgram::InitializeMint2 (Opcode 20)
   const initMintData = new Uint8Array(1 + 1 + 32 + 1 + 32);

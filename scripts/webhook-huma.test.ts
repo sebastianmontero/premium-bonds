@@ -23,8 +23,14 @@ describe("isHumaSettlementTx Unit Tests", () => {
         err: null,
       },
     };
-    assert.strictEqual(isHumaSettlementTx(txRpcStrings, TARGET_HUMA_POOL), true);
-    assert.strictEqual(isHumaSettlementTx(txRpcStrings, address(TARGET_HUMA_POOL)), true);
+    assert.strictEqual(
+      isHumaSettlementTx(txRpcStrings, TARGET_HUMA_POOL),
+      true
+    );
+    assert.strictEqual(
+      isHumaSettlementTx(txRpcStrings, address(TARGET_HUMA_POOL)),
+      true
+    );
 
     // Object array format ({ pubkey: string })
     const txRpcObjects: HeliusTransactionPayload = {
@@ -43,7 +49,10 @@ describe("isHumaSettlementTx Unit Tests", () => {
         err: null,
       },
     };
-    assert.strictEqual(isHumaSettlementTx(txRpcObjects, TARGET_HUMA_POOL), true);
+    assert.strictEqual(
+      isHumaSettlementTx(txRpcObjects, TARGET_HUMA_POOL),
+      true
+    );
   });
 
   it("should match when target address is in meta.accountKeys (string array)", () => {

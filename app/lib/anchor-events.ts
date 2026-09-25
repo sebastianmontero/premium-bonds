@@ -1087,7 +1087,9 @@ export interface ParsableInnerInstructionSet {
 
 export interface ParsableTransactionMeta {
   logMessages?: string[] | null;
-  innerInstructions?: (ParsableInnerInstructionSet | Record<string, unknown>)[] | null;
+  innerInstructions?:
+    | (ParsableInnerInstructionSet | Record<string, unknown>)[]
+    | null;
 }
 
 export function parseEventsFromTxMeta(

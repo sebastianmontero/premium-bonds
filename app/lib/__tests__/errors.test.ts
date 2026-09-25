@@ -512,4 +512,40 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
     assert.strictEqual(parsed.code, 4001);
     assert.strictEqual(parsed.title, "Transaction Cancelled");
   });
+
+  it("should disambiguate Mock Huma error 6005 (InvalidAccountOwner) away from YieldBonds RegistryTooSmall", () => {
+    const mockHumaErr = new Error(
+      "AnchorError caused by account: lender_state. Error Code: InvalidAccountOwner. Error Number: 6005. Error Message: MockHuma: Account has an invalid owner."
+    );
+
+    const parsed = parseTransactionError(mockHumaErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6005);
+    assert.strictEqual(parsed.title, "Program Error: InvalidAccountOwner");
+    assert.strictEqual(
+      parsed.message,
+      "MockHuma: Account has an invalid owner."
+    );
+    assert.strictEqual(
+      parsed.actionableStep,
+      "Check and verify account: lender_state"
+    );
+  });
+
+  it("should preserve YieldBonds error 6005 (RegistryTooSmall) when YieldBonds log is present", () => {
+    const yieldBondsErr = new Error(
+      "AnchorError thrown in programs/yield_bonds/src/state.rs:100. Error Code: RegistryTooSmall. Error Number: 6005. Error Message: Ticket registry is too small."
+    );
+
+    const parsed = parseTransactionError(yieldBondsErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6005);
+    assert.strictEqual(parsed.title, "Program Error: RegistryTooSmall");
+    assert.strictEqual(
+      parsed.message,
+      "The ticket registry account pre-allocation is too small."
+    );
+  });
 });

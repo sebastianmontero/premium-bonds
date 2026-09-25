@@ -76,22 +76,48 @@ const BENIGN_RACE_ERROR_CODES = new Set([
   6024, // WinnersAlreadyPicked
 ]);
 
-export function isBenignConcurrencyRace(err: unknown): boolean {
-  if (!err) return false;
-  const matched = matchAnchorError(err);
-  if (matched && BENIGN_RACE_ERROR_CODES.has(matched.code)) {
-    return true;
+export function isBenignConcurrencyRace(
+  err: unknown,
+  logs?: readonly string[]
+): boolean {
+  if (!err && (!logs || logs.length === 0)) return false;
+  if (err) {
+    const matched = matchAnchorError(err);
+    if (matched && BENIGN_RACE_ERROR_CODES.has(matched.code)) {
+      return true;
+    }
+    const str = String(err).toLowerCase();
+    if (
+      str.includes("already claimed") ||
+      str.includes("already prepared") ||
+      str.includes("already revealed") ||
+      str.includes("already harvested") ||
+      str.includes("already processed") ||
+      str.includes("0x1778") || // 6008 in hex
+      str.includes("custom program error: 0x1778")
+    ) {
+      return true;
+    }
   }
-  const str = String(err).toLowerCase();
-  return (
-    str.includes("already claimed") ||
-    str.includes("already prepared") ||
-    str.includes("already revealed") ||
-    str.includes("already harvested") ||
-    str.includes("already processed") ||
-    str.includes("0x1778") || // 6008 in hex
-    str.includes("custom program error: 0x1778")
-  );
+  if (logs && logs.length > 0) {
+    const matchedLog = matchAnchorError(logs);
+    if (matchedLog && BENIGN_RACE_ERROR_CODES.has(matchedLog.code)) {
+      return true;
+    }
+    const fullLogs = logs.join(" ").toLowerCase();
+    if (
+      fullLogs.includes("already claimed") ||
+      fullLogs.includes("already prepared") ||
+      fullLogs.includes("already revealed") ||
+      fullLogs.includes("already harvested") ||
+      fullLogs.includes("already processed") ||
+      fullLogs.includes("0x1778") ||
+      fullLogs.includes("custom program error: 0x1778")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export class TransactionExecutor {
@@ -156,7 +182,11 @@ export class TransactionExecutor {
         reason: "Simulated in DRY_RUN mode",
         signature: "dry_run_mock_signature",
         computeUnitsUsed: options.computeUnits,
-        outcome: "EXECUTED",
+        outcome: {
+          status: "EXECUTED",
+          signature: "dry_run_mock_signature",
+          computeUnitsUsed: options.computeUnits,
+        },
       };
     }
 
@@ -208,42 +238,46 @@ export class TransactionExecutor {
       const wireTx = getBase64EncodedWireTransaction(signedTx);
 
       // Mandatory Preflight Simulation
-      try {
-        const simRes = await this.rpc
-          .simulateTransaction(wireTx, {
-            encoding: "base64",
-            commitment: "confirmed",
-          })
-          .send();
+      const simRes = await this.rpc
+        .simulateTransaction(wireTx, {
+          encoding: "base64",
+          commitment: "confirmed",
+        })
+        .send();
 
-        if (simRes?.value?.err) {
-          if (isBenignConcurrencyRace(simRes.value.err)) {
-            console.log(
-              `[TxExecutor] [${workerName}] Preflight simulation benign concurrency race lost: state already progressed.`
-            );
-            return {
-              workerName,
-              executed: false,
-              reason: "State already progressed by competing replica",
-              outcome: "CONCURRENCY_RACE_LOST",
-            };
-          }
-
-          const parsed = parseTransactionError(simRes.value.err);
-          throw new Error(
-            `Simulation failed: ${parsed.title} (${parsed.code || "unknown"})`
+      if (simRes?.value?.err) {
+        const logs = (simRes.value.logs as string[] | undefined) || [];
+        if (isBenignConcurrencyRace(simRes.value.err, logs)) {
+          console.log(
+            `[TxExecutor] [${workerName}] Preflight simulation benign concurrency race lost: state already progressed.`
           );
-        }
-      } catch (simErr: unknown) {
-        if (isBenignConcurrencyRace(simErr)) {
           return {
             workerName,
             executed: false,
             reason: "State already progressed by competing replica",
-            outcome: "CONCURRENCY_RACE_LOST",
+            outcome: {
+              status: "CONCURRENCY_RACE_LOST",
+              reason: "State already progressed by competing replica",
+            },
           };
         }
-        throw simErr;
+
+        const parsed = parseTransactionError(simRes.value.err, logs);
+        const codeStr = parsed.code !== undefined ? ` (${parsed.code})` : "";
+        const reason = `Simulation failed: ${parsed.title}${codeStr} - ${parsed.message}`;
+        console.error(`[TxExecutor] [${workerName}] ${reason}`, logs);
+        return {
+          workerName,
+          executed: false,
+          reason,
+          outcome: {
+            status: "ERROR",
+            reason,
+            parsedError: parsed,
+            logs,
+            error: new Error(reason),
+          },
+        };
       }
 
       // Jito Bundle Submission or RPC Broadcast
@@ -295,13 +329,28 @@ export class TransactionExecutor {
                 workerName,
                 executed: false,
                 reason: "State already progressed on-chain",
-                outcome: "CONCURRENCY_RACE_LOST",
+                outcome: {
+                  status: "CONCURRENCY_RACE_LOST",
+                  reason: "State already progressed on-chain",
+                },
               };
             }
             const parsed = parseTransactionError(s.err);
-            throw new Error(
-              `Transaction reverted on-chain: ${parsed.title} (${parsed.code || "unknown"})`
-            );
+            const codeStr =
+              parsed.code !== undefined ? ` (${parsed.code})` : "";
+            const reason = `Transaction reverted on-chain: ${parsed.title}${codeStr} - ${parsed.message}`;
+            console.error(`[TxExecutor] [${workerName}] ${reason}`);
+            return {
+              workerName,
+              executed: false,
+              reason,
+              outcome: {
+                status: "ERROR",
+                reason,
+                parsedError: parsed,
+                error: new Error(reason),
+              },
+            };
           }
           if (
             s.confirmationStatus === "confirmed" ||
@@ -325,9 +374,20 @@ export class TransactionExecutor {
       }
 
       if (!confirmed) {
-        throw new Error(
-          `Transaction confirmation timed out after 15s. Signature: ${signature}`
-        );
+        const reason = `Transaction confirmation timed out after 15s. Signature: ${signature}`;
+        console.error(`[TxExecutor] [${workerName}] ${reason}`);
+        return {
+          workerName,
+          executed: false,
+          reason,
+          signature: signature || undefined,
+          outcome: {
+            status: "ERROR",
+            reason,
+            parsedError: parseTransactionError(new Error(reason)),
+            error: new Error(reason),
+          },
+        };
       }
 
       return {
@@ -336,7 +396,11 @@ export class TransactionExecutor {
         reason: "Confirmed successfully",
         signature,
         computeUnitsUsed: options.computeUnits,
-        outcome: "EXECUTED",
+        outcome: {
+          status: "EXECUTED",
+          signature,
+          computeUnitsUsed: options.computeUnits,
+        },
       };
     } catch (err: unknown) {
       if (isBenignConcurrencyRace(err)) {
@@ -344,16 +408,27 @@ export class TransactionExecutor {
           workerName,
           executed: false,
           reason: "State already progressed by competing replica",
-          outcome: "CONCURRENCY_RACE_LOST",
+          outcome: {
+            status: "CONCURRENCY_RACE_LOST",
+            reason: "State already progressed by competing replica",
+          },
         };
       }
 
       const parsed = parseTransactionError(err);
+      const codeStr = parsed.code !== undefined ? ` (${parsed.code})` : "";
+      const reason = `Failed to land transaction: ${parsed.title}${codeStr} - ${parsed.message}`;
+      console.error(`[TxExecutor] [${workerName}] ${reason}`);
       return {
         workerName,
         executed: false,
-        reason: `Failed to land transaction: ${parsed.title}`,
-        outcome: "ERROR",
+        reason,
+        outcome: {
+          status: "ERROR",
+          reason,
+          parsedError: parsed,
+          error: err instanceof Error ? err : new Error(String(err)),
+        },
         error: err instanceof Error ? err : new Error(String(err)),
       };
     }

@@ -26,6 +26,8 @@ import {
   printErrorDetails,
   extractAllLogs,
   readEnvFile,
+  resolveSwitchboardProgramId,
+  SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
 } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
@@ -1516,14 +1518,10 @@ export async function executeReveal({
 
     const buffer = new Uint8Array(SB_RANDOMNESS_ACCOUNT_SIZE);
     const view = new DataView(buffer.buffer);
-    const discriminator = [10, 66, 229, 135, 220, 239, 217, 114];
-    buffer.set(discriminator, 0);
+    buffer.set(SWITCHBOARD_RANDOMNESS_DISCRIMINATOR, 0);
     buffer.set(new Uint8Array(seed), SB_SEED_OFFSET);
 
-    const sbProgramId =
-      process.env.SB_ENV === "devnet"
-        ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
-        : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
+    const sbProgramId = resolveSwitchboardProgramId();
 
     const offsets = [1n, 2n, 0n, 3n];
     let confirmed = false;

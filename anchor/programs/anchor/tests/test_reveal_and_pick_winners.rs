@@ -447,18 +447,11 @@ fn test_reveal_fails_invalid_randomness_account_key() {
 #[test]
 fn test_reveal_fails_invalid_randomness_account_owner() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
-    ctx.svm
-        .set_account(
-            ctx.randomness_account,
-            Account {
-                lamports: 1_000_000_000,
-                data: vec![0u8; 100],
-                owner: Pubkey::default(),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_foreign_owner_randomness_account(
+        &mut ctx.svm,
+        ctx.randomness_account,
+        Pubkey::default(),
+    );
 
     let crank = clone_keypair(&ctx.crank);
     let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
@@ -472,7 +465,7 @@ fn test_reveal_fails_invalid_randomness_account_owner() {
 }
 
 #[test]
-fn test_reveal_succeeds_with_devnet_switchboard_owner() {
+fn test_reveal_succeeds_with_configured_switchboard_owner() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
     inject_randomness_account_data_with_owner(
@@ -481,53 +474,36 @@ fn test_reveal_succeeds_with_devnet_switchboard_owner() {
         0,
         0,
         [42u8; 32],
-        anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
+        anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
     );
     let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]);
     assert!(
         meta.is_ok(),
-        "Reveal must accept Devnet Switchboard PID: {:?}",
+        "Reveal must accept configured Switchboard PID: {:?}",
         meta.err()
     );
 }
 
 #[test]
-fn test_reveal_succeeds_with_mainnet_switchboard_owner() {
-    let tiers = vec![anchor::PrizeTier::default_single_winner()];
-    let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
-    inject_randomness_account_data_with_owner(
-        &mut ctx.svm,
-        ctx.randomness_account,
-        0,
-        0,
-        [42u8; 32],
-        anchor::constants::SWITCHBOARD_ON_DEMAND_MAINNET_PID,
-    );
-    let meta = send_reveal(&mut ctx, 1, 0, [42u8; 32]);
-    assert!(
-        meta.is_ok(),
-        "Reveal must accept Mainnet Switchboard PID: {:?}",
-        meta.err()
+fn test_reveal_fails_unconfigured_switchboard_owner() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    inject_unconfigured_randomness_account(&mut ctx.svm, ctx.randomness_account);
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
 
 #[test]
 fn test_reveal_fails_invalid_randomness_account_discriminator() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
-    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
-    data[0..8].copy_from_slice(&[0u8; 8]); // Corrupted discriminator
-    ctx.svm
-        .set_account(
-            ctx.randomness_account,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_corrupted_randomness_discriminator(&mut ctx.svm, ctx.randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
@@ -543,20 +519,23 @@ fn test_reveal_fails_invalid_randomness_account_discriminator() {
 #[test]
 fn test_reveal_fails_truncated_randomness_account() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
-    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1]; // Truncated
-    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
-    ctx.svm
-        .set_account(
-            ctx.randomness_account,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: anchor::constants::SWITCHBOARD_ON_DEMAND_DEVNET_PID,
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_truncated_randomness_account(&mut ctx.svm, ctx.randomness_account);
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::InvalidRandomnessAccount,
+    );
+}
+
+#[test]
+fn test_reveal_fails_zero_byte_randomness_account() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+    inject_zero_byte_randomness_account(&mut ctx.svm, ctx.randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
@@ -572,20 +551,11 @@ fn test_reveal_fails_truncated_randomness_account() {
 #[test]
 fn test_reveal_fails_foreign_owner_with_valid_discriminator() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
-    let mut data = vec![0u8; anchor::constants::SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
-    data[0..8].copy_from_slice(&anchor::constants::SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
-    ctx.svm
-        .set_account(
-            ctx.randomness_account,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: Pubkey::new_unique(), // Foreign owner
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .unwrap();
+    inject_foreign_owner_randomness_account(
+        &mut ctx.svm,
+        ctx.randomness_account,
+        Pubkey::new_unique(),
+    );
 
     let crank = clone_keypair(&ctx.crank);
     let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
@@ -597,6 +567,7 @@ fn test_reveal_fails_foreign_owner_with_valid_discriminator() {
         anchor::error::PremiumBondsError::InvalidRandomnessAccount,
     );
 }
+
 
 
 #[test]

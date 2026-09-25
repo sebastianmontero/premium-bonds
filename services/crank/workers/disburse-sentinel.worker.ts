@@ -5,6 +5,7 @@ import {
   HumaPoolAddresses,
   fetchPendingRedemptionCandidates,
   PendingRedemptionCandidate,
+  RedemptionType,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -13,6 +14,13 @@ import {
   CrankTaskOutcome,
 } from "../types";
 
+/**
+ * Physical MTU Ceiling Note:
+ * Each claim instruction requires ~8 accounts. With associated token account (ATA) creation
+ * and compute budget instructions, 3 claims compile to ~24 accounts (~1,000 bytes).
+ * Given the Solana IPv6 MTU transaction size limit of 1232 bytes, MAX_REDEMPTIONS_PER_TX = 3
+ * is the maximum physical payload that can safely fit into a single transaction.
+ */
 export const MAX_REDEMPTIONS_PER_TX = 3;
 
 interface CandidateCacheEntry {
@@ -24,6 +32,14 @@ export class DisburseSentinelWorker implements ICrankTask {
   readonly name = "DisburseSentinelWorker";
   private candidateCache: Map<number, CandidateCacheEntry> = new Map();
   private readonly cacheTtlMs = 30_000; // 30s candidate cache
+
+  invalidateCandidateCache(poolId?: number): void {
+    if (poolId !== undefined) {
+      this.candidateCache.delete(poolId);
+    } else {
+      this.candidateCache.clear();
+    }
+  }
 
   canHandle(snapshot: PoolStateSnapshot): boolean {
     return (
@@ -116,51 +132,42 @@ export class DisburseSentinelWorker implements ICrankTask {
     context: CrankExecutionContext,
     batch: PendingRedemptionCandidate[]
   ): Promise<Instruction[]> {
-    const defaultHumaAddresses: HumaPoolAddresses = {
-      poolState:
-        snapshot.pool.humaPoolState ||
-        address(
-          process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-            process.env.HUMA_POOL_STATE ||
-            SYSTEM_PROGRAM_ID
-        ),
-      config: address(
-        process.env.NEXT_PUBLIC_HUMA_CONFIG ||
-          process.env.HUMA_CONFIG ||
-          SYSTEM_PROGRAM_ID
-      ),
-      poolConfig: address(
-        process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
-          process.env.HUMA_POOL_CONFIG ||
-          SYSTEM_PROGRAM_ID
-      ),
-      modeConfig: address(
-        process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
-          process.env.HUMA_MODE_CONFIG ||
-          SYSTEM_PROGRAM_ID
-      ),
-      lenderState: address(
-        process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-          process.env.HUMA_LENDER_STATE ||
-          SYSTEM_PROGRAM_ID
-      ),
+    const humaAddresses: HumaPoolAddresses = {
+      poolState: snapshot.pool.humaPoolState || SYSTEM_PROGRAM_ID,
+      config: SYSTEM_PROGRAM_ID,
+      poolConfig: SYSTEM_PROGRAM_ID,
+      modeConfig: SYSTEM_PROGRAM_ID,
+      lenderState: SYSTEM_PROGRAM_ID,
+      poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
     };
 
     const tokenMint = address(snapshot.pool.tokenMint);
     const instructions: Instruction[] = [];
+    const seenBeneficiaries = new Set<string>();
 
     for (const candidate of batch) {
+      const isFeeWithdrawal =
+        candidate.redemptionType === RedemptionType.FeeWithdrawal;
+      const targetBeneficiary =
+        isFeeWithdrawal && snapshot.pool.feeWallet
+          ? snapshot.pool.feeWallet
+          : candidate.user;
+
+      const skipAta = seenBeneficiaries.has(targetBeneficiary);
+      seenBeneficiaries.add(targetBeneficiary);
+
       const ixs = await buildClaimRedemptionInstructions({
         crank: context.signer,
         beneficiary: candidate.user,
         poolId: snapshot.poolId,
         redemptionId: candidate.redemptionId,
         tokenMint,
-        humaAddresses: defaultHumaAddresses,
+        humaAddresses,
         redemptionType: candidate.redemptionType,
         feeWallet: snapshot.pool.feeWallet
           ? address(snapshot.pool.feeWallet)
           : undefined,
+        skipAtaCreation: skipAta,
       });
       instructions.push(...ixs);
     }

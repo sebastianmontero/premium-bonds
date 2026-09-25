@@ -76,7 +76,11 @@ export function extractTransactionSignature(
     const firstSig = (tx.transaction as { signatures: string[] }).signatures[0];
     if (typeof firstSig === "string" && firstSig.length > 0) return firstSig;
   }
-  if (Array.isArray(tx.signatures) && typeof tx.signatures[0] === "string" && tx.signatures[0].length > 0) {
+  if (
+    Array.isArray(tx.signatures) &&
+    typeof tx.signatures[0] === "string" &&
+    tx.signatures[0].length > 0
+  ) {
     return tx.signatures[0];
   }
   return null;

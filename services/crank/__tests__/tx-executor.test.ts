@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   isBenignConcurrencyRace,
   JITO_TIP_ACCOUNTS,
-  getRandomJitoTipAccount,
   createSystemTransferInstruction,
 } from "../executor/tx-executor";
 import { generateKeyPairSigner } from "@solana/kit";
@@ -59,13 +58,23 @@ describe("TxExecutor Unit Tests", () => {
     );
   });
 
-  it("should have exactly 8 canonical Jito tip accounts and rotate across them", () => {
-    assert.strictEqual(JITO_TIP_ACCOUNTS.length, 8);
-    const chosen = new Set<string>();
-    for (let i = 0; i < 50; i++) {
-      chosen.add(getRandomJitoTipAccount().toString());
-    }
-    assert.strictEqual(chosen.size > 1, true);
+  it("should classify BigInt error codes and logs as benign concurrency race", () => {
+    // BigInt 6008n = AlreadyClaimed
+    assert.strictEqual(
+      isBenignConcurrencyRace({
+        InstructionError: [0n, { Custom: 6008n }],
+      }),
+      true
+    );
+
+    // Matching in logs
+    assert.strictEqual(
+      isBenignConcurrencyRace({}, [
+        "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos invoke [1]",
+        "Program log: AnchorError Error Code: AlreadyClaimed. Error Number: 6008.",
+      ]),
+      true
+    );
   });
 
   it("should construct valid SystemProgram transfer tip instruction", async () => {

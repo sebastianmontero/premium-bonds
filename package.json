@@ -3,6 +3,7 @@
   "scripts": {
     "sync:keys": "tsx scripts/sync-keys.ts",
     "build": "npm run sync:keys && npm run codegen && next build",
+    "build:program:mainnet": "cargo build-sbf --manifest-path anchor/programs/anchor/Cargo.toml -- --features mainnet",
     "ci": "npm run sync:keys && npm run codegen && npm run scan:i18n && npm run test && npm run build && npm run lint && npm run format:check",
     "codegen": "tsx scripts/generate-client.ts",
     "dev": "next dev",
@@ -13,7 +14,7 @@
     "localnet": "tsx scripts/localnet.ts",
     "devnet": "tsx scripts/devnet.ts",
     "devnet:sync": "tsx scripts/devnet.ts sync-env",
-    "devnet:crank": "tsx services/crank/index.ts",
+    "devnet:crank": "KEYPAIR_PATH=${KEYPAIR_PATH:-~/.config/solana/crank-keypair-dev.json} tsx services/crank/index.ts",
     "devnet:vercel-sync": "tsx scripts/sync-vercel-envs.ts",
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",

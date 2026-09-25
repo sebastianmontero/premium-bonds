@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseTransactionError, ANCHOR_CUSTOM_ERRORS } from "../app/lib/errors";
+import {
+  parseTransactionError,
+  ANCHOR_CUSTOM_ERRORS,
+  toNumericCode,
+  safeJsonStringify,
+} from "../app/lib/errors";
 import { PROGRAM_ID } from "../app/lib/bonds-sdk";
 import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
@@ -244,5 +249,114 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
     assert.ok(
       parsed6066.actionableStep?.includes("yield venue has not yet disbursed")
     );
+  });
+
+  describe("toNumericCode & safeJsonStringify Helper Tests", () => {
+    it("should safely convert numbers, BigInts, and numeric strings with bounds checking", () => {
+      // standard numbers
+      assert.strictEqual(toNumericCode(0), 0);
+      assert.strictEqual(toNumericCode(6011), 6011);
+      assert.strictEqual(toNumericCode(-1), -1);
+
+      // bigints
+      assert.strictEqual(toNumericCode(6011n), 6011);
+      assert.strictEqual(toNumericCode(2040n), 2040);
+      assert.strictEqual(toNumericCode(0n), 0);
+      assert.strictEqual(
+        toNumericCode(BigInt(Number.MAX_SAFE_INTEGER)),
+        Number.MAX_SAFE_INTEGER
+      );
+      assert.strictEqual(
+        toNumericCode(BigInt(Number.MIN_SAFE_INTEGER)),
+        Number.MIN_SAFE_INTEGER
+      );
+      // Beyond safe integer bounds
+      assert.strictEqual(
+        toNumericCode(BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+        null
+      );
+      assert.strictEqual(
+        toNumericCode(BigInt(Number.MIN_SAFE_INTEGER) - 1n),
+        null
+      );
+
+      // hex and decimal strings
+      assert.strictEqual(toNumericCode("0x177b"), 6011);
+      assert.strictEqual(toNumericCode("0x7f8"), 2040);
+      assert.strictEqual(toNumericCode("6011"), 6011);
+      assert.strictEqual(toNumericCode("-32002"), -32002);
+      assert.strictEqual(toNumericCode("invalid"), null);
+      assert.strictEqual(toNumericCode(null), null);
+      assert.strictEqual(toNumericCode(undefined), null);
+    });
+
+    it("should safely serialize objects with BigInt, Error instances, and circular references", () => {
+      // BigInt serialization
+      const bigintObj = { code: 6011n, sub: { custom: 2040n } };
+      const serializedBigInt = safeJsonStringify(bigintObj);
+      assert.strictEqual(
+        serializedBigInt,
+        '{"code":"6011","sub":{"custom":"2040"}}'
+      );
+
+      // Error instance serialization
+      const err = new Error("Something broke");
+      err.cause = new Error("Root reason");
+      const serializedErr = safeJsonStringify(err);
+      assert.ok(serializedErr.includes('"name":"Error"'));
+      assert.ok(serializedErr.includes('"message":"Something broke"'));
+      assert.ok(serializedErr.includes('"message":"Root reason"'));
+
+      // Circular reference handling
+      const circularObj: Record<string, unknown> = { a: 1 };
+      circularObj.self = circularObj;
+      const serializedCircular = safeJsonStringify(circularObj);
+      assert.strictEqual(serializedCircular, '{"a":1,"self":"[Circular]"}');
+    });
+
+    it("should correctly parse RPC BigInt InstructionError and custom errors without masking", () => {
+      // BigInt UnauthorizedCrank (6011n)
+      const parsed6011 = parseTransactionError({
+        InstructionError: [0n, { Custom: 6011n }],
+      });
+      assert.strictEqual(parsed6011.code, 6011);
+      assert.strictEqual(parsed6011.category, "anchor_custom");
+      assert.strictEqual(parsed6011.title, "Program Error: UnauthorizedCrank");
+      assert.ok(
+        parsed6011.message.includes(
+          "Only designated oracle crank bots can execute this operation"
+        )
+      );
+
+      // BigInt ConstraintDuplicateMutableAccount (2040n)
+      const parsed2040 = parseTransactionError({
+        Custom: 2040n,
+      });
+      assert.strictEqual(parsed2040.code, 2040);
+      assert.strictEqual(parsed2040.category, "anchor_constraint");
+      assert.strictEqual(
+        parsed2040.title,
+        "Constraint Error: ConstraintDuplicateMutableAccount"
+      );
+      assert.ok(
+        parsed2040.message.includes(
+          "Multiple mutable account arguments refer to the exact same account"
+        )
+      );
+
+      // Nested InstructionError with logs containing BigInt and program error
+      const parsedSim = parseTransactionError(
+        {
+          InstructionError: [0n, { Custom: 6011n }],
+        },
+        [
+          "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos invoke [1]",
+          "Program log: AnchorError caused by account: crank. Error Code: UnauthorizedCrank. Error Number: 6011. Error Message: Caller is not authorized to execute crank instructions.",
+          "Program 3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos failed: custom program error: 0x177b",
+        ]
+      );
+      assert.strictEqual(parsedSim.code, 6011);
+      assert.strictEqual(parsedSim.title, "Program Error: UnauthorizedCrank");
+    });
   });
 });

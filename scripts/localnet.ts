@@ -24,8 +24,8 @@ import {
   loadOrGenerateKeypair,
   createResilientRpc,
   fetchAccountInfo,
-  fetchAccountData,
   parseTokenAccountBalance,
+  resolveSwitchboardProgramId,
 } from "./utils";
 import {
   findHumaPoolAuthorityPda,
@@ -732,10 +732,7 @@ export async function injectBaseState(options?: {
   }
 
   // 5b. Mock Switchboard Randomness
-  const sbProgramId =
-    process.env.SB_ENV === "devnet"
-      ? "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
-      : "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv";
+  const sbProgramId = resolveSwitchboardProgramId();
   if (!accMap[1]) {
     console.log("Injecting Mock Switchboard Randomness account...");
     const mockRandomnessData = serializeMockRandomnessAccount();

@@ -4,6 +4,8 @@ import type {
   TicketRegistry,
   PayoutRegistry,
 } from "../../app/lib/bonds-sdk";
+import type { CrankConfig } from "./config";
+import type { ParsedTransactionError } from "../../app/lib/errors";
 
 // ─── Branded Primitive Types ─────────────────────────────────────────────────
 
@@ -106,6 +108,7 @@ export interface CrankDecision {
 export interface CrankExecutionContext {
   readonly signer: TransactionSigner;
   readonly rpcUrl: string;
+  readonly config: CrankConfig;
   readonly maxPrepareBatchSize: number;
   readonly maxReinvestBatchSize: number;
   readonly enableAutoDisburse: boolean;
@@ -113,13 +116,31 @@ export interface CrankExecutionContext {
   readonly jitoEnabled?: boolean;
 }
 
+export type WorkerExecutionOutcome =
+  | {
+      readonly status: "EXECUTED";
+      readonly signature: string;
+      readonly computeUnitsUsed?: number;
+    }
+  | {
+      readonly status: "CONCURRENCY_RACE_LOST";
+      readonly reason: string;
+    }
+  | {
+      readonly status: "ERROR";
+      readonly reason: string;
+      readonly parsedError?: ParsedTransactionError;
+      readonly error?: Error;
+      readonly logs?: readonly string[];
+    };
+
 export interface WorkerExecutionResult {
   readonly workerName: string;
+  readonly outcome: WorkerExecutionOutcome;
   readonly executed: boolean;
   readonly reason: string;
   readonly signature?: string;
   readonly computeUnitsUsed?: number;
-  readonly outcome?: "EXECUTED" | "CONCURRENCY_RACE_LOST" | "ERROR";
   readonly error?: Error;
 }
 

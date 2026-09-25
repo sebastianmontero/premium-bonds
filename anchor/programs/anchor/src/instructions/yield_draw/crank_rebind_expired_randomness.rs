@@ -63,7 +63,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
     )]
     pub current_randomness_account: UncheckedAccount<'info>,
 
-    /// CHECK: Raw new randomness account to be bound to the draw cycle. Validated to ensure its owner matches an authorized Switchboard On-Demand program ID (Devnet or Mainnet), has valid data length and discriminator, and is distinct from current randomness account.
+    /// CHECK: Raw new randomness account to be bound to the draw cycle. Validated to ensure its owner matches the authorized Switchboard On-Demand program ID for the compiled target network (compile-time gated), has valid data length and discriminator, and is distinct from current randomness account.
     #[account(
         constraint = crate::utils::is_valid_switchboard_randomness_account(&new_randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount,
         constraint = new_randomness_account.key() != current_draw_cycle.randomness_account @ PremiumBondsError::SameRandomnessAccount

@@ -42,6 +42,7 @@ import {
   resolveDefaultKeypairPath,
   parseTokenAmount,
   buildTransferSolInstruction,
+  buildCreateAccountInstruction,
 } from "./utils";
 import {
   DevnetProtocolAccounts,
@@ -408,6 +409,95 @@ async function handleCreateRandomness(args: string[]) {
   await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
 }
 
+export const HUMA_LENDER_STATE_SPACE = 64n;
+
+export interface EnsureHumaLenderStateParams {
+  readonly rpc: ReturnType<typeof createSolanaRpc>;
+  readonly payer: KeyPairSigner;
+  readonly lenderStateSigner: KeyPairSigner;
+  readonly humaProgramId: Address;
+}
+
+/**
+ * Idempotently verifies and allocates the Mock Huma lender_state account on-chain.
+ */
+export async function ensureHumaLenderStateOnChain(
+  params: EnsureHumaLenderStateParams
+): Promise<void> {
+  const accountInfo = await fetchAccountInfo(
+    params.rpc,
+    params.lenderStateSigner.address
+  );
+
+  if (accountInfo?.value) {
+    const isOwnerValid = accountInfo.value.owner === params.humaProgramId;
+    const rawData = decodeAccountBase64Data(accountInfo.value);
+    const isSpaceValid = (rawData?.length ?? 0) >= 16;
+
+    if (isOwnerValid && isSpaceValid) {
+      console.log(
+        `Huma lender state account ${params.lenderStateSigner.address} already allocated on-chain.`
+      );
+      return;
+    }
+    console.warn(
+      `⚠️  Existing Huma lender state account has invalid owner (${accountInfo.value.owner}) or truncated space (${rawData?.length ?? 0}). Re-allocating...`
+    );
+  }
+
+  console.log(
+    `Allocating Huma lender state account (${params.lenderStateSigner.address}) on-chain...`
+  );
+  const rentExempt = await params.rpc
+    .getMinimumBalanceForRentExemption(HUMA_LENDER_STATE_SPACE)
+    .send();
+
+  const createAccountIx = buildCreateAccountInstruction({
+    payer: params.payer,
+    newAccount: params.lenderStateSigner,
+    lamports: rentExempt,
+    space: HUMA_LENDER_STATE_SPACE,
+    ownerProgramId: params.humaProgramId,
+  });
+
+  await sendTx(params.rpc, createAccountIx, [
+    params.payer,
+    params.lenderStateSigner,
+  ]);
+  console.log("✓ Huma lender state account allocated successfully on-chain.");
+}
+
+export interface SettleCliOptions {
+  readonly count: number;
+}
+
+export function parseSettleArgs(args: readonly string[]): SettleCliOptions {
+  let count = 0;
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    if (arg.startsWith("--count=")) {
+      count = parseInt(arg.slice("--count=".length), 10);
+      i++;
+    } else if (arg === "--count" || arg === "-c") {
+      if (i + 1 >= args.length) {
+        throw new Error("Missing value for --count argument.");
+      }
+      count = parseInt(args[i + 1], 10);
+      i += 2;
+    } else if (arg.startsWith("-") && isNaN(Number(arg))) {
+      i++;
+    } else {
+      count = parseInt(arg, 10);
+      i++;
+    }
+  }
+  if (isNaN(count) || count < 0) {
+    throw new Error("count must be a non-negative integer.");
+  }
+  return { count };
+}
+
 async function handleInit(args: string[]) {
   const keypairPath = resolveDefaultKeypairPath(args[0]);
   console.log(
@@ -591,6 +681,13 @@ async function handleInit(args: string[]) {
     { overwriteIfInvalid: true, label: "Huma Lender State" }
   );
 
+  await ensureHumaLenderStateOnChain({
+    rpc,
+    payer: adminSigner,
+    lenderStateSigner: humaLenderStateSigner,
+    humaProgramId: address(mockHumaProgramId),
+  });
+
   // Call create_lender_accounts_v2 on mock_huma program
   const humaLenderStateInfo = await fetchAccountInfo(
     rpc,
@@ -694,38 +791,22 @@ async function handleInit(args: string[]) {
   }
 
   if (!ticketRegistryInfo?.value) {
-    const space = 262248;
+    const space = 262248n;
     const rentExempt = await rpc
-      .getMinimumBalanceForRentExemption(BigInt(space))
+      .getMinimumBalanceForRentExemption(space)
       .send();
     console.log(
       `Required rent exemption for Ticket Registry: ${Number(rentExempt) / 1_000_000_000} SOL`
     );
 
-    const createAccountData = new Uint8Array(4 + 8 + 8 + 32);
-    const createAccountView = new DataView(createAccountData.buffer);
-    createAccountView.setUint32(0, 0, true); // SystemProgram::CreateAccount instruction index
-    createAccountView.setBigUint64(4, rentExempt, true);
-    createAccountView.setBigUint64(12, BigInt(space), true);
-    const base58 = getBase58Encoder();
-    createAccountData.set(base58.encode(address(anchorProgramId)), 20);
+    const createAccountIx = buildCreateAccountInstruction({
+      payer: adminSigner,
+      newAccount: ticketRegistrySigner,
+      lamports: rentExempt,
+      space,
+      ownerProgramId: address(anchorProgramId),
+    });
 
-    const createAccountIx = {
-      programAddress: SYSTEM_PROGRAM_ID,
-      accounts: [
-        {
-          address: address(adminAddress),
-          role: AccountRole.WRITABLE_SIGNER,
-          signer: adminSigner,
-        },
-        {
-          address: address(ticketRegistryAddress),
-          role: AccountRole.WRITABLE_SIGNER,
-          signer: ticketRegistrySigner,
-        },
-      ],
-      data: createAccountData,
-    };
     console.log(
       "Sending System CreateAccount transaction for Ticket Registry..."
     );
@@ -1230,11 +1311,7 @@ async function handleYield(args: string[]) {
 }
 
 async function handleSettle(args: string[]) {
-  const countStr = args[0] || "0";
-  const count = parseInt(countStr, 10);
-  if (isNaN(count) || count < 0) {
-    throw new Error("count must be a non-negative integer.");
-  }
+  const { count } = parseSettleArgs(args);
 
   const rpc = createResilientRpc(DEVNET_RPC_URL);
   const accounts = loadDevnetAccounts();
@@ -1268,6 +1345,40 @@ async function handleSettle(args: string[]) {
   // Load admin keypair
   const keypairPath = resolveDefaultKeypairPath();
   const adminSigner = await loadKeypair(keypairPath);
+
+  // Verify and ensure humaLenderState is allocated on-chain
+  const humaLenderStateKeyPath = path.resolve(
+    STATE_DIR,
+    "huma-lender-state-key.json"
+  );
+  const lenderStateInfo = await fetchAccountInfo(rpc, address(lenderState));
+  const rawLenderData = decodeAccountBase64Data(lenderStateInfo?.value);
+  const isLenderStateValid =
+    lenderStateInfo?.value &&
+    lenderStateInfo.value.owner === address(humaProgramId) &&
+    (rawLenderData?.length ?? 0) >= 16;
+
+  if (!isLenderStateValid) {
+    if (fs.existsSync(humaLenderStateKeyPath)) {
+      const humaLenderStateSigner = await loadKeypair(humaLenderStateKeyPath);
+      if (humaLenderStateSigner.address === address(lenderState)) {
+        await ensureHumaLenderStateOnChain({
+          rpc,
+          payer: adminSigner,
+          lenderStateSigner: humaLenderStateSigner,
+          humaProgramId: address(humaProgramId),
+        });
+      } else {
+        throw new Error(
+          `Local huma-lender-state-key.json (${humaLenderStateSigner.address}) does not match configured lender state address (${lenderState}). Please run 'npm run devnet init' to reinitialize.`
+        );
+      }
+    } else {
+      throw new Error(
+        `Mock Huma lender state account (${lenderState}) is not allocated on devnet and keypair file was not found. Please run 'npm run devnet init' first to generate and allocate it.`
+      );
+    }
+  }
 
   // Derive pool authority
   const poolAuthority = await findHumaPoolAuthorityPda(humaPoolState);

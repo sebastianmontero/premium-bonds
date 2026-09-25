@@ -56,7 +56,7 @@ pub struct RevealAndPickWinners<'info> {
     /// The ticket registry account loader holding all the user entries.
     pub ticket_registry: AccountLoader<'info, TicketRegistry>,
 
-    /// CHECK: Raw Switchboard On-Demand randomness account. Validated to match an authorized Switchboard On-Demand program ID (Devnet or Mainnet), have correct data length and discriminator, and match `current_draw_cycle.randomness_account`.
+    /// CHECK: Raw Switchboard On-Demand randomness account. Validated to match the authorized Switchboard On-Demand program ID for the compiled target network (compile-time gated), have correct data length and discriminator, and match current_draw_cycle.randomness_account (enforced by draw cycle constraint).
     #[account(
         constraint = crate::utils::is_valid_switchboard_randomness_account(&randomness_account.to_account_info()) @ PremiumBondsError::InvalidRandomnessAccount
     )]

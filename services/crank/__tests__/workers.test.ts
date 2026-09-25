@@ -316,14 +316,51 @@ describe("Strategy Workers Unit Tests", () => {
       },
     ];
 
-    const ixs = await sentinel.buildInstructionsForBatch(
+    // Same-user batch: 1 ATA creation + 3 claims = 4 instructions
+    const ixsSameUser = await sentinel.buildInstructionsForBatch(
       snapshot,
       ctx,
       candidates.slice(0, 3)
     );
-    // Each BondSale redemption has 2 instructions (ATA creation + claim) = 6 instructions
-    assert.strictEqual(ixs.length, 6);
-    assert.strictEqual(ixs[0].programAddress, ATA_PROGRAM_ID);
+    assert.strictEqual(ixsSameUser.length, 4);
+    assert.strictEqual(ixsSameUser[0].programAddress, ATA_PROGRAM_ID);
     assert.strictEqual(sentinel.getComputeUnitLimit(), 800_000);
+
+    // Multi-user batch: 3 distinct users -> 3 ATA creations + 3 claims = 6 instructions
+    const user2 = (await generateKeyPairSigner()).address;
+    const user3 = (await generateKeyPairSigner()).address;
+    const multiUserCandidates = [
+      {
+        redemptionId: 1n,
+        user: mockAddress,
+        humaRequestId: 1n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 2n,
+        user: user2,
+        humaRequestId: 2n,
+        redemptionType: RedemptionType.BondSale,
+      },
+      {
+        redemptionId: 3n,
+        user: user3,
+        humaRequestId: 3n,
+        redemptionType: RedemptionType.BondSale,
+      },
+    ];
+
+    const ixsMultiUser = await sentinel.buildInstructionsForBatch(
+      snapshot,
+      ctx,
+      multiUserCandidates
+    );
+    assert.strictEqual(ixsMultiUser.length, 6);
+  });
+
+  it("DisburseSentinelWorker should allow invalidating candidate cache", () => {
+    const sentinel = new DisburseSentinelWorker();
+    sentinel.invalidateCandidateCache(1);
+    sentinel.invalidateCandidateCache();
   });
 });

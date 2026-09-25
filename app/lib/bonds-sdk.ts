@@ -844,8 +844,19 @@ export async function fetchPendingRedemptionCandidates(
         nextRequestId = humaInfo.nextRequestId;
       }
     }
-  } catch {
-    // If Huma state fetch fails or mock is unavailable, proceed with 0n
+  } catch (err) {
+    console.warn(
+      `[fetchPendingRedemptionCandidates] Failed to fetch Huma pool state at ${humaPoolAddr}:`,
+      err
+    );
+    return [];
+  }
+
+  if (nextRequestId === 0n) {
+    console.warn(
+      `[fetchPendingRedemptionCandidates] Huma queue state is unreachable or nextRequestId is 0. Returning 0 candidates.`
+    );
+    return [];
   }
 
   const filters = getPendingRedemptionFilters({ poolId });
@@ -873,10 +884,7 @@ export async function fetchPendingRedemptionCandidates(
     if (!dataBytes) continue;
     try {
       const parsed = parsePendingRedemption(dataBytes);
-      if (
-        parsed.poolId === poolId &&
-        (nextRequestId === 0n || parsed.humaRequestId < nextRequestId)
-      ) {
+      if (parsed.poolId === poolId && parsed.humaRequestId < nextRequestId) {
         candidates.push({
           redemptionId: parsed.redemptionId,
           user: address(parsed.user),
@@ -889,13 +897,16 @@ export async function fetchPendingRedemptionCandidates(
     }
   }
 
-  candidates.sort((a, b) =>
-    a.redemptionId < b.redemptionId
+  candidates.sort((a, b) => {
+    if (a.humaRequestId !== b.humaRequestId) {
+      return a.humaRequestId < b.humaRequestId ? -1 : 1;
+    }
+    return a.redemptionId < b.redemptionId
       ? -1
       : a.redemptionId > b.redemptionId
         ? 1
-        : 0
-  );
+        : 0;
+  });
   return candidates;
 }
 
@@ -2124,6 +2135,7 @@ export interface BuildClaimRedemptionParams {
   feeWallet?: Address;
   beneficiaryTokenAccount?: Address;
   tokenProgram?: Address;
+  skipAtaCreation?: boolean;
 }
 
 export function elevateSignerRole(
@@ -2166,6 +2178,16 @@ export async function buildClaimRedemptionInstruction(
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
     params.humaAddresses.poolState
   );
+  const humaPoolUnderlyingToken =
+    params.humaAddresses.poolUnderlyingToken ??
+    (await findAtaAddress(humaPoolAuthority, params.tokenMint, tokenProgram));
+
+  if (humaPoolUnderlyingToken === poolVaultAccount) {
+    throw new Error(
+      "Invariant violation: humaPoolUnderlyingToken cannot equal poolVaultAccount. This violates Anchor duplicate mutable account constraints."
+    );
+  }
+
   const eventAuthority = await findEventAuthorityPda();
 
   const ix = await getClaimRedemptionInstructionAsync({
@@ -2182,8 +2204,7 @@ export async function buildClaimRedemptionInstruction(
     humaModeConfig: params.humaAddresses.modeConfig || SYSTEM_PROGRAM_ID,
     humaLenderState: params.humaAddresses.lenderState || SYSTEM_PROGRAM_ID,
     humaPoolAuthority,
-    humaPoolUnderlyingToken:
-      params.humaAddresses.poolUnderlyingToken || poolVaultAccount,
+    humaPoolUnderlyingToken,
     tokenProgram,
     eventAuthority,
   });
@@ -2211,14 +2232,16 @@ export async function buildClaimRedemptionInstructions(
       params.tokenMint,
       tokenProgram
     );
-    const createAtaIx = createAssociatedTokenIdempotentInstruction({
-      payer: params.crank,
-      owner: params.beneficiary,
-      mint: params.tokenMint,
-      ata: beneficiaryTokenAccount,
-      tokenProgram,
-    });
-    instructions.push(createAtaIx);
+    if (!params.skipAtaCreation) {
+      const createAtaIx = createAssociatedTokenIdempotentInstruction({
+        payer: params.crank,
+        owner: params.beneficiary,
+        mint: params.tokenMint,
+        ata: beneficiaryTokenAccount,
+        tokenProgram,
+      });
+      instructions.push(createAtaIx);
+    }
   }
 
   const claimIx = await buildClaimRedemptionInstruction({

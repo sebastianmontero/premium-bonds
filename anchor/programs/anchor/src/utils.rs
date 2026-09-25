@@ -386,23 +386,19 @@ pub fn get_payout_registry<'a>(data: &'a [u8]) -> Result<crate::state::PayoutReg
 }
 
 use crate::constants::{
-    SWITCHBOARD_ON_DEMAND_DEVNET_PID,
-    SWITCHBOARD_ON_DEMAND_MAINNET_PID,
+    SWITCHBOARD_ON_DEMAND_PID,
     SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
     SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN,
 };
 
-/// Validates that an account belongs to an authorized Switchboard On-Demand program (Devnet or Mainnet)
+/// Validates that an account belongs to the authorized Switchboard On-Demand program for the compiled target network
 /// and possesses the authentic RandomnessAccountData binary discriminator and full struct length.
 ///
 /// Uses borrow-safe `try_borrow_data()` to prevent runtime panics on already-borrowed accounts,
 /// and validates `len >= SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN` to prevent truncated account griefing.
 #[inline(always)]
 pub fn is_valid_switchboard_randomness_account(account: &AccountInfo) -> bool {
-    let is_valid_owner = account.owner == &SWITCHBOARD_ON_DEMAND_DEVNET_PID
-        || account.owner == &SWITCHBOARD_ON_DEMAND_MAINNET_PID;
-
-    if !is_valid_owner {
+    if account.owner != &SWITCHBOARD_ON_DEMAND_PID {
         return false;
     }
 
@@ -416,6 +412,7 @@ pub fn is_valid_switchboard_randomness_account(account: &AccountInfo) -> bool {
 
     data[0..8] == SWITCHBOARD_RANDOMNESS_DISCRIMINATOR
 }
+
 
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
@@ -1431,14 +1428,14 @@ mod tests {
     }
 
     #[test]
-    fn test_is_valid_switchboard_randomness_account_devnet_and_mainnet() {
+    fn test_is_valid_switchboard_randomness_account_configured_and_foreign() {
         let mut lamports = 1_000_000_000;
         let mut data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
         data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
         let key = Pubkey::new_unique();
 
-        // Valid devnet account
-        let mut owner = SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+        // 1. Valid configured network account
+        let mut owner = SWITCHBOARD_ON_DEMAND_PID;
         let account = AccountInfo::new(
             &key,
             false,
@@ -1450,22 +1447,22 @@ mod tests {
         );
         assert!(is_valid_switchboard_randomness_account(&account));
 
-        // Valid mainnet account
-        owner = SWITCHBOARD_ON_DEMAND_MAINNET_PID;
-        let account = AccountInfo::new(
+        // 2. Unconfigured opposing network account (must be rejected)
+        let unconfigured_owner = crate::constants::UNCONFIGURED_SWITCHBOARD_ON_DEMAND_PID;
+        let account_unconfigured = AccountInfo::new(
             &key,
             false,
             false,
             &mut lamports,
             &mut data,
-            &owner,
+            &unconfigured_owner,
             false,
         );
-        assert!(is_valid_switchboard_randomness_account(&account));
+        assert!(!is_valid_switchboard_randomness_account(&account_unconfigured));
 
-        // Invalid owner
+        // 3. Foreign owner
         let foreign_owner = Pubkey::new_unique();
-        let account = AccountInfo::new(
+        let account_foreign = AccountInfo::new(
             &key,
             false,
             false,
@@ -1474,12 +1471,71 @@ mod tests {
             &foreign_owner,
             false,
         );
-        assert!(!is_valid_switchboard_randomness_account(&account));
+        assert!(!is_valid_switchboard_randomness_account(&account_foreign));
 
-        // Truncated data
+        // 4. RefCell already borrowed mutably (must return false gracefully without panicking)
+        {
+            let mut borrowed_data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+            borrowed_data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+            let account_borrowed = AccountInfo::new(
+                &key,
+                false,
+                false,
+                &mut lamports,
+                &mut borrowed_data,
+                &owner,
+                false,
+            );
+            let _guard = account_borrowed.try_borrow_mut_data().unwrap();
+            assert!(!is_valid_switchboard_randomness_account(&account_borrowed));
+        }
+
+        // 5. Boundary buffer lengths
+        // 5a. len == 0: 0-byte buffer fails
+        let mut empty_data = vec![];
+        let account_empty = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut empty_data,
+            &owner,
+            false,
+        );
+        assert!(!is_valid_switchboard_randomness_account(&account_empty));
+
+        // 5b. len == 7: Below discriminator length fails
+        let mut sub_disc_data = vec![0u8; 7];
+        sub_disc_data.copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR[0..7]);
+        let account_sub_disc = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut sub_disc_data,
+            &owner,
+            false,
+        );
+        assert!(!is_valid_switchboard_randomness_account(&account_sub_disc));
+
+        // 5c. len == 8: Discriminator only (below struct size) fails
+        let mut disc_only_data = vec![0u8; 8];
+        disc_only_data.copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+        let account_disc_only = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut disc_only_data,
+            &owner,
+            false,
+        );
+        assert!(!is_valid_switchboard_randomness_account(&account_disc_only));
+
+        // 5d. len == 407: SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1 fails
         let mut truncated_data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN - 1];
         truncated_data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
-        let account = AccountInfo::new(
+        let account_truncated = AccountInfo::new(
             &key,
             false,
             false,
@@ -1488,12 +1544,40 @@ mod tests {
             &owner,
             false,
         );
-        assert!(!is_valid_switchboard_randomness_account(&account));
+        assert!(!is_valid_switchboard_randomness_account(&account_truncated));
 
-        // Corrupted discriminator
+        // 5e. len == 408: Exact SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN passes
+        let mut exact_data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
+        exact_data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+        let account_exact = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut exact_data,
+            &owner,
+            false,
+        );
+        assert!(is_valid_switchboard_randomness_account(&account_exact));
+
+        // 5f. len == 409: Buffer with trailing bytes passes
+        let mut trailing_data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN + 1];
+        trailing_data[0..8].copy_from_slice(&SWITCHBOARD_RANDOMNESS_DISCRIMINATOR);
+        let account_trailing = AccountInfo::new(
+            &key,
+            false,
+            false,
+            &mut lamports,
+            &mut trailing_data,
+            &owner,
+            false,
+        );
+        assert!(is_valid_switchboard_randomness_account(&account_trailing));
+
+        // 6. Explicit corrupted discriminator [0xff; 8] fails
         let mut corrupt_data = vec![0u8; SWITCHBOARD_RANDOMNESS_MIN_DATA_LEN];
-        corrupt_data[0..8].copy_from_slice(&[0u8; 8]);
-        let account = AccountInfo::new(
+        corrupt_data[0..8].copy_from_slice(&[0xff; 8]);
+        let account_corrupt = AccountInfo::new(
             &key,
             false,
             false,
@@ -1502,7 +1586,7 @@ mod tests {
             &owner,
             false,
         );
-        assert!(!is_valid_switchboard_randomness_account(&account));
+        assert!(!is_valid_switchboard_randomness_account(&account_corrupt));
     }
 }
 
