@@ -35,26 +35,10 @@ export class HarvestYieldWorker implements ICrankTask {
       };
     }
 
-    const instructions = await this.buildInstructions(snapshot, context);
-
-    return {
-      shouldExecute: true,
-      reason: `Cycle #${snapshot.currentCycleId} is ready for yield harvest`,
-      instructions,
-      computeUnitLimit: this.getComputeUnitLimit(),
-      priorityFeeTier: "medium",
-      writableAccounts: [snapshot.poolAddress, snapshot.ticketRegistryAddress],
-    };
-  }
-
-  async buildInstructions(
-    snapshot: Extract<PoolStateSnapshot, { state: "YIELD_HARVEST_READY" }>,
-    context: CrankExecutionContext
-  ): Promise<Instruction[]> {
-    const randomnessAccount = await this.vrfProvider.provisionRandomnessAccount(
-      snapshot.poolId,
-      snapshot.currentCycleId
-    );
+    const vrf = await this.vrfProvider.prepareHarvestRandomness({
+      poolId: snapshot.poolId,
+      cycleId: snapshot.currentCycleId,
+    });
 
     const pstMint =
       this.config?.pstMint ||
@@ -72,20 +56,34 @@ export class HarvestYieldWorker implements ICrankTask {
           SYSTEM_PROGRAM_ID
       );
 
-    const ix = await buildHarvestYieldAndCommitInstruction({
+    const harvestIx = await buildHarvestYieldAndCommitInstruction({
       crank: context.signer,
       poolId: snapshot.poolId,
       ticketRegistry: snapshot.ticketRegistryAddress,
       currentDrawCycleId: snapshot.currentCycleId,
       pstMint,
       humaPoolState,
-      randomnessAccount,
+      randomnessAccount: vrf.randomnessAccount,
     });
 
-    return [ix];
+    const instructions: Instruction[] = [...vrf.instructions, harvestIx];
+    const computeUnitLimit =
+      vrf.computeUnitsRequired && vrf.computeUnitsRequired > 50_000
+        ? 375_000
+        : 200_000;
+
+    return {
+      shouldExecute: true,
+      reason: `Cycle #${snapshot.currentCycleId} is ready for yield harvest`,
+      instructions,
+      computeUnitLimit,
+      priorityFeeTier: "medium",
+      writableAccounts: [snapshot.poolAddress, snapshot.ticketRegistryAddress],
+      additionalSigners: vrf.signers,
+    };
   }
 
   getComputeUnitLimit(): number {
-    return 150_000;
+    return 200_000;
   }
 }

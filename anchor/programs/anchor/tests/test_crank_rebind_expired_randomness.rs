@@ -374,3 +374,135 @@ fn test_rebind_fails_unoverridable_statuses() {
         );
     }
 }
+
+#[test]
+fn test_rebind_fails_pool_paused() {
+    let harvest_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    ctx.svm.warp_to_slot(expired_slot);
+
+    mutate_pool_state(&mut ctx.svm, 1, |p| {
+        p.status = anchor::PoolStatus::Paused as u8;
+    });
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = send_rebind(&mut ctx, &crank);
+    assert_custom_error(res, anchor::error::PremiumBondsError::PoolNotActive);
+}
+
+#[test]
+fn test_crank_rebind_full_lifecycle() {
+    let mut fixture = RevealFixture::builder()
+        .with_status(anchor::PoolStatus::Active)
+        .with_frozen(true)
+        .with_tiers(vec![anchor::PrizeTier::default_single_winner()])
+        .with_locked_tickets(5)
+        .with_prize_pot(1_000_000)
+        .with_num_tickets(5)
+        .with_draw_status(anchor::DrawStatus::AwaitingRandomness)
+        .build();
+
+    let initial_harvest_slot = 100;
+    mutate_draw_cycle(&mut fixture.svm, 1, 0, |dc| {
+        dc.harvest_slot = initial_harvest_slot;
+    });
+
+    // 1. Warp to expired slot (> 1000 slots after harvest)
+    let rebind_slot = initial_harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 1101
+    fixture.svm.warp_to_slot(rebind_slot);
+    fixture.svm.expire_blockhash();
+
+    // 2. Prepare new randomness account
+    let new_randomness = Keypair::new().pubkey();
+    inject_mock_randomness_account(&mut fixture.svm, new_randomness);
+
+    let (pool_pda, _) = pool_pda(1);
+    let (dc_pda, _) = draw_cycle_pda(1, 0);
+    let crank = clone_keypair(&fixture.crank);
+
+    // 3. Execute crank_rebind_expired_randomness
+    let meta = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        fixture.randomness_account,
+        new_randomness,
+    )
+    .with_pool(pool_pda)
+    .with_current_draw_cycle(dc_pda)
+    .send(&mut fixture.svm, &crank)
+    .expect("Crank rebind should succeed");
+
+    let event = assert_cpi_event::<anchor::events::RandomnessRebound>(&meta);
+    assert_eq!(event.pool_id, 1);
+    assert_eq!(event.cycle_id, 0);
+    assert_eq!(event.old_randomness_account, fixture.randomness_account);
+    assert_eq!(event.new_randomness_account, new_randomness);
+    assert_eq!(event.harvest_slot, rebind_slot);
+
+    // Assert DrawCycle state updated
+    let dc_acct = fixture.svm.get_account(&dc_pda).unwrap();
+    let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
+    assert_eq!(dc.randomness_account, new_randomness);
+    assert_eq!(dc.harvest_slot, rebind_slot);
+    assert_eq!(dc.prize_pot, 1_000_000);
+    assert_eq!(dc.locked_ticket_count, 5);
+
+    // Assert Pool state is still frozen
+    let pool_acct = fixture.svm.get_account(&pool_pda).unwrap();
+    let pool = anchor::PrizePool::try_deserialize(&mut pool_acct.data.as_slice()).unwrap();
+    assert_eq!(pool.is_frozen_for_draw, 1);
+
+    // 4. Immediate rebind attempt at slot + 1 (1102) fails with RandomnessNotExpired
+    fixture.svm.warp_to_slot(rebind_slot + 1);
+    fixture.svm.expire_blockhash();
+    let another_randomness = Keypair::new().pubkey();
+    inject_mock_randomness_account(&mut fixture.svm, another_randomness);
+
+    let rebind_fail_res = CrankRebindExpiredRandomnessBuilder::new(
+        crank.pubkey(),
+        1,
+        0,
+        new_randomness,
+        another_randomness,
+    )
+    .with_pool(pool_pda)
+    .with_current_draw_cycle(dc_pda)
+    .send(&mut fixture.svm, &crank);
+
+    assert_custom_error(rebind_fail_res, anchor::error::PremiumBondsError::RandomnessNotExpired);
+
+    // 5. Advance clock 10 slots (1111)
+    let reveal_slot = rebind_slot + 10;
+    fixture.svm.warp_to_slot(reveal_slot);
+    fixture.svm.expire_blockhash();
+
+    // 6. Inject mock randomness for the new randomness account (seed_slot = 1101, reveal_slot = 1111)
+    inject_randomness_account_data(
+        &mut fixture.svm,
+        new_randomness,
+        rebind_slot,
+        reveal_slot,
+        deterministic_seed_for_index(0),
+    );
+
+    let reveal_res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(fixture.ticket_registry)
+        .with_randomness_account(new_randomness)
+        .send(&mut fixture.svm, &crank);
+
+    assert!(reveal_res.is_ok(), "Reveal after rebind must succeed: {:?}", reveal_res.err());
+
+
+    // Verify draw complete, pool unfrozen, and PayoutRegistry created
+    let pool_acct_after = fixture.svm.get_account(&pool_pda).unwrap();
+    let pool_after = anchor::PrizePool::try_deserialize(&mut pool_acct_after.data.as_slice()).unwrap();
+    assert_eq!(pool_after.is_frozen_for_draw, 0, "Pool must be unfrozen after reveal");
+
+    let (payout_reg_pda, _) = payout_pda(1, 0);
+    let payout_acct = fixture.svm.get_account(&payout_reg_pda);
+    assert!(payout_acct.is_some(), "PayoutRegistry account must be created");
+}
+
+

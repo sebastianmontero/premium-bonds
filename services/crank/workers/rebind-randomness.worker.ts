@@ -28,7 +28,21 @@ export class RebindRandomnessWorker implements ICrankTask {
       };
     }
 
-    const instructions = await this.buildInstructions(snapshot, context);
+    const vrf = await this.vrfProvider.prepareRebindRandomness({
+      poolId: snapshot.poolId,
+      cycleId: snapshot.cycleId,
+      staleRandomness: snapshot.staleRandomness,
+    });
+
+    const rebindIx = await buildCrankRebindExpiredRandomnessInstruction({
+      crank: context.signer,
+      poolId: snapshot.poolId,
+      cycleId: snapshot.cycleId,
+      currentRandomnessAccount: snapshot.staleRandomness,
+      newRandomnessAccount: vrf.randomnessAccount,
+    });
+
+    const instructions: Instruction[] = [...vrf.instructions, rebindIx];
 
     return {
       shouldExecute: true,
@@ -37,31 +51,11 @@ export class RebindRandomnessWorker implements ICrankTask {
       computeUnitLimit: this.getComputeUnitLimit(),
       priorityFeeTier: "urgent",
       writableAccounts: [snapshot.poolAddress, snapshot.staleRandomness],
+      additionalSigners: vrf.signers,
     };
   }
 
-  async buildInstructions(
-    snapshot: Extract<PoolStateSnapshot, { state: "VRF_EXPIRED" }>,
-    context: CrankExecutionContext
-  ): Promise<Instruction[]> {
-    const newRandomnessAccount =
-      await this.vrfProvider.provisionRandomnessAccount(
-        snapshot.poolId,
-        snapshot.cycleId
-      );
-
-    const ix = await buildCrankRebindExpiredRandomnessInstruction({
-      crank: context.signer,
-      poolId: snapshot.poolId,
-      cycleId: snapshot.cycleId,
-      currentRandomnessAccount: snapshot.staleRandomness,
-      newRandomnessAccount,
-    });
-
-    return [ix];
-  }
-
   getComputeUnitLimit(): number {
-    return 120_000;
+    return 375_000;
   }
 }

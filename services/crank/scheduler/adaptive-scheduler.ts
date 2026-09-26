@@ -393,16 +393,15 @@ export class AdaptiveCrankScheduler {
             `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] triggered: ${outcome.reason}`
           );
 
-          const result = await this.executor.executeInstructions(
-            task.name,
-            outcome.instructions,
-            this.signer,
-            {
-              computeUnits: outcome.computeUnitLimit,
-              priorityFeeTier: outcome.priorityFeeTier,
-              writableAccounts: outcome.writableAccounts,
-            }
-          );
+          const result = await this.executor.executeInstructions({
+            workerName: task.name,
+            instructions: outcome.instructions,
+            signer: this.signer,
+            computeUnits: outcome.computeUnitLimit,
+            priorityFeeTier: outcome.priorityFeeTier,
+            writableAccounts: outcome.writableAccounts,
+            additionalSigners: outcome.additionalSigners,
+          });
 
           if (result.executed) {
             console.log(
@@ -449,6 +448,8 @@ export class AdaptiveCrankScheduler {
               this.breaker.recordPoolFailure(poolId, result.reason);
             }
           }
+        } else if (outcome.retryAfterMs) {
+          this.nextEligibleTickMs.set(poolId, Date.now() + outcome.retryAfterMs);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

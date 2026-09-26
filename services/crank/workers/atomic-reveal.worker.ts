@@ -4,6 +4,7 @@ import {
   PoolStateSnapshot,
   ICrankTask,
   CrankTaskOutcome,
+  toSlot,
 } from "../types";
 import { IVrfProvider } from "../vrf/randomness-provider";
 
@@ -27,19 +28,45 @@ export class AtomicRevealWorker implements ICrankTask {
       };
     }
 
-    const revealResult = await this.vrfProvider.prepareReveal(
-      snapshot.randomnessAccount,
-      snapshot.harvestSlot,
-      snapshot.currentSlot
-    );
+    const revealResult = await this.vrfProvider.prepareReveal({
+      randomnessAccount: snapshot.randomnessAccount,
+      harvestSlot: toSlot(snapshot.harvestSlot),
+      currentSlot: toSlot(snapshot.currentSlot),
+    });
 
-    if (!revealResult.ready) {
-      return {
-        shouldExecute: false,
-        reason:
-          revealResult.error ||
-          "Switchboard randomness oracle proof is not yet ready",
-      };
+    switch (revealResult.status) {
+      case "pending_oracle":
+        return {
+          shouldExecute: false,
+          reason: `Awaiting oracle proof: ${revealResult.reason}`,
+          retryAfterMs: revealResult.retryAfterMs ?? 2000,
+        };
+      case "uncommitted": {
+        const deltaSlots =
+          snapshot.harvestSlot + 1001n - snapshot.currentSlot;
+        const backoffMs = Math.max(1000, Number(deltaSlots) * 400);
+        console.warn(
+          `[AtomicRevealWorker] [Pool #${snapshot.poolId}] Randomness uncommitted (seedSlot < harvestSlot). Backing off for ${deltaSlots} slots (~${Math.round(backoffMs / 1000)}s) until rebind eligible.`
+        );
+        return {
+          shouldExecute: false,
+          reason: `Randomness uncommitted: ${revealResult.reason}`,
+          retryAfterMs: backoffMs,
+        };
+      }
+      case "expired":
+        return {
+          shouldExecute: false,
+          reason: `Randomness expired (${revealResult.elapsedSlots} slots elapsed): ${revealResult.reason}`,
+        };
+      case "ready":
+        break;
+      default: {
+        const _exhaustive: never = revealResult;
+        throw new Error(
+          `Unhandled VRF reveal status: ${JSON.stringify(_exhaustive)}`
+        );
+      }
     }
 
     const instructions = await buildAtomicRevealAndPickWinnersInstructions({

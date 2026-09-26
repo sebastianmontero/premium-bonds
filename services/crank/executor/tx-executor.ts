@@ -3,7 +3,7 @@ import {
   address,
   createSolanaRpc,
   Instruction,
-  TransactionSigner,
+  KeyPairSigner,
   AccountRole,
   appendTransactionMessageInstructions,
   createTransactionMessage,
@@ -20,8 +20,13 @@ import {
   parseTransactionError,
   matchAnchorError,
 } from "../../../app/lib/errors";
+import { normalizeInstructionSigners } from "../../../app/lib/tx-utils";
 import { CrankConfig } from "../config";
-import { WorkerExecutionResult } from "../types";
+import {
+  WorkerExecutionResult,
+  ExecuteInstructionsParams,
+  PriorityFeeTier,
+} from "../types";
 
 export const JITO_TIP_ACCOUNTS: readonly Address[] = [
   address("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
@@ -40,7 +45,7 @@ export function getRandomJitoTipAccount(): Address {
 }
 
 export function createSystemTransferInstruction(params: {
-  from: Address | TransactionSigner;
+  from: Address | KeyPairSigner;
   to: Address;
   lamports: bigint | number;
 }): Instruction {
@@ -127,8 +132,8 @@ export class TransactionExecutor {
   ) {}
 
   async estimatePriorityFee(
-    writableAccounts: Address[],
-    tier: "low" | "medium" | "high" | "urgent" = "medium"
+    writableAccounts: readonly Address[],
+    tier: PriorityFeeTier = "medium"
   ): Promise<bigint> {
     try {
       const feesRes = (await this.rpc
@@ -163,42 +168,70 @@ export class TransactionExecutor {
   }
 
   async executeInstructions(
+    params: ExecuteInstructionsParams
+  ): Promise<WorkerExecutionResult>;
+  async executeInstructions(
     workerName: string,
-    instructions: Instruction[],
-    signer: TransactionSigner,
-    options: {
+    instructions: readonly Instruction[],
+    signer: KeyPairSigner,
+    options?: {
       computeUnits: number;
-      priorityFeeTier?: "low" | "medium" | "high" | "urgent";
-      writableAccounts?: Address[];
+      priorityFeeTier?: PriorityFeeTier;
+      writableAccounts?: readonly Address[];
+      additionalSigners?: readonly KeyPairSigner[];
+    }
+  ): Promise<WorkerExecutionResult>;
+  async executeInstructions(
+    arg1: string | ExecuteInstructionsParams,
+    arg2?: readonly Instruction[],
+    arg3?: KeyPairSigner,
+    arg4?: {
+      computeUnits: number;
+      priorityFeeTier?: PriorityFeeTier;
+      writableAccounts?: readonly Address[];
+      additionalSigners?: readonly KeyPairSigner[];
     }
   ): Promise<WorkerExecutionResult> {
+    const params: ExecuteInstructionsParams =
+      typeof arg1 === "string"
+        ? {
+            workerName: arg1,
+            instructions: arg2 || [],
+            signer: arg3!,
+            computeUnits: arg4?.computeUnits || 200_000,
+            priorityFeeTier: arg4?.priorityFeeTier || "medium",
+            writableAccounts: arg4?.writableAccounts,
+            additionalSigners: arg4?.additionalSigners,
+          }
+        : arg1;
+
+    const { workerName, instructions, signer, computeUnits, priorityFeeTier, writableAccounts, additionalSigners } = params;
+
     if (this.config.dryRun) {
       console.log(
-        `[DRY RUN] [${workerName}] Would execute ${instructions.length} instructions (CU limit: ${options.computeUnits})`
+        `[DRY RUN] [${workerName}] Would execute ${instructions.length} instructions (CU limit: ${computeUnits})`
       );
       return {
         workerName,
         executed: true,
         reason: "Simulated in DRY_RUN mode",
         signature: "dry_run_mock_signature",
-        computeUnitsUsed: options.computeUnits,
+        computeUnitsUsed: computeUnits,
         outcome: {
           status: "EXECUTED",
           signature: "dry_run_mock_signature",
-          computeUnitsUsed: options.computeUnits,
+          computeUnitsUsed: computeUnits,
         },
       };
     }
 
     try {
       const priorityMicroLamports = await this.estimatePriorityFee(
-        options.writableAccounts || [],
-        options.priorityFeeTier || "medium"
+        writableAccounts || [],
+        priorityFeeTier || "medium"
       );
 
-      const cuLimitIx = createSetComputeUnitLimitInstruction(
-        options.computeUnits
-      );
+      const cuLimitIx = createSetComputeUnitLimitInstruction(computeUnits);
       const cuPriceIx = createSetComputeUnitPriceInstruction(
         priorityMicroLamports
       );
@@ -219,12 +252,18 @@ export class TransactionExecutor {
         fullInstructions.push(tipIx);
       }
 
+      const allSigners = [signer, ...(additionalSigners || [])];
+      const normalizedInstructions = normalizeInstructionSigners(
+        fullInstructions,
+        allSigners
+      );
+
       const { value: latestBlockhash } = await this.rpc
         .getLatestBlockhash({ commitment: "confirmed" })
         .send();
 
       const msg = appendTransactionMessageInstructions(
-        fullInstructions,
+        normalizedInstructions,
         setTransactionMessageLifetimeUsingBlockhash(
           latestBlockhash,
           setTransactionMessageFeePayerSigner(
@@ -395,11 +434,11 @@ export class TransactionExecutor {
         executed: true,
         reason: "Confirmed successfully",
         signature,
-        computeUnitsUsed: options.computeUnits,
+        computeUnitsUsed: computeUnits,
         outcome: {
           status: "EXECUTED",
           signature,
-          computeUnitsUsed: options.computeUnits,
+          computeUnitsUsed: computeUnits,
         },
       };
     } catch (err: unknown) {

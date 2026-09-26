@@ -15,6 +15,7 @@ import {
   toPoolId,
   toDrawCycleId,
   toUnixTimestamp,
+  toSlot,
 } from "../types";
 import { createResilientRpc } from "@/app/lib/rpc-transport";
 import {
@@ -64,7 +65,7 @@ function createMockContext(
 }
 
 describe("Strategy Workers Unit Tests", () => {
-  it("HarvestYieldWorker should evaluate due harvest and report 150k CU", async () => {
+  it("HarvestYieldWorker should evaluate due harvest and report 200k CU", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
@@ -86,7 +87,7 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(outcome.shouldExecute, true);
     if (outcome.shouldExecute) {
       assert.match(outcome.reason, /ready for yield harvest/);
-      assert.strictEqual(outcome.computeUnitLimit, 150_000);
+      assert.strictEqual(outcome.computeUnitLimit, 200_000);
       assert.strictEqual(outcome.instructions.length, 1);
     }
   });
@@ -119,7 +120,7 @@ describe("Strategy Workers Unit Tests", () => {
     }
   });
 
-  it("RebindRandomnessWorker should trigger rebind on expired VRF", async () => {
+  it("RebindRandomnessWorker should trigger rebind on expired VRF with 375k CU and propagate signers", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
@@ -143,8 +144,9 @@ describe("Strategy Workers Unit Tests", () => {
     assert.strictEqual(outcome.shouldExecute, true);
     if (outcome.shouldExecute) {
       assert.match(outcome.reason, /expired after 1100 slots/);
-      assert.strictEqual(outcome.computeUnitLimit, 120_000);
+      assert.strictEqual(outcome.computeUnitLimit, 375_000);
       assert.strictEqual(outcome.instructions.length, 1);
+      assert.ok(outcome.additionalSigners && outcome.additionalSigners.length > 0);
     }
   });
 
@@ -175,6 +177,109 @@ describe("Strategy Workers Unit Tests", () => {
       assert.strictEqual(outcome.computeUnitLimit, 800_000);
       assert.strictEqual(outcome.instructions.length, 1);
     }
+  });
+
+  it("AtomicRevealWorker should handle pending_oracle with retryAfterMs: 2000", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const vrf = {
+      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareReveal: async () => ({
+        status: "pending_oracle" as const,
+        reason: "Awaiting gateway oracle signature",
+        retryAfterMs: 2000,
+      }),
+    };
+    const worker = new AtomicRevealWorker(vrf);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "READY_TO_DRAW" as const,
+      cycleId: toDrawCycleId(1),
+      randomnessAccount: mockAddress,
+      harvestSlot: 100n,
+    };
+
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.strictEqual(outcome.retryAfterMs, 2000);
+    assert.match(outcome.reason, /Awaiting oracle proof/);
+  });
+
+  it("AtomicRevealWorker should back off on uncommitted randomness until eligible for rebind", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const vrf = {
+      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareReveal: async () => ({
+        status: "uncommitted" as const,
+        seedSlot: toSlot(0n),
+        harvestSlot: toSlot(100n),
+        reason: "seedSlot < harvestSlot",
+      }),
+    };
+    const worker = new AtomicRevealWorker(vrf);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 200n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "READY_TO_DRAW" as const,
+      cycleId: toDrawCycleId(1),
+      randomnessAccount: mockAddress,
+      harvestSlot: 100n,
+    };
+
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    // deltaSlots = 100 + 1001 - 200 = 901 slots -> backoffMs = 901 * 400 = 360400ms
+    assert.strictEqual(outcome.retryAfterMs, 901 * 400);
+    assert.match(outcome.reason, /Randomness uncommitted/);
+  });
+
+  it("AtomicRevealWorker should return shouldExecute: false on expired randomness", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const vrf = {
+      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareReveal: async () => ({
+        status: "expired" as const,
+        elapsedSlots: toSlot(1100n),
+        reason: "Window exceeded 1000 slots",
+      }),
+    };
+    const worker = new AtomicRevealWorker(vrf);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 1500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "READY_TO_DRAW" as const,
+      cycleId: toDrawCycleId(1),
+      randomnessAccount: mockAddress,
+      harvestSlot: 100n,
+    };
+
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /Randomness expired/);
   });
 
   it("ReinvestWinningsWorker should cap batch size to maxReinvestBatchSize", async () => {

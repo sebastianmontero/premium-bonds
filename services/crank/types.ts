@@ -1,4 +1,4 @@
-import { Address, Instruction, TransactionSigner } from "@solana/kit";
+import { Address, Instruction, KeyPairSigner } from "@solana/kit";
 import type {
   PrizePool,
   TicketRegistry,
@@ -13,6 +13,7 @@ import type { ResilientRpcClient } from "../../app/lib/rpc-transport";
 export type PoolId = number & { readonly __brand: unique symbol };
 export type DrawCycleId = number & { readonly __brand: unique symbol };
 export type UnixTimestamp = bigint & { readonly __brand: unique symbol };
+export type Slot = bigint & { readonly __brand: unique symbol };
 
 export function toPoolId(id: number): PoolId {
   return id as PoolId;
@@ -30,6 +31,12 @@ export function toDrawCycleId(id: number): DrawCycleId {
 export function toUnixTimestamp(ts: bigint | number): UnixTimestamp {
   return BigInt(ts) as UnixTimestamp;
 }
+
+export function toSlot(slot: bigint | number): Slot {
+  return BigInt(slot) as Slot;
+}
+
+export type PriorityFeeTier = "low" | "medium" | "high" | "urgent";
 
 // ─── Discriminated Pool State Snapshot ───────────────────────────────────────
 
@@ -103,11 +110,11 @@ export type PoolStateSnapshot =
 export interface CrankDecision {
   readonly shouldExecute: boolean;
   readonly reason: string;
-  readonly priorityFeeTier?: "low" | "medium" | "high" | "urgent";
+  readonly priorityFeeTier?: PriorityFeeTier;
 }
 
 export interface CrankExecutionContext {
-  readonly signer: TransactionSigner;
+  readonly signer: KeyPairSigner;
   readonly rpcUrl: string;
   readonly rpc: ResilientRpcClient;
   readonly config: CrankConfig;
@@ -149,18 +156,31 @@ export interface WorkerExecutionResult {
 export interface CrankTaskAction {
   readonly shouldExecute: true;
   readonly reason: string;
-  readonly instructions: Instruction[];
+  readonly instructions: readonly Instruction[];
   readonly computeUnitLimit: number;
-  readonly priorityFeeTier?: "low" | "medium" | "high" | "urgent";
-  readonly writableAccounts?: Address[];
+  readonly priorityFeeTier?: PriorityFeeTier;
+  readonly writableAccounts?: readonly Address[];
+  readonly additionalSigners?: readonly KeyPairSigner[];
+  readonly retryAfterMs?: number;
 }
 
 export interface CrankTaskNoAction {
   readonly shouldExecute: false;
   readonly reason: string;
+  readonly retryAfterMs?: number;
 }
 
 export type CrankTaskOutcome = CrankTaskAction | CrankTaskNoAction;
+
+export interface ExecuteInstructionsParams {
+  readonly workerName: string;
+  readonly instructions: readonly Instruction[];
+  readonly signer: KeyPairSigner;
+  readonly computeUnits: number;
+  readonly priorityFeeTier?: PriorityFeeTier;
+  readonly writableAccounts?: readonly Address[];
+  readonly additionalSigners?: readonly KeyPairSigner[];
+}
 
 export interface ICrankTask {
   readonly name: string;
