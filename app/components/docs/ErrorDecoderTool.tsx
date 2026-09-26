@@ -7,6 +7,7 @@ import {
   ERROR_LOOKUP_ITEMS,
   ErrorLookupItem,
   normalizeSearchText,
+  searchErrorLookupItems,
   SupportedLocale,
 } from "@/app/lib/docs/data";
 
@@ -37,7 +38,7 @@ export function ErrorDecoderTool() {
     null
   );
 
-  // Derive selection from URL search params (e.g. ?code=6044 or ?q=6044)
+  // Derive selection from URL search params (e.g. ?code=6044 or ?q=6044 or ?code=EXPIRED_BLOCKHASH)
   const urlParam = searchParams.get("code") || searchParams.get("q");
   const urlSelectedError = useMemo(() => {
     if (!urlParam) return null;
@@ -47,44 +48,24 @@ export function ErrorDecoderTool() {
         const itemCode = normalizeSearchText(item.code);
         const itemHex = item.hexCode ? normalizeSearchText(item.hexCode) : "";
         const itemNum = item.numericCode ? String(item.numericCode) : "";
+        const matchesAlias =
+          item.aliases?.some((a) => normalizeSearchText(a) === cleanParam) ??
+          false;
         return (
           itemCode === cleanParam ||
           itemHex === cleanParam ||
           itemHex.replace("0x", "") === cleanParam ||
-          itemNum === cleanParam
+          itemNum === cleanParam ||
+          matchesAlias
         );
       }) ?? null
     );
   }, [urlParam]);
 
-  // Dynamic filter matching decimal, hex, name, diagnosis, and solution
+  // Dynamic filter matching decimal, hex, name, diagnosis, solution, and aliases
   const filteredErrors = useMemo(() => {
     if (!searchTerm.trim()) return [];
-    const q = normalizeSearchText(searchTerm);
-
-    return ERROR_LOOKUP_ITEMS.filter((item) => {
-      const code = normalizeSearchText(item.code);
-      const hex = item.hexCode ? normalizeSearchText(item.hexCode) : "";
-      const hexRaw = hex.replace("0x", "");
-      const numeric = item.numericCode ? String(item.numericCode) : "";
-      const name = normalizeSearchText(item.name);
-      const diagnosis = normalizeSearchText(
-        item.diagnosis[targetLocale] || item.diagnosis.en
-      );
-      const solution = normalizeSearchText(
-        item.solution[targetLocale] || item.solution.en
-      );
-
-      return (
-        code.includes(q) ||
-        hex.includes(q) ||
-        hexRaw.includes(q) ||
-        numeric.includes(q) ||
-        name.includes(q) ||
-        diagnosis.includes(q) ||
-        solution.includes(q)
-      );
-    });
+    return searchErrorLookupItems(searchTerm, targetLocale);
   }, [searchTerm, targetLocale]);
 
   const activeDisplayItem = searchTerm.trim()

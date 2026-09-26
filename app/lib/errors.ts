@@ -1,4 +1,10 @@
 import {
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR,
+  isSolanaError,
+} from "@solana/kit";
+import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
   ANCHOR_ERROR__CYCLE_NOT_ENDED,
@@ -68,6 +74,9 @@ import {
   ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE,
   ANCHOR_ERROR__INVALID_TOKEN_DECIMALS,
 } from "./generated/yield-bonds/src/generated";
+import { matchSolanaCoreError } from "./solana-core-errors";
+
+export * from "./solana-core-errors";
 
 export type ErrorLayer =
   | "wallet"
@@ -988,6 +997,10 @@ export function traverseErrorGraph(
     if (!node || depth > maxDepth) return;
     if (typeof node === "string") {
       result.messages.push(node);
+      for (const match of node.matchAll(/[Ss]olana error #(-?\d+)/g)) {
+        const parsed = parseInt(match[1], 10);
+        if (!Number.isNaN(parsed)) result.codes.push(parsed);
+      }
       return;
     }
     if (Array.isArray(node)) {
@@ -1063,12 +1076,17 @@ export function traverseErrorGraph(
         }
       }
     }
-    if (o.transactionPlanResult && !result.planErrorMessage) {
-      const plan = o.transactionPlanResult as Record<string, unknown>;
-      const results = plan.results as
+
+    const planResult = (o.transactionPlanResult ||
+      (o.context as Record<string, unknown> | undefined)?.transactionPlanResult) as
+      | Record<string, unknown>
+      | undefined;
+
+    if (planResult && !result.planErrorMessage) {
+      const results = planResult.results as
         | Array<Record<string, unknown>>
         | undefined;
-      const err = plan.error ?? results?.[0]?.error;
+      const err = planResult.error ?? results?.[0]?.error;
       if (typeof err === "string") {
         result.planErrorMessage = err;
       } else if (err && typeof err === "object") {
@@ -1080,12 +1098,30 @@ export function traverseErrorGraph(
       }
     }
 
+    if (planResult) {
+      if (Array.isArray(planResult.plans)) {
+        for (const subPlan of planResult.plans) visit(subPlan, depth + 1);
+      }
+      if (planResult.status && typeof planResult.status === "object") {
+        const status = planResult.status as Record<string, unknown>;
+        if (status.error) visit(status.error, depth + 1);
+      }
+    }
+
     if (o.cause) visit(o.cause, depth + 1);
     if (o.error) visit(o.error, depth + 1);
     if (o.context) visit(o.context, depth + 1);
     if (o.transactionPlanResult) visit(o.transactionPlanResult, depth + 1);
+    if (planResult && planResult !== o.transactionPlanResult) visit(planResult, depth + 1);
     if (Array.isArray(o.results)) {
       for (const r of o.results) visit(r, depth + 1);
+    }
+    if (Array.isArray(o.plans)) {
+      for (const p of o.plans) visit(p, depth + 1);
+    }
+    if (o.status && typeof o.status === "object") {
+      const st = o.status as Record<string, unknown>;
+      if (st.error) visit(st.error, depth + 1);
     }
   };
 
@@ -1515,7 +1551,11 @@ export function sanitizeErrorMessage(rawMsg: string): string {
   clean = clean.replace(/\u001b\[[0-9;]*m/g, "");
   clean = clean.replace(/https?:\/\/[^\s]+/gi, "[RPC Endpoint]");
 
-  // 2. Remove SDK deprecation notes & property inspection hints
+  // 2. Remove SDK deprecation notes, property inspection hints & CLI decode commands
+  clean = clean.replace(
+    /Solana error #(-?\d+);?\s*Decode this error by running `npx @solana\/errors decode[^`]*`/gi,
+    "Solana error #$1"
+  );
   clean = clean.replace(
     /Note that the `?cause`? property is deprecated,.*$/i,
     ""
@@ -1556,6 +1596,8 @@ function isGenericBoilerplate(msg: string): boolean {
   if (!msg) return true;
   const lower = msg.toLowerCase().trim();
   return (
+    lower.startsWith("solana error #7618003") ||
+    lower.startsWith("solana error #-32002") ||
     lower === "transaction execution failed" ||
     lower === "transaction execution failed." ||
     lower === "the provided transaction plan failed to execute" ||
@@ -1769,7 +1811,32 @@ export function parseTransactionError(
     }
   }
 
-  // 4. RPC Rate Limit (429) & Network Disconnections
+  // 5. Match Solana Core Errors (BlockHeightExceeded, BlockhashNotFound, InsufficientFunds, etc.)
+  const coreMatch = matchSolanaCoreError(traversal.codes);
+  if (coreMatch) {
+    if (
+      coreMatch.code === SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED &&
+      !isSolanaError(err, SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED) &&
+      !combinedSearchText.includes("Solana error #1") &&
+      !/blockheightexceeded/i.test(combinedSearchText)
+    ) {
+      // Skip false-positive match on generic instruction error code 1
+    } else {
+      return {
+        isCancellation: false,
+        layer: coreMatch.info.layer,
+        category: coreMatch.info.category,
+        title: coreMatch.info.title,
+        message: coreMatch.info.message,
+        code: coreMatch.info.displayCode ?? coreMatch.code,
+        actionableStep: coreMatch.info.actionableStep,
+        logs,
+        rawError: err,
+      };
+    }
+  }
+
+  // 6. RPC Rate Limit (429) & Network Disconnections
   if (
     rawMsg.includes("429") ||
     rawMsg.toLowerCase().includes("too many requests") ||
@@ -1809,7 +1876,7 @@ export function parseTransactionError(
     };
   }
 
-  // 4b. Compute Unit (CU) Budget Exhaustion
+  // 6b. Compute Unit (CU) Budget Exhaustion
   const isCuExhausted =
     /exceeded maximum number of instructions allowed|program failed to complete: exceeded compute units|computebudgetexceeded|consumed \d+ of \d+ compute units/i.test(
       combinedSearchText
@@ -1830,9 +1897,9 @@ export function parseTransactionError(
     };
   }
 
-  // 5. Strict Check for Blockhash / Blockheight Expiration
+  // 7. Strict Check for Blockhash / Blockheight Expiration
   const isExpiredBlockhash =
-    /blockhash (not found|expired|invalid)|blockheightexceeded|block height exceeded|transaction expired|was not confirmed|timed out/i.test(
+    /blockhash (not found|expired|invalid)|blockheightexceeded|block height exceeded|blockhashnotfound|transaction expired|was not confirmed|timed out/i.test(
       combinedSearchText.toLowerCase()
     );
 
@@ -1852,7 +1919,7 @@ export function parseTransactionError(
     };
   }
 
-  // 6. Duplicate Transaction / Solana RPC -32002
+  // 8. Duplicate Transaction / Solana RPC -32002
   const isDuplicateTx =
     errorObj?.data?.err === "AlreadyProcessed" ||
     errorObj?.cause?.data?.err === "AlreadyProcessed" ||
@@ -1868,7 +1935,7 @@ export function parseTransactionError(
       title: "Transaction Already Processed",
       message:
         "This transaction was already submitted and processed by the network.",
-      code: -32002,
+      code: SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
       actionableStep:
         "If retrying, create a fresh transaction with a new blockhash.",
       logs,
@@ -1876,10 +1943,10 @@ export function parseTransactionError(
     };
   }
 
-  // 7. Wallet Internal / Simulation Preflight (-32603) Fallback
+  // 9. Wallet Internal / Simulation Preflight (-32603) Fallback
   const isWalletRpcSimulationError =
-    traversal.codes.includes(-32603) ||
-    traversal.codes.includes("-32603") ||
+    traversal.codes.includes(SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) ||
+    traversal.codes.includes(String(SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR)) ||
     /unexpected error/i.test(rawMsg);
 
   if (isWalletRpcSimulationError) {
@@ -1894,7 +1961,7 @@ export function parseTransactionError(
       title: "Wallet Simulation or Network Error",
       message:
         "The wallet encountered an internal error while simulating or signing the transaction.",
-      code: -32603,
+      code: SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR,
       actionableStep:
         "Check that your wallet is unlocked, connected to the correct network (e.g. Localnet / Devnet), and has sufficient funds to simulate the transaction.",
       logs,
@@ -1902,10 +1969,16 @@ export function parseTransactionError(
     };
   }
 
-  // 8. Solana RPC -32002 Simulation Failure Fallback (when not duplicate and no Anchor match)
+  // 10. Solana RPC -32002 Simulation Failure Fallback (when not duplicate and no Anchor match)
   const isRpcSimulationFailed =
-    traversal.codes.includes(-32002) ||
-    traversal.codes.includes("-32002") ||
+    traversal.codes.includes(
+      SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE
+    ) ||
+    traversal.codes.includes(
+      String(
+        SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE
+      )
+    ) ||
     /transaction simulation failed/i.test(combinedSearchText);
 
   if (isRpcSimulationFailed) {
@@ -1917,7 +1990,7 @@ export function parseTransactionError(
       message:
         sanitizeErrorMessage(innerPlanErr || rawMsg) ||
         "The transaction failed during network simulation.",
-      code: -32002,
+      code: SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
       actionableStep:
         "Check account balances, verify input parameters, and try again.",
       logs,

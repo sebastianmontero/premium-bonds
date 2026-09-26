@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  SolanaError,
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
+  SOLANA_ERROR__INSTRUCTION_PLANS__FAILED_TO_EXECUTE_TRANSACTION_PLAN,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+} from "@solana/kit";
+import {
   parseTransactionError,
   matchAnchorError,
   matchSplTokenError,
@@ -11,7 +18,10 @@ import {
   SPL_TOKEN_ERRORS,
   SplTokenErrorCode,
   safeJsonStringify,
+  traverseErrorGraph,
+  matchSolanaCoreError,
 } from "../errors";
+import { searchErrorLookupItems } from "../docs/data";
 import { PROGRAM_ID } from "../bonds-sdk";
 
 describe("Transaction Error Parser & Sanitization Suite", () => {
@@ -548,6 +558,177 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       parsed.message,
       "The ticket registry account pre-allocation is too small."
     );
+  });
+
+  it("should parse SolanaError 7618003 wrapping -32002 with inner BlockhashNotFound (7050008)", () => {
+    const error7050008 = new SolanaError(
+      SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND
+    );
+    const error32002 = new SolanaError(
+      SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+      {
+        accounts: null,
+        logs: [],
+        unitsConsumed: 0n,
+        returnData: null,
+        loadedAccountsDataSize: 0,
+        replacementBlockhash: null,
+        cause: error7050008,
+      }
+    );
+    const error7618003 = new SolanaError(
+      SOLANA_ERROR__INSTRUCTION_PLANS__FAILED_TO_EXECUTE_TRANSACTION_PLAN,
+      {
+        transactionPlanResult: {},
+        cause: error32002,
+      }
+    );
+
+    const parsed = parseTransactionError(error7618003);
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+    assert.strictEqual(parsed.code, "EXPIRED_BLOCKHASH");
+    assert.strictEqual(
+      parsed.message,
+      "Wallet approval took longer than 60 seconds and the transaction expired."
+    );
+    assert.strictEqual(
+      parsed.actionableStep,
+      "Click retry and approve the wallet prompt promptly."
+    );
+  });
+
+  it("should parse SolanaError with code 1 (BlockHeightExceeded)", () => {
+    const error1 = new SolanaError(SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED, {
+      currentBlockHeight: 100n,
+      lastValidBlockHeight: 90n,
+    });
+    const parsed = parseTransactionError(error1);
+    assert.strictEqual(parsed.layer, "rpc");
+    assert.strictEqual(parsed.category, "blockhash_expired");
+    assert.strictEqual(parsed.title, "Request Timed Out");
+    assert.strictEqual(parsed.code, "EXPIRED_BLOCKHASH");
+  });
+
+  it("should disambiguate low-integer code 1 between System Program and BlockHeightExceeded", () => {
+    const systemErr = {
+      code: 1,
+      message: "Transaction simulation failed: custom program error: 0x1",
+      logs: [
+        "Program 11111111111111111111111111111111 invoke [1]",
+        "Program 11111111111111111111111111111111 failed: custom program error: 0x1",
+      ],
+    };
+    const parsed = parseTransactionError(systemErr);
+    assert.strictEqual(parsed.layer, "system");
+    assert.strictEqual(parsed.category, "insufficient_sol");
+    assert.strictEqual(parsed.title, "Insufficient SOL");
+  });
+
+  it("should parse SolanaError 7618003 wrapping non-enumerable transactionPlanResult containing Anchor error 6046", () => {
+    const rootErr = new SolanaError(
+      SOLANA_ERROR__INSTRUCTION_PLANS__FAILED_TO_EXECUTE_TRANSACTION_PLAN,
+      {
+        transactionPlanResult: {},
+      }
+    );
+    Object.defineProperty(rootErr, "transactionPlanResult", {
+      value: {
+        results: [
+          {
+            error: "custom program error: 0x179e",
+            logs: [
+              `Program ${PROGRAM_ID} invoke [1]`,
+              `Program ${PROGRAM_ID} failed: custom program error: 0x179e`,
+            ],
+          },
+        ],
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    const parsed = parseTransactionError(rootErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6046);
+    assert.strictEqual(parsed.title, "Program Error: ZeroSharesMinted");
+  });
+
+  it("should recursively unwrap multi-plan tree with plan.plans[1].status.error", () => {
+    const multiPlanErr = {
+      message: "The provided transaction plan failed to execute.",
+      transactionPlanResult: {
+        plans: [
+          {
+            status: { status: "successful" },
+          },
+          {
+            status: {
+              status: "failed",
+              error: {
+                message:
+                  "AnchorError Error Code: PayoutsPending. Error Number: 6063. Error Message: Payouts pending.",
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    const parsed = parseTransactionError(multiPlanErr);
+    assert.strictEqual(parsed.layer, "anchor");
+    assert.strictEqual(parsed.category, "anchor_custom");
+    assert.strictEqual(parsed.code, 6063);
+    assert.strictEqual(parsed.title, "Program Error: PayoutsPending");
+  });
+
+  it("should strip CLI decode commands from positive and negative error codes in sanitizeErrorMessage", () => {
+    const rawPos =
+      "Solana error #7618003; Decode this error by running `npx @solana/errors decode -- 7618003 'X19jb2RlPTc2MTgwMDM='`";
+    const cleanedPos = sanitizeErrorMessage(rawPos);
+    assert.strictEqual(cleanedPos, "Solana error #7618003");
+
+    const rawNeg =
+      "Solana error #-32002; Decode this error by running `npx @solana/errors decode -- -32002 'X19jb2RlPS0zMjAwMg=='`";
+    const cleanedNeg = sanitizeErrorMessage(rawNeg);
+    assert.strictEqual(cleanedNeg, "Solana error #-32002");
+  });
+
+  it("should extract signed negative codes from string messages in traverseErrorGraph", () => {
+    const traversal = traverseErrorGraph(
+      "Solana error #-32002; Decode this error by running `npx @solana/errors decode -- -32002 '...'`"
+    );
+    assert.ok(traversal.codes.includes(-32002));
+  });
+
+  it("should test matchSolanaCoreError negative inputs", () => {
+    assert.strictEqual(matchSolanaCoreError([]), null);
+    assert.strictEqual(matchSolanaCoreError([9999999]), null);
+    assert.strictEqual(matchSolanaCoreError(["not-a-number"]), null);
+    assert.strictEqual(matchSolanaCoreError([NaN]), null);
+  });
+
+  it("should match BlockhashNotFound via aliases EXPIRED_BLOCKHASH, 7618003, and 7050008 in English and Spanish", () => {
+    const resultsEnExpired = searchErrorLookupItems("EXPIRED_BLOCKHASH", "en");
+    assert.ok(
+      resultsEnExpired.some((item) => item.code === "BlockhashNotFound")
+    );
+
+    const resultsEs7618003 = searchErrorLookupItems("7618003", "es");
+    assert.ok(
+      resultsEs7618003.some((item) => item.code === "BlockhashNotFound")
+    );
+
+    const resultsEn7050008 = searchErrorLookupItems("7050008", "en");
+    assert.ok(
+      resultsEn7050008.some((item) => item.code === "BlockhashNotFound")
+    );
+
+    const resultsEs1 = searchErrorLookupItems("1", "es");
+    assert.ok(resultsEs1.some((item) => item.code === "BlockhashNotFound"));
   });
 
   describe("safeJsonStringify Suite", () => {

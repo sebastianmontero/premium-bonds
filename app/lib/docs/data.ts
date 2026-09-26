@@ -27,6 +27,7 @@ export interface ErrorLookupItem {
   diagnosis: LocalizedString;
   solution: LocalizedString;
   category: "wallet" | "anchor" | "network" | "balance" | "crank" | "admin";
+  readonly aliases?: readonly string[];
 }
 
 export const DOC_CATEGORIES: DocCategory[] = [
@@ -1470,6 +1471,13 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
   {
     code: "BlockhashNotFound",
     name: "BlockheightExceeded / TransactionExpired",
+    aliases: [
+      "EXPIRED_BLOCKHASH",
+      "7618003", // SOLANA_ERROR__INSTRUCTION_PLANS__FAILED_TO_EXECUTE_TRANSACTION_PLAN
+      "7050008", // SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND
+      "5663002", // SOLANA_ERROR__TRANSACTION__EXPECTED_BLOCKHASH_LIFETIME
+      "1", // SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED
+    ],
     summary: {
       en: "The network was congested or wallet signing took longer than 60 seconds.",
       es: "La red estaba ocupada o la firma en la billetera tardó más de 60 segundos.",
@@ -2719,6 +2727,9 @@ export function searchErrorLookupItems(
     const solution = normalizeSearchText(
       item.solution[targetLocale] || item.solution.en
     );
+    const matchesAliases =
+      item.aliases?.some((a) => normalizeSearchText(a).includes(cleanQuery)) ??
+      false;
 
     return (
       code.includes(cleanQuery) ||
@@ -2726,7 +2737,8 @@ export function searchErrorLookupItems(
       numeric.includes(cleanQuery) ||
       name.includes(cleanQuery) ||
       diagnosis.includes(cleanQuery) ||
-      solution.includes(cleanQuery)
+      solution.includes(cleanQuery) ||
+      matchesAliases
     );
   });
 }
