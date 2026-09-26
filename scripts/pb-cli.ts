@@ -50,10 +50,203 @@ import {
   SQUADS_PROGRAM_ADDRESS,
 } from "../app/lib/squads-sdk";
 
-export class CliArgumentError extends Error {
+export class CliUserError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliUserError";
+  }
+}
+
+export class CliArgumentError extends CliUserError {
   constructor(message: string) {
     super(message);
     this.name = "CliArgumentError";
+  }
+}
+
+export type PreconditionErrorCode =
+  | "POOL_CLOSED"
+  | "POOL_FROZEN"
+  | "DRAW_NOT_AWAITING_RANDOMNESS"
+  | "DRAW_NOT_COMPLETE"
+  | "DRAW_ALREADY_VOIDED"
+  | "DRAW_ALREADY_FORCE_UNLOCKED"
+  | "PAYOUTS_ALREADY_STARTED"
+  | "PAYOUT_REGISTRY_ALREADY_VOIDED"
+  | "PAYOUT_REGISTRY_NOT_FOUND"
+  | "NO_DRAW_CYCLES";
+
+export class CliPreconditionError extends CliUserError {
+  constructor(
+    public readonly code: PreconditionErrorCode,
+    message: string,
+    public readonly suggestedCommand?: string
+  ) {
+    super(message);
+    this.name = "CliPreconditionError";
+  }
+}
+
+export function formatPoolFlag(poolId?: number): string {
+  return poolId && poolId !== 1 ? ` --pool ${poolId}` : "";
+}
+
+export function resolveTargetCycleId(
+  poolState: { poolId: number; currentDrawCycleId: number },
+  explicitCycleId?: number | string
+): number {
+  if (explicitCycleId !== undefined && explicitCycleId !== "") {
+    const parsed =
+      typeof explicitCycleId === "string"
+        ? parseInt(explicitCycleId, 10)
+        : explicitCycleId;
+    if (isNaN(parsed) || parsed < 0) {
+      throw new CliArgumentError(
+        `Invalid cycle ID: "${explicitCycleId}". Must be a non-negative integer.`
+      );
+    }
+    return parsed;
+  }
+  if (poolState.currentDrawCycleId === 0) {
+    throw new CliPreconditionError(
+      "NO_DRAW_CYCLES",
+      `No draw cycles exist for Pool ${poolState.poolId}.`
+    );
+  }
+  return poolState.currentDrawCycleId > 1
+    ? poolState.currentDrawCycleId - 1
+    : 1;
+}
+
+export interface VoidDrawValidationContext {
+  poolState: { isFrozenForDraw: boolean; status?: string };
+  drawCycleState: { status: string; cycleId: number; poolId?: number };
+  payoutState?: {
+    status: number | PayoutRegistryStatus;
+    payoutsCompleted: number;
+  } | null;
+  poolId?: number;
+}
+
+export interface ForceUnlockValidationContext {
+  poolState?: { isFrozenForDraw: boolean; status?: string };
+  drawCycleState: { status: string; cycleId: number; poolId?: number };
+  poolId?: number;
+}
+
+export function validateVoidDrawEligibility({
+  poolState,
+  drawCycleState,
+  payoutState,
+  poolId,
+}: VoidDrawValidationContext): void {
+  const resolvedPoolId = poolId ?? drawCycleState.poolId ?? 1;
+  const poolFlag = formatPoolFlag(resolvedPoolId);
+  const cycleId = drawCycleState.cycleId;
+
+  if (drawCycleState.status === "AwaitingRandomness") {
+    throw new CliPreconditionError(
+      "DRAW_NOT_COMPLETE",
+      `Draw cycle ${cycleId} is currently in status 'AwaitingRandomness' and has no PayoutRegistry.\n` +
+        `To cancel an in-flight draw awaiting randomness, unfreeze the pool, and roll back liabilities, run:\n` +
+        `  npm run -- pb-cli force-unlock-draw ${cycleId}${poolFlag} --confirm`,
+      `npm run -- pb-cli force-unlock-draw ${cycleId}${poolFlag} --confirm`
+    );
+  }
+
+  if (drawCycleState.status === "Voided") {
+    throw new CliPreconditionError(
+      "DRAW_ALREADY_VOIDED",
+      `Draw cycle ${cycleId} has already been voided.`
+    );
+  }
+
+  if (drawCycleState.status === "ForceUnlocked") {
+    throw new CliPreconditionError(
+      "DRAW_ALREADY_FORCE_UNLOCKED",
+      `Draw cycle ${cycleId} has already been force-unlocked and cannot be voided.`
+    );
+  }
+
+  if (drawCycleState.status !== "Complete") {
+    throw new CliPreconditionError(
+      "DRAW_NOT_COMPLETE",
+      `Draw cycle ${cycleId} is in status '${drawCycleState.status}'. Only 'Complete' draws can be voided.`
+    );
+  }
+
+  if (poolState.status === "Closed") {
+    throw new CliPreconditionError(
+      "POOL_CLOSED",
+      `Prize pool ${resolvedPoolId} is closed and cannot be modified.`
+    );
+  }
+
+  if (poolState.isFrozenForDraw) {
+    throw new CliPreconditionError(
+      "POOL_FROZEN",
+      `Prize pool ${resolvedPoolId} is currently frozen for a draw. Cannot void payout registry while frozen.`
+    );
+  }
+
+  if (!payoutState) {
+    throw new CliPreconditionError(
+      "PAYOUT_REGISTRY_NOT_FOUND",
+      `PayoutRegistry account for completed cycle ${cycleId} was not found on-chain.`
+    );
+  }
+
+  if (payoutState.status === PayoutRegistryStatus.Voided) {
+    throw new CliPreconditionError(
+      "PAYOUT_REGISTRY_ALREADY_VOIDED",
+      `PayoutRegistry for cycle ${cycleId} is already marked as Voided.`
+    );
+  }
+
+  if (payoutState.payoutsCompleted > 0) {
+    throw new CliPreconditionError(
+      "PAYOUTS_ALREADY_STARTED",
+      `Cannot void draw cycle ${cycleId}: ${payoutState.payoutsCompleted} payout(s) have already been claimed/processed.`
+    );
+  }
+}
+
+export function validateForceUnlockEligibility({
+  drawCycleState,
+  poolId,
+}: ForceUnlockValidationContext): void {
+  const resolvedPoolId = poolId ?? drawCycleState.poolId ?? 1;
+  const poolFlag = formatPoolFlag(resolvedPoolId);
+  const cycleId = drawCycleState.cycleId;
+
+  if (drawCycleState.status === "Complete") {
+    throw new CliPreconditionError(
+      "DRAW_NOT_AWAITING_RANDOMNESS",
+      `Draw cycle ${cycleId} is in status 'Complete'. To void a completed draw and roll back liabilities, run:\n` +
+        `  npm run -- pb-cli void-draw ${cycleId}${poolFlag} --confirm`,
+      `npm run -- pb-cli void-draw ${cycleId}${poolFlag} --confirm`
+    );
+  }
+
+  if (drawCycleState.status === "ForceUnlocked") {
+    throw new CliPreconditionError(
+      "DRAW_ALREADY_FORCE_UNLOCKED",
+      `Draw cycle ${cycleId} has already been force-unlocked.`
+    );
+  }
+
+  if (drawCycleState.status === "Voided") {
+    throw new CliPreconditionError(
+      "DRAW_ALREADY_VOIDED",
+      `Draw cycle ${cycleId} has already been voided.`
+    );
+  }
+
+  if (drawCycleState.status !== "AwaitingRandomness") {
+    throw new CliPreconditionError(
+      "DRAW_NOT_AWAITING_RANDOMNESS",
+      `Draw cycle ${cycleId} is in status '${drawCycleState.status}'. Only draws in 'AwaitingRandomness' can be force unlocked.`
+    );
   }
 }
 import {
@@ -3219,15 +3412,15 @@ export async function executeWithdrawFees({
   }
 
   if (!confirm) {
-    console.log(`Withdraw Fees Details:
+    console.log(`WITHDRAW FEES PREVIEW:
   Pool ID: ${poolId}
   Available Fees: ${formatAmount(availableFees)}
   Requested Withdrawal: ${formatAmount(withdrawAmount)}
   Fee Wallet: ${poolState.feeWallet}
-`);
-    throw new Error(
-      `Please re-run with --confirm to execute fee withdrawal transaction.`
-    );
+  Execution Mode: ${mode.kind === "propose" ? "Squads Multisig Proposal" : "Direct Execution"}
+
+To execute this on-chain, re-run with --confirm.`);
+    return;
   }
 
   console.log(
@@ -3318,9 +3511,12 @@ export async function executeUnpausePool({
 }: ExecuteUnpausePoolParams) {
   const rpc = createSolanaRpc(rpcUrl);
   if (!confirm) {
-    throw new Error(
-      `Unpause resumes deposits, sales, and draws. Re-run with --confirm to proceed.`
-    );
+    console.log(`UNPAUSE POOL PREVIEW:
+  Pool ID: ${poolId}
+  Execution Mode: ${mode.kind === "propose" ? "Squads Multisig Proposal" : "Direct Execution"}
+
+To execute this on-chain, re-run with --confirm.`);
+    return;
   }
   console.log(`Executing unpause for Pool ${poolId}...`);
   const globalAdmin = await getGlobalAdmin(rpc);
@@ -3370,7 +3566,8 @@ export async function executeClosePool({
   );
 
   if (poolState.isFrozenForDraw) {
-    throw new Error(
+    throw new CliPreconditionError(
+      "POOL_FROZEN",
       `Cannot close pool while a draw is in flight and frozen. Please run reveal or force-unlock-draw first.`
     );
   }
@@ -3380,10 +3577,10 @@ export async function executeClosePool({
   Pool ID: ${poolId}
   Current Status: ${poolState.status}
   Total Deposited Principal: ${formatAmount(poolState.totalDepositedPrincipal)}
-`);
-    throw new Error(
-      `Closing a pool is permanent and disables all new deposits and draws. Re-run with --confirm to proceed.`
-    );
+  Execution Mode: ${mode.kind === "propose" ? "Squads Multisig Proposal" : "Direct Execution"}
+
+To execute this on-chain, re-run with --confirm.`);
+    return;
   }
 
   console.log(`Executing permanent close for Pool ${poolId}...`);
@@ -3436,12 +3633,7 @@ export async function executeVoidDraw({
     new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
   );
 
-  const targetCycleId =
-    cycleId !== undefined
-      ? cycleId
-      : poolState.currentDrawCycleId > 1
-        ? poolState.currentDrawCycleId - 1
-        : 1;
+  const targetCycleId = resolveTargetCycleId(poolState, cycleId);
 
   const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
   const drawCycleAcc = await rpc
@@ -3458,29 +3650,34 @@ export async function executeVoidDraw({
   const payoutRegistryAcc = await rpc
     .getAccountInfo(payoutRegistryPda, { encoding: "base64" })
     .send();
-  if (!payoutRegistryAcc || !payoutRegistryAcc.value) {
-    throw new Error(
-      `PayoutRegistry account for cycle ${targetCycleId} not found.`
-    );
-  }
-  const payoutState = parsePayoutRegistry(
-    new Uint8Array(base64Encoder.encode(payoutRegistryAcc.value.data[0]))
-  );
+  const payoutState =
+    payoutRegistryAcc && payoutRegistryAcc.value
+      ? parsePayoutRegistry(
+          new Uint8Array(base64Encoder.encode(payoutRegistryAcc.value.data[0]))
+        )
+      : null;
+
+  validateVoidDrawEligibility({
+    poolState,
+    drawCycleState,
+    payoutState,
+    poolId,
+  });
 
   if (!confirm) {
     console.log(`VOID DRAW CYCLE PREVIEW:
   Pool ID: ${poolId}
   Cycle ID: ${targetCycleId}
   Draw Status: ${drawCycleState.status}
-  Payout Status: ${formatPayoutRegistryStatus(payoutState.status)}
-  Winners Drawn: ${payoutState.winnersCount}
-  Payouts Completed: ${payoutState.payoutsCompleted}
+  Payout Status: ${formatPayoutRegistryStatus(payoutState!.status)}
+  Winners Drawn: ${payoutState!.winnersCount}
+  Payouts Completed: ${payoutState!.payoutsCompleted}
   Committed Prize Pot: ${formatAmount(drawCycleState.prizePot)}
   Committed Cycle Fee: ${formatAmount(drawCycleState.cycleFeeCollected)}
-`);
-    throw new Error(
-      `Voiding a draw cancels all pending winner prize claims and rolls back allocated prizes. Re-run with --confirm to proceed.`
-    );
+  Execution Mode: ${mode.kind === "propose" ? "Squads Multisig Proposal" : "Direct Execution"}
+
+To execute this on-chain, re-run with --confirm.`);
+    return;
   }
 
   console.log(
@@ -3538,12 +3735,7 @@ export async function executeForceUnlockDraw({
     new Uint8Array(base64Encoder.encode(poolAcc.value.data[0]))
   );
 
-  const targetCycleId =
-    cycleId !== undefined
-      ? cycleId
-      : poolState.currentDrawCycleId > 1
-        ? poolState.currentDrawCycleId - 1
-        : 1;
+  const targetCycleId = resolveTargetCycleId(poolState, cycleId);
 
   const drawCyclePda = await findDrawCyclePda(poolId, targetCycleId);
   const drawCycleAcc = await rpc
@@ -3556,6 +3748,12 @@ export async function executeForceUnlockDraw({
     new Uint8Array(base64Encoder.encode(drawCycleAcc.value.data[0]))
   );
 
+  validateForceUnlockEligibility({
+    poolState,
+    drawCycleState,
+    poolId,
+  });
+
   if (!confirm) {
     console.log(`EMERGENCY FORCE UNLOCK PREVIEW:
   Pool ID: ${poolId}
@@ -3564,10 +3762,10 @@ export async function executeForceUnlockDraw({
   Draw Status: ${drawCycleState.status}
   Committed Prize Pot: ${formatAmount(drawCycleState.prizePot)}
   Committed Cycle Fee: ${formatAmount(drawCycleState.cycleFeeCollected)}
-`);
-    throw new Error(
-      `Force unlock resets draw status and unfreezes pool. Re-run with --confirm to proceed.`
-    );
+  Execution Mode: ${mode.kind === "propose" ? "Squads Multisig Proposal" : "Direct Execution"}
+
+To execute this on-chain, re-run with --confirm.`);
+    return;
   }
 
   console.log(
@@ -3589,6 +3787,9 @@ export async function executeForceUnlockDraw({
       });
     },
   });
+  console.log(
+    `Draw cycle ${targetCycleId} for Pool ${poolId} has been successfully force-unlocked and pool unfrozen.`
+  );
 }
 
 export interface ExecuteRebindRandomnessParams {
@@ -4049,11 +4250,6 @@ async function main() {
         showCommandHelp("withdraw-fees");
         process.exit(1);
       }
-      if (!confirm) {
-        console.error("Error: Missing required flag --confirm\n");
-        showCommandHelp("withdraw-fees");
-        process.exit(1);
-      }
       await executeWithdrawFees({
         poolId,
         amountOption,
@@ -4077,11 +4273,6 @@ async function main() {
 
     case "unpause-pool": {
       const confirm = options["--confirm"] === "true";
-      if (!confirm) {
-        console.error("Error: Missing required flag --confirm\n");
-        showCommandHelp("unpause-pool");
-        process.exit(1);
-      }
       await executeUnpausePool({
         poolId,
         confirm,
@@ -4094,11 +4285,6 @@ async function main() {
 
     case "close-pool": {
       const confirm = options["--confirm"] === "true";
-      if (!confirm) {
-        console.error("Error: Missing required flag --confirm\n");
-        showCommandHelp("close-pool");
-        process.exit(1);
-      }
       await executeClosePool({
         poolId,
         confirm,
@@ -4118,11 +4304,6 @@ async function main() {
         if (!isNaN(val)) cycleId = val;
       }
       const confirm = options["--confirm"] === "true";
-      if (!confirm) {
-        console.error("Error: Missing required flag --confirm\n");
-        showCommandHelp("void-draw");
-        process.exit(1);
-      }
       await executeVoidDraw({
         poolId,
         cycleId,
@@ -4143,11 +4324,6 @@ async function main() {
         if (!isNaN(val)) cycleId = val;
       }
       const confirm = options["--confirm"] === "true";
-      if (!confirm) {
-        console.error("Error: Missing required flag --confirm\n");
-        showCommandHelp("force-unlock-draw");
-        process.exit(1);
-      }
       await executeForceUnlockDraw({
         poolId,
         cycleId,
@@ -4945,7 +5121,7 @@ Ticket Registry for Pool ${poolId}
 
 if (require.main === module) {
   main().catch((err) => {
-    if (err instanceof CliArgumentError) {
+    if (err instanceof CliUserError) {
       console.error(`Error: ${err.message}`);
       process.exit(1);
     }
