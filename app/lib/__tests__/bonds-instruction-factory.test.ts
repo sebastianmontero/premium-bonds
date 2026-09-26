@@ -105,6 +105,7 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
     userAddress: dummyUser,
     redemptionId: 0,
     userTokenAccount: dummyUserToken,
+    humaLenderState: TEST_ADDRESSES.USER_2,
   });
 
   assert.ok(ix, "Claim redemption instruction must be created");
@@ -357,6 +358,7 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
     redemptionId: 4,
     redemptionType: RedemptionType.FeeWithdrawal,
     feeWallet,
+    humaLenderState: TEST_ADDRESSES.USER_2,
   });
 
   assert.equal(
@@ -384,6 +386,7 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idemp
     beneficiary: user,
     redemptionId: 1,
     redemptionType: RedemptionType.BondSale,
+    humaLenderState: TEST_ADDRESSES.USER_2,
   });
 
   assert.equal(

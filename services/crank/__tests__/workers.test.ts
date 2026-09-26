@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSigner, KeyPairSigner } from "@solana/kit";
+import { generateKeyPairSigner, KeyPairSigner, AccountRole } from "@solana/kit";
 import { HarvestYieldWorker } from "../workers/harvest-yield.worker";
 import { PrepareDrawWorker } from "../workers/prepare-draw.worker";
 import { RebindRandomnessWorker } from "../workers/rebind-randomness.worker";
@@ -25,7 +25,10 @@ import {
 
 const mockAddress = TEST_ADDRESSES.USER;
 
-function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
+function createMockContext(
+  signer: KeyPairSigner,
+  configOverrides?: Partial<CrankExecutionContext["config"]>
+): CrankExecutionContext {
   return {
     signer,
     rpcUrl: "http://127.0.0.1:8899",
@@ -33,6 +36,27 @@ function createMockContext(signer: KeyPairSigner): CrankExecutionContext {
     maxReinvestBatchSize: 5,
     enableAutoDisburse: true,
     dryRun: true,
+    config: {
+      rpcUrl: "http://127.0.0.1:8899",
+      wsUrl: "ws://127.0.0.1:8899",
+      poolIds: [1],
+      pollIntervalMs: 15000,
+      activeWindowPollIntervalMs: 1000,
+      metricsPort: 9090,
+      enableAutoDisburse: true,
+      maxPrepareBatchSize: 500,
+      maxReinvestBatchSize: 5,
+      instanceIndex: 0,
+      instanceJitterMs: 1200,
+      jitoEnabled: false,
+      jitoTipLamports: 10000n,
+      maxJitoTipLamports: 100000n,
+      humaLenderState: TEST_ADDRESSES.USER_2,
+      humaPoolState: TEST_ADDRESSES.HUMA_POOL,
+      humaPoolUnderlyingToken: TEST_ADDRESSES.USER,
+      dryRun: true,
+      ...configOverrides,
+    },
   };
 }
 
@@ -362,5 +386,133 @@ describe("Strategy Workers Unit Tests", () => {
     const sentinel = new DisburseSentinelWorker();
     sentinel.invalidateCandidateCache(1);
     sentinel.invalidateCandidateCache();
+  });
+
+  it("DisburseSentinelWorker should short circuit before RPC candidate fetch if humaLenderState is unconfigured or SYSTEM_PROGRAM_ID", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer, {
+      humaLenderState: undefined,
+      poolHumaLenderStates: {},
+    });
+    const sentinel = new DisburseSentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        totalPendingRedemptions: 5n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const outcome = await sentinel.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(outcome.reason, /Huma lender state is not configured/);
+  });
+
+  it("DisburseSentinelWorker should select pool-specific humaLenderState from poolHumaLenderStates if configured", async () => {
+    const signer = await generateKeyPairSigner();
+    const poolSpecificLender = (await generateKeyPairSigner()).address;
+    const ctx = createMockContext(signer, {
+      humaLenderState: TEST_ADDRESSES.USER_2,
+      poolHumaLenderStates: { 1: poolSpecificLender },
+    });
+    const sentinel = new DisburseSentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        totalPendingRedemptions: 1n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const candidates = [
+      {
+        redemptionId: 1n,
+        user: mockAddress,
+        humaRequestId: 1n,
+        redemptionType: RedemptionType.BondSale,
+      },
+    ];
+
+    const ixs = await sentinel.buildInstructionsForBatch(
+      snapshot,
+      ctx,
+      candidates
+    );
+    // Claim ix is index 1 (after ATA creation)
+    const claimIx = ixs.find((ix) => ix.programAddress !== ATA_PROGRAM_ID);
+    assert.ok(claimIx, "Claim instruction must be generated");
+    const lenderMeta = claimIx.accounts?.find(
+      (a) => a.address === poolSpecificLender
+    );
+    assert.ok(
+      lenderMeta,
+      "Claim instruction must contain pool-specific humaLenderState"
+    );
+    assert.strictEqual(lenderMeta.role, AccountRole.WRITABLE);
+  });
+
+  it("DisburseSentinelWorker should pass configured humaLenderState with AccountRole.WRITABLE in instruction accounts", async () => {
+    const signer = await generateKeyPairSigner();
+    const configuredLender = TEST_ADDRESSES.USER_2;
+    const ctx = createMockContext(signer, {
+      humaLenderState: configuredLender,
+    });
+    const sentinel = new DisburseSentinelWorker();
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({
+        tokenMint: mockAddress,
+        totalPendingRedemptions: 1n,
+      }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "IDLE" as const,
+      nextDrawAt: toUnixTimestamp(2000),
+    };
+
+    const candidates = [
+      {
+        redemptionId: 1n,
+        user: mockAddress,
+        humaRequestId: 1n,
+        redemptionType: RedemptionType.BondSale,
+      },
+    ];
+
+    const ixs = await sentinel.buildInstructionsForBatch(
+      snapshot,
+      ctx,
+      candidates
+    );
+    const claimIx = ixs.find((ix) => ix.programAddress !== ATA_PROGRAM_ID);
+    assert.ok(claimIx, "Claim instruction must be generated");
+    const lenderMeta = claimIx.accounts?.find(
+      (a) => a.address === configuredLender
+    );
+    assert.ok(
+      lenderMeta,
+      "Claim instruction must contain configured humaLenderState"
+    );
+    assert.strictEqual(lenderMeta.role, AccountRole.WRITABLE);
   });
 });

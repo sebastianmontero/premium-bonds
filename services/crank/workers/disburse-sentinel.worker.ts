@@ -6,6 +6,13 @@ import {
   fetchPendingRedemptionCandidates,
   PendingRedemptionCandidate,
   RedemptionType,
+  isConfiguredAccountAddress,
+  HUMA_CONFIG,
+  HUMA_POOL_CONFIG,
+  HUMA_POOL_STATE,
+  HUMA_MODE_CONFIG,
+  HUMA_LENDER_STATE,
+  HUMA_POOL_UNDERLYING_TOKEN,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -48,6 +55,36 @@ export class DisburseSentinelWorker implements ICrankTask {
     );
   }
 
+  private resolveHumaAddresses(
+    snapshot: PoolStateSnapshot,
+    context: CrankExecutionContext
+  ): HumaPoolAddresses {
+    const cfg = context.config;
+    const poolState = isConfiguredAccountAddress(snapshot.pool.humaPoolState)
+      ? snapshot.pool.humaPoolState
+      : cfg?.humaPoolState || HUMA_POOL_STATE;
+
+    const lenderState =
+      cfg?.poolHumaLenderStates?.[snapshot.poolId] ||
+      cfg?.humaLenderState ||
+      (isConfiguredAccountAddress(HUMA_LENDER_STATE)
+        ? HUMA_LENDER_STATE
+        : undefined);
+
+    return {
+      poolState: poolState || SYSTEM_PROGRAM_ID,
+      config: cfg?.humaConfig || HUMA_CONFIG,
+      poolConfig: cfg?.humaPoolConfig || HUMA_POOL_CONFIG,
+      modeConfig: cfg?.humaModeConfig || HUMA_MODE_CONFIG,
+      lenderState,
+      poolUnderlyingToken:
+        cfg?.humaPoolUnderlyingToken ||
+        (isConfiguredAccountAddress(HUMA_POOL_UNDERLYING_TOKEN)
+          ? HUMA_POOL_UNDERLYING_TOKEN
+          : undefined),
+    };
+  }
+
   async evaluate(
     snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
@@ -63,6 +100,20 @@ export class DisburseSentinelWorker implements ICrankTask {
       return {
         shouldExecute: false,
         reason: "No pending redemptions recorded on-chain for pool",
+      };
+    }
+
+    const humaAddresses = this.resolveHumaAddresses(snapshot, context);
+    if (!isConfiguredAccountAddress(humaAddresses.poolState)) {
+      return {
+        shouldExecute: false,
+        reason: `Huma pool state is not configured for Pool #${snapshot.poolId}; auto-disburse skipped`,
+      };
+    }
+    if (!isConfiguredAccountAddress(humaAddresses.lenderState)) {
+      return {
+        shouldExecute: false,
+        reason: `Huma lender state is not configured for Pool #${snapshot.poolId} (HUMA_LENDER_STATE unset); auto-disburse skipped`,
       };
     }
 
@@ -132,14 +183,7 @@ export class DisburseSentinelWorker implements ICrankTask {
     context: CrankExecutionContext,
     batch: PendingRedemptionCandidate[]
   ): Promise<Instruction[]> {
-    const humaAddresses: HumaPoolAddresses = {
-      poolState: snapshot.pool.humaPoolState || SYSTEM_PROGRAM_ID,
-      config: SYSTEM_PROGRAM_ID,
-      poolConfig: SYSTEM_PROGRAM_ID,
-      modeConfig: SYSTEM_PROGRAM_ID,
-      lenderState: SYSTEM_PROGRAM_ID,
-      poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
-    };
+    const humaAddresses = this.resolveHumaAddresses(snapshot, context);
 
     const tokenMint = address(snapshot.pool.tokenMint);
     const instructions: Instruction[] = [];

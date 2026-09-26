@@ -1234,6 +1234,7 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           tokenMint,
           humaAddresses: {
             poolState: TEST_ADDRESSES.HUMA_POOL,
+            lenderState: TEST_ADDRESSES.USER_2,
           },
           redemptionType: RedemptionType.FeeWithdrawal,
           feeWallet,
@@ -1264,6 +1265,7 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           tokenMint,
           humaAddresses: {
             poolState: TEST_ADDRESSES.HUMA_POOL,
+            lenderState: TEST_ADDRESSES.USER_2,
           },
           redemptionType: RedemptionType.BondSale,
         });

@@ -8,6 +8,7 @@
 import {
   address,
   Address,
+  isAddress,
   AccountRole,
   getProgramDerivedAddress,
   getBase58Decoder,
@@ -136,35 +137,69 @@ export const USDC_MINT = address(
 );
 export const REGISTRY_INITIAL_SIZE = 262_248n;
 
+export function parseOptionalAddress(val?: string | null): Address | undefined {
+  if (!val || typeof val !== "string") return undefined;
+  const trimmed = val.trim();
+  if (trimmed === "" || trimmed === "11111111111111111111111111111111")
+    return undefined;
+  try {
+    return address(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+export function isConfiguredAccountAddress(addr?: unknown): addr is Address {
+  return (
+    typeof addr === "string" &&
+    isAddress(addr) &&
+    addr !== "11111111111111111111111111111111"
+  );
+}
+
 export const HUMA_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_CONFIG || "11111111111111111111111111111111"
+  process.env.HUMA_CONFIG ||
+    process.env.NEXT_PUBLIC_HUMA_CONFIG ||
+    "11111111111111111111111111111111"
 );
 export const HUMA_POOL_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || "11111111111111111111111111111111"
+  process.env.HUMA_POOL_CONFIG ||
+    process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
+    "11111111111111111111111111111111"
 );
 export const HUMA_POOL_STATE = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_STATE || "11111111111111111111111111111111"
+  process.env.HUMA_POOL_STATE ||
+    process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
+    "11111111111111111111111111111111"
 );
 export const HUMA_MODE_CONFIG = address(
-  process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || "11111111111111111111111111111111"
+  process.env.HUMA_MODE_CONFIG ||
+    process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
+    "11111111111111111111111111111111"
 );
 export const HUMA_LENDER_STATE = address(
-  process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
+  process.env.HUMA_LENDER_STATE ||
+    process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
     "11111111111111111111111111111111"
 );
 export const HUMA_POOL_UNDERLYING_TOKEN = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+  process.env.HUMA_POOL_UNDERLYING_TOKEN ||
+    process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
     "11111111111111111111111111111111"
 );
 export const HUMA_MODE_MINT = address(
-  process.env.NEXT_PUBLIC_HUMA_MODE_MINT || "11111111111111111111111111111111"
+  process.env.HUMA_MODE_MINT ||
+    process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
+    "11111111111111111111111111111111"
 );
 export const HUMA_POOL_MODE_TOKEN = address(
-  process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+  process.env.HUMA_POOL_MODE_TOKEN ||
+    process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
     "11111111111111111111111111111111"
 );
 export const HUMA_REDEMPTION_REQUEST = address(
-  process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+  process.env.HUMA_REDEMPTION_REQUEST ||
+    process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
     "11111111111111111111111111111111"
 );
 
@@ -2190,6 +2225,20 @@ export async function buildClaimRedemptionInstruction(
 
   const eventAuthority = await findEventAuthorityPda();
 
+  const lenderState =
+    params.humaAddresses.lenderState ??
+    (isConfiguredAccountAddress(HUMA_LENDER_STATE)
+      ? HUMA_LENDER_STATE
+      : undefined);
+
+  if (!isConfiguredAccountAddress(lenderState)) {
+    throw new Error(
+      "Missing or invalid humaLenderState account for ClaimRedemption. " +
+        "Huma lender state cannot be SYSTEM_PROGRAM_ID because on-chain instruction requires mutability (#[account(mut)]). " +
+        "Please configure HUMA_LENDER_STATE or provide a valid lenderState in humaAddresses."
+    );
+  }
+
   const ix = await getClaimRedemptionInstructionAsync({
     caller: params.crank as TransactionSigner,
     beneficiary: params.beneficiary,
@@ -2198,11 +2247,23 @@ export async function buildClaimRedemptionInstruction(
     tokenMint: params.tokenMint,
     poolVaultAccount,
     beneficiaryTokenAccount,
-    humaConfig: params.humaAddresses.config || SYSTEM_PROGRAM_ID,
-    humaPoolConfig: params.humaAddresses.poolConfig || SYSTEM_PROGRAM_ID,
+    humaConfig:
+      params.humaAddresses.config ||
+      (isConfiguredAccountAddress(HUMA_CONFIG)
+        ? HUMA_CONFIG
+        : SYSTEM_PROGRAM_ID),
+    humaPoolConfig:
+      params.humaAddresses.poolConfig ||
+      (isConfiguredAccountAddress(HUMA_POOL_CONFIG)
+        ? HUMA_POOL_CONFIG
+        : SYSTEM_PROGRAM_ID),
     humaPoolState: params.humaAddresses.poolState,
-    humaModeConfig: params.humaAddresses.modeConfig || SYSTEM_PROGRAM_ID,
-    humaLenderState: params.humaAddresses.lenderState || SYSTEM_PROGRAM_ID,
+    humaModeConfig:
+      params.humaAddresses.modeConfig ||
+      (isConfiguredAccountAddress(HUMA_MODE_CONFIG)
+        ? HUMA_MODE_CONFIG
+        : SYSTEM_PROGRAM_ID),
+    humaLenderState: lenderState,
     humaPoolAuthority,
     humaPoolUnderlyingToken,
     tokenProgram,

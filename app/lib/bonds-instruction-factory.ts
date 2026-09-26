@@ -38,6 +38,7 @@ import {
   HUMA_POOL_UNDERLYING_TOKEN,
   HUMA_POOL_MODE_TOKEN,
   HUMA_REDEMPTION_REQUEST,
+  type HumaPoolAddresses,
   HUMA_LENDER_STATE,
 } from "./bonds-sdk";
 import {
@@ -195,6 +196,8 @@ export interface ClaimRedemptionFactoryParams {
   beneficiaryTokenAccount?: Address;
   userTokenAccount?: Address;
   humaPoolState?: Address;
+  humaLenderState?: Address;
+  humaAddresses?: Partial<HumaPoolAddresses>;
   redemptionType?: RedemptionType;
   feeWallet?: Address;
   tokenProgram?: Address;
@@ -206,9 +209,14 @@ export async function buildClaimRedemptionInstruction(
   const caller = params.caller ?? params.userAddress;
   if (!caller) throw new Error("Caller or userAddress is required");
   const beneficiary = params.beneficiary ?? params.userAddress ?? caller;
-  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
+  const targetHumaPoolState =
+    params.humaAddresses?.poolState || params.humaPoolState || HUMA_POOL_STATE;
   const beneficiaryTokenAccount =
     params.beneficiaryTokenAccount ?? params.userTokenAccount;
+  const targetLenderState =
+    params.humaLenderState ??
+    params.humaAddresses?.lenderState ??
+    HUMA_LENDER_STATE;
 
   return sdkBuildClaimRedemptionInstruction({
     crank: caller,
@@ -218,11 +226,12 @@ export async function buildClaimRedemptionInstruction(
     tokenMint: USDC_MINT,
     humaAddresses: {
       poolState: targetHumaPoolState,
-      config: HUMA_CONFIG,
-      poolConfig: HUMA_POOL_CONFIG,
-      modeConfig: HUMA_MODE_CONFIG,
-      lenderState: HUMA_LENDER_STATE,
-      poolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
+      config: params.humaAddresses?.config ?? HUMA_CONFIG,
+      poolConfig: params.humaAddresses?.poolConfig ?? HUMA_POOL_CONFIG,
+      modeConfig: params.humaAddresses?.modeConfig ?? HUMA_MODE_CONFIG,
+      lenderState: targetLenderState,
+      poolUnderlyingToken:
+        params.humaAddresses?.poolUnderlyingToken ?? HUMA_POOL_UNDERLYING_TOKEN,
     },
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,
@@ -237,9 +246,14 @@ export async function buildClaimRedemptionInstructions(
   const caller = params.caller ?? params.userAddress;
   if (!caller) throw new Error("Caller or userAddress is required");
   const beneficiary = params.beneficiary ?? params.userAddress ?? caller;
-  const targetHumaPoolState = params.humaPoolState || HUMA_POOL_STATE;
+  const targetHumaPoolState =
+    params.humaAddresses?.poolState || params.humaPoolState || HUMA_POOL_STATE;
   const beneficiaryTokenAccount =
     params.beneficiaryTokenAccount ?? params.userTokenAccount;
+  const targetLenderState =
+    params.humaLenderState ??
+    params.humaAddresses?.lenderState ??
+    HUMA_LENDER_STATE;
 
   return sdkBuildClaimRedemptionInstructions({
     crank: caller,
@@ -249,11 +263,12 @@ export async function buildClaimRedemptionInstructions(
     tokenMint: USDC_MINT,
     humaAddresses: {
       poolState: targetHumaPoolState,
-      config: HUMA_CONFIG,
-      poolConfig: HUMA_POOL_CONFIG,
-      modeConfig: HUMA_MODE_CONFIG,
-      lenderState: HUMA_LENDER_STATE,
-      poolUnderlyingToken: HUMA_POOL_UNDERLYING_TOKEN,
+      config: params.humaAddresses?.config ?? HUMA_CONFIG,
+      poolConfig: params.humaAddresses?.poolConfig ?? HUMA_POOL_CONFIG,
+      modeConfig: params.humaAddresses?.modeConfig ?? HUMA_MODE_CONFIG,
+      lenderState: targetLenderState,
+      poolUnderlyingToken:
+        params.humaAddresses?.poolUnderlyingToken ?? HUMA_POOL_UNDERLYING_TOKEN,
     },
     redemptionType: params.redemptionType,
     feeWallet: params.feeWallet,

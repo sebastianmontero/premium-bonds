@@ -41,6 +41,44 @@ export function ensureEnvLoaded(): void {
   isEnvLoaded = true;
 }
 
+export function parseOptionalAddress(val?: string | null): Address | undefined {
+  if (!val || typeof val !== "string") return undefined;
+  const trimmed = val.trim();
+  if (trimmed === "" || trimmed === "11111111111111111111111111111111")
+    return undefined;
+  try {
+    return address(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+export function parsePoolHumaLenderStates(
+  env: NodeJS.ProcessEnv = process.env
+): Record<number, Address> {
+  const result: Record<number, Address> = {};
+  for (const [key, val] of Object.entries(env)) {
+    if (!val) continue;
+    let poolId: number | undefined;
+    const match1 = key.match(/^POOL_(\d+)_HUMA_LENDER_STATE$/);
+    if (match1) {
+      poolId = parseInt(match1[1], 10);
+    } else {
+      const match2 = key.match(/^HUMA_LENDER_STATE_(\d+)$/);
+      if (match2) {
+        poolId = parseInt(match2[1], 10);
+      }
+    }
+    if (poolId !== undefined && !isNaN(poolId)) {
+      const parsed = parseOptionalAddress(val);
+      if (parsed) {
+        result[poolId] = parsed;
+      }
+    }
+  }
+  return result;
+}
+
 export interface CrankConfig {
   rpcUrl: string;
   wsUrl: string;
@@ -64,6 +102,12 @@ export interface CrankConfig {
   telegramChatId?: string;
   pagerDutyRoutingKey?: string;
   pstMint?: Address;
+  humaConfig?: Address;
+  humaPoolConfig?: Address;
+  humaPoolState?: Address;
+  humaModeConfig?: Address;
+  humaLenderState?: Address;
+  poolHumaLenderStates?: Record<number, Address>;
   humaPoolUnderlyingToken?: Address;
   dryRun: boolean;
   allowNonJobsSigner?: boolean;
@@ -81,9 +125,32 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
   const rawPoolIds = overrides?.poolIds || parsePoolIds(process.env.POOL_IDS);
 
   const pstMintStr = process.env.PST_MINT || process.env.NEXT_PUBLIC_PST_MINT;
-  const humaUnderlyingStr =
-    process.env.HUMA_POOL_UNDERLYING_TOKEN ||
-    process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN;
+  const humaConfig =
+    overrides?.humaConfig ||
+    parseOptionalAddress(process.env.HUMA_CONFIG) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_CONFIG);
+  const humaPoolConfig =
+    overrides?.humaPoolConfig ||
+    parseOptionalAddress(process.env.HUMA_POOL_CONFIG) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG);
+  const humaPoolState =
+    overrides?.humaPoolState ||
+    parseOptionalAddress(process.env.HUMA_POOL_STATE) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_POOL_STATE);
+  const humaModeConfig =
+    overrides?.humaModeConfig ||
+    parseOptionalAddress(process.env.HUMA_MODE_CONFIG) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG);
+  const humaLenderState =
+    overrides?.humaLenderState ||
+    parseOptionalAddress(process.env.HUMA_LENDER_STATE) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_LENDER_STATE);
+  const poolHumaLenderStates =
+    overrides?.poolHumaLenderStates || parsePoolHumaLenderStates(process.env);
+  const humaPoolUnderlyingToken =
+    overrides?.humaPoolUnderlyingToken ||
+    parseOptionalAddress(process.env.HUMA_POOL_UNDERLYING_TOKEN) ||
+    parseOptionalAddress(process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN);
 
   const network = resolveNetwork(process.env.NEXT_PUBLIC_ENVIRONMENT, rpcUrl);
   const devKeypair = path.resolve(
@@ -144,9 +211,13 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
       overrides?.pagerDutyRoutingKey || process.env.PAGERDUTY_ROUTING_KEY,
     pstMint:
       overrides?.pstMint || (pstMintStr ? address(pstMintStr) : undefined),
-    humaPoolUnderlyingToken:
-      overrides?.humaPoolUnderlyingToken ||
-      (humaUnderlyingStr ? address(humaUnderlyingStr) : undefined),
+    humaConfig,
+    humaPoolConfig,
+    humaPoolState,
+    humaModeConfig,
+    humaLenderState,
+    poolHumaLenderStates,
+    humaPoolUnderlyingToken,
     dryRun: overrides?.dryRun ?? process.env.DRY_RUN === "true",
     allowNonJobsSigner:
       overrides?.allowNonJobsSigner ??

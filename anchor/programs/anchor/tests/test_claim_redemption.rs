@@ -1309,3 +1309,29 @@ fn test_claim_redemption_sub_tolerance_zero_vault_succeeds_and_refunds_rent() {
         "User must receive rent refund from closed PendingRedemption"
     );
 }
+
+#[test]
+fn test_claim_redemption_fails_when_lender_state_is_readonly() {
+    let mut ctx = setup_e2e();
+    let user_a = clone_keypair(&ctx.user);
+    inject_pending_redemption(&mut ctx.svm, 1, 0, user_a.pubkey(), 1_000_000, 1_000_000);
+    let huma_lender_state = Keypair::new().pubkey();
+    inject_lender_state(&mut ctx.svm, huma_lender_state, 1_000_000);
+    settle_huma_redemption(&mut ctx.svm, ctx.huma_pool_state, 1);
+
+    let builder = ClaimRedemptionBuilder::new(&ctx)
+        .with_user(&user_a.pubkey(), ctx.user_usdc_account)
+        .with_redemption_id(0)
+        .with_huma_lender_state(huma_lender_state);
+
+    let mut ix = builder.build_ix();
+    // Demote huma_lender_state from writable to read-only AccountMeta to trigger ConstraintMut
+    for meta in ix.accounts.iter_mut() {
+        if meta.pubkey == huma_lender_state {
+            meta.is_writable = false;
+        }
+    }
+
+    let res = send_user_tx(&mut ctx.svm, &user_a, ix);
+    assert_anchor_error(res, anchor_lang::error::ErrorCode::ConstraintMut);
+}
