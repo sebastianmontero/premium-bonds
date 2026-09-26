@@ -934,20 +934,27 @@ export function toNumericCode(code: unknown): number | null {
 export function safeJsonStringify(value: unknown, space?: number): string {
   try {
     const seen = new WeakSet();
-    return JSON.stringify(
-      value,
-      (_, v) => {
-        if (typeof v === "bigint") return v.toString();
-        if (v instanceof Error) {
-          return { name: v.name, message: v.message, cause: v.cause, ...v };
-        }
-        if (typeof v === "object" && v !== null) {
-          if (seen.has(v)) return "[Circular]";
-          seen.add(v);
-        }
-        return v;
-      },
-      space
+    return (
+      JSON.stringify(
+        value,
+        (_, v) => {
+          if (typeof v === "bigint") return v.toString();
+          if (typeof v === "object" && v !== null) {
+            if (seen.has(v)) return "[Circular]";
+            seen.add(v);
+          }
+          if (v instanceof Error) {
+            return {
+              ...v,
+              name: v.name,
+              message: v.message,
+              cause: v.cause,
+            };
+          }
+          return v;
+        },
+        space
+      ) ?? (value === undefined ? "undefined" : String(value))
     );
   } catch {
     return String(value);

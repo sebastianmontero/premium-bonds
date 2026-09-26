@@ -10,6 +10,7 @@ import {
   getErrorCategoryTheme,
   SPL_TOKEN_ERRORS,
   SplTokenErrorCode,
+  safeJsonStringify,
 } from "../errors";
 import { PROGRAM_ID } from "../bonds-sdk";
 
@@ -547,5 +548,42 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       parsed.message,
       "The ticket registry account pre-allocation is too small."
     );
+  });
+
+  describe("safeJsonStringify Suite", () => {
+    it("should serialize BigInts, Error instances, and preserve custom properties", () => {
+      const customErr = new Error("Custom error message") as Error & {
+        code: number;
+        logs: string[];
+      };
+      customErr.code = 6042;
+      customErr.logs = ["Program log: Instruction failed"];
+      customErr.cause = new Error("Inner cause");
+
+      const jsonStr = safeJsonStringify({ error: customErr, count: 100n });
+      assert.ok(jsonStr.includes('"name":"Error"'));
+      assert.ok(jsonStr.includes('"message":"Custom error message"'));
+      assert.ok(jsonStr.includes('"code":6042'));
+      assert.ok(jsonStr.includes('"logs":["Program log: Instruction failed"]'));
+      assert.ok(jsonStr.includes('"message":"Inner cause"'));
+      assert.ok(jsonStr.includes('"count":"100"'));
+    });
+
+    it("should safely handle circular error graphs without exceeding maximum call stack", () => {
+      const recursiveErr = new Error("Recursive error");
+      recursiveErr.cause = recursiveErr;
+
+      const jsonStr = safeJsonStringify(recursiveErr);
+      assert.ok(jsonStr.includes('"name":"Error"'));
+      assert.ok(jsonStr.includes('"message":"Recursive error"'));
+      assert.ok(jsonStr.includes('"cause":"[Circular]"'));
+    });
+
+    it("should return string values for undefined, null, and primitive values", () => {
+      assert.strictEqual(safeJsonStringify(undefined), "undefined");
+      assert.strictEqual(safeJsonStringify(null), "null");
+      assert.strictEqual(safeJsonStringify("hello"), '"hello"');
+      assert.strictEqual(safeJsonStringify(12345n), '"12345"');
+    });
   });
 });

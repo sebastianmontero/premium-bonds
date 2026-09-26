@@ -299,19 +299,36 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
         '{"code":"6011","sub":{"custom":"2040"}}'
       );
 
-      // Error instance serialization
-      const err = new Error("Something broke");
+      // Error instance serialization with custom properties & nested cause
+      const err = new Error("Something broke") as Error & { code: number };
+      err.code = 6000;
       err.cause = new Error("Root reason");
       const serializedErr = safeJsonStringify(err);
       assert.ok(serializedErr.includes('"name":"Error"'));
       assert.ok(serializedErr.includes('"message":"Something broke"'));
+      assert.ok(serializedErr.includes('"code":6000'));
       assert.ok(serializedErr.includes('"message":"Root reason"'));
 
-      // Circular reference handling
+      // Circular Error instance (e.g. self-referencing cause)
+      const circularErr = new Error("Self referencing error");
+      circularErr.cause = circularErr;
+      const serializedCircularErr = safeJsonStringify(circularErr);
+      assert.ok(serializedCircularErr.includes('"name":"Error"'));
+      assert.ok(
+        serializedCircularErr.includes('"message":"Self referencing error"')
+      );
+      assert.ok(serializedCircularErr.includes('"cause":"[Circular]"'));
+
+      // Circular reference handling in plain objects
       const circularObj: Record<string, unknown> = { a: 1 };
       circularObj.self = circularObj;
       const serializedCircular = safeJsonStringify(circularObj);
       assert.strictEqual(serializedCircular, '{"a":1,"self":"[Circular]"}');
+
+      // Undefined, null, and primitive values
+      assert.strictEqual(safeJsonStringify(undefined), "undefined");
+      assert.strictEqual(safeJsonStringify(null), "null");
+      assert.strictEqual(safeJsonStringify(42), "42");
     });
 
     it("should correctly parse RPC BigInt InstructionError and custom errors without masking", () => {
