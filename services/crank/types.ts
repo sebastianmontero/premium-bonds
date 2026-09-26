@@ -6,6 +6,7 @@ import type {
 } from "../../app/lib/bonds-sdk";
 import type { CrankConfig } from "./config";
 import type { ParsedTransactionError } from "../../app/lib/errors";
+import type { ResilientRpcClient } from "../../app/lib/rpc-transport";
 
 // ─── Branded Primitive Types ─────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ export interface CrankDecision {
 export interface CrankExecutionContext {
   readonly signer: TransactionSigner;
   readonly rpcUrl: string;
+  readonly rpc: ResilientRpcClient;
   readonly config: CrankConfig;
   readonly maxPrepareBatchSize: number;
   readonly maxReinvestBatchSize: number;

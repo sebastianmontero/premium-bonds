@@ -10,7 +10,7 @@ export interface PoolMetricSnapshot {
 export class MetricsServer {
   private server: http.Server | null = null;
   private txCounters: Map<string, number> = new Map();
-  private errorCounters: Map<string, number> = new Map();
+  private errorCounters: Map<string, Map<string, number>> = new Map();
   private poolMetrics: Map<number, PoolMetricSnapshot> = new Map();
   private payoutRegistryClaimable: Map<
     string,
@@ -27,8 +27,12 @@ export class MetricsServer {
   }
 
   incrementError(workerName: string, errorType: string): void {
-    const key = `${workerName}_${errorType}`;
-    this.errorCounters.set(key, (this.errorCounters.get(key) || 0) + 1);
+    let workerMap = this.errorCounters.get(workerName);
+    if (!workerMap) {
+      workerMap = new Map();
+      this.errorCounters.set(workerName, workerMap);
+    }
+    workerMap.set(errorType, (workerMap.get(errorType) || 0) + 1);
   }
 
   updatePoolState(
@@ -104,9 +108,10 @@ export class MetricsServer {
           // Error Counters
           metricsOutput += `# HELP yieldbonds_crank_errors_total Total errors encountered\n`;
           metricsOutput += `# TYPE yieldbonds_crank_errors_total counter\n`;
-          for (const [key, val] of this.errorCounters.entries()) {
-            const [worker, errorType] = key.split("_");
-            metricsOutput += `yieldbonds_crank_errors_total{worker="${worker}",error_type="${errorType}"} ${val}\n`;
+          for (const [worker, errorMap] of this.errorCounters.entries()) {
+            for (const [errorType, val] of errorMap.entries()) {
+              metricsOutput += `yieldbonds_crank_errors_total{worker="${worker}",error_type="${errorType}"} ${val}\n`;
+            }
           }
           metricsOutput += "\n";
 

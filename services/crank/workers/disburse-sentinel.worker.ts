@@ -1,4 +1,4 @@
-import { address, createSolanaRpc, Instruction } from "@solana/kit";
+import { address, Instruction } from "@solana/kit";
 import {
   buildClaimRedemptionInstructions,
   SYSTEM_PROGRAM_ID,
@@ -123,7 +123,7 @@ export class DisburseSentinelWorker implements ICrankTask {
 
     if (!candidates) {
       try {
-        const rpc = createSolanaRpc(context.rpcUrl);
+        const rpc = context.rpc;
         candidates = await fetchPendingRedemptionCandidates({
           rpc,
           poolId,

@@ -1,9 +1,16 @@
-import { createSolanaRpc, KeyPairSigner, getBase64Encoder } from "@solana/kit";
+import { KeyPairSigner, getBase64Encoder } from "@solana/kit";
 import {
   findGlobalConfigPda,
   parseGlobalConfig,
   canClosePayoutRegistry,
 } from "../../../app/lib/bonds-sdk";
+import {
+  createResilientRpc,
+  isRetryableRpcError,
+  isRateLimitRpcError,
+  getRetryAfterMs,
+  type ResilientRpcClient,
+} from "../../../app/lib/rpc-transport";
 import { CrankConfig } from "../config";
 import { CrankExecutionContext, ICrankTask } from "../types";
 import { fetchPoolStateSnapshot } from "../state/snapshot-fetcher";
@@ -20,10 +27,13 @@ import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
 
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 5_000;
+const DEFAULT_RATE_LIMIT_JITTER_MS = 2_500;
+
 export class AdaptiveCrankScheduler {
   private isRunning = false;
   private timer: NodeJS.Timeout | null = null;
-  private readonly rpc: ReturnType<typeof createSolanaRpc>;
+  private readonly rpc: ResilientRpcClient;
   private readonly executor: TransactionExecutor;
   private readonly breaker: CircuitBreaker;
   private readonly alertNotifier: AlertNotifier;
@@ -34,6 +44,7 @@ export class AdaptiveCrankScheduler {
   private readonly context: CrankExecutionContext;
   private readonly inFlightPools: Set<number> = new Set();
   private readonly nextEligibleTickMs: Map<number, number> = new Map();
+  private globalRpcCooldownUntil = 0;
   private readonly maxConcurrentPools = 3;
   private authorizationVerified = false;
 
@@ -42,7 +53,15 @@ export class AdaptiveCrankScheduler {
     private readonly signer: KeyPairSigner,
     metrics: MetricsServer
   ) {
-    this.rpc = createSolanaRpc(config.rpcUrl);
+    this.rpc = createResilientRpc(config.rpcUrl, {
+      onRetry: (err, attempt, delayMs) => {
+        this.metrics.incrementError("rpc", "retry");
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[AdaptiveCrankScheduler] Transient RPC error (attempt ${attempt}: ${msg}). Retrying in ${Math.round(delayMs)}ms...`
+        );
+      },
+    });
     this.executor = new TransactionExecutor(this.rpc, config);
     this.alertNotifier = new AlertNotifier(config);
     this.breaker = new CircuitBreaker(5, 60_000, (event) => {
@@ -61,6 +80,7 @@ export class AdaptiveCrankScheduler {
     this.context = {
       signer: this.signer,
       rpcUrl: config.rpcUrl,
+      rpc: this.rpc,
       config: this.config,
       maxPrepareBatchSize: config.maxPrepareBatchSize,
       maxReinvestBatchSize: config.maxReinvestBatchSize,
@@ -109,6 +129,21 @@ export class AdaptiveCrankScheduler {
       this.timer = null;
     }
     console.log("[AdaptiveCrankScheduler] Daemon stopped.");
+  }
+
+  private applyRateLimitCooldown(poolId: number, err?: unknown): void {
+    const retryAfterMs = err ? getRetryAfterMs(err) : null;
+    const baseDelay =
+      retryAfterMs && retryAfterMs > 0
+        ? retryAfterMs
+        : DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+    const delay = baseDelay + Math.random() * DEFAULT_RATE_LIMIT_JITTER_MS;
+    const cooldownTarget = Date.now() + delay;
+    this.nextEligibleTickMs.set(poolId, cooldownTarget);
+    this.globalRpcCooldownUntil = Math.max(
+      this.globalRpcCooldownUntil,
+      cooldownTarget
+    );
   }
 
   private async verifyJobsAccountAuthorization(): Promise<void> {
@@ -160,6 +195,10 @@ export class AdaptiveCrankScheduler {
   }
 
   async tickOnce(): Promise<boolean> {
+    if (Date.now() < this.globalRpcCooldownUntil) {
+      return false;
+    }
+
     if (!this.config.dryRun && !this.authorizationVerified) {
       await this.verifyJobsAccountAuthorization();
       this.authorizationVerified = true;
@@ -189,6 +228,9 @@ export class AdaptiveCrankScheduler {
       { length: Math.min(this.maxConcurrentPools, queue.length) },
       async () => {
         while (queue.length > 0) {
+          if (Date.now() < this.globalRpcCooldownUntil) {
+            break; // Stop launching sibling pools if another pool triggered rate limiting
+          }
           const poolId = queue.shift();
           if (poolId === undefined) break;
 
@@ -200,11 +242,24 @@ export class AdaptiveCrankScheduler {
             }
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            console.error(
-              `[AdaptiveCrankScheduler] Error processing Pool #${poolId}:`,
-              msg
-            );
-            this.metrics.incrementError("scheduler", "unhandled_pool_error");
+            if (isRetryableRpcError(err)) {
+              console.warn(
+                `[AdaptiveCrankScheduler] [Pool #${poolId}] RPC rate-limited or transient network error: ${msg}. Applying backoff cooldown.`
+              );
+              this.applyRateLimitCooldown(poolId, err);
+              this.metrics.incrementError(
+                "scheduler",
+                isRateLimitRpcError(err)
+                  ? "rpc_rate_limited"
+                  : "rpc_network_error"
+              );
+            } else {
+              console.error(
+                `[AdaptiveCrankScheduler] Error processing Pool #${poolId}:`,
+                msg
+              );
+              this.metrics.incrementError("scheduler", "unhandled_pool_error");
+            }
           } finally {
             this.inFlightPools.delete(poolId);
           }
@@ -222,11 +277,20 @@ export class AdaptiveCrankScheduler {
     this.timer = setTimeout(async () => {
       try {
         const hadActiveWork = await this.tickOnce();
-        await this.updateSignerBalance();
 
-        const nextDelay = hadActiveWork
+        const isCoolingDown = Date.now() < this.globalRpcCooldownUntil;
+        if (!isCoolingDown) {
+          await this.updateSignerBalance();
+        }
+
+        const cooldownRemaining = Math.max(
+          0,
+          this.globalRpcCooldownUntil - Date.now()
+        );
+        const baseInterval = hadActiveWork
           ? this.config.activeWindowPollIntervalMs
           : this.config.pollIntervalMs;
+        const nextDelay = Math.max(baseInterval, cooldownRemaining);
 
         this.scheduleNextTick(nextDelay);
       } catch (err: unknown) {
@@ -244,7 +308,30 @@ export class AdaptiveCrankScheduler {
       return false;
     }
 
-    const snapshot = await fetchPoolStateSnapshot(this.rpc, poolId);
+    let snapshot;
+    try {
+      snapshot = await fetchPoolStateSnapshot(this.rpc, poolId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isRetryableRpcError(err)) {
+        console.warn(
+          `[AdaptiveCrankScheduler] [Pool #${poolId}] RPC rate-limited or transient network error: ${msg}. Applying backoff cooldown.`
+        );
+        this.applyRateLimitCooldown(poolId, err);
+        this.metrics.incrementError(
+          "scheduler",
+          isRateLimitRpcError(err) ? "rpc_rate_limited" : "rpc_network_error"
+        );
+      } else {
+        console.error(
+          `[AdaptiveCrankScheduler] Error fetching snapshot for Pool #${poolId}:`,
+          msg
+        );
+        this.metrics.incrementError("scheduler", "unhandled_pool_error");
+      }
+      return false;
+    }
+
     if (!snapshot) {
       console.warn(
         `[AdaptiveCrankScheduler] Pool #${poolId} account not found.`
@@ -333,25 +420,55 @@ export class AdaptiveCrankScheduler {
             );
             // Do not trip circuit breaker on benign race
           } else {
-            const actionable =
-              result.outcome.status === "ERROR" &&
-              result.outcome.parsedError?.actionableStep
-                ? ` | Action: ${result.outcome.parsedError.actionableStep}`
-                : "";
-            console.error(
-              `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed: ${result.reason}${actionable}`
-            );
-            this.metrics.incrementTx(task.name, false);
-            this.breaker.recordPoolFailure(poolId, result.reason);
+            const errToInspect =
+              (result as { error?: unknown }).error ??
+              (result.outcome as { error?: unknown }).error ??
+              result.reason;
+            if (isRetryableRpcError(errToInspect)) {
+              console.warn(
+                `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed due to transient RPC transport error: ${result.reason}. Applying rate limit cooldown.`
+              );
+              this.applyRateLimitCooldown(poolId, errToInspect);
+              this.metrics.incrementError(
+                task.name,
+                isRateLimitRpcError(errToInspect)
+                  ? "rpc_rate_limited"
+                  : "rpc_network_error"
+              );
+              // CRITICAL: DO NOT trip circuit breaker on transport errors!
+            } else {
+              const actionable =
+                result.outcome.status === "ERROR" &&
+                result.outcome.parsedError?.actionableStep
+                  ? ` | Action: ${result.outcome.parsedError.actionableStep}`
+                  : "";
+              console.error(
+                `[AdaptiveCrankScheduler] [Pool #${poolId}] ${task.name} failed: ${result.reason}${actionable}`
+              );
+              this.metrics.incrementTx(task.name, false);
+              this.breaker.recordPoolFailure(poolId, result.reason);
+            }
           }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] error:`,
-          msg
-        );
-        this.breaker.recordPoolFailure(poolId, msg);
+        if (isRetryableRpcError(err)) {
+          console.warn(
+            `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] transient RPC error: ${msg}`
+          );
+          this.applyRateLimitCooldown(poolId, err);
+          this.metrics.incrementError(
+            task.name,
+            isRateLimitRpcError(err) ? "rpc_rate_limited" : "rpc_network_error"
+          );
+          // DO NOT call this.breaker.recordPoolFailure for transport errors
+        } else {
+          console.error(
+            `[AdaptiveCrankScheduler] [Pool #${poolId}] Task [${task.name}] error:`,
+            msg
+          );
+          this.breaker.recordPoolFailure(poolId, msg);
+        }
       }
     }
 

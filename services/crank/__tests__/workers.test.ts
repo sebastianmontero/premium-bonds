@@ -16,6 +16,7 @@ import {
   toDrawCycleId,
   toUnixTimestamp,
 } from "../types";
+import { createResilientRpc } from "@/app/lib/rpc-transport";
 import {
   buildMockPrizePool,
   buildMockTicketRegistry,
@@ -29,9 +30,11 @@ function createMockContext(
   signer: KeyPairSigner,
   configOverrides?: Partial<CrankExecutionContext["config"]>
 ): CrankExecutionContext {
+  const rpcUrl = configOverrides?.rpcUrl ?? "http://127.0.0.1:8899";
   return {
     signer,
-    rpcUrl: "http://127.0.0.1:8899",
+    rpcUrl,
+    rpc: createResilientRpc(rpcUrl),
     maxPrepareBatchSize: 500,
     maxReinvestBatchSize: 5,
     enableAutoDisburse: true,
