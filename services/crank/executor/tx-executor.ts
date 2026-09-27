@@ -205,7 +205,15 @@ export class TransactionExecutor {
           }
         : arg1;
 
-    const { workerName, instructions, signer, computeUnits, priorityFeeTier, writableAccounts, additionalSigners } = params;
+    const {
+      workerName,
+      instructions,
+      signer,
+      computeUnits,
+      priorityFeeTier,
+      writableAccounts,
+      additionalSigners,
+    } = params;
 
     if (this.config.dryRun) {
       console.log(

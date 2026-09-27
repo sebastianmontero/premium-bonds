@@ -146,7 +146,9 @@ describe("Strategy Workers Unit Tests", () => {
       assert.match(outcome.reason, /expired after 1100 slots/);
       assert.strictEqual(outcome.computeUnitLimit, 375_000);
       assert.strictEqual(outcome.instructions.length, 1);
-      assert.ok(outcome.additionalSigners && outcome.additionalSigners.length > 0);
+      assert.ok(
+        outcome.additionalSigners && outcome.additionalSigners.length > 0
+      );
     }
   });
 
@@ -183,8 +185,14 @@ describe("Strategy Workers Unit Tests", () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = {
-      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
-      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareHarvestRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
+      prepareRebindRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
       prepareReveal: async () => ({
         status: "pending_oracle" as const,
         reason: "Awaiting gateway oracle signature",
@@ -217,8 +225,14 @@ describe("Strategy Workers Unit Tests", () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = {
-      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
-      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareHarvestRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
+      prepareRebindRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
       prepareReveal: async () => ({
         status: "uncommitted" as const,
         seedSlot: toSlot(0n),
@@ -253,8 +267,14 @@ describe("Strategy Workers Unit Tests", () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = {
-      prepareHarvestRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
-      prepareRebindRandomness: async () => ({ randomnessAccount: mockAddress, instructions: [] }),
+      prepareHarvestRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
+      prepareRebindRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
       prepareReveal: async () => ({
         status: "expired" as const,
         elapsedSlots: toSlot(1100n),

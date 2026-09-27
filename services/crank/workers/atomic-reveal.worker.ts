@@ -42,8 +42,7 @@ export class AtomicRevealWorker implements ICrankTask {
           retryAfterMs: revealResult.retryAfterMs ?? 2000,
         };
       case "uncommitted": {
-        const deltaSlots =
-          snapshot.harvestSlot + 1001n - snapshot.currentSlot;
+        const deltaSlots = snapshot.harvestSlot + 1001n - snapshot.currentSlot;
         const backoffMs = Math.max(1000, Number(deltaSlots) * 400);
         console.warn(
           `[AtomicRevealWorker] [Pool #${snapshot.poolId}] Randomness uncommitted (seedSlot < harvestSlot). Backing off for ${deltaSlots} slots (~${Math.round(backoffMs / 1000)}s) until rebind eligible.`

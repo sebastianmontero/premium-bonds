@@ -14,6 +14,7 @@ import {
   saveKeypairSecurely,
   buildRandomnessInitInstruction,
 } from "./create-switchboard-randomness";
+import { expandHomeDir } from "./utils";
 
 describe("Switchboard Randomness Provisioning Suite", () => {
   test("Canonical Devnet constants match exact Switchboard specifications", () => {
@@ -170,5 +171,23 @@ describe("Switchboard Randomness Provisioning Suite", () => {
 
     assert.ok(ix);
     assert.strictEqual(ix.programId.toBase58(), DEVNET_SB_PID.toBase58());
+  });
+
+  describe("expandHomeDir", () => {
+    test("should expand ~ and ~/ correctly", () => {
+      assert.strictEqual(expandHomeDir("~"), os.homedir());
+      assert.strictEqual(
+        expandHomeDir("~/some/path/file.json"),
+        path.join(os.homedir(), "some/path/file.json")
+      );
+    });
+
+    test("should preserve absolute and relative paths", () => {
+      assert.strictEqual(expandHomeDir("/tmp/file.json"), "/tmp/file.json");
+      assert.strictEqual(
+        expandHomeDir("./local/file.json"),
+        path.resolve("./local/file.json")
+      );
+    });
   });
 });

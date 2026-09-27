@@ -14,6 +14,7 @@
     "localnet": "tsx scripts/localnet.ts",
     "devnet": "tsx scripts/devnet.ts",
     "devnet:sync": "tsx scripts/devnet.ts sync-env",
+    "devnet:randomness": "tsx scripts/create-switchboard-randomness.ts --payer ~/.config/solana/crank-keypair-dev.json --force",
     "devnet:crank": "KEYPAIR_PATH=${KEYPAIR_PATH:-~/.config/solana/crank-keypair-dev.json} tsx services/crank/index.ts",
     "devnet:vercel-sync": "tsx scripts/sync-vercel-envs.ts",
     "mainnet": "tsx scripts/mainnet.ts",

@@ -11,6 +11,7 @@ import {
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import * as crypto from "crypto";
 import {
   checkRpcHealth,
@@ -404,7 +405,16 @@ async function handleCleanBuffers(args: string[]) {
 async function handleCreateRandomness(args: string[]) {
   const flags = new Set(args.filter((a) => a.startsWith("--")));
   const positionals = args.filter((a) => !a.startsWith("--"));
-  const payerKeypairPath = resolveDefaultKeypairPath(positionals[0]);
+  const crankDevKeypair = path.resolve(
+    os.homedir(),
+    ".config/solana/crank-keypair-dev.json"
+  );
+  const defaultPayer = fs.existsSync(crankDevKeypair)
+    ? crankDevKeypair
+    : undefined;
+  const payerKeypairPath = resolveDefaultKeypairPath(
+    positionals[0] || defaultPayer
+  );
   const forceNew = flags.has("--force");
   await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
 }
@@ -527,8 +537,15 @@ async function handleInit(args: string[]) {
     console.log(
       "ℹ No NEXT_PUBLIC_RANDOMNESS_ACCOUNT configured. Automatically provisioning Switchboard On-Demand VRF account..."
     );
+    const crankDevKeypair = path.resolve(
+      os.homedir(),
+      ".config/solana/crank-keypair-dev.json"
+    );
+    const randomnessPayerPath = fs.existsSync(crankDevKeypair)
+      ? crankDevKeypair
+      : keypairPath;
     const result = await provisionDevnetRandomnessAccount({
-      payerKeypairPath: keypairPath,
+      payerKeypairPath: randomnessPayerPath,
     });
     randomnessAddressStr = result.address;
   }

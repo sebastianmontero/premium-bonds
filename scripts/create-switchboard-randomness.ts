@@ -3,13 +3,16 @@ import { AnchorProvider, Wallet, type Program } from "@coral-xyz/anchor";
 import * as sb from "@switchboard-xyz/on-demand";
 import * as fs from "fs";
 import * as path from "path";
-import { resolveDevnetRpcUrl, checkRpcHealth } from "./utils";
+import * as os from "os";
+import { parseArgs } from "node:util";
+import { resolveDevnetRpcUrl, checkRpcHealth, expandHomeDir } from "./utils";
 import {
   DEVNET_STATE_DIR,
   DEVNET_ENV_PATH,
   recordDevnetRandomnessAccount,
 } from "./devnet-state";
 import { readEnvFile } from "./env-utils";
+import { parseSwitchboardRandomnessHeader } from "../services/crank/vrf/randomness-provider";
 
 export const DEVNET_SB_PID = new web3.PublicKey(
   "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
@@ -40,10 +43,11 @@ export interface CreateRandomnessInstructionParams {
 }
 
 export function loadLegacyKeypair(filePath: string): web3.Keypair {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Keypair file not found at: ${filePath}`);
+  const resolvedPath = expandHomeDir(filePath);
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Keypair file not found at: ${resolvedPath}`);
   }
-  const secret = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  const secret = JSON.parse(fs.readFileSync(resolvedPath, "utf-8"));
   return web3.Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
@@ -67,8 +71,9 @@ export function loadOrCreateRandomnessKeypair(
   keypairPath: string,
   forceNew = false
 ): { keypair: web3.Keypair; isExisting: boolean } {
-  if (fs.existsSync(keypairPath) && !forceNew) {
-    return { keypair: loadLegacyKeypair(keypairPath), isExisting: true };
+  const resolvedPath = expandHomeDir(keypairPath);
+  if (fs.existsSync(resolvedPath) && !forceNew) {
+    return { keypair: loadLegacyKeypair(resolvedPath), isExisting: true };
   }
   return { keypair: web3.Keypair.generate(), isExisting: false };
 }
@@ -77,16 +82,17 @@ export function saveKeypairSecurely(
   filePath: string,
   keypair: web3.Keypair
 ): void {
-  const dir = path.dirname(filePath);
+  const resolvedPath = expandHomeDir(filePath);
+  const dir = path.dirname(resolvedPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  const tempPath = `${filePath}.tmp.${Date.now()}`;
+  const tempPath = `${resolvedPath}.tmp.${Date.now()}`;
   fs.writeFileSync(tempPath, JSON.stringify(Array.from(keypair.secretKey)), {
     mode: 0o600,
     encoding: "utf-8",
   });
-  fs.renameSync(tempPath, filePath);
+  fs.renameSync(tempPath, resolvedPath);
 }
 
 /**
@@ -124,7 +130,23 @@ export async function provisionDevnetRandomnessAccount(
 
   const connection = new web3.Connection(rpcUrl, "confirmed");
 
-  // Existence-first check: if already configured in environment and active on-chain, reuse it
+  const devKeypair = path.resolve(
+    os.homedir(),
+    ".config/solana/crank-keypair-dev.json"
+  );
+  const resolvedPayerPath = expandHomeDir(
+    options?.payerKeypairPath ||
+      (fs.existsSync(devKeypair)
+        ? devKeypair
+        : path.resolve(os.homedir(), ".config", "solana", "id.json"))
+  );
+
+  console.log(`Loading payer keypair from ${resolvedPayerPath}...`);
+  const payerKeypair = loadLegacyKeypair(resolvedPayerPath);
+  const payerPubkeyStr = payerKeypair.publicKey.toBase58();
+  await assertPayerSolBalance(connection, payerKeypair.publicKey);
+
+  // Authority-aware existence check: if already configured in environment and active on-chain with matching authority, reuse it
   const existingConfigured =
     process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
     readEnvFile(DEVNET_ENV_PATH).NEXT_PUBLIC_RANDOMNESS_ACCOUNT;
@@ -134,27 +156,26 @@ export async function provisionDevnetRandomnessAccount(
       const pubkey = new web3.PublicKey(existingConfigured);
       const accInfo = await connection.getAccountInfo(pubkey);
       if (accInfo && accInfo.owner.equals(DEVNET_SB_PID)) {
-        console.log(
-          `✓ Configured Switchboard randomness account ${existingConfigured} is already active on Devnet.`
-        );
-        recordDevnetRandomnessAccount(existingConfigured);
-        return {
-          address: existingConfigured,
-          isNewlyCreated: false,
-        };
+        const header = parseSwitchboardRandomnessHeader(accInfo.data);
+        if (header && header.authority === payerPubkeyStr) {
+          console.log(
+            `✓ Configured Switchboard randomness account ${existingConfigured} is already active on Devnet with matching authority (${payerPubkeyStr}).`
+          );
+          recordDevnetRandomnessAccount(existingConfigured);
+          return {
+            address: existingConfigured,
+            isNewlyCreated: false,
+          };
+        } else {
+          console.warn(
+            `⚠️ Configured randomness account ${existingConfigured} authority (${header?.authority ?? "unknown"}) does not match payer (${payerPubkeyStr}). Re-provisioning fresh randomness account...`
+          );
+        }
       }
     } catch {
       // Invalid pubkey in env; proceed to generate
     }
   }
-
-  const resolvedPayerPath =
-    options?.payerKeypairPath ||
-    path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
-
-  console.log(`Loading payer keypair from ${resolvedPayerPath}...`);
-  const payerKeypair = loadLegacyKeypair(resolvedPayerPath);
-  await assertPayerSolBalance(connection, payerKeypair.publicKey);
 
   const wallet = new Wallet(payerKeypair);
   const provider = new AnchorProvider(connection, wallet, {
@@ -175,28 +196,46 @@ export async function provisionDevnetRandomnessAccount(
     loadOrCreateRandomnessKeypair(randomnessKeyPath, options?.forceNew);
   const randomnessAddress = randomnessKeypair.publicKey.toBase58();
 
-  // Check if account already exists on-chain
-  const accInfo = await connection.getAccountInfo(randomnessKeypair.publicKey);
-  if (accInfo) {
-    if (!accInfo.owner.equals(DEVNET_SB_PID)) {
-      throw new Error(
-        `Account ${randomnessAddress} exists on-chain but is owned by ${accInfo.owner.toBase58()}, expected ${DEVNET_SB_PID.toBase58()}.`
-      );
-    }
-    console.log(
-      `✓ Switchboard randomness account ${randomnessAddress} is already initialized on Devnet.`
+  // Check if account already exists on-chain with matching authority
+  if (!options?.forceNew) {
+    const accInfo = await connection.getAccountInfo(
+      randomnessKeypair.publicKey
     );
-    recordDevnetRandomnessAccount(randomnessAddress);
-    return {
-      address: randomnessAddress,
-      isNewlyCreated: false,
-    };
+    if (accInfo) {
+      if (!accInfo.owner.equals(DEVNET_SB_PID)) {
+        throw new Error(
+          `Account ${randomnessAddress} exists on-chain but is owned by ${accInfo.owner.toBase58()}, expected ${DEVNET_SB_PID.toBase58()}.`
+        );
+      }
+      const header = parseSwitchboardRandomnessHeader(accInfo.data);
+      if (header && header.authority === payerPubkeyStr) {
+        console.log(
+          `✓ Switchboard randomness account ${randomnessAddress} is already initialized on Devnet with matching authority.`
+        );
+        recordDevnetRandomnessAccount(randomnessAddress);
+        return {
+          address: randomnessAddress,
+          isNewlyCreated: false,
+        };
+      } else {
+        console.warn(
+          `⚠️ Existing randomness account ${randomnessAddress} authority (${header?.authority ?? "unknown"}) does not match payer (${payerPubkeyStr}). Generating fresh keypair...`
+        );
+      }
+    }
   }
+
+  // If we get here and need to create a fresh one (e.g. forced or mismatch on disk), ensure we use a fresh keypair if the on-disk one exists with mismatched authority
+  let freshRandomnessKeypair = randomnessKeypair;
+  if (isExisting && !options?.forceNew) {
+    freshRandomnessKeypair = web3.Keypair.generate();
+  }
+  const freshRandomnessAddress = freshRandomnessKeypair.publicKey.toBase58();
 
   console.log("Submitting Switchboard randomnessInit transaction on Devnet...");
   const createInstruction = await buildRandomnessInitInstruction({
     program: switchboardProgram,
-    randomnessKeypair,
+    randomnessKeypair: freshRandomnessKeypair,
     payerPublicKey: payerKeypair.publicKey,
     queuePublicKey: DEVNET_SB_QUEUE,
   });
@@ -206,7 +245,7 @@ export async function provisionDevnetRandomnessAccount(
   const latest = await connection.getLatestBlockhash("confirmed");
   tx.recentBlockhash = latest.blockhash;
 
-  tx.sign(payerKeypair, randomnessKeypair);
+  tx.sign(payerKeypair, freshRandomnessKeypair);
 
   const txSignature = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: false,
@@ -233,27 +272,37 @@ export async function provisionDevnetRandomnessAccount(
     `✓ Switchboard randomness account created successfully! Signature: ${txSignature}`
   );
 
-  if (!isExisting) {
-    saveKeypairSecurely(randomnessKeyPath, randomnessKeypair);
-  }
-
-  recordDevnetRandomnessAccount(randomnessAddress);
+  saveKeypairSecurely(randomnessKeyPath, freshRandomnessKeypair);
+  recordDevnetRandomnessAccount(freshRandomnessAddress);
 
   return {
-    address: randomnessAddress,
+    address: freshRandomnessAddress,
     isNewlyCreated: true,
     signature: txSignature,
   };
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const flags = new Set(args.filter((a) => a.startsWith("--")));
-  const positionals = args.filter((a) => !a.startsWith("--"));
+  const { values, positionals } = parseArgs({
+    args: process.argv.slice(2),
+    options: {
+      payer: { type: "string" },
+      force: { type: "boolean", default: false },
+      rpc: { type: "string" },
+    },
+    strict: true,
+    allowPositionals: true,
+  });
 
-  const payerKeypairPath = positionals[0];
-  const forceNew = flags.has("--force");
-  await provisionDevnetRandomnessAccount({ payerKeypairPath, forceNew });
+  const rawPayer = values.payer || positionals[0];
+  const payerKeypairPath = rawPayer ? expandHomeDir(rawPayer) : undefined;
+  const forceNew = Boolean(values.force);
+  const rpcUrl = values.rpc;
+  await provisionDevnetRandomnessAccount({
+    payerKeypairPath,
+    forceNew,
+    rpcUrl,
+  });
 }
 
 if (require.main === module) {

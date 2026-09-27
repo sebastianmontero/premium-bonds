@@ -1078,9 +1078,8 @@ export function traverseErrorGraph(
     }
 
     const planResult = (o.transactionPlanResult ||
-      (o.context as Record<string, unknown> | undefined)?.transactionPlanResult) as
-      | Record<string, unknown>
-      | undefined;
+      (o.context as Record<string, unknown> | undefined)
+        ?.transactionPlanResult) as Record<string, unknown> | undefined;
 
     if (planResult && !result.planErrorMessage) {
       const results = planResult.results as
@@ -1112,7 +1111,8 @@ export function traverseErrorGraph(
     if (o.error) visit(o.error, depth + 1);
     if (o.context) visit(o.context, depth + 1);
     if (o.transactionPlanResult) visit(o.transactionPlanResult, depth + 1);
-    if (planResult && planResult !== o.transactionPlanResult) visit(planResult, depth + 1);
+    if (planResult && planResult !== o.transactionPlanResult)
+      visit(planResult, depth + 1);
     if (Array.isArray(o.results)) {
       for (const r of o.results) visit(r, depth + 1);
     }

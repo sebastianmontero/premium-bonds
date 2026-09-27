@@ -9,13 +9,9 @@ import {
   KeyPairSigner,
   generateKeyPairSigner,
   createKeyPairSignerFromBytes,
+  getBase58Decoder,
 } from "@solana/kit";
-import {
-  PoolId,
-  DrawCycleId,
-  Slot,
-  toSlot,
-} from "../types";
+import { PoolId, DrawCycleId, Slot, toSlot } from "../types";
 
 export const SWITCHBOARD_ON_DEMAND_DEVNET_PID =
   "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2" as const;
@@ -25,12 +21,78 @@ export const DEVNET_SB_QUEUE =
   "EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7" as const;
 
 export const SB_RANDOMNESS_ACCOUNT_SIZE = 408;
+export const SB_AUTHORITY_OFFSET = 8;
 export const SB_REQUEST_SLOT_OFFSET = 104;
 export const SB_REVEAL_SLOT_OFFSET = 144;
 export const SB_SEED_OFFSET = 152;
+export const SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT = 1000n;
 export const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR = [
   10, 66, 229, 135, 220, 239, 217, 114,
 ] as const;
+
+export interface SwitchboardRandomnessHeader {
+  readonly authority: Address;
+  readonly seedSlot: Slot;
+  readonly revealSlot: Slot;
+}
+
+export class SwitchboardAuthorityMismatchError extends Error {
+  readonly code = "SWITCHBOARD_AUTHORITY_MISMATCH" as const;
+  constructor(
+    readonly randomnessAccount: Address,
+    readonly onChainAuthority: Address,
+    readonly crankSigner: Address
+  ) {
+    super(
+      `[SwitchboardOnDemandProvider] Configured randomness account ${randomnessAccount} authority (${onChainAuthority}) ` +
+        `does not match active crank signer (${crankSigner}). ` +
+        `Run 'npm run devnet:randomness' to provision a matching randomness account.`
+    );
+    this.name = "SwitchboardAuthorityMismatchError";
+  }
+}
+
+export function parseSwitchboardRandomnessHeader(
+  data: Uint8Array | null | undefined
+): SwitchboardRandomnessHeader | null {
+  if (!data || data.length < SB_RANDOMNESS_ACCOUNT_SIZE) {
+    return null;
+  }
+  for (let i = 0; i < SWITCHBOARD_RANDOMNESS_DISCRIMINATOR.length; i++) {
+    if (data[i] !== SWITCHBOARD_RANDOMNESS_DISCRIMINATOR[i]) {
+      return null;
+    }
+  }
+  const authorityBytes = data.subarray(
+    SB_AUTHORITY_OFFSET,
+    SB_AUTHORITY_OFFSET + 32
+  );
+  const authority = getBase58Decoder().decode(authorityBytes) as Address;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const seedSlot = view.getBigUint64(SB_REQUEST_SLOT_OFFSET, true);
+  const revealSlot = view.getBigUint64(SB_REVEAL_SLOT_OFFSET, true);
+
+  return {
+    authority,
+    seedSlot: toSlot(seedSlot),
+    revealSlot: toSlot(revealSlot),
+  };
+}
+
+export function isRandomnessCommittable(
+  header: SwitchboardRandomnessHeader,
+  currentSlot: Slot
+): boolean {
+  const seedSlot = BigInt(header.seedSlot);
+  const revealSlot = BigInt(header.revealSlot);
+  const current = BigInt(currentSlot);
+
+  return (
+    seedSlot === 0n ||
+    revealSlot !== 0n ||
+    current - seedSlot > SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT
+  );
+}
 
 export function web3InstructionToKit(
   ix: web3.TransactionInstruction
@@ -104,6 +166,11 @@ export interface IVrfProvider {
   prepareReveal(params: PrepareRevealParams): Promise<VrfRevealResult>;
 }
 
+export interface VrfProviderOptions {
+  readonly queueAddress?: Address;
+  readonly signer?: KeyPairSigner;
+}
+
 export class MockVrfProvider implements IVrfProvider {
   private readonly poolRandomness = new Map<PoolId, Address>();
 
@@ -174,7 +241,11 @@ export class MockVrfProvider implements IVrfProvider {
         const buffer = new Uint8Array(SB_RANDOMNESS_ACCOUNT_SIZE);
         buffer.set(SWITCHBOARD_RANDOMNESS_DISCRIMINATOR, 0);
         const view = new DataView(buffer.buffer);
-        view.setBigUint64(SB_REQUEST_SLOT_OFFSET, BigInt(params.harvestSlot), true);
+        view.setBigUint64(
+          SB_REQUEST_SLOT_OFFSET,
+          BigInt(params.harvestSlot),
+          true
+        );
         view.setBigUint64(
           SB_REVEAL_SLOT_OFFSET,
           BigInt(params.harvestSlot) + 1n,
@@ -228,10 +299,12 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
   private readonly activePoolRandomness = new Map<PoolId, Address>();
   private readonly queueAddress: web3.PublicKey;
   private readonly programId: web3.PublicKey;
+  private readonly signer?: KeyPairSigner;
+  private programPromise?: Promise<SwitchboardProgram>;
 
   constructor(
     private readonly rpcUrl: string,
-    queueAddress?: Address
+    options?: VrfProviderOptions
   ) {
     const isMainnet =
       process.env.SB_ENV === "mainnet" ||
@@ -242,121 +315,144 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
         : SWITCHBOARD_ON_DEMAND_DEVNET_PID
     );
     this.queueAddress = new web3.PublicKey(
-      queueAddress ||
+      options?.queueAddress ||
         process.env.NEXT_PUBLIC_SWITCHBOARD_QUEUE ||
         DEVNET_SB_QUEUE
     );
+    this.signer = options?.signer;
   }
 
   private async getProgram(): Promise<SwitchboardProgram> {
-    const connection = new web3.Connection(this.rpcUrl, "confirmed");
-    const dummyKeypair = web3.Keypair.generate();
-    const wallet = new Wallet(dummyKeypair);
-    const provider = new AnchorProvider(connection, wallet, {
-      commitment: "confirmed",
-    });
-    return sb.AnchorUtils.loadProgramFromProvider(provider, this.programId);
+    if (!this.programPromise) {
+      this.programPromise = (async () => {
+        const connection = new web3.Connection(this.rpcUrl, "confirmed");
+        const dummyKeypair = web3.Keypair.generate();
+        const wallet = new Wallet(dummyKeypair);
+        const provider = new AnchorProvider(connection, wallet, {
+          commitment: "confirmed",
+        });
+        return sb.AnchorUtils.loadProgramFromProvider(provider, this.programId);
+      })();
+      this.programPromise.catch(() => {
+        this.programPromise = undefined;
+      });
+    }
+    return this.programPromise;
   }
-
-
-
 
   async prepareHarvestRandomness(
     params: PrepareHarvestRandomnessParams
   ): Promise<VrfBinding> {
-    const connection = new web3.Connection(this.rpcUrl, "confirmed");
+    if (!this.signer) {
+      throw new Error(
+        "[SwitchboardOnDemandProvider] Signer is required for harvest randomness authority validation."
+      );
+    }
+
+    const poolEnvKey = `POOL_${params.poolId}_RANDOMNESS_ACCOUNT`;
     const existing =
       this.activePoolRandomness.get(params.poolId) ||
+      (process.env[poolEnvKey]
+        ? address(process.env[poolEnvKey]!)
+        : undefined) ||
       (process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT
         ? address(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)
         : undefined);
 
-    if (existing) {
-      try {
-        const pubkey = new web3.PublicKey(existing);
-        const accountInfo = await connection.getAccountInfo(pubkey);
-        if (
-          accountInfo &&
-          accountInfo.owner.equals(this.programId) &&
-          accountInfo.data.length >= SB_RANDOMNESS_ACCOUNT_SIZE
-        ) {
-          const view = new DataView(
-            accountInfo.data.buffer,
-            accountInfo.data.byteOffset,
-            accountInfo.data.byteLength
-          );
-          const seedSlot = view.getBigUint64(SB_REQUEST_SLOT_OFFSET, true);
-          const revealSlot = view.getBigUint64(SB_REVEAL_SLOT_OFFSET, true);
-          const currentSlot = await connection.getSlot("confirmed");
-
-          const isCommittable =
-            seedSlot === 0n ||
-            revealSlot !== 0n ||
-            BigInt(currentSlot) - seedSlot > 1000n;
-
-          if (isCommittable) {
-            const program = await this.getProgram();
-            const randomness = new sb.Randomness(program, pubkey);
-            const commitIx = await randomness.commitIx(this.queueAddress);
-            this.activePoolRandomness.set(params.poolId, existing);
-            return {
-              randomnessAccount: existing,
-              instructions: [web3InstructionToKit(commitIx)],
-              computeUnitsRequired: 35_000,
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(
-          `[SwitchboardOnDemandProvider] Failed to check existing randomness committability: ${err instanceof Error ? err.message : String(err)}. Provisioning fresh account.`
-        );
-      }
+    if (!existing) {
+      throw new Error(
+        `[SwitchboardOnDemandProvider] No randomness account configured for Pool #${params.poolId}. ` +
+          `Set ${poolEnvKey} or NEXT_PUBLIC_RANDOMNESS_ACCOUNT, or run 'npm run devnet:randomness'.`
+      );
     }
 
-    // Provision fresh randomness account with bundled commit
-    const program = await this.getProgram();
-    const kp = web3.Keypair.generate();
-    const kitSigner = await createKeyPairSignerFromBytes(kp.secretKey);
-    const [, createIx] = await sb.Randomness.create(
-      program,
-      kp,
-      this.queueAddress
-    );
-    const randomness = new sb.Randomness(program, kp.publicKey);
-    const commitIx = await randomness.commitIx(this.queueAddress);
+    const connection = new web3.Connection(this.rpcUrl, "confirmed");
+    const pubkey = new web3.PublicKey(existing);
+    const accountInfo = await connection.getAccountInfo(pubkey);
 
-    const randomnessAccount = kitSigner.address;
-    this.activePoolRandomness.set(params.poolId, randomnessAccount);
+    if (!accountInfo) {
+      throw new Error(
+        `[SwitchboardOnDemandProvider] Randomness account ${existing} not found on-chain.`
+      );
+    }
+
+    if (!accountInfo.owner.equals(this.programId)) {
+      throw new Error(
+        `[SwitchboardOnDemandProvider] Randomness account ${existing} owned by ${accountInfo.owner.toBase58()}, expected ${this.programId.toBase58()}.`
+      );
+    }
+
+    const header = parseSwitchboardRandomnessHeader(accountInfo.data);
+    if (!header) {
+      throw new Error(
+        `[SwitchboardOnDemandProvider] Randomness account ${existing} has invalid discriminator or truncated data (< ${SB_RANDOMNESS_ACCOUNT_SIZE} bytes).`
+      );
+    }
+
+    if (header.authority !== this.signer.address) {
+      throw new SwitchboardAuthorityMismatchError(
+        existing,
+        header.authority,
+        this.signer.address
+      );
+    }
+
+    const currentSlot = await connection.getSlot("confirmed");
+    if (!isRandomnessCommittable(header, toSlot(currentSlot))) {
+      throw new Error(
+        `[SwitchboardOnDemandProvider] Randomness account ${existing} is currently locked in an unrevealed draw cycle ` +
+          `(seedSlot=${header.seedSlot}, currentSlot=${currentSlot}). Awaiting reveal or freshness expiry.`
+      );
+    }
+
+    const program = await this.getProgram();
+    const randomness = new sb.Randomness(program, pubkey);
+    const signerPubkey = new web3.PublicKey(this.signer.address);
+    const commitIx = await randomness.commitIx(this.queueAddress, signerPubkey);
+    this.activePoolRandomness.set(params.poolId, existing);
 
     return {
-      randomnessAccount,
-      instructions: [web3InstructionToKit(createIx), web3InstructionToKit(commitIx)],
-      signers: [kitSigner],
-      computeUnitsRequired: 130_000,
+      randomnessAccount: existing,
+      instructions: [web3InstructionToKit(commitIx)],
+      computeUnitsRequired: 35_000,
     };
   }
 
   async prepareRebindRandomness(
     params: PrepareRebindRandomnessParams
   ): Promise<VrfBinding> {
+    return this.provisionFreshRandomness(params.poolId);
+  }
+
+  private async provisionFreshRandomness(poolId: PoolId): Promise<VrfBinding> {
+    if (!this.signer) {
+      throw new Error(
+        "[SwitchboardOnDemandProvider] Signer is required for provisioning fresh randomness."
+      );
+    }
     const program = await this.getProgram();
     const kp = web3.Keypair.generate();
     const kitSigner = await createKeyPairSignerFromBytes(kp.secretKey);
+    const signerPubkey = new web3.PublicKey(this.signer.address);
 
     const [, createIx] = await sb.Randomness.create(
       program,
       kp,
-      this.queueAddress
+      this.queueAddress,
+      signerPubkey
     );
     const randomness = new sb.Randomness(program, kp.publicKey);
-    const commitIx = await randomness.commitIx(this.queueAddress);
+    const commitIx = await randomness.commitIx(this.queueAddress, signerPubkey);
 
     const randomnessAccount = kitSigner.address;
-    this.activePoolRandomness.set(params.poolId, randomnessAccount);
+    this.activePoolRandomness.set(poolId, randomnessAccount);
 
     return {
       randomnessAccount,
-      instructions: [web3InstructionToKit(createIx), web3InstructionToKit(commitIx)],
+      instructions: [
+        web3InstructionToKit(createIx),
+        web3InstructionToKit(commitIx),
+      ],
       signers: [kitSigner],
       computeUnitsRequired: 130_000,
     };
@@ -367,7 +463,8 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
     const pubkey = new web3.PublicKey(params.randomnessAccount);
     const accountInfo = await connection.getAccountInfo(pubkey);
 
-    if (!accountInfo || accountInfo.data.length < SB_RANDOMNESS_ACCOUNT_SIZE) {
+    const header = parseSwitchboardRandomnessHeader(accountInfo?.data);
+    if (!header) {
       return {
         status: "uncommitted",
         seedSlot: toSlot(0n),
@@ -376,12 +473,7 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       };
     }
 
-    const view = new DataView(
-      accountInfo.data.buffer,
-      accountInfo.data.byteOffset,
-      accountInfo.data.byteLength
-    );
-    const seedSlot = view.getBigUint64(SB_REQUEST_SLOT_OFFSET, true);
+    const seedSlot = BigInt(header.seedSlot);
 
     if (seedSlot < BigInt(params.harvestSlot)) {
       return {
@@ -392,27 +484,35 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       };
     }
 
-    if (BigInt(params.currentSlot) - seedSlot > 1000n) {
+    const elapsedSlots = BigInt(params.currentSlot) - seedSlot;
+    if (elapsedSlots > SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT) {
       return {
         status: "expired",
-        elapsedSlots: toSlot(BigInt(params.currentSlot) - seedSlot),
-        reason: `Randomness freshness window exceeded 1000 slots (${BigInt(params.currentSlot) - seedSlot} slots elapsed).`,
+        elapsedSlots: toSlot(elapsedSlots),
+        reason: `Randomness freshness window exceeded 1000 slots (${elapsedSlots} slots elapsed).`,
       };
     }
 
+    let timerId: NodeJS.Timeout | undefined;
     try {
       const program = await this.getProgram();
       const randomness = new sb.Randomness(program, pubkey);
+      const signerPubkey = this.signer
+        ? new web3.PublicKey(this.signer.address)
+        : undefined;
 
-      // Fetch oracle signatures from Switchboard Gateway with 5s timeout
+      // Fetch oracle signatures from Switchboard Gateway with 10s timeout
+      // (Justified: Switchboard SDK has a mandatory 3000ms internal sleep, leaving 7s for Gateway HTTP)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timerId = setTimeout(
+          () => reject(new Error("Switchboard Gateway timeout (10000ms)")),
+          10000
+        );
+      });
+
       const revealIx = await Promise.race([
-        randomness.revealIx(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Switchboard Gateway timeout (5000ms)")),
-            5000
-          )
-        ),
+        randomness.revealIx(signerPubkey),
+        timeoutPromise,
       ]);
 
       return {
@@ -426,13 +526,17 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
         reason: msg,
         retryAfterMs: 2000,
       };
+    } finally {
+      if (timerId !== undefined) {
+        clearTimeout(timerId);
+      }
     }
   }
 }
 
 export function createVrfProvider(
   rpcUrl: string,
-  queueAddress?: Address
+  options?: VrfProviderOptions
 ): IVrfProvider {
   const isLocal =
     rpcUrl.includes("127.0.0.1") ||
@@ -441,5 +545,5 @@ export function createVrfProvider(
   if (isLocal) {
     return new MockVrfProvider(undefined, rpcUrl);
   }
-  return new SwitchboardOnDemandProvider(rpcUrl, queueAddress);
+  return new SwitchboardOnDemandProvider(rpcUrl, options);
 }

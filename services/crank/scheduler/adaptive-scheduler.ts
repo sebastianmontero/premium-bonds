@@ -75,7 +75,9 @@ export class AdaptiveCrankScheduler {
       }
     });
     this.metrics = metrics;
-    this.vrfProvider = createVrfProvider(config.rpcUrl);
+    this.vrfProvider = createVrfProvider(config.rpcUrl, {
+      signer: this.signer,
+    });
 
     this.context = {
       signer: this.signer,
@@ -449,7 +451,10 @@ export class AdaptiveCrankScheduler {
             }
           }
         } else if (outcome.retryAfterMs) {
-          this.nextEligibleTickMs.set(poolId, Date.now() + outcome.retryAfterMs);
+          this.nextEligibleTickMs.set(
+            poolId,
+            Date.now() + outcome.retryAfterMs
+          );
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);

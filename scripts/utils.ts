@@ -22,6 +22,7 @@ import {
 } from "@solana/kit";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 import * as crypto from "crypto";
 import {
   parseTransactionError,
@@ -338,26 +339,36 @@ export function resolveSwitchboardProgramId(): string {
 }
 
 /**
+ * Expands UNIX home directory tilde (~) prefix to os.homedir().
+ */
+export function expandHomeDir(filePath: string): string {
+  if (filePath.startsWith("~/") || filePath === "~") {
+    return path.join(os.homedir(), filePath.slice(filePath === "~" ? 1 : 2));
+  }
+  return path.resolve(filePath);
+}
+
+/**
  * Resolves the fee payer keypair path with standard fallback hierarchy:
  * customPath -> ANCHOR_WALLET -> SOLANA_KEYPAIR_PATH -> ~/.config/solana/id.json
  */
 export function resolveDefaultKeypairPath(customPath?: string): string {
   if (customPath && customPath.trim().length > 0) {
-    return path.resolve(customPath);
+    return expandHomeDir(customPath.trim());
   }
   if (
     process.env.ANCHOR_WALLET &&
     process.env.ANCHOR_WALLET.trim().length > 0
   ) {
-    return path.resolve(process.env.ANCHOR_WALLET);
+    return expandHomeDir(process.env.ANCHOR_WALLET.trim());
   }
   if (
     process.env.SOLANA_KEYPAIR_PATH &&
     process.env.SOLANA_KEYPAIR_PATH.trim().length > 0
   ) {
-    return path.resolve(process.env.SOLANA_KEYPAIR_PATH);
+    return expandHomeDir(process.env.SOLANA_KEYPAIR_PATH.trim());
   }
-  return path.resolve(process.env.HOME || "", ".config", "solana", "id.json");
+  return path.resolve(os.homedir(), ".config", "solana", "id.json");
 }
 
 /**
@@ -516,7 +527,6 @@ export function safeStringify(obj: unknown, space?: string | number): string {
     return String(obj);
   }
 }
-
 
 /**
  * Sends a transaction and polls for its confirmation status.
