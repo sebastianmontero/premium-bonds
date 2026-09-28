@@ -56,6 +56,7 @@ import {
   DEVNET_ENV_PATH,
 } from "./devnet-state";
 import { provisionDevnetRandomnessAccount } from "./create-switchboard-randomness";
+import { runDevnet180WinnerTest } from "./devnet-180-winners";
 
 function loadDevnetAccounts(): DevnetProtocolAccounts {
   const accounts = readDevnetAddresses();
@@ -182,6 +183,9 @@ function printUsage() {
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
   );
   console.log("  settle [count]        Settles pending redemptions on devnet");
+  console.log(
+    "  test-180 [--seed-users <n>] [--keep-config] [--pool <id>] [--yield <usdc>] Executes 180-winner turnkey test on devnet"
+  );
 }
 
 export interface ExpectedPoolAddresses {
@@ -1513,6 +1517,9 @@ async function main() {
       break;
     case "settle":
       await handleSettle(args.slice(1));
+      break;
+    case "test-180":
+      await runDevnet180WinnerTest(args.slice(1));
       break;
     default:
       console.error(`Unknown command: ${command}`);

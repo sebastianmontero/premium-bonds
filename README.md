@@ -167,6 +167,25 @@ npm run devnet settle [count]
 
 - Invokes the `settle_requests` instruction to process and settle pending ticket redemptions on devnet.
 
+#### 6. Execute 180-Winner Turnkey Test
+
+```bash
+# Fast Mode: Uses existing mature tickets (1,103+ tickets across registered wallets)
+npm run devnet:test-180
+
+# Multi-User Seeding Mode: Provisions N fresh test wallets and advances cycle to mature tickets
+npm run devnet:test-180:seed
+
+# Retain test configuration post-draw without restoring production defaults
+npm run devnet:test-180:keep-config
+```
+
+- **Option B Pyramid Distribution**: Configures on-chain prize tiers for 180 winners at exactly 10,000 basis points (Tier 1: 1 @ 12%, Tier 2: 9 @ 2% each, Tier 3: 50 @ 0.8% each, Tier 4: 120 @ 0.25% each).
+- **Ephemeral State Override**: Temporarily bypasses payout settlement timelock (`payout_timelock_seconds = 0`) and uncaps yield velocity spike guard (`max_yield_basis_points = 0`) to allow instant simulated yield testing.
+- **Batched Reinvestment**: Dispatches 45 transactions (4 winners per transaction) with 25,000 micro-lamport priority fees and automated retries.
+- **Rent Reclamation**: Closes the 10,184-byte `PayoutRegistry` PDA and reimburses 100% of rent lamports (~0.08 SOL) to the crank/admin.
+- **Automated Teardown**: Guarantees restoration of the original Devnet pool configuration inside a `try ... finally` block.
+
 ---
 
 ## YieldBonds Crank & Admin CLI (`scripts/pb-cli.ts`)
