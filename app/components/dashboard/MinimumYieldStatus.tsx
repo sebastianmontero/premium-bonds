@@ -46,7 +46,9 @@ export function MinimumYieldStatus({
 
   // 60 FPS Live Yield Ticker Loop (mutates DOM nodes directly without React re-renders)
   useEffect(() => {
-    if (!breakdown.isConfigured || pool.isFrozenForDraw) return;
+    isLiveMetRef.current = breakdown.isMet;
+    if (!breakdown.isConfigured || breakdown.isMet || pool.isFrozenForDraw)
+      return;
 
     let animFrameId: number;
 
@@ -81,13 +83,21 @@ export function MinimumYieldStatus({
         progressBarRef.current.style.width = `${progressPct}%`;
         if (progressPct >= 100) {
           progressBarRef.current.className =
-            "h-full rounded-full bg-secondary transition-all duration-300";
+            "h-full rounded-full bg-secondary transition-colors duration-300";
         }
       }
 
-      if (progressPct >= 100 && !isLiveMetRef.current) {
-        isLiveMetRef.current = true;
-        safeSetElementText(statusTextRef.current, t("prizePotTargetMet"));
+      if (progressPct >= 100) {
+        if (!isLiveMetRef.current) {
+          isLiveMetRef.current = true;
+          safeSetElementText(statusTextRef.current, t("prizePotTargetMet"));
+          progressBarRef.current?.parentElement?.setAttribute(
+            "aria-valuenow",
+            "100"
+          );
+        }
+        // Target reached: freeze display at 100% and stop 60 FPS animation loop
+        return;
       }
 
       animFrameId = requestAnimationFrame(tick);
@@ -100,19 +110,12 @@ export function MinimumYieldStatus({
     };
   }, [
     breakdown.isConfigured,
+    breakdown.isMet,
     breakdown.net.targetUi,
-    pool.isFrozenForDraw,
-    pool.grossYield,
-    pool.protocolFeeAmount,
-    pool.estimatedPrizePot,
-    pool.totalDepositedPrincipal,
-    pool.tokenDecimals,
-    pool.underlyingApy,
-    pool.feeBasisPoints,
-    pool.lastSyncedAt,
-    tokenSymbol,
     pool,
+    pool.isFrozenForDraw,
     t,
+    tokenSymbol,
   ]);
 
   if (!breakdown.isConfigured) {
@@ -170,18 +173,12 @@ export function MinimumYieldStatus({
     <div className={`space-y-1.5 text-[11px] ${className}`}>
       <div className="flex items-center justify-between text-on-surface-variant">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-              breakdown.isMet ? "bg-secondary animate-pulse" : "bg-amber-400"
-            }`}
-          />
+          <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-amber-400" />
           <span
             ref={statusTextRef}
             className="font-medium truncate text-on-surface"
           >
-            {breakdown.isMet
-              ? t("prizePotTargetMet")
-              : t("prizePotTargetAccumulating")}
+            {t("prizePotTargetAccumulating")}
           </span>
           <DrawTargetTooltip pool={pool} />
         </div>
@@ -205,7 +202,7 @@ export function MinimumYieldStatus({
             aria-hidden="true"
             className="font-semibold text-on-surface"
           >
-            {breakdown.progressPercent.toFixed(1)}%
+            {`${breakdown.progressPercent.toFixed(1)}%`}
           </span>
         </div>
       </div>
@@ -221,9 +218,7 @@ export function MinimumYieldStatus({
       >
         <div
           ref={progressBarRef}
-          className={`h-full rounded-full transition-all duration-300 ${
-            breakdown.isMet ? "bg-secondary" : "bg-amber-400/80"
-          }`}
+          className="h-full rounded-full bg-amber-400/80 transition-colors duration-300"
           style={{ width: `${breakdown.progressPercent}%` }}
         />
       </div>

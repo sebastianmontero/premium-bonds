@@ -20,6 +20,9 @@ class MockElement {
   readonly nodeType = 1; // Node.ELEMENT_NODE
   childNodes: (MockTextNode | MockElement)[] = [];
   parentNode: MockElement | null = null;
+  ownerDocument = {
+    createTextNode: (text: string) => new MockTextNode(text),
+  };
 
   get firstChild(): MockTextNode | MockElement | null {
     return this.childNodes[0] ?? null;
@@ -149,7 +152,7 @@ describe("DOM Utilities - safeSetElementText Suite", () => {
     }, "safeSetElementText must keep the tracked node attached so unmounting succeeds");
   });
 
-  it("should cleanly prune extra child nodes when multiple sibling text nodes exist", () => {
+  it("should cleanly blank extra sibling text nodes without detaching them", () => {
     const span = new MockElement();
     const t1 = new MockTextNode("Prefix: ");
     const t2 = new MockTextNode("$10.00");
@@ -161,8 +164,91 @@ describe("DOM Utilities - safeSetElementText Suite", () => {
     safeSetElementText(span as unknown as HTMLElement, "$50.00");
 
     assert.strictEqual(span.textContent, "$50.00");
-    assert.strictEqual(span.childNodes.length, 1);
-    assert.strictEqual(span.firstChild, t1);
+    assert.strictEqual(span.childNodes.length, 2, "Both nodes remain in DOM");
+    assert.strictEqual(t1.nodeValue, "$50.00");
+    assert.strictEqual(t2.nodeValue, "", "Sibling blanked, not removed");
+    assert.doesNotThrow(() => span.removeChild(t2));
+  });
+
+  it("should allow React to unmount all Fiber-tracked TextNodes after safeSetElementText blanks siblings", () => {
+    const span = new MockElement();
+    // Simulate JSX `{expr}%` producing two HostText fibers
+    const fiberChild0 = new MockTextNode("0.0");
+    const fiberChild1 = new MockTextNode("%");
+    span.appendChild(fiberChild0);
+    span.appendChild(fiberChild1);
+
+    // safeSetElementText writes full text to child0, blanks child1
+    safeSetElementText(span as unknown as HTMLElement, "42.5%");
+
+    assert.strictEqual(fiberChild0.nodeValue, "42.5%");
+    assert.strictEqual(fiberChild1.nodeValue, ""); // blanked, not removed
+    assert.strictEqual(span.childNodes.length, 2); // both still attached
+
+    // React Fiber commitDeletionEffects removes both tracked nodes
+    assert.doesNotThrow(() => span.removeChild(fiberChild0));
+    assert.doesNotThrow(() => span.removeChild(fiberChild1)); // THIS was the crash
+    assert.strictEqual(span.childNodes.length, 0);
+  });
+
+  it("should safely update text when an Element child precedes the TextNode without leaking nodes", () => {
+    const span = new MockElement();
+    const icon = new MockElement();
+    const textNode = new MockTextNode("10%");
+    span.appendChild(icon);
+    span.appendChild(textNode);
+
+    assert.strictEqual(
+      span.childNodes.length,
+      2,
+      "Initial structure should contain icon and text"
+    );
+
+    // Simulate multiple 60 FPS animation ticker frames
+    safeSetElementText(span as unknown as HTMLElement, "15%");
+    safeSetElementText(span as unknown as HTMLElement, "20%");
+    safeSetElementText(span as unknown as HTMLElement, "25%");
+
+    assert.strictEqual(
+      span.childNodes.length,
+      2,
+      "Must NOT append additional nodes on repeated frames"
+    );
+    assert.strictEqual(
+      span.childNodes[0],
+      icon,
+      "Icon element reference must remain intact"
+    );
+    assert.strictEqual(
+      span.childNodes[1],
+      textNode,
+      "TextNode instance must be preserved"
+    );
+    assert.strictEqual(
+      textNode.nodeValue,
+      "25%",
+      "TextNode must receive latest text value"
+    );
+  });
+
+  it("should not append multiple nodes when called repeatedly on an initially empty element", () => {
+    const span = new MockElement();
+    assert.strictEqual(span.childNodes.length, 0);
+
+    safeSetElementText(span as unknown as HTMLElement, "First");
+    safeSetElementText(span as unknown as HTMLElement, "Second");
+    safeSetElementText(span as unknown as HTMLElement, "Third");
+
+    assert.strictEqual(
+      span.childNodes.length,
+      1,
+      "Must only create exactly one TextNode across repeated calls"
+    );
+    assert.strictEqual(
+      (span.firstChild as MockTextNode | null)?.nodeValue,
+      "Third",
+      "Final value must match last update"
+    );
   });
 
   it("should handle empty elements by falling back to initial textContent", () => {
