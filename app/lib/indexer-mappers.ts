@@ -169,7 +169,7 @@ export interface DrawHistoryDto {
   prizePot: string;
   cycleFeeCollected: string;
   lockedTicketCount: string;
-  harvestSlot: number;
+  vrfSeedSlot: number;
   randomnessAccount: string;
   vrfSeedHex: string;
   winnersCount: number;
@@ -192,7 +192,7 @@ export function toDrawHistoryDto(
     prizePot: row.prizePot.toString(),
     cycleFeeCollected: row.cycleFeeCollected.toString(),
     lockedTicketCount: row.lockedTicketCount.toString(),
-    harvestSlot: row.harvestSlot,
+    vrfSeedSlot: row.vrfSeedSlot,
     randomnessAccount: row.randomnessAccount,
     vrfSeedHex: row.vrfSeedHex,
     winnersCount: row.winnersCount,
@@ -282,7 +282,7 @@ export interface DrawCycleSummaryDto {
   prizePot: number;
   cycleFeeCollected: number;
   lockedTicketCount: number;
-  harvestSlot: number;
+  vrfSeedSlot: number;
   randomnessAccount: string;
   vrfSeedHex: string;
   winnersCount: number;
@@ -309,7 +309,7 @@ export function mapDrawHistoryRowsToSummaries(
       prizePot: Number(r.prizePot),
       cycleFeeCollected: Number(r.cycleFeeCollected ?? 0n),
       lockedTicketCount: Number(r.lockedTicketCount ?? 0n),
-      harvestSlot: Number(r.harvestSlot ?? 0),
+      vrfSeedSlot: Number(r.vrfSeedSlot ?? 0),
       randomnessAccount: r.randomnessAccount || "",
       vrfSeedHex: r.vrfSeedHex || "",
       winnersCount: r.winnersCount,

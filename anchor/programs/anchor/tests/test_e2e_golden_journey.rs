@@ -81,7 +81,7 @@ fn test_e2e_golden_journey_full_lifecycle() {
     inject_randomness_account_data(
         &mut h.ctx.svm,
         rand_acc_1,
-        clock.slot,
+        dc_1.vrf_seed_slot,
         clock.slot,
         [42u8; 32],
     );

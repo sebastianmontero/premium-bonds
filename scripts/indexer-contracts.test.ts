@@ -58,7 +58,7 @@ describe("Indexer Contracts & Helpers Suite", () => {
       prizePot: 100000000,
       cycleFeeCollected: 2500000,
       lockedTicketCount: 100,
-      harvestSlot: 1000,
+      vrfSeedSlot: 1000,
       randomnessAccount: "Rand111111111111111111111111111111111111111",
       randomnessSeed: parseSeedFromHex(""),
       vrfSeedHex: "",

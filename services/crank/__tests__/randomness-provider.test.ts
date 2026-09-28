@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as web3 from "@solana/web3.js";
 import { generateKeyPairSigner, address, getBase58Encoder } from "@solana/kit";
 import {
   parseSwitchboardRandomnessHeader,
@@ -12,9 +13,9 @@ import {
   SB_AUTHORITY_OFFSET,
   SB_REQUEST_SLOT_OFFSET,
   SB_REVEAL_SLOT_OFFSET,
-  SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT,
   SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
 } from "../vrf/randomness-provider";
+import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
 import { toPoolId, toDrawCycleId, toSlot } from "../types";
 
 function createMockRandomnessBuffer(options?: {
@@ -133,7 +134,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       assert.strictEqual(
         isRandomnessCommittable(
           header,
-          toSlot(100n + SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT + 1n)
+          toSlot(100n + VRF_FRESHNESS_WINDOW_SLOTS + 1n)
         ),
         true
       );
@@ -150,7 +151,7 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       assert.strictEqual(
         isRandomnessCommittable(
           header,
-          toSlot(500n + SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT)
+          toSlot(500n + VRF_FRESHNESS_WINDOW_SLOTS)
         ),
         false
       );
@@ -252,6 +253,89 @@ describe("Switchboard VRF Provider Unit Tests", () => {
         // expected
       }
       assert.strictEqual(providerAny.programPromise, undefined);
+    });
+
+    it("should return uncommitted on prepareReveal when account is missing", async () => {
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com"
+      );
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      web3.Connection.prototype.getAccountInfo = async () => null;
+      try {
+        const res = await provider.prepareReveal({
+          randomnessAccount: address("11111111111111111111111111111111"),
+          committedSeedSlot: toSlot(100n),
+          currentSlot: toSlot(200n),
+        });
+        assert.strictEqual(res.status, "uncommitted");
+        assert.strictEqual(res.seedSlot, toSlot(0n));
+        assert.strictEqual(res.committedSeedSlot, toSlot(100n));
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
+    });
+
+    it("should return mismatch on prepareReveal when seedSlot !== committedSeedSlot", async () => {
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com"
+      );
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      const raw = createMockRandomnessBuffer({
+        authority: "11111111111111111111111111111111",
+        seedSlot: 99n,
+        revealSlot: 0n,
+      });
+      web3.Connection.prototype.getAccountInfo = (async () => ({
+        data: Buffer.from(raw),
+        executable: false,
+        lamports: 1000000,
+        owner: new web3.PublicKey(
+          "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        ),
+      })) as typeof originalGetAccountInfo;
+      try {
+        const res = await provider.prepareReveal({
+          randomnessAccount: address("11111111111111111111111111111111"),
+          committedSeedSlot: toSlot(100n),
+          currentSlot: toSlot(200n),
+        });
+        assert.strictEqual(res.status, "mismatch");
+        assert.strictEqual(res.seedSlot, toSlot(99n));
+        assert.strictEqual(res.committedSeedSlot, toSlot(100n));
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
+    });
+
+    it("should return expired on prepareReveal when elapsed slots > 1000n", async () => {
+      const provider = new SwitchboardOnDemandProvider(
+        "https://api.devnet.solana.com"
+      );
+      const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
+      const raw = createMockRandomnessBuffer({
+        authority: "11111111111111111111111111111111",
+        seedSlot: 100n,
+        revealSlot: 0n,
+      });
+      web3.Connection.prototype.getAccountInfo = (async () => ({
+        data: Buffer.from(raw),
+        executable: false,
+        lamports: 1000000,
+        owner: new web3.PublicKey(
+          "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
+        ),
+      })) as typeof originalGetAccountInfo;
+      try {
+        const res = await provider.prepareReveal({
+          randomnessAccount: address("11111111111111111111111111111111"),
+          committedSeedSlot: toSlot(100n),
+          currentSlot: toSlot(1200n),
+        });
+        assert.strictEqual(res.status, "expired");
+        assert.strictEqual(res.elapsedSlots, toSlot(1100n));
+      } finally {
+        web3.Connection.prototype.getAccountInfo = originalGetAccountInfo;
+      }
     });
   });
 });

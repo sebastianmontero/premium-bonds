@@ -299,6 +299,7 @@ export class PayoutHydratorService {
           .update(drawHistory)
           .set({
             winnersSynced: true,
+            vrfSeedSlot: Number(cycle.vrfSeedSlot),
             revealedAt: Number(payout.revealedAt),
             vrfSeedHex: formatSeedHex(cycle.randomnessSeed),
             initiatedAt: resolvedInitiatedAt,

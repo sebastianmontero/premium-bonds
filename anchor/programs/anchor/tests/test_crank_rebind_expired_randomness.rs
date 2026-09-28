@@ -14,7 +14,7 @@ struct RebindCtx {
     new_randomness_account: Pubkey,
 }
 
-fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
+fn setup(draw_status: anchor::DrawStatus, vrf_seed_slot: u64) -> RebindCtx {
     let (mut svm, _admin, crank) = setup_global_with_crank();
 
     let ticket_registry = Keypair::new().pubkey();
@@ -29,7 +29,7 @@ fn setup(draw_status: anchor::DrawStatus, harvest_slot: u64) -> RebindCtx {
         .with_status(draw_status)
         .with_locked_tickets(10)
         .with_prize_pot(1_000_000)
-        .with_harvest_slot(harvest_slot)
+        .with_vrf_seed_slot(vrf_seed_slot)
         .inject(&mut svm);
 
     // Create a new randomness account owned by Switchboard On-Demand
@@ -63,11 +63,12 @@ fn send_rebind(ctx: &mut RebindCtx, signer: &Keypair) -> TxResult {
 
 #[test]
 fn test_rebind_fails_mismatched_current_randomness_account() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = CrankRebindExpiredRandomnessBuilder::new(
@@ -88,11 +89,19 @@ fn test_rebind_fails_mismatched_current_randomness_account() {
 
 #[test]
 fn test_rebind_happy_path() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
+    let new_seed_slot = expired_slot.saturating_sub(1);
+    inject_randomness_account_data(
+        &mut ctx.svm,
+        ctx.new_randomness_account,
+        new_seed_slot,
+        0,
+        [0u8; 32],
+    );
 
     let crank = clone_keypair(&ctx.crank);
     let meta = send_rebind(&mut ctx, &crank).unwrap();
@@ -114,11 +123,11 @@ fn test_rebind_happy_path() {
         "RandomnessRebound new_randomness_account mismatch"
     );
     assert_eq!(
-        event.harvest_slot, expired_slot,
-        "RandomnessRebound harvest_slot mismatch"
+        event.vrf_seed_slot, new_seed_slot,
+        "RandomnessRebound vrf_seed_slot mismatch"
     );
 
-    // Verify draw cycle randomness account is updated and harvest slot reset
+    // Verify draw cycle randomness account is updated and vrf_seed_slot reset
     let dc_acct = ctx.svm.get_account(&ctx.current_draw_cycle).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
     assert_eq!(
@@ -126,8 +135,8 @@ fn test_rebind_happy_path() {
         "DrawCycle randomness_account must match new randomness account"
     );
     assert_eq!(
-        dc.harvest_slot, expired_slot,
-        "DrawCycle harvest_slot must be updated to current slot"
+        dc.vrf_seed_slot, new_seed_slot,
+        "DrawCycle vrf_seed_slot must be updated to new seed slot"
     );
 }
 
@@ -146,10 +155,11 @@ fn test_rebind_fails_unauthorized_crank() {
 
 #[test]
 fn test_rebind_fails_invalid_draw_status() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::Complete, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::Complete, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
     ctx.svm.warp_to_slot(expired_slot);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = send_rebind(&mut ctx, &crank);
@@ -158,11 +168,12 @@ fn test_rebind_fails_invalid_draw_status() {
 
 #[test]
 fn test_rebind_fails_randomness_not_expired() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let not_expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let not_expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS;
 
     ctx.svm.warp_to_slot(not_expired_slot);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = send_rebind(&mut ctx, &crank);
@@ -171,15 +182,16 @@ fn test_rebind_fails_randomness_not_expired() {
 
 #[test]
 fn test_rebind_succeeds_with_configured_switchboard_owner() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
     ctx.svm.warp_to_slot(expired_slot);
 
+    let new_seed_slot = expired_slot.saturating_sub(1);
     inject_randomness_account_data_with_owner(
         &mut ctx.svm,
         ctx.new_randomness_account,
-        0,
+        new_seed_slot,
         0,
         [0u8; 32],
         anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
@@ -196,13 +208,21 @@ fn test_rebind_succeeds_with_configured_switchboard_owner() {
 
 #[test]
 fn test_rebind_fails_unconfigured_switchboard_owner() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
 
-    inject_unconfigured_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
+    let new_seed_slot = expired_slot.saturating_sub(1);
+    inject_randomness_account_data_with_owner(
+        &mut ctx.svm,
+        ctx.new_randomness_account,
+        new_seed_slot,
+        0,
+        [0u8; 32],
+        anchor::constants::UNCONFIGURED_SWITCHBOARD_ON_DEMAND_PID,
+    );
 
     let crank = clone_keypair(&ctx.crank);
     let res = send_rebind(&mut ctx, &crank);
@@ -214,16 +234,20 @@ fn test_rebind_fails_unconfigured_switchboard_owner() {
 
 #[test]
 fn test_rebind_fails_invalid_randomness_account_owner() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
 
-    inject_foreign_owner_randomness_account(
+    let new_seed_slot = expired_slot.saturating_sub(1);
+    inject_randomness_account_data_with_owner(
         &mut ctx.svm,
         ctx.new_randomness_account,
-        Pubkey::default(),
+        new_seed_slot,
+        0,
+        [0u8; 32],
+        Pubkey::new_unique(),
     );
 
     let crank = clone_keypair(&ctx.crank);
@@ -236,9 +260,9 @@ fn test_rebind_fails_invalid_randomness_account_owner() {
 
 #[test]
 fn test_rebind_fails_invalid_randomness_account_discriminator() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
 
@@ -254,9 +278,9 @@ fn test_rebind_fails_invalid_randomness_account_discriminator() {
 
 #[test]
 fn test_rebind_fails_truncated_randomness_account() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
 
@@ -272,9 +296,9 @@ fn test_rebind_fails_truncated_randomness_account() {
 
 #[test]
 fn test_rebind_fails_zero_byte_randomness_account() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
 
     ctx.svm.warp_to_slot(expired_slot);
 
@@ -288,15 +312,13 @@ fn test_rebind_fails_zero_byte_randomness_account() {
     );
 }
 
-
-
 #[test]
 fn test_crank_rebind_exact_slot_boundary() {
-    let harvest_slot = 100;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let vrf_seed_slot = 100;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
 
-    // Boundary 1: Exactly VRF_FRESHNESS_WINDOW_SLOTS passed. harvest_slot + 1000 (not > 1000).
-    let boundary_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS;
+    // Boundary 1: Exactly VRF_FRESHNESS_WINDOW_SLOTS passed. vrf_seed_slot + 1000 (not > 1000).
+    let boundary_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS;
     ctx.svm.warp_to_slot(boundary_slot);
 
     let crank = clone_keypair(&ctx.crank);
@@ -304,9 +326,18 @@ fn test_crank_rebind_exact_slot_boundary() {
     assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotExpired);
 
     // Boundary 2: VRF_FRESHNESS_WINDOW_SLOTS + 1 passed. (> 1000). Should succeed!
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
     ctx.svm.warp_to_slot(expired_slot);
     ctx.svm.expire_blockhash();
+
+    let new_seed_slot = expired_slot.saturating_sub(1);
+    inject_randomness_account_data(
+        &mut ctx.svm,
+        ctx.new_randomness_account,
+        new_seed_slot,
+        0,
+        [0u8; 32],
+    );
 
     let meta = send_rebind(&mut ctx, &crank)
         .expect("rebind at exact expiration slot boundary should succeed");
@@ -328,23 +359,24 @@ fn test_crank_rebind_exact_slot_boundary() {
         "RandomnessRebound new_randomness_account mismatch"
     );
     assert_eq!(
-        event.harvest_slot, expired_slot,
-        "RandomnessRebound harvest_slot mismatch"
+        event.vrf_seed_slot, new_seed_slot,
+        "RandomnessRebound vrf_seed_slot mismatch"
     );
 }
 
 #[test]
 fn test_rebind_fails_same_randomness_account() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
 
     // Set existing draw cycle randomness account to match ctx.new_randomness_account
     mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
         dc.randomness_account = ctx.new_randomness_account;
     });
 
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
     ctx.svm.warp_to_slot(expired_slot);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
     let crank = clone_keypair(&ctx.crank);
     let res = send_rebind(&mut ctx, &crank);
@@ -360,10 +392,11 @@ fn test_rebind_fails_unoverridable_statuses() {
         anchor::DrawStatus::ForceUnlocked,
         anchor::DrawStatus::Voided,
     ] {
-        let harvest_slot = 0;
-        let mut ctx = setup(status, harvest_slot);
-        let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+        let vrf_seed_slot = 0;
+        let mut ctx = setup(status, vrf_seed_slot);
+        let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
         ctx.svm.warp_to_slot(expired_slot);
+        inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
         let crank = clone_keypair(&ctx.crank);
         let res = send_rebind(&mut ctx, &crank);
@@ -377,10 +410,11 @@ fn test_rebind_fails_unoverridable_statuses() {
 
 #[test]
 fn test_rebind_fails_pool_paused() {
-    let harvest_slot = 0;
-    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, harvest_slot);
-    let expired_slot = harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
+    let vrf_seed_slot = 0;
+    let mut ctx = setup(anchor::DrawStatus::AwaitingRandomness, vrf_seed_slot);
+    let expired_slot = vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1;
     ctx.svm.warp_to_slot(expired_slot);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.new_randomness_account);
 
     mutate_pool_state(&mut ctx.svm, 1, |p| {
         p.status = anchor::PoolStatus::Paused as u8;
@@ -403,19 +437,26 @@ fn test_crank_rebind_full_lifecycle() {
         .with_draw_status(anchor::DrawStatus::AwaitingRandomness)
         .build();
 
-    let initial_harvest_slot = 100;
+    let initial_vrf_seed_slot = 100;
     mutate_draw_cycle(&mut fixture.svm, 1, 0, |dc| {
-        dc.harvest_slot = initial_harvest_slot;
+        dc.vrf_seed_slot = initial_vrf_seed_slot;
     });
 
     // 1. Warp to expired slot (> 1000 slots after harvest)
-    let rebind_slot = initial_harvest_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 1101
+    let rebind_slot = initial_vrf_seed_slot + anchor::constants::VRF_FRESHNESS_WINDOW_SLOTS + 1; // 1101
     fixture.svm.warp_to_slot(rebind_slot);
     fixture.svm.expire_blockhash();
 
     // 2. Prepare new randomness account
     let new_randomness = Keypair::new().pubkey();
-    inject_mock_randomness_account(&mut fixture.svm, new_randomness);
+    let new_seed_slot = rebind_slot.saturating_sub(1);
+    inject_randomness_account_data(
+        &mut fixture.svm,
+        new_randomness,
+        new_seed_slot,
+        0,
+        [0u8; 32],
+    );
 
     let (pool_pda, _) = pool_pda(1);
     let (dc_pda, _) = draw_cycle_pda(1, 0);
@@ -439,13 +480,13 @@ fn test_crank_rebind_full_lifecycle() {
     assert_eq!(event.cycle_id, 0);
     assert_eq!(event.old_randomness_account, fixture.randomness_account);
     assert_eq!(event.new_randomness_account, new_randomness);
-    assert_eq!(event.harvest_slot, rebind_slot);
+    assert_eq!(event.vrf_seed_slot, new_seed_slot);
 
     // Assert DrawCycle state updated
     let dc_acct = fixture.svm.get_account(&dc_pda).unwrap();
     let dc = anchor::DrawCycle::try_deserialize(&mut dc_acct.data.as_slice()).unwrap();
     assert_eq!(dc.randomness_account, new_randomness);
-    assert_eq!(dc.harvest_slot, rebind_slot);
+    assert_eq!(dc.vrf_seed_slot, new_seed_slot);
     assert_eq!(dc.prize_pot, 1_000_000);
     assert_eq!(dc.locked_ticket_count, 5);
 
@@ -478,11 +519,11 @@ fn test_crank_rebind_full_lifecycle() {
     fixture.svm.warp_to_slot(reveal_slot);
     fixture.svm.expire_blockhash();
 
-    // 6. Inject mock randomness for the new randomness account (seed_slot = 1101, reveal_slot = 1111)
+    // 6. Inject mock randomness for the new randomness account (seed_slot = new_seed_slot, reveal_slot = 1111)
     inject_randomness_account_data(
         &mut fixture.svm,
         new_randomness,
-        rebind_slot,
+        new_seed_slot,
         reveal_slot,
         deterministic_seed_for_index(0),
     );

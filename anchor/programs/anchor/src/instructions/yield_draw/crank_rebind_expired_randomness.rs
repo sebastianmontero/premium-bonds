@@ -84,7 +84,7 @@ pub struct CrankRebindExpiredRandomness<'info> {
 /// If a randomness request is committed but cannot be resolved or is not revealed
 /// within 1000 slots (~6.6 minutes), the randomness request expires and becomes stale.
 /// This instruction allows the crank bot to specify a new Switchboard randomness account and
-/// reset the harvest slot, enabling the draw cycle resolution flow to be retried.
+/// reset the vrf seed slot, enabling the draw cycle resolution flow to be retried.
 pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     ctx.accounts.pool.load()?.check_version()?;
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
@@ -92,9 +92,9 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     let clock = Clock::get()?;
 
-    // Layer 1: Macro harvest cooldown (Unconditional)
+    // Layer 1: Macro freshness cooldown (Unconditional)
     require!(
-        clock.slot.saturating_sub(draw_cycle.harvest_slot) > VRF_FRESHNESS_WINDOW_SLOTS,
+        clock.slot.saturating_sub(draw_cycle.vrf_seed_slot) > VRF_FRESHNESS_WINDOW_SLOTS,
         PremiumBondsError::RandomnessNotExpired
     );
 
@@ -102,7 +102,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
     if ctx.accounts.current_randomness_account.key() != Pubkey::default() {
         if let Ok(data) = ctx.accounts.current_randomness_account.try_borrow_data() {
             if let Ok(randomness_data) = switchboard_on_demand::RandomnessAccountData::parse(data) {
-                if randomness_data.seed_slot >= draw_cycle.harvest_slot {
+                if randomness_data.seed_slot >= draw_cycle.vrf_seed_slot {
                     require!(
                         clock.slot.saturating_sub(randomness_data.seed_slot)
                             > VRF_FRESHNESS_WINDOW_SLOTS,
@@ -115,18 +115,24 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
 
     let old_randomness = draw_cycle.randomness_account;
 
-    // Rebind our contract state to the new randomness account and reset harvest slot.
-    // The crank bot must have already created this new randomness account on Switchboard and committed it.
-    draw_cycle.rebind_randomness(ctx.accounts.new_randomness_account.key(), clock.slot)?;
+    // Validate new Switchboard randomness account and retrieve committed seed slot
+    let new_seed_slot = crate::utils::parse_and_validate_fresh_randomness(
+        &ctx.accounts.new_randomness_account.to_account_info(),
+        clock.slot,
+    )?;
+
+    // Rebind our contract state to the new randomness account and set vrf_seed_slot
+    draw_cycle.rebind_randomness(ctx.accounts.new_randomness_account.key(), new_seed_slot)?;
 
     let pool_id = ctx.accounts.pool.load()?.pool_id;
 
     #[cfg(feature = "debug-logs")]
     msg!(
-        "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}",
+        "CrankRebindExpiredRandomness: re-bound pool_id={}, cycle_id={} to new randomness_account={}, vrf_seed_slot={}",
         pool_id,
         draw_cycle.cycle_id,
-        draw_cycle.randomness_account
+        draw_cycle.randomness_account,
+        draw_cycle.vrf_seed_slot
     );
 
     emit_cpi!(RandomnessRebound {
@@ -135,7 +141,7 @@ pub fn handle(ctx: Context<CrankRebindExpiredRandomness>) -> Result<()> {
         crank: ctx.accounts.crank.key(),
         old_randomness_account: old_randomness,
         new_randomness_account: draw_cycle.randomness_account,
-        harvest_slot: clock.slot,
+        vrf_seed_slot: draw_cycle.vrf_seed_slot,
         timestamp: clock.unix_timestamp,
     });
 

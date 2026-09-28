@@ -146,6 +146,7 @@ export async function sendMockWebhookFixture(
           prizePot: 9750000n,
           lockedTicketCount: 500,
           randomnessAccount: "Rand111111111111111111111111111111111111111",
+          vrfSeedSlot: BigInt(options.slot || 1000),
         },
         options
       );

@@ -1102,7 +1102,7 @@ YieldBonds provides contextual guidance, visual indicators, and telemetry inspec
 - **Complete Activity & History Drawers (\`CompleteActivityModal\` & \`CompleteLedgerModal\`)**: Full-screen modal drawers for browsing complete portfolio transaction history and historical draw ledgers.
 - **Clipboard Utility (\`CopyButton\`)**: Accessible clipboard copy button with animated confirmation feedback and multi-language toast notifications.
 - **Cluster-Aware Explorer Links (\`TxExplorerLink\` & \`AccountExplorerLink\`)**: Direct links to Solscan / Solana Explorer automatically configured for your active network cluster (Localnet, Devnet, Mainnet).
-- **Draw Cycle Inspector (\`DrawCycleInspectorModal\`)**: Full-screen modal detailing harvest slot, Switchboard randomness account, locked ticket count, prize pot, and payout timelocks.
+- **Draw Cycle Inspector (\`DrawCycleInspectorModal\`)**: Full-screen modal detailing VRF seed slot, Switchboard randomness account, locked ticket count, prize pot, and payout timelocks.
 - **Provable Fairness Verifier (\`ProvableFairnessVerifier\`)**: In-app mathematical verifier to independently recompute winning ticket numbers from VRF seeds.
 - **Activity Feed & Filter System (\`ActivityFeed\`)**: Live search and event filters across your deposits, claims, and automated reinvestments.
 - **Prize History Ledger (\`DrawTelemetryGrid\`)**: Complete historical ledger of past prize draws with cryptographic audit verification.
@@ -1128,7 +1128,7 @@ YieldBonds ofrece orientación contextual, indicadores visuales y paneles de tel
 - **Paneles de Historial y Registro (\`CompleteActivityModal\` y \`CompleteLedgerModal\`)**: Modales a pantalla completa para explorar el historial completo de transacciones y registros de sorteos.
 - **Utilidad de Portapapeles (\`CopyButton\`)**: Botón accesible de copiado al portapapeles con confirmación animada y notificaciones en varios idiomas.
 - **Enlaces al Explorador (\`TxExplorerLink\` y \`AccountExplorerLink\`)**: Enlaces directos a Solscan / Solana Explorer configurados automáticamente para el clúster activo (Localnet, Devnet, Mainnet).
-- **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de cosecha, cuenta de aleatoriedad Switchboard, bonos bloqueados, bolsa y bloqueos de tiempo (timelocks).
+- **Inspector de Ciclos de Sorteo (\`DrawCycleInspectorModal\`)**: Modal que detalla el slot de semilla VRF, cuenta de aleatoriedad Switchboard, bonos bloqueados, bolsa y bloqueos de tiempo (timelocks).
 - **Verificador de Equidad Demostrable (\`ProvableFairnessVerifier\`)**: Herramienta matemática para recalcular deterministamente los bonos ganadores a partir de semillas VRF.
 - **Registro de Actividad y Filtros (\`ActivityFeed\`)**: Búsqueda en vivo y filtros para depósitos, reclamos y reinversiones automáticas.
 - **Historial de Sorteos (\`DrawTelemetryGrid\`)**: Registro histórico completo de sorteos anteriores con verificación criptográfica de auditoría.
@@ -1967,12 +1967,12 @@ export const ERROR_LOOKUP_ITEMS: ErrorLookupItem[] = [
     hexCode: "0x178e",
     name: "StaleRandomnessRequest",
     diagnosis: {
-      en: "The randomness request was committed before the harvest freeze slot or is expired.",
-      es: "La solicitud de aleatoriedad se registró antes del slot de congelación o ha expirado.",
+      en: "The randomness request was committed before the VRF seed slot or is expired.",
+      es: "La solicitud de aleatoriedad se registró antes del slot de semilla VRF o ha expirado.",
     },
     solution: {
-      en: "Re-commit a fresh randomness request account after the yield harvest slot.",
-      es: "Registra una nueva cuenta de aleatoriedad después del slot de cosecha.",
+      en: "Re-commit a fresh randomness request account after the VRF seed slot.",
+      es: "Registra una nueva cuenta de aleatoriedad después del slot de semilla VRF.",
     },
     category: "crank",
   },

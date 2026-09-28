@@ -351,6 +351,7 @@ pub struct YieldHarvested {
     pub prize_pot: u64,
     pub locked_ticket_count: u32,
     pub randomness_account: Pubkey,
+    pub vrf_seed_slot: u64,
     pub timestamp: i64,
 }
 
@@ -362,7 +363,7 @@ pub struct RandomnessRebound {
     pub crank: Pubkey,
     pub old_randomness_account: Pubkey,
     pub new_randomness_account: Pubkey,
-    pub harvest_slot: u64,
+    pub vrf_seed_slot: u64,
     pub timestamp: i64,
 }
 

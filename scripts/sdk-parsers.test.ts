@@ -160,7 +160,7 @@ describe("Codama SDK Parsers & Account Deserialization", () => {
     const parsed = decodeDrawCycle(mockAccount(buffer)).data;
     assert.strictEqual(parsed.prizePot, 500_000_000n);
     assert.strictEqual(parsed.cycleFeeCollected, 50_000_000n);
-    assert.strictEqual(parsed.harvestSlot, 12345n);
+    assert.strictEqual(parsed.vrfSeedSlot, 12345n);
     assert.strictEqual(parsed.initiatedAt, 1700000000n);
     assert.strictEqual(parsed.completedAt, 1700001000n);
     assert.strictEqual(parsed.poolId, 1);

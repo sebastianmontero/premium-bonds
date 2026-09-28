@@ -376,6 +376,7 @@ describe("Webhook Ingestion Logic & Timing-Safe Security Suite", () => {
           prizePot: 1n,
           lockedTicketCount: 1,
           randomnessAccount: "r" as never,
+          vrfSeedSlot: 1000n,
         },
       },
       {

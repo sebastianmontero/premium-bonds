@@ -199,8 +199,8 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
     let draw_cycle = &mut ctx.accounts.current_draw_cycle;
     draw_cycle.pool_id = pool.pool_id;
     draw_cycle.cycle_id = pool.current_draw_cycle_id;
-    draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
-    draw_cycle.harvest_slot = clock.slot;
+    draw_cycle.randomness_account = Pubkey::default();
+    draw_cycle.vrf_seed_slot = 0;
     draw_cycle.initiated_at = current_time;
     draw_cycle.completed_at = 0;
     draw_cycle.version = DrawCycle::CURRENT_VERSION;
@@ -276,6 +276,15 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             pool.prize_tiers_count > 0,
             PremiumBondsError::PrizeTiersNotConfigured
         );
+
+        // Validate Switchboard commitment and anchor vrf_seed_slot to randomness seed_slot
+        let seed_slot = crate::utils::parse_and_validate_fresh_randomness(
+            &ctx.accounts.randomness_account.to_account_info(),
+            clock.slot,
+        )?;
+        draw_cycle.vrf_seed_slot = seed_slot;
+        draw_cycle.randomness_account = ctx.accounts.randomness_account.key();
+
         draw_cycle.commit_harvest(eligible_locked_count, net_yield, fee);
         pool.is_frozen_for_draw = 1;
 
@@ -301,6 +310,7 @@ pub fn handle(ctx: Context<HarvestYieldAndCommit>) -> Result<()> {
             prize_pot: net_yield,
             locked_ticket_count: eligible_locked_count,
             randomness_account: ctx.accounts.randomness_account.key(),
+            vrf_seed_slot: draw_cycle.vrf_seed_slot,
             timestamp: current_time,
         });
     } else {

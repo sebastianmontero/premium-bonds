@@ -208,6 +208,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           prizePot: 9750000n,
           lockedTicketCount: 500,
           randomnessAccount: randAddr,
+          vrfSeedSlot: 1000n,
         },
       };
       const meta = resolveEventMetadata(harvestEvent);
@@ -465,7 +466,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         prizePot: 500_000_000n,
         cycleFeeCollected: 50_000_000n,
         lockedTicketCount: 1_000n,
-        harvestSlot: 1050,
+        vrfSeedSlot: 1050,
         randomnessAccount: "randAccount1",
         signature: "sig1",
         blockTime: 1700000000,
@@ -491,9 +492,9 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(folded[0].status, "Complete");
       assert.strictEqual(
-        folded[0].harvestSlot,
+        folded[0].vrfSeedSlot,
         1050,
-        "Retains harvestSlot from YieldHarvested"
+        "Retains vrfSeedSlot from YieldHarvested"
       );
       assert.strictEqual(folded[0].prizePot, 500_000_000n);
       assert.strictEqual(folded[0].cycleFeeCollected, 50_000_000n);
@@ -527,7 +528,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         prizePot: 500_000_000n,
         cycleFeeCollected: 50_000_000n,
         lockedTicketCount: 1_000n,
-        harvestSlot: 1050,
+        vrfSeedSlot: 1050,
         randomnessAccount: "randAccount1",
         signature: "sig1",
         blockTime: 1700000000,
@@ -544,7 +545,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         "Status must stay Complete, not revert to AwaitingRandomness"
       );
       assert.strictEqual(
-        folded[0].harvestSlot,
+        folded[0].vrfSeedSlot,
         1050,
         "Slot populated even when harvest event arrived second"
       );
@@ -611,7 +612,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           cycleId: 10,
           status: "AwaitingRandomness",
           prizePot: 500_000_000n,
-          harvestSlot: 1050,
+          vrfSeedSlot: 1050,
           signature: "sigHarvest",
           blockTime: 1700000050,
         };
@@ -822,13 +823,13 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(folded[1].completedAt, 1700000900);
     });
 
-    it("should enforce slot monotonicity for harvestSlot and randomnessAccount", () => {
+    it("should enforce slot monotonicity for vrfSeedSlot and randomnessAccount", () => {
       const initialHarvest = {
         poolId: 1,
         cycleId: 22,
         status: "AwaitingRandomness",
         prizePot: 100_000_000n,
-        harvestSlot: 1000,
+        vrfSeedSlot: 1000,
         randomnessAccount: "InitialRandomness1111111111111111111111111",
         signature: "sig1",
         blockTime: 1700000000,
@@ -839,7 +840,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         cycleId: 22,
         status: "AwaitingRandomness",
         prizePot: 0n,
-        harvestSlot: 1050,
+        vrfSeedSlot: 1050,
         randomnessAccount: "ReboundRandomness2222222222222222222222222",
         signature: "sig2",
         blockTime: 1700000050,
@@ -850,7 +851,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
         cycleId: 22,
         status: "AwaitingRandomness",
         prizePot: 100_000_000n,
-        harvestSlot: 990,
+        vrfSeedSlot: 990,
         randomnessAccount: "OldRandomness00000000000000000000000000000",
         signature: "sig3",
         blockTime: 1700000010,
@@ -864,14 +865,73 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
 
       assert.strictEqual(folded.length, 1);
       assert.strictEqual(
-        folded[0].harvestSlot,
+        folded[0].vrfSeedSlot,
         1050,
-        "Should pick the highest harvestSlot"
+        "Should pick the highest vrfSeedSlot"
       );
       assert.strictEqual(
         folded[0].randomnessAccount,
         "ReboundRandomness2222222222222222222222222",
         "Should retain the latest rebound randomness account"
+      );
+    });
+
+    it("should preserve initiatedAt when folding YieldHarvested with RandomnessRebound", () => {
+      const harvestRow = {
+        poolId: 1,
+        cycleId: 15,
+        status: "AwaitingRandomness" as const,
+        initiatedAt: 1700000000,
+        prizePot: 100_000_000n,
+        vrfSeedSlot: 1000,
+        randomnessAccount: "InitialRandomness1111111111111111111111111",
+        signature: "sig1",
+        blockTime: 1700000000,
+      };
+      const reboundRow = {
+        poolId: 1,
+        cycleId: 15,
+        status: "AwaitingRandomness" as const,
+        initiatedAt: undefined,
+        prizePot: 0n,
+        vrfSeedSlot: 1050,
+        randomnessAccount: "ReboundRandomness2222222222222222222222222",
+        signature: "sig2",
+        blockTime: 1700000050,
+      };
+
+      const foldedForward = foldDrawHistoryRows([
+        harvestRow as never,
+        reboundRow as never,
+      ]);
+      assert.strictEqual(foldedForward.length, 1);
+      assert.strictEqual(
+        foldedForward[0].initiatedAt,
+        1700000000,
+        "initiatedAt retained forward"
+      );
+      assert.strictEqual(foldedForward[0].vrfSeedSlot, 1050);
+      assert.strictEqual(
+        foldedForward[0].randomnessAccount,
+        "ReboundRandomness2222222222222222222222222",
+        "randomnessAccount updated to rebound account forward"
+      );
+
+      const foldedReverse = foldDrawHistoryRows([
+        reboundRow as never,
+        harvestRow as never,
+      ]);
+      assert.strictEqual(foldedReverse.length, 1);
+      assert.strictEqual(
+        foldedReverse[0].initiatedAt,
+        1700000000,
+        "initiatedAt retained reverse"
+      );
+      assert.strictEqual(foldedReverse[0].vrfSeedSlot, 1050);
+      assert.strictEqual(
+        foldedReverse[0].randomnessAccount,
+        "ReboundRandomness2222222222222222222222222",
+        "randomnessAccount retained rebound account reverse"
       );
     });
 

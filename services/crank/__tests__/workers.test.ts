@@ -169,7 +169,7 @@ describe("Strategy Workers Unit Tests", () => {
       state: "READY_TO_DRAW" as const,
       cycleId: toDrawCycleId(1),
       randomnessAccount: mockAddress,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
     };
 
     const outcome = await worker.evaluate(snapshot, ctx);
@@ -212,7 +212,7 @@ describe("Strategy Workers Unit Tests", () => {
       state: "READY_TO_DRAW" as const,
       cycleId: toDrawCycleId(1),
       randomnessAccount: mockAddress,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
     };
 
     const outcome = await worker.evaluate(snapshot, ctx);
@@ -221,7 +221,7 @@ describe("Strategy Workers Unit Tests", () => {
     assert.match(outcome.reason, /Awaiting oracle proof/);
   });
 
-  it("AtomicRevealWorker should back off on uncommitted randomness until eligible for rebind", async () => {
+  it("AtomicRevealWorker should retry on uncommitted randomness with 3s RPC retry", async () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = {
@@ -236,8 +236,8 @@ describe("Strategy Workers Unit Tests", () => {
       prepareReveal: async () => ({
         status: "uncommitted" as const,
         seedSlot: toSlot(0n),
-        harvestSlot: toSlot(100n),
-        reason: "seedSlot < harvestSlot",
+        committedSeedSlot: toSlot(100n),
+        reason: "seed_slot = 0",
       }),
     };
     const worker = new AtomicRevealWorker(vrf);
@@ -253,14 +253,68 @@ describe("Strategy Workers Unit Tests", () => {
       state: "READY_TO_DRAW" as const,
       cycleId: toDrawCycleId(1),
       randomnessAccount: mockAddress,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
     };
 
     const outcome = await worker.evaluate(snapshot, ctx);
     assert.strictEqual(outcome.shouldExecute, false);
-    // deltaSlots = 100 + 1001 - 200 = 901 slots -> backoffMs = 901 * 400 = 360400ms
-    assert.strictEqual(outcome.retryAfterMs, 901 * 400);
+    assert.strictEqual(outcome.retryAfterMs, 3000);
     assert.match(outcome.reason, /Randomness uncommitted/);
+  });
+
+  it("AtomicRevealWorker should retry on transient mismatch then back off after MAX_RPC_MISMATCH_RETRIES", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer);
+    const vrf = {
+      prepareHarvestRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
+      prepareRebindRandomness: async () => ({
+        randomnessAccount: mockAddress,
+        instructions: [],
+      }),
+      prepareReveal: async () => ({
+        status: "mismatch" as const,
+        seedSlot: toSlot(99n),
+        committedSeedSlot: toSlot(100n),
+        reason: "mismatch",
+      }),
+    };
+    const worker = new AtomicRevealWorker(vrf);
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool(),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 200n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "READY_TO_DRAW" as const,
+      cycleId: toDrawCycleId(1),
+      randomnessAccount: mockAddress,
+      vrfSeedSlot: 100n,
+    };
+
+    // Retry 1 (transient)
+    const outcome1 = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome1.shouldExecute, false);
+    assert.strictEqual(outcome1.retryAfterMs, 3000);
+    assert.match(outcome1.reason, /retry 1\/2/);
+
+    // Retry 2 (transient)
+    const outcome2 = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome2.shouldExecute, false);
+    assert.strictEqual(outcome2.retryAfterMs, 3000);
+    assert.match(outcome2.reason, /retry 2\/2/);
+
+    // Retry 3 (persistent mismatch -> backoff)
+    const outcome3 = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome3.shouldExecute, false);
+    // deltaSlots = 100 + 1000 + 1 - 200 = 901 slots -> 901 * 400 = 360400ms
+    assert.strictEqual(outcome3.retryAfterMs, 901 * 400);
+    assert.match(outcome3.reason, /Persistent randomness mismatch/);
   });
 
   it("AtomicRevealWorker should return shouldExecute: false on expired randomness", async () => {
@@ -294,7 +348,7 @@ describe("Strategy Workers Unit Tests", () => {
       state: "READY_TO_DRAW" as const,
       cycleId: toDrawCycleId(1),
       randomnessAccount: mockAddress,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
     };
 
     const outcome = await worker.evaluate(snapshot, ctx);

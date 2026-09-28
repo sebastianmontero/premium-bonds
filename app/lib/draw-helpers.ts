@@ -360,7 +360,7 @@ export function formatDrawCycleSummary(
     prizePot: Number(drawCycle.prizePot),
     cycleFeeCollected: Number(drawCycle.cycleFeeCollected),
     lockedTicketCount: drawCycle.lockedTicketCount,
-    harvestSlot: Number(drawCycle.harvestSlot),
+    vrfSeedSlot: Number(drawCycle.vrfSeedSlot ?? 0),
     randomnessAccount: drawCycle.randomnessAccount.toString(),
     randomnessSeed: drawCycle.randomnessSeed,
     vrfSeedHex: formatSeedHex(drawCycle.randomnessSeed),

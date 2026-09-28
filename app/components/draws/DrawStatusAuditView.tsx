@@ -125,10 +125,12 @@ export function DrawStatusAuditView({
 
         <div className="p-3.5 rounded-xl bg-surface-container/20 border border-surface-bright/5 flex flex-col justify-between">
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-            {t("harvestSlot")}
+            {t("vrfSeedSlot")}
           </p>
           <p className="text-base font-bold font-mono text-on-surface mt-1 truncate">
-            {Number(draw.harvestSlot).toLocaleString("en-US")}
+            {draw.vrfSeedSlot > 0
+              ? draw.vrfSeedSlot.toLocaleString("en-US")
+              : "N/A"}
           </p>
         </div>
 

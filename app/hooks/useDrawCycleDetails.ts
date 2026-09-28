@@ -77,7 +77,7 @@ export function useDrawCycleDetails(
         prizePot: Number(d.prizePot),
         cycleFeeCollected: Number(d.cycleFeeCollected),
         lockedTicketCount: Number(d.lockedTicketCount),
-        harvestSlot: d.harvestSlot,
+        vrfSeedSlot: Number(d.vrfSeedSlot ?? 0),
         randomnessAccount: d.randomnessAccount,
         randomnessSeed: new Uint8Array(32),
         vrfSeedHex: d.vrfSeedHex,

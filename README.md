@@ -213,7 +213,7 @@ A unified operator, crank, query, and multisig governance CLI for managing Yield
 | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `query-config`               | Displays on-chain `GlobalConfig` state (admin, pending admin, guardian, jobs account).               |
 | `query-pool`                 | Displays `PrizePool` details, vault PDAs, deposited principal, status, and fee stats.                |
-| `query-draw`                 | Displays `DrawCycle` state, status, locked ticket counts, prize pot, and harvest slot.               |
+| `query-draw`                 | Displays `DrawCycle` state, status, locked ticket counts, prize pot, and VRF seed slot.              |
 | `query-payout`               | Displays `PayoutRegistry` state and winner distribution list for a draw cycle.                       |
 | `query-winnings [usr]`       | Displays `UserWinnings` PDA state for a specific user or lists all winnings in a pool.               |
 | `query-redemption [id]`      | Displays `PendingRedemption` state for a specific redemption ID or lists all redemptions.            |

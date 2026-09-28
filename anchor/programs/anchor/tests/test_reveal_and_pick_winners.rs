@@ -468,11 +468,13 @@ fn test_reveal_fails_invalid_randomness_account_owner() {
 fn test_reveal_succeeds_with_configured_switchboard_owner() {
     let tiers = vec![anchor::PrizeTier::default_single_winner()];
     let mut ctx = setup_reveal(anchor::PoolStatus::Active, true, tiers, 5, 1_000_000, 5);
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
     inject_randomness_account_data_with_owner(
         &mut ctx.svm,
         ctx.randomness_account,
-        0,
-        0,
+        dc.vrf_seed_slot,
+        clock.slot,
         [42u8; 32],
         anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
     );
@@ -575,7 +577,7 @@ fn test_reveal_fails_stale_randomness_request_seed_slot() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
 
     mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
-        dc.harvest_slot = 10;
+        dc.vrf_seed_slot = 10;
     });
 
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
@@ -592,8 +594,34 @@ fn test_reveal_fails_stale_randomness_request_seed_slot() {
 }
 
 #[test]
+fn test_reveal_fails_future_mismatched_seed_slot() {
+    let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+
+    mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
+        dc.vrf_seed_slot = 10;
+    });
+
+    // Randomness committed at seed_slot = 15 (> vrf_seed_slot 10) must be rejected
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 15, 15, [1u8; 32]);
+
+    let crank = clone_keypair(&ctx.crank);
+    let res = RevealAndPickWinnersBuilder::for_pool(1, 0, crank.pubkey())
+        .with_ticket_registry(ctx.ticket_registry)
+        .with_randomness_account(ctx.randomness_account)
+        .send(&mut ctx.svm, &crank);
+    assert_custom_error(
+        res,
+        anchor::error::PremiumBondsError::StaleRandomnessRequest,
+    );
+}
+
+#[test]
 fn test_reveal_fails_stale_randomness_request_expired() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+
+    mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
+        dc.vrf_seed_slot = 5;
+    });
 
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 5, [1u8; 32]);
 
@@ -613,6 +641,10 @@ fn test_reveal_fails_stale_randomness_request_expired() {
 #[test]
 fn test_reveal_fails_randomness_not_resolved() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+
+    mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
+        dc.vrf_seed_slot = 5;
+    });
 
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 0, [0u8; 32]);
 
@@ -740,12 +772,13 @@ fn test_reveal_binary_search_with_interleaved_zero_ticket_users() {
             .inject(&mut svm);
 
         let randomness_account = Keypair::new().pubkey();
-        inject_randomness_account_data(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+        inject_randomness_account_data(&mut svm, randomness_account, 1, 0, [0u8; 32]);
 
         DrawCycleTestBuilder::new(1, 0)
             .with_status(anchor::DrawStatus::AwaitingRandomness)
             .with_locked_tickets(30)
             .with_prize_pot(1_000_000)
+            .with_vrf_seed_slot(1)
             .inject(&mut svm);
 
         mutate_draw_cycle(&mut svm, 1, 0, |dc| {
@@ -1019,12 +1052,13 @@ fn test_reveal_winner_selection_with_zero_ticket_users() {
         .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut svm, randomness_account, 0, 0, [0u8; 32]);
+    inject_randomness_account_data(&mut svm, randomness_account, 1, 0, [0u8; 32]);
 
     DrawCycleTestBuilder::new(1, 0)
         .with_status(anchor::DrawStatus::AwaitingRandomness)
         .with_locked_tickets(30)
         .with_prize_pot(10_000_000)
+        .with_vrf_seed_slot(1)
         .inject(&mut svm);
 
     mutate_draw_cycle(&mut svm, 1, 0, |dc| {
@@ -1080,12 +1114,13 @@ fn test_reveal_fails_invalid_winner_index() {
         .inject(&mut svm);
 
     let randomness_account = Keypair::new().pubkey();
-    inject_randomness_account_data(&mut svm, randomness_account, 0, 0, [42u8; 32]);
+    inject_randomness_account_data(&mut svm, randomness_account, 1, 0, [42u8; 32]);
 
     DrawCycleTestBuilder::new(1, 0)
         .with_status(anchor::DrawStatus::AwaitingRandomness)
         .with_locked_tickets(10)
         .with_prize_pot(10_000_000)
+        .with_vrf_seed_slot(1)
         .inject(&mut svm);
 
     mutate_draw_cycle(&mut svm, 1, 0, |dc| {
@@ -1111,6 +1146,10 @@ fn test_reveal_fails_invalid_winner_index() {
 #[test]
 fn test_reveal_freshness_slot_difference_1000_succeeds() {
     let mut ctx = setup_reveal_with_dc_status(anchor::DrawStatus::AwaitingRandomness);
+
+    mutate_draw_cycle(&mut ctx.svm, 1, 0, |dc| {
+        dc.vrf_seed_slot = 5;
+    });
 
     // Randomness committed at seed_slot = 5, resolved at reveal_slot = 1005
     inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 5, 1005, [1u8; 32]);

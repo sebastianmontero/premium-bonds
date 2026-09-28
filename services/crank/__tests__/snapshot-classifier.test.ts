@@ -106,7 +106,7 @@ describe("Snapshot Classifier", () => {
     });
     const drawCycle = buildMockDrawCycle({
       status: DrawStatus.AwaitingRandomness,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
       randomnessAccount: mockPoolAddress,
     });
 
@@ -144,7 +144,7 @@ describe("Snapshot Classifier", () => {
     });
     const drawCycle = buildMockDrawCycle({
       status: DrawStatus.AwaitingRandomness,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
       randomnessAccount: mockPoolAddress,
     });
 
@@ -169,6 +169,48 @@ describe("Snapshot Classifier", () => {
       1100n,
       "VRF_EXPIRED snapshot must report correct elapsed slots"
     );
+  });
+
+  it("should accurately respect the exact 1000-slot freshness window boundary", () => {
+    const pool = buildMockPrizePool({
+      isFrozenForDraw: 1,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry({
+      userCount: 50,
+      drawPreparedUpTo: 50,
+    });
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.AwaitingRandomness,
+      vrfSeedSlot: 100n,
+      randomnessAccount: mockPoolAddress,
+    });
+
+    // Boundary: Exactly 1000 slots elapsed (1100 - 100 = 1000) -> NOT expired (READY_TO_DRAW)
+    const readySnapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 1100n,
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(readySnapshot, "READY_TO_DRAW");
+
+    // Boundary: 1001 slots elapsed (1101 - 100 = 1001) -> EXPIRED (VRF_EXPIRED)
+    const expiredSnapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 1101n,
+      currentTimestamp: 1000n,
+    });
+    assertSnapshotState(expiredSnapshot, "VRF_EXPIRED");
   });
 
   it("should classify as TIMELOCK_WAITING and REINVESTMENT_PENDING accurately", () => {
@@ -231,7 +273,7 @@ describe("Snapshot Classifier", () => {
     const registry = buildMockTicketRegistry();
     const drawCycle = buildMockDrawCycle({
       status: DrawStatus.HaltedInsolvent,
-      harvestSlot: 100n,
+      vrfSeedSlot: 100n,
       prizePot: 0n,
       randomnessAccount: mockPoolAddress,
     });

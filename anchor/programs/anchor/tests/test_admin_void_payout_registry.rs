@@ -565,11 +565,12 @@ fn test_mtr007_void_draw_complete_rollback_equivalence() {
     let dc: anchor::DrawCycle =
         AccountDeserialize::try_deserialize(&mut dc_acc.data.as_slice()).unwrap();
 
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
     common::inject_randomness_account_data(
         &mut ctx.svm,
         dc.randomness_account,
-        dc.harvest_slot,
-        dc.harvest_slot,
+        dc.vrf_seed_slot,
+        clock.slot,
         [42u8; 32],
     );
 

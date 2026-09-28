@@ -168,6 +168,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
         prizePot: 9750000n,
         lockedTicketCount: 500,
         randomnessAccount: TEST_RANDOMNESS,
+        vrfSeedSlot: 1000n,
       });
       const parsed = parseEventsFromTxMeta({ logMessages: [log] });
       assert.strictEqual(parsed.length, 1);
@@ -177,6 +178,7 @@ describe("Localnet Webhook Relayer & Event Serializer Suite", () => {
       assert.strictEqual(parsed[0].data.crank, TEST_ADMIN);
       assert.strictEqual(parsed[0].data.prizePot, 9750000n);
       assert.strictEqual(parsed[0].data.randomnessAccount, TEST_RANDOMNESS);
+      assert.strictEqual(parsed[0].data.vrfSeedSlot, 1000n);
     }
 
     // 7. DrawCompleted

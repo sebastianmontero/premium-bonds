@@ -234,8 +234,16 @@ fn test_harvest_happy_path_yield_and_eligible() {
         event.locked_ticket_count, 2,
         "YieldHarvested locked_ticket_count must be 2"
     );
+    assert_eq!(
+        event.vrf_seed_slot, 2599,
+        "YieldHarvested vrf_seed_slot must match committed Switchboard seed slot (slot 2600 - 1)"
+    );
 
     let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_eq!(
+        event.vrf_seed_slot, dc.vrf_seed_slot,
+        "YieldHarvested vrf_seed_slot must match DrawCycle on-chain state"
+    );
     assert_eq!(
         dc.status,
         anchor::DrawStatus::AwaitingRandomness,
@@ -405,6 +413,7 @@ fn test_harvest_happy_path_consecutive_cycles() {
 
     let pool = read_pool_state(&ctx.svm, 1);
     warp_to_timestamp(&mut ctx.svm, pool.current_cycle_end_at + 1);
+    inject_mock_randomness_account(&mut ctx.svm, ctx.randomness_account);
 
     ctx.send_harvest(1, 1).expect("second harvest");
 
@@ -445,10 +454,12 @@ fn test_harvest_succeeds_with_configured_switchboard_owner() {
         .with_cycle_end_at(0)
         .build();
     let configured_randomness = Keypair::new().pubkey();
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
     inject_randomness_account_data_with_owner(
         &mut ctx.svm,
         configured_randomness,
-        0,
+        seed_slot,
         0,
         [0u8; 32],
         anchor::constants::SWITCHBOARD_ON_DEMAND_PID,
@@ -720,6 +731,12 @@ fn test_harvest_yield_rolls_over_unallocated_dust_from_prior_cycle() {
         updated_pool.total_fees_accrued, event.fee,
         "Pool total_fees_accrued must match fee"
     );
+
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_eq!(
+        event.vrf_seed_slot, dc.vrf_seed_slot,
+        "YieldHarvested vrf_seed_slot must match DrawCycle on-chain state"
+    );
 }
 
 #[test]
@@ -797,6 +814,12 @@ fn test_harvest_yield_fee_truncation_rounding() {
         updated_pool.total_fees_accrued, event.fee,
         "Pool total_fees_accrued must match fee"
     );
+
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_eq!(
+        event.vrf_seed_slot, dc.vrf_seed_slot,
+        "YieldHarvested vrf_seed_slot must match DrawCycle on-chain state"
+    );
 }
 
 #[test]
@@ -814,6 +837,7 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at - 1);
+        inject_mock_randomness_account(&mut ctx.svm, ctx.randomness_account);
         let res = ctx.send_harvest(1, 0);
         assert_custom_error(res, anchor::error::PremiumBondsError::CycleNotEnded);
     }
@@ -829,6 +853,7 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at);
+        inject_mock_randomness_account(&mut ctx.svm, ctx.randomness_account);
         let res = ctx.send_harvest(1, 0);
         assert!(
             res.is_ok(),
@@ -848,6 +873,7 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             .build();
 
         warp_to_timestamp(&mut ctx.svm, cycle_end_at + 1);
+        inject_mock_randomness_account(&mut ctx.svm, ctx.randomness_account);
         let res = ctx.send_harvest(1, 0);
         assert!(
             res.is_ok(),
@@ -855,4 +881,138 @@ fn test_harvest_yield_exact_temporal_boundaries() {
             res.err()
         );
     }
+}
+
+// ─── VRF Commitment Validation Vectors (V2 - V5, V8, V11) ───────────────────
+
+#[test]
+fn test_harvest_fails_with_uncommitted_randomness_account() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    // Inject uncommitted randomness account (seed_slot = 0)
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 0, 0, [0u8; 32]);
+
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::RandomnessNotCommitted);
+}
+
+#[test]
+fn test_harvest_fails_with_already_resolved_randomness_account() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let seed_slot = clock.slot.saturating_sub(1);
+
+    // Case 1: reveal_slot > 0
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, seed_slot, clock.slot, [0u8; 32]);
+    let res1 = ctx.send_harvest(1, 0);
+    assert_custom_error(res1, anchor::error::PremiumBondsError::RandomnessAlreadyResolved);
+
+    ctx.svm.expire_blockhash();
+
+    // Case 2: value is non-zero
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, seed_slot, 0, [1u8; 32]);
+    let res2 = ctx.send_harvest(1, 0);
+    assert_custom_error(res2, anchor::error::PremiumBondsError::RandomnessAlreadyResolved);
+}
+
+#[test]
+fn test_harvest_fails_with_stale_precommitted_randomness_boundary() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+
+    // Boundary: exactly 64 slots gap passes
+    let valid_seed_slot = clock.slot.saturating_sub(64);
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, valid_seed_slot, 0, [0u8; 32]);
+    let res_ok = ctx.send_harvest(1, 0);
+    assert!(res_ok.is_ok(), "Commit within 64 slots must pass");
+
+    // Boundary 2: 65 slots gap fails in fresh context
+    let mut ctx2 = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+    let clock2: solana_sdk::clock::Clock = ctx2.svm.get_sysvar();
+    let stale_seed_slot = clock2.slot.saturating_sub(65);
+    inject_randomness_account_data(&mut ctx2.svm, ctx2.randomness_account, stale_seed_slot, 0, [0u8; 32]);
+    let res_stale = ctx2.send_harvest(1, 0);
+    assert_custom_error(res_stale, anchor::error::PremiumBondsError::StaleRandomnessRequest);
+}
+
+#[test]
+fn test_harvest_succeeds_across_leader_skips() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    // Simulate 2 leader windows skipped (delta = 8 slots)
+    let seed_slot = clock.slot.saturating_sub(8);
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, seed_slot, 0, [0u8; 32]);
+
+    let meta = ctx.send_harvest(1, 0).expect("Harvest across leader skips must succeed");
+    let event = assert_cpi_event::<anchor::events::YieldHarvested>(&meta);
+    assert_eq!(event.vrf_seed_slot, seed_slot, "YieldHarvested must reflect dynamic seed slot");
+
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_eq!(dc.vrf_seed_slot, seed_slot, "DrawCycle vrf_seed_slot must record exact committed seed_slot");
+}
+
+#[test]
+fn test_harvest_and_reveal_fails_future_seed_slot() {
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(10, 0)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(default_prize_tiers())
+        .with_raw_huma_state(11_000_000, 10_000_000, 10_000_000, 10_000_000)
+        .build();
+
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    // Future seed slot attack: seed_slot = clock.slot + 1
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, clock.slot + 1, 0, [0u8; 32]);
+
+    let res = ctx.send_harvest(1, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::StaleRandomnessRequest);
+}
+
+#[test]
+fn test_skipped_and_halted_draws_have_default_randomness() {
+    // 1. Zero yield skipped draw
+    let mut ctx = HarvestFixtureBuilder::new()
+        .with_tickets(0, 3)
+        .with_circuit_breaker(0, 100)
+        .with_prize_tiers(vec![])
+        .with_raw_huma_state(0, 0, 0, 0)
+        .build();
+
+    // Even if passed an uncommitted randomness account, skipped draws don't validate VRF and record defaults
+    inject_randomness_account_data(&mut ctx.svm, ctx.randomness_account, 0, 0, [0u8; 32]);
+    let res = ctx.send_harvest(1, 0);
+    assert!(res.is_ok(), "Skipped draw must succeed without requiring fresh VRF commitment");
+
+    let dc = read_draw_cycle_state(&ctx.svm, 1, 0);
+    assert_eq!(dc.status, anchor::DrawStatus::Skipped);
+    assert_eq!(dc.randomness_account, Pubkey::default(), "Skipped draw randomness_account must be default");
+    assert_eq!(dc.vrf_seed_slot, 0, "Skipped draw vrf_seed_slot must be 0");
 }

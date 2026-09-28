@@ -209,6 +209,7 @@ export interface YieldHarvestedEvent {
   prizePot: bigint;
   lockedTicketCount: number;
   randomnessAccount: Address;
+  vrfSeedSlot: bigint;
   timestamp?: bigint;
 }
 
@@ -404,7 +405,7 @@ export interface RandomnessReboundEvent {
   crank: Address;
   oldRandomnessAccount: Address;
   newRandomnessAccount: Address;
-  harvestSlot: bigint;
+  vrfSeedSlot: bigint;
   timestamp?: bigint;
 }
 
@@ -751,6 +752,7 @@ function decodeEventData(
         const prizePot = reader.readU64();
         const lockedTicketCount = reader.readU32();
         const randomnessAccount = reader.readPubkey();
+        const vrfSeedSlot = reader.readU64();
         let timestamp: bigint | undefined;
         if (reader.remaining >= 8) timestamp = reader.readI64();
         return {
@@ -762,6 +764,7 @@ function decodeEventData(
           prizePot,
           lockedTicketCount,
           randomnessAccount,
+          vrfSeedSlot,
           timestamp,
         } as YieldHarvestedEvent;
       }
@@ -1035,7 +1038,7 @@ function decodeEventData(
           crank: reader.readPubkey(),
           oldRandomnessAccount: reader.readPubkey(),
           newRandomnessAccount: reader.readPubkey(),
-          harvestSlot: reader.readU64(),
+          vrfSeedSlot: reader.readU64(),
           timestamp: reader.remaining >= 8 ? reader.readI64() : undefined,
         } as RandomnessReboundEvent;
       }

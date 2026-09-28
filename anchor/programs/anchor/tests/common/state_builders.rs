@@ -396,7 +396,7 @@ impl DrawCycleTestBuilder {
             cycle: anchor::DrawCycle {
                 prize_pot: 0,
                 cycle_fee_collected: 0,
-                harvest_slot: 0,
+                vrf_seed_slot: 0,
                 initiated_at: 1_700_000_000,
                 completed_at: 0,
                 randomness_account: Pubkey::default(),
@@ -453,8 +453,8 @@ impl DrawCycleTestBuilder {
         self
     }
 
-    pub fn with_harvest_slot(mut self, slot: u64) -> Self {
-        self.cycle.harvest_slot = slot;
+    pub fn with_vrf_seed_slot(mut self, slot: u64) -> Self {
+        self.cycle.vrf_seed_slot = slot;
         self
     }
 

@@ -624,7 +624,7 @@
     "settlementTimelock": "Bloqueo de Liquidación",
     "timelockActive": "Activo ({remaining})",
     "timelockUnlocked": "Desbloqueado",
-    "harvestSlot": "Slot de Cosecha",
+    "vrfSeedSlot": "Slot de Semilla VRF",
     "oracleAccount": "Cuenta del Oráculo Switchboard",
     "payoutRegistryRosterTitle": "Registro Oficial de Pagos ({count, plural, one {1 Premio} other {# Premios}})",
     "youWonInThisDraw": "¡Ganaste premios en este sorteo!",

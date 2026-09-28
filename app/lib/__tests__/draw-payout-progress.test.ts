@@ -19,7 +19,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 100_000_000n,
         cycleFeeCollected: 5_000_000n,
         lockedTicketCount: 500n,
-        harvestSlot: 123456,
+        vrfSeedSlot: 123456,
         randomnessAccount: "Random1111111111111111111111111111111111111",
         vrfSeedHex: "0x1234567890abcdef",
         winnersCount: 8,
@@ -37,6 +37,11 @@ describe("Draw Payout Progress & Stats Suite", () => {
     const summaries = mapDrawHistoryRowsToSummaries(mockRows);
     assert.strictEqual(summaries.length, 1);
     assert.strictEqual(summaries[0].cycleId, 1);
+    assert.strictEqual(
+      summaries[0].vrfSeedSlot,
+      123456,
+      "vrfSeedSlot correctly mapped"
+    );
     assert.strictEqual(summaries[0].winnersCount, 8);
     assert.strictEqual(summaries[0].payoutsCompleted, 0);
     assert.strictEqual(summaries[0].hasPayoutRegistry, true);
@@ -52,7 +57,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 200_000_000n,
         cycleFeeCollected: 10_000_000n,
         lockedTicketCount: 1000n,
-        harvestSlot: 234567,
+        vrfSeedSlot: 234567,
         randomnessAccount: "Random2222222222222222222222222222222222222",
         vrfSeedHex: "0xabcdef1234567890",
         winnersCount: 8,
@@ -72,7 +77,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 300_000_000n,
         cycleFeeCollected: 15_000_000n,
         lockedTicketCount: 1500n,
-        harvestSlot: 345678,
+        vrfSeedSlot: 345678,
         randomnessAccount: "Random3333333333333333333333333333333333333",
         vrfSeedHex: "0x9876543210fedcba",
         winnersCount: 8,
@@ -101,7 +106,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 50_000_000n,
         cycleFeeCollected: 2_500_000n,
         lockedTicketCount: 250n,
-        harvestSlot: 456789,
+        vrfSeedSlot: 456789,
         randomnessAccount: "Random4444444444444444444444444444444444444",
         vrfSeedHex: "0x1122334455667788",
         winnersCount: 5,
@@ -121,7 +126,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 50_000_000n,
         cycleFeeCollected: 2_500_000n,
         lockedTicketCount: 250n,
-        harvestSlot: 567890,
+        vrfSeedSlot: 567890,
         randomnessAccount: "Random5555555555555555555555555555555555555",
         vrfSeedHex: "0x8877665544332211",
         winnersCount: 5,
@@ -150,7 +155,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 0n,
         cycleFeeCollected: 0n,
         lockedTicketCount: 0n,
-        harvestSlot: 678901,
+        vrfSeedSlot: 678901,
         randomnessAccount: "",
         vrfSeedHex: "",
         winnersCount: 0,
@@ -170,7 +175,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 10_000_000n,
         cycleFeeCollected: 500_000n,
         lockedTicketCount: 100n,
-        harvestSlot: 789012,
+        vrfSeedSlot: 789012,
         randomnessAccount: "Random7777777777777777777777777777777777777",
         vrfSeedHex: "",
         winnersCount: 0,
@@ -203,7 +208,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 100_000_000,
         cycleFeeCollected: 5_000_000,
         lockedTicketCount: 500,
-        harvestSlot: 100,
+        vrfSeedSlot: 100,
         randomnessAccount: "",
         vrfSeedHex: "",
         winnersCount: 8,
@@ -218,7 +223,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 0,
         cycleFeeCollected: 0,
         lockedTicketCount: 0,
-        harvestSlot: 200,
+        vrfSeedSlot: 200,
         randomnessAccount: "",
         vrfSeedHex: "",
         winnersCount: 0,
@@ -233,7 +238,7 @@ describe("Draw Payout Progress & Stats Suite", () => {
         prizePot: 200_000_000,
         cycleFeeCollected: 10_000_000,
         lockedTicketCount: 1000,
-        harvestSlot: 300,
+        vrfSeedSlot: 300,
         randomnessAccount: "",
         vrfSeedHex: "",
         winnersCount: 8,

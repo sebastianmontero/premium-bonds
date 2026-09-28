@@ -91,6 +91,7 @@ pub fn setup_svm() -> LiteSVM {
         include_bytes!("../../../../target/deploy/mock_huma.so"),
     );
     set_clock_timestamp(&mut svm, 1_700_000_000);
+    svm.warp_to_slot(100);
     svm
 }
 
@@ -713,7 +714,15 @@ impl RevealFixture {
     }
 
     pub fn send_reveal(&mut self, seed: [u8; 32]) -> TxResult {
-        inject_current_slot_randomness(&mut self.svm, self.randomness_account, seed);
+        let dc = read_draw_cycle_state(&self.svm, self.pool_id, self.cycle_id);
+        let clock: solana_sdk::clock::Clock = self.svm.get_sysvar();
+        inject_randomness_account_data(
+            &mut self.svm,
+            self.randomness_account,
+            dc.vrf_seed_slot,
+            clock.slot,
+            seed,
+        );
         let crank = clone_keypair(&self.crank);
         crate::common::account_builders::RevealAndPickWinnersBuilder::for_pool(
             self.pool_id,
@@ -731,7 +740,15 @@ impl RevealFixture {
         cycle_id: u32,
         seed: [u8; 32],
     ) -> TxResult {
-        inject_current_slot_randomness(&mut self.svm, self.randomness_account, seed);
+        let dc = read_draw_cycle_state(&self.svm, pool_id, cycle_id);
+        let clock: solana_sdk::clock::Clock = self.svm.get_sysvar();
+        inject_randomness_account_data(
+            &mut self.svm,
+            self.randomness_account,
+            dc.vrf_seed_slot,
+            clock.slot,
+            seed,
+        );
         let crank = clone_keypair(&self.crank);
         crate::common::account_builders::RevealAndPickWinnersBuilder::for_pool(
             pool_id,
@@ -885,6 +902,8 @@ impl RevealFixtureBuilder {
 
         let randomness_account = Keypair::new().pubkey();
         inject_mock_randomness_account(&mut svm, randomness_account);
+        let clock: solana_sdk::clock::Clock = svm.get_sysvar();
+        let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
 
         let locked = self.locked_tickets.unwrap_or(self.num_tickets as u32);
         crate::common::state_builders::DrawCycleTestBuilder::new(self.pool_id, self.cycle_id)
@@ -892,6 +911,7 @@ impl RevealFixtureBuilder {
             .with_locked_tickets(locked)
             .with_prize_pot(self.prize_pot)
             .with_randomness_account(randomness_account)
+            .with_vrf_seed_slot(seed_slot)
             .inject(&mut svm);
 
         RevealFixture {
@@ -1284,9 +1304,6 @@ impl HarvestFixtureBuilder {
         let huma_pool_state = Keypair::new().pubkey();
         inject_huma_pool_state_with_assets(&mut svm, huma_pool_state, self.total_assets);
 
-        let randomness_account = Keypair::new().pubkey();
-        inject_mock_randomness_account(&mut svm, randomness_account);
-
         PrizePoolTestBuilder::new(self.pool_id)
             .with_token_mint(token_mint)
             .with_ticket_registry(ticket_registry)
@@ -1305,6 +1322,9 @@ impl HarvestFixtureBuilder {
             .inject(&mut svm);
 
         warp_to_timestamp(&mut svm, 1_700_001_000);
+
+        let randomness_account = Keypair::new().pubkey();
+        inject_mock_randomness_account(&mut svm, randomness_account);
 
         HarvestFixture {
             svm,

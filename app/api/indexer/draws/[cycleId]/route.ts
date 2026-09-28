@@ -19,7 +19,7 @@ export interface DetailedDrawCycleApiResponse {
   prizePot: string;
   cycleFeeCollected: string;
   lockedTicketCount: string;
-  harvestSlot: number;
+  vrfSeedSlot: number;
   randomnessAccount: string;
   vrfSeedHex: string;
   winnersCount: number;
@@ -96,7 +96,7 @@ export async function GET(
       prizePot: draw.prizePot.toString(),
       cycleFeeCollected: draw.cycleFeeCollected.toString(),
       lockedTicketCount: draw.lockedTicketCount.toString(),
-      harvestSlot: draw.harvestSlot,
+      vrfSeedSlot: draw.vrfSeedSlot,
       randomnessAccount: draw.randomnessAccount,
       vrfSeedHex: draw.vrfSeedHex,
       winnersCount: draw.winnersCount,

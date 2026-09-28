@@ -21,7 +21,7 @@ interface RawDrawRow extends Record<string, unknown> {
   prize_pot: string | number;
   cycle_fee_collected: string | number;
   locked_ticket_count: string | number;
-  harvest_slot: number;
+  vrf_seed_slot: number | string;
   randomness_account: string;
   vrf_seed_hex: string;
   winners_count: number;
@@ -130,7 +130,7 @@ export async function fetchPaginatedDraws(
         pd.prize_pot,
         pd.cycle_fee_collected,
         pd.locked_ticket_count,
-        pd.harvest_slot,
+        pd.vrf_seed_slot,
         pd.randomness_account,
         pd.vrf_seed_hex,
         pd.winners_count,
@@ -181,7 +181,7 @@ export async function fetchPaginatedDraws(
       prizePot: Number(r.prize_pot),
       cycleFeeCollected: Number(r.cycle_fee_collected ?? 0),
       lockedTicketCount: Number(r.locked_ticket_count ?? 0),
-      harvestSlot: Number(r.harvest_slot ?? 0),
+      vrfSeedSlot: Number(r.vrf_seed_slot ?? 0),
       randomnessAccount: r.randomness_account || "",
       vrfSeedHex: r.vrf_seed_hex || "",
       winnersCount: r.winners_count,

@@ -624,7 +624,7 @@
     "settlementTimelock": "Settlement Timelock",
     "timelockActive": "Active ({remaining})",
     "timelockUnlocked": "Unlocked",
-    "harvestSlot": "Harvest Slot",
+    "vrfSeedSlot": "VRF Seed Slot",
     "oracleAccount": "Switchboard Oracle Account",
     "payoutRegistryRosterTitle": "Official Payout Registry ({count, plural, one {1 Prize} other {# Prizes}})",
     "youWonInThisDraw": "You won prizes in this draw!",

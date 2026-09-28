@@ -123,7 +123,7 @@ export const drawHistory = pgTable(
     lockedTicketCount: bigint("locked_ticket_count", { mode: "bigint" })
       .notNull()
       .default(0n),
-    harvestSlot: bigint("harvest_slot", { mode: "number" })
+    vrfSeedSlot: bigint("vrf_seed_slot", { mode: "number" })
       .notNull()
       .default(0),
     randomnessAccount: varchar("randomness_account", { length: 44 })

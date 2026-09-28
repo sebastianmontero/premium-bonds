@@ -413,6 +413,43 @@ pub fn is_valid_switchboard_randomness_account(account: &AccountInfo) -> bool {
     data[0..8] == SWITCHBOARD_RANDOMNESS_DISCRIMINATOR
 }
 
+/// Parses and validates that a Switchboard On-Demand randomness account has been committed in the
+/// current transaction window, is unrevealed, and possesses a non-zero seed slot.
+/// Enforces Switchboard On-Demand program ownership to prevent account spoofing.
+/// Returns the validated seed slot.
+pub fn parse_and_validate_fresh_randomness(
+    account: &AccountInfo,
+    current_slot: u64,
+) -> Result<u64> {
+    require!(
+        account.owner == &crate::constants::SWITCHBOARD_ON_DEMAND_PID,
+        PremiumBondsError::InvalidRandomnessAccount
+    );
+
+    let data = account
+        .try_borrow_data()
+        .map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
+    let randomness_data = switchboard_on_demand::RandomnessAccountData::parse(data)
+        .map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
+
+    require!(
+        randomness_data.seed_slot > 0,
+        PremiumBondsError::RandomnessNotCommitted
+    );
+    require!(
+        current_slot >= randomness_data.seed_slot
+            && current_slot.saturating_sub(randomness_data.seed_slot)
+                <= crate::constants::VRF_COMMIT_FRESHNESS_WINDOW_SLOTS,
+        PremiumBondsError::StaleRandomnessRequest
+    );
+    require!(
+        randomness_data.reveal_slot == 0 && randomness_data.value == [0u8; 32],
+        PremiumBondsError::RandomnessAlreadyResolved
+    );
+
+    Ok(randomness_data.seed_slot)
+}
+
 
 // ─── Unit Tests ──────────────────────────────────────────────────────────────
 
@@ -1045,7 +1082,7 @@ mod tests {
         let mut dc = DrawCycle {
             prize_pot: 0,
             cycle_fee_collected: 0,
-            harvest_slot: 0,
+            vrf_seed_slot: 0,
             initiated_at: 0,
             completed_at: 0,
             randomness_account: Pubkey::default(),

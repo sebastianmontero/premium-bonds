@@ -235,8 +235,8 @@ export function serializeAnchorEvent(
       break;
     }
     case "YieldHarvested": {
-      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) + i64(8) = 108 bytes
-      fields = new Uint8Array(108);
+      // u32(4) + u32(4) + Pubkey(32) + u64(8) + u64(8) + u64(8) + u32(4) + Pubkey(32) + u64(8) + i64(8) = 116 bytes
+      fields = new Uint8Array(116);
       const view = new DataView(fields.buffer);
       view.setUint32(0, Number(data.poolId || 1), true);
       view.setUint32(4, Number(data.cycleId || 1), true);
@@ -254,7 +254,8 @@ export function serializeAnchorEvent(
         ),
         68
       );
-      view.setBigInt64(100, BigInt(data.timestamp || 0), true);
+      view.setBigUint64(100, BigInt(data.vrfSeedSlot ?? 0), true);
+      view.setBigInt64(108, BigInt(data.timestamp || 0), true);
       break;
     }
     case "DrawSkipped": {
@@ -361,7 +362,7 @@ export function serializeAnchorEvent(
         ),
         72
       );
-      view.setBigUint64(104, BigInt(data.harvestSlot || 0), true);
+      view.setBigUint64(104, BigInt(data.vrfSeedSlot ?? 0), true);
       view.setBigInt64(112, BigInt(data.timestamp || 0), true);
       break;
     }

@@ -176,9 +176,9 @@ stateDiagram-v2
 | `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `HaltedInsolvent`    | Venue deficit $> 1,000$ base units, pauses pool, emits `EmergencyInsolvencyDetected`                     |
 | `Draft` / `[*]`      | `harvest_yield_and_commit`        | Crank (`jobs_account`) | `HaltedYieldSpike`   | Single-cycle yield rate $> \text{max\_yield\_basis\_points}$, pauses pool, emits `YieldVelocityBreached` |
 | `AwaitingRandomness` | `prepare_draw`                    | Permissionless         | `AwaitingRandomness` | `pool.status == Active`, `is_frozen_for_draw != 0` (`PoolNotFrozen`), processes batch                    |
-| `AwaitingRandomness` | `crank_rebind_expired_randomness` | Crank (`jobs_account`) | `AwaitingRandomness` | `clock.slot - harvest_slot > 1000` (`RandomnessNotExpired`), Switchboard owned                           |
+| `AwaitingRandomness` | `crank_rebind_expired_randomness` | Crank (`jobs_account`) | `AwaitingRandomness` | `clock.slot - vrf_seed_slot > 1000` (`RandomnessNotExpired`), Switchboard owned                          |
 | `AwaitingRandomness` | `admin_force_unlock_draw`         | Admin strictly         | `ForceUnlocked`      | Admin signer (`UnauthorizedAdmin`), unfreezes pool, reverses fee and prize allocations                   |
-| `AwaitingRandomness` | `reveal_and_pick_winners`         | Permissionless         | `Complete`           | `draw_prepared_up_to == user_count`, `seed_slot >= harvest_slot`, freshness $\le 1000$ slots             |
+| `AwaitingRandomness` | `reveal_and_pick_winners`         | Permissionless         | `Complete`           | `draw_prepared_up_to == user_count`, `seed_slot == vrf_seed_slot`, freshness $\le 1000$ slots            |
 | `Complete`           | `admin_void_payout_registry`      | Admin strictly         | `Voided`             | `payouts_completed == 0` (`PayoutsAlreadyStarted`), `unwithdrawn_fees >= fee` (`FeesAlreadyWithdrawn`)   |
 
 ### 3.3 Two-Step Protocol Governance FSM
@@ -634,6 +634,7 @@ stateDiagram-v2
   - `pool.is_frozen_for_draw = 1`.
   - `draw_cycle.status = DrawStatus::AwaitingRandomness`.
   - `draw_cycle.prize_pot = NetPrizePot`, `draw_cycle.cycle_fee_collected = ProtocolFee`, `draw_cycle.locked_ticket_count = eligible_locked_count`.
+  - `draw_cycle.vrf_seed_slot = seed_slot`, `draw_cycle.randomness_account = ctx.accounts.randomness_account.key()`.
   - `pool.total_fees_accrued += ProtocolFee`, `pool.total_prizes_allocated += NetPrizePot`.
   - `pool.current_draw_cycle_id += 1`, `pool.current_cycle_end_at += stake_cycle_duration_hrs * 3600`.
   - Emits CPI event `YieldHarvested`.
@@ -643,6 +644,10 @@ stateDiagram-v2
   - If pool already frozen: `ErrorCode::AwaitingRandomnessFreeze` (6007)
   - If cycle not elapsed: `ErrorCode::CycleNotEnded` (6002)
   - If prize tiers not configured: `ErrorCode::PrizeTiersNotConfigured` (6013)
+  - If randomness account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
+  - If randomness account uncommitted: `ErrorCode::RandomnessNotCommitted` (6068)
+  - If randomness account already revealed: `ErrorCode::RandomnessAlreadyResolved` (6069)
+  - If randomness seed slot older than 64 slots: `ErrorCode::StaleRandomnessRequest` (6030)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 #### `INV-HARV-002`: Solvency Circuit Breaker (`harvest_yield_and_commit`)
@@ -728,7 +733,7 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`reveal_and_pick_winners.rs#L12-L244`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/reveal_and_pick_winners.rs#L12-L244)
-- **Precondition:** `crank.is_signer (permissionless) && pool.status == PoolStatus::Active && pool.prize_tiers_count > 0 && draw_cycle.status == DrawStatus::AwaitingRandomness && registry.draw_prepared_up_to == registry.user_count && randomness_account.owner == Switchboard && seed_slot >= draw_cycle.harvest_slot && (clock.slot - seed_slot) <= 1000`.
+- **Precondition:** `crank.is_signer (permissionless) && pool.status == PoolStatus::Active && pool.prize_tiers_count > 0 && draw_cycle.status == DrawStatus::AwaitingRandomness && registry.draw_prepared_up_to == registry.user_count && randomness_account.owner == Switchboard && seed_slot == draw_cycle.vrf_seed_slot && (clock.slot - seed_slot) <= 1000`.
 - **Action:** `reveal_and_pick_winners()`
 - **Postcondition:**
   - VRF seed extracted: `random_seed = randomness_data.get_value(clock.slot)`.
@@ -747,7 +752,7 @@ stateDiagram-v2
   - If prize tiers unconfigured: `ErrorCode::PrizeTiersNotConfigured` (6013)
   - If draw not awaiting randomness or not fully prepared: `ErrorCode::InvalidDrawStatus` (6015)
   - If randomness account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
-  - If randomness requested before harvest or older than 1000 slots: `ErrorCode::StaleRandomnessRequest` (6030)
+  - If randomness seed slot does not match committed VRF seed slot or is older than 1000 slots: `ErrorCode::StaleRandomnessRequest` (6030)
   - If randomness unfulfilled: `ErrorCode::RandomnessNotResolved` (6029)
   - If winners count exceeds allocated registry: `ErrorCode::TooManyWinners` (6052)
   - If winner index out of bounds: `ErrorCode::InvalidWinnerIndex` (6010)
@@ -760,17 +765,19 @@ stateDiagram-v2
 - **Provenance:** `code_mined`
 - **Code Conformance:** `VERIFIED`
 - **Source Location:** [`crank_rebind_expired_randomness.rs#L7-L142`](file:///home/sebastian/vsc-workspace/premium-bonds/anchor/programs/anchor/src/instructions/yield_draw/crank_rebind_expired_randomness.rs#L7-L142)
-- **Precondition:** `crank.key() == global_config.jobs_account && pool.status == PoolStatus::Active && draw_cycle.status == DrawStatus::AwaitingRandomness && clock.slot - draw_cycle.harvest_slot > 1000 && new_randomness_account.owner == Switchboard && new_randomness_account != current_draw_cycle.randomness_account`.
+- **Precondition:** `crank.key() == global_config.jobs_account && pool.status == PoolStatus::Active && draw_cycle.status == DrawStatus::AwaitingRandomness && clock.slot - draw_cycle.vrf_seed_slot > 1000 && new_randomness_account.owner == Switchboard && new_randomness_account != current_draw_cycle.randomness_account`.
 - **Action:** `crank_rebind_expired_randomness()`
 - **Postcondition:**
   - `draw_cycle.randomness_account = new_randomness_account.key()`.
-  - `draw_cycle.harvest_slot = clock.slot`.
+  - `draw_cycle.vrf_seed_slot = new_seed_slot`.
   - Emits CPI event `RandomnessRebound`.
 - **Expected Errors:**
   - If less than 1000 slots have elapsed: `ErrorCode::RandomnessNotExpired` (6031)
   - If caller != `jobs_account`: `ErrorCode::UnauthorizedCrank` (6011)
   - If new account not owned by Switchboard: `ErrorCode::InvalidRandomnessAccount` (6028)
-  - If new account equals current randomness account: `ErrorCode::SameRandomnessAccount` (6051)
+  - If new account uncommitted: `ErrorCode::RandomnessNotCommitted` (6068)
+  - If new account already resolved: `ErrorCode::RandomnessAlreadyResolved` (6069)
+  - If new account matches current randomness account: `ErrorCode::SameRandomnessAccount` (6051)
   - If account schema version is invalid: `ErrorCode::UnsupportedAccountVersion` (6050)
 
 ---

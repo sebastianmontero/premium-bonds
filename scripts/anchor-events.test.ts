@@ -565,6 +565,30 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(event.data.timestamp, 1700000000n);
   });
 
+  it("should roundtrip YieldHarvested event serialization and deserialization", () => {
+    const log = serializeAnchorEvent("YieldHarvested", {
+      poolId: 1,
+      cycleId: 5,
+      crank: dummyPubkeyStr,
+      rawYield: 10_000_000n,
+      fee: 500_000n,
+      prizePot: 9_500_000n,
+      lockedTicketCount: 250,
+      randomnessAccount: dummyPubkeyStr,
+      vrfSeedSlot: 123456n,
+      timestamp: 1700000000n,
+    });
+    const parsed = parseEventsFromTxMeta({ logMessages: [log] });
+    assert.strictEqual(parsed.length, 1);
+    const event = parsed[0];
+    assertParsedEventType(event, "YieldHarvested");
+    assert.strictEqual(event.data.poolId, 1);
+    assert.strictEqual(event.data.cycleId, 5);
+    assert.strictEqual(event.data.vrfSeedSlot, 123456n);
+    assert.strictEqual(event.data.prizePot, 9_500_000n);
+    assert.strictEqual(event.data.timestamp, 1700000000n);
+  });
+
   it("should roundtrip RandomnessRebound event serialization and deserialization", () => {
     const log = serializeAnchorEvent("RandomnessRebound", {
       poolId: 1,
@@ -572,7 +596,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
       crank: dummyPubkeyStr,
       oldRandomnessAccount: dummyPubkeyStr,
       newRandomnessAccount: "22222222222222222222222222222222222222222222",
-      harvestSlot: 5555n,
+      vrfSeedSlot: 5555n,
       timestamp: 1700000000n,
     });
     const parsed = parseEventsFromTxMeta({ logMessages: [log] });
@@ -587,7 +611,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
       event.data.newRandomnessAccount,
       "22222222222222222222222222222222222222222222"
     );
-    assert.strictEqual(event.data.harvestSlot, 5555n);
+    assert.strictEqual(event.data.vrfSeedSlot, 5555n);
   });
 
   it("should roundtrip EmergencyInsolvencyDetected and YieldVelocityBreached events", () => {

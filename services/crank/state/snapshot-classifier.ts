@@ -8,6 +8,7 @@ import {
   DrawStatus,
   PoolStatus,
 } from "../../../app/lib/bonds-sdk";
+import { isRandomnessExpired } from "../constants";
 import {
   PoolStateSnapshot,
   toPoolId,
@@ -119,8 +120,9 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
 
     // All batches prepared: Check randomness state
     if (drawCycle && drawCycle.status === DrawStatus.AwaitingRandomness) {
-      const elapsedSlots = currentSlot - BigInt(drawCycle.harvestSlot);
-      if (elapsedSlots > 1000n) {
+      const vrfSeedSlot = drawCycle.vrfSeedSlot;
+      if (isRandomnessExpired(vrfSeedSlot, currentSlot)) {
+        const elapsedSlots = currentSlot - vrfSeedSlot;
         return {
           ...base,
           state: "VRF_EXPIRED",
@@ -135,7 +137,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
         state: "READY_TO_DRAW",
         cycleId: activeFrozenCycleId,
         randomnessAccount: drawCycle.randomnessAccount as Address,
-        harvestSlot: BigInt(drawCycle.harvestSlot),
+        vrfSeedSlot,
       };
     }
 

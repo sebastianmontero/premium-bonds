@@ -67,8 +67,8 @@ export type DrawCycle = {
   prizePot: bigint;
   /** Portion of the cycle yield allocated to protocol fee wallets. */
   cycleFeeCollected: bigint;
-  /** The slot number when yield was frozen, preventing front-running randomness requests. */
-  harvestSlot: bigint;
+  /** The Switchboard seed slot committed for this cycle, against which reveal randomness is verified. */
+  vrfSeedSlot: bigint;
   /** Unix timestamp (seconds) when harvest_yield_and_commit was executed. */
   initiatedAt: bigint;
   /** Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight). */
@@ -96,8 +96,8 @@ export type DrawCycleArgs = {
   prizePot: number | bigint;
   /** Portion of the cycle yield allocated to protocol fee wallets. */
   cycleFeeCollected: number | bigint;
-  /** The slot number when yield was frozen, preventing front-running randomness requests. */
-  harvestSlot: number | bigint;
+  /** The Switchboard seed slot committed for this cycle, against which reveal randomness is verified. */
+  vrfSeedSlot: number | bigint;
   /** Unix timestamp (seconds) when harvest_yield_and_commit was executed. */
   initiatedAt: number | bigint;
   /** Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight). */
@@ -127,7 +127,7 @@ export function getDrawCycleEncoder(): FixedSizeEncoder<DrawCycleArgs> {
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["prizePot", getU64Encoder()],
       ["cycleFeeCollected", getU64Encoder()],
-      ["harvestSlot", getU64Encoder()],
+      ["vrfSeedSlot", getU64Encoder()],
       ["initiatedAt", getI64Encoder()],
       ["completedAt", getI64Encoder()],
       ["randomnessAccount", getAddressEncoder()],
@@ -149,7 +149,7 @@ export function getDrawCycleDecoder(): FixedSizeDecoder<DrawCycle> {
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["prizePot", getU64Decoder()],
     ["cycleFeeCollected", getU64Decoder()],
-    ["harvestSlot", getU64Decoder()],
+    ["vrfSeedSlot", getU64Decoder()],
     ["initiatedAt", getI64Decoder()],
     ["completedAt", getI64Decoder()],
     ["randomnessAccount", getAddressDecoder()],

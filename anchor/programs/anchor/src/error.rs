@@ -208,4 +208,10 @@ pub enum PremiumBondsError {
     /// Token mint decimals must equal 6.
     #[msg("Token mint decimals must equal 6.")]
     InvalidTokenDecimals,
+    /// The Switchboard randomness account has not been committed yet (seed_slot is 0).
+    #[msg("Randomness account has not been committed yet.")]
+    RandomnessNotCommitted,
+    /// The Switchboard randomness account has already been revealed prior to commitment.
+    #[msg("Randomness account has already been revealed prior to commitment.")]
+    RandomnessAlreadyResolved,
 }

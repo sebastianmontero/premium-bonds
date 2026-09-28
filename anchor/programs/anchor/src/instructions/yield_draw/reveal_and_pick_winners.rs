@@ -88,8 +88,8 @@ use switchboard_on_demand::accounts::RandomnessAccountData;
 /// Resolves the randomness from Switchboard, determines winners, and initializes the payout registry.
 ///
 /// The handler parses the Switchboard randomness account data to retrieve the verified random seed.
-/// It verifies that the randomness request is fresh (i.e., not older than 1000 slots and committed after
-/// the harvest slot).
+/// It verifies that the randomness request is fresh (i.e., not older than 1000 slots and committed
+/// matching the committed vrf seed slot).
 ///
 /// Using the random seed, it derives a random index for each prize tier. It then performs binary search
 /// on the ticket registry's cumulative active ticket counts to map each random index to the winning user entry.
@@ -136,17 +136,8 @@ pub fn handle(ctx: Context<RevealAndPickWinners>) -> Result<()> {
         RandomnessAccountData::parse(ctx.accounts.randomness_account.data.borrow())
             .map_err(|_| PremiumBondsError::InvalidRandomnessAccount)?;
 
-    // Ensure the randomness request was committed AFTER or AT the harvest block
-    require!(
-        randomness_data.seed_slot >= draw_cycle.harvest_slot,
-        PremiumBondsError::StaleRandomnessRequest
-    );
-
-    // Enforce freshness (must be resolved and consumed within 1000 slots)
-    require!(
-        clock.slot.saturating_sub(randomness_data.seed_slot) <= 1000,
-        PremiumBondsError::StaleRandomnessRequest
-    );
+    // Enforce commitment validity, exact matching, and freshness window via DrawCycle domain method
+    draw_cycle.verify_randomness_freshness(randomness_data.seed_slot, clock.slot)?;
 
     // Retrieve the verified 32-byte VRF output
     let random_seed = randomness_data

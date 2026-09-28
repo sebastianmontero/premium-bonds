@@ -12,6 +12,7 @@ import {
   getBase58Decoder,
 } from "@solana/kit";
 import { PoolId, DrawCycleId, Slot, toSlot } from "../types";
+import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
 
 export const SWITCHBOARD_ON_DEMAND_DEVNET_PID =
   "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2" as const;
@@ -25,7 +26,6 @@ export const SB_AUTHORITY_OFFSET = 8;
 export const SB_REQUEST_SLOT_OFFSET = 104;
 export const SB_REVEAL_SLOT_OFFSET = 144;
 export const SB_SEED_OFFSET = 152;
-export const SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT = 1000n;
 export const SWITCHBOARD_RANDOMNESS_DISCRIMINATOR = [
   10, 66, 229, 135, 220, 239, 217, 114,
 ] as const;
@@ -90,7 +90,7 @@ export function isRandomnessCommittable(
   return (
     seedSlot === 0n ||
     revealSlot !== 0n ||
-    current - seedSlot > SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT
+    current - seedSlot > VRF_FRESHNESS_WINDOW_SLOTS
   );
 }
 
@@ -133,7 +133,7 @@ export interface PrepareRebindRandomnessParams {
 
 export interface PrepareRevealParams {
   readonly randomnessAccount: Address;
-  readonly harvestSlot: Slot;
+  readonly committedSeedSlot: Slot;
   readonly currentSlot: Slot;
 }
 
@@ -147,7 +147,13 @@ export type VrfRevealResult =
   | {
       readonly status: "uncommitted";
       readonly seedSlot: Slot;
-      readonly harvestSlot: Slot;
+      readonly committedSeedSlot: Slot;
+      readonly reason: string;
+    }
+  | {
+      readonly status: "mismatch";
+      readonly seedSlot: Slot;
+      readonly committedSeedSlot: Slot;
       readonly reason: string;
     }
   | {
@@ -243,12 +249,12 @@ export class MockVrfProvider implements IVrfProvider {
         const view = new DataView(buffer.buffer);
         view.setBigUint64(
           SB_REQUEST_SLOT_OFFSET,
-          BigInt(params.harvestSlot),
+          BigInt(params.committedSeedSlot),
           true
         );
         view.setBigUint64(
           SB_REVEAL_SLOT_OFFSET,
-          BigInt(params.harvestSlot) + 1n,
+          BigInt(params.committedSeedSlot) + 1n,
           true
         );
         const seed = new Uint8Array(32);
@@ -468,24 +474,33 @@ export class SwitchboardOnDemandProvider implements IVrfProvider {
       return {
         status: "uncommitted",
         seedSlot: toSlot(0n),
-        harvestSlot: params.harvestSlot,
+        committedSeedSlot: params.committedSeedSlot,
         reason: `Randomness account ${params.randomnessAccount} not initialized or missing on-chain.`,
       };
     }
 
     const seedSlot = BigInt(header.seedSlot);
 
-    if (seedSlot < BigInt(params.harvestSlot)) {
+    if (seedSlot === 0n) {
       return {
         status: "uncommitted",
+        seedSlot: toSlot(0n),
+        committedSeedSlot: params.committedSeedSlot,
+        reason: `Randomness account ${params.randomnessAccount} has seed_slot = 0 (uncommitted).`,
+      };
+    }
+
+    if (seedSlot !== BigInt(params.committedSeedSlot)) {
+      return {
+        status: "mismatch",
         seedSlot: toSlot(seedSlot),
-        harvestSlot: params.harvestSlot,
-        reason: `Randomness seed_slot (${seedSlot}) < harvest_slot (${params.harvestSlot}). Commitment missing at state transition.`,
+        committedSeedSlot: params.committedSeedSlot,
+        reason: `Randomness seed_slot (${seedSlot}) !== committed_seed_slot (${params.committedSeedSlot}). Commitment mismatch.`,
       };
     }
 
     const elapsedSlots = BigInt(params.currentSlot) - seedSlot;
-    if (elapsedSlots > SB_RANDOMNESS_FRESHNESS_SLOT_LIMIT) {
+    if (elapsedSlots > VRF_FRESHNESS_WINDOW_SLOTS) {
       return {
         status: "expired",
         elapsedSlots: toSlot(elapsedSlots),

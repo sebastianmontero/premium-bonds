@@ -932,7 +932,7 @@ export const COMMAND_REGISTRY: Record<string, CommandMetadata> = {
     category: "Query",
     summary: "Query and display the current Draw Cycle state",
     description:
-      "Query and display the DrawCycle state (status, locked ticket count, prize pot, randomness account, harvest slot).",
+      "Query and display the DrawCycle state (status, locked ticket count, prize pot, randomness account, vrf seed slot).",
     requiresSigner: false,
     positionalArgs: "[cycleId]",
     options: [
@@ -1723,9 +1723,9 @@ export async function executeReveal({
     for (const offset of offsets) {
       const currentSlot = await rpc.getSlot().send();
       const baseSlot =
-        currentSlot >= drawCycleState.harvestSlot
+        currentSlot >= drawCycleState.vrfSeedSlot
           ? currentSlot
-          : drawCycleState.harvestSlot;
+          : drawCycleState.vrfSeedSlot;
       const targetSlot = baseSlot + offset;
 
       view.setBigUint64(SB_REQUEST_SLOT_OFFSET, baseSlot, true);
@@ -4580,7 +4580,7 @@ async function main() {
   Prize Pot: ${formatAmount(state.prizePot)}
   Cycle Fee Collected: ${formatAmount(state.cycleFeeCollected)}
   Randomness Account: ${state.randomnessAccount}
-  Harvest Slot: ${state.harvestSlot.toString()}
+  VRF Seed Slot: ${state.vrfSeedSlot.toString()}
 `);
       break;
     }

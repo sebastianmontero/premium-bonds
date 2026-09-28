@@ -849,11 +849,12 @@ pub fn send_e2e_harvest_yield_and_commit_with_crank(
 
     let randomness_account = Keypair::new().pubkey();
     let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let seed_slot = if clock.slot > 0 { clock.slot.saturating_sub(1) } else { 1 };
     crate::common::injectors::inject_randomness_account_data(
         &mut ctx.svm,
         randomness_account,
-        clock.slot,
-        clock.slot,
+        seed_slot,
+        0,
         [0u8; 32],
     );
 
@@ -898,6 +899,29 @@ pub fn send_e2e_reveal_and_pick_winners_with_crank(
     cycle_id: u32,
     randomness_account: Pubkey,
 ) -> TxResult {
+    let dc = read_draw_cycle_state(&ctx.svm, pool_id, cycle_id);
+    let clock: solana_sdk::clock::Clock = ctx.svm.get_sysvar();
+    let is_resolved = if let Some(acct) = ctx.svm.get_account(&randomness_account) {
+        if acct.data.len() >= 152 + 32 {
+            let mut value = [0u8; 32];
+            value.copy_from_slice(&acct.data[152..184]);
+            value != [0u8; 32]
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !is_resolved {
+        crate::common::injectors::inject_randomness_account_data(
+            &mut ctx.svm,
+            randomness_account,
+            dc.vrf_seed_slot,
+            clock.slot,
+            [42u8; 32],
+        );
+    }
+
     RevealAndPickWinnersBuilder::for_pool(pool_id, cycle_id, crank.pubkey())
         .with_ticket_registry(ctx.ticket_registry)
         .with_randomness_account(randomness_account)

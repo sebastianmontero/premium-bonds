@@ -273,9 +273,9 @@ export function foldDrawHistoryRows(
       ) {
         existing.lockedTicketCount = r.lockedTicketCount;
       }
-      if (r.harvestSlot && r.harvestSlot > 0) {
-        if (r.harvestSlot >= (existing.harvestSlot || 0)) {
-          existing.harvestSlot = r.harvestSlot;
+      if (r.vrfSeedSlot && r.vrfSeedSlot > 0) {
+        if (r.vrfSeedSlot >= (existing.vrfSeedSlot || 0)) {
+          existing.vrfSeedSlot = r.vrfSeedSlot;
           if (r.randomnessAccount)
             existing.randomnessAccount = r.randomnessAccount;
         }
@@ -292,16 +292,15 @@ export function foldDrawHistoryRows(
         );
       }
 
-      // Authoritative initiator (YieldHarvested) sets initiation data.
-      // Fallback completion events only populate initiatedAt if existing is missing/zero.
-      if (r.status === "AwaitingRandomness") {
-        existing.initiatedAt = r.initiatedAt;
-        if (r.harvestSlot && r.harvestSlot >= (existing.harvestSlot || 0)) {
-          existing.harvestSlot = r.harvestSlot;
-          existing.randomnessAccount = r.randomnessAccount;
-        }
-      } else if (!existing.initiatedAt || existing.initiatedAt === 0) {
-        if (r.initiatedAt && r.initiatedAt > 0) {
+      // YieldHarvested (status === "AwaitingRandomness") is the authoritative source for initiatedAt
+      // and always sets valid timestamps. Other events (e.g. DrawCompleted, DrawSkipped) only backfill
+      // if existing is missing/zero. RandomnessRebound carries undefined initiatedAt and must not overwrite.
+      if (r.initiatedAt && r.initiatedAt > 0) {
+        if (
+          r.status === "AwaitingRandomness" ||
+          !existing.initiatedAt ||
+          existing.initiatedAt === 0
+        ) {
           existing.initiatedAt = r.initiatedAt;
         }
       }
@@ -506,9 +505,9 @@ export async function upsertDrawHistoryTx(
             WHEN EXCLUDED.locked_ticket_count IS NOT NULL AND EXCLUDED.locked_ticket_count > 0 THEN EXCLUDED.locked_ticket_count
             ELSE ${drawHistory.lockedTicketCount}
           END`,
-          harvestSlot: sql`GREATEST(COALESCE(${drawHistory.harvestSlot}, 0), COALESCE(EXCLUDED.harvest_slot, 0))`,
+          vrfSeedSlot: sql`GREATEST(COALESCE(${drawHistory.vrfSeedSlot}, 0), COALESCE(EXCLUDED.vrf_seed_slot, 0))`,
           randomnessAccount: sql`CASE
-            WHEN NULLIF(EXCLUDED.randomness_account, '') IS NOT NULL AND COALESCE(EXCLUDED.harvest_slot, 0) >= COALESCE(${drawHistory.harvestSlot}, 0) THEN EXCLUDED.randomness_account
+            WHEN NULLIF(EXCLUDED.randomness_account, '') IS NOT NULL AND COALESCE(EXCLUDED.vrf_seed_slot, 0) >= COALESCE(${drawHistory.vrfSeedSlot}, 0) THEN EXCLUDED.randomness_account
             ELSE ${drawHistory.randomnessAccount}
           END`,
           winnersCount: sql`COALESCE(NULLIF(EXCLUDED.winners_count, 0), ${drawHistory.winnersCount})`,
@@ -909,7 +908,7 @@ export async function ingestTransactionBatch(
             cycleFeeCollected: BigInt(evt.data.fee),
             lockedTicketCount: BigInt(evt.data.lockedTicketCount),
             randomnessAccount: evt.data.randomnessAccount,
-            harvestSlot: context.slot,
+            vrfSeedSlot: Number(evt.data.vrfSeedSlot),
             signature: context.signature,
             blockTime: context.blockTime,
           });
@@ -1057,7 +1056,7 @@ export async function ingestTransactionBatch(
             cycleId: evt.data.cycleId,
             status: "AwaitingRandomness",
             prizePot: 0n,
-            harvestSlot: Number(evt.data.harvestSlot),
+            vrfSeedSlot: Number(evt.data.vrfSeedSlot),
             randomnessAccount: evt.data.newRandomnessAccount,
             signature: context.signature,
             blockTime: context.blockTime,

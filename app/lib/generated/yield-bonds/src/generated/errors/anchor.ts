@@ -150,6 +150,10 @@ export const ANCHOR_ERROR__INVALID_BATCH_SIZE = 0x17b1; // 6065
 export const ANCHOR_ERROR__INSUFFICIENT_VAULT_BALANCE = 0x17b2; // 6066
 /** InvalidTokenDecimals: Token mint decimals must equal 6. */
 export const ANCHOR_ERROR__INVALID_TOKEN_DECIMALS = 0x17b3; // 6067
+/** RandomnessNotCommitted: Randomness account has not been committed yet. */
+export const ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED = 0x17b4; // 6068
+/** RandomnessAlreadyResolved: Randomness account has already been revealed prior to commitment. */
+export const ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED = 0x17b5; // 6069
 
 export type AnchorError =
   | typeof ANCHOR_ERROR__ALREADY_CLAIMED
@@ -203,6 +207,8 @@ export type AnchorError =
   | typeof ANCHOR_ERROR__POOL_NOT_FROZEN
   | typeof ANCHOR_ERROR__POOL_PAUSED
   | typeof ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED
+  | typeof ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED
+  | typeof ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED
   | typeof ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED
   | typeof ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE
@@ -275,6 +281,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [ANCHOR_ERROR__POOL_NOT_FROZEN]: `The prize pool must be frozen for draw preparation`,
     [ANCHOR_ERROR__POOL_PAUSED]: `The prize pool is paused.`,
     [ANCHOR_ERROR__PRIZE_TIERS_NOT_CONFIGURED]: `Prize tiers have not been configured for this pool.`,
+    [ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED]: `Randomness account has already been revealed prior to commitment.`,
+    [ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED]: `Randomness account has not been committed yet.`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: `RandomnessNotExpired`,
     [ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED]: `The randomness request has not yet been resolved by the oracle network.`,
     [ANCHOR_ERROR__REGISTRY_AT_MAX_SIZE]: `The registry account has reached Solana's 10 MB maximum size.`,

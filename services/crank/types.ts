@@ -86,7 +86,7 @@ export type PoolStateSnapshot =
       readonly state: "READY_TO_DRAW";
       readonly cycleId: DrawCycleId;
       readonly randomnessAccount: Address;
-      readonly harvestSlot: bigint;
+      readonly vrfSeedSlot: bigint;
     })
   | (BaseSnapshot & {
       readonly state: "TIMELOCK_WAITING";

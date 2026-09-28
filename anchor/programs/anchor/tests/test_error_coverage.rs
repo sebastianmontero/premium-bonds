@@ -503,12 +503,12 @@ fn test_err_randomness_not_expired() {
         true,
     );
 
-    // Inject DrawCycle with harvest_slot = 100
+    // Inject DrawCycle with vrf_seed_slot = 100
     DrawCycleTestBuilder::new(pool_id, 0)
         .with_status(anchor::DrawStatus::AwaitingRandomness)
         .with_prize_pot(10_000_000)
         .with_cycle_fee(100_000)
-        .with_harvest_slot(100)
+        .with_vrf_seed_slot(100)
         .with_locked_tickets(10)
         .inject(&mut svm);
 

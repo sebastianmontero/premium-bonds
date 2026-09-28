@@ -259,7 +259,7 @@ fn test_v2_batch_boundary_slice_version_migration() {
     let draw_cycle = anchor::state::DrawCycle {
         prize_pot: 1_000_000,
         cycle_fee_collected: 0,
-        harvest_slot: 100,
+        vrf_seed_slot: 100,
         initiated_at: 1000,
         completed_at: 0,
         randomness_account: Keypair::new().pubkey(),
@@ -512,7 +512,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     let draw_cycle = anchor::state::DrawCycle {
         prize_pot: 1_000_000,
         cycle_fee_collected: 0,
-        harvest_slot: 500,
+        vrf_seed_slot: 500,
         initiated_at: 1000,
         completed_at: 0,
         randomness_account: old_randomness,
@@ -560,6 +560,8 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     // Boundary Test 2: at slot 1501 (1501 - 500 = 1001, strictly > 1000) -> MUST SUCCEED
     ctx.svm.warp_to_slot(1501);
     ctx.svm.expire_blockhash();
+    let new_seed_slot = 1501 - 1;
+    inject_randomness_account_data(&mut ctx.svm, new_randomness, new_seed_slot, 0, [0u8; 32]);
     CrankRebindExpiredRandomnessBuilder::new(
         ctx.admin.pubkey(),
         1,
@@ -573,7 +575,7 @@ fn test_v6_crank_rebind_expired_randomness_1000_slot_boundary() {
     // Verify randomness account was updated to new_randomness
     let updated_dc = read_draw_cycle_state(&ctx.svm, 1, 0);
     assert_eq!(updated_dc.randomness_account, new_randomness);
-    assert_eq!(updated_dc.harvest_slot, 1501);
+    assert_eq!(updated_dc.vrf_seed_slot, new_seed_slot);
 }
 
 // ─── Vector 7: CPI & Security Boundaries ────────────────────────────────────
@@ -746,7 +748,7 @@ fn test_unsupported_account_version_all_9_structs() {
     let mut dc = DrawCycle {
         prize_pot: 0,
         cycle_fee_collected: 0,
-        harvest_slot: 0,
+        vrf_seed_slot: 0,
         initiated_at: 0,
         completed_at: 0,
         randomness_account: Pubkey::default(),

@@ -254,7 +254,7 @@ fn test_lifecycle_prepare_draw_blocks_when_paused_or_closed() {
         .with_status(anchor::DrawStatus::AwaitingRandomness)
         .with_prize_pot(10_000_000)
         .with_cycle_fee(100_000)
-        .with_harvest_slot(100)
+        .with_vrf_seed_slot(100)
         .with_locked_tickets(10)
         .inject(&mut svm);
 
@@ -312,7 +312,7 @@ fn test_lifecycle_crank_rebind_blocks_when_paused_or_closed() {
         .with_status(anchor::DrawStatus::AwaitingRandomness)
         .with_prize_pot(10_000_000)
         .with_cycle_fee(100_000)
-        .with_harvest_slot(100)
+        .with_vrf_seed_slot(100)
         .with_locked_tickets(10)
         .inject(&mut svm);
 

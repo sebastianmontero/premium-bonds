@@ -62,8 +62,8 @@ pub struct DrawCycle {
     pub prize_pot: u64,
     /// Portion of the cycle yield allocated to protocol fee wallets.
     pub cycle_fee_collected: u64,
-    /// The slot number when yield was frozen, preventing front-running randomness requests.
-    pub harvest_slot: u64,
+    /// The Switchboard seed slot committed for this cycle, against which reveal randomness is verified.
+    pub vrf_seed_slot: u64,
     /// Unix timestamp (seconds) when harvest_yield_and_commit was executed.
     pub initiated_at: i64,
     /// Unix timestamp (seconds) when draw was finalized/revealed (0 if in-flight).
@@ -110,6 +110,27 @@ impl DrawCycle {
         Ok(())
     }
 
+    /// Checks whether a Switchboard seed slot matches the committed VRF seed slot.
+    #[inline]
+    pub fn is_valid_seed_slot(&self, seed_slot: u64) -> bool {
+        seed_slot > 0 && seed_slot == self.vrf_seed_slot
+    }
+
+    /// Verifies that the randomness was committed for this cycle and has not expired.
+    /// Guards against future-slot underflows (`current_slot >= seed_slot`).
+    pub fn verify_randomness_freshness(&self, seed_slot: u64, current_slot: u64) -> Result<()> {
+        require!(
+            self.is_valid_seed_slot(seed_slot),
+            PremiumBondsError::StaleRandomnessRequest
+        );
+        require!(
+            current_slot >= seed_slot
+                && current_slot.saturating_sub(seed_slot) <= crate::constants::VRF_FRESHNESS_WINDOW_SLOTS,
+            PremiumBondsError::StaleRandomnessRequest
+        );
+        Ok(())
+    }
+
     pub fn halt(
         &mut self,
         status: DrawStatus,
@@ -150,7 +171,7 @@ impl DrawCycle {
     pub fn rebind_randomness(
         &mut self,
         new_randomness_account: Pubkey,
-        current_slot: u64,
+        new_seed_slot: u64,
     ) -> Result<()> {
         self.ensure_current_version()?;
         require!(
@@ -161,8 +182,12 @@ impl DrawCycle {
             new_randomness_account != self.randomness_account,
             PremiumBondsError::SameRandomnessAccount
         );
+        require!(
+            new_seed_slot > 0,
+            PremiumBondsError::RandomnessNotCommitted
+        );
         self.randomness_account = new_randomness_account;
-        self.harvest_slot = current_slot;
+        self.vrf_seed_slot = new_seed_slot;
         Ok(())
     }
 

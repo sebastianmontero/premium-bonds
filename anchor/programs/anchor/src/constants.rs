@@ -48,6 +48,11 @@ pub const EXPECTED_TOKEN_DECIMALS: u8 = 6;
 /// Maximum allowable slot freshness window before a Switchboard VRF randomness request is considered expired.
 pub const VRF_FRESHNESS_WINDOW_SLOTS: u64 = 1_000;
 
+/// Maximum allowable slot gap between transaction execution and Switchboard seed slot at commitment time.
+/// Set to 64 slots (~25.6s) to be completely resilient to Solana 4-slot leader skip bursts while
+/// strictly preventing stale pre-committed accounts from being injected.
+pub const VRF_COMMIT_FRESHNESS_WINDOW_SLOTS: u64 = 64;
+
 /// Registry grows 10,240 bytes (160 user entry slots) per `resize_registry` call.
 pub const REGISTRY_REALLOC_STEP: usize = 10_240;
 /// Solana's hard account size cap.

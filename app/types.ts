@@ -275,7 +275,7 @@ export interface DrawCycleSummary {
   prizePot: number; // base units
   cycleFeeCollected: number;
   lockedTicketCount: number;
-  harvestSlot: number;
+  vrfSeedSlot: number;
   randomnessAccount: string;
   randomnessSeed: Uint8Array;
   vrfSeedHex: string;

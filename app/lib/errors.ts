@@ -37,6 +37,8 @@ import {
   ANCHOR_ERROR__RANDOMNESS_NOT_RESOLVED,
   ANCHOR_ERROR__STALE_RANDOMNESS_REQUEST,
   ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED,
+  ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED,
+  ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED,
   ANCHOR_ERROR__INVALID_USER_ENTRY_HINT,
   ANCHOR_ERROR__INSUFFICIENT_PENDING_TICKETS,
   ANCHOR_ERROR__INSUFFICIENT_ACTIVE_TICKETS,
@@ -368,6 +370,19 @@ export const ANCHOR_CUSTOM_ERRORS: Record<
   [ANCHOR_ERROR__RANDOMNESS_NOT_EXPIRED]: {
     name: "RandomnessNotExpired",
     message: "The active randomness commitment has not expired yet.",
+  },
+  [ANCHOR_ERROR__RANDOMNESS_NOT_COMMITTED]: {
+    name: "RandomnessNotCommitted",
+    message: "Switchboard randomness account has not been committed yet.",
+    actionable:
+      "Ensure Switchboard commit instruction executes prior to the protocol instruction.",
+  },
+  [ANCHOR_ERROR__RANDOMNESS_ALREADY_RESOLVED]: {
+    name: "RandomnessAlreadyResolved",
+    message:
+      "Randomness account has already been revealed prior to commitment.",
+    actionable:
+      "Generate and commit a fresh Switchboard randomness account before submitting.",
   },
   [ANCHOR_ERROR__INVALID_USER_ENTRY_HINT]: {
     name: "InvalidUserEntryHint",

@@ -145,15 +145,15 @@ export function DrawTelemetryGrid({
         </div>
       </div>
 
-      {/* Full Width Telemetry Details Row: Harvest Slot & Oracle Pubkey */}
+      {/* Full Width Telemetry Details Row: VRF Seed Slot & Oracle Pubkey */}
       <div className="col-span-2 sm:col-span-3 lg:col-span-5 p-3 rounded-xl bg-surface-container/15 border border-surface-bright/5 flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase font-semibold text-on-surface-variant">
-            {t("harvestSlot")}:
+            {t("vrfSeedSlot")}:
           </span>
           <span className="font-mono text-on-surface font-semibold">
-            {draw.harvestSlot > 0
-              ? draw.harvestSlot.toLocaleString("en-US")
+            {draw.vrfSeedSlot > 0
+              ? draw.vrfSeedSlot.toLocaleString("en-US")
               : "N/A"}
           </span>
         </div>

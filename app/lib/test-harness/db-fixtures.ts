@@ -16,7 +16,7 @@ export function buildMockDrawHistoryRow(
     prizePot: 100_000_000n,
     cycleFeeCollected: 5_000_000n,
     lockedTicketCount: 500n,
-    harvestSlot: 123456,
+    vrfSeedSlot: 123456,
     randomnessAccount: TEST_ADDRESSES.USER.toString(),
     vrfSeedHex:
       "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
