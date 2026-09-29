@@ -3,6 +3,7 @@ import {
   findGlobalConfigPda,
   parseGlobalConfig,
   canClosePayoutRegistry,
+  PoolStatus,
 } from "../../../app/lib/bonds-sdk";
 import {
   createResilientRpc,
@@ -12,8 +13,10 @@ import {
   type ResilientRpcClient,
 } from "../../../app/lib/rpc-transport";
 import { CrankConfig } from "../config";
-import { CrankExecutionContext, ICrankTask } from "../types";
+import { CrankExecutionContext, ICrankTask, PoolStateSnapshot } from "../types";
 import { fetchPoolStateSnapshot } from "../state/snapshot-fetcher";
+import { isPoolStatus } from "../state/snapshot-classifier";
+import { CIRCUIT_BREAKER_HALT_QUARANTINE_MS } from "../constants";
 import { TransactionExecutor } from "../executor/tx-executor";
 import { CircuitBreaker } from "../executor/circuit-breaker";
 import { AlertNotifier } from "../alerts/alert-notifier";
@@ -47,34 +50,53 @@ export class AdaptiveCrankScheduler {
   private globalRpcCooldownUntil = 0;
   private readonly maxConcurrentPools = 3;
   private authorizationVerified = false;
+  private readonly activeCyclesObserved: Map<number, number> = new Map();
+  private readonly alertedHaltCycles: Map<number, number> = new Map();
+  private readonly snapshotFetcher: (
+    rpc: ResilientRpcClient,
+    poolId: number
+  ) => Promise<PoolStateSnapshot | null>;
 
   constructor(
     private readonly config: CrankConfig,
     private readonly signer: KeyPairSigner,
-    metrics: MetricsServer
+    metrics: MetricsServer,
+    rpc?: ResilientRpcClient,
+    executor?: TransactionExecutor,
+    breaker?: CircuitBreaker,
+    alertNotifier?: AlertNotifier,
+    snapshotFetcher: (
+      rpc: ResilientRpcClient,
+      poolId: number
+    ) => Promise<PoolStateSnapshot | null> = fetchPoolStateSnapshot
   ) {
-    this.rpc = createResilientRpc(config.rpcUrl, {
-      onRetry: (err, attempt, delayMs) => {
-        this.metrics.incrementError("rpc", "retry");
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[AdaptiveCrankScheduler] Transient RPC error (attempt ${attempt}: ${msg}). Retrying in ${Math.round(delayMs)}ms...`
-        );
-      },
-    });
-    this.executor = new TransactionExecutor(this.rpc, config);
-    this.alertNotifier = new AlertNotifier(config);
-    this.breaker = new CircuitBreaker(5, 60_000, (event) => {
-      if (event.type === "TRIP") {
-        this.alertNotifier.notifyAlert(
-          "CIRCUIT_BREAKER_TRIPPED",
-          event.reason,
-          event.poolId,
-          "error"
-        );
-      }
-    });
     this.metrics = metrics;
+    this.rpc =
+      rpc ??
+      createResilientRpc(config.rpcUrl, {
+        onRetry: (err, attempt, delayMs) => {
+          this.metrics.incrementError("rpc", "retry");
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `[AdaptiveCrankScheduler] Transient RPC error (attempt ${attempt}: ${msg}). Retrying in ${Math.round(delayMs)}ms...`
+          );
+        },
+      });
+    this.executor = executor ?? new TransactionExecutor(this.rpc, config);
+    this.alertNotifier = alertNotifier ?? new AlertNotifier(config);
+    this.breaker =
+      breaker ??
+      new CircuitBreaker(5, 60_000, (event) => {
+        if (event.type === "TRIP") {
+          this.alertNotifier.notifyAlert(
+            "CIRCUIT_BREAKER_TRIPPED",
+            event.reason,
+            event.poolId,
+            "error"
+          );
+        }
+      });
+    this.snapshotFetcher = snapshotFetcher;
     this.vrfProvider = createVrfProvider(config.rpcUrl, {
       signer: this.signer,
     });
@@ -312,7 +334,7 @@ export class AdaptiveCrankScheduler {
 
     let snapshot;
     try {
-      snapshot = await fetchPoolStateSnapshot(this.rpc, poolId);
+      snapshot = await this.snapshotFetcher(this.rpc, poolId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isRetryableRpcError(err)) {
@@ -348,19 +370,47 @@ export class AdaptiveCrankScheduler {
       snapshot.state
     );
 
+    // Health recovery: Proactively reset breaker if pool is Active and healthy
+    if (
+      isPoolStatus(snapshot.pool.status, PoolStatus.Active) &&
+      this.breaker.getState(poolId) !== "CLOSED"
+    ) {
+      this.breaker.recordSuccess(poolId);
+    }
+
+    if (isPoolStatus(snapshot.pool.status, PoolStatus.Active)) {
+      this.activeCyclesObserved.set(poolId, snapshot.pool.currentDrawCycleId);
+    }
+
     // 1. Passive skips
     if (snapshot.state === "POOL_CLOSED" || snapshot.state === "POOL_PAUSED") {
       return false;
     }
 
-    // 2. Quarantine permanent halts (1 hour delay)
+    // 2. Quarantine permanent on-chain halts (60s probe, no executor breaker corruption)
     if (snapshot.state === "CIRCUIT_BREAKER_HALTED") {
-      this.breaker.recordPoolFailure(
+      // If this cycle was already observed as unpaused/active, an admin manually re-paused it
+      if (
+        this.activeCyclesObserved.get(poolId) ===
+        snapshot.pool.currentDrawCycleId
+      ) {
+        return false;
+      }
+
+      const lastAlerted = this.alertedHaltCycles.get(poolId);
+      if (lastAlerted !== snapshot.pool.currentDrawCycleId) {
+        this.alertNotifier.notifyAlert(
+          "ON_CHAIN_CIRCUIT_BREAKER_HALTED",
+          `Pool #${poolId} on-chain circuit breaker halted: ${snapshot.reason}`,
+          poolId,
+          "error"
+        );
+        this.alertedHaltCycles.set(poolId, snapshot.pool.currentDrawCycleId);
+      }
+      this.nextEligibleTickMs.set(
         poolId,
-        `On-chain circuit breaker halted: ${snapshot.reason}`,
-        true
+        Date.now() + CIRCUIT_BREAKER_HALT_QUARANTINE_MS
       );
-      this.nextEligibleTickMs.set(poolId, Date.now() + 3_600_000); // 1h quarantine
       return false;
     }
 

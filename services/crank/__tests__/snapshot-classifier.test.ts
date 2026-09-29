@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { classifyPoolState } from "../state/snapshot-classifier";
+import { classifyPoolState, isPoolStatus } from "../state/snapshot-classifier";
 import { PoolStateSnapshot, toDrawCycleId } from "../types";
 import { DrawStatus, PoolStatus } from "../../../app/lib/bonds-sdk";
 import {
@@ -268,8 +268,11 @@ describe("Snapshot Classifier", () => {
     );
   });
 
-  it("should classify as CIRCUIT_BREAKER_HALTED on solvency halt", () => {
-    const pool = buildMockPrizePool({ ticketRegistry: mockRegistryAddress });
+  it("should classify as CIRCUIT_BREAKER_HALTED on solvency halt when pool is paused", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      ticketRegistry: mockRegistryAddress,
+    });
     const registry = buildMockTicketRegistry();
     const drawCycle = buildMockDrawCycle({
       status: DrawStatus.HaltedInsolvent,
@@ -292,7 +295,147 @@ describe("Snapshot Classifier", () => {
     assertSnapshotState(
       snapshot,
       "CIRCUIT_BREAKER_HALTED",
-      "Pool must classify as CIRCUIT_BREAKER_HALTED when drawCycle status is HaltedInsolvent"
+      "Pool must classify as CIRCUIT_BREAKER_HALTED when paused and drawCycle status is HaltedInsolvent"
+    );
+    assert.strictEqual(snapshot.reason, "HaltedInsolvent");
+  });
+
+  it("should classify as CIRCUIT_BREAKER_HALTED on yield spike halt when pool is paused", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.HaltedYieldSpike,
+      vrfSeedSlot: 100n,
+      prizePot: 0n,
+      randomnessAccount: mockPoolAddress,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(
+      snapshot,
+      "CIRCUIT_BREAKER_HALTED",
+      "Pool must classify as CIRCUIT_BREAKER_HALTED when paused and drawCycle status is HaltedYieldSpike"
+    );
+    assert.strictEqual(snapshot.reason, "HaltedYieldSpike");
+  });
+
+  it("should classify as POOL_PAUSED when pool is Paused and previous drawCycle is Complete", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.Complete,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(snapshot, "POOL_PAUSED");
+  });
+
+  it("should classify as POOL_PAUSED when pool is Paused and drawCycle is null (unstarted cycle)", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Paused,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle: null,
+      currentSlot: 500n,
+      currentTimestamp: 1000n,
+    });
+
+    assertSnapshotState(snapshot, "POOL_PAUSED");
+  });
+
+  it("should classify as YIELD_HARVEST_READY when pool is unpaused (Active) even if previous draw cycle was HaltedYieldSpike", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Active,
+      currentCycleEndAt: 1000n,
+      isFrozenForDraw: 0,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.HaltedYieldSpike,
+      cycleId: 0,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1050n,
+    });
+
+    assertSnapshotState(
+      snapshot,
+      "YIELD_HARVEST_READY",
+      "Unpaused Active pool must classify as YIELD_HARVEST_READY even if previous draw cycle recorded HaltedYieldSpike"
+    );
+  });
+
+  it("should classify as IDLE when pool is unpaused (Active) and current cycle duration has not elapsed", () => {
+    const pool = buildMockPrizePool({
+      status: PoolStatus.Active,
+      currentCycleEndAt: 2000n,
+      isFrozenForDraw: 0,
+      ticketRegistry: mockRegistryAddress,
+    });
+    const registry = buildMockTicketRegistry();
+    const drawCycle = buildMockDrawCycle({
+      status: DrawStatus.HaltedInsolvent,
+      cycleId: 0,
+    });
+
+    const snapshot = classifyPoolState({
+      poolId: 1,
+      poolAddress: mockPoolAddress,
+      pool,
+      ticketRegistryAddress: mockRegistryAddress,
+      ticketRegistry: registry,
+      drawCycle,
+      currentSlot: 500n,
+      currentTimestamp: 1050n,
+    });
+
+    assertSnapshotState(
+      snapshot,
+      "IDLE",
+      "Active pool awaiting cycle duration must classify as IDLE regardless of past halted draw cycle"
     );
   });
 
@@ -408,5 +551,30 @@ describe("toDrawCycleId Validation", () => {
     assert.throws(() => toDrawCycleId(-10), RangeError);
     assert.throws(() => toDrawCycleId(1.5), RangeError);
     assert.throws(() => toDrawCycleId(NaN), RangeError);
+  });
+});
+
+describe("isPoolStatus Helper", () => {
+  it("should handle numeric, string, and __kind object status representations", () => {
+    assert.strictEqual(
+      isPoolStatus(PoolStatus.Active, PoolStatus.Active),
+      true
+    );
+    assert.strictEqual(
+      isPoolStatus(PoolStatus.Paused, PoolStatus.Active),
+      false
+    );
+    assert.strictEqual(isPoolStatus("Active", PoolStatus.Active), true);
+    assert.strictEqual(isPoolStatus("Paused", PoolStatus.Active), false);
+    assert.strictEqual(
+      isPoolStatus({ __kind: "Active" }, PoolStatus.Active),
+      true
+    );
+    assert.strictEqual(
+      isPoolStatus({ __kind: "Paused" }, PoolStatus.Active),
+      false
+    );
+    assert.strictEqual(isPoolStatus(null, PoolStatus.Active), false);
+    assert.strictEqual(isPoolStatus(undefined, PoolStatus.Active), false);
   });
 });

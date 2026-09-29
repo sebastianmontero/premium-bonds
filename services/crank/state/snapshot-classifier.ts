@@ -14,7 +14,42 @@ import {
   toPoolId,
   toDrawCycleId,
   toUnixTimestamp,
+  CircuitBreakerHaltReason,
 } from "../types";
+
+/**
+ * Safely checks if an actual status matches a target PoolStatus variant (numeric, string, or Codama __kind object).
+ */
+export function isPoolStatus(actual: unknown, target: PoolStatus): boolean {
+  if (actual === target) return true;
+  const name = PoolStatus[target];
+  return (
+    actual === name ||
+    (typeof actual === "object" &&
+      actual !== null &&
+      "__kind" in actual &&
+      (actual as { __kind: string }).__kind === name)
+  );
+}
+
+/**
+ * Resolves the circuit breaker halt reason if the draw cycle status indicates an on-chain halt.
+ */
+export function getCircuitBreakerHaltReason(
+  status?: DrawStatus | null
+): CircuitBreakerHaltReason | null {
+  if (status == null) return null;
+  const name =
+    typeof status === "number"
+      ? DrawStatus[status]
+      : typeof status === "object" && status !== null && "__kind" in status
+        ? (status as { __kind: string }).__kind
+        : status;
+  if (name === "HaltedInsolvent" || name === "HaltedYieldSpike") {
+    return name;
+  }
+  return null;
+}
 
 export interface ClassifierWinnerEntry {
   winner: Address;
@@ -66,39 +101,25 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
   const currentCycleId = toDrawCycleId(pool.currentDrawCycleId);
 
   // 1. Check for Closed or Paused pool
-  if (
-    pool.status === PoolStatus.Closed ||
-    (pool.status as unknown) === "Closed"
-  ) {
+  if (isPoolStatus(pool.status, PoolStatus.Closed)) {
     return {
       ...base,
       state: "POOL_CLOSED",
     };
   }
 
-  if (
-    pool.status === PoolStatus.Paused ||
-    (pool.status as unknown) === "Paused"
-  ) {
+  if (isPoolStatus(pool.status, PoolStatus.Paused)) {
+    const haltReason = getCircuitBreakerHaltReason(drawCycle?.status);
+    if (haltReason) {
+      return {
+        ...base,
+        state: "CIRCUIT_BREAKER_HALTED",
+        reason: haltReason,
+      };
+    }
     return {
       ...base,
       state: "POOL_PAUSED",
-    };
-  }
-
-  // 2. Check for Circuit Breaker halts
-  if (
-    drawCycle?.status === DrawStatus.HaltedInsolvent ||
-    drawCycle?.status === DrawStatus.HaltedYieldSpike
-  ) {
-    const reason =
-      drawCycle.status === DrawStatus.HaltedInsolvent
-        ? "HaltedInsolvent"
-        : "HaltedYieldSpike";
-    return {
-      ...base,
-      state: "CIRCUIT_BREAKER_HALTED",
-      reason,
     };
   }
 
@@ -207,7 +228,7 @@ export function classifyPoolState(input: ClassifierInput): PoolStateSnapshot {
   // 4. Yield Harvest Ready (only when previous draw payouts are resolved)
   if (
     currentTimestamp >= BigInt(pool.currentCycleEndAt) &&
-    (pool.status === PoolStatus.Active || (pool.status as unknown) === "Active")
+    isPoolStatus(pool.status, PoolStatus.Active)
   ) {
     return {
       ...base,

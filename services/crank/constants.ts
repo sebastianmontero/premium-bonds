@@ -21,6 +21,9 @@ export const RPC_PROPAGATION_RETRY_MS = 3000;
 /// Maximum transient retries before entering backoff for mismatch.
 export const MAX_RPC_MISMATCH_RETRIES = 2;
 
+/// Quarantine probe interval when an on-chain circuit breaker halt is encountered.
+export const CIRCUIT_BREAKER_HALT_QUARANTINE_MS = 60_000;
+
 /// Helper to check whether VRF randomness has expired on-chain.
 export function isRandomnessExpired(
   committedSlot: bigint,

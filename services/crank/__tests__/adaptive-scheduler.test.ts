@@ -9,7 +9,15 @@ import {
 import { AdaptiveCrankScheduler } from "../scheduler/adaptive-scheduler";
 import { MetricsServer } from "../metrics/metrics-server";
 import { CrankConfig } from "../config";
-import { TEST_ADDRESSES } from "@/app/lib/test-harness";
+import { CircuitBreaker } from "../executor/circuit-breaker";
+import { AlertNotifier } from "../alerts/alert-notifier";
+import { PoolStateSnapshot } from "../types";
+import { PoolStatus } from "../../../app/lib/bonds-sdk";
+import {
+  buildMockPrizePool,
+  buildMockTicketRegistry,
+  TEST_ADDRESSES,
+} from "@/app/lib/test-harness";
 
 function createMockHttpSolanaError(
   statusCode: number,
@@ -347,5 +355,305 @@ describe("AdaptiveCrankScheduler Rate Limiting & Error Isolation Unit Tests", ()
       false,
       "tickOnce() must return false while global cooldown is active"
     );
+  });
+});
+
+describe("AdaptiveCrankScheduler Circuit Breaker & Unpause Deadlock Recovery", () => {
+  it("should handle on-chain CIRCUIT_BREAKER_HALTED without tripping executor CircuitBreaker", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const breaker = new CircuitBreaker(5, 60_000);
+    const alertNotifier = new AlertNotifier(config);
+    let alerted = false;
+    alertNotifier.notifyAlert = async () => {
+      alerted = true;
+    };
+
+    const haltedSnapshot: PoolStateSnapshot = {
+      poolId: 1 as any,
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Paused,
+        currentDrawCycleId: 5,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 1000n,
+      currentTimestamp: 2000n as any,
+      state: "CIRCUIT_BREAKER_HALTED",
+      reason: "HaltedYieldSpike",
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      breaker,
+      alertNotifier,
+      async () => haltedSnapshot
+    );
+
+    const now = Date.now();
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(result, false);
+
+    assert.strictEqual(breaker.canExecute(1), true);
+    assert.strictEqual(breaker.getState(1), "CLOSED");
+    assert.strictEqual(alerted, true, "Should trigger alert notification");
+
+    const nextTick = (scheduler as any).nextEligibleTickMs.get(1);
+    assert.ok(
+      nextTick >= now + 59_000 && nextTick <= now + 61_000,
+      "Should set 60s quarantine"
+    );
+  });
+
+  it("should proactively reset CircuitBreaker to CLOSED when pool is Active and IDLE", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const breaker = new CircuitBreaker(5, 60_000);
+
+    // Trip breaker to OPEN with 5 failures
+    for (let i = 0; i < 5; i++) {
+      breaker.recordPoolFailure(1, "RPC failure");
+    }
+    assert.strictEqual(breaker.getState(1), "OPEN");
+
+    // Set HALF_OPEN state
+    (breaker as any).poolStates.set(1, {
+      state: "HALF_OPEN",
+      consecutiveFailures: 5,
+      nextProbeTime: 0,
+    });
+    assert.strictEqual(breaker.getState(1), "HALF_OPEN");
+
+    const activeIdleSnapshot: PoolStateSnapshot = {
+      poolId: 1 as any,
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 5,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 1000n,
+      currentTimestamp: 2000n as any,
+      state: "IDLE",
+      nextDrawAt: 3000n as any,
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      breaker,
+      undefined,
+      async () => activeIdleSnapshot
+    );
+
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(result, false);
+    assert.strictEqual(
+      breaker.getState(1),
+      "CLOSED",
+      "Breaker must be recovered to CLOSED on Active pool without executing transactions"
+    );
+  });
+
+  it("should treat manual pause in cycle N as POOL_PAUSED after cycle N was unpaused", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const alertNotifier = new AlertNotifier(config);
+    let alertCount = 0;
+    alertNotifier.notifyAlert = async () => {
+      alertCount++;
+    };
+
+    let currentSnapshot: PoolStateSnapshot = {
+      poolId: 1 as any,
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Active,
+        currentDrawCycleId: 5,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 1000n,
+      currentTimestamp: 2000n as any,
+      state: "IDLE",
+      nextDrawAt: 3000n as any,
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      undefined,
+      alertNotifier,
+      async () => currentSnapshot
+    );
+
+    // Step 1: Process active pool in cycle 5
+    await (scheduler as any).processPool(1);
+    assert.strictEqual(
+      (scheduler as any).activeCyclesObserved.get(1),
+      5,
+      "Should register cycle 5 as observed active"
+    );
+
+    // Step 2: Pool is manually paused in cycle 5 while previous cycle was halted
+    currentSnapshot = {
+      poolId: 1 as any,
+      poolAddress: TEST_ADDRESSES.USER,
+      pool: buildMockPrizePool({
+        status: PoolStatus.Paused,
+        currentDrawCycleId: 5,
+      }),
+      ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 1000n,
+      currentTimestamp: 2000n as any,
+      state: "CIRCUIT_BREAKER_HALTED",
+      reason: "HaltedYieldSpike",
+    };
+
+    const result = await (scheduler as any).processPool(1);
+    assert.strictEqual(result, false);
+    assert.strictEqual(
+      alertCount,
+      0,
+      "Should not send alert for manual pause on previously unpaused cycle"
+    );
+  });
+
+  it("should maintain multi-pool isolation for activeCyclesObserved", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1, 2] });
+    const alertNotifier = new AlertNotifier(config);
+    const alertedPools: number[] = [];
+    alertNotifier.notifyAlert = async (_type, _msg, poolId) => {
+      if (poolId !== undefined) alertedPools.push(poolId);
+    };
+
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      undefined,
+      alertNotifier,
+      async (_rpc, poolId) => {
+        if (poolId === 1) {
+          return {
+            poolId: 1 as any,
+            poolAddress: TEST_ADDRESSES.USER,
+            pool: buildMockPrizePool({
+              status: PoolStatus.Active,
+              currentDrawCycleId: 5,
+            }),
+            ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+            ticketRegistry: buildMockTicketRegistry(),
+            currentSlot: 1000n,
+            currentTimestamp: 2000n as any,
+            state: "IDLE",
+            nextDrawAt: 3000n as any,
+          };
+        }
+        return {
+          poolId: 2 as any,
+          poolAddress: TEST_ADDRESSES.USER_2,
+          pool: buildMockPrizePool({
+            status: PoolStatus.Paused,
+            currentDrawCycleId: 5,
+          }),
+          ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+          ticketRegistry: buildMockTicketRegistry(),
+          currentSlot: 1000n,
+          currentTimestamp: 2000n as any,
+          state: "CIRCUIT_BREAKER_HALTED",
+          reason: "HaltedInsolvent",
+        };
+      }
+    );
+
+    // Process Pool 1 (Active)
+    await (scheduler as any).processPool(1);
+    assert.strictEqual((scheduler as any).activeCyclesObserved.get(1), 5);
+    assert.strictEqual(
+      (scheduler as any).activeCyclesObserved.get(2),
+      undefined
+    );
+
+    // Process Pool 2 (Halted)
+    await (scheduler as any).processPool(2);
+    assert.deepStrictEqual(
+      alertedPools,
+      [2],
+      "Pool 2 should trigger alert independently of Pool 1"
+    );
+  });
+
+  it("should deduplicate halt alerts across multiple probe ticks", async () => {
+    const signer = await generateKeyPairSigner();
+    const metrics = new MetricsServer(0);
+    const config = createTestConfig({ poolIds: [1] });
+    const alertNotifier = new AlertNotifier(config);
+    let alertCount = 0;
+    alertNotifier.notifyAlert = async () => {
+      alertCount++;
+    };
+
+    let cycleId = 5;
+    const scheduler = new AdaptiveCrankScheduler(
+      config,
+      signer,
+      metrics,
+      undefined,
+      undefined,
+      undefined,
+      alertNotifier,
+      async () => ({
+        poolId: 1 as any,
+        poolAddress: TEST_ADDRESSES.USER,
+        pool: buildMockPrizePool({
+          status: PoolStatus.Paused,
+          currentDrawCycleId: cycleId,
+        }),
+        ticketRegistryAddress: TEST_ADDRESSES.ATA_PROGRAM,
+        ticketRegistry: buildMockTicketRegistry(),
+        currentSlot: 1000n,
+        currentTimestamp: 2000n as any,
+        state: "CIRCUIT_BREAKER_HALTED",
+        reason: "HaltedYieldSpike",
+      })
+    );
+
+    // Tick 1 for cycle 5
+    await (scheduler as any).processPool(1);
+    assert.strictEqual(alertCount, 1, "First tick should alert");
+
+    // Tick 2 for cycle 5 (repeated probe)
+    await (scheduler as any).processPool(1);
+    assert.strictEqual(
+      alertCount,
+      1,
+      "Repeated tick for same cycle should not alert again"
+    );
+
+    // Tick 3 for cycle 6 (new halted cycle)
+    cycleId = 6;
+    await (scheduler as any).processPool(1);
+    assert.strictEqual(alertCount, 2, "New halted cycle should alert");
   });
 });

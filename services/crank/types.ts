@@ -102,8 +102,10 @@ export type PoolStateSnapshot =
     })
   | (BaseSnapshot & {
       readonly state: "CIRCUIT_BREAKER_HALTED";
-      readonly reason: "HaltedInsolvent" | "HaltedYieldSpike" | string;
+      readonly reason: CircuitBreakerHaltReason;
     });
+
+export type CircuitBreakerHaltReason = "HaltedInsolvent" | "HaltedYieldSpike";
 
 // ─── Strategy Decision & Context Interfaces ──────────────────────────────────
 
