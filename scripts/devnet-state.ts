@@ -9,6 +9,7 @@ export const DEVNET_ADDRESSES_PATH = path.resolve(
   DEVNET_STATE_DIR,
   "addresses.json"
 );
+export const DEVNET_USERS_PATH = path.resolve(DEVNET_STATE_DIR, "users.json");
 export const DEVNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.devnet");
 export const LOCALNET_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.localnet");
 export const LOCAL_ENV_PATH = path.resolve(PROJECT_ROOT, ".env.local");
@@ -42,6 +43,52 @@ export function isPusherPlaceholder(val: string | undefined): boolean {
     lower === "undefined" ||
     lower === "null"
   );
+}
+
+export interface EnvironmentMismatchCheck {
+  readonly isLocalnet: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * Checks if the active .env.local file is configured for localnet rather than devnet.
+ */
+export function checkActiveEnvIsLocalnet(
+  envFilePath: string = LOCAL_ENV_PATH
+): EnvironmentMismatchCheck {
+  if (!fs.existsSync(envFilePath)) {
+    return { isLocalnet: false };
+  }
+
+  const env = readEnvFile(envFilePath);
+
+  if (env.NEXT_PUBLIC_ENVIRONMENT === "localnet") {
+    return {
+      isLocalnet: true,
+      reason: "NEXT_PUBLIC_ENVIRONMENT is set to 'localnet'",
+    };
+  }
+
+  if (
+    isLocalMockUrl(env.SOLANA_RPC_URL) ||
+    isLocalMockUrl(env.NEXT_PUBLIC_SOLANA_RPC_URL)
+  ) {
+    return {
+      isLocalnet: true,
+      reason: `RPC URL points to a local emulator (${
+        env.SOLANA_RPC_URL || env.NEXT_PUBLIC_SOLANA_RPC_URL
+      })`,
+    };
+  }
+
+  if (env.HELIUS_WEBHOOK_SECRET === "pb_webhook_secret_local_dev_123") {
+    return {
+      isLocalnet: true,
+      reason: "Local mock webhook secret detected",
+    };
+  }
+
+  return { isLocalnet: false };
 }
 
 /**

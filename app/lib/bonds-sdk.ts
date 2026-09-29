@@ -190,6 +190,8 @@ export const HUMA_POOL_UNDERLYING_TOKEN = address(
 export const HUMA_MODE_MINT = address(
   process.env.HUMA_MODE_MINT ||
     process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
+    process.env.NEXT_PUBLIC_PST_MINT ||
+    process.env.PST_MINT ||
     "11111111111111111111111111111111"
 );
 export const HUMA_POOL_MODE_TOKEN = address(
@@ -2157,6 +2159,9 @@ export interface HumaPoolAddresses {
   modeConfig?: Address;
   lenderState?: Address;
   poolUnderlyingToken?: Address;
+  modeMint?: Address;
+  poolModeToken?: Address;
+  redemptionRequest?: Address;
 }
 
 export interface BuildClaimRedemptionParams {

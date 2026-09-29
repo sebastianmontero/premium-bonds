@@ -1,3 +1,4 @@
+import "./load-env";
 import {
   createSolanaRpc,
   address,
@@ -50,6 +51,7 @@ import {
   writeDevnetAddresses,
   readDevnetAddresses,
   syncDevnetToActiveEnv,
+  checkActiveEnvIsLocalnet,
   PRESERVED_CLOUD_VARS,
   PROJECT_ROOT,
   LOCAL_ENV_PATH,
@@ -57,6 +59,17 @@ import {
 } from "./devnet-state";
 import { provisionDevnetRandomnessAccount } from "./create-switchboard-randomness";
 import { runDevnet180WinnerTest } from "./devnet-180-winners";
+import {
+  buildFundInstructions,
+  runSeedUsersCli,
+  type FundInstructionsParams,
+  type FundInstructionsResult,
+} from "./user-seeding";
+export {
+  buildFundInstructions,
+  type FundInstructionsParams,
+  type FundInstructionsResult,
+};
 
 function loadDevnetAccounts(): DevnetProtocolAccounts {
   const accounts = readDevnetAddresses();
@@ -183,6 +196,9 @@ function printUsage() {
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
   );
   console.log("  settle [count]        Settles pending redemptions on devnet");
+  console.log(
+    "  seed-users [--users <n>] [--tickets <n>] [--sol <sol>] [--usdc <amount>] [--pool <id>] [--mature] [--save-keys [path]] [--no-save-keys] Seeds test users with SOL/USDC and buys bonds"
+  );
   console.log(
     "  test-180 [--seed-users <n>] [--keep-config] [--pool <id>] [--yield <usdc>] Executes 180-winner turnkey test on devnet"
   );
@@ -1102,70 +1118,6 @@ export async function requestDevnetAirdrop(
   }
 }
 
-export interface FundInstructionsParams {
-  readonly payer: KeyPairSigner;
-  readonly recipient: Address;
-  readonly mintAuthority?: KeyPairSigner;
-  readonly usdcMint: Address;
-  readonly microUsdcAmount: bigint;
-  readonly transferSolLamports?: bigint;
-}
-
-export interface FundInstructionsResult {
-  readonly recipientAta: Address;
-  readonly instructions: readonly Instruction[];
-  readonly signers: readonly [KeyPairSigner, ...KeyPairSigner[]];
-}
-
-/**
- * Builds instructions for idempotently creating recipient ATA, optional native SOL transfer, and minting mock USDC tokens.
- */
-export async function buildFundInstructions(
-  params: FundInstructionsParams
-): Promise<FundInstructionsResult> {
-  const mintAuthority = params.mintAuthority ?? params.payer;
-  const recipientAta = await findAtaAddress(params.recipient, params.usdcMint);
-
-  const instructions: Instruction[] = [];
-
-  if (params.transferSolLamports && params.transferSolLamports > 0n) {
-    instructions.push(
-      buildTransferSolInstruction({
-        from: params.payer,
-        to: params.recipient,
-        lamports: params.transferSolLamports,
-      })
-    );
-  }
-
-  const recipientAtaIx = createAssociatedTokenIdempotentInstruction({
-    payer: params.payer,
-    owner: params.recipient,
-    mint: params.usdcMint,
-    ata: recipientAta,
-  });
-  instructions.push(recipientAtaIx);
-
-  const mintToIx = buildMintToInstruction({
-    mint: params.usdcMint,
-    destination: recipientAta,
-    authority: mintAuthority,
-    amount: params.microUsdcAmount,
-  });
-  instructions.push(mintToIx);
-
-  const signers: readonly [KeyPairSigner, ...KeyPairSigner[]] =
-    params.payer.address === mintAuthority.address
-      ? [params.payer]
-      : [params.payer, mintAuthority];
-
-  return {
-    recipientAta,
-    instructions,
-    signers,
-  };
-}
-
 async function handleFund(args: string[]) {
   const {
     recipient,
@@ -1492,6 +1444,26 @@ async function main() {
     }
   }
 
+  // Localnet Environment Mismatch Warning
+  if (command !== "sync-env") {
+    const envCheck = checkActiveEnvIsLocalnet();
+    if (envCheck.isLocalnet) {
+      console.warn(
+        "\n⚠️  [ENVIRONMENT WARNING] .env.local is configured for LOCALNET"
+      );
+      if (envCheck.reason) {
+        console.warn(`    Reason: ${envCheck.reason}`);
+      }
+      console.warn(
+        "    You are running a Devnet command against localnet environment variables."
+      );
+      console.warn(
+        "    To synchronize .env.local with Devnet protocol addresses, run:"
+      );
+      console.warn("      npm run devnet sync-env\n");
+    }
+  }
+
   switch (command) {
     case "deploy":
       await handleDeploy(args.slice(1));
@@ -1517,6 +1489,10 @@ async function main() {
       break;
     case "settle":
       await handleSettle(args.slice(1));
+      break;
+    case "seed-users":
+    case "seed":
+      await runSeedUsersCli(args.slice(1));
       break;
     case "test-180":
       await runDevnet180WinnerTest(args.slice(1));

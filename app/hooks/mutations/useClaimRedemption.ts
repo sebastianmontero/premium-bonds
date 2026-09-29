@@ -49,8 +49,8 @@ export function useClaimRedemption(poolId: PoolId = 1) {
         userTokenAccount,
         redemptionType,
         feeWallet,
-        humaPoolState: poolData?.humaPoolState
-          ? address(poolData.humaPoolState)
+        humaAddresses: poolData?.humaPoolState
+          ? { poolState: address(poolData.humaPoolState) }
           : undefined,
       });
 

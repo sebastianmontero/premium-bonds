@@ -119,8 +119,8 @@ export function useBondsContract(poolId: number = 1) {
         ticketsToBuy,
         ticketRegistry: address(pool.ticketRegistry),
         userTokenAccount: userAta,
-        humaPoolState: pool.humaPoolState
-          ? address(pool.humaPoolState)
+        humaAddresses: pool.humaPoolState
+          ? { poolState: address(pool.humaPoolState) }
           : undefined,
       });
 
@@ -183,8 +183,8 @@ export function useBondsContract(poolId: number = 1) {
         poolId,
         userAddress: address(userAddress),
         redemptionId,
-        humaPoolState: pool?.humaPoolState
-          ? address(pool.humaPoolState)
+        humaAddresses: pool?.humaPoolState
+          ? { poolState: address(pool.humaPoolState) }
           : undefined,
       });
 
@@ -204,8 +204,8 @@ export function useBondsContract(poolId: number = 1) {
         userAddress: address(userAddress),
         amount,
         nextRedemptionId: pool.nextRedemptionId || 0,
-        humaPoolState: pool.humaPoolState
-          ? address(pool.humaPoolState)
+        humaAddresses: pool.humaPoolState
+          ? { poolState: address(pool.humaPoolState) }
           : undefined,
       });
 

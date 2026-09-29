@@ -22,7 +22,6 @@ import {
 } from "./utils";
 import {
   reconcilePoolState,
-  buildFundInstructions,
   parseFundArgs,
   calculateFallbackSolTransfer,
   requestDevnetAirdrop,
@@ -30,6 +29,7 @@ import {
   ensureHumaLenderStateOnChain,
   HUMA_LENDER_STATE_SPACE,
 } from "./devnet";
+import { buildFundInstructions } from "./user-seeding";
 import * as path from "path";
 import {
   findPrizePoolPda,

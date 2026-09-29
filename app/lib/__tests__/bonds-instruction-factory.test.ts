@@ -25,7 +25,9 @@ import {
 } from "../test-harness";
 
 const BUY_BONDS_HUMA_POOL_STATE_INDEX = 11;
+const BUY_BONDS_HUMA_MODE_MINT_INDEX = 13;
 const BUY_BONDS_HUMA_POOL_AUTHORITY_INDEX = 14;
+const BUY_BONDS_HUMA_POOL_UNDERLYING_INDEX = 15;
 
 test("bonds-instruction-factory: builds buy bonds instruction with all derived accounts", async () => {
   const dummyUser = address("11111111111111111111111111111111");
@@ -63,7 +65,7 @@ test("bonds-instruction-factory: builds buy bonds instruction with all derived a
   );
 });
 
-test("bonds-instruction-factory: derives humaPoolAuthority dynamically from custom humaPoolState", async () => {
+test("bonds-instruction-factory: derives humaPoolAuthority dynamically from custom humaAddresses.poolState", async () => {
   const dummyUser = address("11111111111111111111111111111111");
   const dummyRegistry = address("11111111111111111111111111111111");
   const customHumaPoolState = address(
@@ -79,7 +81,7 @@ test("bonds-instruction-factory: derives humaPoolAuthority dynamically from cust
     ticketsToBuy: 1,
     ticketRegistry: dummyRegistry,
     userTokenAccount: dummyUser,
-    humaPoolState: customHumaPoolState,
+    humaAddresses: { poolState: customHumaPoolState },
   });
 
   assert.ok(ix, "Instruction must be created");
@@ -96,6 +98,42 @@ test("bonds-instruction-factory: derives humaPoolAuthority dynamically from cust
   );
 });
 
+test("bonds-instruction-factory: supports custom humaAddresses modeMint and poolUnderlyingToken", async () => {
+  const dummyUser = address("11111111111111111111111111111111");
+  const dummyRegistry = address("11111111111111111111111111111111");
+  const customModeMint = address(
+    "BKSdFCn65tYgRZYXuYgGK7ppCwdno7A5TKzwqofBoVLL"
+  );
+  const customUnderlying = address(
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  );
+
+  const ix = await buildBuyBondsInstruction({
+    poolId: 1,
+    userAddress: dummyUser,
+    ticketsToBuy: 1,
+    ticketRegistry: dummyRegistry,
+    userTokenAccount: dummyUser,
+    humaAddresses: {
+      modeMint: customModeMint,
+      poolUnderlyingToken: customUnderlying,
+    },
+  });
+
+  assert.ok(ix, "Instruction must be created");
+  assert.ok(ix.accounts, "Instruction accounts must be defined");
+  assert.equal(
+    ix.accounts[BUY_BONDS_HUMA_MODE_MINT_INDEX].address,
+    customModeMint,
+    "Huma mode mint must match custom override at index 13"
+  );
+  assert.equal(
+    ix.accounts[BUY_BONDS_HUMA_POOL_UNDERLYING_INDEX].address,
+    customUnderlying,
+    "Huma pool underlying token must match custom override at index 15"
+  );
+});
+
 test("bonds-instruction-factory: builds claim redemption instruction", async () => {
   const dummyUser = address("11111111111111111111111111111111");
   const dummyUserToken = address("11111111111111111111111111111111");
@@ -105,7 +143,7 @@ test("bonds-instruction-factory: builds claim redemption instruction", async () 
     userAddress: dummyUser,
     redemptionId: 0,
     userTokenAccount: dummyUserToken,
-    humaLenderState: TEST_ADDRESSES.USER_2,
+    humaAddresses: { lenderState: TEST_ADDRESSES.USER_2 },
   });
 
   assert.ok(ix, "Claim redemption instruction must be created");
@@ -358,7 +396,7 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions routes FeeWith
     redemptionId: 4,
     redemptionType: RedemptionType.FeeWithdrawal,
     feeWallet,
-    humaLenderState: TEST_ADDRESSES.USER_2,
+    humaAddresses: { lenderState: TEST_ADDRESSES.USER_2 },
   });
 
   assert.equal(
@@ -386,7 +424,7 @@ test("bonds-instruction-factory: buildClaimRedemptionInstructions prepends idemp
     beneficiary: user,
     redemptionId: 1,
     redemptionType: RedemptionType.BondSale,
-    humaLenderState: TEST_ADDRESSES.USER_2,
+    humaAddresses: { lenderState: TEST_ADDRESSES.USER_2 },
   });
 
   assert.equal(

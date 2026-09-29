@@ -1,24 +1,30 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { readEnvFile } from "./env-utils";
 
 // Load environment variables relative to project root for standalone CLI scripts
 const rootDir = path.resolve(__dirname, "..");
 const envLocalPath = path.resolve(rootDir, ".env.local");
 const envPath = path.resolve(rootDir, ".env");
 
-if (typeof process.loadEnvFile === "function") {
-  if (fs.existsSync(envLocalPath)) {
+function loadEnvIntoProcess(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
+  if (typeof process.loadEnvFile === "function") {
     try {
-      process.loadEnvFile(envLocalPath);
+      process.loadEnvFile(filePath);
+      return;
     } catch {
-      // Ignore parse/read errors in non-standard environments
+      // Fall back to readEnvFile parser below
     }
   }
-  if (fs.existsSync(envPath)) {
-    try {
-      process.loadEnvFile(envPath);
-    } catch {
-      // Ignore parse/read errors in non-standard environments
+  const parsed = readEnvFile(filePath);
+  for (const [key, value] of Object.entries(parsed)) {
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
     }
   }
 }
+
+// .env.local takes precedence over .env
+loadEnvIntoProcess(envLocalPath);
+loadEnvIntoProcess(envPath);

@@ -19,6 +19,8 @@
     "devnet:test-180": "tsx scripts/devnet.ts test-180",
     "devnet:test-180:seed": "tsx scripts/devnet.ts test-180 --seed-users 5",
     "devnet:test-180:keep-config": "tsx scripts/devnet.ts test-180 --keep-config",
+    "devnet:seed": "tsx scripts/user-seeding.ts",
+    "devnet:seed:mature": "tsx scripts/user-seeding.ts --mature",
     "devnet:vercel-sync": "tsx scripts/sync-vercel-envs.ts",
     "mainnet": "tsx scripts/mainnet.ts",
     "pb-cli": "tsx scripts/pb-cli.ts",

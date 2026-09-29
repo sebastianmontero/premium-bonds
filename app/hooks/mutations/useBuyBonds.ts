@@ -41,8 +41,8 @@ export function useBuyBonds(poolId: PoolId = 1) {
         ticketsToBuy,
         ticketRegistry,
         userTokenAccount,
-        humaPoolState: poolData?.humaPoolState
-          ? address(poolData.humaPoolState)
+        humaAddresses: poolData?.humaPoolState
+          ? { poolState: address(poolData.humaPoolState) }
           : undefined,
       });
 

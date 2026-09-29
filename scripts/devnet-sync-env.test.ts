@@ -12,6 +12,7 @@ import {
   writeDevnetAddresses,
   readDevnetAddresses,
   recordDevnetRandomnessAccount,
+  checkActiveEnvIsLocalnet,
   DevnetProtocolAccounts,
 } from "./devnet-state";
 
@@ -716,5 +717,76 @@ NEXT_PUBLIC_PUSHER_KEY=devnet_cloud_key
     assert.strictEqual(isPusherPlaceholder("2197169"), false);
     assert.strictEqual(isPusherPlaceholder("d7c62a64626829adbc7f"), false);
     assert.strictEqual(isPusherPlaceholder("4ddd4557bd916c40ee73"), false);
+  });
+
+  describe("checkActiveEnvIsLocalnet", () => {
+    it("returns isLocalnet: false when target env file does not exist", () => {
+      const nonExistentPath = path.resolve(tempDir, ".env.nonexistent");
+      const res = checkActiveEnvIsLocalnet(nonExistentPath);
+      assert.strictEqual(res.isLocalnet, false);
+      assert.strictEqual(res.reason, undefined);
+    });
+
+    it("returns isLocalnet: true when NEXT_PUBLIC_ENVIRONMENT is 'localnet'", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "NEXT_PUBLIC_ENVIRONMENT=localnet\n",
+        "utf-8"
+      );
+      const res = checkActiveEnvIsLocalnet(activeEnvPath);
+      assert.strictEqual(res.isLocalnet, true);
+      assert.strictEqual(
+        res.reason,
+        "NEXT_PUBLIC_ENVIRONMENT is set to 'localnet'"
+      );
+    });
+
+    it("returns isLocalnet: true when SOLANA_RPC_URL points to local loopback", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "NEXT_PUBLIC_ENVIRONMENT=devnet\nSOLANA_RPC_URL=http://127.0.0.1:8899\n",
+        "utf-8"
+      );
+      const res = checkActiveEnvIsLocalnet(activeEnvPath);
+      assert.strictEqual(res.isLocalnet, true);
+      assert.ok(res.reason?.includes("RPC URL points to a local emulator"));
+    });
+
+    it("returns isLocalnet: true when NEXT_PUBLIC_SOLANA_RPC_URL points to localhost", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899\n",
+        "utf-8"
+      );
+      const res = checkActiveEnvIsLocalnet(activeEnvPath);
+      assert.strictEqual(res.isLocalnet, true);
+      assert.ok(res.reason?.includes("RPC URL points to a local emulator"));
+    });
+
+    it("returns isLocalnet: true when HELIUS_WEBHOOK_SECRET is the local mock value", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "HELIUS_WEBHOOK_SECRET=pb_webhook_secret_local_dev_123\n",
+        "utf-8"
+      );
+      const res = checkActiveEnvIsLocalnet(activeEnvPath);
+      assert.strictEqual(res.isLocalnet, true);
+      assert.strictEqual(res.reason, "Local mock webhook secret detected");
+    });
+
+    it("returns isLocalnet: false when properly configured for devnet", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        `NEXT_PUBLIC_ENVIRONMENT=devnet
+SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+HELIUS_WEBHOOK_SECRET=my_cloud_helius_secret_123
+`,
+        "utf-8"
+      );
+      const res = checkActiveEnvIsLocalnet(activeEnvPath);
+      assert.strictEqual(res.isLocalnet, false);
+      assert.strictEqual(res.reason, undefined);
+    });
   });
 });

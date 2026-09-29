@@ -1,3 +1,4 @@
+import "./load-env";
 import {
   createSolanaRpc,
   address,
@@ -53,6 +54,7 @@ import {
   PrizeTierInput,
 } from "../app/lib/bonds-sdk";
 import { buildBuyBondsInstruction } from "../app/lib/bonds-instruction-factory";
+import { seedUsers } from "./user-seeding";
 import {
   createVrfProvider,
   IVrfProvider,
@@ -438,77 +440,22 @@ export async function runDevnet180WinnerTest(
       console.log(
         `\n[Step 3/9] Seeding ${options.seedUsers} Fresh Test Users and Maturing Tickets...`
       );
-      for (let i = 0; i < options.seedUsers; i++) {
-        const testUser = await generateKeyPairSigner();
-        console.log(
-          `  • Provisioning Test User ${i + 1}/${options.seedUsers}: ${testUser.address}`
-        );
-
-        // Transfer 0.05 SOL
-        const solIx = buildTransferSolInstruction({
-          from: adminSigner,
-          to: testUser.address,
-          lamports: 50_000_000n,
-        });
-        await sendTx(rpc, solIx, adminSigner);
-
-        // Create USDC ATA and mint 100 USDC
-        const [userUsdcAta] = await findAtaAddress(
-          testUser.address,
-          address(accounts.usdcMint)
-        );
-        const createAtaIx = createAssociatedTokenIdempotentInstruction({
-          payer: adminSigner.address,
-          ata: userUsdcAta,
-          owner: testUser.address,
-          mint: address(accounts.usdcMint),
-        });
-        const mintIx = buildMintToInstruction({
-          mint: address(accounts.usdcMint),
-          destination: userUsdcAta,
-          authority: adminSigner,
-          amount: 100_000_000n, // 100 USDC
-        });
-        await sendTx(rpc, [createAtaIx, mintIx], adminSigner);
-
-        // Buy 100 bonds
-        const buyIx = await buildBuyBondsInstruction({
-          poolId: options.poolId,
-          userAddress: testUser.address,
-          ticketsToBuy: 100,
-          ticketRegistry: address(accounts.ticketRegistry),
-          userTokenAccount: userUsdcAta,
-          humaPoolState: address(accounts.humaPoolState),
-        });
-        await sendTx(rpc, buyIx, [testUser]);
-        console.log(`    ✓ Bought 100 bonds for ${testUser.address}`);
-      }
-
-      console.log(
-        "Advancing zero-yield cycle to mature pending tickets into active tickets..."
-      );
-      const poolPda = await findPrizePoolPda(options.poolId);
-      const poolAcc = await fetchAccountInfo(rpc, poolPda);
-      const poolStateBefore = parsePrizePool(
-        Buffer.from(poolAcc!.value!.data[0], "base64")
-      );
-      const cycleBefore = poolStateBefore.currentDrawCycleId;
-
-      const advanceIx = await buildHarvestYieldAndCommitInstruction({
-        crank: adminSigner.address,
+      await seedUsers({
+        rpc,
+        adminSigner,
+        count: options.seedUsers,
         poolId: options.poolId,
-        ticketRegistry: address(accounts.ticketRegistry),
-        currentDrawCycleId: cycleBefore,
-        pstMint: address(accounts.pstMint),
-        humaPoolState: address(accounts.humaPoolState),
-        randomnessAccount: address(
-          accounts.randomnessAccount || accounts.adminAddress
-        ),
+        matureTickets: true,
+        onProgress: ({ current, total, userAddress, stage }) => {
+          if (stage === "generating_keypair" || stage === "funding") {
+            console.log(
+              `  • Provisioning Test User ${current}/${total}: ${userAddress}`
+            );
+          } else if (stage === "user_completed") {
+            console.log(`    ✓ Bought 100 bonds for ${userAddress}`);
+          }
+        },
       });
-      await sendTx(rpc, advanceIx, adminSigner);
-      console.log(
-        `✓ Cycle advanced from #${cycleBefore} to mature seeded tickets.`
-      );
     } else {
       console.log(
         "\n[Step 3/9] Fast Mode: Utilizing existing mature tickets (1,103+ tickets across registered wallets)."
