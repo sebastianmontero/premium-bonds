@@ -903,15 +903,15 @@ async function handleInit(args: string[]) {
     const initHumaLenderIx = await buildInitializeHumaLenderInstruction({
       admin: adminSigner,
       poolId,
-      humaStateAddresses: {
-        humaProgram: mockHumaProgramId,
-        humaConfig: mockHumaProgramId,
-        humaPoolConfig: mockHumaProgramId,
-        humaPoolState: humaPoolStateSigner.address,
-        humaModeConfig: mockHumaProgramId,
-        humaModeMint: pstMintAddress,
-        humaLenderState: humaLenderStateSigner.address,
-        humaLenderModeToken: poolPstVaultAddress,
+      humaAddresses: {
+        program: mockHumaProgramId,
+        config: mockHumaProgramId,
+        poolConfig: mockHumaProgramId,
+        poolState: humaPoolStateSigner.address,
+        modeConfig: mockHumaProgramId,
+        modeMint: pstMintAddress,
+        lenderState: humaLenderStateSigner.address,
+        lenderModeToken: poolPstVaultAddress,
       },
     });
     await sendTx(rpc, initHumaLenderIx, adminSigner);

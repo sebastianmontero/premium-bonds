@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { Address, address } from "@solana/kit";
+import { Address } from "@solana/kit";
 import { resolveSolanaRpcUrl, resolveNetwork } from "../../app/lib/network";
 import { readEnvFile } from "../../scripts/env-utils";
 
@@ -41,17 +41,8 @@ export function ensureEnvLoaded(): void {
   isEnvLoaded = true;
 }
 
-export function parseOptionalAddress(val?: string | null): Address | undefined {
-  if (!val || typeof val !== "string") return undefined;
-  const trimmed = val.trim();
-  if (trimmed === "" || trimmed === "11111111111111111111111111111111")
-    return undefined;
-  try {
-    return address(trimmed);
-  } catch {
-    return undefined;
-  }
-}
+import { parseOptionalAddress } from "../../app/lib/bonds-sdk";
+export { parseOptionalAddress };
 
 export function parsePoolHumaLenderStates(
   env: NodeJS.ProcessEnv = process.env
@@ -210,7 +201,8 @@ export function loadConfig(overrides?: Partial<CrankConfig>): CrankConfig {
     pagerDutyRoutingKey:
       overrides?.pagerDutyRoutingKey || process.env.PAGERDUTY_ROUTING_KEY,
     pstMint:
-      overrides?.pstMint || (pstMintStr ? address(pstMintStr) : undefined),
+      parseOptionalAddress(overrides?.pstMint) ??
+      parseOptionalAddress(pstMintStr),
     humaConfig,
     humaPoolConfig,
     humaPoolState,

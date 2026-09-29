@@ -33,7 +33,7 @@ export function useTransactionRunner() {
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
-      setStage("signing");
+      setStage("preparing");
       setError(null);
       setTxSignature(null);
 

@@ -1,18 +1,11 @@
 import { address, Instruction } from "@solana/kit";
 import {
   buildClaimRedemptionInstructions,
-  SYSTEM_PROGRAM_ID,
-  HumaPoolAddresses,
   fetchPendingRedemptionCandidates,
   PendingRedemptionCandidate,
   RedemptionType,
-  isConfiguredAccountAddress,
-  HUMA_CONFIG,
-  HUMA_POOL_CONFIG,
-  HUMA_POOL_STATE,
-  HUMA_MODE_CONFIG,
-  HUMA_LENDER_STATE,
-  HUMA_POOL_UNDERLYING_TOKEN,
+  resolveHumaAddresses,
+  CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -55,36 +48,6 @@ export class DisburseSentinelWorker implements ICrankTask {
     );
   }
 
-  private resolveHumaAddresses(
-    snapshot: PoolStateSnapshot,
-    context: CrankExecutionContext
-  ): HumaPoolAddresses {
-    const cfg = context.config;
-    const poolState = isConfiguredAccountAddress(snapshot.pool.humaPoolState)
-      ? snapshot.pool.humaPoolState
-      : cfg?.humaPoolState || HUMA_POOL_STATE;
-
-    const lenderState =
-      cfg?.poolHumaLenderStates?.[snapshot.poolId] ||
-      cfg?.humaLenderState ||
-      (isConfiguredAccountAddress(HUMA_LENDER_STATE)
-        ? HUMA_LENDER_STATE
-        : undefined);
-
-    return {
-      poolState: poolState || SYSTEM_PROGRAM_ID,
-      config: cfg?.humaConfig || HUMA_CONFIG,
-      poolConfig: cfg?.humaPoolConfig || HUMA_POOL_CONFIG,
-      modeConfig: cfg?.humaModeConfig || HUMA_MODE_CONFIG,
-      lenderState,
-      poolUnderlyingToken:
-        cfg?.humaPoolUnderlyingToken ||
-        (isConfiguredAccountAddress(HUMA_POOL_UNDERLYING_TOKEN)
-          ? HUMA_POOL_UNDERLYING_TOKEN
-          : undefined),
-    };
-  }
-
   async evaluate(
     snapshot: PoolStateSnapshot,
     context: CrankExecutionContext
@@ -103,17 +66,26 @@ export class DisburseSentinelWorker implements ICrankTask {
       };
     }
 
-    const humaAddresses = this.resolveHumaAddresses(snapshot, context);
-    if (!isConfiguredAccountAddress(humaAddresses.poolState)) {
+    const humaAddresses = resolveHumaAddresses(
+      {
+        lenderState:
+          context.config?.poolHumaLenderStates?.[snapshot.poolId] ??
+          context.config?.humaLenderState,
+        config: context.config?.humaConfig,
+        poolConfig: context.config?.humaPoolConfig,
+        modeConfig: context.config?.humaModeConfig,
+        poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
+      },
+      snapshot.pool.humaPoolState
+    );
+
+    const missing = CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS.filter(
+      (k) => !humaAddresses[k]
+    );
+    if (missing.length > 0) {
       return {
         shouldExecute: false,
-        reason: `Huma pool state is not configured for Pool #${snapshot.poolId}; auto-disburse skipped`,
-      };
-    }
-    if (!isConfiguredAccountAddress(humaAddresses.lenderState)) {
-      return {
-        shouldExecute: false,
-        reason: `Huma lender state is not configured for Pool #${snapshot.poolId} (HUMA_LENDER_STATE unset); auto-disburse skipped`,
+        reason: `Auto-disburse skipped for Pool #${snapshot.poolId}: missing required Huma address(es) [${missing.join(", ")}]`,
       };
     }
 
@@ -183,7 +155,18 @@ export class DisburseSentinelWorker implements ICrankTask {
     context: CrankExecutionContext,
     batch: PendingRedemptionCandidate[]
   ): Promise<Instruction[]> {
-    const humaAddresses = this.resolveHumaAddresses(snapshot, context);
+    const humaAddresses = resolveHumaAddresses(
+      {
+        lenderState:
+          context.config?.poolHumaLenderStates?.[snapshot.poolId] ??
+          context.config?.humaLenderState,
+        config: context.config?.humaConfig,
+        poolConfig: context.config?.humaPoolConfig,
+        modeConfig: context.config?.humaModeConfig,
+        poolUnderlyingToken: context.config?.humaPoolUnderlyingToken,
+      },
+      snapshot.pool.humaPoolState
+    );
 
     const tokenMint = address(snapshot.pool.tokenMint);
     const instructions: Instruction[] = [];

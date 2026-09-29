@@ -109,16 +109,11 @@ export function useBondsContract(poolId: number = 1) {
       if (!pool || !pool.ticketRegistry)
         throw new Error("Pool state not loaded");
 
-      const userAta = await import("../lib/bonds-sdk").then((m) =>
-        m.findAtaAddress(userAddress, m.USDC_MINT)
-      );
-
       const ix = await buildBuyBondsInstruction({
         poolId,
         userAddress: address(userAddress),
         ticketsToBuy,
         ticketRegistry: address(pool.ticketRegistry),
-        userTokenAccount: userAta,
         humaAddresses: pool.humaPoolState
           ? { poolState: address(pool.humaPoolState) }
           : undefined,
@@ -154,6 +149,9 @@ export function useBondsContract(poolId: number = 1) {
         pendingToSell,
         userRegistryIndex: userTickets.entryIndex,
         currentUserTotalTickets: userTickets.totalTickets,
+        humaAddresses: pool.humaPoolState
+          ? { poolState: address(pool.humaPoolState) }
+          : undefined,
       });
 
       const sig = await send({ instructions: [ix] });

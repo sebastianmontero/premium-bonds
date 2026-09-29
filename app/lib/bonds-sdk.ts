@@ -8,7 +8,6 @@
 import {
   address,
   Address,
-  isAddress,
   AccountRole,
   getProgramDerivedAddress,
   getBase58Decoder,
@@ -149,61 +148,193 @@ export function parseOptionalAddress(val?: string | null): Address | undefined {
   }
 }
 
-export function isConfiguredAccountAddress(addr?: unknown): addr is Address {
-  return (
-    typeof addr === "string" &&
-    isAddress(addr) &&
-    addr !== "11111111111111111111111111111111"
-  );
+export interface HumaPoolAddresses {
+  poolState?: Address;
+  config?: Address;
+  poolConfig?: Address;
+  modeConfig?: Address;
+  lenderState?: Address;
+  poolUnderlyingToken?: Address;
+  modeMint?: Address;
+  poolModeToken?: Address;
+  lenderModeToken?: Address;
+  redemptionRequest?: Address;
+  program?: Address;
 }
 
-export const HUMA_CONFIG = address(
-  process.env.HUMA_CONFIG ||
-    process.env.NEXT_PUBLIC_HUMA_CONFIG ||
-    "11111111111111111111111111111111"
+export function getDefaultHumaAddresses(): HumaPoolAddresses {
+  return {
+    config: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_CONFIG || process.env.HUMA_CONFIG
+    ),
+    poolConfig: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || process.env.HUMA_POOL_CONFIG
+    ),
+    poolState: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_POOL_STATE || process.env.HUMA_POOL_STATE
+    ),
+    modeConfig: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || process.env.HUMA_MODE_CONFIG
+    ),
+    lenderState: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_LENDER_STATE || process.env.HUMA_LENDER_STATE
+    ),
+    poolUnderlyingToken: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+        process.env.HUMA_POOL_UNDERLYING_TOKEN
+    ),
+    modeMint: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
+        process.env.HUMA_MODE_MINT ||
+        process.env.NEXT_PUBLIC_PST_MINT ||
+        process.env.PST_MINT
+    ),
+    poolModeToken: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+        process.env.HUMA_POOL_MODE_TOKEN
+    ),
+    redemptionRequest: parseOptionalAddress(
+      process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+        process.env.HUMA_REDEMPTION_REQUEST
+    ),
+    program:
+      parseOptionalAddress(
+        process.env.NEXT_PUBLIC_HUMA_PROGRAM_ID || process.env.HUMA_PROGRAM_ID
+      ) ?? HUMA_PROGRAM_ID,
+  };
+}
+
+export const HUMA_CONFIG: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_CONFIG || process.env.HUMA_CONFIG
 );
-export const HUMA_POOL_CONFIG = address(
-  process.env.HUMA_POOL_CONFIG ||
-    process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
-    "11111111111111111111111111111111"
+export const HUMA_POOL_CONFIG: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_POOL_CONFIG || process.env.HUMA_POOL_CONFIG
 );
-export const HUMA_POOL_STATE = address(
-  process.env.HUMA_POOL_STATE ||
-    process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-    "11111111111111111111111111111111"
+export const HUMA_POOL_STATE: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_POOL_STATE || process.env.HUMA_POOL_STATE
 );
-export const HUMA_MODE_CONFIG = address(
-  process.env.HUMA_MODE_CONFIG ||
-    process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
-    "11111111111111111111111111111111"
+export const HUMA_MODE_CONFIG: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_MODE_CONFIG || process.env.HUMA_MODE_CONFIG
 );
-export const HUMA_LENDER_STATE = address(
-  process.env.HUMA_LENDER_STATE ||
-    process.env.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-    "11111111111111111111111111111111"
+export const HUMA_LENDER_STATE: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_LENDER_STATE || process.env.HUMA_LENDER_STATE
 );
-export const HUMA_POOL_UNDERLYING_TOKEN = address(
-  process.env.HUMA_POOL_UNDERLYING_TOKEN ||
+export const HUMA_POOL_UNDERLYING_TOKEN: Address | undefined =
+  parseOptionalAddress(
     process.env.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-    "11111111111111111111111111111111"
-);
-export const HUMA_MODE_MINT = address(
-  process.env.HUMA_MODE_MINT ||
-    process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
+      process.env.HUMA_POOL_UNDERLYING_TOKEN
+  );
+export const HUMA_MODE_MINT: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
+    process.env.HUMA_MODE_MINT ||
     process.env.NEXT_PUBLIC_PST_MINT ||
-    process.env.PST_MINT ||
-    "11111111111111111111111111111111"
+    process.env.PST_MINT
 );
-export const HUMA_POOL_MODE_TOKEN = address(
-  process.env.HUMA_POOL_MODE_TOKEN ||
-    process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-    "11111111111111111111111111111111"
+export const HUMA_POOL_MODE_TOKEN: Address | undefined = parseOptionalAddress(
+  process.env.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    process.env.HUMA_POOL_MODE_TOKEN
 );
-export const HUMA_REDEMPTION_REQUEST = address(
-  process.env.HUMA_REDEMPTION_REQUEST ||
+export const HUMA_REDEMPTION_REQUEST: Address | undefined =
+  parseOptionalAddress(
     process.env.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-    "11111111111111111111111111111111"
-);
+      process.env.HUMA_REDEMPTION_REQUEST
+  );
+
+export class HumaConfigurationError extends Error {
+  readonly code = "CONFIG_MISSING_HUMA_ADDRESSES";
+  constructor(
+    public readonly missingKeys: readonly string[],
+    public readonly operationContext: string
+  ) {
+    super(
+      `Missing required Huma account address(es) for ${operationContext}: [${missingKeys.join(", ")}]. ` +
+        `Ensure they are configured in your environment or passed via 'humaAddresses'.`
+    );
+    this.name = "HumaConfigurationError";
+  }
+}
+
+export function resolveHumaAddresses(
+  overrides?: Partial<HumaPoolAddresses>,
+  poolHumaPoolState?: Address | string | null
+): HumaPoolAddresses {
+  const defaults = getDefaultHumaAddresses();
+  const parsedOverridePoolState = parseOptionalAddress(overrides?.poolState);
+  const parsedOnChain = parseOptionalAddress(poolHumaPoolState);
+
+  // If poolHumaPoolState was provided (e.g. not null/undefined) but parsed to undefined (e.g. "1111...1111"),
+  // preserve undefined to prevent silent cross-pool contamination from .env
+  const poolState =
+    parsedOverridePoolState ??
+    (poolHumaPoolState !== undefined && poolHumaPoolState !== null
+      ? parsedOnChain
+      : (parsedOnChain ?? defaults.poolState));
+
+  return {
+    poolState,
+    config: parseOptionalAddress(overrides?.config) ?? defaults.config,
+    poolConfig:
+      parseOptionalAddress(overrides?.poolConfig) ?? defaults.poolConfig,
+    modeConfig:
+      parseOptionalAddress(overrides?.modeConfig) ?? defaults.modeConfig,
+    lenderState:
+      parseOptionalAddress(overrides?.lenderState) ?? defaults.lenderState,
+    poolUnderlyingToken:
+      parseOptionalAddress(overrides?.poolUnderlyingToken) ??
+      defaults.poolUnderlyingToken,
+    modeMint: parseOptionalAddress(overrides?.modeMint) ?? defaults.modeMint,
+    poolModeToken:
+      parseOptionalAddress(overrides?.poolModeToken) ?? defaults.poolModeToken,
+    lenderModeToken: parseOptionalAddress(overrides?.lenderModeToken),
+    redemptionRequest:
+      parseOptionalAddress(overrides?.redemptionRequest) ??
+      defaults.redemptionRequest,
+    program: parseOptionalAddress(overrides?.program) ?? defaults.program,
+  };
+}
+
+export type RequiredHumaAddresses<K extends keyof HumaPoolAddresses> = Omit<
+  HumaPoolAddresses,
+  K
+> & {
+  readonly [P in K]: Address;
+};
+
+export function requireHumaAddresses<K extends keyof HumaPoolAddresses>(
+  addresses: Partial<HumaPoolAddresses> | undefined,
+  requiredKeys: readonly K[],
+  operationContext: string
+): RequiredHumaAddresses<K> {
+  const bag = addresses ?? {};
+  const missing: K[] = [];
+  for (const key of requiredKeys) {
+    const val = bag[key];
+    if (!val) {
+      missing.push(key);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new HumaConfigurationError(missing as string[], operationContext);
+  }
+  return { ...bag } as RequiredHumaAddresses<K>;
+}
+
+/**
+ * Resolves environment/on-chain defaults and validates required keys in one atomic operation,
+ * eliminating temporal coupling bugs between resolution and validation.
+ */
+export function resolveAndRequireHumaAddresses<
+  K extends keyof HumaPoolAddresses,
+>(
+  overrides: Partial<HumaPoolAddresses> | undefined,
+  requiredKeys: readonly K[],
+  operationContext: string,
+  poolHumaPoolState?: Address | string | null
+): RequiredHumaAddresses<K> {
+  const resolved = resolveHumaAddresses(overrides, poolHumaPoolState);
+  return requireHumaAddresses(resolved, requiredKeys, operationContext);
+}
 
 const textEncoder = new TextEncoder();
 const base58Encoder = getBase58Encoder();
@@ -276,23 +407,21 @@ export async function fetchBatchedBondsState(
   const { rpc, poolId, userAddress } = params;
   const poolPda = await findPrizePoolPda(poolId);
   const poolPstVault = await findPoolPstVaultPda(poolId);
-  const humaPoolState = params.humaPoolStateAddress
-    ? address(params.humaPoolStateAddress)
-    : HUMA_POOL_STATE;
-  const pstMint = params.pstMintAddress
-    ? address(params.pstMintAddress)
-    : HUMA_MODE_MINT;
-  const humaModeConfig = params.humaModeConfigAddress
-    ? address(params.humaModeConfigAddress)
-    : HUMA_MODE_CONFIG;
+  const humaPoolState =
+    parseOptionalAddress(params.humaPoolStateAddress) ?? HUMA_POOL_STATE;
+  const pstMint = parseOptionalAddress(params.pstMintAddress) ?? HUMA_MODE_MINT;
+  const humaModeConfig =
+    parseOptionalAddress(params.humaModeConfigAddress) ?? HUMA_MODE_CONFIG;
 
   const accountMap: { key: keyof BatchedBondsAccounts; address: Address }[] = [
     { key: "poolAccountData", address: poolPda },
     { key: "poolPstVaultData", address: poolPstVault },
-    { key: "humaPoolStateData", address: humaPoolState },
-    { key: "pstMintData", address: pstMint },
-    { key: "humaModeConfigData", address: humaModeConfig },
   ];
+  if (humaPoolState)
+    accountMap.push({ key: "humaPoolStateData", address: humaPoolState });
+  if (pstMint) accountMap.push({ key: "pstMintData", address: pstMint });
+  if (humaModeConfig)
+    accountMap.push({ key: "humaModeConfigData", address: humaModeConfig });
 
   if (userAddress) {
     const userWinningsPda = await findUserWinningsPda(poolId, userAddress);
@@ -350,16 +479,11 @@ export async function fetchTicketRegistryHeader(
   rpc: SolanaRpc,
   registryAddress: Address | string
 ): Promise<TicketRegistry | null> {
-  if (
-    !registryAddress ||
-    registryAddress === "11111111111111111111111111111111"
-  ) {
+  const parsed = parseOptionalAddress(registryAddress?.toString());
+  if (!parsed) {
     return null;
   }
-  const headerBytes = await fetchTicketRegistryHeaderSlice(
-    rpc,
-    registryAddress
-  );
+  const headerBytes = await fetchTicketRegistryHeaderSlice(rpc, parsed);
   if (!headerBytes) return null;
   return parseRegistryHeaderFromSlice(headerBytes);
 }
@@ -496,16 +620,17 @@ export async function findPendingRedemptionPda(
 }
 
 export async function findHumaPoolAuthorityPda(
-  poolState: string
+  poolState: Address | string,
+  programId?: Address
 ): Promise<Address> {
-  const [addr] = await getProgramDerivedAddress({
-    programAddress: HUMA_PROGRAM_ID,
+  const [authority] = await getProgramDerivedAddress({
+    programAddress: programId ?? HUMA_PROGRAM_ID,
     seeds: [
       textEncoder.encode("pool_authority"),
       base58Encoder.encode(address(poolState)),
     ],
   });
-  return addr;
+  return authority;
 }
 
 export async function findPayoutRegistryPda(
@@ -865,9 +990,11 @@ export async function fetchPendingRedemptionCandidates(
   params: FetchPendingRedemptionCandidatesParams
 ): Promise<PendingRedemptionCandidate[]> {
   const { rpc, poolId } = params;
-  const humaPoolAddr = params.humaPoolState
-    ? address(params.humaPoolState)
-    : HUMA_POOL_STATE;
+  const humaPoolAddr =
+    parseOptionalAddress(params.humaPoolState) ?? HUMA_POOL_STATE;
+  if (!humaPoolAddr) {
+    return [];
+  }
 
   let nextRequestId = 0n;
   try {
@@ -1387,13 +1514,11 @@ export async function fetchPoolYieldOnChainState(
     humaModeConfigAddress?: Address | string;
   }
 ): Promise<PoolYieldOnChainState> {
-  const humaPoolState = params.humaPoolStateAddress
-    ? address(params.humaPoolStateAddress)
-    : null;
-  const pstMint = params.pstMintAddress ? address(params.pstMintAddress) : null;
-  const humaModeConfig = params.humaModeConfigAddress
-    ? address(params.humaModeConfigAddress)
-    : null;
+  const humaPoolState =
+    parseOptionalAddress(params.humaPoolStateAddress) ?? null;
+  const pstMint = parseOptionalAddress(params.pstMintAddress) ?? null;
+  const humaModeConfig =
+    parseOptionalAddress(params.humaModeConfigAddress) ?? null;
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
 
   const [humaRes, pstMintRes, poolPstVaultRes, humaModeConfigRes] =
@@ -1984,46 +2109,41 @@ export async function resolveWinnerAddress(
   );
 }
 
-export interface HumaStateAddresses {
-  humaProgram?: Address | string;
-  humaConfig?: Address | string;
-  humaPoolConfig?: Address | string;
-  humaPoolState?: Address | string;
-  humaModeConfig?: Address | string;
-  humaModeMint?: Address | string;
-  humaLenderState?: Address | string;
-  humaLenderModeToken?: Address | string;
-}
+export const INITIALIZE_HUMA_LENDER_REQUIRED_KEYS = [
+  "poolState",
+  "config",
+  "poolConfig",
+  "modeConfig",
+  "modeMint",
+  "lenderState",
+] as const;
 
 export async function buildInitializeHumaLenderInstruction(params: {
   admin: TransactionSigner;
   poolId: number;
-  humaStateAddresses?: HumaStateAddresses;
+  humaAddresses?: Partial<HumaPoolAddresses>;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
-  const addrs = params.humaStateAddresses ?? {};
-
-  const humaConfig = addrs.humaConfig || SYSTEM_PROGRAM_ID;
-  const humaPoolConfig = addrs.humaPoolConfig || SYSTEM_PROGRAM_ID;
-  const humaPoolState = addrs.humaPoolState || SYSTEM_PROGRAM_ID;
-  const humaModeConfig = addrs.humaModeConfig || SYSTEM_PROGRAM_ID;
-  const humaModeMint = addrs.humaModeMint || SYSTEM_PROGRAM_ID;
-  const humaLenderState = addrs.humaLenderState || SYSTEM_PROGRAM_ID;
-  const humaLenderModeToken = addrs.humaLenderModeToken || poolPstVault;
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    INITIALIZE_HUMA_LENDER_REQUIRED_KEYS,
+    "InitializeHumaLender"
+  );
+  const humaLenderModeToken = huma.lenderModeToken ?? poolPstVault;
 
   return getInitializeHumaLenderInstructionAsync({
     admin: params.admin,
-    humaProgram: addrs.humaProgram ? address(addrs.humaProgram) : undefined,
+    humaProgram: huma.program ?? HUMA_PROGRAM_ID,
     pool,
     poolPstVault,
-    humaConfig: address(humaConfig),
-    humaPoolConfig: address(humaPoolConfig),
-    humaPoolState: address(humaPoolState),
-    humaModeConfig: address(humaModeConfig),
-    humaModeMint: address(humaModeMint),
-    humaLenderState: address(humaLenderState),
-    humaLenderModeToken: address(humaLenderModeToken),
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaModeMint: huma.modeMint,
+    humaLenderState: huma.lenderState,
+    humaLenderModeToken,
     pstTokenProgram: TOKEN_PROGRAM_ID,
   });
 }
@@ -2041,6 +2161,16 @@ export async function buildResizeRegistryInstruction(params: {
   });
 }
 
+export const WITHDRAW_FEES_REQUIRED_HUMA_KEYS = [
+  "poolState",
+  "config",
+  "poolConfig",
+  "modeConfig",
+  "modeMint",
+  "redemptionRequest",
+  "lenderState",
+] as const;
+
 export async function buildWithdrawFeesInstruction(params: {
   admin: Address | TransactionSigner;
   poolId: number;
@@ -2048,69 +2178,45 @@ export async function buildWithdrawFeesInstruction(params: {
   tokenMint: Address;
   feeWallet: Address;
   nextRedemptionId: bigint | number;
-  humaStateAddresses?: Record<string, string | undefined>;
+  humaAddresses?: Partial<HumaPoolAddresses>;
 }) {
   const pool = await findPrizePoolPda(params.poolId);
-  const addrs = params.humaStateAddresses ?? {};
-  const humaPoolStateStr =
-    addrs.humaPoolState ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_STATE ||
-    SYSTEM_PROGRAM_ID;
-  const humaPoolAuthority = await findHumaPoolAuthorityPda(humaPoolStateStr);
   const poolPstVault = await findPoolPstVaultPda(params.poolId);
   const pendingRedemption = await findPendingRedemptionPda(
     params.poolId,
     params.nextRedemptionId
   );
-
-  const humaConfig =
-    addrs.humaConfig || addrs.NEXT_PUBLIC_HUMA_CONFIG || SYSTEM_PROGRAM_ID;
-  const humaPoolConfig =
-    addrs.humaPoolConfig ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_CONFIG ||
-    SYSTEM_PROGRAM_ID;
-  const humaModeConfig =
-    addrs.humaModeConfig ||
-    addrs.NEXT_PUBLIC_HUMA_MODE_CONFIG ||
-    SYSTEM_PROGRAM_ID;
-  const humaModeMint =
-    addrs.humaModeMint ||
-    addrs.NEXT_PUBLIC_HUMA_MODE_MINT ||
-    addrs.pstMint ||
-    addrs.NEXT_PUBLIC_PST_MINT ||
-    SYSTEM_PROGRAM_ID;
-  const humaRedemptionRequest =
-    addrs.humaRedemptionRequest ||
-    addrs.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-    humaPoolStateStr;
-  const humaLenderState =
-    addrs.humaLenderState ||
-    addrs.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-    SYSTEM_PROGRAM_ID;
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    WITHDRAW_FEES_REQUIRED_HUMA_KEYS,
+    "WithdrawFees"
+  );
+  const humaPoolAuthority = await findHumaPoolAuthorityPda(
+    huma.poolState,
+    huma.program
+  );
   const humaPoolModeToken =
-    addrs.humaPoolModeToken ||
-    addrs.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-    addrs.humaLenderModeToken ||
-    poolPstVault;
+    huma.poolModeToken ??
+    (await findAtaAddress(humaPoolAuthority, huma.modeMint, TOKEN_PROGRAM_ID));
 
   return getWithdrawFeesInstructionAsync({
     admin: params.admin as TransactionSigner,
     pool,
     poolPstVault,
     pendingRedemption,
-    feeWallet: params.feeWallet,
-    tokenMint: params.tokenMint,
-    amount: BigInt(params.amount),
-    humaConfig: address(humaConfig),
-    humaPoolConfig: address(humaPoolConfig),
-    humaPoolState: address(humaPoolStateStr),
-    humaModeConfig: address(humaModeConfig),
-    humaModeMint: address(humaModeMint),
-    humaRedemptionRequest: address(humaRedemptionRequest),
-    humaLenderState: address(humaLenderState),
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaModeMint: huma.modeMint,
+    humaRedemptionRequest: huma.redemptionRequest,
+    humaLenderState: huma.lenderState,
     humaPoolAuthority,
-    humaPoolModeToken: address(humaPoolModeToken),
+    humaPoolModeToken,
     pstTokenProgram: TOKEN_PROGRAM_ID,
+    amount: BigInt(params.amount),
+    tokenMint: params.tokenMint,
+    feeWallet: params.feeWallet,
   });
 }
 
@@ -2152,17 +2258,13 @@ export async function buildCrankRebindExpiredRandomnessInstruction(params: {
   });
 }
 
-export interface HumaPoolAddresses {
-  poolState: Address;
-  config?: Address;
-  poolConfig?: Address;
-  modeConfig?: Address;
-  lenderState?: Address;
-  poolUnderlyingToken?: Address;
-  modeMint?: Address;
-  poolModeToken?: Address;
-  redemptionRequest?: Address;
-}
+export const CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS = [
+  "poolState",
+  "config",
+  "poolConfig",
+  "modeConfig",
+  "lenderState",
+] as const;
 
 export interface BuildClaimRedemptionParams {
   crank: Address | KeyPairSigner | TransactionSigner;
@@ -2170,7 +2272,7 @@ export interface BuildClaimRedemptionParams {
   poolId: number;
   redemptionId: bigint | number;
   tokenMint: Address;
-  humaAddresses: HumaPoolAddresses;
+  humaAddresses?: Partial<HumaPoolAddresses>;
   redemptionType?: RedemptionType;
   feeWallet?: Address;
   beneficiaryTokenAccount?: Address;
@@ -2215,11 +2317,20 @@ export async function buildClaimRedemptionInstruction(
           params.tokenMint,
           tokenProgram
         ));
+
+  const huma = resolveAndRequireHumaAddresses(
+    params.humaAddresses,
+    CLAIM_REDEMPTION_REQUIRED_HUMA_KEYS,
+    "ClaimRedemption",
+    params.humaAddresses?.poolState
+  );
+
   const humaPoolAuthority = await findHumaPoolAuthorityPda(
-    params.humaAddresses.poolState
+    huma.poolState,
+    huma.program
   );
   const humaPoolUnderlyingToken =
-    params.humaAddresses.poolUnderlyingToken ??
+    huma.poolUnderlyingToken ??
     (await findAtaAddress(humaPoolAuthority, params.tokenMint, tokenProgram));
 
   if (humaPoolUnderlyingToken === poolVaultAccount) {
@@ -2230,20 +2341,6 @@ export async function buildClaimRedemptionInstruction(
 
   const eventAuthority = await findEventAuthorityPda();
 
-  const lenderState =
-    params.humaAddresses.lenderState ??
-    (isConfiguredAccountAddress(HUMA_LENDER_STATE)
-      ? HUMA_LENDER_STATE
-      : undefined);
-
-  if (!isConfiguredAccountAddress(lenderState)) {
-    throw new Error(
-      "Missing or invalid humaLenderState account for ClaimRedemption. " +
-        "Huma lender state cannot be SYSTEM_PROGRAM_ID because on-chain instruction requires mutability (#[account(mut)]). " +
-        "Please configure HUMA_LENDER_STATE or provide a valid lenderState in humaAddresses."
-    );
-  }
-
   const ix = await getClaimRedemptionInstructionAsync({
     caller: params.crank as TransactionSigner,
     beneficiary: params.beneficiary,
@@ -2252,23 +2349,11 @@ export async function buildClaimRedemptionInstruction(
     tokenMint: params.tokenMint,
     poolVaultAccount,
     beneficiaryTokenAccount,
-    humaConfig:
-      params.humaAddresses.config ||
-      (isConfiguredAccountAddress(HUMA_CONFIG)
-        ? HUMA_CONFIG
-        : SYSTEM_PROGRAM_ID),
-    humaPoolConfig:
-      params.humaAddresses.poolConfig ||
-      (isConfiguredAccountAddress(HUMA_POOL_CONFIG)
-        ? HUMA_POOL_CONFIG
-        : SYSTEM_PROGRAM_ID),
-    humaPoolState: params.humaAddresses.poolState,
-    humaModeConfig:
-      params.humaAddresses.modeConfig ||
-      (isConfiguredAccountAddress(HUMA_MODE_CONFIG)
-        ? HUMA_MODE_CONFIG
-        : SYSTEM_PROGRAM_ID),
-    humaLenderState: lenderState,
+    humaConfig: huma.config,
+    humaPoolConfig: huma.poolConfig,
+    humaPoolState: huma.poolState,
+    humaModeConfig: huma.modeConfig,
+    humaLenderState: huma.lenderState,
     humaPoolAuthority,
     humaPoolUnderlyingToken,
     tokenProgram,

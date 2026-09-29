@@ -27,7 +27,7 @@ import {
   Winner,
 } from "../payout-registry-helpers";
 import type { DrawCycleInfo } from "../bonds-sdk";
-import { TEST_ADDRESSES } from "./addresses";
+import { TEST_ADDRESSES, MOCK_HUMA_ADDRESSES } from "./addresses";
 
 const MOCK_PUBKEY = TEST_ADDRESSES.USER;
 const MOCK_TOKEN_MINT = TEST_ADDRESSES.MINT;
@@ -62,7 +62,7 @@ export function buildMockPrizePool(
     tokenMint: MOCK_TOKEN_MINT,
     ticketRegistry: MOCK_PUBKEY,
     feeWallet: MOCK_PUBKEY,
-    humaPoolState: MOCK_PUBKEY,
+    humaPoolState: MOCK_HUMA_ADDRESSES.poolState,
     bondPrice: 1_000_000n,
     stakeCycleDurationHrs: 24n,
     minYieldThreshold: 0n,
@@ -104,7 +104,7 @@ export function buildMockPrizePoolArgs(
     tokenMint: MOCK_TOKEN_MINT,
     ticketRegistry: MOCK_PUBKEY,
     feeWallet: MOCK_PUBKEY,
-    humaPoolState: MOCK_PUBKEY,
+    humaPoolState: MOCK_HUMA_ADDRESSES.poolState,
     bondPrice: 1_000_000n,
     stakeCycleDurationHrs: 24n,
     minYieldThreshold: 0n,

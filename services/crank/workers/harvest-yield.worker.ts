@@ -1,7 +1,7 @@
-import { address, Instruction } from "@solana/kit";
+import { Instruction } from "@solana/kit";
 import {
   buildHarvestYieldAndCommitInstruction,
-  SYSTEM_PROGRAM_ID,
+  resolveHumaAddresses,
 } from "../../../app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -35,26 +35,26 @@ export class HarvestYieldWorker implements ICrankTask {
       };
     }
 
+    const huma = resolveHumaAddresses(
+      { modeMint: this.config?.pstMint },
+      snapshot.pool.humaPoolState
+    );
+
+    const pstMint = huma.modeMint;
+    const humaPoolState = huma.poolState;
+
+    if (!pstMint || !humaPoolState) {
+      return {
+        shouldExecute: false,
+        reason: `Harvest skipped: PST mint or Huma pool state unconfigured for Pool #${snapshot.poolId}`,
+      };
+    }
+
+    // Preflight passed; now safely allocate Switchboard VRF randomness
     const vrf = await this.vrfProvider.prepareHarvestRandomness({
       poolId: snapshot.poolId,
       cycleId: snapshot.currentCycleId,
     });
-
-    const pstMint =
-      this.config?.pstMint ||
-      address(
-        process.env.NEXT_PUBLIC_HUMA_MODE_MINT ||
-          process.env.HUMA_MODE_MINT ||
-          SYSTEM_PROGRAM_ID
-      );
-
-    const humaPoolState =
-      snapshot.pool.humaPoolState ||
-      address(
-        process.env.NEXT_PUBLIC_HUMA_POOL_STATE ||
-          process.env.HUMA_POOL_STATE ||
-          SYSTEM_PROGRAM_ID
-      );
 
     const harvestIx = await buildHarvestYieldAndCommitInstruction({
       crank: context.signer,

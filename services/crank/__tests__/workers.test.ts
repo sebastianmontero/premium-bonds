@@ -8,7 +8,7 @@ import { AtomicRevealWorker } from "../workers/atomic-reveal.worker";
 import { ReinvestWinningsWorker } from "../workers/reinvest-winnings.worker";
 import { CapacitySentinelWorker } from "../workers/capacity-sentinel.worker";
 import { DisburseSentinelWorker } from "../workers/disburse-sentinel.worker";
-import { MockVrfProvider } from "../vrf/randomness-provider";
+import { MockVrfProvider, IVrfProvider } from "../vrf/randomness-provider";
 import { RedemptionType, ATA_PROGRAM_ID } from "@/app/lib/bonds-sdk";
 import {
   CrankExecutionContext,
@@ -23,6 +23,7 @@ import {
   buildMockTicketRegistry,
   buildMockPayoutRegistry,
   TEST_ADDRESSES,
+  createMockHumaAddresses,
 } from "@/app/lib/test-harness";
 
 const mockAddress = TEST_ADDRESSES.USER;
@@ -32,6 +33,7 @@ function createMockContext(
   configOverrides?: Partial<CrankExecutionContext["config"]>
 ): CrankExecutionContext {
   const rpcUrl = configOverrides?.rpcUrl ?? "http://127.0.0.1:8899";
+  const mockHuma = createMockHumaAddresses();
   return {
     signer,
     rpcUrl,
@@ -55,9 +57,13 @@ function createMockContext(
       jitoEnabled: false,
       jitoTipLamports: 10000n,
       maxJitoTipLamports: 100000n,
-      humaLenderState: TEST_ADDRESSES.USER_2,
-      humaPoolState: TEST_ADDRESSES.HUMA_POOL,
-      humaPoolUnderlyingToken: TEST_ADDRESSES.USER,
+      humaLenderState: mockHuma.lenderState,
+      humaPoolState: mockHuma.poolState,
+      humaPoolUnderlyingToken: mockHuma.poolUnderlyingToken,
+      humaConfig: mockHuma.config,
+      humaPoolConfig: mockHuma.poolConfig,
+      humaModeConfig: mockHuma.modeConfig,
+      pstMint: mockHuma.modeMint,
       dryRun: true,
       ...configOverrides,
     },
@@ -69,7 +75,7 @@ describe("Strategy Workers Unit Tests", () => {
     const signer = await generateKeyPairSigner();
     const ctx = createMockContext(signer);
     const vrf = new MockVrfProvider();
-    const worker = new HarvestYieldWorker(vrf);
+    const worker = new HarvestYieldWorker(vrf, ctx.config);
 
     const snapshot = {
       poolId: toPoolId(1),
@@ -90,6 +96,50 @@ describe("Strategy Workers Unit Tests", () => {
       assert.strictEqual(outcome.computeUnitLimit, 200_000);
       assert.strictEqual(outcome.instructions.length, 1);
     }
+  });
+
+  it("HarvestYieldWorker should skip before VRF preparation if PST mint or Huma pool state is missing", async () => {
+    const signer = await generateKeyPairSigner();
+    const ctx = createMockContext(signer, { pstMint: undefined });
+    let vrfCalled = false;
+    const vrf = {
+      async prepareHarvestRandomness() {
+        vrfCalled = true;
+        return {
+          randomnessAccount: mockAddress,
+          instructions: [],
+          signers: [],
+        };
+      },
+    } as unknown as IVrfProvider;
+    const worker = new HarvestYieldWorker(vrf, {
+      ...ctx.config!,
+      pstMint: undefined,
+    });
+
+    const snapshot = {
+      poolId: toPoolId(1),
+      poolAddress: mockAddress,
+      pool: buildMockPrizePool({ humaPoolState: undefined }),
+      ticketRegistryAddress: mockAddress,
+      ticketRegistry: buildMockTicketRegistry(),
+      currentSlot: 500n,
+      currentTimestamp: toUnixTimestamp(1000),
+      state: "YIELD_HARVEST_READY" as const,
+      currentCycleId: toDrawCycleId(1),
+    };
+
+    const outcome = await worker.evaluate(snapshot, ctx);
+    assert.strictEqual(outcome.shouldExecute, false);
+    assert.match(
+      outcome.reason,
+      /Harvest skipped: PST mint or Huma pool state unconfigured/
+    );
+    assert.strictEqual(
+      vrfCalled,
+      false,
+      "VRF preparation must not be called when unconfigured"
+    );
   });
 
   it("PrepareDrawWorker should compute exact batch size and trigger execution", async () => {
@@ -595,7 +645,10 @@ describe("Strategy Workers Unit Tests", () => {
 
     const outcome = await sentinel.evaluate(snapshot, ctx);
     assert.strictEqual(outcome.shouldExecute, false);
-    assert.match(outcome.reason, /Huma lender state is not configured/);
+    assert.match(
+      outcome.reason,
+      /missing required Huma address\(es\).*lenderState/
+    );
   });
 
   it("DisburseSentinelWorker should select pool-specific humaLenderState from poolHumaLenderStates if configured", async () => {

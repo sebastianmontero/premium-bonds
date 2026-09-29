@@ -5,8 +5,9 @@ import {
   ANCHOR_CUSTOM_ERRORS,
   toNumericCode,
   safeJsonStringify,
+  getErrorCategoryTheme,
 } from "../app/lib/errors";
-import { PROGRAM_ID } from "../app/lib/bonds-sdk";
+import { PROGRAM_ID, HumaConfigurationError } from "../app/lib/bonds-sdk";
 import {
   ANCHOR_ERROR__POOL_NOT_ACTIVE,
   ANCHOR_ERROR__INVALID_POOL_STATUS,
@@ -374,6 +375,37 @@ describe("Codama Error Mapping & Transaction Error Sanitization", () => {
       );
       assert.strictEqual(parsedSim.code, 6011);
       assert.strictEqual(parsedSim.title, "Program Error: UnauthorizedCrank");
+    });
+
+    it("should map HumaConfigurationError to category configuration with user-friendly copy and theme", () => {
+      const configErr = new HumaConfigurationError(
+        ["poolState", "lenderState"],
+        "BuyBonds"
+      );
+      const parsed = parseTransactionError(configErr);
+
+      assert.strictEqual(parsed.category, "configuration");
+      assert.strictEqual(parsed.layer, "configuration");
+      assert.strictEqual(parsed.title, "Yield Venue Unavailable");
+      assert.strictEqual(parsed.code, "CONFIG_MISSING_HUMA_ADDRESSES");
+      assert.strictEqual(
+        parsed.message,
+        "This prize pool's yield venue configuration is incomplete on this network. Deposits and withdrawals are momentarily paused."
+      );
+      assert.strictEqual(
+        parsed.actionableStep,
+        "Please select an active pool or switch network clusters."
+      );
+      assert.strictEqual(parsed.isCancellation, false);
+      assert.ok(parsed.logs && parsed.logs.length > 0);
+      assert.ok(
+        parsed.logs[0].includes("missingKeys") ||
+          parsed.logs[0].includes("Missing required Huma account")
+      );
+
+      const theme = getErrorCategoryTheme(parsed.category);
+      assert.strictEqual(theme.icon, "⚙️");
+      assert.strictEqual(theme.titleColor, "text-amber-300");
     });
   });
 });

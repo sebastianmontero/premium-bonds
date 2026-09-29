@@ -78,6 +78,8 @@ import {
 } from "./generated/yield-bonds/src/generated";
 import { matchSolanaCoreError } from "./solana-core-errors";
 
+import { HumaConfigurationError } from "./bonds-sdk";
+
 export * from "./solana-core-errors";
 
 export type ErrorLayer =
@@ -87,6 +89,7 @@ export type ErrorLayer =
   | "spl"
   | "system"
   | "rpc"
+  | "configuration"
   | "unknown";
 
 export type ErrorCategory =
@@ -100,6 +103,7 @@ export type ErrorCategory =
   | "blockhash_expired"
   | "duplicate_transaction"
   | "network_rpc"
+  | "configuration"
   | "unknown";
 
 export interface ErrorThemeConfig {
@@ -115,6 +119,15 @@ export function getErrorCategoryTheme(
   category: ErrorCategory = "unknown"
 ): ErrorThemeConfig {
   switch (category) {
+    case "configuration":
+      return {
+        icon: "⚙️",
+        borderColor: "border-amber-500/30",
+        bgBadgeColor: "bg-amber-500/10",
+        titleColor: "text-amber-300",
+        accentBorder: "border-s-amber-400",
+        ringBorder: "border-amber-500/30",
+      };
     case "squads_multisig":
       return {
         icon: "🏛️",
@@ -1707,6 +1720,30 @@ export function parseTransactionError(
   ]
     .filter(Boolean)
     .join(" ");
+
+  // 1b. Check for Huma Configuration Errors
+  if (
+    err instanceof HumaConfigurationError ||
+    (err as Record<string, unknown>)?.code ===
+      "CONFIG_MISSING_HUMA_ADDRESSES" ||
+    combinedSearchText
+      .toLowerCase()
+      .includes("missing required huma account address")
+  ) {
+    return {
+      isCancellation: false,
+      layer: "configuration",
+      category: "configuration",
+      title: "Yield Venue Unavailable",
+      message:
+        "This prize pool's yield venue configuration is incomplete on this network. Deposits and withdrawals are momentarily paused.",
+      code: "CONFIG_MISSING_HUMA_ADDRESSES",
+      actionableStep:
+        "Please select an active pool or switch network clusters.",
+      logs: [rawMsg],
+      rawError: err,
+    };
+  }
 
   // 2. Check for Squads V4 and Anchor Custom / Framework Errors
   const squadsMatch =

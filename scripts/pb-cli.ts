@@ -314,6 +314,8 @@ import {
   buildClaimRedemptionInstructions,
   HumaPoolAddresses,
   findAtaAddress,
+  decodeAccountBase64Data,
+  parseOptionalAddress,
 } from "../app/lib/bonds-sdk";
 
 // Switchboard On-Demand binary account layout constants
@@ -3059,6 +3061,53 @@ export interface ExecuteInitializeHumaLenderParams {
   mode?: AdminExecutionMode;
 }
 
+function extractCliHumaAddresses(
+  stateAddresses: Record<string, string | undefined>,
+  onChainHumaPoolState?: string | Address | null
+): Partial<HumaPoolAddresses> {
+  return {
+    poolState: parseOptionalAddress(
+      onChainHumaPoolState || stateAddresses.humaPoolState
+    ),
+    config: parseOptionalAddress(
+      stateAddresses.humaConfig ||
+        stateAddresses.HUMA_CONFIG ||
+        stateAddresses.NEXT_PUBLIC_HUMA_CONFIG
+    ),
+    poolConfig: parseOptionalAddress(
+      stateAddresses.humaPoolConfig ||
+        stateAddresses.HUMA_POOL_CONFIG ||
+        stateAddresses.NEXT_PUBLIC_HUMA_POOL_CONFIG
+    ),
+    modeConfig: parseOptionalAddress(
+      stateAddresses.humaModeConfig ||
+        stateAddresses.HUMA_MODE_CONFIG ||
+        stateAddresses.NEXT_PUBLIC_HUMA_MODE_CONFIG
+    ),
+    modeMint: parseOptionalAddress(
+      stateAddresses.pstMint ||
+        stateAddresses.HUMA_MODE_MINT ||
+        stateAddresses.NEXT_PUBLIC_HUMA_MODE_MINT
+    ),
+    lenderState: parseOptionalAddress(
+      stateAddresses.humaLenderState ||
+        stateAddresses.HUMA_LENDER_STATE ||
+        stateAddresses.NEXT_PUBLIC_HUMA_LENDER_STATE
+    ),
+    redemptionRequest: parseOptionalAddress(
+      stateAddresses.humaRedemptionRequest ||
+        stateAddresses.HUMA_REDEMPTION_REQUEST
+    ),
+    poolModeToken: parseOptionalAddress(
+      stateAddresses.humaPoolModeToken || stateAddresses.HUMA_POOL_MODE_TOKEN
+    ),
+    lenderModeToken: parseOptionalAddress(
+      stateAddresses.humaLenderModeToken ||
+        stateAddresses.HUMA_LENDER_MODE_TOKEN
+    ),
+  };
+}
+
 export async function executeInitializeHumaLender({
   poolId = 1,
   rpcUrl = "http://127.0.0.1:8899",
@@ -3073,9 +3122,13 @@ export async function executeInitializeHumaLender({
   const poolAcc = await rpc
     .getAccountInfo(poolPda, { encoding: "base64" })
     .send();
-  if (!poolAcc || !poolAcc.value) {
-    throw new Error(`PrizePool account for pool ${poolId} not found.`);
-  }
+  const poolBytes = decodeAccountBase64Data(poolAcc.value);
+  const poolState = poolBytes ? parsePrizePool(poolBytes) : null;
+
+  const humaAddresses = extractCliHumaAddresses(
+    stateAddresses,
+    poolState?.humaPoolState
+  );
 
   const globalAdmin = await getGlobalAdmin(rpc);
 
@@ -3091,7 +3144,7 @@ export async function executeInitializeHumaLender({
       return await buildInitializeHumaLenderInstruction({
         admin: auth,
         poolId,
-        humaStateAddresses: stateAddresses,
+        humaAddresses,
       });
     },
   });
@@ -3429,6 +3482,11 @@ To execute this on-chain, re-run with --confirm.`);
 
   const globalAdmin = await getGlobalAdmin(rpc);
 
+  const humaAddresses = extractCliHumaAddresses(
+    stateAddresses,
+    poolState.humaPoolState
+  );
+
   await dispatchAdminInstruction({
     rpc,
     signer,
@@ -3450,7 +3508,7 @@ To execute this on-chain, re-run with --confirm.`);
         tokenMint: address(poolState.tokenMint),
         feeWallet: address(poolState.feeWallet),
         nextRedemptionId: poolState.nextRedemptionId,
-        humaStateAddresses: stateAddresses,
+        humaAddresses,
       });
     },
   });

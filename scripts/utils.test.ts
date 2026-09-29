@@ -56,7 +56,10 @@ import {
   ATA_PROGRAM_ID,
   PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
-import { TEST_ADDRESSES } from "../app/lib/test-harness";
+import {
+  TEST_ADDRESSES,
+  createMockHumaAddresses,
+} from "../app/lib/test-harness";
 
 describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
   describe("Anchor Error Decoding", () => {
@@ -1232,10 +1235,9 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           poolId: 1,
           redemptionId: 4n,
           tokenMint,
-          humaAddresses: {
+          humaAddresses: createMockHumaAddresses({
             poolState: TEST_ADDRESSES.HUMA_POOL,
-            lenderState: TEST_ADDRESSES.USER_2,
-          },
+          }),
           redemptionType: RedemptionType.FeeWithdrawal,
           feeWallet,
         });
@@ -1263,10 +1265,9 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           poolId: 1,
           redemptionId: 1n,
           tokenMint,
-          humaAddresses: {
+          humaAddresses: createMockHumaAddresses({
             poolState: TEST_ADDRESSES.HUMA_POOL,
-            lenderState: TEST_ADDRESSES.USER_2,
-          },
+          }),
           redemptionType: RedemptionType.BondSale,
         });
 
