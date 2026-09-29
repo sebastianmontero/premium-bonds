@@ -2831,9 +2831,9 @@ export function parseAndValidatePrizeTiers(
     totalBps += t.numWinners * t.basisPoints;
   });
 
-  if (totalWinners > 50) {
+  if (totalWinners > 180) {
     throw new Error(
-      `Total winners (${totalWinners}) exceeds maximum allowed on-chain limit (50).`
+      `Total winners (${totalWinners}) exceeds maximum allowed on-chain limit (180).`
     );
   }
 
