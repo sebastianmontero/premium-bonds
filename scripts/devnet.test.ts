@@ -19,6 +19,8 @@ import {
   TOKEN_PROGRAM_ID,
   buildTransferSolInstruction,
   buildCreateAccountInstruction,
+  parseDeficitArgs,
+  printDeficitCalculationBreakdown,
 } from "./utils";
 import {
   reconcilePoolState,
@@ -28,6 +30,7 @@ import {
   parseSettleArgs,
   ensureHumaLenderStateOnChain,
   HUMA_LENDER_STATE_SPACE,
+  handleDeficit,
 } from "./devnet";
 import { buildFundInstructions } from "./user-seeding";
 import * as path from "path";
@@ -37,6 +40,8 @@ import {
   findPoolPstVaultPda,
   findGlobalConfigPda,
   createAssociatedTokenIdempotentInstruction,
+  calculateDeficitSimulation,
+  buildSetTotalAssetsInstruction,
   ATA_PROGRAM_ID,
 } from "../app/lib/bonds-sdk";
 
@@ -879,6 +884,196 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
 
         assert.strictEqual(getAccountInfoCalled, true);
         assert.strictEqual(getRentCalled, false); // skipped because already exists and valid
+      });
+    });
+
+    describe("parseDeficitArgs", () => {
+      it("defaults to 1.0 USDC on Pool 1 when arguments are empty", () => {
+        const res = parseDeficitArgs([]);
+        assert.strictEqual(res.deficitMicroUsdc, 1_000_000n);
+        assert.strictEqual(res.poolId, 1);
+        assert.strictEqual(res.keypairPath, undefined);
+      });
+
+      it("parses positional deficit amount", () => {
+        const res = parseDeficitArgs(["5.25"]);
+        assert.strictEqual(res.deficitMicroUsdc, 5_250_000n);
+        assert.strictEqual(res.poolId, 1);
+        assert.strictEqual(res.keypairPath, undefined);
+      });
+
+      it("parses positional keypair path when ending with .json", () => {
+        const res = parseDeficitArgs(["/tmp/custom-admin.json"]);
+        assert.strictEqual(res.deficitMicroUsdc, 1_000_000n);
+        assert.strictEqual(res.poolId, 1);
+        assert.strictEqual(res.keypairPath, "/tmp/custom-admin.json");
+      });
+
+      it("parses both positional amount and positional keypair", () => {
+        const res = parseDeficitArgs(["10.5", "./id.json"]);
+        assert.strictEqual(res.deficitMicroUsdc, 10_500_000n);
+        assert.strictEqual(res.poolId, 1);
+        assert.strictEqual(res.keypairPath, "./id.json");
+      });
+
+      it("parses pool flag in various formats (--pool, --pool-id, -i, --pool=)", () => {
+        assert.strictEqual(parseDeficitArgs(["--pool", "2"]).poolId, 2);
+        assert.strictEqual(parseDeficitArgs(["--pool-id", "3"]).poolId, 3);
+        assert.strictEqual(parseDeficitArgs(["-i", "4"]).poolId, 4);
+        assert.strictEqual(parseDeficitArgs(["--pool=5"]).poolId, 5);
+        assert.strictEqual(parseDeficitArgs(["-i=6"]).poolId, 6);
+      });
+
+      it("parses keypair flag in various formats (--keypair, -k, --keypair=)", () => {
+        assert.strictEqual(
+          parseDeficitArgs(["--keypair", "/path/to/key.json"]).keypairPath,
+          "/path/to/key.json"
+        );
+        assert.strictEqual(
+          parseDeficitArgs(["-k", "/path/to/key2.json"]).keypairPath,
+          "/path/to/key2.json"
+        );
+        assert.strictEqual(
+          parseDeficitArgs(["--keypair=/path/to/key3.json"]).keypairPath,
+          "/path/to/key3.json"
+        );
+      });
+
+      it("rejects invalid or missing pool values", () => {
+        assert.throws(
+          () => parseDeficitArgs(["--pool"]),
+          /Missing value for '--pool' flag/
+        );
+        assert.throws(
+          () => parseDeficitArgs(["--pool", "abc"]),
+          /Invalid pool ID 'abc'/
+        );
+        assert.throws(
+          () => parseDeficitArgs(["--pool", "0"]),
+          /Invalid pool ID '0'/
+        );
+        assert.throws(
+          () => parseDeficitArgs(["--pool", "-1"]),
+          /Invalid pool ID '-1'/
+        );
+      });
+
+      it("rejects unknown flags or duplicate positional arguments", () => {
+        assert.throws(
+          () => parseDeficitArgs(["--unknown"]),
+          /Unknown argument '--unknown'/
+        );
+        assert.throws(
+          () => parseDeficitArgs(["10", "20"]),
+          /Unexpected argument '20'/
+        );
+        assert.throws(
+          () => parseDeficitArgs(["/a.json", "/b.json"]),
+          /Unexpected duplicate keypair argument '\/b.json'/
+        );
+      });
+    });
+
+    describe("calculateDeficitSimulation", () => {
+      const mockPool: any = {
+        poolId: 1,
+        totalDepositedPrincipal: 10_000_000_000n, // 10,000 USDC
+        totalFeesAccrued: 100_000_000n, // 100 USDC
+        totalFeesWithdrawn: 20_000_000n, // 20 USDC -> fees in vault: 80 USDC
+        totalPrizesAllocated: 0n,
+      };
+
+      it("calculates accurate total assets reduction for standard deficit", () => {
+        const yieldState = {
+          humaTotalAssets: 12_000_000_000n, // 12,000 USDC
+          pstSupply: 10_000_000_000n,
+          poolPstBalance: 10_000_000_000n,
+        };
+
+        const deficitMicroUsdc = 1_000_000n; // 1 USDC deficit
+        const report = calculateDeficitSimulation({
+          pool: mockPool,
+          deficitMicroUsdc,
+          yieldState,
+        });
+
+        // bookValue = 10,000 + 80 = 10,080 USDC (10_080_000_000n)
+        assert.strictEqual(report.bookValue, 10_080_000_000n);
+        // targetCurrentValue = 10_080_000_000 - 1_000_000 = 10_079_000_000n
+        assert.strictEqual(report.targetCurrentValue, 10_079_000_000n);
+        // requiredTotalAssets = (10_079_000_000 * 10_000_000_000) / 10_000_000_000 = 10_079_000_000n
+        assert.strictEqual(report.requiredTotalAssets, 10_079_000_000n);
+        // deltaReduction = 12_000_000_000 - 10_079_000_000 = 1_921_000_000n
+        assert.strictEqual(report.deltaReduction, 1_921_000_000n);
+        assert.strictEqual(report.isBelowDustTolerance, false);
+      });
+
+      it("flags isBelowDustTolerance: true when deficit <= SOLVENCY_DUST_TOLERANCE", () => {
+        const yieldState = {
+          humaTotalAssets: 10_080_000_000n,
+          pstSupply: 10_000_000_000n,
+          poolPstBalance: 10_000_000_000n,
+        };
+
+        const report = calculateDeficitSimulation({
+          pool: mockPool,
+          deficitMicroUsdc: 500n, // 0.0005 USDC <= 1000 base units dust tolerance
+          yieldState,
+        });
+
+        assert.strictEqual(report.isBelowDustTolerance, true);
+      });
+
+      it("rejects deficit greater than book value", () => {
+        const yieldState = {
+          humaTotalAssets: 10_080_000_000n,
+          pstSupply: 10_000_000_000n,
+          poolPstBalance: 10_000_000_000n,
+        };
+
+        assert.throws(
+          () =>
+            calculateDeficitSimulation({
+              pool: mockPool,
+              deficitMicroUsdc: 20_000_000_000n,
+              yieldState,
+            }),
+          /exceeds pool book value/
+        );
+      });
+    });
+
+    describe("buildSetTotalAssetsInstruction", () => {
+      it("creates instruction with writable pool state and readonly signer admin", async () => {
+        const admin = await generateKeyPairSigner();
+        const poolState = address(
+          "EthNciASE5rEqPgA6YCo3uPrDzAiMgLh5j3tstCJKgHW"
+        );
+        const totalAssets = 9_500_000_000n;
+
+        const ix = await buildSetTotalAssetsInstruction({
+          admin,
+          humaPoolState: poolState,
+          totalAssets,
+        });
+
+        assert.strictEqual(ix.accounts.length, 2);
+        assert.strictEqual(ix.accounts[0].address, poolState);
+        assert.strictEqual(ix.accounts[0].role, AccountRole.WRITABLE);
+        assert.strictEqual(ix.accounts[1].address, admin.address);
+        assert.strictEqual(ix.accounts[1].role, AccountRole.READONLY_SIGNER);
+
+        // Verify discriminator (8 bytes) + u128 (16 bytes)
+        assert.strictEqual(ix.data.length, 24);
+        const view = new DataView(
+          ix.data.buffer,
+          ix.data.byteOffset,
+          ix.data.byteLength
+        );
+        const low = view.getBigUint64(8, true);
+        const high = view.getBigUint64(16, true);
+        const decodedAssets = (high << 64n) | low;
+        assert.strictEqual(decodedAssets, totalAssets);
       });
     });
   });

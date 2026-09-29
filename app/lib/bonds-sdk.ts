@@ -1459,6 +1459,63 @@ export function calculateDeficitTotalAssets(
   return requiredTotalAssets;
 }
 
+export interface DeficitSimulationReport {
+  readonly poolId: number;
+  readonly totalDepositedPrincipal: bigint;
+  readonly totalFeesAccrued: bigint;
+  readonly totalFeesWithdrawn: bigint;
+  readonly bookValue: bigint;
+  readonly deficitMicroUsdc: bigint;
+  readonly targetCurrentValue: bigint;
+  readonly pstSupply: bigint;
+  readonly poolPstBalance: bigint;
+  readonly currentTotalAssets: bigint;
+  readonly requiredTotalAssets: bigint;
+  readonly deltaReduction: bigint;
+  readonly isBelowDustTolerance: boolean;
+}
+
+export function calculateDeficitSimulation(params: {
+  pool: ReturnType<typeof parsePrizePool>;
+  deficitMicroUsdc: bigint;
+  yieldState: PoolYieldOnChainState;
+}): DeficitSimulationReport {
+  const { pool, deficitMicroUsdc, yieldState } = params;
+  const bookValue = calculateBookValue(pool);
+  const { humaTotalAssets, pstSupply, poolPstBalance } = yieldState;
+
+  const requiredTotalAssets = calculateDeficitTotalAssets({
+    bookValue,
+    deficitMicroUsdc,
+    pstSupply,
+    poolPstBalance,
+  });
+
+  const targetCurrentValue =
+    bookValue > deficitMicroUsdc ? bookValue - deficitMicroUsdc : 0n;
+  const deltaReduction =
+    humaTotalAssets > requiredTotalAssets
+      ? humaTotalAssets - requiredTotalAssets
+      : 0n;
+
+  return {
+    poolId: pool.poolId,
+    totalDepositedPrincipal: BigInt(pool.totalDepositedPrincipal),
+    totalFeesAccrued: BigInt(pool.totalFeesAccrued),
+    totalFeesWithdrawn: BigInt(pool.totalFeesWithdrawn),
+    bookValue,
+    deficitMicroUsdc,
+    targetCurrentValue,
+    pstSupply,
+    poolPstBalance,
+    currentTotalAssets: humaTotalAssets,
+    requiredTotalAssets,
+    deltaReduction,
+    isBelowDustTolerance:
+      deficitMicroUsdc <= SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+  };
+}
+
 export const HUMA_MODE_CONFIG_NAME_OFFSET = 42; // 8 (disc) + 1 (bump) + 1 (mint_bump) + 32 (id)
 export const BORSH_STRING_LENGTH_PREFIX_SIZE = 4;
 export const HUMA_MODE_CONFIG_MIN_BYTE_LENGTH = 48;
@@ -1651,6 +1708,8 @@ import {
 
 import {
   getSimulateYieldInstructionDataEncoder,
+  getSimulateDeficitInstructionDataEncoder,
+  getSetTotalAssetsInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
   getCreateLenderAccountsV2InstructionDataEncoder,
@@ -1685,6 +1744,8 @@ export {
   getCrankClosePayoutRegistryInstructionAsync,
   getCrankClosePayoutRegistryInstructionDataEncoder,
   getSimulateYieldInstructionDataEncoder,
+  getSimulateDeficitInstructionDataEncoder,
+  getSetTotalAssetsInstructionDataEncoder,
   getSettleRequestsInstructionDataEncoder,
   getInitializeMockPoolStateInstructionDataEncoder,
   getCreateLenderAccountsV2InstructionDataEncoder,
@@ -2477,5 +2538,59 @@ export function createSetComputeUnitPriceInstruction(
     programAddress: COMPUTE_BUDGET_PROGRAM_ADDRESS,
     accounts: [],
     data,
+  };
+}
+
+export async function buildSetTotalAssetsInstruction(params: {
+  humaProgramId?: Address | string;
+  humaPoolState: Address | string;
+  admin: Address | TransactionSigner | KeyPairSigner;
+  totalAssets: bigint;
+}): Promise<Instruction> {
+  const programAddress = address(params.humaProgramId ?? HUMA_PROGRAM_ID);
+  const adminAddress =
+    typeof params.admin === "string"
+      ? address(params.admin)
+      : address(params.admin.address);
+
+  return {
+    programAddress,
+    accounts: [
+      { address: address(params.humaPoolState), role: AccountRole.WRITABLE },
+      {
+        address: adminAddress,
+        role: AccountRole.READONLY_SIGNER,
+      },
+    ],
+    data: getSetTotalAssetsInstructionDataEncoder().encode({
+      totalAssets: params.totalAssets,
+    }),
+  };
+}
+
+export async function buildSimulateDeficitInstruction(params: {
+  humaProgramId?: Address | string;
+  humaPoolState: Address | string;
+  admin: Address | TransactionSigner | KeyPairSigner;
+  deficitAmount: bigint | number;
+}): Promise<Instruction> {
+  const programAddress = address(params.humaProgramId ?? HUMA_PROGRAM_ID);
+  const adminAddress =
+    typeof params.admin === "string"
+      ? address(params.admin)
+      : address(params.admin.address);
+
+  return {
+    programAddress,
+    accounts: [
+      { address: address(params.humaPoolState), role: AccountRole.WRITABLE },
+      {
+        address: adminAddress,
+        role: AccountRole.READONLY_SIGNER,
+      },
+    ],
+    data: getSimulateDeficitInstructionDataEncoder().encode({
+      deficitAmount: BigInt(params.deficitAmount),
+    }),
   };
 }

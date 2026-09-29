@@ -42,6 +42,8 @@ import {
   getDisburseInstruction,
   getInitializeMockPoolStateInstruction,
   getSettleRequestsInstruction,
+  getSetTotalAssetsInstruction,
+  getSimulateDeficitInstruction,
   getSimulateYieldInstruction,
   parseAddRedemptionRequestV2Instruction,
   parseCreateLenderAccountsV2Instruction,
@@ -49,6 +51,8 @@ import {
   parseDisburseInstruction,
   parseInitializeMockPoolStateInstruction,
   parseSettleRequestsInstruction,
+  parseSetTotalAssetsInstruction,
+  parseSimulateDeficitInstruction,
   parseSimulateYieldInstruction,
   type AddRedemptionRequestV2Input,
   type CreateLenderAccountsV2Input,
@@ -61,8 +65,12 @@ import {
   type ParsedDisburseInstruction,
   type ParsedInitializeMockPoolStateInstruction,
   type ParsedSettleRequestsInstruction,
+  type ParsedSetTotalAssetsInstruction,
+  type ParsedSimulateDeficitInstruction,
   type ParsedSimulateYieldInstruction,
   type SettleRequestsInput,
+  type SetTotalAssetsInput,
+  type SimulateDeficitInput,
   type SimulateYieldInput,
 } from "../instructions";
 
@@ -75,7 +83,9 @@ export enum MockHumaInstruction {
   Deposit,
   Disburse,
   InitializeMockPoolState,
+  SetTotalAssets,
   SettleRequests,
+  SimulateDeficit,
   SimulateYield,
 }
 
@@ -142,12 +152,34 @@ export function identifyMockHumaInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([43, 114, 31, 15, 74, 79, 223, 181])
+      ),
+      0
+    )
+  ) {
+    return MockHumaInstruction.SetTotalAssets;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([219, 181, 232, 88, 188, 4, 136, 112])
       ),
       0
     )
   ) {
     return MockHumaInstruction.SettleRequests;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([206, 45, 113, 132, 142, 82, 57, 1])
+      ),
+      0
+    )
+  ) {
+    return MockHumaInstruction.SimulateDeficit;
   }
   if (
     containsBytes(
@@ -185,8 +217,14 @@ export type ParsedMockHumaInstruction<
       instructionType: MockHumaInstruction.InitializeMockPoolState;
     } & ParsedInitializeMockPoolStateInstruction<TProgram>)
   | ({
+      instructionType: MockHumaInstruction.SetTotalAssets;
+    } & ParsedSetTotalAssetsInstruction<TProgram>)
+  | ({
       instructionType: MockHumaInstruction.SettleRequests;
     } & ParsedSettleRequestsInstruction<TProgram>)
+  | ({
+      instructionType: MockHumaInstruction.SimulateDeficit;
+    } & ParsedSimulateDeficitInstruction<TProgram>)
   | ({
       instructionType: MockHumaInstruction.SimulateYield;
     } & ParsedSimulateYieldInstruction<TProgram>);
@@ -231,11 +269,25 @@ export function parseMockHumaInstruction<TProgram extends string>(
         ...parseInitializeMockPoolStateInstruction(instruction),
       };
     }
+    case MockHumaInstruction.SetTotalAssets: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: MockHumaInstruction.SetTotalAssets,
+        ...parseSetTotalAssetsInstruction(instruction),
+      };
+    }
     case MockHumaInstruction.SettleRequests: {
       assertIsInstructionWithAccounts(instruction);
       return {
         instructionType: MockHumaInstruction.SettleRequests,
         ...parseSettleRequestsInstruction(instruction),
+      };
+    }
+    case MockHumaInstruction.SimulateDeficit: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: MockHumaInstruction.SimulateDeficit,
+        ...parseSimulateDeficitInstruction(instruction),
       };
     }
     case MockHumaInstruction.SimulateYield: {
@@ -278,9 +330,17 @@ export type MockHumaPluginInstructions = {
     input: MakeOptional<InitializeMockPoolStateInput, "payer">
   ) => ReturnType<typeof getInitializeMockPoolStateInstruction> &
     SelfPlanAndSendFunctions;
+  setTotalAssets: (
+    input: SetTotalAssetsInput
+  ) => ReturnType<typeof getSetTotalAssetsInstruction> &
+    SelfPlanAndSendFunctions;
   settleRequests: (
     input: SettleRequestsInput
   ) => ReturnType<typeof getSettleRequestsInstruction> &
+    SelfPlanAndSendFunctions;
+  simulateDeficit: (
+    input: SimulateDeficitInput
+  ) => ReturnType<typeof getSimulateDeficitInstruction> &
     SelfPlanAndSendFunctions;
   simulateYield: (
     input: SimulateYieldInput
@@ -327,10 +387,20 @@ export function mockHumaProgram() {
                 payer: input.payer ?? client.payer,
               })
             ),
+          setTotalAssets: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getSetTotalAssetsInstruction(input)
+            ),
           settleRequests: (input) =>
             addSelfPlanAndSendFunctions(
               client,
               getSettleRequestsInstruction(input)
+            ),
+          simulateDeficit: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getSimulateDeficitInstruction(input)
             ),
           simulateYield: (input) =>
             addSelfPlanAndSendFunctions(

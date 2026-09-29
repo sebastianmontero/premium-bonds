@@ -26,9 +26,12 @@ export const MOCK_HUMA_ERROR__SIMULATED_CREATE_LENDER_FAILURE = 0x1773; // 6003
 export const MOCK_HUMA_ERROR__MATH_OVERFLOW = 0x1774; // 6004
 /** InvalidAccountOwner: MockHuma: Account has an invalid owner */
 export const MOCK_HUMA_ERROR__INVALID_ACCOUNT_OWNER = 0x1775; // 6005
+/** InvalidPoolStateData: MockHuma: Pool state account data is too short (expected at least 46 bytes) */
+export const MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA = 0x1776; // 6006
 
 export type MockHumaError =
   | typeof MOCK_HUMA_ERROR__INVALID_ACCOUNT_OWNER
+  | typeof MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA
   | typeof MOCK_HUMA_ERROR__MATH_OVERFLOW
   | typeof MOCK_HUMA_ERROR__SIMULATED_CREATE_LENDER_FAILURE
   | typeof MOCK_HUMA_ERROR__SIMULATED_DEPOSIT_FAILURE
@@ -39,6 +42,7 @@ let mockHumaErrorMessages: Record<MockHumaError, string> | undefined;
 if (process.env["NODE_ENV"] !== "production") {
   mockHumaErrorMessages = {
     [MOCK_HUMA_ERROR__INVALID_ACCOUNT_OWNER]: `MockHuma: Account has an invalid owner`,
+    [MOCK_HUMA_ERROR__INVALID_POOL_STATE_DATA]: `MockHuma: Pool state account data is too short (expected at least 46 bytes)`,
     [MOCK_HUMA_ERROR__MATH_OVERFLOW]: `MockHuma: Math overflow occurred`,
     [MOCK_HUMA_ERROR__SIMULATED_CREATE_LENDER_FAILURE]: `MockHuma: simulated create lender failure`,
     [MOCK_HUMA_ERROR__SIMULATED_DEPOSIT_FAILURE]: `MockHuma: simulated deposit failure`,

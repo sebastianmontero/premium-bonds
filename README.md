@@ -167,7 +167,26 @@ npm run devnet settle [count]
 
 - Invokes the `settle_requests` instruction to process and settle pending ticket redemptions on devnet.
 
-#### 6. Execute 180-Winner Turnkey Test
+#### 6. Simulate Deficit (Solvency Circuit Breaker)
+
+```bash
+npm run devnet deficit [amount_usdc] [--pool <id> | -i <id>] [keypair]
+# Aliases:
+npm run devnet induce-deficit [amount_usdc]
+npm run devnet insolvency [amount_usdc]
+```
+
+- **Parameters**:
+  - `amount_usdc` (optional): Deficit amount in USDC (default: `1.0` USDC = 1,000,000 micro-USDC). Must be $\le \text{book\_value}$.
+  - `--pool <id>` / `-i <id>` (optional): Target Prize Pool ID (default: `1`).
+  - `keypair` (optional): Path to admin authority keypair JSON file (defaults to `resolveDefaultKeypairPath()`).
+- **Mechanism**:
+  - Fetches on-chain pool accounting state and Huma pool state.
+  - Computes book value ($V_{\text{book}} = \text{principal} + \text{undistributed fees} + \text{allocated prizes}$) and current value ($V_{\text{current}} = (\text{PST}_{\text{balance}} \times \text{total\_assets}) / \text{PST}_{\text{supply}}$).
+  - Dynamically calculates the required Huma `total_assets` such that $V_{\text{current}} = V_{\text{book}} - \text{deficit}$ and calls `mock_huma::set_total_assets`.
+  - When deficit exceeds the dust tolerance threshold ($1,000$ base units / $0.001$ USDC), subsequent draw crank or harvest operations trip the on-chain Solvency Circuit Breaker (`InsolventPool`).
+
+#### 7. Execute 180-Winner Turnkey Test
 
 ```bash
 # Fast Mode: Uses existing mature tickets (1,103+ tickets across registered wallets)

@@ -12,4 +12,6 @@ export * from "./deposit";
 export * from "./disburse";
 export * from "./initializeMockPoolState";
 export * from "./settleRequests";
+export * from "./setTotalAssets";
+export * from "./simulateDeficit";
 export * from "./simulateYield";

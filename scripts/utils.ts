@@ -33,8 +33,17 @@ import {
 import {
   decodeAccountBase64Data,
   parseTokenAccountBalance,
+  type DeficitSimulationReport,
+  SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+  DEFAULT_DEFICIT_USDC,
 } from "../app/lib/bonds-sdk";
-export { decodeAccountBase64Data, parseTokenAccountBalance };
+export {
+  decodeAccountBase64Data,
+  parseTokenAccountBalance,
+  type DeficitSimulationReport,
+  SOLVENCY_DUST_TOLERANCE_BASE_UNITS,
+  DEFAULT_DEFICIT_USDC,
+};
 import { normalizeInstructionSigners } from "../app/lib/tx-utils";
 export { normalizeInstructionSigners };
 import { readEnvFile } from "./env-utils";
@@ -967,4 +976,131 @@ export function buildTransferSolInstruction(
     ],
     data,
   };
+}
+
+export interface DeficitCliOptions {
+  readonly deficitMicroUsdc: bigint;
+  readonly poolId: number;
+  readonly keypairPath?: string;
+}
+
+/**
+ * Parses CLI arguments for simulated deficit commands.
+ * Defaults to 1.0 USDC on Pool 1 when arguments are omitted.
+ */
+export function parseDeficitArgs(args: readonly string[]): DeficitCliOptions {
+  let amountStr: string | undefined;
+  let poolId = 1;
+  let keypairPath: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Handle equals-separated flags (e.g., --pool=1, -k=/path/to/key.json)
+    let flag = arg;
+    let val: string | undefined = undefined;
+    const eqIdx = arg.indexOf("=");
+    if (arg.startsWith("-") && eqIdx !== -1) {
+      flag = arg.slice(0, eqIdx);
+      val = arg.slice(eqIdx + 1);
+    }
+
+    if (flag === "--pool" || flag === "--pool-id" || flag === "-i") {
+      if (val === undefined) {
+        val = args[++i];
+      }
+      if (!val || (val.startsWith("-") && isNaN(Number(val)))) {
+        throw new Error(`Missing value for '${flag}' flag.`);
+      }
+      if (!/^\d+$/.test(val)) {
+        throw new Error(
+          `Invalid pool ID '${val}'. Must be a positive integer.`
+        );
+      }
+      const parsedPool = parseInt(val, 10);
+      if (isNaN(parsedPool) || parsedPool <= 0) {
+        throw new Error(
+          `Invalid pool ID '${val}'. Must be a positive integer.`
+        );
+      }
+      poolId = parsedPool;
+    } else if (flag === "--keypair" || flag === "-k") {
+      if (val === undefined) {
+        val = args[++i];
+      }
+      if (!val || val.startsWith("-")) {
+        throw new Error(`Missing value for '${flag}' flag.`);
+      }
+      keypairPath = val;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown argument '${arg}'.`);
+    } else {
+      // Positional argument: either keypair path (.json) or amount
+      if (arg.endsWith(".json")) {
+        if (keypairPath !== undefined) {
+          throw new Error(`Unexpected duplicate keypair argument '${arg}'.`);
+        }
+        keypairPath = arg;
+      } else {
+        if (amountStr !== undefined) {
+          throw new Error(`Unexpected argument '${arg}'.`);
+        }
+        amountStr = arg;
+      }
+    }
+  }
+
+  const deficitMicroUsdc =
+    amountStr !== undefined
+      ? parseTokenAmount(amountStr, USDC_DECIMALS)
+      : parseTokenAmount(DEFAULT_DEFICIT_USDC.toString(), USDC_DECIMALS);
+
+  return {
+    deficitMicroUsdc,
+    poolId,
+    keypairPath,
+  };
+}
+
+/**
+ * Prints formatted deficit simulation calculation breakdown to console.
+ */
+export function printDeficitCalculationBreakdown(
+  report: DeficitSimulationReport
+): void {
+  if (report.isBelowDustTolerance) {
+    console.warn(
+      `\n⚠️  Advisory Warning: Specified deficit (${Number(report.deficitMicroUsdc) / 1_000_000} USDC / ${report.deficitMicroUsdc} micro-units) is <= SOLVENCY_DUST_TOLERANCE (${SOLVENCY_DUST_TOLERANCE_BASE_UNITS} base units / 0.001 USDC).\n` +
+        `   The on-chain solvency circuit breaker only trips when deficit > 1,000 base units.\n`
+    );
+  }
+
+  console.log("\n📉 Deficit Simulation Calculation Details:");
+  console.log(`- Pool ID: ${report.poolId}`);
+  console.log(
+    `- Total Deposited Principal: ${Number(report.totalDepositedPrincipal) / 1_000_000} USDC`
+  );
+  console.log(
+    `- Total Fees Accrued: ${Number(report.totalFeesAccrued) / 1_000_000} USDC`
+  );
+  console.log(
+    `- Total Fees Withdrawn: ${Number(report.totalFeesWithdrawn) / 1_000_000} USDC`
+  );
+  console.log(
+    `- Pool Book Value: ${Number(report.bookValue) / 1_000_000} USDC`
+  );
+  console.log(
+    `- Target Deficit: ${Number(report.deficitMicroUsdc) / 1_000_000} USDC (${report.deficitMicroUsdc} micro-USDC)`
+  );
+  console.log(
+    `- Target Current Value: ${Number(report.targetCurrentValue) / 1_000_000} USDC`
+  );
+  console.log(`- PST Supply: ${report.pstSupply}`);
+  console.log(`- Pool PST Balance: ${report.poolPstBalance}`);
+  console.log(
+    `- Current Huma Total Assets: ${Number(report.currentTotalAssets) / 1_000_000} USDC`
+  );
+  console.log(
+    `- New Huma Total Assets: ${Number(report.requiredTotalAssets) / 1_000_000} USDC\n`
+  );
 }

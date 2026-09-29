@@ -45,6 +45,8 @@ import {
   parseTokenAmount,
   buildTransferSolInstruction,
   buildCreateAccountInstruction,
+  parseDeficitArgs,
+  printDeficitCalculationBreakdown,
 } from "./utils";
 import {
   DevnetProtocolAccounts,
@@ -99,6 +101,10 @@ import {
   findAtaAddress,
   createAssociatedTokenIdempotentInstruction,
   parsePrizePool,
+  calculateBookValue,
+  fetchPoolYieldOnChainState,
+  calculateDeficitSimulation,
+  buildSetTotalAssetsInstruction,
   buildInitializeGlobalInstruction,
   buildCreatePoolInstruction,
   buildInitializeHumaLenderInstruction,
@@ -195,6 +201,13 @@ function printUsage() {
   console.log(
     "  yield <amount_usdc>   Simulates yield for the current pool on devnet"
   );
+  console.log(
+    "  deficit [amount_usdc] [--pool <id> | --pool-id <id> | -i <id>] [keypair]"
+  );
+  console.log(
+    "                        Simulates a yield venue deficit/loss in Mock Huma state (defaults to 1.0 USDC)"
+  );
+  console.log("                        Aliases: induce-deficit, insolvency");
   console.log("  settle [count]        Settles pending redemptions on devnet");
   console.log(
     "  seed-users [--users <n>] [--tickets <n>] [--sol <sol>] [--usdc <amount>] [--pool <id>] [--mature] [--save-keys [path]] [--no-save-keys] Seeds test users with SOL/USDC and buys bonds"
@@ -1283,6 +1296,94 @@ async function handleYield(args: string[]) {
   console.log("Simulated yield applied successfully on-chain!");
 }
 
+export async function handleDeficit(args: string[]): Promise<void> {
+  const options = parseDeficitArgs(args);
+  const { poolId, deficitMicroUsdc, keypairPath: customKeypairPath } = options;
+
+  console.log(`Verifying Devnet RPC connection (${DEVNET_RPC_URL})...`);
+  const isHealthy = await checkRpcHealth(DEVNET_RPC_URL);
+  if (!isHealthy) {
+    throw new Error(
+      `Devnet RPC is not active or reachable at ${DEVNET_RPC_URL}.`
+    );
+  }
+
+  const rpc = createResilientRpc(DEVNET_RPC_URL);
+  const keypairPath = resolveDefaultKeypairPath(customKeypairPath);
+  console.log(
+    `Loading administration authority keypair from ${keypairPath}...`
+  );
+  const adminSigner = await loadKeypair(keypairPath);
+
+  const poolAddress = await findPrizePoolPda(poolId);
+  console.log(`Fetching PrizePool account: ${poolAddress}...`);
+  const poolBuffer = await fetchAccountData(rpc, poolAddress);
+  if (!poolBuffer) {
+    throw new Error(
+      `PrizePool account for pool ID ${poolId} does not exist on Devnet.`
+    );
+  }
+
+  const parsedPool = parsePrizePool(poolBuffer);
+  const bookValue = calculateBookValue(parsedPool);
+
+  if (bookValue === 0n) {
+    throw new Error(
+      `Prize Pool ${poolId} has zero book value (no principal deposits or accrued fees). ` +
+        `A deficit cannot be simulated on an empty pool. Please run 'npm run devnet seed-users --pool ${poolId}' first.`
+    );
+  }
+
+  if (deficitMicroUsdc > bookValue) {
+    throw new Error(
+      `Specified deficit (${Number(deficitMicroUsdc) / 1_000_000} USDC) exceeds pool book value (${Number(bookValue) / 1_000_000} USDC).`
+    );
+  }
+
+  const accounts = loadDevnetAccounts();
+
+  console.log("Fetching on-chain yield parameters...");
+  const yieldState = await fetchPoolYieldOnChainState(rpc, {
+    poolId,
+    humaPoolStateAddress: parsedPool.humaPoolState,
+    pstMintAddress: accounts.pstMint,
+  });
+
+  if (yieldState.poolPstBalance === 0n) {
+    throw new Error(
+      "Pool PST balance is 0. Cannot simulate deficit without active deposits."
+    );
+  }
+
+  const report = calculateDeficitSimulation({
+    pool: parsedPool,
+    deficitMicroUsdc,
+    yieldState,
+  });
+
+  printDeficitCalculationBreakdown(report);
+
+  console.log(
+    `Setting Mock Huma total_assets to ${Number(report.requiredTotalAssets) / 1_000_000} USDC on Devnet...`
+  );
+
+  const setAssetsIx = await buildSetTotalAssetsInstruction({
+    humaProgramId: accounts.humaProgramId,
+    humaPoolState: parsedPool.humaPoolState,
+    admin: adminSigner,
+    totalAssets: report.requiredTotalAssets,
+  });
+
+  await sendTx(rpc, setAssetsIx, adminSigner);
+
+  console.log(
+    `Successfully induced deficit! Huma pool total assets updated to ${Number(report.requiredTotalAssets) / 1_000_000} USDC.`
+  );
+  console.log(
+    `👉 Next step: Run 'npm run devnet:crank' or 'npx tsx scripts/pb-cli.ts harvest -i ${poolId}' to trigger the Solvency Circuit Breaker and transition the draw cycle to 'HaltedInsolvent'.`
+  );
+}
+
 async function handleSettle(args: string[]) {
   const { count } = parseSettleArgs(args);
 
@@ -1486,6 +1587,11 @@ async function main() {
       break;
     case "yield":
       await handleYield(args.slice(1));
+      break;
+    case "deficit":
+    case "induce-deficit":
+    case "insolvency":
+      await handleDeficit(args.slice(1));
       break;
     case "settle":
       await handleSettle(args.slice(1));

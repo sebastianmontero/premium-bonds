@@ -21,6 +21,8 @@
 //! | `add_redemption_request_v2` | `[96,173,49,36,201,46,244,189]` | Transfer $PST from lender → pool escrow |
 //! | `disburse` | `[68,250,205,89,217,142,13,44]` | SPL transfer (Huma supply → pool vault) |
 //! | `create_lender_accounts_v2` | `[203,52,185,231,192,74,121,108]` | No-op (returns Ok) |
+//! | `set_total_assets` | `[208,212,183,16,134,103,130,121]` | Direct u128 total_assets setter for solvency & deficit simulation |
+//! | `simulate_deficit` | `[145,214,131,232,190,147,155,203]` | Relative u64 total_assets decrement for unit testing |
 //!
 //! ### Pool Authority PDA
 //!
@@ -265,6 +267,30 @@ pub mod mock_huma {
         msg!(
             "MockHuma: Simulated yield. Added {} total assets.",
             yield_amount
+        );
+        Ok(())
+    }
+
+    /// Directly sets the total assets of the mock pool state (u128).
+    /// Enables idempotent and bidirectional state adjustments for solvency testing.
+    pub fn set_total_assets(ctx: Context<SetTotalAssets>, total_assets: u128) -> Result<()> {
+        let mut data = ctx.accounts.pool_state.try_borrow_mut_data()?;
+        require!(data.len() >= 46, MockHumaError::InvalidPoolStateData);
+        data[30..46].copy_from_slice(&total_assets.to_le_bytes());
+        msg!("MockHuma: Total assets set to {}.", total_assets);
+        Ok(())
+    }
+
+    /// Simulates a deficit (loss) in Mock Huma state by decrementing total assets on-chain.
+    /// Note: For u128-scale reductions exceeding u64::MAX, use `set_total_assets`.
+    pub fn simulate_deficit(ctx: Context<MockSimulateDeficit>, deficit_amount: u64) -> Result<()> {
+        super::update_pool_total_assets(
+            &ctx.accounts.pool_state.to_account_info(),
+            -(deficit_amount as i128),
+        )?;
+        msg!(
+            "MockHuma: Simulated deficit. Subtracted {} total assets.",
+            deficit_amount
         );
         Ok(())
     }
@@ -677,6 +703,28 @@ pub struct MockSimulateYield<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetTotalAssets<'info> {
+    #[account(
+        mut,
+        owner = crate::ID @ MockHumaError::InvalidAccountOwner
+    )]
+    /// CHECK: Target pool state account owned by Mock Huma
+    pub pool_state: UncheckedAccount<'info>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct MockSimulateDeficit<'info> {
+    #[account(
+        mut,
+        owner = crate::ID @ MockHumaError::InvalidAccountOwner
+    )]
+    /// CHECK: Target pool state account owned by Mock Huma
+    pub pool_state: UncheckedAccount<'info>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct MockSettleRequests<'info> {
     pub lender: Signer<'info>,
     /// CHECK: Mock config validator.
@@ -725,4 +773,6 @@ pub enum MockHumaError {
     MathOverflow,
     #[msg("MockHuma: Account has an invalid owner")]
     InvalidAccountOwner,
+    #[msg("MockHuma: Pool state account data is too short (expected at least 46 bytes)")]
+    InvalidPoolStateData,
 }
