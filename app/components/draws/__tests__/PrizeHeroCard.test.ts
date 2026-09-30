@@ -205,7 +205,9 @@ describe("PrizeHeroCard Component Suite", () => {
 
     // Card body responsive classes
     assert.ok(
-      html.includes("@2xl:space-y-0 @2xl:flex @2xl:items-center @2xl:justify-between @2xl:gap-4"),
+      html.includes(
+        "@2xl:space-y-0 @2xl:flex @2xl:items-center @2xl:justify-between @2xl:gap-4"
+      ),
       "Card body must include @2xl single-row flex transition classes"
     );
 
@@ -217,7 +219,9 @@ describe("PrizeHeroCard Component Suite", () => {
 
     // Right winning ticket cluster
     assert.ok(
-      html.includes("@2xl:justify-end @2xl:gap-3 @2xl:py-1.5 @2xl:px-3 @2xl:shrink-0"),
+      html.includes(
+        "@2xl:justify-end @2xl:gap-3 @2xl:py-1.5 @2xl:px-3 @2xl:shrink-0"
+      ),
       "Right winning ticket cluster must include @2xl pill styling classes"
     );
   });
@@ -233,9 +237,9 @@ describe("PrizeHeroCard Component Suite", () => {
     );
 
     assert.ok(
-      html.includes("focus-visible:ring-2") && html.includes("focus-visible:ring-primary"),
+      html.includes("focus-visible:ring-2") &&
+        html.includes("focus-visible:ring-primary"),
       "Copy button must have focus-visible ring classes for WCAG 2.4.7 focus indicator"
     );
   });
 });
-

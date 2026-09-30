@@ -93,7 +93,11 @@ export function useRealtimeSync(poolId: PoolId = 1) {
   }, [userAddress]);
 
   useEffect(() => {
-    invalidatorRef.current = new DebouncedQueryInvalidator(queryClient, 150, 500);
+    invalidatorRef.current = new DebouncedQueryInvalidator(
+      queryClient,
+      150,
+      500
+    );
     return () => {
       invalidatorRef.current?.dispose();
       invalidatorRef.current = null;

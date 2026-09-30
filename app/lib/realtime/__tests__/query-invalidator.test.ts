@@ -29,11 +29,19 @@ describe("DebouncedQueryInvalidator Unit Tests", () => {
       invalidator.schedule([["bonds", 1, "pool"]]);
     }
 
-    assert.strictEqual(invalidatedKeys.length, 0, "Should not invalidate immediately");
+    assert.strictEqual(
+      invalidatedKeys.length,
+      0,
+      "Should not invalidate immediately"
+    );
 
     await sleep(80);
 
-    assert.strictEqual(invalidatedKeys.length, 2, "Should deduplicate and invalidate each unique key once");
+    assert.strictEqual(
+      invalidatedKeys.length,
+      2,
+      "Should deduplicate and invalidate each unique key once"
+    );
     assert.deepStrictEqual(invalidatedKeys, [
       ["bonds", 1, "draws"],
       ["bonds", 1, "pool"],
@@ -50,7 +58,10 @@ describe("DebouncedQueryInvalidator Unit Tests", () => {
     await sleep(10);
     invalidator.schedule([["bonds", 1, "prizes"]]);
     await sleep(10);
-    invalidator.schedule([["bonds", 1, "prizes"], ["bonds", 1, "activity"]]);
+    invalidator.schedule([
+      ["bonds", 1, "prizes"],
+      ["bonds", 1, "activity"],
+    ]);
 
     await sleep(80);
 
@@ -91,7 +102,10 @@ describe("DebouncedQueryInvalidator Unit Tests", () => {
     const { client, invalidatedKeys } = createMockQueryClient();
     const invalidator = new DebouncedQueryInvalidator(client, 200, 500);
 
-    invalidator.schedule([["bonds", 1, "draws"], ["bonds", 1, "user", "addr1"]]);
+    invalidator.schedule([
+      ["bonds", 1, "draws"],
+      ["bonds", 1, "user", "addr1"],
+    ]);
     assert.strictEqual(invalidatedKeys.length, 0);
 
     invalidator.dispose();

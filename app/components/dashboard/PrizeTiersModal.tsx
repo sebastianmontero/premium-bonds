@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { PoolInfo } from "@/app/types";
+import type { PoolInfo, PrizeTier } from "@/app/types";
 import {
   formatTierPayoutAmount,
   DEFAULT_LIVE_YIELD_PRECISION,
   formatCycleFrequency,
   getTierTheme,
+  BPS_DENOMINATOR,
+  bpsToRate,
+  formatBasisPoints,
 } from "@/app/lib/formatters";
 import { safeSetElementText } from "@/app/lib/dom-utils";
 import { useLivePrizePot } from "@/app/hooks/useLivePrizePot";
@@ -15,6 +18,23 @@ import { LiveYieldTicker } from "./LiveYieldTicker";
 import { TierBadge } from "@/app/components/common/TierBadge";
 import { useTranslations } from "next-intl";
 import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
+
+export interface TierRowModel {
+  tier: PrizeTier;
+  idx: number;
+  winnerRatio: number;
+  totalRatio: number;
+  basisPointsFormatted: string;
+  initialWinnerFormatted: string;
+  initialTotalFormatted: string;
+}
+
+export interface TierRowRefs {
+  desktopWinner: HTMLSpanElement | null;
+  desktopTotal: HTMLSpanElement | null;
+  mobileWinner: HTMLSpanElement | null;
+  mobileTotal: HTMLSpanElement | null;
+}
 
 interface PrizeTiersModalProps {
   isOpen: boolean;
@@ -68,21 +88,60 @@ export function PrizeTiersModal({
     debugLabel: `Modal-${tokenSymbol}`,
   });
 
-  const desktopWinnerSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  const desktopTotalSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  const mobileWinnerSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  const mobileTotalSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const tierRowRefsMap = useRef<Map<number, TierRowRefs>>(new Map());
+  const barRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
   const footerTotalSpanRef = useRef<HTMLSpanElement | null>(null);
   const mobileFooterTotalSpanRef = useRef<HTMLSpanElement | null>(null);
 
-  const tierRows = useMemo(() => {
+  const registerTierRef =
+    (idx: number, role: keyof TierRowRefs) => (el: HTMLSpanElement | null) => {
+      let row = tierRowRefsMap.current.get(idx);
+      if (!row) {
+        row = {
+          desktopWinner: null,
+          desktopTotal: null,
+          mobileWinner: null,
+          mobileTotal: null,
+        };
+        tierRowRefsMap.current.set(idx, row);
+      }
+      row[role] = el;
+      return () => {
+        const current = tierRowRefsMap.current.get(idx);
+        if (current) {
+          current[role] = null;
+          if (
+            !current.desktopWinner &&
+            !current.desktopTotal &&
+            !current.mobileWinner &&
+            !current.mobileTotal
+          ) {
+            tierRowRefsMap.current.delete(idx);
+          }
+        }
+      };
+    };
+
+  const handleTierHover = (idx: number | null) => {
+    activeTiers.forEach((_, i) => {
+      const isHovered = i === idx;
+      barRefs.current[i]?.classList.toggle("brightness-125", isHovered);
+      barRefs.current[i]?.classList.toggle("ring-1", isHovered);
+      barRefs.current[i]?.classList.toggle("ring-primary", isHovered);
+      rowRefs.current[i]?.classList.toggle(
+        "bg-surface-container-high/40",
+        isHovered
+      );
+    });
+  };
+
+  const tierRows = useMemo<TierRowModel[]>(() => {
     return activeTiers.map((tier, idx) => {
-      const sanitizedBps = Math.min(tier.basisPoints, 10_000);
-      const winnerRatio = sanitizedBps / 10_000;
-      const totalRatio = (sanitizedBps * Math.max(1, tier.numWinners)) / 10_000;
-      const basisPointsPct = (tier.basisPoints / 100).toLocaleString("en-US", {
-        maximumFractionDigits: 1,
-      });
+      const sanitizedBps = Math.min(tier.basisPoints, BPS_DENOMINATOR);
+      const winnerRatio = bpsToRate(sanitizedBps);
+      const totalRatio = bpsToRate(sanitizedBps * Math.max(1, tier.numWinners));
+      const basisPointsFormatted = formatBasisPoints(tier.basisPoints, 1);
       const initialWinnerFormatted = formatTierPayoutAmount(
         baseUi * winnerRatio,
         tokenSymbol,
@@ -98,7 +157,7 @@ export function PrizeTiersModal({
         idx,
         winnerRatio,
         totalRatio,
-        basisPointsPct,
+        basisPointsFormatted,
         initialWinnerFormatted,
         initialTotalFormatted,
       };
@@ -119,8 +178,10 @@ export function PrizeTiersModal({
       const nowInSeconds = Date.now() / 1000;
       const currentPotUi = calculateCurrentValue(nowInSeconds);
 
-      for (let i = 0; i < tierRows.length; i++) {
-        const { winnerRatio, totalRatio } = tierRows[i];
+      tierRowRefsMap.current.forEach((refs, i) => {
+        const rowModel = tierRows[i];
+        if (!rowModel) return;
+        const { winnerRatio, totalRatio } = rowModel;
         const winnerFormatted = formatTierPayoutAmount(
           currentPotUi * winnerRatio,
           tokenSymbol,
@@ -132,11 +193,11 @@ export function PrizeTiersModal({
           safePrecision
         );
 
-        safeSetElementText(desktopWinnerSpanRefs.current[i], winnerFormatted);
-        safeSetElementText(desktopTotalSpanRefs.current[i], totalFormatted);
-        safeSetElementText(mobileWinnerSpanRefs.current[i], winnerFormatted);
-        safeSetElementText(mobileTotalSpanRefs.current[i], totalFormatted);
-      }
+        safeSetElementText(refs.desktopWinner, winnerFormatted);
+        safeSetElementText(refs.desktopTotal, totalFormatted);
+        safeSetElementText(refs.mobileWinner, winnerFormatted);
+        safeSetElementText(refs.mobileTotal, totalFormatted);
+      });
 
       const formattedTotalPot = formatTierPayoutAmount(
         currentPotUi,
@@ -165,13 +226,7 @@ export function PrizeTiersModal({
 
   if (!isOpen) return null;
 
-  const totalSharePctFormatted = (totalBasisPoints / 100).toLocaleString(
-    "en-US",
-    {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
-    }
-  );
+  const totalSharePctFormatted = formatBasisPoints(totalBasisPoints, 1);
 
   return (
     <AdaptiveModal
@@ -199,8 +254,9 @@ export function PrizeTiersModal({
           </svg>
         </div>
       }
-      size="md"
-      bodyClassName="space-y-4"
+      size="lg"
+      scrollable={false}
+      bodyClassName="space-y-4 @container"
     >
       {/* ── Live Pot Hero Sub-Header ───────────────────────────────── */}
       <div className="rounded-xl bg-surface-container/70 px-4 py-3 border border-surface-container-high/50 shrink-0 space-y-2.5">
@@ -226,9 +282,14 @@ export function PrizeTiersModal({
               return (
                 <div
                   key={idx}
+                  ref={(el) => {
+                    barRefs.current[idx] = el;
+                  }}
                   style={{ width: `${tierSharePct}%` }}
-                  className={`h-full ${theme.barClass} transition-all`}
+                  className={`h-full ${theme.barClass} transition-all cursor-pointer`}
                   title={`${getTierLabel(idx, { format: "full" })}: ${tierSharePct.toFixed(1)}%`}
+                  onMouseEnter={() => handleTierHover(idx)}
+                  onMouseLeave={() => handleTierHover(null)}
                 />
               );
             })}
@@ -237,15 +298,15 @@ export function PrizeTiersModal({
             <span>
               {activeTiers.length > 0 && activeTiers[0].basisPoints > 0
                 ? t("grandPrizeSpotlight", {
-                    percent: (
-                      (activeTiers[0].basisPoints * activeTiers[0].numWinners) /
-                      100
-                    ).toLocaleString("en-US", { maximumFractionDigits: 1 }),
+                    percent: formatBasisPoints(
+                      activeTiers[0].basisPoints * activeTiers[0].numWinners,
+                      1
+                    ),
                   })
                 : t("potDistributionLabel")}
             </span>
             <span className="font-mono text-primary font-semibold">
-              {totalSharePctFormatted}% {t("allocated")}
+              {totalSharePctFormatted} {t("allocated")}
             </span>
           </div>
         </div>
@@ -253,45 +314,40 @@ export function PrizeTiersModal({
 
       {/* ── Content Area: Desktop Table & Mobile Cards ─────────────── */}
       <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-        {/* Desktop Table View (>= md) */}
-        <div
-          className="hidden md:block overflow-x-auto rounded-xl border border-surface-container-high/40 bg-surface-container/30 focus:outline-none"
-          tabIndex={0}
-          role="region"
-          aria-label={t("allPrizeTiersTitle", { count: activeTiers.length })}
-        >
+        {/* Desktop Table View (>= 590px container) */}
+        <div className="hidden @[590px]:block rounded-xl border border-surface-container-high/40 bg-surface-container/30">
           <table
-            className="w-full min-w-[640px] text-left text-xs border-collapse"
+            className="w-full table-fixed text-left text-xs border-separate border-spacing-0"
             aria-label={t("allPrizeTiersTitle", {
               count: activeTiers.length,
             })}
           >
-            <thead>
+            <thead className="sticky top-0 z-10 bg-surface-container/95 backdrop-blur-xs">
               <tr className="border-b border-surface-container-high/40 bg-surface-container/60 text-on-surface-variant font-semibold uppercase tracking-wider text-[10px] whitespace-nowrap">
-                <th scope="col" className="py-3 px-2.5 sm:px-3 w-[23%]">
+                <th scope="col" className="py-2.5 px-1.5 sm:px-2 w-[15%]">
                   {t("tierColumn")}
                 </th>
                 <th
                   scope="col"
-                  className="py-3 px-2.5 sm:px-3 text-right w-[16%]"
+                  className="py-2.5 px-1.5 sm:px-2 text-right w-[12%]"
                 >
                   {t("shareColumn")}
                 </th>
                 <th
                   scope="col"
-                  className="py-3 px-2.5 sm:px-3 text-center w-[17%]"
+                  className="py-2.5 px-1.5 sm:px-2 text-center w-[15%]"
                 >
                   {t("winnersColumn")}
                 </th>
                 <th
                   scope="col"
-                  className="py-3 px-2.5 sm:px-3 text-right w-[21%]"
+                  className="py-2.5 px-1.5 sm:px-2 text-right w-[29%]"
                 >
                   {t("estPerWinnerColumn")}
                 </th>
                 <th
                   scope="col"
-                  className="py-3 px-2.5 sm:px-3 text-right w-[23%]"
+                  className="py-2.5 px-1.5 sm:px-2 text-right w-[29%]"
                 >
                   {t("totalTierShareColumn")}
                 </th>
@@ -301,27 +357,30 @@ export function PrizeTiersModal({
               {tierRows.map((row) => (
                 <tr
                   key={row.idx}
+                  ref={(el) => {
+                    rowRefs.current[row.idx] = el;
+                  }}
                   className="hover:bg-surface-container-high/30 transition-colors"
+                  onMouseEnter={() => handleTierHover(row.idx)}
+                  onMouseLeave={() => handleTierHover(null)}
                 >
                   <th
                     scope="row"
-                    className="py-3 px-2.5 sm:px-3 font-semibold text-left"
+                    className="py-2.5 px-1.5 sm:px-2 font-semibold text-left"
                   >
                     <TierBadge tierIndex={row.idx} />
                   </th>
-                  <td className="py-3 px-2.5 sm:px-3 text-right font-mono text-primary font-semibold whitespace-nowrap">
-                    {row.basisPointsPct}%
+                  <td className="py-2.5 px-1.5 sm:px-2 text-right font-mono text-primary font-semibold whitespace-nowrap">
+                    {row.basisPointsFormatted}
                   </td>
-                  <td className="py-3 px-2.5 sm:px-3 text-center whitespace-nowrap">
+                  <td className="py-2.5 px-1.5 sm:px-2 text-center whitespace-nowrap">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-surface-container-high/60 font-mono text-xs text-on-surface-variant font-medium whitespace-nowrap">
                       ×{row.tier.numWinners}
                     </span>
                   </td>
-                  <td className="py-3 px-2.5 sm:px-3 text-right font-mono font-bold tabular-nums whitespace-nowrap text-on-surface">
+                  <td className="py-2.5 px-1.5 sm:px-2 text-right font-mono font-bold tabular-nums whitespace-nowrap text-on-surface">
                     <span
-                      ref={(el) => {
-                        desktopWinnerSpanRefs.current[row.idx] = el;
-                      }}
+                      ref={registerTierRef(row.idx, "desktopWinner")}
                       aria-hidden="true"
                     >
                       {row.initialWinnerFormatted}
@@ -330,11 +389,9 @@ export function PrizeTiersModal({
                       {t("estPerWinnerColumn")}: {row.initialWinnerFormatted}
                     </span>
                   </td>
-                  <td className="py-3 px-2.5 sm:px-3 text-right font-mono tabular-nums whitespace-nowrap text-on-surface-variant">
+                  <td className="py-2.5 px-1.5 sm:px-2 text-right font-mono tabular-nums whitespace-nowrap text-on-surface-variant">
                     <span
-                      ref={(el) => {
-                        desktopTotalSpanRefs.current[row.idx] = el;
-                      }}
+                      ref={registerTierRef(row.idx, "desktopTotal")}
                       aria-hidden="true"
                     >
                       {row.initialTotalFormatted}
@@ -349,25 +406,21 @@ export function PrizeTiersModal({
             {/* Summary Totals Footer Row */}
             <tfoot className="border-t-2 border-surface-container-high/60 bg-surface-container/60 font-semibold text-xs text-on-surface">
               <tr>
-                <th scope="row" className="py-3 px-2.5 sm:px-3 text-left">
+                <th colSpan={2} scope="row" className="py-2.5 px-2 text-left">
                   <div className="font-semibold text-on-surface">
                     {t("totalSummaryLabel")}
                   </div>
                   <div className="text-[10px] text-on-surface-variant font-normal">
-                    {t("distributedAcrossTiers")}
+                    {t("distributedAcrossTiers")} ({totalSharePctFormatted})
                   </div>
                 </th>
-                <td className="py-3 px-2.5 sm:px-3 text-right font-mono text-primary font-bold whitespace-nowrap">
-                  {totalSharePctFormatted}%
-                </td>
-                <td className="py-3 px-2.5 sm:px-3 text-center font-mono text-on-surface whitespace-nowrap">
+                <td className="py-2.5 px-2 text-center font-mono text-on-surface whitespace-nowrap">
                   {totalWinnersCount} {t("winnersShort")}
                 </td>
-                <td className="py-3 px-2.5 sm:px-3 text-right font-mono text-on-surface-variant/40 whitespace-nowrap">
-                  <span aria-hidden="true">—</span>
-                  <span className="sr-only">{t("notApplicable")}</span>
-                </td>
-                <td className="py-3 px-2.5 sm:px-3 text-right font-mono font-bold text-gradient whitespace-nowrap">
+                <td
+                  colSpan={2}
+                  className="py-2.5 px-2 text-right font-mono font-bold text-gradient whitespace-nowrap"
+                >
                   <span ref={footerTotalSpanRef} aria-hidden="true">
                     {initialTotalPotFormatted}
                   </span>
@@ -380,8 +433,8 @@ export function PrizeTiersModal({
           </table>
         </div>
 
-        {/* Mobile Stacked Card View (< md) */}
-        <div className="block md:hidden space-y-2.5">
+        {/* Mobile Stacked Card View (< 590px container) */}
+        <div className="block @[590px]:hidden space-y-2.5">
           {tierRows.map((row) => (
             <div
               key={row.idx}
@@ -390,7 +443,7 @@ export function PrizeTiersModal({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <TierBadge tierIndex={row.idx} />
                 <span className="font-mono text-xs font-bold text-primary ml-auto">
-                  {row.basisPointsPct}% {t("allocated")}
+                  {row.basisPointsFormatted} {t("allocated")}
                 </span>
               </div>
 
@@ -401,9 +454,7 @@ export function PrizeTiersModal({
                   </p>
                   <p className="font-mono font-bold text-on-surface text-sm tabular-nums whitespace-nowrap">
                     <span
-                      ref={(el) => {
-                        mobileWinnerSpanRefs.current[row.idx] = el;
-                      }}
+                      ref={registerTierRef(row.idx, "mobileWinner")}
                       aria-hidden="true"
                     >
                       {row.initialWinnerFormatted}
@@ -427,9 +478,7 @@ export function PrizeTiersModal({
                 <span>{t("totalTierShareColumn")}</span>
                 <span className="font-mono font-medium text-on-surface tabular-nums whitespace-nowrap">
                   <span
-                    ref={(el) => {
-                      mobileTotalSpanRefs.current[row.idx] = el;
-                    }}
+                    ref={registerTierRef(row.idx, "mobileTotal")}
                     aria-hidden="true"
                   >
                     {row.initialTotalFormatted}
@@ -448,7 +497,7 @@ export function PrizeTiersModal({
               <span className="text-on-surface">{t("totalSummaryLabel")}</span>
               <p className="text-[10px] text-on-surface-variant font-normal">
                 {totalWinnersCount} {t("winnersShort")} ·{" "}
-                {totalSharePctFormatted}%
+                {totalSharePctFormatted}
               </p>
             </div>
             <span className="font-mono text-sm font-bold text-gradient tabular-nums whitespace-nowrap">
@@ -477,12 +526,16 @@ export function PrizeTiersModal({
               onClose();
               onDeposit();
             }}
-            disabled={pool.isFrozenForDraw || pool.status === "Paused"}
+            disabled={pool.isFrozenForDraw || pool.status !== "Active"}
             className="btn-gradient rounded-xl px-5 py-2 text-xs font-semibold shadow-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {pool.isFrozenForDraw
               ? t("drawInProgress")
-              : t("depositToEnterCta")}
+              : pool.status === "Paused"
+                ? t("statusPaused")
+                : pool.status === "Closed"
+                  ? t("statusClosed")
+                  : t("depositToEnterCta")}
           </button>
         )}
       </div>

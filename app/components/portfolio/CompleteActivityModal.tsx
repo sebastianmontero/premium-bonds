@@ -124,7 +124,7 @@ export default function CompleteActivityModal({
       onClose={onClose}
       title={t("modalTitle")}
       subtitle={t("modalSubtitle")}
-      size="lg"
+      size="xl"
       height="tall"
       scrollable={false}
     >

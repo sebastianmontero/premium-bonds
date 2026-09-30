@@ -200,7 +200,7 @@ export default function CompleteLedgerModal({
       onClose={onClose}
       title={t("modalTitle")}
       subtitle={t("modalSubtitle")}
-      size="xl"
+      size="2xl"
       height="tall"
       scrollable={false}
     >

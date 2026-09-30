@@ -11,14 +11,15 @@ import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { useModalDismissal } from "@/app/hooks/useModalDismissal";
 
-export type ModalSize = "sm" | "md" | "lg" | "xl" | "full";
+export type ModalSize = "sm" | "md" | "lg" | "xl" | "2xl" | "full";
 export type ModalHeight = "auto" | "tall" | "viewport";
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
   sm: "max-w-md",
   md: "max-w-lg",
-  lg: "max-w-4xl",
-  xl: "max-w-5xl 2xl:max-w-6xl",
+  lg: "max-w-2xl",
+  xl: "max-w-4xl",
+  "2xl": "max-w-5xl 2xl:max-w-6xl",
   full: "max-w-full",
 };
 
