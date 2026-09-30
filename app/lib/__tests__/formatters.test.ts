@@ -23,6 +23,10 @@ import {
   TIER_THEMES,
   tierColor,
   type TierTranslationFn,
+  truncateMiddle,
+  truncateAddress,
+  truncateSignature,
+  truncateHash,
 } from "../formatters";
 
 describe("Currency & Token Formatters Unit Tests", () => {
@@ -708,6 +712,85 @@ describe("Currency & Token Formatters Unit Tests", () => {
         assert.strictEqual(unknown.symbol, "BONK");
         assert.strictEqual(unknown.isFiatPrefix, false);
         assert.strictEqual(unknown.displayDecimals, 2);
+      });
+    });
+  });
+
+  describe("String Truncation Utilities (truncateMiddle, truncateAddress, truncateSignature, truncateHash)", () => {
+    describe("truncateMiddle", () => {
+      it("should return empty string for null, undefined, and empty string", () => {
+        assert.strictEqual(truncateMiddle(null), "");
+        assert.strictEqual(truncateMiddle(undefined), "");
+        assert.strictEqual(truncateMiddle(""), "");
+      });
+
+      it("should return original string if length is less than or equal to startChars + endChars", () => {
+        assert.strictEqual(
+          truncateMiddle("12345678", { startChars: 4, endChars: 4 }),
+          "12345678"
+        );
+        assert.strictEqual(
+          truncateMiddle("short", { startChars: 3, endChars: 3 }),
+          "short"
+        );
+      });
+
+      it("should truncate string with default options (4 start, 4 end, Unicode ellipsis)", () => {
+        assert.strictEqual(
+          truncateMiddle("abcdefghijklmnopqrstuvwxyz"),
+          "abcd…wxyz"
+        );
+      });
+
+      it("should support custom startChars, endChars, and custom ellipsis", () => {
+        assert.strictEqual(
+          truncateMiddle("abcdefghijklmnopqrstuvwxyz", {
+            startChars: 2,
+            endChars: 3,
+            ellipsis: "...",
+          }),
+          "ab...xyz"
+        );
+      });
+    });
+
+    describe("truncateAddress", () => {
+      it("should format Solana base58 addresses with 4 prefix, ellipsis, 4 suffix", () => {
+        const address = "DyXsdqK5pvyG2mQnN3Q8gYv9v2x4kL7dYtYHd";
+        assert.strictEqual(truncateAddress(address), "DyXs…tYHd");
+      });
+
+      it("should handle null and undefined safely", () => {
+        assert.strictEqual(truncateAddress(null), "");
+        assert.strictEqual(truncateAddress(undefined), "");
+      });
+    });
+
+    describe("truncateSignature", () => {
+      it("should format Solana 88-char transaction signatures with 4 prefix, ellipsis, 4 suffix", () => {
+        const sig =
+          "4Ux42E2h3R7x5Y8k9L2m1n0pQ7v9w8x6y5z4a3b2c1d0e9f8g7h6i5j4k3l2m1n0o9p8q7r6s5t4u3v2w1x0B4Ugf";
+        assert.strictEqual(truncateSignature(sig), "4Ux4…4Ugf");
+      });
+
+      it("should handle null, undefined, and short signatures safely", () => {
+        assert.strictEqual(truncateSignature(null), "");
+        assert.strictEqual(truncateSignature(undefined), "");
+        assert.strictEqual(truncateSignature("short"), "short");
+      });
+    });
+
+    describe("truncateHash", () => {
+      it("should format 64-char VRF hash with 8 prefix, ellipsis, 6 suffix", () => {
+        const hash =
+          "97e82d0d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5aca0fcb5";
+        assert.strictEqual(truncateHash(hash), "97e82d0d…a0fcb5");
+      });
+
+      it("should handle null, undefined, and short hashes safely", () => {
+        assert.strictEqual(truncateHash(null), "");
+        assert.strictEqual(truncateHash(undefined), "");
+        assert.strictEqual(truncateHash("12345678901234"), "12345678901234");
       });
     });
   });

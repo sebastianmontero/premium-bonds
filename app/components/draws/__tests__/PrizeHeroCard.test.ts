@@ -1,0 +1,188 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { NextIntlClientProvider } from "next-intl";
+import { PrizeHeroCard } from "../PrizeHeroCard";
+import enMessages from "../../../../messages/en.json";
+
+function renderWithIntl(ui: React.ReactNode) {
+  return renderToStaticMarkup(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    React.createElement<any>(
+      NextIntlClientProvider,
+      { locale: "en", messages: enMessages, timeZone: "UTC" },
+      ui
+    )
+  );
+}
+
+describe("PrizeHeroCard Component Suite", () => {
+  it("should render short ticket #677 and large ticket #1,234,567 properly formatted", () => {
+    const htmlShort = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 2,
+        amountWon: 260_000,
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        winningTicket: 677,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      htmlShort.includes("$0.26"),
+      "Should render formatted amount $0.26"
+    );
+    assert.ok(htmlShort.includes("#677"), "Should render #677");
+    assert.ok(!htmlShort.includes("##677"), "Should NOT render ##677");
+
+    const htmlLarge = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 10_000_000_000,
+        tokenSymbol: "USDC",
+        tokenDecimals: 6,
+        winningTicket: 1234567,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      htmlLarge.includes("$10,000.00"),
+      "Should render formatted amount $10,000.00"
+    );
+    assert.ok(
+      htmlLarge.includes("#1,234,567"),
+      "Should render formatted large ticket #1,234,567"
+    );
+  });
+
+  it("should render ticket index 0 as #0 and not as fallback dash", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 1_000_000,
+        winningTicket: 0,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(html.includes("#0"), "Ticket 0 must render as #0");
+    assert.ok(!html.includes("##0"), "Must not have double hash");
+  });
+
+  it("should render dash '—' and omit copy button when winningTicket is null or undefined", () => {
+    const htmlNull = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 5_000_000,
+        winningTicket: null,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      htmlNull.includes("—"),
+      "Should render dash fallback for null ticket"
+    );
+    assert.ok(
+      !htmlNull.includes('aria-label="Copy Winning Bond'),
+      "Should omit copy button for null ticket"
+    );
+
+    const htmlUndefined = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 5_000_000,
+        winningTicket: undefined,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      htmlUndefined.includes("—"),
+      "Should render dash fallback for undefined ticket"
+    );
+  });
+
+  it("should render voided line-through styling and revocation label when isVoided is true", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 5_000_000,
+        winningTicket: 4599,
+        isProcessed: false,
+        isVoided: true,
+      })
+    );
+
+    assert.ok(
+      html.includes("line-through"),
+      "Should contain line-through class for voided prize"
+    );
+    assert.ok(
+      html.includes("Prizes Revoked"),
+      "Should show Prizes Revoked status badge label"
+    );
+  });
+
+  it("should render timelocked status badge when actively timelocked", () => {
+    const mockTimelockState = {
+      isTimelocked: true,
+      remainingSeconds: 150,
+      unlockTimestamp: 1800000150,
+      timelockExpiresAt: 1800000150,
+      formattedRemaining: "2m 30s",
+      formattedUnlockTime: "12:30 PM",
+      progressPercent: 50,
+      isExpired: false,
+    };
+
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 3_920_000,
+        winningTicket: 4599,
+        isProcessed: false,
+        isVoided: false,
+        timelockState: mockTimelockState,
+      })
+    );
+
+    assert.ok(html.includes("Timelocked"), "Should render timelocked badge");
+  });
+
+  it("should render processing status badge when not processed and not timelocked", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 3_920_000,
+        winningTicket: 4599,
+        isProcessed: false,
+        isVoided: false,
+      })
+    );
+
+    assert.ok(
+      html.includes("Processing"),
+      "Should render Processing status badge"
+    );
+  });
+
+  it("should render Reinvested status badge when isProcessed is true", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 1,
+        amountWon: 3_920_000,
+        winningTicket: 4599,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      html.includes("Reinvested"),
+      "Should render Reinvested status badge"
+    );
+  });
+});

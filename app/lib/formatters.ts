@@ -1168,3 +1168,49 @@ export function formatTicketNumber(ticket?: string | number): string {
   }
   return `#${clean}`;
 }
+
+export interface TruncateOptions {
+  startChars?: number;
+  endChars?: number;
+  ellipsis?: string;
+}
+
+/**
+ * Pure string middle-truncation utility.
+ */
+export function truncateMiddle(
+  value: string | null | undefined,
+  options: TruncateOptions = {}
+): string {
+  if (!value) return "";
+  const { startChars = 4, endChars = 4, ellipsis = "…" } = options;
+  if (value.length <= startChars + endChars) return value;
+  return `${value.slice(0, startChars)}${ellipsis}${value.slice(-endChars)}`;
+}
+
+/**
+ * Truncates a base58 Solana public key address for compact display.
+ */
+export function truncateAddress(address: string | null | undefined): string {
+  return truncateMiddle(address, { startChars: 4, endChars: 4, ellipsis: "…" });
+}
+
+/**
+ * Truncates an 88-character Solana signature for compact display.
+ */
+export function truncateSignature(
+  signature: string | null | undefined
+): string {
+  return truncateMiddle(signature, {
+    startChars: 4,
+    endChars: 4,
+    ellipsis: "…",
+  });
+}
+
+/**
+ * Truncates a 64-character VRF or cryptographic hash for compact display.
+ */
+export function truncateHash(hash: string | null | undefined): string {
+  return truncateMiddle(hash, { startChars: 8, endChars: 6, ellipsis: "…" });
+}

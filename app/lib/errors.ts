@@ -2127,20 +2127,10 @@ export function getAccountExplorerUrl(
   return `https://explorer.solana.com/address/${address}${clusterParam}`;
 }
 
-/**
- * Helper to truncate an 88-character Solana signature for display.
- */
-export function truncateSignature(signature: string): string {
-  if (!signature) return "";
-  if (signature.length <= 12) return signature;
-  return `${signature.slice(0, 4)}...${signature.slice(-4)}`;
-}
-
-/**
- * Helper to truncate a base58 Solana public key address for display.
- */
-export function truncateAddress(address: string): string {
-  if (!address) return "";
-  if (address.length <= 10) return address;
-  return `${address.slice(0, 4)}...${address.slice(-4)}`;
-}
+export {
+  truncateAddress,
+  truncateSignature,
+  truncateHash,
+  truncateMiddle,
+  type TruncateOptions,
+} from "./formatters";

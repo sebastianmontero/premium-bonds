@@ -2,20 +2,15 @@
 
 import React from "react";
 import type { DrawWinnerRecord, DrawDisplayConfig } from "@/app/types";
-import { formatCurrency, formatTicketNumber } from "@/app/lib/formatters";
-import { TierBadge } from "@/app/components/common/TierBadge";
 import { AccountExplorerLink } from "@/app/components/common/AccountExplorerLink";
-import { StatusBadge } from "@/app/components/common/StatusBadge";
-import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
-import { TimelockTooltipContent } from "./TimelockTooltipContent";
 import { WinnerCrankActionButton } from "./WinnerCrankActionButton";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useClipboard } from "@/app/hooks/useClipboard";
-import { CopyButton } from "@/app/components/common/CopyButton";
 import {
   resolvePrizeBreakdown,
   formatWinnerShareMessage,
 } from "@/app/lib/draw-helpers";
+import { PrizeHeroCard } from "./PrizeHeroCard";
 import { PrizeReinvestmentBreakdown } from "./PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "./PrizeVerificationProofs";
 import { useTranslations } from "next-intl";
@@ -51,7 +46,6 @@ export function DrawWinnerDetailView({
     timeoutMs: 3000,
   });
   const t = useTranslations("DrawInspector");
-  const tLedger = useTranslations("Ledger");
   const tCommon = useTranslations("Common.aria");
 
   const tokenDecimals = config?.tokenDecimals ?? 6;
@@ -165,99 +159,17 @@ export function DrawWinnerDetailView({
       </div>
 
       {/* Hero Prize Header Card */}
-      <div className="p-3.5 sm:p-4 rounded-xl bg-surface-container/20 border border-surface-bright/10 shrink-0">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Tier */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("tierColumn")}
-            </p>
-            <div className="mt-1">
-              <TierBadge tierIndex={winner.tierIndex} size="md" />
-            </div>
-          </div>
-
-          {/* Amount Won */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("amountWonColumn")}
-            </p>
-            <p
-              className={`text-base sm:text-lg font-bold font-mono mt-0.5 truncate ${
-                isVoided
-                  ? "line-through text-on-surface-variant/60"
-                  : "text-primary"
-              }`}
-            >
-              {formatCurrency(winner.amountOwed, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-              })}
-            </p>
-          </div>
-
-          {/* Winning Bond */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("winningBondColumn")}
-            </p>
-            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-              <p className="text-base sm:text-lg font-bold font-mono text-on-surface flex items-center gap-1.5 truncate">
-                <span aria-hidden="true">🎫</span>
-                <span>
-                  {winner.winningTicketIndex !== undefined &&
-                  winner.winningTicketIndex !== null
-                    ? formatTicketNumber(winner.winningTicketIndex)
-                    : "—"}
-                </span>
-              </p>
-              {winner.winningTicketIndex !== undefined &&
-                winner.winningTicketIndex !== null && (
-                  <CopyButton
-                    text={formatTicketNumber(winner.winningTicketIndex)}
-                    ariaLabel={`${t("copy")} ${t("winningBondColumn")}`}
-                  />
-                )}
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("statusColumn")}
-            </p>
-            <div className="mt-1">
-              {isVoided ? (
-                <span className="font-mono text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 inline-block">
-                  {t("voidedPrizesNotice")}
-                </span>
-              ) : !winner.processed && timelockState.isTimelocked ? (
-                <InteractiveTooltip
-                  ariaLabel={tLedger("timelocked")}
-                  align="center"
-                  side="top"
-                  triggerClassName="inline-flex p-0"
-                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                  content={<TimelockTooltipContent timelock={timelockState} />}
-                >
-                  <StatusBadge
-                    status="timelocked"
-                    isCranking={isCranking}
-                    size="sm"
-                    className="cursor-help"
-                  />
-                </InteractiveTooltip>
-              ) : (
-                <StatusBadge
-                  status={winner.processed ? "reinvested" : "processing"}
-                  isCranking={isCranking}
-                  size="sm"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <PrizeHeroCard
+        tierIndex={winner.tierIndex}
+        amountWon={winner.amountOwed}
+        tokenSymbol={tokenSymbol}
+        tokenDecimals={tokenDecimals}
+        winningTicket={winner.winningTicketIndex}
+        isProcessed={winner.processed}
+        isVoided={isVoided}
+        isCranking={isCranking}
+        timelockState={timelockState}
+      />
 
       {/* Voided Audit Notice (rendered ONLY when isVoided is true) */}
       {isVoided && (
@@ -302,7 +214,6 @@ export function DrawWinnerDetailView({
             tokenSymbol,
             bondPrice,
           }}
-          isOwnPrize={isConnectedWinner}
           isProcessed={winner.processed}
           isVoided={isVoided}
         />

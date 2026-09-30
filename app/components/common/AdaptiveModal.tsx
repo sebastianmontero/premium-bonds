@@ -50,6 +50,8 @@ export interface AdaptiveModalProps {
   className?: string;
   children: ReactNode;
   headerAction?: ReactNode;
+  footer?: ReactNode;
+  footerClassName?: string;
 }
 
 export function AdaptiveModal({
@@ -71,6 +73,8 @@ export function AdaptiveModal({
   className = "",
   children,
   headerAction,
+  footer,
+  footerClassName = "",
 }: AdaptiveModalProps) {
   const tCommon = useTranslations("Common.aria");
   const modalRef = useRef<HTMLDivElement>(null);
@@ -256,12 +260,21 @@ export function AdaptiveModal({
         <div
           className={
             scrollable
-              ? `flex-1 overflow-y-auto min-h-0 pt-3 sm:pt-4 overscroll-contain ${bodyClassName}`
-              : `flex-1 min-h-0 flex flex-col overflow-hidden pt-3 sm:pt-4 ${bodyClassName}`
+              ? `flex-1 overflow-y-auto min-h-0 pt-3 sm:pt-4 ${footer ? "pb-3 sm:pb-4" : ""} overscroll-contain ${bodyClassName}`
+              : `flex-1 min-h-0 flex flex-col overflow-hidden pt-3 sm:pt-4 ${footer ? "pb-3 sm:pb-4" : ""} ${bodyClassName}`
           }
         >
           {children}
         </div>
+
+        {/* Optional Pinned Footer */}
+        {footer && (
+          <div
+            className={`pt-3 sm:pt-4 border-t border-surface-bright/5 shrink-0 w-full mt-auto ${footerClassName}`}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

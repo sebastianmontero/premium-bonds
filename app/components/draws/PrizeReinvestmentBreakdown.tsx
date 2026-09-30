@@ -13,7 +13,6 @@ export interface PrizeReinvestmentBreakdownProps {
     DrawDisplayConfig,
     "tokenDecimals" | "tokenSymbol" | "bondPrice"
   >;
-  isOwnPrize?: boolean;
   isProcessed?: boolean;
   isVoided?: boolean;
 }
@@ -22,7 +21,6 @@ export function PrizeReinvestmentBreakdown({
   amountWon,
   breakdown,
   config,
-  isOwnPrize = false,
   isProcessed = true,
   isVoided = false,
 }: PrizeReinvestmentBreakdownProps) {
@@ -235,15 +233,6 @@ export function PrizeReinvestmentBreakdown({
           </div>
         </div>
       )}
-
-      {/* Explanatory Subtext */}
-      <p className="text-[11px] text-on-surface-variant leading-relaxed">
-        {isProcessed
-          ? isOwnPrize
-            ? t("reinvestedNote")
-            : t("publicReinvestedNote")
-          : t("estimatedReinvestmentDesc")}
-      </p>
     </div>
   );
 }

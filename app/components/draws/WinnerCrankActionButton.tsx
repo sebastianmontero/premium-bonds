@@ -8,7 +8,7 @@ import { useTranslations } from "next-intl";
 
 export interface WinnerCrankActionButtonProps {
   winnerIndex: number;
-  winnerAddress: string;
+  winnerAddress?: string;
   isProcessed: boolean;
   timelockState: PayoutTimelockState;
   isClaimingPaused?: boolean;
@@ -20,7 +20,7 @@ export interface WinnerCrankActionButtonProps {
 
 export function WinnerCrankActionButton({
   winnerIndex,
-  winnerAddress,
+  winnerAddress = "",
   isProcessed,
   timelockState,
   isClaimingPaused = false,

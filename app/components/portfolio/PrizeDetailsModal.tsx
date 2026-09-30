@@ -7,15 +7,13 @@ import {
   formatLocalDate,
   formatTicketNumber,
 } from "@/app/lib/formatters";
-import { TierBadge } from "@/app/components/common/TierBadge";
 import { usePayoutTimelock } from "@/app/hooks/usePayoutTimelock";
 import { useClipboard } from "@/app/hooks/useClipboard";
-import { CopyButton } from "@/app/components/common/CopyButton";
-import { InteractiveTooltip } from "@/app/components/common/InteractiveTooltip";
-import { TimelockTooltipContent } from "@/app/components/draws/TimelockTooltipContent";
 import { resolvePrizeBreakdown } from "@/app/lib/draw-helpers";
+import { PrizeHeroCard } from "@/app/components/draws/PrizeHeroCard";
 import { PrizeReinvestmentBreakdown } from "@/app/components/draws/PrizeReinvestmentBreakdown";
 import { PrizeVerificationProofs } from "@/app/components/draws/PrizeVerificationProofs";
+import { WinnerCrankActionButton } from "@/app/components/draws/WinnerCrankActionButton";
 import { useTranslations, useFormatter } from "next-intl";
 import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
 
@@ -69,6 +67,9 @@ export default function PrizeDetailsModal({
   );
 
   const isVoided = (entry?.status as string) === "voided";
+  const isCranking = Boolean(
+    entry && crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
+  );
 
   // Focus retention: When status transitions to reinvested and the crank button unmounts, retain focus inside modal
   useEffect(() => {
@@ -152,110 +153,69 @@ export default function PrizeDetailsModal({
       size="md"
       zIndex="z-[60]"
       bodyClassName="space-y-4"
-    >
-      {/* Hero Prize Summary Card */}
-      <div className="p-3.5 sm:p-4 rounded-xl bg-surface-container/20 border border-surface-bright/10 shrink-0">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Tier */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("tierWon")}
-            </p>
-            <div className="mt-1">
-              <TierBadge tierIndex={entry.tierIndex} size="md" />
-            </div>
-          </div>
-
-          {/* Amount Won */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("amountWon")}
-            </p>
-            <p
-              className={`text-base sm:text-lg font-bold font-mono mt-0.5 truncate ${
-                isVoided
-                  ? "line-through text-on-surface-variant/60"
-                  : "text-primary"
-              }`}
-            >
-              {formatCurrency(entry.amount, {
-                tokenSymbol,
-                decimals: tokenDecimals,
-              })}
-            </p>
-          </div>
-
-          {/* Winning Bond */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("winningTicket")}
-            </p>
-            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-              <p className="text-base sm:text-lg font-bold font-mono text-on-surface flex items-center gap-1.5 truncate">
-                <span aria-hidden="true">🎫</span>
-                <span>
-                  {entry.winningTicket !== undefined &&
-                  entry.winningTicket !== null
-                    ? formatTicketNumber(entry.winningTicket)
-                    : "—"}
-                </span>
-              </p>
-              {entry.winningTicket !== undefined &&
-                entry.winningTicket !== null && (
-                  <CopyButton
-                    text={formatTicketNumber(entry.winningTicket)}
-                    ariaLabel={`${t("copy")} ${t("winningTicket")}`}
-                  />
-                )}
-            </div>
-          </div>
-
-          {/* Verification Status */}
-          <div className="flex flex-col justify-between min-w-0">
-            <p className="text-[10px] uppercase tracking-wider text-on-surface-variant font-semibold">
-              {t("verificationStatus")}
-            </p>
-            <div className="mt-1">
-              {isVoided ? (
-                <span className="font-mono text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 inline-block">
-                  {tLedger("prizesRevoked")}
-                </span>
-              ) : crankingCycles[
-                  `${entry.drawCycleId}-${entry.winnerIndex}`
-                ] ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 animate-pulse">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-spin" />
-                  {tLedger("cranking")}
-                </span>
-              ) : entry.status === "reinvested" ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  {tLedger("reinvested")}
-                </span>
-              ) : timelockState.isTimelocked ? (
-                <InteractiveTooltip
-                  ariaLabel={tLedger("timelocked")}
-                  align="center"
-                  side="top"
-                  triggerClassName="inline-flex p-0"
-                  panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-                  content={<TimelockTooltipContent timelock={timelockState} />}
+      footer={
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-3 w-full">
+          {!isVoided ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={handleShare}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary font-semibold text-xs px-4 py-2 min-h-[44px] sm:min-h-0 transition cursor-pointer"
+              >
+                <span aria-hidden="true">✨</span>
+                <span>{t("shareWin")}</span>
+              </button>
+              {isShareCopied && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-10 whitespace-nowrap bg-emerald-500 text-surface-container text-[10px] font-bold px-2 py-0.5 rounded shadow-lg"
                 >
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300 cursor-help">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                    🔒 {tLedger("timelocked")}
-                  </span>
-                </InteractiveTooltip>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                  {tLedger("processing")}
-                </span>
+                  {tLedger("shareTemplateCopied")}
+                </div>
               )}
             </div>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex items-center justify-end gap-2.5 sm:gap-3">
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={handleClose}
+              className="flex-1 sm:flex-none justify-center rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 min-h-[44px] sm:min-h-0 transition cursor-pointer flex items-center"
+            >
+              {t("close")}
+            </button>
+            <WinnerCrankActionButton
+              winnerIndex={entry.winnerIndex}
+              isProcessed={entry.status === "reinvested"}
+              timelockState={timelockState}
+              isClaimingPaused={effectivePool?.isFrozenForDraw}
+              isVoided={isVoided}
+              isCranking={isCranking}
+              onCrank={() =>
+                onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
+              }
+              size="md"
+            />
           </div>
         </div>
-      </div>
+      }
+    >
+      {/* Hero Prize Summary Card */}
+      <PrizeHeroCard
+        tierIndex={entry.tierIndex}
+        amountWon={entry.amount}
+        tokenSymbol={tokenSymbol}
+        tokenDecimals={tokenDecimals}
+        winningTicket={entry.winningTicket}
+        isProcessed={entry.status === "reinvested"}
+        isVoided={isVoided}
+        isCranking={isCranking}
+        timelockState={timelockState}
+      />
 
       {/* Timelock Security Notice when processing (strictly when not voided) */}
       {!isVoided &&
@@ -289,7 +249,6 @@ export default function PrizeDetailsModal({
             tokenSymbol,
             bondPrice: effectiveBondPrice,
           }}
-          isOwnPrize={true}
           isProcessed={entry.status === "reinvested"}
           isVoided={isVoided}
         />
@@ -302,153 +261,6 @@ export default function PrizeDetailsModal({
           txSignature={entry.txSignature}
           isVoided={isVoided}
         />
-      </div>
-
-      {/* Social Share Card (rendered strictly when not voided) */}
-      {!isVoided && (
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-3.5 rounded-xl border border-primary/10 bg-primary/[0.02] gap-3 shrink-0">
-          <div className="space-y-0.5">
-            <h5 className="text-xs font-semibold text-on-surface flex items-center gap-1.5 uppercase tracking-wider">
-              <svg
-                className="w-4 h-4 text-primary"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"
-                />
-              </svg>
-              {t("braggingRights")}
-            </h5>
-            <p className="text-xs text-on-surface-variant">
-              {t("braggingSubtitle")}
-            </p>
-          </div>
-
-          <div className="relative">
-            <button
-              type="button"
-              onClick={handleShare}
-              className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl bg-primary hover:bg-primary-hover text-surface-container font-semibold text-xs px-4 py-2 transition cursor-pointer"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8.684 10.742l4.632-2.316m0 4.632l-4.632-2.316M12 10.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7.5-6a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-7.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"
-                />
-              </svg>
-              {t("shareWin")}
-            </button>
-
-            {isShareCopied && (
-              <div className="absolute right-0 top-full mt-1.5 z-10 whitespace-nowrap bg-emerald-500 text-surface-container text-[10px] font-bold px-2 py-0.5 rounded shadow-lg">
-                {tLedger("shareTemplateCopied")}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Action Row */}
-      <div className="flex items-center justify-end gap-3 pt-3 border-t border-surface-bright/5 shrink-0">
-        <button
-          ref={closeButtonRef}
-          type="button"
-          onClick={handleClose}
-          className="rounded-xl border border-surface-bright/10 hover:bg-surface-bright/5 text-on-surface font-semibold text-xs px-4 py-2 transition cursor-pointer"
-        >
-          {t("close")}
-        </button>
-
-        {!isVoided &&
-          entry.status === "processing" &&
-          (timelockState.isTimelocked ? (
-            <InteractiveTooltip
-              ariaLabel={`Crank locked: ${tLedger("timelockTooltip", { remaining: timelockState.formattedRemaining })}`}
-              align="right"
-              side="top"
-              triggerClassName="inline-flex p-0"
-              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-              content={<TimelockTooltipContent timelock={timelockState} />}
-            >
-              <span
-                aria-disabled="true"
-                className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 bg-surface-container/60 border border-amber-500/20 text-amber-300/80 cursor-not-allowed opacity-80 shadow-xs shrink-0"
-              >
-                <span aria-hidden="true">🔒</span> {tLedger("timelocked")} (
-                {timelockState.formattedRemaining})
-              </span>
-            </InteractiveTooltip>
-          ) : effectivePool?.isFrozenForDraw ? (
-            <InteractiveTooltip
-              ariaLabel={tLedger("frozenCrankTooltip")}
-              align="right"
-              side="top"
-              triggerClassName="inline-flex"
-              panelClassName="w-72 sm:w-80 border-amber-500/30 bg-[#0F111A]/95 p-3.5 backdrop-blur-xl"
-              content={
-                <p className="text-xs leading-relaxed text-amber-200">
-                  {tLedger("frozenCrankTooltip")}
-                </p>
-              }
-            >
-              <span
-                aria-disabled="true"
-                className="flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 bg-surface-container/60 border border-amber-500/20 text-amber-300/60 cursor-not-allowed opacity-80 shadow-xs shrink-0"
-              >
-                <span aria-hidden="true">⏸️</span> {tLedger("frozenDrawStatus")}
-              </span>
-            </InteractiveTooltip>
-          ) : (
-            <button
-              type="button"
-              disabled={
-                !!crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-              }
-              onClick={() =>
-                onSimulateCrank(entry.drawCycleId, entry.winnerIndex)
-              }
-              className={`flex items-center gap-1.5 rounded-xl font-semibold text-xs px-4 py-2 transition shrink-0 ${
-                crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                  ? "bg-surface-bright/10 text-on-surface-variant/40 cursor-not-allowed border border-surface-bright/5"
-                  : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black cursor-pointer shadow-[0_4px_14px_rgba(245,158,11,0.25)]"
-              }`}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`animate-spin ${
-                  crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                    ? "duration-1000 text-on-surface-variant/40"
-                    : "duration-3000"
-                }`}
-              >
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67" />
-              </svg>
-              {crankingCycles[`${entry.drawCycleId}-${entry.winnerIndex}`]
-                ? tLedger("cranking")
-                : tLedger("runCrank")}
-            </button>
-          ))}
       </div>
     </AdaptiveModal>
   );
