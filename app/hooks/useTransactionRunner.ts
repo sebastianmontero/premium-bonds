@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useSolanaClient } from "@solana/react-hooks";
 import { signature as toSignature } from "@solana/kit";
 import {
@@ -11,6 +11,37 @@ import {
 import { pollSignatureConfirmation } from "@/app/lib/transaction-poller";
 import type { TransactionStage } from "@/app/components/dashboard/TransactionProgressModal";
 
+export const MOCK_TX_PREFIX = "DEMO_TX_";
+const BROADCAST_MIN_DISPLAY_MS = 300;
+const CONFIRMING_MIN_DISPLAY_MS = 200;
+
+export interface TransactionLifecycleReporter {
+  /** Notify the runner that instruction building & validation succeeded and wallet signing has started */
+  onSigning: () => void;
+}
+
+export type TransactionRunnerFn = (
+  reporter: TransactionLifecycleReporter
+) => Promise<string | undefined>;
+
+export function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function useTransactionRunner() {
   const client = useSolanaClient();
   const rpc = client.runtime.rpc;
@@ -19,15 +50,18 @@ export function useTransactionRunner() {
   const [error, setError] = useState<ParsedTransactionError | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastExecutionRef = useRef<{
-    txFn: () => Promise<string | undefined>;
+    txFn: TransactionRunnerFn;
     onSuccess?: (sig?: string) => void;
   } | null>(null);
 
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const runTransaction = useCallback(
-    async (
-      txFn: () => Promise<string | undefined>,
-      onSuccess?: (sig?: string) => void
-    ) => {
+    async (txFn: TransactionRunnerFn, onSuccess?: (sig?: string) => void) => {
       lastExecutionRef.current = { txFn, onSuccess };
       abortControllerRef.current?.abort();
       const abortController = new AbortController();
@@ -38,7 +72,16 @@ export function useTransactionRunner() {
       setTxSignature(null);
 
       try {
-        const capturedSig = await txFn();
+        let signingReported = false;
+        const capturedSig = await txFn({
+          onSigning: () => {
+            if (!abortController.signal.aborted && !signingReported) {
+              signingReported = true;
+              setStage("signing");
+            }
+          },
+        });
+
         if (!capturedSig) {
           throw new DOMException(
             "Transaction signature not returned",
@@ -48,12 +91,44 @@ export function useTransactionRunner() {
 
         setTxSignature(capturedSig);
         setStage("broadcasting");
-        setStage("confirming");
 
-        await pollSignatureConfirmation(rpc, toSignature(capturedSig), {
-          timeoutMs: 60_000,
-          abortSignal: abortController.signal,
+        // 1. Start polling or simulated delay (concurrent execution)
+        const isMock = capturedSig.startsWith(MOCK_TX_PREFIX);
+        const pollPromise = isMock
+          ? delayWithAbort(400, abortController.signal)
+          : pollSignatureConfirmation(rpc, toSignature(capturedSig), {
+              timeoutMs: 60_000,
+              abortSignal: abortController.signal,
+            });
+
+        // 2. Race broadcast visual pacing against early polling rejection
+        const earlyRejectionPromise = new Promise<never>((_, reject) => {
+          pollPromise.catch(reject);
         });
+        await Promise.race([
+          delayWithAbort(BROADCAST_MIN_DISPLAY_MS, abortController.signal),
+          earlyRejectionPromise,
+        ]);
+
+        if (abortController.signal.aborted) {
+          throw new DOMException("Transaction aborted", "AbortError");
+        }
+
+        // 3. Transition to "confirming" (only reached if broadcast succeeded)
+        const confirmingStartTime = Date.now();
+        setStage("confirming");
+        await pollPromise;
+
+        // 4. Dynamic minimum dwell time: only wait if confirmation was instant
+        const elapsed = Date.now() - confirmingStartTime;
+        const remainingDwell = Math.max(0, CONFIRMING_MIN_DISPLAY_MS - elapsed);
+        if (remainingDwell > 0) {
+          await delayWithAbort(remainingDwell, abortController.signal);
+        }
+
+        if (abortController.signal.aborted) {
+          throw new DOMException("Transaction aborted", "AbortError");
+        }
 
         setStage("success");
         if (onSuccess) onSuccess(capturedSig);

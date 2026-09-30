@@ -2,7 +2,7 @@
 
 import { useMemo, useCallback } from "react";
 import { useWalletConnection, useSolanaClient } from "@solana/react-hooks";
-import { address } from "@solana/kit";
+import { address, type Instruction } from "@solana/kit";
 import { usePrizePool } from "./queries/usePrizePool";
 import { useUserBondPosition } from "./queries/useUserBondPosition";
 import { useUserTokenBalance } from "./useUserTokenBalance";
@@ -22,6 +22,14 @@ import {
   PendingRedemptionDto,
 } from "../lib/indexer-mappers";
 import { UNASSIGNED_REGISTRY_INDEX } from "../lib/ticket-registry-helpers";
+
+export interface ActionLifecycleOptions {
+  onSigning?: () => void;
+}
+
+export interface ReinvestOptions extends ActionLifecycleOptions {
+  winnerAddress?: string;
+}
 
 export function useBondsContract(poolId: number = 1) {
   const client = useSolanaClient();
@@ -102,139 +110,159 @@ export function useBondsContract(poolId: number = 1) {
     ]);
   }, [poolQuery, positionQuery, tokenBalanceQuery]);
 
+  const executeAction = useCallback(
+    async (
+      buildIx: () => Promise<Instruction | readonly Instruction[]>,
+      options?: ActionLifecycleOptions
+    ): Promise<string> => {
+      const ixOrIxs = await buildIx();
+      const instructions = Array.isArray(ixOrIxs) ? [...ixOrIxs] : [ixOrIxs];
+      options?.onSigning?.();
+      const sig = await send({ instructions });
+      return sig.toString();
+    },
+    [send]
+  );
+
   // Mutations
   const buyBonds = useCallback(
-    async (ticketsToBuy: number) => {
+    async (ticketsToBuy: number, options?: ActionLifecycleOptions) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool || !pool.ticketRegistry)
         throw new Error("Pool state not loaded");
+      const currentPool = pool;
+      const ticketRegistry = pool.ticketRegistry;
 
-      const ix = await buildBuyBondsInstruction({
-        poolId,
-        userAddress: address(userAddress),
-        ticketsToBuy,
-        ticketRegistry: address(pool.ticketRegistry),
-        humaAddresses: pool.humaPoolState
-          ? { poolState: address(pool.humaPoolState) }
-          : undefined,
-      });
-
-      const sig = await send({ instructions: [ix] });
-      await positionQuery.refetch();
-      await tokenBalanceQuery.refetch();
-      return sig.toString();
+      return executeAction(
+        () =>
+          buildBuyBondsInstruction({
+            poolId,
+            userAddress: address(userAddress),
+            ticketsToBuy,
+            ticketRegistry: address(ticketRegistry),
+            humaAddresses: currentPool.humaPoolState
+              ? { poolState: address(currentPool.humaPoolState) }
+              : undefined,
+          }),
+        options
+      );
     },
-    [userAddress, pool, poolId, send, positionQuery, tokenBalanceQuery]
+    [userAddress, pool, poolId, executeAction]
   );
 
   const sellBonds = useCallback(
-    async (amount: number) => {
+    async (amount: number, options?: ActionLifecycleOptions) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool || !pool.ticketRegistry)
         throw new Error("Pool state not loaded");
       if (!userTickets) throw new Error("User position not loaded");
+      const currentPool = pool;
 
-      const bondsToSell = Math.floor(amount / (pool.bondPrice || 5_000_000));
+      const bondsToSell = Math.floor(
+        amount / (currentPool.bondPrice || 5_000_000)
+      );
       const pendingToSell = Math.min(
         userTickets.pendingTicketsCount,
         bondsToSell
       );
       const activeToSell = bondsToSell - pendingToSell;
 
-      const ix = await buildSellBondsInstruction({
-        rpc,
-        poolId,
-        userAddress: address(userAddress),
-        activeToSell,
-        pendingToSell,
-        userRegistryIndex: userTickets.entryIndex,
-        currentUserTotalTickets: userTickets.totalTickets,
-        humaAddresses: pool.humaPoolState
-          ? { poolState: address(pool.humaPoolState) }
-          : undefined,
-      });
-
-      const sig = await send({ instructions: [ix] });
-      await positionQuery.refetch();
-      await redemptionsQuery.refetch();
-      await tokenBalanceQuery.refetch();
-      return sig.toString();
+      return executeAction(
+        () =>
+          buildSellBondsInstruction({
+            rpc,
+            poolId,
+            userAddress: address(userAddress),
+            activeToSell,
+            pendingToSell,
+            userRegistryIndex: userTickets.entryIndex,
+            currentUserTotalTickets: userTickets.totalTickets,
+            humaAddresses: currentPool.humaPoolState
+              ? { poolState: address(currentPool.humaPoolState) }
+              : undefined,
+          }),
+        options
+      );
     },
-    [
-      userAddress,
-      pool,
-      poolId,
-      userTickets,
-      rpc,
-      send,
-      positionQuery,
-      redemptionsQuery,
-      tokenBalanceQuery,
-    ]
+    [userAddress, pool, poolId, userTickets, rpc, executeAction]
   );
 
   const claimRedemption = useCallback(
-    async (redemptionId: number) => {
+    async (redemptionId: number, options?: ActionLifecycleOptions) => {
       if (!userAddress) throw new Error("Wallet not connected");
+      const currentPool = pool;
 
-      const ixs = await buildClaimRedemptionInstructions({
-        poolId,
-        userAddress: address(userAddress),
-        redemptionId,
-        humaAddresses: pool?.humaPoolState
-          ? { poolState: address(pool.humaPoolState) }
-          : undefined,
-      });
-
-      const sig = await send({ instructions: ixs });
-      return sig.toString();
+      return executeAction(
+        () =>
+          buildClaimRedemptionInstructions({
+            poolId,
+            userAddress: address(userAddress),
+            redemptionId,
+            humaAddresses: currentPool?.humaPoolState
+              ? { poolState: address(currentPool.humaPoolState) }
+              : undefined,
+          }),
+        options
+      );
     },
-    [userAddress, pool, poolId, send]
+    [userAddress, pool, poolId, executeAction]
   );
 
   const claimNonReinvestedWinnings = useCallback(
-    async (amount: number) => {
+    async (amount: number, options?: ActionLifecycleOptions) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool) throw new Error("Pool state not loaded");
+      const currentPool = pool;
 
-      const ix = await buildClaimNonReinvestedWinningsInstruction({
-        poolId,
-        userAddress: address(userAddress),
-        amount,
-        nextRedemptionId: pool.nextRedemptionId || 0,
-        humaAddresses: pool.humaPoolState
-          ? { poolState: address(pool.humaPoolState) }
-          : undefined,
-      });
-
-      const sig = await send({ instructions: [ix] });
-      await positionQuery.refetch();
-      await redemptionsQuery.refetch();
-      return sig.toString();
+      return executeAction(
+        () =>
+          buildClaimNonReinvestedWinningsInstruction({
+            poolId,
+            userAddress: address(userAddress),
+            amount,
+            nextRedemptionId: currentPool.nextRedemptionId || 0,
+            humaAddresses: currentPool.humaPoolState
+              ? { poolState: address(currentPool.humaPoolState) }
+              : undefined,
+          }),
+        options
+      );
     },
-    [userAddress, pool, poolId, send, positionQuery, redemptionsQuery]
+    [userAddress, pool, poolId, executeAction]
   );
 
   const reinvestWinnings = useCallback(
-    async (cycleId: number, winnerIndex: number, winnerAddress?: string) => {
+    async (
+      cycleId: number,
+      winnerIndex: number,
+      options?: ReinvestOptions | string
+    ) => {
       if (!userAddress) throw new Error("Wallet not connected");
       if (!pool || !pool.ticketRegistry)
         throw new Error("Pool state not loaded");
+      const ticketRegistry = pool.ticketRegistry;
 
-      const ix = await buildReinvestWinningsInstruction({
-        poolId,
-        userAddress: address(userAddress),
-        cycleId,
-        winnerIndex,
-        ticketRegistry: address(pool.ticketRegistry),
-        winnerAddress: winnerAddress ? address(winnerAddress) : undefined,
-      });
+      const opts: ReinvestOptions =
+        typeof options === "string"
+          ? { winnerAddress: options }
+          : options || {};
 
-      const sig = await send({ instructions: [ix] });
-      await positionQuery.refetch();
-      return sig.toString();
+      return executeAction(
+        () =>
+          buildReinvestWinningsInstruction({
+            poolId,
+            userAddress: address(userAddress),
+            cycleId,
+            winnerIndex,
+            ticketRegistry: address(ticketRegistry),
+            winnerAddress: opts.winnerAddress
+              ? address(opts.winnerAddress)
+              : undefined,
+          }),
+        opts
+      );
     },
-    [userAddress, pool, poolId, send, positionQuery]
+    [userAddress, pool, poolId, executeAction]
   );
 
   const actions = useMemo(

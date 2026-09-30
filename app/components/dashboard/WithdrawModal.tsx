@@ -6,11 +6,16 @@ import { formatCurrency, formatBalanceAmount } from "@/app/lib/formatters";
 import type { PoolInfo, UserTicketInfo } from "@/app/types";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
 import { isInFlightStage } from "./TransactionProgressModal";
-import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
+import {
+  useTransactionRunner,
+  type TransactionLifecycleReporter,
+} from "@/app/hooks/useTransactionRunner";
+import type { ActionLifecycleOptions } from "@/app/hooks/useBondsContract";
+import { createMockTransactionFn } from "@/app/lib/mock-transaction";
 import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
 import { TransactionProgressView } from "./TransactionProgressView";
 
-interface WithdrawModalProps {
+export interface WithdrawModalProps {
   pool: PoolInfo;
   userTickets: UserTicketInfo;
   onClose: () => void;
@@ -19,7 +24,10 @@ interface WithdrawModalProps {
     value: number,
     signature?: string
   ) => void;
-  onWithdraw?: (amount: number) => Promise<string>;
+  onWithdraw?: (
+    amount: number,
+    options?: ActionLifecycleOptions
+  ) => Promise<string>;
 }
 
 export function WithdrawModal({
@@ -70,11 +78,9 @@ export function WithdrawModal({
   const handleWithdraw = useCallback(async () => {
     if (!canWithdraw) return;
     const txFn = onWithdraw
-      ? () => onWithdraw(withdrawValue)
-      : async () => {
-          await new Promise((resolve) => setTimeout(resolve, 1200));
-          return undefined;
-        };
+      ? ({ onSigning }: TransactionLifecycleReporter) =>
+          onWithdraw(withdrawValue, { onSigning })
+      : createMockTransactionFn();
 
     try {
       await runner.runTransaction(txFn, (sig) => {

@@ -112,7 +112,9 @@ export function useCrankPrize(poolId: PoolId = 1) {
       return await actions.reinvestWinnings(
         entry.drawCycleId,
         entry.winnerIndex,
-        userAddress
+        {
+          winnerAddress: userAddress,
+        }
       );
     },
     onError: (_err, _vars, context) => {

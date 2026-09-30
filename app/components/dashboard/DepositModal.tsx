@@ -7,17 +7,25 @@ import type { PoolInfo } from "@/app/types";
 import { useTranslations } from "next-intl";
 import { TransactionFeeSummary } from "./TransactionFeeSummary";
 import { isInFlightStage } from "./TransactionProgressModal";
-import { useTransactionRunner } from "@/app/hooks/useTransactionRunner";
+import {
+  useTransactionRunner,
+  type TransactionLifecycleReporter,
+} from "@/app/hooks/useTransactionRunner";
+import type { ActionLifecycleOptions } from "@/app/hooks/useBondsContract";
+import { createMockTransactionFn } from "@/app/lib/mock-transaction";
 import { AdaptiveModal } from "@/app/components/common/AdaptiveModal";
 import { TransactionProgressView } from "./TransactionProgressView";
 
-interface DepositModalProps {
+export interface DepositModalProps {
   pool: PoolInfo;
   walletBalance: number; // base units
   isFirstDeposit?: boolean;
   onClose: () => void;
   onDepositSuccess: (tickets: number, cost: number, signature?: string) => void;
-  onDeposit?: (tickets: number) => Promise<string>;
+  onDeposit?: (
+    tickets: number,
+    options?: ActionLifecycleOptions
+  ) => Promise<string>;
 }
 
 export function DepositModal({
@@ -90,11 +98,9 @@ export function DepositModal({
   const handleDeposit = useCallback(async () => {
     if (!canDeposit) return;
     const txFn = onDeposit
-      ? () => onDeposit(parsedTickets)
-      : async () => {
-          await new Promise((resolve) => setTimeout(resolve, 1200));
-          return undefined;
-        };
+      ? ({ onSigning }: TransactionLifecycleReporter) =>
+          onDeposit(parsedTickets, { onSigning })
+      : createMockTransactionFn();
 
     try {
       await runner.runTransaction(txFn, (sig) => {

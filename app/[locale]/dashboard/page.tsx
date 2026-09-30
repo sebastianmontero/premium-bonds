@@ -373,11 +373,14 @@ export default function DashboardPage() {
         if (isConnected && userAddress) {
           const initiatingAddress = userAddress;
           await runActionTx(
-            async () => {
+            async ({ onSigning }) => {
               const sig = await actions.reinvestWinnings(
                 drawCycleId,
                 entry.winnerIndex,
-                initiatingAddress
+                {
+                  winnerAddress: initiatingAddress,
+                  onSigning,
+                }
               );
               markPrizeOptimisticallyProcessed({
                 drawCycleId,
@@ -476,7 +479,8 @@ export default function DashboardPage() {
       if (isConnected && userAddress) {
         const initiatingAddress = userAddress;
         await runActionTx(
-          () => actions.claimNonReinvestedWinnings(claimAmount),
+          ({ onSigning }) =>
+            actions.claimNonReinvestedWinnings(claimAmount, { onSigning }),
           (capturedSig) => {
             refetch();
             refetchDrawHistory();
@@ -533,7 +537,7 @@ export default function DashboardPage() {
       if (isConnected && userAddress) {
         const initiatingAddress = userAddress;
         await runActionTx(
-          () => actions.claimRedemption(Number(id)),
+          ({ onSigning }) => actions.claimRedemption(Number(id), { onSigning }),
           (capturedSig) => {
             // Optimistically remove from cache once confirmed on-chain
             queryClient.setQueryData<PendingRedemption[]>(

@@ -222,11 +222,14 @@ function DrawHistoryContent() {
     try {
       if (isConnected) {
         return await runActionTx(
-          async () => {
+          async ({ onSigning }) => {
             const sig = await actions.reinvestWinnings(
               drawCycleId,
               winnerIndex,
-              winnerAddress
+              {
+                winnerAddress,
+                onSigning,
+              }
             );
             if (sig && onOptimisticSuccess) {
               onOptimisticSuccess(sig);
