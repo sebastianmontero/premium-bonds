@@ -185,4 +185,57 @@ describe("PrizeHeroCard Component Suite", () => {
       "Should render Reinvested status badge"
     );
   });
+
+  it("should render outer container query wrapper and responsive layout classes", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 3_920_000,
+        winningTicket: 4599,
+        isProcessed: true,
+        className: "custom-prize-card-class",
+      })
+    );
+
+    // Outer @container boundary wrapper
+    assert.ok(
+      html.includes("@container w-full shrink-0 custom-prize-card-class"),
+      "Outer wrapper must declare @container w-full shrink-0 and pass className"
+    );
+
+    // Card body responsive classes
+    assert.ok(
+      html.includes("@2xl:space-y-0 @2xl:flex @2xl:items-center @2xl:justify-between @2xl:gap-4"),
+      "Card body must include @2xl single-row flex transition classes"
+    );
+
+    // Left financial & status cluster
+    assert.ok(
+      html.includes("@2xl:justify-start @2xl:gap-3 @2xl:shrink-0"),
+      "Left financial cluster must include @2xl alignment and gap classes"
+    );
+
+    // Right winning ticket cluster
+    assert.ok(
+      html.includes("@2xl:justify-end @2xl:gap-3 @2xl:py-1.5 @2xl:px-3 @2xl:shrink-0"),
+      "Right winning ticket cluster must include @2xl pill styling classes"
+    );
+  });
+
+  it("should apply visible focus styling on winning ticket copy button for keyboard navigation", () => {
+    const html = renderWithIntl(
+      React.createElement(PrizeHeroCard, {
+        tierIndex: 0,
+        amountWon: 3_920_000,
+        winningTicket: 4599,
+        isProcessed: true,
+      })
+    );
+
+    assert.ok(
+      html.includes("focus-visible:ring-2") && html.includes("focus-visible:ring-primary"),
+      "Copy button must have focus-visible ring classes for WCAG 2.4.7 focus indicator"
+    );
+  });
 });
+
