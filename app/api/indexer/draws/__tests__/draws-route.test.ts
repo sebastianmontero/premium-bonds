@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { GET } from "../route";
-import { NO_CACHE_HEADERS } from "@/app/lib/api-headers";
 import {
   createApiRequest,
   assertSuccessResponse,
@@ -10,15 +9,10 @@ import {
 } from "@/app/lib/test-harness";
 
 describe("GET /api/indexer/draws Route Handler", () => {
-  it("should return valid paginated envelope and handle cache headers gracefully", async () => {
+  it("should return valid paginated envelope and enforce strict no-cache headers", async () => {
     const req = createApiRequest("/api/indexer/draws?poolId=1&limit=50");
     const res = await GET(req);
-    const cacheControl = res.headers.get("Cache-Control");
-    assert.ok(
-      cacheControl === "public, s-maxage=60, stale-while-revalidate=120" ||
-        cacheControl === NO_CACHE_HEADERS["Cache-Control"],
-      `Unexpected Cache-Control header: ${cacheControl}`
-    );
+    assertNoCache(res);
 
     const { json, aggregates } = await assertSuccessResponse(res, 200);
     assert.ok(Array.isArray(json.draws), "draws should be an array");

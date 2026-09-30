@@ -60,9 +60,7 @@ export async function GET(req: NextRequest): Promise<
   try {
     const [result, poolStats] = await Promise.all([
       fetchPaginatedDraws(parsed.data),
-      defaultPoolStatsAggregator.getPoolDrawStats(parsed.data.poolId, {
-        bypassCache: true,
-      }),
+      defaultPoolStatsAggregator.getPoolDrawStats(parsed.data.poolId),
     ]);
 
     const stats = poolStats ?? {
@@ -72,9 +70,7 @@ export async function GET(req: NextRequest): Promise<
       averagePrizePot: 0,
     };
 
-    const headers = result.allFinalized
-      ? { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" }
-      : NO_CACHE_HEADERS;
+    const headers = NO_CACHE_HEADERS;
 
     return NextResponse.json(
       {

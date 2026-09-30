@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/realtime/channels";
 import { bondsKeys, type PoolId } from "@/app/lib/query-keys";
 import { useWalletConnection } from "@solana/react-hooks";
+import { DebouncedQueryInvalidator } from "@/app/lib/realtime/query-invalidator";
 
 /**
  * Pure helper to resolve TanStack Query keys to invalidate from an incoming protocol sync message.
@@ -85,10 +86,19 @@ export function useRealtimeSync(poolId: PoolId = 1) {
   const { wallet } = useWalletConnection();
   const userAddress = wallet?.account.address.toString();
   const userAddressRef = useRef(userAddress);
+  const invalidatorRef = useRef<DebouncedQueryInvalidator | null>(null);
 
   useEffect(() => {
     userAddressRef.current = userAddress;
   }, [userAddress]);
+
+  useEffect(() => {
+    invalidatorRef.current = new DebouncedQueryInvalidator(queryClient, 150, 500);
+    return () => {
+      invalidatorRef.current?.dispose();
+      invalidatorRef.current = null;
+    };
+  }, [queryClient]);
 
   const [isPusherConnected, setIsPusherConnected] = useState<boolean>(
     () => typeof window !== "undefined" && Boolean(getPusherClient())
@@ -102,8 +112,9 @@ export function useRealtimeSync(poolId: PoolId = 1) {
     const handleConnected = () => {
       setIsPusherConnected(true);
       if (wasDisconnectedRef.current) {
-        // Reconnection watermark: catch up on dropped events
-        queryClient.invalidateQueries({ queryKey: bondsKeys.poolRoot(poolId) });
+        // Reconnection watermark: catch up on dropped events via invalidator
+        invalidatorRef.current?.schedule([bondsKeys.poolRoot(poolId)]);
+        invalidatorRef.current?.flush();
         wasDisconnectedRef.current = false;
       }
     };
@@ -123,15 +134,7 @@ export function useRealtimeSync(poolId: PoolId = 1) {
         userAddressRef.current
       );
 
-      // Deduplicate keys before invalidating
-      const seen = new Set<string>();
-      for (const key of keysToInvalidate) {
-        const serialized = JSON.stringify(key);
-        if (!seen.has(serialized)) {
-          seen.add(serialized);
-          queryClient.invalidateQueries({ queryKey: key });
-        }
-      }
+      invalidatorRef.current?.schedule(keysToInvalidate);
     };
 
     const globalChannel = client.subscribe(REALTIME_GLOBAL_CHANNEL);

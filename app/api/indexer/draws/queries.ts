@@ -11,7 +11,6 @@ import type {
 export interface PaginatedDrawsResult {
   data: DrawCycleSummaryDto[];
   meta: PaginationMeta;
-  allFinalized: boolean;
 }
 
 interface RawDrawRow extends Record<string, unknown> {
@@ -196,9 +195,6 @@ export async function fetchPaginatedDraws(
     };
   });
 
-  const allFinalized =
-    data.length > 0 && data.every((d) => isTerminalDrawStatus(d.status));
-
   return {
     data,
     meta: {
@@ -209,6 +205,5 @@ export async function fetchPaginatedDraws(
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     },
-    allFinalized,
   };
 }
