@@ -25,11 +25,15 @@ import {
   generateAndSaveKeypair,
   loadOrGenerateKeypair,
   buildTransferSolInstruction,
+  assertSignerBalance,
+  InsufficientFundsError,
+  MIN_ADMIN_FEE_PAYER_LAMPORTS,
   SYSTEM_PROGRAM_ID,
 } from "./utils";
 import {
   SolanaError,
   SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR,
+  createSolanaRpc,
   createSolanaRpcFromTransport,
   generateKeyPairSigner,
   AccountRole,
@@ -1725,6 +1729,80 @@ describe("CLI, Formatting & Error Utilities (utils.test.ts)", () => {
           }),
         /Transfer lamports must be greater than zero. Received: -100/
       );
+    });
+  });
+
+  describe("assertSignerBalance", () => {
+    function createMockRpcWithBalance(balanceLamports: bigint) {
+      return {
+        getBalance: () => ({
+          send: async () => ({ value: balanceLamports }),
+        }),
+      } as unknown as ReturnType<typeof createSolanaRpc>;
+    }
+
+    it("throws InsufficientFundsError when balance is below minLamports", async () => {
+      const mockRpc = createMockRpcWithBalance(0n);
+      const signerAddress = "6k8R1ZTAttSag4Tvj1q4sn8S5DSgeKZhTEMkxPbtUagb";
+
+      await assert.rejects(
+        async () => {
+          await assertSignerBalance(mockRpc, signerAddress, {
+            minLamports: 5_000n,
+            rpcUrl: "https://api.devnet.solana.com",
+            keypairPath: "/mock/admin-key.json",
+          });
+        },
+        (err: any) => {
+          assert(err instanceof InsufficientFundsError);
+          assert.strictEqual(err.address, signerAddress);
+          assert.strictEqual(err.balanceLamports, 0n);
+          assert.strictEqual(err.requiredLamports, 5_000n);
+          assert(
+            err.message.includes(
+              "solana airdrop 1 6k8R1ZTAttSag4Tvj1q4sn8S5DSgeKZhTEMkxPbtUagb --url devnet"
+            )
+          );
+          assert(
+            err.message.includes(
+              "Configured keypair path: /mock/admin-key.json"
+            )
+          );
+          return true;
+        }
+      );
+    });
+
+    it("succeeds and returns balance when balance >= minLamports", async () => {
+      const mockRpc = createMockRpcWithBalance(100_000_000n);
+      const signerAddress = "E5F29wyzm1etJCWJ75uU4DBGPHKYcvbLaspz2kByS9et";
+
+      const bal = await assertSignerBalance(mockRpc, signerAddress, {
+        minLamports: 5_000n,
+      });
+      assert.strictEqual(bal, 100_000_000n);
+    });
+
+    it("warns without throwing when warnOnly is true (dry-run mode)", async () => {
+      const mockRpc = createMockRpcWithBalance(0n);
+      const signerAddress = "6k8R1ZTAttSag4Tvj1q4sn8S5DSgeKZhTEMkxPbtUagb";
+
+      const bal = await assertSignerBalance(mockRpc, signerAddress, {
+        minLamports: 5_000n,
+        warnOnly: true,
+      });
+      assert.strictEqual(bal, 0n);
+    });
+
+    it("logs warning when balance is between minLamports and recommendedLamports", async () => {
+      const mockRpc = createMockRpcWithBalance(10_000n);
+      const signerAddress = "E5F29wyzm1etJCWJ75uU4DBGPHKYcvbLaspz2kByS9et";
+
+      const bal = await assertSignerBalance(mockRpc, signerAddress, {
+        minLamports: 5_000n,
+        recommendedLamports: MIN_ADMIN_FEE_PAYER_LAMPORTS,
+      });
+      assert.strictEqual(bal, 10_000n);
     });
   });
 });

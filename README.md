@@ -277,47 +277,47 @@ A unified operator, crank, query, and multisig governance CLI for managing Yield
 
 Specify options after `--` when running via `npm run pb-cli`:
 
-| Flag                          | Type     | Description                                                  | Default / Requirement                    |
-| ----------------------------- | -------- | ------------------------------------------------------------ | ---------------------------------------- |
-| `--rpc <url>`                 | Global   | Solana RPC endpoint URL                                      | `http://127.0.0.1:8899`                  |
-| `--keypair <path>`            | Global   | Path to signer keypair file                                  | `scripts/admin-key.json`                 |
-| `--pool <number>`             | Global   | Target Prize Pool ID                                         | `1`                                      |
-| `--admin <pubkey>`            | Admin    | Initial or target admin authority public key                 | Signer address                           |
-| `--guardian <pubkey>`         | Admin    | Emergency guardian public key (panic pause role)             | Admin address                            |
-| `--new-admin <pubkey>`        | Admin    | Candidate admin public key for nomination                    | **Required** for `nominate-admin`        |
-| `--jobs <pubkey>`             | Admin    | Crank bot / jobs account public key                          | Admin address                            |
-| `--token-mint <pubkey>`       | Pool     | Underlying deposit token mint address (USDC, 6 decimals)     | Resolved from state                      |
-| `--pst-mint <pubkey>`         | Pool     | Huma PST token mint address (6 decimals)                     | Resolved from state                      |
-| `--fee-wallet <pubkey>`       | Pool     | Protocol fee wallet token account address                    | Resolved from state                      |
-| `--huma-pool-state <pubkey>`  | Pool     | Huma pool state account address                              | Resolved from state                      |
-| `--bond-price <num>`          | Pool     | Bond price in base units ($1.00 = 1,000,000$)                | `1000000`                                |
-| `--stake-duration <hrs>`      | Pool     | Staking cycle duration in hours                              | `24`                                     |
-| `--fee-bps <num>`             | Pool     | Protocol fee rate in basis points ($100 = 1\%$)              | `100`                                    |
-| `--min-yield-threshold <num>` | Pool     | Minimum yield threshold in base units                        | `0` (uncapped)                           |
-| `--max-yield-bps <num>`       | Pool     | Maximum yield velocity limit in basis points                 | `0` (uncapped)                           |
-| `--payout-timelock <secs>`    | Pool     | Payout settlement delay timelock in seconds                  | `300`                                    |
-| `--tiers <string>`            | Pool     | Prize tier distribution rules (e.g. `"1:5000,5:1000"`)       | `1:10000`                                |
-| `--amount <num\|all>`         | Action   | Token amount in base units or `'all'`                        | **Required** for `withdraw-fees`         |
-| `--confirm`                   | Safety   | Explicit confirmation flag for destructive/emergency actions | **Required** for unpause/close/void/fees |
-| `--cycle <number>`            | Action   | Targeted Draw Cycle ID                                       | `pool.currentDrawCycleId - 1`            |
-| `--seed <hex>`                | Action   | 32-byte hex string seed for the `reveal` command             | Randomly generated                       |
-| `--winner <idx\|addr>`        | Action   | Target winner index or user public key address to reinvest   | All unprocessed winners                  |
-| `--id <number>`               | Action   | Target redemption ID to claim or query                       | All settled redemptions                  |
-| `--user <pubkey>`             | Action   | Filter redemptions, winnings, or registry queries by user    | None                                     |
-| `--limit <number>`            | Action   | Maximum items to process or proposals to query               | `10` for proposals                       |
-| `--batch-size <num>`          | Action   | Maximum entries to process per `prepare-draw` batch          | `500`                                    |
-| `--new-randomness <pubkey>`   | Action   | New Switchboard randomness account address                   | **Required** for `rebind-randomness`     |
-| `--address <pubkey>`          | Action   | Mock Huma Pool State account address                         | Resolved from state                      |
-| `--multisig <pubkey>`         | Multisig | Squads V4 Multisig account address                           | `SQUADS_MULTISIG_ADDRESS`                |
-| `--vault-index <num>`         | Multisig | Squads V4 vault index acting as authority                    | `0`                                      |
-| `--index <num>`               | Multisig | Target Squads transaction / proposal index                   | **Required** for squads actions          |
-| `--memo <string>`             | Multisig | Optional memo string attached to vote                        | None                                     |
-| `--rent-collector <pubkey>`   | Multisig | Recipient address for reclaimed rent lamports                | Signer address                           |
-| `--cu-limit <num>`            | Multisig | Compute unit limit for proposal execution transaction        | `800000`                                 |
-| `--propose`                   | Multisig | Route action through Squads V4 proposal creation             | `false`                                  |
-| `--export-ix`                 | Multisig | Export instruction data and Squads UI JSON payload           | `false`                                  |
-| `--dry-run`                   | Safety   | Simulate transaction execution without broadcasting          | `false`                                  |
-| `--no-auto-approve`           | Multisig | Do not automatically approve created proposal                | `false`                                  |
+| Flag                          | Type     | Description                                                  | Default / Requirement                                                                                               |
+| ----------------------------- | -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `--rpc <url>`                 | Global   | Solana RPC endpoint URL                                      | `http://127.0.0.1:8899`                                                                                             |
+| `--keypair <path>`            | Global   | Path to signer keypair file                                  | `KEYPAIR_PATH`, `ANCHOR_WALLET`, Solana config, `~/.config/solana/id.json`, or `scripts/admin-key.json` on localnet |
+| `--pool <number>`             | Global   | Target Prize Pool ID                                         | `1`                                                                                                                 |
+| `--admin <pubkey>`            | Admin    | Initial or target admin authority public key                 | Signer address                                                                                                      |
+| `--guardian <pubkey>`         | Admin    | Emergency guardian public key (panic pause role)             | Admin address                                                                                                       |
+| `--new-admin <pubkey>`        | Admin    | Candidate admin public key for nomination                    | **Required** for `nominate-admin`                                                                                   |
+| `--jobs <pubkey>`             | Admin    | Crank bot / jobs account public key                          | Admin address                                                                                                       |
+| `--token-mint <pubkey>`       | Pool     | Underlying deposit token mint address (USDC, 6 decimals)     | Resolved from state                                                                                                 |
+| `--pst-mint <pubkey>`         | Pool     | Huma PST token mint address (6 decimals)                     | Resolved from state                                                                                                 |
+| `--fee-wallet <pubkey>`       | Pool     | Protocol fee wallet token account address                    | Resolved from state                                                                                                 |
+| `--huma-pool-state <pubkey>`  | Pool     | Huma pool state account address                              | Resolved from state                                                                                                 |
+| `--bond-price <num>`          | Pool     | Bond price in base units ($1.00 = 1,000,000$)                | `1000000`                                                                                                           |
+| `--stake-duration <hrs>`      | Pool     | Staking cycle duration in hours                              | `24`                                                                                                                |
+| `--fee-bps <num>`             | Pool     | Protocol fee rate in basis points ($100 = 1\%$)              | `100`                                                                                                               |
+| `--min-yield-threshold <num>` | Pool     | Minimum yield threshold in base units                        | `0` (uncapped)                                                                                                      |
+| `--max-yield-bps <num>`       | Pool     | Maximum yield velocity limit in basis points                 | `0` (uncapped)                                                                                                      |
+| `--payout-timelock <secs>`    | Pool     | Payout settlement delay timelock in seconds                  | `300`                                                                                                               |
+| `--tiers <string>`            | Pool     | Prize tier distribution rules (e.g. `"1:5000,5:1000"`)       | `1:10000`                                                                                                           |
+| `--amount <num\|all>`         | Action   | Token amount in base units or `'all'`                        | **Required** for `withdraw-fees`                                                                                    |
+| `--confirm`                   | Safety   | Explicit confirmation flag for destructive/emergency actions | **Required** for unpause/close/void/fees                                                                            |
+| `--cycle <number>`            | Action   | Targeted Draw Cycle ID                                       | `pool.currentDrawCycleId - 1`                                                                                       |
+| `--seed <hex>`                | Action   | 32-byte hex string seed for the `reveal` command             | Randomly generated                                                                                                  |
+| `--winner <idx\|addr>`        | Action   | Target winner index or user public key address to reinvest   | All unprocessed winners                                                                                             |
+| `--id <number>`               | Action   | Target redemption ID to claim or query                       | All settled redemptions                                                                                             |
+| `--user <pubkey>`             | Action   | Filter redemptions, winnings, or registry queries by user    | None                                                                                                                |
+| `--limit <number>`            | Action   | Maximum items to process or proposals to query               | `10` for proposals                                                                                                  |
+| `--batch-size <num>`          | Action   | Maximum entries to process per `prepare-draw` batch          | `500`                                                                                                               |
+| `--new-randomness <pubkey>`   | Action   | New Switchboard randomness account address                   | **Required** for `rebind-randomness`                                                                                |
+| `--address <pubkey>`          | Action   | Mock Huma Pool State account address                         | Resolved from state                                                                                                 |
+| `--multisig <pubkey>`         | Multisig | Squads V4 Multisig account address                           | `SQUADS_MULTISIG_ADDRESS`                                                                                           |
+| `--vault-index <num>`         | Multisig | Squads V4 vault index acting as authority                    | `0`                                                                                                                 |
+| `--index <num>`               | Multisig | Target Squads transaction / proposal index                   | **Required** for squads actions                                                                                     |
+| `--memo <string>`             | Multisig | Optional memo string attached to vote                        | None                                                                                                                |
+| `--rent-collector <pubkey>`   | Multisig | Recipient address for reclaimed rent lamports                | Signer address                                                                                                      |
+| `--cu-limit <num>`            | Multisig | Compute unit limit for proposal execution transaction        | `800000`                                                                                                            |
+| `--propose`                   | Multisig | Route action through Squads V4 proposal creation             | `false`                                                                                                             |
+| `--export-ix`                 | Multisig | Export instruction data and Squads UI JSON payload           | `false`                                                                                                             |
+| `--dry-run`                   | Safety   | Simulate transaction execution without broadcasting          | `false`                                                                                                             |
+| `--no-auto-approve`           | Multisig | Do not automatically approve created proposal                | `false`                                                                                                             |
 
 ---
 

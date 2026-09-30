@@ -28,6 +28,10 @@ import {
   readEnvFile,
   resolveSwitchboardProgramId,
   SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
+  resolveDefaultKeypairPath,
+  loadKeypair,
+  assertSignerBalance,
+  InsufficientFundsError,
 } from "./utils";
 import { parseTransactionError, matchAnchorError } from "../app/lib/errors";
 import {
@@ -61,6 +65,25 @@ export class CliArgumentError extends CliUserError {
   constructor(message: string) {
     super(message);
     this.name = "CliArgumentError";
+  }
+}
+
+export class CliInsufficientFundsError extends CliUserError {
+  constructor(
+    public readonly address: Address | string,
+    public readonly balanceLamports: bigint,
+    public readonly requiredLamports: bigint,
+    message: string
+  ) {
+    super(message);
+    this.name = "CliInsufficientFundsError";
+  }
+}
+
+export class CliKeypairError extends CliUserError {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliKeypairError";
   }
 }
 
@@ -348,8 +371,8 @@ export const GLOBAL_OPTIONS: CommandOption[] = [
   { flag: "--pool <number>", description: "Pool ID", default: "1" },
   {
     flag: "--keypair <path>",
-    description: "Path to keypair file",
-    default: "scripts/admin-key.json",
+    description:
+      "Path to keypair file (defaults to KEYPAIR_PATH, ANCHOR_WALLET, solana config, ~/.config/solana/id.json, or scripts/admin-key.json on localnet)",
   },
   {
     flag: "--rpc <url>",
@@ -4097,8 +4120,9 @@ async function main() {
   // Parse global options
   const poolId = parseInt(options["--pool"] || "1", 10);
   const rpcUrl = options["--rpc"] || "http://127.0.0.1:8899";
-  const keypairPath =
-    options["--keypair"] || path.resolve(__dirname, "admin-key.json");
+  const keypairPath = resolveDefaultKeypairPath(options["--keypair"], {
+    rpcUrl,
+  });
 
   const rawMultisigFlags: RawMultisigCliFlags = {
     multisig: options["--multisig"],
@@ -4122,12 +4146,43 @@ async function main() {
   );
 
   if (writeCommands.has(command)) {
-    if (!fs.existsSync(keypairPath)) {
-      throw new Error(`Keypair file not found at ${keypairPath}`);
+    if (rawMultisigFlags.exportIx) {
+      try {
+        signer = await loadKeypair(keypairPath);
+      } catch {
+        // Ephemeral dummy signer for offline instruction serialization
+        signer = await generateKeyPairSigner();
+      }
+    } else {
+      try {
+        signer = await loadKeypair(keypairPath);
+      } catch (err: any) {
+        throw new CliKeypairError(
+          err?.message || `Failed to load keypair at ${keypairPath}`
+        );
+      }
+      console.log(`Loaded Keypair Address: ${signer.address}`);
+
+      const isDryRun =
+        rawMultisigFlags.dryRun || options["--dry-run"] === "true";
+      try {
+        await assertSignerBalance(rpc, signer.address, {
+          rpcUrl,
+          keypairPath,
+          warnOnly: isDryRun,
+        });
+      } catch (err) {
+        if (err instanceof InsufficientFundsError) {
+          throw new CliInsufficientFundsError(
+            err.address,
+            err.balanceLamports,
+            err.requiredLamports,
+            err.message
+          );
+        }
+        throw err;
+      }
     }
-    const bytes = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
-    signer = await createKeyPairSignerFromBytes(new Uint8Array(bytes));
-    console.log(`Loaded Keypair Address: ${signer.address}`);
   }
 
   switch (command) {

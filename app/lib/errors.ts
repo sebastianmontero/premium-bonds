@@ -1837,6 +1837,29 @@ export function parseTransactionError(
   }
 
   // 4. Scan logs/messages for System Program Insufficient Funds
+  const isDebitWithoutPriorCredit =
+    /attempt\s+to\s+debit\s+an\s+account\s+but\s+found\s+no\s+record\s+of\s+a\s+prior\s+credit/i.test(
+      combinedSearchText
+    ) ||
+    (/\bAccountNotFound\b/.test(combinedSearchText) &&
+      /simulation failed|preflight failure/i.test(combinedSearchText));
+
+  if (isDebitWithoutPriorCredit) {
+    return {
+      isCancellation: false,
+      layer: "system",
+      category: "insufficient_sol",
+      title: "Insufficient SOL: Account Unfunded",
+      message:
+        "The fee payer or transaction account has zero lamports (unfunded).",
+      code: "DEBIT_NO_PRIOR_CREDIT",
+      actionableStep:
+        "Ensure the fee payer or signer keypair is funded with SOL to cover transaction fees and rent exemption.",
+      logs,
+      rawError: err,
+    };
+  }
+
   for (const log of [rawMsg, ...logs]) {
     if (
       (log.includes("11111111111111111111111111111111") &&

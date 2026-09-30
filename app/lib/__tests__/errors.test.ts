@@ -767,4 +767,44 @@ describe("Transaction Error Parser & Sanitization Suite", () => {
       assert.strictEqual(safeJsonStringify(12345n), '"12345"');
     });
   });
+
+  describe("Unfunded Account & Zero Balance Error Parsing", () => {
+    it("should parse 'Attempt to debit an account but found no record of a prior credit' error string", () => {
+      const rawErr = new Error(
+        "Transaction simulation failed: Attempt to debit an account but found no record of a prior credit."
+      );
+      const parsed = parseTransactionError(rawErr);
+      assert.strictEqual(parsed.layer, "system");
+      assert.strictEqual(parsed.category, "insufficient_sol");
+      assert.strictEqual(parsed.code, "DEBIT_NO_PRIOR_CREDIT");
+      assert.strictEqual(parsed.title, "Insufficient SOL: Account Unfunded");
+      assert.strictEqual(
+        parsed.message,
+        "The fee payer or transaction account has zero lamports (unfunded)."
+      );
+    });
+
+    it("should parse nested simulation error in err.cause", () => {
+      const nestedErr = new Error("Simulation failed", {
+        cause: new Error(
+          "SendTransactionError: Attempt to debit an account but found no record of a prior credit"
+        ),
+      });
+      const parsed = parseTransactionError(nestedErr);
+      assert.strictEqual(parsed.layer, "system");
+      assert.strictEqual(parsed.category, "insufficient_sol");
+      assert.strictEqual(parsed.code, "DEBIT_NO_PRIOR_CREDIT");
+      assert.strictEqual(parsed.title, "Insufficient SOL: Account Unfunded");
+    });
+
+    it("should parse preflight AccountNotFound error to insufficient_sol", () => {
+      const preflightErr = new Error(
+        "Transaction simulation failed: Error processing Instruction 0: AccountNotFound preflight failure"
+      );
+      const parsed = parseTransactionError(preflightErr);
+      assert.strictEqual(parsed.layer, "system");
+      assert.strictEqual(parsed.category, "insufficient_sol");
+      assert.strictEqual(parsed.code, "DEBIT_NO_PRIOR_CREDIT");
+    });
+  });
 });

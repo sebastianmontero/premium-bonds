@@ -347,37 +347,156 @@ export function resolveSwitchboardProgramId(): string {
     : SWITCHBOARD_ON_DEMAND_DEVNET_PID;
 }
 
+export class InsufficientFundsError extends Error {
+  constructor(
+    public readonly address: Address | string,
+    public readonly balanceLamports: bigint,
+    public readonly requiredLamports: bigint,
+    message: string
+  ) {
+    super(message);
+    this.name = "InsufficientFundsError";
+  }
+}
+
 /**
  * Expands UNIX home directory tilde (~) prefix to os.homedir().
  */
-export function expandHomeDir(filePath: string): string {
+export function expandHomeDir(
+  filePath: string,
+  baseHome: string = os.homedir()
+): string {
   if (filePath.startsWith("~/") || filePath === "~") {
-    return path.join(os.homedir(), filePath.slice(filePath === "~" ? 1 : 2));
+    return path.join(baseHome, filePath.slice(filePath === "~" ? 1 : 2));
   }
   return path.resolve(filePath);
 }
 
+export interface ResolveKeypairOptions {
+  customPath?: string;
+  rpcUrl?: string;
+  env?: NodeJS.ProcessEnv;
+  homedir?: string;
+  fsExists?: (filePath: string) => boolean;
+}
+
 /**
  * Resolves the fee payer keypair path with standard fallback hierarchy:
- * customPath -> ANCHOR_WALLET -> SOLANA_KEYPAIR_PATH -> ~/.config/solana/id.json
+ * 1. Explicit argument / customPath
+ * 2. Environment variables: KEYPAIR_PATH, ANCHOR_WALLET, SOLANA_KEYPAIR_PATH
+ * 3. Local clusters: scripts/admin-key.json (if exists)
+ * 4. Remote clusters: SOLANA_CONFIG_DIR / cli/config.yml (keypair_path)
+ * 5. Canonical fallback: ~/.config/solana/id.json
  */
-export function resolveDefaultKeypairPath(customPath?: string): string {
+export function resolveDefaultKeypairPath(
+  customPathOrOptions?: string | ResolveKeypairOptions,
+  maybeOptions?: ResolveKeypairOptions
+): string {
+  const options =
+    typeof customPathOrOptions === "object"
+      ? customPathOrOptions
+      : maybeOptions;
+  const customPath =
+    typeof customPathOrOptions === "string"
+      ? customPathOrOptions
+      : options?.customPath;
+
+  const env = options?.env ?? process.env;
+  const baseHome = options?.homedir ?? os.homedir();
+  const exists = options?.fsExists ?? fs.existsSync;
+
+  // 1. Explicit argument / flag
   if (customPath && customPath.trim().length > 0) {
-    return expandHomeDir(customPath.trim());
+    return expandHomeDir(customPath.trim(), baseHome);
   }
-  if (
-    process.env.ANCHOR_WALLET &&
-    process.env.ANCHOR_WALLET.trim().length > 0
-  ) {
-    return expandHomeDir(process.env.ANCHOR_WALLET.trim());
+
+  // 2. Standard Environment Variables
+  for (const envVar of [
+    env.KEYPAIR_PATH,
+    env.ANCHOR_WALLET,
+    env.SOLANA_KEYPAIR_PATH,
+  ]) {
+    if (envVar && envVar.trim().length > 0) {
+      return expandHomeDir(envVar.trim(), baseHome);
+    }
   }
-  if (
-    process.env.SOLANA_KEYPAIR_PATH &&
-    process.env.SOLANA_KEYPAIR_PATH.trim().length > 0
-  ) {
-    return expandHomeDir(process.env.SOLANA_KEYPAIR_PATH.trim());
+
+  const isLocal = isLocalMockUrl(options?.rpcUrl);
+  const localAdminKey = path.resolve(__dirname, "admin-key.json");
+
+  // 3. Local clusters prioritize the pre-funded repo admin key
+  if (isLocal && exists(localAdminKey)) {
+    return localAdminKey;
   }
-  return path.resolve(os.homedir(), ".config", "solana", "id.json");
+
+  // 4. Remote clusters: Check SOLANA_CONFIG_DIR or ~/.config/solana/cli/config.yml
+  const solanaConfigDir = env.SOLANA_CONFIG_DIR
+    ? expandHomeDir(env.SOLANA_CONFIG_DIR, baseHome)
+    : path.resolve(baseHome, ".config", "solana");
+  const cliConfigFile = path.resolve(solanaConfigDir, "cli", "config.yml");
+
+  if (exists(cliConfigFile)) {
+    try {
+      const content = fs.readFileSync(cliConfigFile, "utf-8");
+      const match = content.match(/keypair_path:\s*["']?([^"'\r\n]+)["']?/);
+      if (match && match[1]) {
+        return expandHomeDir(match[1].trim(), baseHome);
+      }
+    } catch {
+      // Fall through to default id.json
+    }
+  }
+
+  // 5. Canonical Solana CLI default (NEVER fall back to admin-key.json on remote clusters)
+  return path.resolve(solanaConfigDir, "id.json");
+}
+
+export interface SignerBalanceCheckOptions {
+  minLamports?: bigint;
+  recommendedLamports?: bigint;
+  rpcUrl?: string;
+  keypairPath?: string;
+  warnOnly?: boolean;
+}
+
+export async function assertSignerBalance(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  signerAddress: Address | string,
+  options?: SignerBalanceCheckOptions
+): Promise<bigint> {
+  const minLamports = options?.minLamports ?? 5_000n;
+  const recommendedLamports =
+    options?.recommendedLamports ?? MIN_ADMIN_FEE_PAYER_LAMPORTS;
+  const balRes = await rpc.getBalance(address(signerAddress)).send();
+  const lamports = balRes.value;
+
+  if (lamports < minLamports) {
+    const isDevnet = options?.rpcUrl?.includes("devnet");
+    const airdropHint = isDevnet
+      ? `\nTo fund this account on devnet, run:\n  solana airdrop 1 ${signerAddress} --url devnet`
+      : "";
+    const keypairHint = options?.keypairPath
+      ? `\nConfigured keypair path: ${options.keypairPath}`
+      : "";
+    const msg =
+      `Signer account ${signerAddress} has insufficient SOL (${lamports} lamports, minimum required: ${minLamports} lamports).` +
+      keypairHint +
+      `\nPlease specify a funded keypair via '--keypair <path>' or fund the account.${airdropHint}`;
+
+    if (options?.warnOnly) {
+      console.warn(`⚠️ Warning: ${msg}`);
+      return lamports;
+    }
+
+    throw new InsufficientFundsError(signerAddress, lamports, minLamports, msg);
+  }
+
+  if (lamports < recommendedLamports) {
+    console.warn(
+      `⚠️ Warning: Signer ${signerAddress} has a low SOL balance (${(Number(lamports) / 1e9).toFixed(6)} SOL). Transactions requiring ATA creation or rent deposits may fail.`
+    );
+  }
+  return lamports;
 }
 
 /**

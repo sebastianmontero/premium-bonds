@@ -1,5 +1,8 @@
-import { describe, it } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import {
   address,
   generateKeyPairSigner,
@@ -365,57 +368,156 @@ describe("Devnet CLI & Initialization Suite (scripts/devnet.test.ts)", () => {
     describe("resolveDefaultKeypairPath", () => {
       const origAnchorWallet = process.env.ANCHOR_WALLET;
       const origSolanaKeypair = process.env.SOLANA_KEYPAIR_PATH;
+      const origKeypairPath = process.env.KEYPAIR_PATH;
+      const origSolanaConfigDir = process.env.SOLANA_CONFIG_DIR;
 
-      it("returns custom path when provided", () => {
-        const custom = "/tmp/my-custom-keypair.json";
-        assert.strictEqual(
-          resolveDefaultKeypairPath(custom),
-          path.resolve(custom)
-        );
-      });
-
-      it("falls back to ANCHOR_WALLET when set", () => {
-        process.env.ANCHOR_WALLET = "/tmp/anchor-wallet.json";
-        delete process.env.SOLANA_KEYPAIR_PATH;
-        assert.strictEqual(
-          resolveDefaultKeypairPath(),
-          path.resolve("/tmp/anchor-wallet.json")
-        );
+      afterEach(() => {
         if (origAnchorWallet !== undefined) {
           process.env.ANCHOR_WALLET = origAnchorWallet;
         } else {
           delete process.env.ANCHOR_WALLET;
         }
-      });
-
-      it("falls back to SOLANA_KEYPAIR_PATH when set and ANCHOR_WALLET is empty", () => {
-        delete process.env.ANCHOR_WALLET;
-        process.env.SOLANA_KEYPAIR_PATH = "/tmp/solana-keypair.json";
-        assert.strictEqual(
-          resolveDefaultKeypairPath(),
-          path.resolve("/tmp/solana-keypair.json")
-        );
         if (origSolanaKeypair !== undefined) {
           process.env.SOLANA_KEYPAIR_PATH = origSolanaKeypair;
         } else {
           delete process.env.SOLANA_KEYPAIR_PATH;
         }
+        if (origKeypairPath !== undefined) {
+          process.env.KEYPAIR_PATH = origKeypairPath;
+        } else {
+          delete process.env.KEYPAIR_PATH;
+        }
+        if (origSolanaConfigDir !== undefined) {
+          process.env.SOLANA_CONFIG_DIR = origSolanaConfigDir;
+        } else {
+          delete process.env.SOLANA_CONFIG_DIR;
+        }
       });
 
-      it("defaults to ~/.config/solana/id.json when no environment variable is set", () => {
-        delete process.env.ANCHOR_WALLET;
-        delete process.env.SOLANA_KEYPAIR_PATH;
-        const expected = path.resolve(
-          process.env.HOME || "",
+      it("returns custom path when provided (expanding tilde)", () => {
+        const custom = "~/my-custom-keypair.json";
+        const homedir = "/mock/home/user";
+        assert.strictEqual(
+          resolveDefaultKeypairPath(custom, { homedir }),
+          path.resolve(homedir, "my-custom-keypair.json")
+        );
+      });
+
+      it("prioritizes KEYPAIR_PATH over ANCHOR_WALLET and SOLANA_KEYPAIR_PATH", () => {
+        const env = {
+          KEYPAIR_PATH: "/tmp/keypair-path.json",
+          ANCHOR_WALLET: "/tmp/anchor-wallet.json",
+          SOLANA_KEYPAIR_PATH: "/tmp/solana-keypair.json",
+        };
+        assert.strictEqual(
+          resolveDefaultKeypairPath(undefined, { env }),
+          path.resolve("/tmp/keypair-path.json")
+        );
+      });
+
+      it("falls back to ANCHOR_WALLET when set", () => {
+        const env = {
+          ANCHOR_WALLET: "/tmp/anchor-wallet.json",
+        };
+        assert.strictEqual(
+          resolveDefaultKeypairPath(undefined, { env }),
+          path.resolve("/tmp/anchor-wallet.json")
+        );
+      });
+
+      it("falls back to SOLANA_KEYPAIR_PATH when set and ANCHOR_WALLET is empty", () => {
+        const env = {
+          SOLANA_KEYPAIR_PATH: "/tmp/solana-keypair.json",
+        };
+        assert.strictEqual(
+          resolveDefaultKeypairPath(undefined, { env }),
+          path.resolve("/tmp/solana-keypair.json")
+        );
+      });
+
+      it("returns scripts/admin-key.json for localnet RPC url when local key exists", () => {
+        const localAdminKey = path.resolve(__dirname, "admin-key.json");
+        const res = resolveDefaultKeypairPath(undefined, {
+          rpcUrl: "http://127.0.0.1:8899",
+          env: {},
+          fsExists: (p) => p === localAdminKey,
+        });
+        assert.strictEqual(res, localAdminKey);
+      });
+
+      it("defaults to ~/.config/solana/id.json on remote/devnet RPC (NEVER falls back to admin-key.json)", () => {
+        const homedir = "/mock/home/user";
+        const res = resolveDefaultKeypairPath(undefined, {
+          rpcUrl: "https://api.devnet.solana.com",
+          env: {},
+          homedir,
+          fsExists: () => false,
+        });
+        assert.strictEqual(
+          res,
+          path.resolve(homedir, ".config", "solana", "id.json")
+        );
+      });
+
+      it("respects keypair_path defined in ~/.config/solana/cli/config.yml", () => {
+        const homedir = "/mock/home/user";
+        const cliConfigFile = path.resolve(
+          homedir,
           ".config",
           "solana",
-          "id.json"
+          "cli",
+          "config.yml"
         );
-        assert.strictEqual(resolveDefaultKeypairPath(), expected);
-        if (origAnchorWallet !== undefined)
-          process.env.ANCHOR_WALLET = origAnchorWallet;
-        if (origSolanaKeypair !== undefined)
-          process.env.SOLANA_KEYPAIR_PATH = origSolanaKeypair;
+        const customTarget = "/custom/path/to/funded-id.json";
+
+        // Create temporary dir structure to test real fs parsing
+        const tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "pb-solana-config-test-")
+        );
+        try {
+          const solanaCliDir = path.join(tempDir, ".config", "solana", "cli");
+          fs.mkdirSync(solanaCliDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(solanaCliDir, "config.yml"),
+            `json_rpc_url: "https://api.devnet.solana.com"\nwebsocket_url: ""\nkeypair_path: "${customTarget}"\ncommitment: "confirmed"\n`
+          );
+
+          const res = resolveDefaultKeypairPath(undefined, {
+            rpcUrl: "https://api.devnet.solana.com",
+            env: {},
+            homedir: tempDir,
+          });
+          assert.strictEqual(res, path.resolve(customTarget));
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      });
+
+      it("respects SOLANA_CONFIG_DIR override for config.yml location", () => {
+        const tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "pb-solana-override-test-")
+        );
+        try {
+          const configDir = path.join(tempDir, "custom-solana-dir");
+          const cliDir = path.join(configDir, "cli");
+          fs.mkdirSync(cliDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(cliDir, "config.yml"),
+            `keypair_path: "/override/keys/custom-dev.json"\n`
+          );
+
+          const res = resolveDefaultKeypairPath(undefined, {
+            rpcUrl: "https://api.devnet.solana.com",
+            env: { SOLANA_CONFIG_DIR: configDir },
+            homedir: tempDir,
+          });
+          assert.strictEqual(
+            res,
+            path.resolve("/override/keys/custom-dev.json")
+          );
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
       });
     });
 
