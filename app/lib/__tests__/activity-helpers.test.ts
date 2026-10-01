@@ -3,6 +3,8 @@ import assert from "node:assert";
 import {
   formatActivityDescription,
   createOptimisticActivity,
+  createOptimisticReinvestActivity,
+  classifyReinvestScenario,
   mergeActivityEntries,
   filterActivityEntries,
   matchesActivityFilter,
@@ -30,7 +32,7 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       assert.strictEqual(desc, "Sold 2 bonds ($20.00) · Pending settle");
     });
 
-    it("should format auto-reinvest activity description", () => {
+    it("should format auto-reinvest activity description for pure reinvestment", () => {
       const desc = formatActivityDescription({
         activityType: "auto-reinvest",
         bonds: 3,
@@ -38,6 +40,79 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
         cycleId: 42,
       });
       assert.strictEqual(desc, "Draw #42 reinvested: +3 tickets from $30.00");
+    });
+
+    it("should format auto-reinvest activity description for dust only", () => {
+      const desc = formatActivityDescription({
+        activityType: "auto-reinvest",
+        bonds: 0,
+        amountUsdc: 2_500_000n,
+        cycleId: 42,
+      });
+      assert.strictEqual(
+        desc,
+        "Draw #42 prize: $2.50 credited to claimable balance"
+      );
+    });
+
+    it("should format auto-reinvest activity description for compounded with remaining", () => {
+      const desc = formatActivityDescription({
+        activityType: "auto-reinvest",
+        bonds: 2,
+        amountUsdc: 8_000_000n,
+        usedPriorDustUsdc: 2_000_000n,
+        claimableUsdc: 2_000_000n,
+        cycleId: 42,
+      });
+      assert.strictEqual(
+        desc,
+        "Draw #42 reinvested: +2 tickets ($8.00 prize + $2.00 claimable used · $2.00 remaining)"
+      );
+    });
+
+    it("should format auto-reinvest activity description for compounded exact", () => {
+      const desc = formatActivityDescription({
+        activityType: "auto-reinvest",
+        bonds: 2,
+        amountUsdc: 8_000_000n,
+        usedPriorDustUsdc: 2_000_000n,
+        claimableUsdc: 0n,
+        cycleId: 42,
+      });
+      assert.strictEqual(
+        desc,
+        "Draw #42 reinvested: +2 tickets ($8.00 prize + $2.00 claimable used)"
+      );
+    });
+
+    it("should format auto-reinvest activity description for pure dust compound", () => {
+      const desc = formatActivityDescription({
+        activityType: "auto-reinvest",
+        bonds: 1,
+        amountUsdc: 0n,
+        usedPriorDustUsdc: 5_000_000n,
+        claimableUsdc: 0n,
+        cycleId: 42,
+      });
+      assert.strictEqual(
+        desc,
+        "Draw #42 reinvested: +1 ticket from $5.00 claimable balance"
+      );
+    });
+
+    it("should format auto-reinvest activity description for leftover dust", () => {
+      const desc = formatActivityDescription({
+        activityType: "auto-reinvest",
+        bonds: 2,
+        amountUsdc: 12_500_000n,
+        usedPriorDustUsdc: 0n,
+        claimableUsdc: 2_500_000n,
+        cycleId: 42,
+      });
+      assert.strictEqual(
+        desc,
+        "Draw #42 reinvested: +2 tickets from $12.50 ($2.50 claimable balance)"
+      );
     });
 
     it("should format win activity description", () => {
@@ -93,7 +168,74 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
     });
   });
 
-  describe("createOptimisticActivity", () => {
+  describe("classifyReinvestScenario", () => {
+    it("should classify bonds <= 0 as dust_only", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({ bonds: 0, claimableUsdc: 2_500_000n }),
+        "dust_only"
+      );
+    });
+
+    it("should classify usedDust > 0 and claimable > 0 as compounded_with_remaining", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({
+          bonds: 2,
+          amountUsdc: 8_000_000n,
+          usedPriorDustUsdc: 2_000_000n,
+          claimableUsdc: 1_000_000n,
+        }),
+        "compounded_with_remaining"
+      );
+    });
+
+    it("should classify usedDust > 0 and claimable <= 0 with prize amount as compounded_exact", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({
+          bonds: 2,
+          amountUsdc: 8_000_000n,
+          usedPriorDustUsdc: 2_000_000n,
+          claimableUsdc: 0n,
+        }),
+        "compounded_exact"
+      );
+    });
+
+    it("should classify usedDust > 0 with zero prize amount as pure_dust_compound", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({
+          bonds: 1,
+          amountUsdc: 0n,
+          usedPriorDustUsdc: 5_000_000n,
+          claimableUsdc: 0n,
+        }),
+        "pure_dust_compound"
+      );
+    });
+
+    it("should classify claimable > 0 and usedDust <= 0 as leftover_dust", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({
+          bonds: 2,
+          usedPriorDustUsdc: 0n,
+          claimableUsdc: 2_500_000n,
+        }),
+        "leftover_dust"
+      );
+    });
+
+    it("should classify no dust and no used dust as pure_reinvestment", () => {
+      assert.strictEqual(
+        classifyReinvestScenario({
+          bonds: 2,
+          usedPriorDustUsdc: 0n,
+          claimableUsdc: 0n,
+        }),
+        "pure_reinvestment"
+      );
+    });
+  });
+
+  describe("createOptimisticActivity & createOptimisticReinvestActivity", () => {
     it("should construct valid ActivityEntry with synthetic id, date, and description", () => {
       const entry = createOptimisticActivity({
         activityType: "deposit",
@@ -108,6 +250,32 @@ describe("Activity Helpers & Optimistic Deduplication Suite", () => {
       assert.strictEqual(entry.description, "Deposited $100.00 → +10 tickets");
       assert.match(entry.id, /^act-deposit-\d+-[a-z0-9]+$/);
       assert.ok(!isNaN(Date.parse(entry.date)));
+    });
+
+    it("should construct valid auto-reinvest ActivityEntry via createOptimisticReinvestActivity", () => {
+      const entry = createOptimisticReinvestActivity({
+        entry: { amount: 8_000_000, drawCycleId: 5 },
+        breakdown: {
+          bondsBought: 2,
+          usedPriorDust: 2_000_000,
+          dustAccumulated: 0,
+          totalAvailable: 10_000_000,
+          remainingDust: 0,
+        },
+        txSignature: "sig-reinvest-123",
+      });
+
+      assert.strictEqual(entry.type, "auto-reinvest");
+      assert.strictEqual(entry.amount, 8_000_000);
+      assert.strictEqual(entry.txSignature, "sig-reinvest-123");
+      assert.strictEqual(
+        entry.description,
+        "Draw #5 reinvested: +2 tickets ($8.00 prize + $2.00 claimable used)"
+      );
+      assert.strictEqual(entry.metadata?.bonds, 2);
+      assert.strictEqual(entry.metadata?.cycleId, 5);
+      assert.strictEqual(entry.metadata?.usedPriorDustUsdc, 2_000_000);
+      assert.strictEqual(entry.metadata?.claimableUsdc, 0);
     });
   });
 

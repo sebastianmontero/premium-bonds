@@ -67,6 +67,7 @@ pub struct ReinvestWinnings<'info> {
         mut,
         seeds = [b"user_winnings", pool.load()?.pool_id.to_le_bytes().as_ref(), winner.key().as_ref()],
         bump = user_winnings.bump,
+        constraint = user_winnings.user == winner.key() @ PremiumBondsError::WinnerMismatch,
         constraint = user_winnings.check_version().is_ok() @ PremiumBondsError::UnsupportedAccountVersion,
     )]
     pub user_winnings: Box<Account<'info, UserWinnings>>,
@@ -101,7 +102,7 @@ pub struct ReinvestWinnings<'info> {
 ///
 /// Any leftover dust less than the price of a single bond is stored in the user's `UserWinnings` state
 /// to be claimed or aggregated in subsequent reinvestments.
-pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32) -> Result<()> {
+pub fn handle(ctx: Context<ReinvestWinnings>, cycle_id: u32, winner_index: u32) -> Result<()> {
     let payout_ai = ctx.accounts.payout_registry.to_account_info();
     let mut payout_data = payout_ai.try_borrow_mut_data()?;
     let mut payout_view = crate::utils::get_payout_registry_mut(&mut payout_data)?;
@@ -137,13 +138,13 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
 
     let user_winnings = &mut ctx.accounts.user_winnings;
     user_winnings.ensure_current_version()?;
-    let winner = payout_view.validate_winner(winner_index, user_winnings.user)?;
+    let winner = payout_view.validate_winner(winner_index, ctx.accounts.winner.key())?;
 
     // ── 2. Calculate remaining amount and bonds for atomic reinvestment ──────
-    let remaining_current = winner.amount_owed;
+    let cycle_prize_owed = winner.amount_owed;
     let accumulated = user_winnings.unclaimed_non_reinvested_winnings;
 
-    let total_available = remaining_current
+    let total_available = cycle_prize_owed
         .checked_add(accumulated)
         .ok_or(PremiumBondsError::MathOverflow)?;
 
@@ -240,9 +241,10 @@ pub fn handle(ctx: Context<ReinvestWinnings>, _cycle_id: u32, winner_index: u32)
     emit_cpi!(WinningsReinvested {
         winner: ctx.accounts.winner.key(),
         pool_id: pool.pool_id,
-        cycle_id: _cycle_id,
+        cycle_id,
         winner_index,
         bonds_bought: bonds_to_buy,
+        prize_amount: cycle_prize_owed,
         amount_reinvested: cost,
         new_total_deposited_principal: pool.total_deposited_principal,
         remaining_unclaimed_winnings: user_winnings.unclaimed_non_reinvested_winnings,

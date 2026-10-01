@@ -150,6 +150,10 @@ fn test_reinvest_single_batch_full() {
         "Event bonds_bought must reflect floor(amount_owed / bond_price)"
     );
     assert_eq!(
+        event.prize_amount, 3_000_000,
+        "Event prize_amount must match prize won"
+    );
+    assert_eq!(
         event.amount_reinvested, 3_000_000,
         "Event amount_reinvested must match bonds_bought * bond_price"
     );
@@ -254,7 +258,12 @@ fn test_reinvest_combines_prior_dust_and_current_prize() {
 
     common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, 50, 0, 0, 0);
 
-    send(&mut ctx, 0, 0).expect("reinvest");
+    let meta = send(&mut ctx, 0, 0).expect("reinvest");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.prize_amount, 50, "Prize amount matches 50");
+    assert_eq!(event.bonds_bought, 1, "Bonds bought is 1");
+    assert_eq!(event.amount_reinvested, 100, "Amount reinvested is 100");
+    assert_eq!(event.remaining_unclaimed_winnings, 0, "Dust left is 0");
 
     let winners = read_payout_winners(&ctx.svm, 1, 0);
     assert_eq!(winners[0].processed, 1);
@@ -273,7 +282,12 @@ fn test_reinvest_combines_prior_dust_and_current_prize() {
 fn test_reinvest_dust_only_no_bonds() {
     // amount < bond_price → 0 bonds reinvested, dust stays
     let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 500_000);
-    send(&mut ctx, 0, 0).expect("dust only");
+    let meta = send(&mut ctx, 0, 0).expect("dust only");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.prize_amount, 500_000, "Prize amount matches 500k");
+    assert_eq!(event.bonds_bought, 0, "Bonds bought is 0");
+    assert_eq!(event.amount_reinvested, 0, "Amount reinvested is 0");
+    assert_eq!(event.remaining_unclaimed_winnings, 500_000, "Remaining unclaimed matches 500k");
 
     let winners = read_payout_winners(&ctx.svm, 1, 0);
     assert_eq!(winners[0].processed, 1);
@@ -389,6 +403,7 @@ fn test_reinvest_exited_user_full_registry_fallback() {
         event.bonds_bought, 0,
         "bonds_bought is 0 due to full registry"
     );
+    assert_eq!(event.prize_amount, 3_000_000, "prize_amount matches 3 USDC");
     assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
     assert_eq!(
         event.new_total_deposited_principal, 0,
@@ -409,6 +424,34 @@ fn test_reinvest_exited_user_full_registry_fallback() {
 
     let uw = read_user_winnings_state(&ctx.svm, 1, &ctx.winner);
     assert_eq!(uw.unclaimed_non_reinvested_winnings, 3_000_000);
+}
+
+#[test]
+fn test_reinvest_active_user_succeeds_when_registry_full() {
+    // Active user with existing ticket registry slot (needs_registry_slot() == false)
+    // should buy bonds even when registry is at full capacity (user_count >= capacity).
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 3_000_000);
+
+    // Winner has slot index 0 and registry capacity is 1 (user_count == 1)
+    let entries = vec![UserEntryTestBuilder::active(ctx.winner, 10)];
+    common::inject_registry_with_entries(&mut ctx.svm, ctx.registry, 1, 1, &entries);
+
+    let meta = send(&mut ctx, 0, 0).expect("active user reinvest with full registry");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+    assert_eq!(event.bonds_bought, 3);
+    assert_eq!(event.prize_amount, 3_000_000);
+    assert_eq!(event.amount_reinvested, 3_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 0);
+}
+
+#[test]
+fn test_reinvest_fails_total_available_overflow() {
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 1_000_000, 100);
+    // Set unclaimed_non_reinvested_winnings to u64::MAX so 100 + u64::MAX overflows
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, u64::MAX, 0, 0, 0);
+
+    let res = send(&mut ctx, 0, 0);
+    assert_custom_error(res, anchor::error::PremiumBondsError::MathOverflow);
 }
 
 #[test]
@@ -661,6 +704,7 @@ fn test_reinvest_fails_payout_timelock_active() {
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner_index, 0);
     assert_eq!(event.bonds_bought, 3);
+    assert_eq!(event.prize_amount, 3_000_000);
     assert_eq!(event.crank, ctx.crank.pubkey());
     assert_eq!(event.new_total_deposited_principal, 3_000_000);
     assert_eq!(event.remaining_unclaimed_winnings, 0);
@@ -695,6 +739,7 @@ fn test_reinvest_closed_pool_graceful_cash_fallback() {
     assert_eq!(event.cycle_id, 0, "event cycle_id is 0");
     assert_eq!(event.winner_index, 0, "event winner_index is 0");
     assert_eq!(event.bonds_bought, 0, "closed pool bonds_bought is 0");
+    assert_eq!(event.prize_amount, 3_000_000, "event prize_amount matches");
     assert_eq!(
         event.amount_reinvested, 0,
         "closed pool amount_reinvested is 0"
@@ -774,6 +819,7 @@ fn test_reinvest_closed_pool_exited_user() {
         event.bonds_bought, 0,
         "exited user on closed pool cannot buy bonds"
     );
+    assert_eq!(event.prize_amount, 4_000_000, "prize_amount matches 4 USDC");
     assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
     assert_eq!(
         event.new_total_deposited_principal, 0,
@@ -873,6 +919,7 @@ fn test_reinvest_closed_pool_fails_timelock_active() {
     let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
     assert_eq!(event.winner_index, 0, "event winner_index matches");
     assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.prize_amount, 3_000_000, "prize_amount matches");
     assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
     assert_eq!(
         event.new_total_deposited_principal, 0,
@@ -900,6 +947,7 @@ fn test_reinvest_zero_prize_owed_without_prior_dust() {
     assert_eq!(event.winner, ctx.winner, "event winner matches");
     assert_eq!(event.winner_index, 0, "winner_index is 0");
     assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.prize_amount, 0, "prize_amount is 0");
     assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
     assert_eq!(
         event.new_total_deposited_principal, 0,
@@ -944,6 +992,7 @@ fn test_reinvest_zero_prize_owed_preserves_sub_bond_prior_dust() {
     assert_eq!(event.winner, ctx.winner, "event winner matches");
     assert_eq!(event.winner_index, 0, "winner_index is 0");
     assert_eq!(event.bonds_bought, 0, "bonds_bought is 0");
+    assert_eq!(event.prize_amount, 0, "prize_amount is 0");
     assert_eq!(event.amount_reinvested, 0, "amount_reinvested is 0");
     assert_eq!(
         event.new_total_deposited_principal, 0,
@@ -983,6 +1032,7 @@ fn test_reinvest_zero_prize_owed_with_accumulated_dust_compound() {
     assert_eq!(event.winner, ctx.winner, "event winner matches");
     assert_eq!(event.winner_index, 0, "winner_index is 0");
     assert_eq!(event.bonds_bought, 1, "bonds_bought is 1");
+    assert_eq!(event.prize_amount, 0, "prize_amount is 0");
     assert_eq!(
         event.amount_reinvested, 1_000_000,
         "amount_reinvested is 1 USDC"
@@ -1064,6 +1114,7 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event0.winner, winner0, "event0 winner matches winner0");
     assert_eq!(event0.winner_index, 0, "event0 winner_index is 0");
     assert_eq!(event0.bonds_bought, 0, "event0 bonds_bought is 0");
+    assert_eq!(event0.prize_amount, 0, "event0 prize_amount is 0");
     assert_eq!(event0.amount_reinvested, 0, "event0 amount_reinvested is 0");
     assert_eq!(
         event0.new_total_deposited_principal, 0,
@@ -1092,6 +1143,7 @@ fn test_reinvest_sequential_multi_winner_zero_prizes() {
     assert_eq!(event1.winner, winner1, "event1 winner matches winner1");
     assert_eq!(event1.winner_index, 1, "event1 winner_index is 1");
     assert_eq!(event1.bonds_bought, 0, "event1 bonds_bought is 0");
+    assert_eq!(event1.prize_amount, 0, "event1 prize_amount is 0");
     assert_eq!(event1.amount_reinvested, 0, "event1 amount_reinvested is 0");
     assert_eq!(
         event1.new_total_deposited_principal, 0,
@@ -1220,6 +1272,7 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     assert_eq!(event.cycle_id, 0, "event cycle_id is 0");
     assert_eq!(event.winner_index, 2, "event winner_index is 2");
     assert_eq!(event.bonds_bought, 4, "event bonds_bought is 4");
+    assert_eq!(event.prize_amount, 4_000_000, "prize_amount matches 4 USDC");
     assert_eq!(
         event.amount_reinvested, 4_000_000,
         "event amount_reinvested is 4 USDC"
@@ -1245,6 +1298,28 @@ fn test_reinvest_nonzero_winner_index_with_bonds() {
     assert_eq!(winners[1].processed, 0, "winner 1 not processed yet");
     assert_eq!(winners[2].processed, 1, "winner 2 marked processed");
     assert_eq!(winners[2].bonds_bought, 4, "winner 2 bought 4 bonds");
+}
+
+#[test]
+fn test_reinvest_conservation_invariant_across_draws() {
+    // Conservation law: amount_reinvested + remaining_unclaimed_winnings == prize_amount + prior_unclaimed_winnings
+    let mut ctx = setup(anchor::PoolStatus::Active, false, 5_000_000, 8_000_000);
+    let prior_dust = 4_000_000u64;
+    common::inject_user_winnings_with_index(&mut ctx.svm, 1, ctx.winner, prior_dust, 0, 0, 0);
+
+    let meta = send(&mut ctx, 0, 0).expect("reinvest with dust compounding");
+    let event = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta);
+
+    assert_eq!(event.prize_amount, 8_000_000);
+    assert_eq!(event.bonds_bought, 2); // 8M + 4M = 12M -> 2 bonds * 5M = 10M
+    assert_eq!(event.amount_reinvested, 10_000_000);
+    assert_eq!(event.remaining_unclaimed_winnings, 2_000_000);
+
+    assert_eq!(
+        event.amount_reinvested + event.remaining_unclaimed_winnings,
+        event.prize_amount + prior_dust,
+        "Conservation invariant must strictly hold"
+    );
 }
 
 #[test]

@@ -11,17 +11,20 @@ import { useWalletConnection } from "@solana/react-hooks";
 import {
   calculateReinvestmentBreakdown,
   patchOptimisticPrizeInCache,
+  isPoolClosed,
   INDEXER_PROPAGATION_GRACE_PERIOD_MS,
   type UserPrizeLedgerCacheData,
 } from "@/app/lib/draw-helpers";
 import { addOptimisticActivity } from "@/app/lib/optimistic-activity-store";
-import { createOptimisticActivity } from "@/app/lib/activity-helpers";
+import { createOptimisticReinvestActivity } from "@/app/lib/activity-helpers";
 import type { PrizeHistoryEntry } from "@/app/types";
 import type { UserBondPosition } from "@/app/hooks/queries/useUserBondPosition";
 
 export interface CrankPrizeVariables {
   entry: PrizeHistoryEntry;
   bondPrice: number;
+  decimals?: number;
+  onSigning?: () => void;
 }
 
 export interface CrankPrizeContext {
@@ -36,13 +39,16 @@ export interface CrankPrizeContext {
 
 export function useCrankPrize(poolId: PoolId = 1) {
   const queryClient = useQueryClient();
-  const { actions, refetch } = useBondsContext();
+  const { pool, actions, refetch } = useBondsContext();
   const { wallet } = useWalletConnection();
   const userAddress = wallet?.account.address.toString();
 
   return useMutation<string, Error, CrankPrizeVariables, CrankPrizeContext>({
     onMutate: async ({ entry, bondPrice }) => {
       if (!userAddress) throw new Error("Wallet not connected");
+      if (pool?.status === "Paused") throw new Error("Pool is paused");
+      if (pool?.isFrozenForDraw)
+        throw new Error("Pool is frozen for draw preparation");
 
       const prizeFilterRoot = bondsKeys.userPrizeLedgerRoot(
         poolId,
@@ -67,10 +73,12 @@ export function useCrankPrize(poolId: PoolId = 1) {
         queryClient.getQueryData<UserBondPosition>(positionKey);
 
       // 3. Domain calculations
+      const isClosed = isPoolClosed(pool);
       const breakdown = calculateReinvestmentBreakdown(
         entry.amount,
         Number(previousPosition?.unclaimedWinnings ?? 0n),
-        bondPrice
+        bondPrice,
+        isClosed ? 0 : undefined
       );
 
       // 4. Optimistically patch all active prize views (both paginated & unpaginated)
@@ -86,15 +94,13 @@ export function useCrankPrize(poolId: PoolId = 1) {
       // 5. Optimistically patch UserBondPosition
       queryClient.setQueryData<UserBondPosition>(positionKey, (old) => {
         if (!old) return old;
-        const currentUnclaimed = Number(old.unclaimedWinnings);
-        const newUnclaimed = Math.max(
-          0,
-          currentUnclaimed - breakdown.usedPriorDust + breakdown.dustAccumulated
-        );
+        const reinvestedCost =
+          BigInt(Math.trunc(breakdown.bondsBought)) *
+          BigInt(Math.trunc(bondPrice));
         return {
           ...old,
-          unclaimedWinnings: BigInt(newUnclaimed),
-          totalReinvested: old.totalReinvested + BigInt(entry.amount),
+          unclaimedWinnings: BigInt(Math.trunc(breakdown.remainingDust)),
+          totalReinvested: old.totalReinvested + reinvestedCost,
           activeTicketsCount: old.activeTicketsCount + breakdown.bondsBought,
         };
       });
@@ -107,13 +113,14 @@ export function useCrankPrize(poolId: PoolId = 1) {
         bondPrice,
       };
     },
-    mutationFn: async ({ entry }) => {
+    mutationFn: async ({ entry, onSigning }) => {
       if (!userAddress) throw new Error("Wallet not connected");
       return await actions.reinvestWinnings(
         entry.drawCycleId,
         entry.winnerIndex,
         {
           winnerAddress: userAddress,
+          onSigning,
         }
       );
     },
@@ -137,21 +144,18 @@ export function useCrankPrize(poolId: PoolId = 1) {
         );
       }
     },
-    onSuccess: (txSignature, { entry }, context) => {
+    onSuccess: (txSignature, { entry, decimals }, context) => {
       if (!userAddress) return;
 
-      const effectiveBondPrice = context?.bondPrice ?? 5_000_000;
-
       // Append to shared optimistic activity store
-      if (context?.breakdown.bondsBought && context.breakdown.bondsBought > 0) {
+      if (context?.breakdown) {
         addOptimisticActivity(
           userAddress,
-          createOptimisticActivity({
-            activityType: "auto-reinvest",
-            bonds: context.breakdown.bondsBought,
-            amountUsdc: context.breakdown.bondsBought * effectiveBondPrice,
-            cycleId: entry.drawCycleId,
+          createOptimisticReinvestActivity({
+            entry,
+            breakdown: context.breakdown,
             txSignature,
+            decimals,
           })
         );
       }

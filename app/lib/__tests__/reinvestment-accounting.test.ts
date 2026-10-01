@@ -111,6 +111,54 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
       assert.strictEqual(breakdown.bondsBought, 2);
       assert.strictEqual(breakdown.dustAccumulated, 5_000_000);
     });
+
+    it("should support Scenario T1: multi-cycle dust accumulation without purchasing bonds", () => {
+      const bondPrice = 5_000_000;
+      // Cycle 1: Win 0.50 USDC
+      const cycle1 = calculateReinvestmentBreakdown(500_000, 0, bondPrice);
+      assert.strictEqual(cycle1.bondsBought, 0);
+      assert.strictEqual(cycle1.dustAccumulated, 500_000);
+      assert.strictEqual(cycle1.remainingDust, 500_000);
+      assert.strictEqual(cycle1.usedPriorDust, 0);
+
+      // Cycle 2: Win 0.60 USDC with 0.50 USDC prior dust accumulated
+      const cycle2 = calculateReinvestmentBreakdown(
+        600_000,
+        cycle1.remainingDust,
+        bondPrice
+      );
+      assert.strictEqual(cycle2.bondsBought, 0);
+      assert.strictEqual(cycle2.totalAvailable, 1_100_000);
+      assert.strictEqual(cycle2.usedPriorDust, 0);
+      assert.strictEqual(cycle2.remainingDust, 1_100_000);
+    });
+
+    it("should support Scenario T7: crossing bond price boundary with strict value conservation", () => {
+      const bondPrice = 5_000_000;
+      // Accumulate 3 sub-ticket wins of $1.50 (4.50 USDC total dust)
+      let dust = 0;
+      for (let i = 0; i < 3; i++) {
+        const step = calculateReinvestmentBreakdown(1_500_000, dust, bondPrice);
+        assert.strictEqual(step.bondsBought, 0);
+        dust = step.remainingDust;
+      }
+      assert.strictEqual(dust, 4_500_000);
+
+      // 4th draw: Win 0.60 USDC (Total available = 5.10 USDC -> 1 bond at $5.00, $0.10 remaining dust)
+      const draw4 = calculateReinvestmentBreakdown(600_000, dust, bondPrice);
+      assert.strictEqual(draw4.bondsBought, 1);
+      assert.strictEqual(draw4.usedPriorDust, 4_400_000);
+      assert.strictEqual(draw4.remainingDust, 100_000);
+      assert.strictEqual(draw4.totalAvailable, 5_100_000);
+
+      // Strict Value Conservation Invariant
+      const costOfBonds = draw4.bondsBought * bondPrice;
+      assert.strictEqual(
+        costOfBonds + draw4.remainingDust,
+        600_000 + dust,
+        "Total value must be conserved across boundary crossing"
+      );
+    });
   });
 
   describe("getEffectivePrizeBreakdown & getEffectivePrizeDust", () => {
@@ -277,6 +325,7 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
         usedPriorDust: 0,
         dustAccumulated: 2_500_000,
         totalAvailable: 247_500_000,
+        remainingDust: 2_500_000,
       };
 
       const updated = applyOptimisticReinvestment(
@@ -314,6 +363,7 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
         usedPriorDust: 2_500_000,
         dustAccumulated: 0,
         totalAvailable: 250_000_000,
+        remainingDust: 0,
       };
 
       const updated = applyOptimisticReinvestment(entry, breakdown);
@@ -397,6 +447,7 @@ describe("Reinvestment Accounting & Breakdown Suite", () => {
           usedPriorDust: 0,
           dustAccumulated: 0,
           totalAvailable: 50_000_000,
+          remainingDust: 0,
         },
         txSignature: "txSig12345",
       });

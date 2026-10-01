@@ -9,14 +9,10 @@ import { usePrizePool } from "@/app/hooks/queries/usePrizePool";
 import { useDrawHistory } from "@/app/hooks/useDrawHistory";
 import { useActivityFeed } from "@/app/hooks/useActivityFeed";
 import { bondsKeys } from "@/app/lib/query-keys";
-import {
-  calculateReinvestmentBreakdown,
-  invalidateDrawQueries,
-  INDEXER_PROPAGATION_GRACE_PERIOD_MS,
-  type UserPrizeLedgerCacheData,
-} from "@/app/lib/draw-helpers";
+import { findPrizeEntryInCache } from "@/app/lib/draw-helpers";
 import { mapDtoToPrizeHistoryEntry } from "@/app/lib/indexer-mappers";
 import { createOptimisticActivity } from "@/app/lib/activity-helpers";
+import { useCrankPrize } from "@/app/hooks/mutations/useCrankPrize";
 import { UnclaimedBanner } from "@/app/components/dashboard/UnclaimedBanner";
 import { PortfolioHeroRow } from "@/app/components/portfolio/PortfolioHeroRow";
 import { PoolCard } from "@/app/components/dashboard/PoolCard";
@@ -83,14 +79,14 @@ export default function DashboardPage() {
     recentWinners: onChainRecentWinners,
     isLoading: isDrawHistoryLoading,
     refetch: refetchDrawHistory,
-    markPrizeOptimisticallyProcessed,
-    rollbackOptimisticPrize,
   } = useDrawHistory({
     poolId: 1,
     userAddress: isConnected ? userAddress : undefined,
     tokenSymbol: poolTokenSymbol,
     maxCyclesToFetch: 50,
   });
+
+  const crankMutation = useCrankPrize(poolId);
 
   const {
     entries: activityEntries,
@@ -228,39 +224,16 @@ export default function DashboardPage() {
   // Multi-scope reactive derivation of the currently selected prize entry
   const activeSelectedPrizeEntry = useMemo(() => {
     if (!selectedPrizeEntry) return null;
-
-    // 1. Check unpaginated top-50 activePrizeHistory
-    const historyMatch = activePrizeHistory.find(
-      (p) =>
-        p.drawCycleId === selectedPrizeEntry.drawCycleId &&
-        p.winnerIndex === selectedPrizeEntry.winnerIndex
+    return (
+      findPrizeEntryInCache(
+        queryClient,
+        poolId,
+        userAddress,
+        selectedPrizeEntry.drawCycleId,
+        selectedPrizeEntry.winnerIndex
+      ) ?? selectedPrizeEntry
     );
-    if (historyMatch) return historyMatch;
-
-    // 2. Check cached paginated userPrizeLedger queries
-    if (userAddress) {
-      const ledgerQueries =
-        queryClient.getQueriesData<UserPrizeLedgerCacheData>({
-          queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
-        });
-      for (const [, queryData] of ledgerQueries) {
-        const ledgerMatch = queryData?.entries?.find(
-          (p) =>
-            p.drawCycleId === selectedPrizeEntry.drawCycleId &&
-            p.winnerIndex === selectedPrizeEntry.winnerIndex
-        );
-        if (ledgerMatch) return ledgerMatch;
-      }
-    }
-
-    return selectedPrizeEntry;
-  }, [
-    selectedPrizeEntry,
-    activePrizeHistory,
-    userAddress,
-    poolId,
-    queryClient,
-  ]);
+  }, [selectedPrizeEntry, userAddress, poolId, queryClient]);
 
   const activeActivityFeed: ActivityEntry[] = isConnected
     ? activityEntries
@@ -329,31 +302,18 @@ export default function DashboardPage() {
   const handleCrankPrize = useCallback(
     async (drawCycleId: number, winnerIndex: number) => {
       // Multi-cache resolution
-      let entry =
-        selectedPrizeEntry?.drawCycleId === drawCycleId &&
+      const entry =
+        findPrizeEntryInCache(
+          queryClient,
+          poolId,
+          userAddress,
+          drawCycleId,
+          winnerIndex
+        ) ??
+        (selectedPrizeEntry?.drawCycleId === drawCycleId &&
         selectedPrizeEntry?.winnerIndex === winnerIndex
           ? selectedPrizeEntry
-          : activePrizeHistory.find(
-              (p) =>
-                p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
-            );
-
-      if (!entry && userAddress) {
-        const ledgerQueries =
-          queryClient.getQueriesData<UserPrizeLedgerCacheData>({
-            queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
-          });
-        for (const [, queryData] of ledgerQueries) {
-          const match = queryData?.entries?.find(
-            (p) =>
-              p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
-          );
-          if (match) {
-            entry = match;
-            break;
-          }
-        }
-      }
+          : undefined);
 
       if (!entry || entry.status === "reinvested") return;
       const key = crankKey(drawCycleId, winnerIndex);
@@ -363,99 +323,34 @@ export default function DashboardPage() {
       setActionModalTitle(tDashboard("crankReinvestModalTitle"));
       setActionSuccessMsg(tDashboard("crankReinvestSuccessMsg"));
 
-      const breakdown = calculateReinvestmentBreakdown(
-        entry.amount,
-        activeUnclaimedWinnings,
-        poolBondPrice
-      );
-
       try {
         if (isConnected && userAddress) {
-          const initiatingAddress = userAddress;
-          await runActionTx(
-            async ({ onSigning }) => {
-              const sig = await actions.reinvestWinnings(
-                drawCycleId,
-                entry.winnerIndex,
-                {
-                  winnerAddress: initiatingAddress,
-                  onSigning,
-                }
-              );
-              markPrizeOptimisticallyProcessed({
-                drawCycleId,
-                winnerIndex: entry.winnerIndex,
-                breakdown,
-                txSignature: sig,
-              });
-              return sig;
-            },
-            (capturedSig) => {
-              refetch();
-              invalidateDrawQueries(queryClient, poolId, {
-                deferIndexerQueries: true,
-                trailingGracePeriodMs: INDEXER_PROPAGATION_GRACE_PERIOD_MS,
-              });
-              if (breakdown.bondsBought > 0 && capturedSig) {
-                prependLocal(
-                  createOptimisticActivity({
-                    activityType: "auto-reinvest",
-                    bonds: breakdown.bondsBought,
-                    amountUsdc: breakdown.bondsBought * poolBondPrice,
-                    cycleId: drawCycleId,
-                    decimals: poolTokenDecimals,
-                    txSignature: capturedSig,
-                  }),
-                  initiatingAddress
-                );
-              }
-              setTimeout(() => {
-                queryClient.invalidateQueries({
-                  queryKey: bondsKeys.userPrizeHistory(
-                    poolId,
-                    initiatingAddress ?? "anonymous"
-                  ),
-                });
-                queryClient.invalidateQueries({
-                  queryKey: bondsKeys.userPrizeLedgerRoot(
-                    poolId,
-                    initiatingAddress
-                  ),
-                });
-                queryClient.invalidateQueries({
-                  queryKey: bondsKeys.userPosition(poolId, initiatingAddress),
-                });
-                queryClient.invalidateQueries({
-                  queryKey: bondsKeys.activityFeed(poolId, initiatingAddress),
-                });
-              }, INDEXER_PROPAGATION_GRACE_PERIOD_MS);
-            }
-          );
+          await runActionTx(async ({ onSigning }) => {
+            return await crankMutation.mutateAsync({
+              entry,
+              bondPrice: poolBondPrice,
+              decimals: poolTokenDecimals,
+              onSigning,
+            });
+          });
         }
       } catch (err) {
         console.error("Reinvest crank failed:", err);
-        rollbackOptimisticPrize(drawCycleId, entry.winnerIndex);
       } finally {
         setCrankingCycles((prev) => ({ ...prev, [key]: false }));
       }
     },
     [
-      activePrizeHistory,
+      queryClient,
+      poolId,
+      userAddress,
       selectedPrizeEntry,
       crankingCycles,
-      activeUnclaimedWinnings,
-      poolBondPrice,
-      poolId,
       isConnected,
       runActionTx,
-      actions,
-      userAddress,
-      markPrizeOptimisticallyProcessed,
-      refetch,
-      prependLocal,
+      crankMutation,
+      poolBondPrice,
       poolTokenDecimals,
-      queryClient,
-      rollbackOptimisticPrize,
       setActionModalTitle,
       setActionSuccessMsg,
       tDashboard,

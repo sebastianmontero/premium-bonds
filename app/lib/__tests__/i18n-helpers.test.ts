@@ -2,8 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   renderLocalizedActivityDescription,
-  fallbackRegexFormat,
-  formatLocalizedActivityDescription,
   type ActivityTranslationFn,
 } from "../i18n-helpers";
 import type { ActivityEntry } from "@/app/types";
@@ -31,6 +29,25 @@ function createMockTranslator(): {
     if (key === "descriptions.autoReinvest") {
       const b = values?.bonds ?? 0;
       return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} from ${values?.amount}`;
+    }
+    if (key === "descriptions.autoReinvestWithClaimable") {
+      const b = values?.bonds ?? 0;
+      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} from ${values?.amount} (${values?.claimable} claimable balance)`;
+    }
+    if (key === "descriptions.autoReinvestDustOnly") {
+      return `Draw #${values?.cycleId} prize: ${values?.amount} credited to claimable balance`;
+    }
+    if (key === "descriptions.autoReinvestWithUsedDust") {
+      const b = values?.bonds ?? 0;
+      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} (${values?.amount} prize + ${values?.usedDust} claimable used)`;
+    }
+    if (key === "descriptions.autoReinvestWithUsedDustAndRemaining") {
+      const b = values?.bonds ?? 0;
+      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} (${values?.amount} prize + ${values?.usedDust} claimable used · ${values?.remaining} remaining)`;
+    }
+    if (key === "descriptions.autoReinvestPureDustCompound") {
+      const b = values?.bonds ?? 0;
+      return `Draw #${values?.cycleId} reinvested: +${b} ticket${b === 1 ? "" : "s"} from ${values?.usedDust} claimable balance`;
     }
     if (key === "descriptions.win") {
       return `Won ${values?.amount}`;
@@ -135,7 +152,7 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
       assert.strictEqual(result, "Sold 3 bonds ($15.00)");
     });
 
-    it("should render auto-reinvest with cycleId and bonds count", () => {
+    it("should render auto-reinvest with cycleId and bonds count (pure reinvestment)", () => {
       const { t, calls } = createMockTranslator();
       const entry: ActivityEntry = {
         id: "tx-5",
@@ -156,8 +173,181 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
         amount: "$10.00",
         bonds: 2,
         cycleId: 42,
+        usedDust: undefined,
+        remaining: undefined,
+        claimable: undefined,
       });
       assert.strictEqual(result, "Draw #42 reinvested: +2 tickets from $10.00");
+    });
+
+    it("should render auto-reinvest for dust-only scenario", () => {
+      const { t, calls } = createMockTranslator();
+      const entry: ActivityEntry = {
+        id: "tx-dust",
+        type: "auto-reinvest",
+        description: "Draw #42 prize: $2.50 credited to claimable balance",
+        date: new Date().toISOString(),
+        metadata: {
+          cycleId: 42,
+          bonds: 0,
+          amountUsdc: 2_500_000,
+          claimableUsdc: 2_500_000,
+        },
+      };
+
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0].key, "descriptions.autoReinvestDustOnly");
+      assert.deepStrictEqual(calls[0].values, {
+        amount: "$2.50",
+        bonds: 0,
+        cycleId: 42,
+        usedDust: undefined,
+        remaining: "$2.50",
+        claimable: "$2.50",
+      });
+      assert.strictEqual(
+        result,
+        "Draw #42 prize: $2.50 credited to claimable balance"
+      );
+    });
+
+    it("should render auto-reinvest for compounded with remaining", () => {
+      const { t, calls } = createMockTranslator();
+      const entry: ActivityEntry = {
+        id: "tx-comp-rem",
+        type: "auto-reinvest",
+        description: "",
+        date: new Date().toISOString(),
+        metadata: {
+          cycleId: 42,
+          bonds: 2,
+          amountUsdc: 8_000_000,
+          usedPriorDustUsdc: 2_000_000,
+          claimableUsdc: 2_000_000,
+        },
+      };
+
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(
+        calls[0].key,
+        "descriptions.autoReinvestWithUsedDustAndRemaining"
+      );
+      assert.deepStrictEqual(calls[0].values, {
+        amount: "$8.00",
+        bonds: 2,
+        cycleId: 42,
+        usedDust: "$2.00",
+        remaining: "$2.00",
+        claimable: "$2.00",
+      });
+      assert.strictEqual(
+        result,
+        "Draw #42 reinvested: +2 tickets ($8.00 prize + $2.00 claimable used · $2.00 remaining)"
+      );
+    });
+
+    it("should render auto-reinvest for compounded exact", () => {
+      const { t, calls } = createMockTranslator();
+      const entry: ActivityEntry = {
+        id: "tx-comp-exact",
+        type: "auto-reinvest",
+        description: "",
+        date: new Date().toISOString(),
+        metadata: {
+          cycleId: 42,
+          bonds: 2,
+          amountUsdc: 8_000_000,
+          usedPriorDustUsdc: 2_000_000,
+        },
+      };
+
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0].key, "descriptions.autoReinvestWithUsedDust");
+      assert.deepStrictEqual(calls[0].values, {
+        amount: "$8.00",
+        bonds: 2,
+        cycleId: 42,
+        usedDust: "$2.00",
+        remaining: undefined,
+        claimable: undefined,
+      });
+      assert.strictEqual(
+        result,
+        "Draw #42 reinvested: +2 tickets ($8.00 prize + $2.00 claimable used)"
+      );
+    });
+
+    it("should render auto-reinvest for pure dust compound", () => {
+      const { t, calls } = createMockTranslator();
+      const entry: ActivityEntry = {
+        id: "tx-pure-dust",
+        type: "auto-reinvest",
+        description: "",
+        date: new Date().toISOString(),
+        metadata: {
+          cycleId: 42,
+          bonds: 1,
+          amountUsdc: 0,
+          usedPriorDustUsdc: 5_000_000,
+        },
+      };
+
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(
+        calls[0].key,
+        "descriptions.autoReinvestPureDustCompound"
+      );
+      assert.deepStrictEqual(calls[0].values, {
+        amount: "$0.00",
+        bonds: 1,
+        cycleId: 42,
+        usedDust: "$5.00",
+        remaining: undefined,
+        claimable: undefined,
+      });
+      assert.strictEqual(
+        result,
+        "Draw #42 reinvested: +1 ticket from $5.00 claimable balance"
+      );
+    });
+
+    it("should render auto-reinvest for leftover dust", () => {
+      const { t, calls } = createMockTranslator();
+      const entry: ActivityEntry = {
+        id: "tx-leftover",
+        type: "auto-reinvest",
+        description: "",
+        date: new Date().toISOString(),
+        metadata: {
+          cycleId: 42,
+          bonds: 2,
+          amountUsdc: 12_500_000,
+          claimableUsdc: 2_500_000,
+        },
+      };
+
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(
+        calls[0].key,
+        "descriptions.autoReinvestWithClaimable"
+      );
+      assert.deepStrictEqual(calls[0].values, {
+        amount: "$12.50",
+        bonds: 2,
+        cycleId: 42,
+        usedDust: undefined,
+        remaining: "$2.50",
+        claimable: "$2.50",
+      });
+      assert.strictEqual(
+        result,
+        "Draw #42 reinvested: +2 tickets from $12.50 ($2.50 claimable balance)"
+      );
     });
 
     it("should render win description with amount", () => {
@@ -258,138 +448,18 @@ describe("Activity Feed i18n Helpers Unit Tests", () => {
     });
   });
 
-  describe("fallbackRegexFormat for legacy unstructured descriptions", () => {
-    it("should parse deposit descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Deposited 100.00 USDC → +20 tickets";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.deposit");
-      assert.deepStrictEqual(calls[0].values, { amount: "100.00", bonds: 20 });
-    });
-
-    it("should parse withdraw descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Sold 4 bonds (20.00 USDC) · Pending settle";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.withdraw");
-      assert.deepStrictEqual(calls[0].values, { amount: "20.00", bonds: 4 });
-    });
-
-    it("should parse auto-reinvest descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Draw #7 reinvested: +5 tickets from 25.00 USDC";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.autoReinvest");
-      assert.deepStrictEqual(calls[0].values, {
-        cycleId: 7,
-        bonds: 5,
-        amount: "25.00",
-      });
-    });
-
-    it("should parse win descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Claimed accumulated winnings of 50.00 USDC · Pending settle";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.win");
-      assert.deepStrictEqual(calls[0].values, { amount: "50.00" });
-    });
-
-    it("should parse claim settled bond principal descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Claimed settled bond principal of 30.00 USDC to wallet";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.claimedBondPrincipal");
-      assert.deepStrictEqual(calls[0].values, { amount: "30.00" });
-    });
-
-    it("should parse claim settled fees descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Claimed settled fees of 3.50 USDC to wallet";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.claimedFees");
-      assert.deepStrictEqual(calls[0].values, { amount: "3.50" });
-    });
-
-    it("should parse claim settled prize winnings descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Claimed settled prize winnings of 75.00 USDC to wallet";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.claimedPrizeWinnings");
-      assert.deepStrictEqual(calls[0].values, { amount: "75.00" });
-    });
-
-    it("should parse claim settled redemption descriptions accurately", () => {
-      const { t, calls } = createMockTranslator();
-      const raw = "Claimed settled redemption of 40.00 USDC to wallet";
-      fallbackRegexFormat(raw, t);
-      assert.strictEqual(calls[0].key, "descriptions.claimedRedemption");
-      assert.deepStrictEqual(calls[0].values, { amount: "40.00" });
-    });
-
-    it("should return empty string on empty input", () => {
+  describe("renderLocalizedActivityDescription fallback without metadata", () => {
+    it("should return raw description when metadata is undefined", () => {
       const { t } = createMockTranslator();
-      assert.strictEqual(fallbackRegexFormat("", t), "");
-    });
-
-    it("should return unchanged description when no regex pattern matches", () => {
-      const { t } = createMockTranslator();
-      const unknown = "Arbitrary custom protocol notice";
-      assert.strictEqual(fallbackRegexFormat(unknown, t), unknown);
-    });
-  });
-
-  describe("formatLocalizedActivityDescription (deprecated fallback helper)", () => {
-    it("should return English text unchanged if locale is 'en'", () => {
-      const text = "Deposited 50.00 USDC → +10 tickets";
-      assert.strictEqual(formatLocalizedActivityDescription(text, "en"), text);
-    });
-
-    it("should translate keywords if locale is 'es'", () => {
-      const text = "Deposited 50.00 USDC → +10 tickets";
-      const result = formatLocalizedActivityDescription(text, "es");
-      assert.ok(result.includes("Depositó"));
-      assert.ok(result.includes("bonos"));
-    });
-
-    it("should translate updated financial and status terms if locale is 'es'", () => {
-      const sellText = "Sold 1 bond (5.00 USDC) · Pending settle";
-      const sellResult = formatLocalizedActivityDescription(sellText, "es");
-      assert.ok(sellResult.includes("Vendió"));
-      assert.ok(sellResult.includes("Pendiente de liquidación"));
-
-      const claimText =
-        "Claimed settled bond principal of 30.00 USDC to wallet";
-      const claimResult = formatLocalizedActivityDescription(claimText, "es");
-      assert.ok(claimResult.includes("capital de bonos"));
-
-      const jackpotText = "Won 100.00 USDC Jackpot";
-      const jackpotResult = formatLocalizedActivityDescription(
-        jackpotText,
-        "es"
-      );
-      assert.ok(jackpotResult.includes("Gran Premio"));
-    });
-
-    it("should translate dust and remainder terminology if locale is 'es'", () => {
-      const dustClaimText =
-        "Claimed accumulated dust winnings of 0.45 USDC to wallet";
-      const dustResult = formatLocalizedActivityDescription(
-        dustClaimText,
-        "es"
-      );
-      assert.ok(
-        dustResult.includes("Reclamó ganancias restantes acumuladas de")
-      );
-      assert.ok(dustResult.includes("a la billetera"));
-
-      const autoDustText =
-        "Auto-reinvested 1 bond from 1.00 USDC (prior dust: 0.50 USDC)";
-      const autoDustResult = formatLocalizedActivityDescription(
-        autoDustText,
-        "es"
-      );
-      assert.ok(autoDustResult.includes("saldo restante anterior"));
+      const raw = "Custom unstructured protocol notice";
+      const entry: ActivityEntry = {
+        id: "tx-raw",
+        type: "deposit",
+        description: raw,
+        date: new Date().toISOString(),
+      };
+      const result = renderLocalizedActivityDescription(entry, t);
+      assert.strictEqual(result, raw);
     });
   });
 });

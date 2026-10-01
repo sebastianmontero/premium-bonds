@@ -22,6 +22,13 @@
       "when": 1790556005552,
       "tag": "0002_rich_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790809884564,
+      "tag": "0003_noisy_frank_castle",
+      "breakpoints": true
     }
   ]
 }

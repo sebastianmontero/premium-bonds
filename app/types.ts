@@ -202,6 +202,8 @@ export interface ActivityMetadata {
   cycleId?: number | null;
   redemptionType?: "bond_sale" | "fee_withdrawal" | "prize_claim";
   amountUsdc?: number;
+  claimableUsdc?: number;
+  usedPriorDustUsdc?: number;
 }
 
 /** A single entry in the Activity Feed */

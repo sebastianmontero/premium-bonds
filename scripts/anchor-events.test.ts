@@ -181,8 +181,8 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
   });
 
   it("should decode CPI WinningsReinvested inner instruction event accurately", async () => {
-    // Payload for WinningsReinvested: 112 bytes
-    const fields = new Uint8Array(112);
+    // Payload for WinningsReinvested: 120 bytes
+    const fields = new Uint8Array(120);
     fields.set(dummyPubkeyBytes, 0);
     const view = new DataView(
       fields.buffer,
@@ -193,11 +193,12 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     view.setUint32(36, 3, true); // cycle_id
     view.setUint32(40, 5, true); // winner_index
     view.setUint32(44, 2, true); // bonds_bought
-    view.setBigUint64(48, 10_000_000n, true); // amount_reinvested
-    view.setBigUint64(56, 50_000_000n, true); // new_total_deposited_principal
-    view.setBigUint64(64, 500_000n, true); // remaining_unclaimed_winnings
-    fields.set(dummyPubkeyBytes, 72); // crank
-    view.setBigInt64(104, 1700000000n, true); // timestamp
+    view.setBigUint64(48, 12_000_000n, true); // prize_amount
+    view.setBigUint64(56, 10_000_000n, true); // amount_reinvested
+    view.setBigUint64(64, 50_000_000n, true); // new_total_deposited_principal
+    view.setBigUint64(72, 500_000n, true); // remaining_unclaimed_winnings
+    fields.set(dummyPubkeyBytes, 80); // crank
+    view.setBigInt64(112, 1700000000n, true); // timestamp
 
     const disc = DISCRIMINATORS.WinningsReinvested;
     const cpiBytes = new Uint8Array(
@@ -240,6 +241,7 @@ describe("Anchor Program Events Parser & Cache Suite", () => {
     assert.strictEqual(res.events[0].data.cycleId, 3);
     assert.strictEqual(res.events[0].data.winnerIndex, 5);
     assert.strictEqual(res.events[0].data.bondsBought, 2);
+    assert.strictEqual(res.events[0].data.prizeAmount, 12_000_000n);
     assert.strictEqual(res.events[0].data.amountReinvested, 10_000_000n);
     assert.strictEqual(
       res.events[0].data.newTotalDepositedPrincipal,

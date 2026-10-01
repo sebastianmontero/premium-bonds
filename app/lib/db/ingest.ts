@@ -71,6 +71,29 @@ export interface UserStatDelta {
   activityTime: number;
 }
 
+export function createUserStatDelta(
+  base: Pick<UserStatDelta, "poolId" | "userAddress" | "activityTime">,
+  overrides: Partial<
+    Omit<UserStatDelta, "poolId" | "userAddress" | "activityTime">
+  > = {}
+): UserStatDelta {
+  return {
+    poolId: base.poolId,
+    userAddress: base.userAddress,
+    activityTime: base.activityTime,
+    activeBondsDelta: 0n,
+    depositedUsdcDelta: 0n,
+    withdrawnUsdcDelta: 0n,
+    wonUsdcDelta: 0n,
+    claimedUsdcDelta: 0n,
+    reinvestedUsdcDelta: 0n,
+    depositCountDelta: 0,
+    withdrawCountDelta: 0,
+    winCountDelta: 0,
+    ...overrides,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PgTx = any;
 
@@ -635,13 +658,19 @@ export async function applyUserPortfolioStatsTx(
   }
 }
 
-export async function ingestTransactionBatch(
-  batch: IngestTransactionItem[],
-  options: { updateLatestCursor?: boolean } = { updateLatestCursor: true }
-): Promise<IngestBatchResult> {
-  if (!isDatabaseConfigured || batch.length === 0)
-    return { insertedCount: 0, unhydratedDraws: [] };
+export interface ReducedBatchEvents {
+  rawEventRows: (typeof protocolEvents.$inferInsert)[];
+  activityRows: (typeof bondsActivity.$inferInsert)[];
+  winnerUpdateRows: WinnerUpdateRow[];
+  drawRows: (typeof drawHistory.$inferInsert)[];
+  redemptionRows: (typeof pendingRedemptions.$inferInsert)[];
+  snapshotRows: (typeof poolSnapshots.$inferInsert)[];
+  userStatDeltas: UserStatDelta[];
+}
 
+export function reduceBatchEvents(
+  batch: IngestTransactionItem[]
+): ReducedBatchEvents {
   const rawEventRows: (typeof protocolEvents.$inferInsert)[] = [];
   const activityRows: (typeof bondsActivity.$inferInsert)[] = [];
   const winnerUpdateRows: WinnerUpdateRow[] = [];
@@ -677,20 +706,20 @@ export async function ingestTransactionBatch(
             amountUsdc: BigInt(evt.data.amount),
             blockTime: context.blockTime,
           });
-          userStatDeltas.push({
-            poolId: evt.data.poolId,
-            userAddress: evt.data.user,
-            activeBondsDelta: BigInt(evt.data.bonds),
-            depositedUsdcDelta: BigInt(evt.data.amount),
-            withdrawnUsdcDelta: 0n,
-            wonUsdcDelta: 0n,
-            claimedUsdcDelta: 0n,
-            reinvestedUsdcDelta: 0n,
-            depositCountDelta: 1,
-            withdrawCountDelta: 0,
-            winCountDelta: 0,
-            activityTime: context.blockTime,
-          });
+          userStatDeltas.push(
+            createUserStatDelta(
+              {
+                poolId: evt.data.poolId,
+                userAddress: evt.data.user,
+                activityTime: context.blockTime,
+              },
+              {
+                activeBondsDelta: BigInt(evt.data.bonds),
+                depositedUsdcDelta: BigInt(evt.data.amount),
+                depositCountDelta: 1,
+              }
+            )
+          );
           if (evt.data.newTotalDepositedPrincipal != null) {
             snapshotRows.push({
               poolId: evt.data.poolId,
@@ -731,23 +760,23 @@ export async function ingestTransactionBatch(
               blockTime: context.blockTime,
             })
           );
-          userStatDeltas.push({
-            poolId: evt.data.poolId,
-            userAddress: evt.data.user,
-            activeBondsDelta: -BigInt(evt.data.bonds),
-            depositedUsdcDelta: 0n,
-            withdrawnUsdcDelta: BigInt(evt.data.principal),
-            wonUsdcDelta: 0n,
-            claimedUsdcDelta: 0n,
-            reinvestedUsdcDelta: 0n,
-            depositCountDelta: 0,
-            withdrawCountDelta: 1,
-            winCountDelta: 0,
-            activityTime: context.blockTime,
-          });
+          userStatDeltas.push(
+            createUserStatDelta(
+              {
+                poolId: evt.data.poolId,
+                userAddress: evt.data.user,
+                activityTime: context.blockTime,
+              },
+              {
+                activeBondsDelta: -BigInt(evt.data.bonds),
+                withdrawnUsdcDelta: BigInt(evt.data.principal),
+                withdrawCountDelta: 1,
+              }
+            )
+          );
           break;
 
-        case "WinningsReinvested":
+        case "WinningsReinvested": {
           winnerUpdateRows.push({
             poolId: evt.data.poolId,
             cycleId: evt.data.cycleId,
@@ -769,7 +798,20 @@ export async function ingestTransactionBatch(
             });
           }
 
-          if (evt.data.bondsBought > 0) {
+          const prizeAmount = BigInt(evt.data.prizeAmount ?? 0);
+          const amountReinvested = BigInt(evt.data.amountReinvested ?? 0);
+          const remainingClaimable = BigInt(
+            evt.data.remainingUnclaimedWinnings ?? 0
+          );
+          // If cost of bonds exceeds the draw prize, the difference was funded by prior claimable dust
+          const usedPriorDust =
+            amountReinvested > prizeAmount
+              ? amountReinvested - prizeAmount
+              : 0n;
+          const isActualWin = prizeAmount > 0n;
+
+          // Unified Reducer: Handles tickets purchased, mixed wins, dust compounding, and sub-ticket dust
+          if (evt.data.bondsBought > 0 || isActualWin) {
             activityRows.push({
               signature: context.signature,
               eventIndex,
@@ -777,28 +819,35 @@ export async function ingestTransactionBatch(
               poolId: evt.data.poolId,
               activityType: "auto-reinvest",
               bonds: evt.data.bondsBought,
-              amountUsdc: BigInt(evt.data.amountReinvested),
+              // Record prize won in this draw cycle (0n for pure prior dust compounding)
+              amountUsdc: prizeAmount,
+              claimableUsdc: remainingClaimable,
+              usedPriorDustUsdc: usedPriorDust,
               cycleId: evt.data.cycleId,
               blockTime: context.blockTime,
             });
-            userStatDeltas.push({
-              poolId: evt.data.poolId,
-              userAddress: evt.data.winner,
-              activeBondsDelta: BigInt(evt.data.bondsBought),
-              depositedUsdcDelta: 0n,
-              withdrawnUsdcDelta: 0n,
-              wonUsdcDelta: BigInt(evt.data.amountReinvested),
-              claimedUsdcDelta: 0n,
-              reinvestedUsdcDelta: BigInt(evt.data.amountReinvested),
-              depositCountDelta: 0,
-              withdrawCountDelta: 0,
-              winCountDelta: 1,
-              activityTime: context.blockTime,
-            });
+            userStatDeltas.push(
+              createUserStatDelta(
+                {
+                  poolId: evt.data.poolId,
+                  userAddress: evt.data.winner,
+                  activityTime: context.blockTime,
+                },
+                {
+                  activeBondsDelta: BigInt(evt.data.bondsBought),
+                  // wonUsdcDelta: Prize amount won THIS draw (excludes compounded prior dust)
+                  wonUsdcDelta: prizeAmount,
+                  // reinvestedUsdcDelta: Actual cost of bonds purchased (may include prior dust)
+                  reinvestedUsdcDelta: amountReinvested,
+                  winCountDelta: isActualWin ? 1 : 0,
+                }
+              )
+            );
           }
           break;
+        }
 
-        case "WinningsClaimed":
+        case "WinningsClaimed": {
           activityRows.push({
             signature: context.signature,
             eventIndex,
@@ -806,6 +855,8 @@ export async function ingestTransactionBatch(
             poolId: evt.data.poolId,
             activityType: "win",
             amountUsdc: BigInt(evt.data.amount),
+            claimableUsdc: 0n,
+            usedPriorDustUsdc: 0n,
             redemptionId:
               evt.data.redemptionId != null
                 ? BigInt(evt.data.redemptionId)
@@ -825,21 +876,12 @@ export async function ingestTransactionBatch(
               blockTime: context.blockTime,
             })
           );
-          userStatDeltas.push({
-            poolId: evt.data.poolId,
-            userAddress: evt.data.user,
-            activeBondsDelta: 0n,
-            depositedUsdcDelta: 0n,
-            withdrawnUsdcDelta: 0n,
-            wonUsdcDelta: BigInt(evt.data.amount),
-            claimedUsdcDelta: 0n,
-            reinvestedUsdcDelta: 0n,
-            depositCountDelta: 0,
-            withdrawCountDelta: 0,
-            winCountDelta: 1,
-            activityTime: context.blockTime,
-          });
+          // Dead Code Elimination: WinningsClaimed is an async redemption request.
+          // The win was already recorded in WinningsReinvested, and the claimed USDC delta will be
+          // recorded in RedemptionClaimed upon settlement. Pushing a 0-delta object to userStatDeltas
+          // is omitted entirely to prevent redundant no-op database UPDATE statements.
           break;
+        }
 
         case "RedemptionClaimed":
           activityRows.push({
@@ -878,20 +920,18 @@ export async function ingestTransactionBatch(
               claimedAt: context.blockTime,
             })
           );
-          userStatDeltas.push({
-            poolId: evt.data.poolId,
-            userAddress: evt.data.user,
-            activeBondsDelta: 0n,
-            depositedUsdcDelta: 0n,
-            withdrawnUsdcDelta: 0n,
-            wonUsdcDelta: 0n,
-            claimedUsdcDelta: BigInt(evt.data.amount),
-            reinvestedUsdcDelta: 0n,
-            depositCountDelta: 0,
-            withdrawCountDelta: 0,
-            winCountDelta: 0,
-            activityTime: context.blockTime,
-          });
+          userStatDeltas.push(
+            createUserStatDelta(
+              {
+                poolId: evt.data.poolId,
+                userAddress: evt.data.user,
+                activityTime: context.blockTime,
+              },
+              {
+                claimedUsdcDelta: BigInt(evt.data.amount),
+              }
+            )
+          );
           break;
 
         case "YieldHarvested": {
@@ -1082,6 +1122,34 @@ export async function ingestTransactionBatch(
       }
     });
   }
+
+  return {
+    rawEventRows,
+    activityRows,
+    winnerUpdateRows,
+    drawRows,
+    redemptionRows,
+    snapshotRows,
+    userStatDeltas,
+  };
+}
+
+export async function ingestTransactionBatch(
+  batch: IngestTransactionItem[],
+  options: { updateLatestCursor?: boolean } = { updateLatestCursor: true }
+): Promise<IngestBatchResult> {
+  if (!isDatabaseConfigured || batch.length === 0)
+    return { insertedCount: 0, unhydratedDraws: [] };
+
+  const {
+    rawEventRows,
+    activityRows,
+    winnerUpdateRows,
+    drawRows,
+    redemptionRows,
+    snapshotRows,
+    userStatDeltas,
+  } = reduceBatchEvents(batch);
 
   // Atomically execute all reducers within a single SQL transaction
   const result = await db.transaction(async (tx) => {

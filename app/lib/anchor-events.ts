@@ -170,6 +170,7 @@ export interface WinningsReinvestedEvent {
   cycleId: number;
   winnerIndex: number;
   bondsBought: number;
+  prizeAmount: bigint;
   amountReinvested: bigint;
   newTotalDepositedPrincipal?: bigint;
   remainingUnclaimedWinnings?: bigint;
@@ -670,6 +671,7 @@ function decodeEventData(
         const cycleId = reader.readU32();
         const winnerIndex = reader.readU32();
         const bondsBought = reader.readU32();
+        const prizeAmount = reader.readU64();
         const amountReinvested = reader.readU64();
         let newTotalDepositedPrincipal: bigint | undefined;
         let remainingUnclaimedWinnings: bigint | undefined;
@@ -687,6 +689,7 @@ function decodeEventData(
           cycleId,
           winnerIndex,
           bondsBought,
+          prizeAmount,
           amountReinvested,
           newTotalDepositedPrincipal,
           remainingUnclaimedWinnings,

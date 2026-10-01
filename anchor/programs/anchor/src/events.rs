@@ -61,6 +61,8 @@ pub struct WinningsReinvested {
     pub winner_index: u32,
     /// Number of new bonds purchased via reinvestment.
     pub bonds_bought: u32,
+    /// Amount of the prize won in this draw cycle (in base units).
+    pub prize_amount: u64,
     /// Amount of USDC reinvested (in base units).
     pub amount_reinvested: u64,
     /// Pool's total deposited principal after this reinvestment.
@@ -72,6 +74,8 @@ pub struct WinningsReinvested {
     /// Unix timestamp of the reinvestment.
     pub timestamp: i64,
 }
+
+const _: () = assert!(std::mem::size_of::<WinningsReinvested>() == 120);
 
 /// Emitted when a user claims non-reinvested winnings (initiates async redemption).
 #[event]

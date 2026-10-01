@@ -1,5 +1,34 @@
 import { formatCurrency, USDC_DECIMALS } from "./formatters";
-import type { ActivityEntry, ActivityType } from "../types";
+import type { ActivityEntry, ActivityType, PrizeHistoryEntry } from "../types";
+import type { ReinvestmentBreakdown } from "./draw-helpers";
+
+export type ReinvestScenario =
+  | "dust_only"
+  | "pure_dust_compound"
+  | "compounded_with_remaining"
+  | "compounded_exact"
+  | "leftover_dust"
+  | "pure_reinvestment";
+
+export function classifyReinvestScenario(params: {
+  bonds?: number | null;
+  amountUsdc?: number | bigint | null;
+  usedPriorDustUsdc?: number | bigint | null;
+  claimableUsdc?: number | bigint | null;
+}): ReinvestScenario {
+  const bonds = Number(params.bonds ?? 0);
+  const amount = Number(params.amountUsdc ?? 0);
+  const usedDust = Number(params.usedPriorDustUsdc ?? 0);
+  const claimable = Number(params.claimableUsdc ?? 0);
+
+  if (bonds <= 0) return "dust_only";
+  if (usedDust > 0) {
+    if (amount <= 0) return "pure_dust_compound";
+    return claimable > 0 ? "compounded_with_remaining" : "compounded_exact";
+  }
+  if (claimable > 0) return "leftover_dust";
+  return "pure_reinvestment";
+}
 
 export type ActivityFormatParams =
   | {
@@ -18,6 +47,8 @@ export type ActivityFormatParams =
       activityType: "auto-reinvest";
       amountUsdc: bigint | number;
       bonds?: number | null;
+      claimableUsdc?: bigint | number | null;
+      usedPriorDustUsdc?: bigint | number | null;
       cycleId?: number | null;
       decimals?: number;
     }
@@ -39,6 +70,8 @@ export type ActivityFormatParams =
       cycleId?: number | null;
       decimals?: number;
       redemptionType?: "bond_sale" | "fee_withdrawal" | "prize_claim";
+      claimableUsdc?: bigint | number | null;
+      usedPriorDustUsdc?: bigint | number | null;
     };
 
 export function formatActivityDescription(
@@ -54,8 +87,56 @@ export function formatActivityDescription(
       return `Deposited ${formatted} → +${params.bonds ?? 0} tickets`;
     case "withdraw":
       return `Sold ${params.bonds ?? 0} bonds (${formatted}) · Pending settle`;
-    case "auto-reinvest":
-      return `Draw #${params.cycleId ?? 0} reinvested: +${params.bonds ?? 0} tickets from ${formatted}`;
+    case "auto-reinvest": {
+      const claimableNum =
+        params.claimableUsdc != null
+          ? typeof params.claimableUsdc === "bigint"
+            ? Number(params.claimableUsdc)
+            : params.claimableUsdc
+          : 0;
+      const usedDustNum =
+        params.usedPriorDustUsdc != null
+          ? typeof params.usedPriorDustUsdc === "bigint"
+            ? Number(params.usedPriorDustUsdc)
+            : params.usedPriorDustUsdc
+          : 0;
+
+      const hasClaimable = claimableNum > 0;
+      const hasUsedDust = usedDustNum > 0;
+
+      const claimableFormatted = hasClaimable
+        ? formatCurrency(claimableNum, {
+            decimals: params.decimals ?? USDC_DECIMALS,
+            style: "standard",
+          })
+        : null;
+
+      const usedDustFormatted = hasUsedDust
+        ? formatCurrency(usedDustNum, {
+            decimals: params.decimals ?? USDC_DECIMALS,
+            style: "standard",
+          })
+        : null;
+
+      const bondsCount = params.bonds ?? 0;
+      const ticketText =
+        bondsCount === 1 ? "1 ticket" : `${bondsCount} tickets`;
+      const scenario = classifyReinvestScenario(params);
+      switch (scenario) {
+        case "dust_only":
+          return `Draw #${params.cycleId ?? 0} prize: ${formatted} credited to claimable balance`;
+        case "pure_dust_compound":
+          return `Draw #${params.cycleId ?? 0} reinvested: +${ticketText} from ${usedDustFormatted} claimable balance`;
+        case "compounded_with_remaining":
+          return `Draw #${params.cycleId ?? 0} reinvested: +${ticketText} (${formatted} prize + ${usedDustFormatted} claimable used · ${claimableFormatted} remaining)`;
+        case "compounded_exact":
+          return `Draw #${params.cycleId ?? 0} reinvested: +${ticketText} (${formatted} prize + ${usedDustFormatted} claimable used)`;
+        case "leftover_dust":
+          return `Draw #${params.cycleId ?? 0} reinvested: +${ticketText} from ${formatted} (${claimableFormatted} claimable balance)`;
+        case "pure_reinvestment":
+          return `Draw #${params.cycleId ?? 0} reinvested: +${ticketText} from ${formatted}`;
+      }
+    }
     case "win":
       return `Claimed accumulated winnings of ${formatted} · Pending settle`;
     case "claim-redemption": {
@@ -79,6 +160,37 @@ export type CreateOptimisticActivityParams = ActivityFormatParams & {
   customId?: string;
 };
 
+export interface CreateOptimisticReinvestParams {
+  entry: Pick<PrizeHistoryEntry, "amount" | "drawCycleId">;
+  breakdown: ReinvestmentBreakdown;
+  txSignature: string;
+  decimals?: number;
+  customId?: string;
+}
+
+/**
+ * Cohesive factory eliminating Data Clumps across useCrankPrize and dashboard/page.tsx.
+ */
+export function createOptimisticReinvestActivity({
+  entry,
+  breakdown,
+  txSignature,
+  decimals,
+  customId,
+}: CreateOptimisticReinvestParams): ActivityEntry {
+  return createOptimisticActivity({
+    activityType: "auto-reinvest",
+    bonds: breakdown.bondsBought,
+    amountUsdc: entry.amount,
+    claimableUsdc: breakdown.remainingDust,
+    usedPriorDustUsdc: breakdown.usedPriorDust,
+    cycleId: entry.drawCycleId,
+    decimals,
+    txSignature,
+    customId,
+  });
+}
+
 export function createOptimisticActivity(
   params: CreateOptimisticActivityParams
 ): ActivityEntry {
@@ -91,6 +203,22 @@ export function createOptimisticActivity(
   const cycleId = "cycleId" in params ? params.cycleId : undefined;
   const redemptionType =
     "redemptionType" in params ? params.redemptionType : undefined;
+  const rawClaimable =
+    "claimableUsdc" in params ? params.claimableUsdc : undefined;
+  const claimableUsdc =
+    rawClaimable != null
+      ? typeof rawClaimable === "bigint"
+        ? Number(rawClaimable)
+        : rawClaimable
+      : undefined;
+  const rawUsedDust =
+    "usedPriorDustUsdc" in params ? params.usedPriorDustUsdc : undefined;
+  const usedPriorDustUsdc =
+    rawUsedDust != null
+      ? typeof rawUsedDust === "bigint"
+        ? Number(rawUsedDust)
+        : rawUsedDust
+      : undefined;
 
   return {
     id:
@@ -106,6 +234,8 @@ export function createOptimisticActivity(
       cycleId,
       redemptionType,
       amountUsdc: numAmount,
+      claimableUsdc,
+      usedPriorDustUsdc,
     },
   };
 }

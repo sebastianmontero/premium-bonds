@@ -74,6 +74,12 @@ export const bondsActivity = pgTable(
     activityType: varchar("activity_type", { length: 32 }).notNull(),
     bonds: bigint("bonds", { mode: "number" }).notNull().default(0),
     amountUsdc: bigint("amount_usdc", { mode: "bigint" }).notNull(),
+    claimableUsdc: bigint("claimable_usdc", { mode: "bigint" })
+      .notNull()
+      .default(0n),
+    usedPriorDustUsdc: bigint("used_prior_dust_usdc", { mode: "bigint" })
+      .notNull()
+      .default(0n),
     redemptionId: bigint("redemption_id", { mode: "bigint" }),
     cycleId: integer("cycle_id"),
     blockTime: bigint("block_time", { mode: "number" }).notNull(),

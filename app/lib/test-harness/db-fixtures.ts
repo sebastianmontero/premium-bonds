@@ -79,6 +79,8 @@ export function buildMockBondsActivityRow(
     activityType: "deposit",
     bonds: 10,
     amountUsdc: 10_000_000n,
+    claimableUsdc: 0n,
+    usedPriorDustUsdc: 0n,
     redemptionId: null,
     cycleId: 1,
     blockTime: 1700000000,

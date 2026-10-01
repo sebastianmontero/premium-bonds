@@ -25,6 +25,8 @@ interface ActivityRow extends Record<string, unknown> {
   activity_type: string;
   bonds: number;
   amount_usdc: string | number;
+  claimable_usdc: string | number;
+  used_prior_dust_usdc: string | number;
   redemption_id: string | number | null;
   cycle_id: number | null;
   block_time: number;
@@ -56,14 +58,15 @@ export async function fetchKeysetActivity(
     const term = filters.search.trim();
     const cleanNumeric = term.replace(/^#/, "").trim();
     const num = Number(cleanNumeric);
+    const pattern = `%${term}%`;
 
     if (!isNaN(num) && cleanNumeric !== "") {
       conditions.push(
-        sql`(${bondsActivity.cycleId} = ${num} OR ${bondsActivity.signature} ILIKE ${term + "%"})`
+        sql`(${bondsActivity.cycleId} = ${num} OR ${bondsActivity.signature} ILIKE ${pattern})`
       );
     } else {
       conditions.push(
-        sql`(${bondsActivity.signature} ILIKE ${term + "%"} OR ${bondsActivity.activityType} ILIKE ${term + "%"})`
+        sql`(${bondsActivity.signature} ILIKE ${pattern} OR ${bondsActivity.activityType} ILIKE ${pattern})`
       );
     }
   }
@@ -81,6 +84,8 @@ export async function fetchKeysetActivity(
       ${bondsActivity.activityType},
       ${bondsActivity.bonds},
       ${bondsActivity.amountUsdc},
+      ${bondsActivity.claimableUsdc},
+      ${bondsActivity.usedPriorDustUsdc},
       ${bondsActivity.redemptionId},
       ${bondsActivity.cycleId},
       ${bondsActivity.blockTime}
@@ -104,6 +109,8 @@ export async function fetchKeysetActivity(
       activityType: r.activity_type,
       bonds: r.bonds,
       amountUsdc: Number(r.amount_usdc),
+      claimableUsdc: Number(r.claimable_usdc || 0),
+      usedPriorDustUsdc: Number(r.used_prior_dust_usdc || 0),
       cycleId: r.cycle_id,
     }),
     amount: Number(r.amount_usdc),
@@ -112,8 +119,16 @@ export async function fetchKeysetActivity(
       bonds: r.bonds,
       cycleId: r.cycle_id,
       amountUsdc: Number(r.amount_usdc),
-      redemptionType:
-        r.activity_type === "claim-redemption" ? "prize_claim" : undefined,
+      claimableUsdc:
+        r.claimable_usdc && Number(r.claimable_usdc) > 0
+          ? Number(r.claimable_usdc)
+          : undefined,
+      usedPriorDustUsdc:
+        r.used_prior_dust_usdc && Number(r.used_prior_dust_usdc) > 0
+          ? Number(r.used_prior_dust_usdc)
+          : undefined,
+      // redemption_type is not stored on bonds_activity; leaving undefined falls back to neutral redemption copy
+      redemptionType: undefined,
     },
   }));
 

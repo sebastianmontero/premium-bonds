@@ -153,8 +153,8 @@ export function serializeAnchorEvent(
       break;
     }
     case "WinningsReinvested": {
-      // Pubkey(32) + u32(4)*4 + u64(8)*3 + Pubkey(32) + i64(8) = 112 bytes
-      fields = new Uint8Array(112);
+      // Pubkey(32) + u32(4)*4 + u64(8)*4 + Pubkey(32) + i64(8) = 120 bytes
+      fields = new Uint8Array(120);
       const view = new DataView(fields.buffer);
       fields.set(
         pubkeyToBytes(data.winner || "11111111111111111111111111111111"),
@@ -164,14 +164,15 @@ export function serializeAnchorEvent(
       view.setUint32(36, Number(data.cycleId || 1), true);
       view.setUint32(40, Number(data.winnerIndex ?? 0), true);
       view.setUint32(44, Number(data.bondsBought || 0), true);
-      view.setBigUint64(48, BigInt(data.amountReinvested || 0), true);
-      view.setBigUint64(56, BigInt(data.newTotalDepositedPrincipal || 0), true);
-      view.setBigUint64(64, BigInt(data.remainingUnclaimedWinnings || 0), true);
+      view.setBigUint64(48, BigInt(data.prizeAmount || 0), true);
+      view.setBigUint64(56, BigInt(data.amountReinvested || 0), true);
+      view.setBigUint64(64, BigInt(data.newTotalDepositedPrincipal || 0), true);
+      view.setBigUint64(72, BigInt(data.remainingUnclaimedWinnings || 0), true);
       fields.set(
         pubkeyToBytes(data.crank || "11111111111111111111111111111111"),
-        72
+        80
       );
-      view.setBigInt64(104, BigInt(data.timestamp || 0), true);
+      view.setBigInt64(112, BigInt(data.timestamp || 0), true);
       break;
     }
     case "WinningsClaimed": {

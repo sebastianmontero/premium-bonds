@@ -12,6 +12,8 @@ import {
   buildPendingRedemptionRow,
   REDEMPTION_TYPE_TO_DB,
   TERMINAL_DRAW_STATUSES,
+  reduceBatchEvents,
+  type IngestTransactionItem,
 } from "../ingest";
 import { RedemptionType } from "../../bonds-sdk";
 import { drawHistory } from "../schema";
@@ -134,6 +136,7 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
           cycleId: 3,
           winnerIndex: 0,
           bondsBought: 2,
+          prizeAmount: 10000000n,
           amountReinvested: 10000000n,
         },
       };
@@ -1380,6 +1383,189 @@ describe("Database Ingestion & Event Metadata Resolution", () => {
       assert.strictEqual(claimedRow.claimSignature, "tx_claim_sig");
       assert.strictEqual(claimedRow.requestedAt, 1700000000);
       assert.strictEqual(claimedRow.claimedAt, 1700000500);
+    });
+  });
+
+  describe("reduceBatchEvents Pure Batch Reducer", () => {
+    const mockContext = {
+      signature: "5xyzMockSig12345",
+      slot: 1000,
+      blockTime: 1700000000,
+      network: "mainnet",
+    };
+
+    it("should process Sub-Ticket Dust Only (bondsBought == 0)", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "WinningsReinvested",
+              data: {
+                poolId: 1,
+                cycleId: 5,
+                winnerIndex: 0,
+                winner: userAddr,
+                bondsBought: 0,
+                amountReinvested: 0n,
+                prizeAmount: 2_500_000n,
+                remainingUnclaimedWinnings: 2_500_000n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 1);
+      const act = res.activityRows[0];
+      assert.strictEqual(act.bonds, 0);
+      assert.strictEqual(act.amountUsdc, 2_500_000n);
+      assert.strictEqual(act.claimableUsdc, 2_500_000n);
+      assert.strictEqual(act.usedPriorDustUsdc, 0n);
+
+      assert.strictEqual(res.userStatDeltas.length, 1);
+      const delta = res.userStatDeltas[0];
+      assert.strictEqual(delta.activeBondsDelta, 0n);
+      assert.strictEqual(delta.wonUsdcDelta, 2_500_000n);
+      assert.strictEqual(delta.reinvestedUsdcDelta, 0n);
+      assert.strictEqual(delta.winCountDelta, 1);
+    });
+
+    it("should process Pure Dust Compounding (prizeAmount == 0n)", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "WinningsReinvested",
+              data: {
+                poolId: 1,
+                cycleId: 5,
+                winnerIndex: 0,
+                winner: userAddr,
+                bondsBought: 1,
+                amountReinvested: 5_000_000n,
+                prizeAmount: 0n,
+                remainingUnclaimedWinnings: 0n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 1);
+      const act = res.activityRows[0];
+      assert.strictEqual(act.bonds, 1);
+      assert.strictEqual(act.amountUsdc, 0n); // Fixed: 0n prize won this draw
+      assert.strictEqual(act.claimableUsdc, 0n);
+      assert.strictEqual(act.usedPriorDustUsdc, 5_000_000n);
+
+      assert.strictEqual(res.userStatDeltas.length, 1);
+      const delta = res.userStatDeltas[0];
+      assert.strictEqual(delta.activeBondsDelta, 1n);
+      assert.strictEqual(delta.wonUsdcDelta, 0n); // No new prize won
+      assert.strictEqual(delta.reinvestedUsdcDelta, 5_000_000n);
+      assert.strictEqual(delta.winCountDelta, 0); // Not a new win
+    });
+
+    it("should process Compound with Remaining Dust", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "WinningsReinvested",
+              data: {
+                poolId: 1,
+                cycleId: 5,
+                winnerIndex: 0,
+                winner: userAddr,
+                bondsBought: 2,
+                amountReinvested: 10_000_000n,
+                prizeAmount: 8_000_000n,
+                remainingUnclaimedWinnings: 2_000_000n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 1);
+      const act = res.activityRows[0];
+      assert.strictEqual(act.bonds, 2);
+      assert.strictEqual(act.amountUsdc, 8_000_000n);
+      assert.strictEqual(act.claimableUsdc, 2_000_000n);
+      assert.strictEqual(act.usedPriorDustUsdc, 2_000_000n);
+
+      assert.strictEqual(res.userStatDeltas.length, 1);
+      const delta = res.userStatDeltas[0];
+      assert.strictEqual(delta.activeBondsDelta, 2n);
+      assert.strictEqual(delta.wonUsdcDelta, 8_000_000n);
+      assert.strictEqual(delta.reinvestedUsdcDelta, 10_000_000n);
+      assert.strictEqual(delta.winCountDelta, 1);
+    });
+
+    it("should isolate Zero-Prize Winner with 0 owed and 0 bonds (Scenario T10)", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "WinningsReinvested",
+              data: {
+                poolId: 1,
+                cycleId: 5,
+                winnerIndex: 0,
+                winner: userAddr,
+                bondsBought: 0,
+                amountReinvested: 0n,
+                prizeAmount: 0n,
+                remainingUnclaimedWinnings: 0n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 0);
+      assert.strictEqual(res.userStatDeltas.length, 0);
+      assert.strictEqual(res.winnerUpdateRows.length, 1);
+    });
+
+    it("should deduplicate WinningsClaimed and not push to userStatDeltas", () => {
+      const batch: IngestTransactionItem[] = [
+        {
+          context: mockContext,
+          events: [
+            {
+              type: "WinningsClaimed",
+              data: {
+                poolId: 1,
+                user: userAddr,
+                amount: 5_000_000n,
+                pstShares: 5_000_000n,
+                redemptionId: 10n,
+                humaRequestId: 99n,
+              },
+            },
+          ],
+        },
+      ];
+
+      const res = reduceBatchEvents(batch);
+      assert.strictEqual(res.activityRows.length, 1);
+      assert.strictEqual(res.activityRows[0].activityType, "win");
+      assert.strictEqual(res.redemptionRows.length, 1);
+      assert.strictEqual(res.redemptionRows[0].redemptionType, "prize_claim");
+      assert.strictEqual(
+        res.userStatDeltas.length,
+        0,
+        "WinningsClaimed must not push to userStatDeltas to prevent double-counting"
+      );
     });
   });
 });

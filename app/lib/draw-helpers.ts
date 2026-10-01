@@ -1,5 +1,10 @@
 import type { SelectOption } from "../components/common/CustomSelect";
-import { DrawCycleInfo, PayoutRegistryInfo, DrawSkipReason } from "./bonds-sdk";
+import {
+  DrawCycleInfo,
+  PayoutRegistryInfo,
+  DrawSkipReason,
+  PoolStatus,
+} from "./bonds-sdk";
 import { deriveRandomIndex, formatSeedHex } from "./vrf-utils";
 import type { QueryClient } from "@tanstack/react-query";
 import { bondsKeys, type PoolId } from "./query-keys";
@@ -715,6 +720,7 @@ export interface ReinvestmentBreakdown {
   usedPriorDust: number;
   dustAccumulated: number;
   totalAvailable: number;
+  remainingDust: number;
 }
 
 /**
@@ -752,6 +758,52 @@ export interface UserPrizeLedgerCacheData {
   entries: PrizeHistoryEntry[];
   pagination: PaginationMeta;
   aggregates: PrizeLedgerAggregates;
+}
+
+/**
+ * Determines if a pool is closed.
+ */
+export function isPoolClosed(
+  pool?: { status: string | PoolStatus } | null
+): boolean {
+  if (!pool) return false;
+  return (
+    pool.status === "Closed" || (pool.status as unknown) === PoolStatus.Closed
+  );
+}
+
+/**
+ * Traverses TanStack Query cache to find a PrizeHistoryEntry in either unpaginated or paginated queries.
+ */
+export function findPrizeEntryInCache(
+  queryClient: QueryClient,
+  poolId: PoolId,
+  userAddress: string | undefined,
+  drawCycleId: number,
+  winnerIndex: number
+): PrizeHistoryEntry | undefined {
+  if (!userAddress) return undefined;
+
+  // 1. Check top-50 unpaginated history cache
+  const history = queryClient.getQueryData<PrizeHistoryEntry[]>(
+    bondsKeys.userPrizeHistory(poolId, userAddress)
+  );
+  const match = history?.find(
+    (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+  );
+  if (match) return match;
+
+  // 2. Check active paginated ledger queries
+  const ledgerQueries = queryClient.getQueriesData<UserPrizeLedgerCacheData>({
+    queryKey: bondsKeys.userPrizeLedgerRoot(poolId, userAddress),
+  });
+  for (const [, queryData] of ledgerQueries) {
+    const ledgerMatch = queryData?.entries?.find(
+      (p) => p.drawCycleId === drawCycleId && p.winnerIndex === winnerIndex
+    );
+    if (ledgerMatch) return ledgerMatch;
+  }
+  return undefined;
 }
 
 /**
@@ -826,12 +878,14 @@ export function calculateReinvestmentBreakdown(
   const usedPriorDust = totalCost > numAmountWon ? totalCost - numAmountWon : 0;
   const dustAccumulated =
     totalCost < numAmountWon ? numAmountWon - totalCost : 0;
+  const remainingDust = Math.max(0, totalAvailable - totalCost);
 
   return {
     bondsBought,
     usedPriorDust,
     dustAccumulated,
     totalAvailable,
+    remainingDust,
   };
 }
 
@@ -858,6 +912,7 @@ export function getEffectivePrizeBreakdown(
       usedPriorDust: 0,
       dustAccumulated: entry.dustAccumulated ?? 0,
       totalAvailable: entry.amount,
+      remainingDust: entry.dustAccumulated ?? 0,
     };
   }
 
@@ -876,6 +931,7 @@ export function getEffectivePrizeBreakdown(
     usedPriorDust: entry.usedPriorDust ?? calculated.usedPriorDust,
     dustAccumulated: entry.dustAccumulated ?? calculated.dustAccumulated,
     totalAvailable: calculated.totalAvailable,
+    remainingDust: calculated.remainingDust,
   };
 }
 

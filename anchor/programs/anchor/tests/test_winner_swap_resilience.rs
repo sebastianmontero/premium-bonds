@@ -113,6 +113,11 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
     let event_bob = assert_cpi_event::<anchor::events::WinningsReinvested>(&meta_bob);
     assert_eq!(event_bob.winner, bob.pubkey(), "Event winner matches Bob");
     assert_eq!(event_bob.winner_index, bob_winner_idx as u32);
+    assert_eq!(
+        event_bob.prize_amount,
+        winners[bob_winner_idx].amount_owed,
+        "Prize amount matches Bob's amount_owed"
+    );
     assert!(event_bob.amount_reinvested > 0, "Amount reinvested > 0");
 
     let updated_winners = read_payout_winners(&h.svm, pool_id, 1);
@@ -144,6 +149,11 @@ fn test_winner_swap_resilience_preserves_payout_claim() {
         "Event winner matches Alice"
     );
     assert_eq!(event_alice.winner_index, alice_winner_idx as u32);
+    assert_eq!(
+        event_alice.prize_amount,
+        winners[alice_winner_idx].amount_owed,
+        "Prize amount matches Alice's amount_owed"
+    );
     assert!(event_alice.amount_reinvested > 0, "Amount reinvested > 0");
 
     let updated_winners_final = read_payout_winners(&h.svm, pool_id, 1);
