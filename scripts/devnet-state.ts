@@ -81,7 +81,7 @@ export function checkActiveEnvIsLocalnet(
     };
   }
 
-  if (env.HELIUS_WEBHOOK_SECRET === "pb_webhook_secret_local_dev_123") {
+  if (env.HELIUS_WEBHOOK_SECRET === LOCALNET_MOCK_WEBHOOK_SECRET) {
     return {
       isLocalnet: true,
       reason: "Local mock webhook secret detected",
@@ -94,7 +94,7 @@ export function checkActiveEnvIsLocalnet(
 /**
  * Category B: On-Chain Protocol Addresses and deployment accounts.
  */
-export interface DevnetProtocolAccounts {
+export interface ProtocolAccounts {
   programId: string;
   humaProgramId: string;
   adminAddress: string;
@@ -109,6 +109,43 @@ export interface DevnetProtocolAccounts {
   humaRedemptionRequest: string;
   randomnessAccount?: string;
 }
+
+export type DevnetProtocolAccounts = ProtocolAccounts;
+
+/**
+ * Shared formatter mapping ProtocolAccounts to Next.js environment variable key-value pairs.
+ */
+export function buildProtocolAccountEnvVars(
+  accounts: ProtocolAccounts
+): Record<string, string> {
+  return {
+    NEXT_PUBLIC_PROGRAM_ID: accounts.programId,
+    NEXT_PUBLIC_HUMA_PROGRAM_ID: accounts.humaProgramId,
+    NEXT_PUBLIC_USDC_MINT: accounts.usdcMint,
+    NEXT_PUBLIC_PST_MINT: accounts.pstMint,
+    NEXT_PUBLIC_TICKET_REGISTRY: accounts.ticketRegistry,
+    NEXT_PUBLIC_ADMIN_ADDRESS: accounts.adminAddress,
+    NEXT_PUBLIC_FEE_WALLET: accounts.feeWallet,
+    NEXT_PUBLIC_HUMA_CONFIG: accounts.humaProgramId,
+    NEXT_PUBLIC_HUMA_POOL_CONFIG: accounts.humaProgramId,
+    NEXT_PUBLIC_HUMA_POOL_STATE: accounts.humaPoolState,
+    NEXT_PUBLIC_HUMA_MODE_CONFIG: accounts.humaProgramId,
+    NEXT_PUBLIC_HUMA_LENDER_STATE: accounts.humaLenderState,
+    NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN: accounts.humaPoolUnderlying,
+    NEXT_PUBLIC_HUMA_MODE_MINT: accounts.pstMint,
+    NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN: accounts.humaPoolModeToken,
+    NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST: accounts.humaRedemptionRequest,
+    NEXT_PUBLIC_RANDOMNESS_ACCOUNT: accounts.randomnessAccount ?? "",
+  };
+}
+
+export const LOCALNET_DEFAULT_RPC_URL = "http://127.0.0.1:8899";
+export const LOCALNET_DEFAULT_WS_URL = "ws://127.0.0.1:8900";
+export const DEVNET_DEFAULT_RPC_URL = "https://api.devnet.solana.com";
+export const DEVNET_DEFAULT_WS_URL = "wss://api.devnet.solana.com";
+export const LOCALNET_MOCK_WEBHOOK_SECRET = "pb_webhook_secret_local_dev_123";
+export const LOCALNET_DEFAULT_DB_URL =
+  "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_default";
 
 /**
  * Declarative configuration for preserved cloud variables.
@@ -147,26 +184,26 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
   },
   {
     envKey: "HELIUS_WEBHOOK_SECRET",
-    isLocalMock: (val) => val === "pb_webhook_secret_local_dev_123",
+    isLocalMock: (val) => val === LOCALNET_MOCK_WEBHOOK_SECRET,
   },
   {
     envKey: "NEXT_PUBLIC_SOLANA_RPC_URL",
-    defaultValue: "https://api.devnet.solana.com",
+    defaultValue: DEVNET_DEFAULT_RPC_URL,
     isLocalMock: isLocalMockUrl,
   },
   {
     envKey: "SOLANA_RPC_URL",
-    defaultValue: "https://api.devnet.solana.com",
+    defaultValue: DEVNET_DEFAULT_RPC_URL,
     isLocalMock: isLocalMockUrl,
   },
   {
     envKey: "NEXT_PUBLIC_SOLANA_WS_URL",
-    defaultValue: "wss://api.devnet.solana.com",
+    defaultValue: DEVNET_DEFAULT_WS_URL,
     isLocalMock: isLocalMockUrl,
   },
   {
     envKey: "SOLANA_WS_URL",
-    defaultValue: "wss://api.devnet.solana.com",
+    defaultValue: DEVNET_DEFAULT_WS_URL,
     isLocalMock: isLocalMockUrl,
   },
   ...PUSHER_VARS,
@@ -177,7 +214,7 @@ export const PRESERVED_CLOUD_VARS: readonly PreservedCloudVarConfig[] = [
  */
 export function readDevnetAddresses(
   filePath: string = DEVNET_ADDRESSES_PATH
-): Partial<DevnetProtocolAccounts> | null {
+): Partial<ProtocolAccounts> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -192,7 +229,7 @@ export function readDevnetAddresses(
  * Writes the public on-chain protocol addresses to scripts/devnet-state/addresses.json.
  */
 export function writeDevnetAddresses(
-  addresses: DevnetProtocolAccounts,
+  addresses: ProtocolAccounts,
   filePath: string = DEVNET_ADDRESSES_PATH
 ): void {
   const dir = path.dirname(filePath);
@@ -416,6 +453,26 @@ export function syncDevnetToActiveEnv(
     addresses.adminAddress || devnetEnv.NEXT_PUBLIC_ADMIN_ADDRESS || "";
   const feeWallet =
     addresses.feeWallet || devnetEnv.NEXT_PUBLIC_FEE_WALLET || "";
+  const humaPoolState =
+    addresses.humaPoolState || devnetEnv.NEXT_PUBLIC_HUMA_POOL_STATE || "";
+  const humaLenderState =
+    addresses.humaLenderState || devnetEnv.NEXT_PUBLIC_HUMA_LENDER_STATE || "";
+  const humaPoolUnderlying =
+    addresses.humaPoolUnderlying ||
+    devnetEnv.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
+    "";
+  const humaPoolModeToken =
+    addresses.humaPoolModeToken ||
+    devnetEnv.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
+    "";
+  const humaRedemptionRequest =
+    addresses.humaRedemptionRequest ||
+    devnetEnv.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
+    "";
+  const randomnessAccount =
+    addresses.randomnessAccount ||
+    devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
+    "";
 
   if (!ticketRegistry) {
     throw new Error(
@@ -423,42 +480,28 @@ export function syncDevnetToActiveEnv(
     );
   }
 
+  const resolvedAccounts: ProtocolAccounts = {
+    programId,
+    humaProgramId,
+    adminAddress,
+    usdcMint,
+    pstMint,
+    ticketRegistry,
+    feeWallet,
+    humaPoolState,
+    humaLenderState,
+    humaPoolUnderlying,
+    humaPoolModeToken,
+    humaRedemptionRequest,
+    randomnessAccount,
+  };
+
+  const accountVars = buildProtocolAccountEnvVars(resolvedAccounts);
+
   // Build the complete devnet environment dictionary
   const devnetVars: Record<string, string> = {
     NEXT_PUBLIC_ENVIRONMENT: "devnet",
-    NEXT_PUBLIC_PROGRAM_ID: programId,
-    NEXT_PUBLIC_HUMA_PROGRAM_ID: humaProgramId,
-    NEXT_PUBLIC_USDC_MINT: usdcMint,
-    NEXT_PUBLIC_PST_MINT: pstMint,
-    NEXT_PUBLIC_TICKET_REGISTRY: ticketRegistry,
-    NEXT_PUBLIC_ADMIN_ADDRESS: adminAddress,
-    NEXT_PUBLIC_FEE_WALLET: feeWallet,
-    NEXT_PUBLIC_HUMA_CONFIG: humaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_CONFIG: humaProgramId,
-    NEXT_PUBLIC_HUMA_POOL_STATE:
-      addresses.humaPoolState || devnetEnv.NEXT_PUBLIC_HUMA_POOL_STATE || "",
-    NEXT_PUBLIC_HUMA_MODE_CONFIG: humaProgramId,
-    NEXT_PUBLIC_HUMA_LENDER_STATE:
-      addresses.humaLenderState ||
-      devnetEnv.NEXT_PUBLIC_HUMA_LENDER_STATE ||
-      "",
-    NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN:
-      addresses.humaPoolUnderlying ||
-      devnetEnv.NEXT_PUBLIC_HUMA_POOL_UNDERLYING_TOKEN ||
-      "",
-    NEXT_PUBLIC_HUMA_MODE_MINT: pstMint,
-    NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN:
-      addresses.humaPoolModeToken ||
-      devnetEnv.NEXT_PUBLIC_HUMA_POOL_MODE_TOKEN ||
-      "",
-    NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST:
-      addresses.humaRedemptionRequest ||
-      devnetEnv.NEXT_PUBLIC_HUMA_REDEMPTION_REQUEST ||
-      "",
-    NEXT_PUBLIC_RANDOMNESS_ACCOUNT:
-      addresses.randomnessAccount ||
-      devnetEnv.NEXT_PUBLIC_RANDOMNESS_ACCOUNT ||
-      "",
+    ...accountVars,
   };
 
   // Provide implicit devnet context so devnet profile credentials (like Switchboard VRF) are not falsely rejected
@@ -537,6 +580,79 @@ export function syncDevnetToActiveEnv(
   });
 
   return devnetVars;
+}
+
+export interface SyncLocalnetOptions {
+  readonly activeEnvPath?: string;
+  readonly localnetEnvPath?: string;
+  readonly devnetEnvPath?: string;
+  readonly accounts: ProtocolAccounts;
+  readonly databaseUrl?: string;
+  readonly dbName?: string;
+  readonly rpcUrl?: string;
+  readonly wsUrl?: string;
+}
+
+/**
+ * Synchronizes localnet configuration into active target environment file (.env.local).
+ * Safeguards any active devnet credentials before overwriting with local endpoints.
+ */
+export function syncLocalnetToActiveEnv(
+  options: SyncLocalnetOptions
+): Record<string, string> {
+  const activeEnvPath = options.activeEnvPath ?? LOCAL_ENV_PATH;
+  const devnetEnvPath = options.devnetEnvPath ?? DEVNET_ENV_PATH;
+  const localnetEnvPath = options.localnetEnvPath ?? LOCALNET_ENV_PATH;
+
+  // 1. Safeguard Devnet credentials before mutating active env
+  safeguardDevnetEnv({ activeEnvPath, profileEnvPath: devnetEnvPath });
+
+  // 2. Load Localnet profile (Pusher keys)
+  const localnetProfile = loadLocalnetProfile(localnetEnvPath);
+
+  // 3. Format on-chain protocol accounts
+  const accountVars = buildProtocolAccountEnvVars(options.accounts);
+
+  // 4. Resolve RPC and WebSocket URLs
+  const resolvedRpc = options.rpcUrl ?? LOCALNET_DEFAULT_RPC_URL;
+  let resolvedWs = options.wsUrl;
+  if (!resolvedWs) {
+    try {
+      const parsed = new URL(resolvedRpc);
+      parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+      if (parsed.port === "8899") parsed.port = "8900";
+      resolvedWs = parsed.toString().replace(/\/$/, "");
+    } catch {
+      resolvedWs = LOCALNET_DEFAULT_WS_URL;
+    }
+  }
+
+  // 5. Resolve Database URL deterministically
+  const resolvedDbUrl =
+    options.databaseUrl ||
+    (options.dbName
+      ? `postgresql://postgres:postgres@127.0.0.1:5432/pb_local_${options.dbName.replace(/[^a-zA-Z0-9_]/g, "_")}`
+      : LOCALNET_DEFAULT_DB_URL);
+
+  // 6. Assemble complete Localnet environment dictionary
+  const localnetVars: Record<string, string> = {
+    NEXT_PUBLIC_ENVIRONMENT: "localnet",
+    ...accountVars,
+    NEXT_PUBLIC_SOLANA_RPC_URL: resolvedRpc,
+    SOLANA_RPC_URL: resolvedRpc,
+    NEXT_PUBLIC_SOLANA_WS_URL: resolvedWs,
+    SOLANA_WS_URL: resolvedWs,
+    HELIUS_WEBHOOK_SECRET: LOCALNET_MOCK_WEBHOOK_SECRET,
+    DATABASE_URL: resolvedDbUrl,
+    ...localnetProfile,
+  };
+
+  // 7. Upsert to active environment non-destructively preserving Category C user keys
+  upsertEnvFile(activeEnvPath, localnetVars, {
+    headerComment: "# Localnet Environment (Auto-synchronized)",
+  });
+
+  return localnetVars;
 }
 
 /**

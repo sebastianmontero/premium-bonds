@@ -9,11 +9,19 @@ import {
   loadLocalnetProfile,
   isPusherPlaceholder,
   syncDevnetToActiveEnv,
+  syncLocalnetToActiveEnv,
   writeDevnetAddresses,
   readDevnetAddresses,
   recordDevnetRandomnessAccount,
   checkActiveEnvIsLocalnet,
+  ProtocolAccounts,
   DevnetProtocolAccounts,
+  LOCALNET_DEFAULT_RPC_URL,
+  LOCALNET_DEFAULT_WS_URL,
+  LOCALNET_DEFAULT_DB_URL,
+  LOCALNET_MOCK_WEBHOOK_SECRET,
+  DEVNET_DEFAULT_RPC_URL,
+  DEVNET_DEFAULT_WS_URL,
 } from "./devnet-state";
 
 import { readEnvFile, upsertEnvFile } from "./env-utils";
@@ -717,6 +725,230 @@ NEXT_PUBLIC_PUSHER_KEY=devnet_cloud_key
     assert.strictEqual(isPusherPlaceholder("2197169"), false);
     assert.strictEqual(isPusherPlaceholder("d7c62a64626829adbc7f"), false);
     assert.strictEqual(isPusherPlaceholder("4ddd4557bd916c40ee73"), false);
+  });
+
+  it("19. Complete Localnet Endpoint Synchronization: syncLocalnetToActiveEnv strictly overrides Devnet endpoints and safeguards credentials", () => {
+    // Start with active .env.local configured with Devnet endpoints
+    fs.writeFileSync(
+      activeEnvPath,
+      `NEXT_PUBLIC_ENVIRONMENT=devnet
+SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_WS_URL=wss://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_WS_URL=wss://api.devnet.solana.com
+DATABASE_URL=postgresql://neon_user:secret_pass@ep-cool.neon.tech/neondb?sslmode=require
+HELIUS_WEBHOOK_SECRET=cloud_webhook_secret_789
+`,
+      "utf-8"
+    );
+
+    const localnetVars = syncLocalnetToActiveEnv({
+      activeEnvPath,
+      devnetEnvPath,
+      localnetEnvPath,
+      accounts: sampleAddresses,
+    });
+
+    // 1. Verify returned dictionary has localnet endpoints
+    assert.strictEqual(localnetVars.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(
+      localnetVars.NEXT_PUBLIC_SOLANA_RPC_URL,
+      LOCALNET_DEFAULT_RPC_URL
+    );
+    assert.strictEqual(localnetVars.SOLANA_RPC_URL, LOCALNET_DEFAULT_RPC_URL);
+    assert.strictEqual(
+      localnetVars.NEXT_PUBLIC_SOLANA_WS_URL,
+      LOCALNET_DEFAULT_WS_URL
+    );
+    assert.strictEqual(localnetVars.SOLANA_WS_URL, LOCALNET_DEFAULT_WS_URL);
+    assert.strictEqual(localnetVars.DATABASE_URL, LOCALNET_DEFAULT_DB_URL);
+    assert.strictEqual(
+      localnetVars.HELIUS_WEBHOOK_SECRET,
+      LOCALNET_MOCK_WEBHOOK_SECRET
+    );
+    assert.strictEqual(
+      localnetVars.NEXT_PUBLIC_PROGRAM_ID,
+      sampleAddresses.programId
+    );
+
+    // 2. Verify .env.local on disk contains exclusively localnet endpoints
+    const activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_RPC_URL,
+      "http://127.0.0.1:8899"
+    );
+    assert.strictEqual(activeEnv.SOLANA_RPC_URL, "http://127.0.0.1:8899");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_WS_URL,
+      "ws://127.0.0.1:8900"
+    );
+    assert.strictEqual(activeEnv.SOLANA_WS_URL, "ws://127.0.0.1:8900");
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_default"
+    );
+    assert.strictEqual(
+      activeEnv.HELIUS_WEBHOOK_SECRET,
+      "pb_webhook_secret_local_dev_123"
+    );
+
+    // 3. Verify .env.devnet safeguarded the previous Devnet credentials
+    assert.ok(fs.existsSync(devnetEnvPath));
+    const devnetProfile = readEnvFile(devnetEnvPath);
+    assert.strictEqual(
+      devnetProfile.DATABASE_URL,
+      "postgresql://neon_user:secret_pass@ep-cool.neon.tech/neondb?sslmode=require"
+    );
+    assert.strictEqual(
+      devnetProfile.HELIUS_WEBHOOK_SECRET,
+      "cloud_webhook_secret_789"
+    );
+  });
+
+  it("20. Deterministic Database Name Derivation: syncLocalnetToActiveEnv handles custom db names and explicit databaseUrl", () => {
+    // Custom database name derivation
+    syncLocalnetToActiveEnv({
+      activeEnvPath,
+      devnetEnvPath,
+      localnetEnvPath,
+      accounts: sampleAddresses,
+      dbName: "qa_feature_branch",
+    });
+
+    let activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_qa_feature_branch"
+    );
+
+    // Explicit databaseUrl override
+    syncLocalnetToActiveEnv({
+      activeEnvPath,
+      devnetEnvPath,
+      localnetEnvPath,
+      accounts: sampleAddresses,
+      databaseUrl:
+        "postgresql://custom_pg_user:custom_pass@postgres-container:5432/custom_db",
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://custom_pg_user:custom_pass@postgres-container:5432/custom_db"
+    );
+  });
+
+  it("21. Multi-Cycle Bidirectional Switching Full Integrity: devnet <-> localnet transitions without lingering RPC/WS/DB bleed", () => {
+    writeDevnetAddresses(sampleAddresses, addressesPath);
+
+    // Initial devnet setup
+    fs.writeFileSync(
+      devnetEnvPath,
+      `DATABASE_URL=postgresql://neon_user:neon_pass@ep-cool.neon.tech/neondb?sslmode=require
+HELIUS_WEBHOOK_SECRET=helius_devnet_secret
+SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=123
+SOLANA_WS_URL=wss://devnet.helius-rpc.com/?api-key=123
+`,
+      "utf-8"
+    );
+
+    // Cycle 1: Switch to Devnet
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    let activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "devnet");
+    assert.strictEqual(
+      activeEnv.SOLANA_RPC_URL,
+      "https://devnet.helius-rpc.com/?api-key=123"
+    );
+    assert.strictEqual(
+      activeEnv.SOLANA_WS_URL,
+      "wss://devnet.helius-rpc.com/?api-key=123"
+    );
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://neon_user:neon_pass@ep-cool.neon.tech/neondb?sslmode=require"
+    );
+
+    // Cycle 2: Switch to Localnet
+    syncLocalnetToActiveEnv({
+      activeEnvPath,
+      devnetEnvPath,
+      localnetEnvPath,
+      accounts: sampleAddresses,
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(activeEnv.SOLANA_RPC_URL, "http://127.0.0.1:8899");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_RPC_URL,
+      "http://127.0.0.1:8899"
+    );
+    assert.strictEqual(activeEnv.SOLANA_WS_URL, "ws://127.0.0.1:8900");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_WS_URL,
+      "ws://127.0.0.1:8900"
+    );
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_default"
+    );
+
+    // Cycle 3: Switch back to Devnet
+    syncDevnetToActiveEnv({
+      targetFile: activeEnvPath,
+      devnetEnvPath,
+      addressesPath,
+      localnetEnvPath,
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "devnet");
+    assert.strictEqual(
+      activeEnv.SOLANA_RPC_URL,
+      "https://devnet.helius-rpc.com/?api-key=123"
+    );
+    assert.strictEqual(
+      activeEnv.SOLANA_WS_URL,
+      "wss://devnet.helius-rpc.com/?api-key=123"
+    );
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://neon_user:neon_pass@ep-cool.neon.tech/neondb?sslmode=require"
+    );
+
+    // Cycle 4: Switch back to Localnet again
+    syncLocalnetToActiveEnv({
+      activeEnvPath,
+      devnetEnvPath,
+      localnetEnvPath,
+      accounts: sampleAddresses,
+      dbName: "test_db",
+    });
+
+    activeEnv = readEnvFile(activeEnvPath);
+    assert.strictEqual(activeEnv.NEXT_PUBLIC_ENVIRONMENT, "localnet");
+    assert.strictEqual(activeEnv.SOLANA_RPC_URL, "http://127.0.0.1:8899");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_RPC_URL,
+      "http://127.0.0.1:8899"
+    );
+    assert.strictEqual(activeEnv.SOLANA_WS_URL, "ws://127.0.0.1:8900");
+    assert.strictEqual(
+      activeEnv.NEXT_PUBLIC_SOLANA_WS_URL,
+      "ws://127.0.0.1:8900"
+    );
+    assert.strictEqual(
+      activeEnv.DATABASE_URL,
+      "postgresql://postgres:postgres@127.0.0.1:5432/pb_local_test_db"
+    );
   });
 
   describe("checkActiveEnvIsLocalnet", () => {
