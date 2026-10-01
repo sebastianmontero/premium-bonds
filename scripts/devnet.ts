@@ -53,7 +53,7 @@ import {
   writeDevnetAddresses,
   readDevnetAddresses,
   syncDevnetToActiveEnv,
-  checkActiveEnvIsLocalnet,
+  assertActiveEnvIsNotLocalnet,
   PRESERVED_CLOUD_VARS,
   PROJECT_ROOT,
   LOCAL_ENV_PATH,
@@ -1536,6 +1536,17 @@ async function main() {
     process.exit(1);
   }
 
+  // Upfront Help & Usage Inspection (Bypasses environment checks, exits 0)
+  const isHelpRequested =
+    args.includes("--help") ||
+    args.includes("-h") ||
+    command === "help";
+
+  if (command === "--help" || command === "-h" || command === "help") {
+    printUsage();
+    process.exit(0);
+  }
+
   // Mainnet Block Check
   for (const arg of args) {
     if (arg.includes("mainnet") || arg.includes("api.mainnet-beta")) {
@@ -1545,24 +1556,9 @@ async function main() {
     }
   }
 
-  // Localnet Environment Mismatch Warning
-  if (command !== "sync-env") {
-    const envCheck = checkActiveEnvIsLocalnet();
-    if (envCheck.isLocalnet) {
-      console.warn(
-        "\n⚠️  [ENVIRONMENT WARNING] .env.local is configured for LOCALNET"
-      );
-      if (envCheck.reason) {
-        console.warn(`    Reason: ${envCheck.reason}`);
-      }
-      console.warn(
-        "    You are running a Devnet command against localnet environment variables."
-      );
-      console.warn(
-        "    To synchronize .env.local with Devnet protocol addresses, run:"
-      );
-      console.warn("      npm run devnet sync-env\n");
-    }
+  // Localnet Environment Mismatch Guard
+  if (command !== "sync-env" && !isHelpRequested) {
+    assertActiveEnvIsNotLocalnet();
   }
 
   switch (command) {

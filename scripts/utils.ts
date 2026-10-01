@@ -875,6 +875,14 @@ export function formatErrorDetails(
  * Outputs structured error details to console.error.
  */
 export function printErrorDetails(err: unknown, contextTitle?: string): void {
+  if (
+    err &&
+    typeof err === "object" &&
+    (err as { name?: string }).name === "EnvironmentMismatchError"
+  ) {
+    console.error((err as Error).message);
+    return;
+  }
   console.error(formatErrorDetails(err, contextTitle));
 }
 

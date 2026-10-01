@@ -29,7 +29,7 @@ import {
 } from "./utils";
 import {
   readDevnetAddresses,
-  checkActiveEnvIsLocalnet,
+  assertActiveEnvIsNotLocalnet,
   DEVNET_USERS_PATH,
 } from "./devnet-state";
 import {
@@ -1020,22 +1020,7 @@ export function printSeedUsersUsage(): void {
 export async function runSeedUsersCli(args: string[]): Promise<void> {
   const opts = parseSeedUsersCliArgs(args);
 
-  const envCheck = checkActiveEnvIsLocalnet();
-  if (envCheck.isLocalnet) {
-    console.warn(
-      "\n⚠️  [ENVIRONMENT WARNING] .env.local is configured for LOCALNET"
-    );
-    if (envCheck.reason) {
-      console.warn(`    Reason: ${envCheck.reason}`);
-    }
-    console.warn(
-      "    You are running a Devnet command against localnet environment variables."
-    );
-    console.warn(
-      "    To synchronize .env.local with Devnet protocol addresses, run:"
-    );
-    console.warn("      npm run devnet sync-env\n");
-  }
+  assertActiveEnvIsNotLocalnet();
 
   console.log("\n=======================================================");
   console.log("            PREMIUM BONDS: USER SEEDING CLI            ");

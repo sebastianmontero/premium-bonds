@@ -14,6 +14,8 @@ import {
   readDevnetAddresses,
   recordDevnetRandomnessAccount,
   checkActiveEnvIsLocalnet,
+  assertActiveEnvIsNotLocalnet,
+  EnvironmentMismatchError,
   ProtocolAccounts,
   DevnetProtocolAccounts,
   LOCALNET_DEFAULT_RPC_URL,
@@ -1019,6 +1021,123 @@ HELIUS_WEBHOOK_SECRET=my_cloud_helius_secret_123
       const res = checkActiveEnvIsLocalnet(activeEnvPath);
       assert.strictEqual(res.isLocalnet, false);
       assert.strictEqual(res.reason, undefined);
+    });
+  });
+
+  describe("assertActiveEnvIsNotLocalnet", () => {
+    it("throws EnvironmentMismatchError when NEXT_PUBLIC_ENVIRONMENT is 'localnet'", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "NEXT_PUBLIC_ENVIRONMENT=localnet\n",
+        "utf-8"
+      );
+      assert.throws(
+        () => assertActiveEnvIsNotLocalnet(activeEnvPath),
+        (err: unknown) => {
+          assert.ok(err instanceof Error);
+          assert.ok(err instanceof EnvironmentMismatchError);
+          assert.strictEqual(err.name, "EnvironmentMismatchError");
+          assert.strictEqual(
+            err.reason,
+            "NEXT_PUBLIC_ENVIRONMENT is set to 'localnet'"
+          );
+          assert.strictEqual(err.envFilePath, activeEnvPath);
+          assert.ok(
+            err.message.includes(
+              "❌ [ENVIRONMENT ERROR] .env.local is configured for LOCALNET"
+            )
+          );
+          assert.ok(err.message.includes("npm run devnet sync-env"));
+          assert.ok(err.message.includes("npm run localnet --help"));
+          return true;
+        }
+      );
+    });
+
+    it("throws EnvironmentMismatchError when SOLANA_RPC_URL points to loopback", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "SOLANA_RPC_URL=http://127.0.0.1:8899\n",
+        "utf-8"
+      );
+      assert.throws(
+        () => assertActiveEnvIsNotLocalnet(activeEnvPath),
+        (err: unknown) => {
+          assert.ok(err instanceof EnvironmentMismatchError);
+          assert.ok(err.reason?.includes("RPC URL points to a local emulator"));
+          return true;
+        }
+      );
+    });
+
+    it("throws EnvironmentMismatchError when NEXT_PUBLIC_SOLANA_RPC_URL points to localhost", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "NEXT_PUBLIC_SOLANA_RPC_URL=http://localhost:8899\n",
+        "utf-8"
+      );
+      assert.throws(
+        () => assertActiveEnvIsNotLocalnet(activeEnvPath),
+        (err: unknown) => {
+          assert.ok(err instanceof EnvironmentMismatchError);
+          assert.ok(err.reason?.includes("RPC URL points to a local emulator"));
+          return true;
+        }
+      );
+    });
+
+    it("throws EnvironmentMismatchError when local mock webhook secret is present", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        "HELIUS_WEBHOOK_SECRET=pb_webhook_secret_local_dev_123\n",
+        "utf-8"
+      );
+      assert.throws(
+        () => assertActiveEnvIsNotLocalnet(activeEnvPath),
+        (err: unknown) => {
+          assert.ok(err instanceof EnvironmentMismatchError);
+          assert.strictEqual(err.reason, "Local mock webhook secret detected");
+          return true;
+        }
+      );
+    });
+
+    it("does NOT throw when environment is configured for devnet", () => {
+      fs.writeFileSync(
+        activeEnvPath,
+        `NEXT_PUBLIC_ENVIRONMENT=devnet
+SOLANA_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
+HELIUS_WEBHOOK_SECRET=cloud_secret_abc
+`,
+        "utf-8"
+      );
+      assert.doesNotThrow(() => assertActiveEnvIsNotLocalnet(activeEnvPath));
+    });
+
+    it("does NOT throw when target env file does not exist", () => {
+      const nonExistentPath = path.resolve(tempDir, ".env.nonexistent");
+      assert.doesNotThrow(() => assertActiveEnvIsNotLocalnet(nonExistentPath));
+    });
+
+    it("verifies structured properties and prototype inheritance on EnvironmentMismatchError", () => {
+      const customPath = "/custom/path/to/.env.test";
+      const customReason = "Custom reason text";
+      const err = new EnvironmentMismatchError(customPath, customReason);
+
+      assert.ok(err instanceof Error);
+      assert.ok(err instanceof EnvironmentMismatchError);
+      assert.strictEqual(err.name, "EnvironmentMismatchError");
+      assert.strictEqual(err.envFilePath, customPath);
+      assert.strictEqual(err.reason, customReason);
+      assert.ok(
+        err.message.includes(
+          "❌ [ENVIRONMENT ERROR] .env.test is configured for LOCALNET"
+        )
+      );
+      assert.ok(err.message.includes("Reason: Custom reason text"));
+      assert.ok(err.message.includes("npm run devnet sync-env"));
+      assert.ok(err.message.includes("npm run localnet --help"));
     });
   });
 });

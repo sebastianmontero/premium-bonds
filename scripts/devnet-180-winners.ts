@@ -21,8 +21,13 @@ import {
   buildTransferSolInstruction,
   fetchAccountInfo,
   USDC_DECIMALS,
+  printErrorDetails,
 } from "./utils";
-import { readDevnetAddresses, DevnetProtocolAccounts } from "./devnet-state";
+import {
+  readDevnetAddresses,
+  DevnetProtocolAccounts,
+  assertActiveEnvIsNotLocalnet,
+} from "./devnet-state";
 import {
   PROGRAM_ID,
   HUMA_PROGRAM_ID,
@@ -141,6 +146,27 @@ export function validateDevnet180PrizeTiers(tiers: readonly PrizeTierInput[]): {
 }
 
 /**
+ * Prints usage instructions for the 180-winner test runner.
+ */
+export function printDevnet180Usage(): void {
+  console.log("Usage: tsx scripts/devnet-180-winners.ts [options]");
+  console.log("Options:");
+  console.log("  --pool <id>            Target pool ID (default: 1)");
+  console.log(
+    "  --seed-users <n>       Seed N new wallets with tickets (default: 0)"
+  );
+  console.log(
+    "  --yield <amount>       Simulated yield amount in USDC (default: 100)"
+  );
+  console.log(
+    "  --keep-config          Retain 180-winner prize tier config without auto-restoring"
+  );
+  console.log("  --admin-key <path>     Path to admin fee payer keypair");
+  console.log("  --rpc <url>            Solana Devnet RPC endpoint URL");
+  console.log("  --help, -h             Display this help message");
+}
+
+/**
  * Parses CLI arguments for the 180-winner test runner.
  */
 export function parseDevnet180Args(args: string[]): Devnet180TestOptions {
@@ -153,7 +179,10 @@ export function parseDevnet180Args(args: string[]): Devnet180TestOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--pool" && i + 1 < args.length) {
+    if (arg === "--help" || arg === "-h") {
+      printDevnet180Usage();
+      process.exit(0);
+    } else if (arg === "--pool" && i + 1 < args.length) {
       poolId = parseInt(args[++i], 10);
       if (isNaN(poolId) || poolId < 1) {
         throw new Error(
@@ -306,6 +335,8 @@ export async function runDevnet180WinnerTest(
   rawArgs: string[] = []
 ): Promise<void> {
   const options = parseDevnet180Args(rawArgs);
+
+  assertActiveEnvIsNotLocalnet();
 
   console.log("=".repeat(80));
   console.log(
@@ -827,7 +858,7 @@ export async function runDevnet180WinnerTest(
 if (require.main === module) {
   const args = process.argv.slice(2);
   runDevnet180WinnerTest(args).catch((err) => {
-    console.error("\n❌ Fatal Error in Devnet 180-Winner Suite:", err);
+    printErrorDetails(err, "Devnet 180-Winner Suite");
     process.exit(1);
   });
 }

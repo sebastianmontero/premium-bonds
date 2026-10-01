@@ -5,11 +5,17 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { parseArgs } from "node:util";
-import { resolveDevnetRpcUrl, checkRpcHealth, expandHomeDir } from "./utils";
+import {
+  resolveDevnetRpcUrl,
+  checkRpcHealth,
+  expandHomeDir,
+  printErrorDetails,
+} from "./utils";
 import {
   DEVNET_STATE_DIR,
   DEVNET_ENV_PATH,
   recordDevnetRandomnessAccount,
+  assertActiveEnvIsNotLocalnet,
 } from "./devnet-state";
 import { readEnvFile } from "./env-utils";
 import { parseSwitchboardRandomnessHeader } from "../services/crank/vrf/randomness-provider";
@@ -120,6 +126,8 @@ export async function buildRandomnessInitInstruction(
 export async function provisionDevnetRandomnessAccount(
   options?: ProvisionRandomnessOptions
 ): Promise<ProvisionRandomnessResult> {
+  assertActiveEnvIsNotLocalnet();
+
   const rpcUrl = options?.rpcUrl || resolveDevnetRpcUrl();
   console.log(`Connecting to Devnet RPC at ${rpcUrl}...`);
 
@@ -282,6 +290,21 @@ export async function provisionDevnetRandomnessAccount(
   };
 }
 
+function printUsage() {
+  console.log(
+    "Usage: tsx scripts/create-switchboard-randomness.ts [options] [payer_keypair_path]"
+  );
+  console.log("Options:");
+  console.log(
+    "  --payer <path>   Path to payer keypair (defaults to ~/.config/solana/id.json)"
+  );
+  console.log(
+    "  --force          Force provision a new Switchboard randomness account"
+  );
+  console.log("  --rpc <url>      Devnet RPC URL");
+  console.log("  --help, -h       Display this help message");
+}
+
 async function main() {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
@@ -289,10 +312,16 @@ async function main() {
       payer: { type: "string" },
       force: { type: "boolean", default: false },
       rpc: { type: "string" },
+      help: { type: "boolean", short: "h" },
     },
     strict: true,
     allowPositionals: true,
   });
+
+  if (values.help) {
+    printUsage();
+    process.exit(0);
+  }
 
   const rawPayer = values.payer || positionals[0];
   const payerKeypairPath = rawPayer ? expandHomeDir(rawPayer) : undefined;
@@ -307,7 +336,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error("Error provisioning Switchboard randomness account:", err);
+    printErrorDetails(err, "Switchboard Randomness CLI");
     process.exit(1);
   });
 }

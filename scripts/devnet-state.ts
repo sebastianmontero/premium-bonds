@@ -50,6 +50,26 @@ export interface EnvironmentMismatchCheck {
   readonly reason?: string;
 }
 
+export class EnvironmentMismatchError extends Error {
+  constructor(
+    public readonly envFilePath: string = LOCAL_ENV_PATH,
+    public readonly reason?: string
+  ) {
+    const fileName = path.basename(envFilePath);
+    const msg =
+      `\n❌ [ENVIRONMENT ERROR] ${fileName} is configured for LOCALNET\n` +
+      (reason ? `    Reason: ${reason}\n` : "") +
+      `    Cannot execute Devnet commands against localnet environment variables.\n\n` +
+      `    • To synchronize ${fileName} with Devnet protocol addresses, run:\n` +
+      `        npm run devnet sync-env\n` +
+      `    • If you intended to run commands against localnet, run:\n` +
+      `        npm run localnet --help\n`;
+    super(msg);
+    this.name = "EnvironmentMismatchError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 /**
  * Checks if the active .env.local file is configured for localnet rather than devnet.
  */
@@ -89,6 +109,18 @@ export function checkActiveEnvIsLocalnet(
   }
 
   return { isLocalnet: false };
+}
+
+/**
+ * Pure assertion function that throws an EnvironmentMismatchError if the active env is configured for localnet.
+ */
+export function assertActiveEnvIsNotLocalnet(
+  envFilePath: string = LOCAL_ENV_PATH
+): void {
+  const envCheck = checkActiveEnvIsLocalnet(envFilePath);
+  if (envCheck.isLocalnet) {
+    throw new EnvironmentMismatchError(envFilePath, envCheck.reason);
+  }
 }
 
 /**
