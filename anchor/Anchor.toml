@@ -9,6 +9,7 @@ skip-lint = false
 anchor = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos"
 mock_huma = "4VSPD3TcxWc98Ed6e6vAYshrqsrpHHqvXCB4W73JQtXg"
 mock_kamino = "GVkUHNohGv2AqewpZnciXhjwt3diSsLuDAKp1Q1bH1GA"
+mock_switchboard = "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2"
 
 [programs.devnet]
 anchor = "3GTfYY4nefPvDpeUuyVjqCVUCtvhBMga82RjLVn6MTos"

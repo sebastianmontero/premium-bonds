@@ -16,9 +16,18 @@ import {
   SB_SEED_OFFSET,
   SWITCHBOARD_RANDOMNESS_DISCRIMINATOR,
   encodeMockSwitchboardRandomness,
+  buildMockSwitchboardRevealInstruction,
+  MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR,
 } from "../vrf/randomness-provider";
 import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
-import { toPoolId, toDrawCycleId, toSlot } from "../types";
+import {
+  toPoolId,
+  toDrawCycleId,
+  toSlot,
+  toRandomnessSeed,
+  parseRandomnessSeed,
+  generateRandomnessSeed,
+} from "../types";
 
 function createMockRandomnessBuffer(options?: {
   discriminator?: readonly number[];
@@ -254,7 +263,9 @@ describe("Switchboard VRF Provider Unit Tests", () => {
 
     it("should use defaultRandomnessAccount from options when resolving randomness", async () => {
       const signer = await generateKeyPairSigner();
-      const customAddr = address("GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze");
+      const customAddr = address(
+        "GHm448VoBJ3zdygPie9t434WD6MZMRnNNemndTZXTHze"
+      );
       const provider = new SwitchboardOnDemandProvider(
         "https://api.devnet.solana.com",
         {
@@ -265,7 +276,9 @@ describe("Switchboard VRF Provider Unit Tests", () => {
 
       const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
       let requestedKey: web3.PublicKey | undefined;
-      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+      web3.Connection.prototype.getAccountInfo = (async (
+        pk: web3.PublicKey
+      ) => {
         requestedKey = pk;
         return null; // Return null so it fails on account existence, validating the address chosen
       }) as typeof originalGetAccountInfo;
@@ -299,7 +312,9 @@ describe("Switchboard VRF Provider Unit Tests", () => {
 
       const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
       let requestedKey: web3.PublicKey | undefined;
-      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+      web3.Connection.prototype.getAccountInfo = (async (
+        pk: web3.PublicKey
+      ) => {
         requestedKey = pk;
         return null;
       }) as typeof originalGetAccountInfo;
@@ -337,7 +352,9 @@ describe("Switchboard VRF Provider Unit Tests", () => {
 
       const originalGetAccountInfo = web3.Connection.prototype.getAccountInfo;
       let requestedKey: web3.PublicKey | undefined;
-      web3.Connection.prototype.getAccountInfo = (async (pk: web3.PublicKey) => {
+      web3.Connection.prototype.getAccountInfo = (async (
+        pk: web3.PublicKey
+      ) => {
         requestedKey = pk;
         return null;
       }) as typeof originalGetAccountInfo;
@@ -550,14 +567,73 @@ describe("Switchboard VRF Provider Unit Tests", () => {
       assert.strictEqual(binding.signers[0].address, binding.randomnessAccount);
     });
 
-    it("should return ready status on prepareReveal", async () => {
+    it("should return ready status and revealInstruction on prepareReveal", async () => {
       const provider = new MockVrfProvider();
+      const seed = generateRandomnessSeed();
       const result = await provider.prepareReveal({
         randomnessAccount: address("11111111111111111111111111111111"),
         committedSeedSlot: toSlot(100n),
         currentSlot: toSlot(105n),
+        seed,
       });
       assert.strictEqual(result.status, "ready");
+      if (result.status === "ready") {
+        assert.ok(result.revealInstruction);
+        assert.ok(result.revealInstruction.data);
+        assert.strictEqual(result.revealInstruction.data.length, 8 + 1 + 32);
+        assert.deepStrictEqual(
+          result.revealInstruction.data.subarray(0, 8),
+          MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR
+        );
+        assert.strictEqual(result.revealInstruction.data[8], 1);
+        assert.deepStrictEqual(
+          result.revealInstruction.data.subarray(9, 41),
+          seed
+        );
+      }
+    });
+  });
+
+  describe("RandomnessSeed Value Object & Helpers", () => {
+    it("toRandomnessSeed validates length and creates defensive copy", () => {
+      const buf = new Uint8Array(32);
+      buf[0] = 42;
+      const seed = toRandomnessSeed(buf);
+      assert.strictEqual(seed.length, 32);
+      assert.strictEqual(seed[0], 42);
+      buf[0] = 99;
+      assert.strictEqual(
+        seed[0],
+        42,
+        "Defensive copy must isolate seed from original buffer"
+      );
+
+      assert.throws(() => toRandomnessSeed(new Uint8Array(31)), RangeError);
+      assert.throws(() => toRandomnessSeed(new Uint8Array(33)), RangeError);
+    });
+
+    it("parseRandomnessSeed parses hex strings and Uint8Array", () => {
+      const hex =
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+      const seedFromHex = parseRandomnessSeed(hex);
+      assert.strictEqual(seedFromHex.length, 32);
+      assert.strictEqual(seedFromHex[0], 0x00);
+      assert.strictEqual(seedFromHex[31], 0x1f);
+
+      const seedWithPrefix = parseRandomnessSeed("0x" + hex);
+      assert.deepStrictEqual(seedWithPrefix, seedFromHex);
+
+      assert.throws(() => parseRandomnessSeed("invalid_hex"), TypeError);
+      assert.throws(() => parseRandomnessSeed("00".repeat(31)), TypeError);
+    });
+
+    it("buildMockSwitchboardRevealInstruction constructs Option::None when seed is omitted", () => {
+      const ix = buildMockSwitchboardRevealInstruction({
+        randomnessAccount: address("11111111111111111111111111111111"),
+      });
+      assert.ok(ix.data);
+      assert.strictEqual(ix.data.length, 9);
+      assert.strictEqual(ix.data[8], 0); // None
     });
   });
 });

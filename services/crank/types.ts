@@ -38,6 +38,61 @@ export function toSlot(slot: bigint | number): Slot {
 
 export type PriorityFeeTier = "low" | "medium" | "high" | "urgent";
 
+// ─── Branded RandomnessSeed Value Object ──────────────────────────────────────
+
+export type RandomnessSeed = Uint8Array & { readonly __brand: unique symbol };
+
+/**
+ * Validates and converts a 32-byte Uint8Array into a branded RandomnessSeed.
+ * Performs a defensive copy to prevent exterior array buffer mutations.
+ */
+export function toRandomnessSeed(bytes: Uint8Array): RandomnessSeed {
+  if (bytes.byteLength !== 32) {
+    throw new RangeError(
+      `Invalid RandomnessSeed length: expected 32 bytes, got ${bytes.byteLength}`
+    );
+  }
+  const copy = new Uint8Array(32);
+  copy.set(bytes);
+  return copy as RandomnessSeed;
+}
+
+/**
+ * Parses a 64-character hex string (with or without '0x' prefix) or Uint8Array
+ * into a branded RandomnessSeed.
+ */
+export function parseRandomnessSeed(
+  input: string | Uint8Array
+): RandomnessSeed {
+  if (input instanceof Uint8Array) {
+    return toRandomnessSeed(input);
+  }
+  const cleanHex =
+    input.startsWith("0x") || input.startsWith("0X")
+      ? input.slice(2).trim()
+      : input.trim();
+
+  if (!/^[0-9a-fA-F]{64}$/.test(cleanHex)) {
+    throw new TypeError(
+      `Invalid RandomnessSeed hex string: expected 64 hex characters (32 bytes), received "${input}"`
+    );
+  }
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(cleanHex.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes as RandomnessSeed;
+}
+
+/**
+ * Generates a cryptographically secure 32-byte RandomnessSeed.
+ */
+export function generateRandomnessSeed(): RandomnessSeed {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return bytes as RandomnessSeed;
+}
+
 // ─── Discriminated Pool State Snapshot ───────────────────────────────────────
 
 export interface BaseSnapshot {

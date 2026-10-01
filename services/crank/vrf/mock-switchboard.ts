@@ -1,10 +1,73 @@
-import { Address, address, getBase58Encoder } from "@solana/kit";
-import { Slot } from "../types";
+import {
+  Address,
+  address,
+  getBase58Encoder,
+  Instruction,
+  AccountRole,
+} from "@solana/kit";
+import { Slot, RandomnessSeed } from "../types";
 
 export const SWITCHBOARD_ON_DEMAND_DEVNET_PID =
   "Aio4gaXjXzJNVLtzwtNVmSqGKpANtXhybbkhtAC94ji2" as const;
 export const SWITCHBOARD_ON_DEMAND_MAINNET_PID =
   "SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv" as const;
+
+export function resolveSwitchboardProgramId(): string {
+  const isMainnet =
+    process.env.SB_ENV === "mainnet" ||
+    process.env.NEXT_PUBLIC_ENVIRONMENT === "mainnet";
+  return isMainnet
+    ? SWITCHBOARD_ON_DEMAND_MAINNET_PID
+    : SWITCHBOARD_ON_DEMAND_DEVNET_PID;
+}
+
+// Anchor instruction discriminator for global:reveal: sha256("global:reveal")[0..8]
+export const MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR = new Uint8Array([
+  9, 35, 59, 190, 167, 249, 76, 115,
+]);
+
+export interface BuildMockRevealInstructionParams {
+  readonly randomnessAccount: Address;
+  readonly seed?: RandomnessSeed;
+  readonly programId?: Address;
+}
+
+/**
+ * Builds the atomic mock-switchboard reveal instruction.
+ * Borsh layout:
+ * - 8-byte Anchor discriminator
+ * - Option<[u8; 32]>:
+ *     - If None: 1-byte 0x00 (total length: 9 bytes)
+ *     - If Some: 1-byte 0x01 + 32-byte seed (total length: 41 bytes)
+ */
+export function buildMockSwitchboardRevealInstruction(
+  params: BuildMockRevealInstructionParams
+): Instruction {
+  const programAddress =
+    params.programId ?? address(resolveSwitchboardProgramId());
+
+  const data = params.seed ? new Uint8Array(8 + 1 + 32) : new Uint8Array(8 + 1);
+
+  data.set(MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR, 0);
+
+  if (params.seed) {
+    data[8] = 1; // Borsh Option::Some flag
+    data.set(params.seed, 9);
+  } else {
+    data[8] = 0; // Borsh Option::None flag
+  }
+
+  return {
+    programAddress,
+    accounts: [
+      {
+        address: params.randomnessAccount,
+        role: AccountRole.WRITABLE,
+      },
+    ],
+    data,
+  };
+}
 
 export const SB_RANDOMNESS_ACCOUNT_SIZE = 408;
 export const SB_AUTHORITY_OFFSET = 8;

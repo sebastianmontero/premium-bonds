@@ -344,7 +344,12 @@ import {
   parseOptionalAddress,
 } from "../app/lib/bonds-sdk";
 import { createVrfProvider } from "../services/crank/vrf/randomness-provider";
-import { toPoolId, toDrawCycleId, toSlot } from "../services/crank/types";
+import {
+  toPoolId,
+  toDrawCycleId,
+  toSlot,
+  parseRandomnessSeed,
+} from "../services/crank/types";
 
 // ─── Help / Usage & Command Registry ─────────────────────────────────────────
 
@@ -1766,10 +1771,12 @@ export async function executeReveal({
 
   const vrfProvider = createVrfProvider(rpcUrl, { signer });
   const currentSlot = await rpc.getSlot().send();
+  const parsedSeed = seedHex ? parseRandomnessSeed(seedHex) : undefined;
   const revealResult = await vrfProvider.prepareReveal({
     randomnessAccount: address(randomnessAccountStr),
     committedSeedSlot: toSlot(drawCycleState.vrfSeedSlot),
     currentSlot: toSlot(currentSlot),
+    seed: parsedSeed,
   });
 
   if (revealResult.status !== "ready") {
@@ -4470,8 +4477,7 @@ async function main() {
     case "harvest": {
       const randomnessAccount =
         options["--randomness"] || options["--randomness-account"];
-      const dryRun =
-        rawMultisigFlags.dryRun || options["--dry-run"] === "true";
+      const dryRun = rawMultisigFlags.dryRun || options["--dry-run"] === "true";
       await executeHarvest({
         poolId,
         rpcUrl,

@@ -156,6 +156,7 @@ dependencies = [
  "bytemuck",
  "litesvm",
  "mock-huma",
+ "mock-switchboard",
  "sha2 0.10.9",
  "solana-keypair",
  "solana-message 3.1.0",
@@ -2059,6 +2060,15 @@ dependencies = [
 
 [[package]]
 name = "mock-kamino"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "solana-program 3.0.0",
+]
+
+[[package]]
+name = "mock-switchboard"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",

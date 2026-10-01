@@ -1538,9 +1538,7 @@ async function main() {
 
   // Upfront Help & Usage Inspection (Bypasses environment checks, exits 0)
   const isHelpRequested =
-    args.includes("--help") ||
-    args.includes("-h") ||
-    command === "help";
+    args.includes("--help") || args.includes("-h") || command === "help";
 
   if (command === "--help" || command === "-h" || command === "help") {
     printUsage();

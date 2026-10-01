@@ -227,7 +227,7 @@ describe("Strategy Workers Unit Tests", () => {
     if (outcome.shouldExecute) {
       assert.match(outcome.reason, /ready for atomic reveal/);
       assert.strictEqual(outcome.computeUnitLimit, 800_000);
-      assert.strictEqual(outcome.instructions.length, 1);
+      assert.strictEqual(outcome.instructions.length, 2);
     }
   });
 

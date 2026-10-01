@@ -12,12 +12,16 @@ import {
   getBase58Decoder,
   createSolanaRpc,
 } from "@solana/kit";
-import { PoolId, DrawCycleId, Slot, toSlot } from "../types";
+import { PoolId, DrawCycleId, Slot, toSlot, RandomnessSeed } from "../types";
 import { VRF_FRESHNESS_WINDOW_SLOTS } from "../constants";
 import { parseOptionalAddress } from "../../../app/lib/bonds-sdk";
 import {
   SWITCHBOARD_ON_DEMAND_DEVNET_PID,
   SWITCHBOARD_ON_DEMAND_MAINNET_PID,
+  resolveSwitchboardProgramId,
+  MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR,
+  buildMockSwitchboardRevealInstruction,
+  type BuildMockRevealInstructionParams,
   SB_RANDOMNESS_ACCOUNT_SIZE,
   SB_AUTHORITY_OFFSET,
   SB_REQUEST_SLOT_OFFSET,
@@ -34,6 +38,10 @@ import {
 export {
   SWITCHBOARD_ON_DEMAND_DEVNET_PID,
   SWITCHBOARD_ON_DEMAND_MAINNET_PID,
+  resolveSwitchboardProgramId,
+  MOCK_SWITCHBOARD_REVEAL_IX_DISCRIMINATOR,
+  buildMockSwitchboardRevealInstruction,
+  type BuildMockRevealInstructionParams,
   SB_RANDOMNESS_ACCOUNT_SIZE,
   SB_AUTHORITY_OFFSET,
   SB_REQUEST_SLOT_OFFSET,
@@ -156,6 +164,7 @@ export interface PrepareRevealParams {
   readonly randomnessAccount: Address;
   readonly committedSeedSlot: Slot;
   readonly currentSlot: Slot;
+  readonly seed?: RandomnessSeed;
 }
 
 export type VrfRevealResult =
@@ -225,8 +234,12 @@ export class MockVrfProvider implements IVrfProvider {
     } else if (this.mockAddress) {
       targetAddress = this.mockAddress;
       this.poolRandomness.set(params.poolId, targetAddress);
-    } else if (parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)) {
-      targetAddress = parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)!;
+    } else if (
+      parseOptionalAddress(process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT)
+    ) {
+      targetAddress = parseOptionalAddress(
+        process.env.NEXT_PUBLIC_RANDOMNESS_ACCOUNT
+      )!;
       this.poolRandomness.set(params.poolId, targetAddress);
     } else if (this.signer) {
       targetAddress = this.signer.address;
@@ -305,38 +318,15 @@ export class MockVrfProvider implements IVrfProvider {
   }
 
   async prepareReveal(params: PrepareRevealParams): Promise<VrfRevealResult> {
-    if (
-      this.rpcUrl &&
-      (this.rpcUrl.includes("127.0.0.1") ||
-        this.rpcUrl.includes("localhost") ||
-        this.rpcUrl.includes("surfpool"))
-    ) {
-      try {
-        const rpc = createSolanaRpc(this.rpcUrl);
-        const currentSlot = await rpc.getSlot().send();
-        const committedSlot = BigInt(params.committedSeedSlot);
-        const revealSlot =
-          currentSlot >= committedSlot ? currentSlot : committedSlot;
-        const seed = new Uint8Array(32);
-        crypto.getRandomValues(seed);
+    const revealInstruction = buildMockSwitchboardRevealInstruction({
+      randomnessAccount: params.randomnessAccount,
+      seed: params.seed,
+    });
 
-        const data = encodeMockSwitchboardRandomness({
-          authority: this.signer ? this.signer.address : undefined,
-          seedSlot: committedSlot,
-          revealSlot,
-          value: seed,
-        });
-
-        await setSurfnetAccount({
-          rpcUrl: this.rpcUrl,
-          address: params.randomnessAccount,
-          data,
-        });
-      } catch {
-        // Non-blocking in mock/unit environments
-      }
-    }
-    return { status: "ready" };
+    return {
+      status: "ready",
+      revealInstruction,
+    };
   }
 }
 

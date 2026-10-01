@@ -599,9 +599,11 @@ async function ensureProgramsInjected(upgradeAuthority?: string) {
   const deployDir = path.resolve(__dirname, "..", "anchor", "target", "deploy");
   const anchorSoPath = path.resolve(deployDir, "anchor.so");
   const mockHumaSoPath = path.resolve(deployDir, "mock_huma.so");
+  const mockSwitchboardSoPath = path.resolve(deployDir, "mock_switchboard.so");
 
   await injectProgram(PROGRAM_ID_STR, anchorSoPath, upgradeAuthority);
   await injectProgram(MOCK_HUMA_PROGRAM_ID_STR, mockHumaSoPath);
+  await injectProgram(resolveSwitchboardProgramId(), mockSwitchboardSoPath);
 }
 
 function writeEnvLocal(
